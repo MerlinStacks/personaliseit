@@ -1,0 +1,595 @@
+$primary: #2271b1;
+$bg-color: #f0f0f1;
+$card-bg: #ffffff;
+$text-main: #1d2327;
+$text-secondary: #50575e;
+$border-color: #dcdcde;
+$sidebar-width: 300px;
+
+// BEM Architecture
+.personaliseit-designer-container {
+    position: fixed;
+    top: 32px;
+    left: 160px;
+    right: 0;
+    bottom: 0;
+    background: $bg-color;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    color: $text-main;
+    z-index: 90;
+    display: flex;
+    flex-direction: column;
+
+    // WP Responsive handling
+    @media (max-width: 960px) {
+        left: 36px;
+    }
+
+    @media (max-width: 782px) {
+        top: 46px;
+        left: 0;
+    }
+
+    // --- Workspace (Flex Container) ---
+    .personaliseit-designer__workspace {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
+        height: 100%;
+        max-height: 100%;
+    }
+
+    // --- Sidebar Base ---
+    .personaliseit-designer__sidebar {
+        width: $sidebar-width;
+        background: $card-bg;
+        display: flex;
+        flex-direction: column;
+        z-index: 5;
+        flex-shrink: 0;
+        height: 100%;
+        max-height: 100%;
+        overflow: hidden;
+
+        &--left {
+            border-right: 1px solid $border-color;
+        }
+
+        &--right {
+            border-left: 1px solid $border-color;
+        }
+    }
+
+    // --- Sidebar Header ---
+    .personaliseit-designer__header {
+        padding: 10px 15px;
+        border-bottom: 1px solid $border-color;
+        background: #f8f9fa;
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        flex-shrink: 0;
+        z-index: 10;
+        box-sizing: border-box;
+
+        h3 {
+            margin: 0;
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            color: $text-secondary;
+        }
+    }
+
+    // --- Sidebar Content Container ---
+    .personaliseit-designer__content {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden; // Don't scroll container, scroll inner lists
+        height: 100%;
+    }
+
+    // --- Canvas Area ---
+    .personaliseit-designer__canvas {
+        flex: 1;
+        background-color: #e0e0e0;
+        background-image:
+            linear-gradient(45deg, #ccc 25%, transparent 25%),
+            linear-gradient(-45deg, #ccc 25%, transparent 25%),
+            linear-gradient(45deg, transparent 75%, #ccc 75%),
+            linear-gradient(-45deg, transparent 75%, #ccc 75%);
+        background-size: 20px 20px;
+        background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+        overflow: hidden;
+    }
+
+    // --- Toolbar ---
+    .personaliseit-designer__toolbar {
+        position: absolute;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: $card-bg;
+        border: 1px solid $border-color;
+        border-radius: 20px;
+        padding: 5px 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        z-index: 20;
+
+        .components-button {
+            // override default WP btn styles if needed locally
+        }
+    }
+
+    // --- Right Panel Specifics ---
+    .personaliseit-designer__right-panel {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .personaliseit-designer__layers {
+        display: flex;
+        flex-direction: column;
+        flex: 1; // Allow it to perform flexible growth if needed, but we share space with properties
+        // We probably want the layer list to be fixed height so properties have room.
+        // Or make it resizable.
+        // Let's set a fixed percentage or larger max-height.
+        max-height: 40%; // 40% of the sidebar
+        min-height: 200px;
+        border-bottom: 3px solid $border-color;
+        overflow: hidden;
+    }
+
+    .personaliseit-designer__layers-tools {
+        padding: 10px;
+        background: #fff;
+        border-bottom: 1px solid #eee;
+        flex-shrink: 0;
+
+        .personaliseit-designer__tools-row {
+            display: flex;
+            gap: 5px;
+
+            .personaliseit-designer__tool-btn {
+                flex: 1;
+                justify-content: center;
+            }
+        }
+    }
+
+    .personaliseit-designer__layers-list-scroll {
+        flex: 1;
+        overflow-y: auto;
+        overflow-x: hidden;
+        min-height: 0;
+
+        &::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+    }
+
+    .personaliseit-designer__layers-empty {
+        padding: 20px;
+        text-align: center;
+        color: #999;
+        font-size: 13px;
+    }
+
+    // Properties Panel
+    .personaliseit-designer__properties {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        background: $card-bg;
+    }
+
+    .personaliseit-designer__properties-placeholder {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #999;
+        font-size: 13px;
+    }
+
+    .personaliseit-designer__properties-header {
+        // defined inline mostly but can add specifics here
+        flex-shrink: 0;
+    }
+
+    .personaliseit-designer__properties-tabs {
+        display: flex;
+        border-bottom: 1px solid $border-color;
+        flex-shrink: 0;
+
+        .personaliseit-designer__tab-btn {
+            flex: 1;
+            height: 40px;
+            border-radius: 0;
+            justify-content: center;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            color: $text-secondary;
+            cursor: pointer;
+
+            &.active {
+                border-bottom-color: $primary;
+                color: $primary;
+                background: #f0f6fc;
+                font-weight: 500;
+            }
+
+            &:focus {
+                box-shadow: none;
+            }
+        }
+    }
+
+    .personaliseit-designer__properties-content {
+        flex: 1;
+        overflow-y: auto;
+        padding: 15px;
+        min-height: 0;
+
+        &::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+    }
+
+
+    // --- Left Panel Specifics ---
+    .personaliseit-designer__left-panel {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    .personaliseit-designer__content-inner {
+        flex: 1;
+        overflow-y: auto;
+        padding: 15px;
+
+        &::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        &::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+        }
+    }
+
+    .personaliseit-designer__section {
+        margin-bottom: 24px;
+        padding-bottom: 20px;
+        border-bottom: 1px solid #f0f0f1;
+
+        &:last-child {
+            border-bottom: none;
+        }
+
+        h3 {
+            margin: 0 0 16px 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: #2c3338;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+    }
+
+    .personaliseit-designer__variation-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        border: 1px solid $border-color;
+        border-radius: 6px;
+        overflow: hidden;
+
+        li {
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid $border-color;
+            transition: background 0.2s ease;
+            font-size: 14px;
+
+            &:last-child {
+                border-bottom: none;
+            }
+
+            &:hover {
+                background: #f8f9fa;
+            }
+
+            &.active {
+                background: #f0f6fc;
+                color: $primary;
+                font-weight: 600;
+                border-left: 3px solid $primary;
+            }
+        }
+    }
+
+    .personaliseit-designer__view-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .personaliseit-designer__view-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 14px;
+        border: 1px solid $border-color;
+        border-radius: 6px;
+        background: #fff;
+        cursor: pointer;
+        transition: all 0.2s ease;
+
+        &:hover {
+            border-color: #999;
+
+            .personaliseit-designer__view-delete-btn {
+                opacity: 1;
+            }
+        }
+
+        &.active {
+            background: #f0f6fc;
+            border-color: $primary;
+            box-shadow: 0 0 0 1px $primary;
+
+            span {
+                font-weight: 600;
+                color: $primary;
+            }
+        }
+    }
+
+    .personaliseit-designer__view-delete-btn {
+        opacity: 0;
+        transition: opacity 0.2s;
+    }
+
+    .personaliseit-designer__view-settings {
+        background: #f8f9fa;
+        border: 1px solid $border-color;
+        border-radius: 8px;
+        padding: 16px;
+        margin-top: 15px;
+
+        h4 {
+            margin: 0 0 12px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: $text-secondary;
+            border-bottom: 1px solid #e0e0e0;
+            padding-bottom: 8px;
+        }
+    }
+
+    .personaliseit-designer__upload-area {
+        margin-top: 12px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    // Undo panel styling overrides if needed
+    .components-panel__body {
+        border: none;
+        border-bottom: 1px solid #f0f0f1;
+    }
+}
+
+// --- Mobile Responsive Overlay ---
+@media (max-width: 782px) {
+    .personaliseit-designer-container {
+        padding-bottom: 60px; // Space for nav
+        bottom: 0 !important; // Override fixed positioning
+
+        // Hide all main panels by default on mobile
+        .personaliseit-designer__sidebar,
+        .personaliseit-designer__canvas {
+            display: none !important;
+            width: 100% !important;
+            border: none;
+        }
+
+        // Show only the active one
+        .personaliseit-designer__sidebar.mobile-visible,
+        .personaliseit-designer__canvas.mobile-visible {
+            display: flex !important;
+        }
+
+        // Toolbar adjustment
+        .personaliseit-designer__toolbar {
+            bottom: 80px;
+            width: 90%;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+    }
+
+    // Mobile Navigation Bar
+    .personaliseit-mobile-nav {
+        display: flex;
+        height: 60px;
+        background: #fff;
+        border-top: 1px solid #dcdcde;
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        z-index: 1000;
+        justify-content: space-around;
+        align-items: center;
+        padding-bottom: env(safe-area-inset-bottom);
+        box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+    }
+
+    .mobile-nav-item {
+        background: none;
+        border: none;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        color: #50575e;
+        padding: 5px;
+        flex: 1;
+        height: 100%;
+        cursor: pointer;
+
+        &.active {
+            color: #2271b1;
+            font-weight: 600;
+            background: #f0f6fc;
+        }
+
+        span.dashicons {
+            font-size: 24px;
+            width: 24px;
+            height: 24px;
+            margin-bottom: 2px;
+        }
+    }
+
+    .mobile-only-close {
+        display: flex !important;
+    }
+}
+
+// Desktop: Hide mobile elements
+@media (min-width: 783px) {
+    .personaliseit-mobile-nav {
+        display: none !important;
+    }
+
+    .mobile-only-close {
+        display: none !important;
+    }
+}
+
+// --- Modern Layer Item ---
+.personaliseit-designer__layers-list-ul {
+    padding: 2px 5px !important; // Small padding container
+    margin: 0 !important;
+    list-style: none !important;
+}
+
+.modern-layer-item {
+    // Note: Main layout styles handle by inline JS for DnD,
+    // but we add hover/interaction states here.
+
+    &:not(.is-selected):hover {
+        background: #fafafa !important; // Subtle hover
+    }
+
+    // Hide actions by default until hover (optional "clean" look)
+    // but user requested "simple", so maybe keep them visible or low opacity
+    .layer-actions {
+        transition: opacity 0.2s ease;
+    }
+
+    input[type="text"] {
+        box-shadow: none !important;
+        min-height: 24px !important;
+        line-height: normal !important;
+        font-size: 13px;
+        color: #333;
+        margin: 0;
+
+        &:focus {
+            box-shadow: 0 0 0 1px #2271b1 !important;
+            border-color: #2271b1 !important;
+        }
+    }
+}
+
+.button-reset {
+    transition: all 0.2s ease;
+    border-radius: 4px;
+
+    &:hover {
+        background-color: rgba(0, 0, 0, 0.05) !important;
+        color: #1d2327 !important;
+    }
+
+    &.hover-red:hover {
+        background-color: rgba(214, 54, 56, 0.1) !important;
+        color: #d63638 !important; // WP Error Red
+    }
+}
+
+// --- New PI Icon Button Styles ---
+.pi-icon-button {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    color: #555;
+    transition: all 0.2s ease;
+
+    &.small {
+        padding: 2px;
+        min-width: 24px;
+        min-height: 24px;
+    }
+
+    &:hover {
+        background: rgba(0, 0, 0, 0.05);
+        color: #2271b1;
+    }
+
+    &.danger:hover {
+        background: rgba(214, 54, 56, 0.1);
+        color: #d63638;
+    }
+}
+
+// Fade actions in/out
+.pi-layer-list-item {
+    // Reset browser defaults
+    margin: 0;
+
+    .pi-row-actions {
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    &:hover .pi-row-actions,
+    &.is-selected .pi-row-actions {
+        opacity: 1;
+    }
+}

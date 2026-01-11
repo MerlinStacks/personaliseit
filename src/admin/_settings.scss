@@ -1,0 +1,251 @@
+$primary: #2271b1;
+$bg-color: #f0f0f1;
+$card-bg: #ffffff;
+$text-main: #3c434a;
+$text-secondary: #646970;
+$border-color: #dcdcde;
+$shadow: 0 4px 10px rgba(0, 0, 0, 0.05);
+
+.personaliseit-settings-page {
+    max-width: 1000px;
+    margin: 30px auto;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    color: $text-main;
+
+    // Header
+    .personaliseit-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 25px;
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+
+            h1 {
+                font-size: 24px;
+                font-weight: 600;
+                color: #1d2327;
+            }
+
+            .version-badge {
+                background: #e5e5e5;
+                color: #666;
+                padding: 2px 8px;
+                border-radius: 12px;
+                font-size: 11px;
+                font-weight: 600;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }
+        }
+
+        .save-button {
+            height: 40px;
+            padding: 0 24px;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.2s;
+            
+            &:not(:disabled):hover {
+                transform: translateY(-1px);
+                box-shadow: 0 4px 8px rgba(34, 113, 177, 0.2);
+            }
+        }
+    }
+
+    .personaliseit-loading {
+        padding: 50px;
+        display: flex;
+        justify-content: center;
+    }
+
+    .personaliseit-notice-wrapper {
+        margin-bottom: 20px;
+    }
+
+    // Main Card
+    .personaliseit-content-card {
+        background: $card-bg;
+        border-radius: 8px;
+        box-shadow: $shadow;
+        border: 1px solid $border-color;
+        overflow: hidden;
+
+        .personaliseit-settings-tabs {
+            .components-tab-panel__tabs {
+                display: flex;
+                background: #f8f9fa;
+                border-bottom: 1px solid $border-color;
+                padding: 0 20px;
+                gap: 5px;
+
+                .components-button {
+                    background: transparent;
+                    border: none;
+                    border-bottom: 3px solid transparent;
+                    border-radius: 0;
+                    padding: 20px 15px;
+                    font-size: 14px;
+                    font-weight: 500;
+                    color: $text-secondary;
+                    margin-bottom: -1px;
+                    transition: all 0.2s ease;
+                    outline: none;
+
+                    &:hover {
+                        color: $primary;
+                    }
+
+                    &.is-active {
+                        color: $primary;
+                        border-bottom-color: $primary;
+                        font-weight: 600;
+                        background: transparent;
+                    }
+                    
+                    &:focus {
+                        box-shadow: none;
+                    }
+                }
+            }
+        }
+    }
+
+    // Tab Content Wrapper
+    .tab-content {
+        padding: 30px;
+
+        &.animate-fade-in {
+            animation: fadeIn 0.4s ease-out;
+        }
+
+        .tab-description {
+            font-size: 15px;
+            color: $text-secondary;
+            max-width: 600px;
+            line-height: 1.5;
+            margin-bottom: 30px;
+        }
+    }
+
+    // Section Blocks
+    .section-block {
+        margin-bottom: 40px;
+        &:last-child { margin-bottom: 0; }
+
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            color: $text-main;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #f0f0f1;
+        }
+
+        .form-row {
+            display: flex;
+            gap: 20px;
+            
+            &.two-col {
+                > div { flex: 1; }
+            }
+        }
+
+        .control-group {
+            margin-top: 20px;
+            
+            .control-label {
+                display: block;
+                font-weight: 600;
+                margin-bottom: 8px;
+                color: $text-main;
+            }
+            .description {
+                color: $text-secondary;
+                font-style: italic;
+                margin-top: 5px;
+            }
+        }
+    }
+
+    // Grid Options
+    .grid-options {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 20px;
+
+        .option-card {
+            background: #fff;
+            border: 1px solid $border-color;
+            border-radius: 6px;
+            padding: 20px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+
+            &:hover {
+                border-color: $primary;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+                transform: translateY(-2px);
+            }
+        }
+    }
+
+    // Tools Card
+    .tools-card {
+        background: #f8f9fa;
+        border: 1px solid $border-color;
+        border-radius: 6px;
+        padding: 30px;
+        display: flex;
+        align-items: center;
+        gap: 30px;
+
+        .tool-column {
+            flex: 1;
+            text-align: center;
+
+            .tool-title {
+                font-size: 18px;
+                font-weight: 600;
+                margin-bottom: 10px;
+            }
+            .tool-desc {
+                font-size: 13px;
+                color: $text-secondary;
+                margin-bottom: 20px;
+                min-height: 40px;
+            }
+        }
+
+        .tool-divider {
+            width: 1px;
+            height: 120px;
+            background: $border-color;
+        }
+    }
+
+    // General Standard Components Overrides
+    .components-base-control__field {
+        margin-bottom: 0;
+    }
+    .components-text-control__input,
+    .regular-select {
+        border-radius: 4px;
+        padding: 8px 12px;
+        border-color: #8c8f94; 
+        
+        &:focus {
+            border-color: $primary;
+            box-shadow: 0 0 0 1px $primary;
+        }
+    }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}

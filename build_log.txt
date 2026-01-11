@@ -1,0 +1,100 @@
+﻿
+> personaliseit@3.6.5 build
+> wp-scripts build
+
+assets by status 25.3 MiB [1m[32m[cached][39m[22m 12 assets
+Entrypoint [1madmin[39m[22m = [1m[32m./style-admin.css[39m[22m [1m[32madmin.js[39m[22m [1m[32madmin.asset.php[39m[22m
+Entrypoint [1mfrontend[39m[22m = [1m[32m./style-frontend.css[39m[22m [1m[32mfrontend.js[39m[22m [1m[32mfrontend.asset.php[39m[22m
+orphan modules 618 KiB (javascript) 1.83 KiB (runtime) [1m[33m[orphan][39m[22m 79 modules
+runtime modules 11.4 KiB 18 modules
+built modules 2.06 MiB (javascript) 29 KiB (css/mini-extract) 23.6 MiB (asset) [1m[33m[built][39m[22m
+  modules by path [1m./node_modules/konva/lib/[39m[22m 410 KiB 58 modules
+  modules by path [1m./node_modules/use-sync-external-store/[39m[22m 7.84 KiB 6 modules
+  modules by path [1m./src/[39m[22m 647 KiB (javascript) 29 KiB (css/mini-extract) 5 modules
+  modules by path [1m./node_modules/onnxruntime-web/dist/[39m[22m 23.6 MiB (asset) 781 KiB (javascript) 5 modules
+  modules by path [1m./node_modules/react-reconciler/[39m[22m 91.6 KiB 4 modules
+  modules by path [1m./node_modules/scheduler/[39m[22m 4.33 KiB
+    [1m./node_modules/scheduler/index.js[39m[22m 198 bytes [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+    [1m./node_modules/scheduler/cjs/scheduler.production.min.js[39m[22m 4.14 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  [1mexternal "React"[39m[22m 42 bytes [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  [1m./node_modules/use-image/index.js[39m[22m 2.75 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  [1m./node_modules/@imgly/background-removal/dist/index.mjs[39m[22m 167 KiB [1m[33m[optional][39m[22m [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+
+[1mLOG from ./node_modules/sass-loader/dist/cjs.js sass-loader ./node_modules/css-loader/dist/cjs.js??ruleSet[1].rules[3].use[1]!./node_modules/postcss-loader/dist/cjs.js??ruleSet[1].rules[3].use[2]!./node_modules/sass-loader/dist/cjs.js??ruleSet[1].rules[3].use[3]!./src/frontend/style.scss[39m[22m
+<w> [1m[33mDeprecation The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mMore info: https://sass-lang.com/d/legacy-js-api[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mnull[39m[22m
+
+[1mLOG from ./node_modules/sass-loader/dist/cjs.js sass-loader ./node_modules/css-loader/dist/cjs.js??ruleSet[1].rules[3].use[1]!./node_modules/postcss-loader/dist/cjs.js??ruleSet[1].rules[3].use[2]!./node_modules/sass-loader/dist/cjs.js??ruleSet[1].rules[3].use[3]!./src/admin/style.scss[39m[22m
+<w> [1m[33mDeprecation The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mMore info: https://sass-lang.com/d/legacy-js-api[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mnull[39m[22m
+
+[1m[31mERROR[39m[22m in [1m./src/admin/components/ExportRenderer.js[39m[22m
+Module build failed (from ./node_modules/babel-loader/lib/index.js):
+SyntaxError: C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\src\admin\components\ExportRenderer.js: Unexpected reserved word 'await'. (17:4)
+
+[0m [90m 15 |[39m
+ [90m 16 |[39m     [90m// Wait for fonts to load before metrics or export[39m
+[31m[1m>[22m[39m[90m 17 |[39m     [36mawait[39m document[33m.[39mfonts[33m.[39mready[33m;[39m
+ [90m    |[39m     [31m[1m^[22m[39m
+ [90m 18 |[39m
+ [90m 19 |[39m     [90m// 2. Fetch Order Data[39m
+ [90m 20 |[39m     [36mconst[39m data [33m=[39m [36mawait[39m apiFetch({ path[33m:[39m [32m`/personaliseit/v1/order-item/${orderId}/${itemId}`[39m })[33m;[39m[0m
+    at constructor (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:367:19)
+    at JSXParserMixin.raise (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:6624:19)
+    at JSXParserMixin.checkReservedWord (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12305:12)
+    at JSXParserMixin.parseIdentifierName (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12285:12)
+    at JSXParserMixin.parseIdentifier (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12255:23)
+    at JSXParserMixin.parseExprAtom (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11482:27)
+    at JSXParserMixin.parseExprAtom (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:4793:20)
+    at JSXParserMixin.parseExprSubscripts (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11145:23)
+    at JSXParserMixin.parseUpdate (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11130:21)
+    at JSXParserMixin.parseMaybeUnary (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11110:23)
+    at JSXParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10963:61)
+    at JSXParserMixin.parseExprOps (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10968:23)
+    at JSXParserMixin.parseMaybeConditional (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10945:23)
+    at JSXParserMixin.parseMaybeAssign (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10895:21)
+    at JSXParserMixin.parseExpressionBase (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10848:23)
+    at C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10844:39
+    at JSXParserMixin.allowInAnd (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12495:16)
+    at JSXParserMixin.parseExpression (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10844:17)
+    at JSXParserMixin.parseStatementContent (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12971:23)
+    at JSXParserMixin.parseStatementLike (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12843:17)
+    at JSXParserMixin.parseStatementListItem (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12823:17)
+    at JSXParserMixin.parseBlockOrModuleBlockBody (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13392:61)
+    at JSXParserMixin.parseBlockBody (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13385:10)
+    at JSXParserMixin.parseBlock (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13373:10)
+    at JSXParserMixin.parseFunctionBody (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12174:24)
+    at JSXParserMixin.parseArrowExpression (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12149:10)
+    at JSXParserMixin.parseParenAndDistinguishExpression (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11759:12)
+    at JSXParserMixin.parseExprAtom (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11395:23)
+    at JSXParserMixin.parseExprAtom (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:4793:20)
+    at JSXParserMixin.parseExprSubscripts (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11145:23)
+    at JSXParserMixin.parseUpdate (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11130:21)
+    at JSXParserMixin.parseMaybeUnary (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:11110:23)
+    at JSXParserMixin.parseMaybeUnaryOrPrivate (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10963:61)
+    at JSXParserMixin.parseExprOps (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10968:23)
+    at JSXParserMixin.parseMaybeConditional (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10945:23)
+    at JSXParserMixin.parseMaybeAssign (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10895:21)
+    at C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10864:39
+    at JSXParserMixin.allowInAnd (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12495:16)
+    at JSXParserMixin.parseMaybeAssignAllowIn (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:10864:17)
+    at JSXParserMixin.parseVar (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13460:91)
+    at JSXParserMixin.parseVarStatement (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13306:10)
+    at JSXParserMixin.parseStatementContent (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12927:23)
+    at JSXParserMixin.parseStatementLike (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12843:17)
+    at JSXParserMixin.parseModuleItem (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12820:17)
+    at JSXParserMixin.parseBlockOrModuleBlockBody (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13392:36)
+    at JSXParserMixin.parseBlockBody (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:13385:10)
+    at JSXParserMixin.parseProgram (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12698:10)
+    at JSXParserMixin.parseTopLevel (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:12688:25)
+    at JSXParserMixin.parse (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:14568:25)
+    at parse (C:\Users\ratte\Local Sites\ck-testing\app\public\wp-content\plugins\personaliseit\node_modules\@babel\parser\lib\index.js:14602:38)
+ @ ./src/admin/index.js 11:0-57 83:25-39
+
+webpack 5.103.0 compiled with [1m[31m1 error[39m[22m in 8738 ms
