@@ -44,7 +44,6 @@ const useStore = create((set, get) => ({
 	clearSelection: () => set({ selectedLayerId: null, selectedLayerIds: [] }),
 
 	orderMode: null, // { orderId, itemId }
-	orderMode: null, // { orderId, itemId }
 	setOrderMode: (data) => set({ orderMode: data }),
 
 	templateId: null, // For editing design templates
@@ -67,7 +66,6 @@ const useStore = create((set, get) => ({
 	fetchSettings: async () => {
 		try {
 			const data = await apiFetch({ path: '/wp/v2/settings' });
-			console.log('PersonaliseIt Settings Raw:', data);
 			const isEnabled = (val) => val === true || val === '1' || val === 1 || val === 'true';
 
 			set({

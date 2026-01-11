@@ -101,6 +101,8 @@ class Plugin {
         new \PersonaliseIt\Api\SpotifyController();
         new \PersonaliseIt\Api\SecureSettingsController();
         new \PersonaliseIt\Api\ProofController();
+        \PersonaliseIt\Services\ProofGenerator::init();
+        \PersonaliseIt\Services\CleanupService::init();
         new \PersonaliseIt\Admin\AssetManager();
         new \PersonaliseIt\Frontend\ProductPage();
         new \PersonaliseIt\Frontend\CartIntegration();
@@ -249,6 +251,9 @@ class Plugin {
     }
 
 }
+
+// Activation Hook
+register_activation_hook( __FILE__, [ 'PersonaliseIt\Database\DesignTable', 'install' ] );
 
 // Kick it off
 Plugin::get_instance();

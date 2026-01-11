@@ -200,7 +200,15 @@ class CartIntegration {
             return;
         }
 
-        $item->add_meta_data( '_personaliseit_data', $values['personaliseit_data'] );
+        // Optimisation: Save large JSON blob to custom table using DesignTable
+        if ( class_exists( '\PersonaliseIt\Database\DesignTable' ) ) {
+            \PersonaliseIt\Database\DesignTable::save( $order->get_id(), $values['personaliseit_data'], $item->get_id() );
+            // Helper reference for easy checking
+            $item->add_meta_data( '_personaliseit_has_design', $order->get_id() );
+        } else {
+             // Fallback
+             $item->add_meta_data( '_personaliseit_data', $values['personaliseit_data'] );
+        }
 
         // Also add readable meta for emails/admin (optional, but good for UX)
         // We repeat the logic from display_cart_item_data to add individual meta keys
@@ -244,14 +252,21 @@ class CartIntegration {
      * Display Admin Order Item Meta
      */
     public function display_admin_order_item_meta( $item_id, $item, $product ) {
-        // This hook is for displaying custom HTML in the admin order view
-        // WooCommerce automatically displays meta added via add_meta_data, 
-        // so we might not need this unless we want a visual preview.
+        // Retrieve data: Check custom table first, then meta
+        $data = null;
+        if ( class_exists( '\PersonaliseIt\Database\DesignTable' ) ) {
+            $design_row = \PersonaliseIt\Database\DesignTable::get_item_design( $item->get_order_id(), $item_id );
+            if ( $design_row ) {
+                $data = $design_row->design_data;
+            }
+        }
         
-        $data = $item->get_meta( '_personaliseit_data' );
+        if ( ! $data ) {
+            $data = $item->get_meta( '_personaliseit_data' );
+        }
+
         if ( ! $data ) { return; }
 
-        // Decode if it's a string (it might be saved as array or string depending on how it was handled)
         if ( is_string( $data ) ) {
             $data = json_decode( $data, true );
         }

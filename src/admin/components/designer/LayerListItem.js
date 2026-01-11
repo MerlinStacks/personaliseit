@@ -1,7 +1,13 @@
 import { Tooltip } from '@wordpress/components';
 import { useState, useRef, useEffect } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import { useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
+/**
+ * LayerListItem component - a sortable layer item using dnd-kit.
+ * Supports inline label editing, duplication, and deletion.
+ */
 const LayerListItem = ({
     layer,
     selectedId,
@@ -9,14 +15,28 @@ const LayerListItem = ({
     onDuplicate,
     onDelete,
     onUpdate,
-    provided,
-    snapshot,
-    isDraggable,
+    onFlip,
 }) => {
     const isSelected = selectedId === layer.id;
     const [isEditing, setIsEditing] = useState(false);
     const [tempLabel, setTempLabel] = useState(layer.label);
     const inputRef = useRef(null);
+
+    // dnd-kit sortable hook
+    const {
+        attributes,
+        listeners,
+        setNodeRef,
+        transform,
+        transition,
+        isDragging,
+    } = useSortable({ id: layer.id });
+
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1,
+    };
 
     // Sync label if external change happens
     useEffect(() => {
@@ -58,27 +78,28 @@ const LayerListItem = ({
         cursor: 'pointer',
         transition: 'background 0.2s ease',
         height: '40px', // Fixed height for consistency
-        ...provided.draggableProps.style,
+        ...style,
     };
 
     return (
         <li
-            ref={provided.innerRef}
-            {...provided.draggableProps}
-            {...provided.dragHandleProps}
+            ref={setNodeRef}
             onClick={() => onSelect(layer.id)}
             style={rowStyle}
             className="pi-layer-list-item"
         >
             {/* 1. Drag Handle */}
             <span
+                {...attributes}
+                {...listeners}
                 className="dashicons dashicons-menu"
                 style={{
                     color: '#ccc',
                     marginRight: '8px',
                     cursor: 'grab',
                     fontSize: '16px',
-                    opacity: 0.5
+                    opacity: 0.5,
+                    touchAction: 'none', // Required for dnd-kit touch support
                 }}
             />
 

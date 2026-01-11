@@ -152,17 +152,27 @@ const useFrontendStore = create((set, get) => ({
 		return !!localStorage.getItem(`personaliseit_draft_${productId}`);
 	},
 
+	lastInputTime: 0,
+
 	updateInput: (layerId, value) =>
 		set((state) => {
-			const currentSnapshot = {
-				userInputs: JSON.parse(JSON.stringify(state.userInputs)),
-				userStyles: JSON.parse(JSON.stringify(state.userStyles)),
-				views: JSON.parse(JSON.stringify(state.views)),
-				embroideryColor: state.embroideryColor
-			};
-			const newPast = [...state.past, currentSnapshot].slice(-20);
+			const now = Date.now();
+			let newPast = state.past;
+
+			// Debounce History: Only snapshot if > 1s has passed since last input 
+			// OR if the layerId changed (focus change)? No, straightforward time check is safest for now.
+			if (now - state.lastInputTime > 1000) {
+				const currentSnapshot = {
+					userInputs: JSON.parse(JSON.stringify(state.userInputs)),
+					userStyles: JSON.parse(JSON.stringify(state.userStyles)),
+					views: JSON.parse(JSON.stringify(state.views)),
+					embroideryColor: state.embroideryColor
+				};
+				newPast = [...state.past, currentSnapshot].slice(-20);
+			}
 
 			return {
+				lastInputTime: now,
 				past: newPast,
 				future: [],
 				userInputs: {
@@ -174,15 +184,21 @@ const useFrontendStore = create((set, get) => ({
 
 	updateStyle: (layerId, style) =>
 		set((state) => {
-			const currentSnapshot = {
-				userInputs: JSON.parse(JSON.stringify(state.userInputs)),
-				userStyles: JSON.parse(JSON.stringify(state.userStyles)),
-				views: JSON.parse(JSON.stringify(state.views)),
-				embroideryColor: state.embroideryColor
-			};
-			const newPast = [...state.past, currentSnapshot].slice(-20);
+			const now = Date.now();
+			let newPast = state.past;
+
+			if (now - state.lastInputTime > 1000) {
+				const currentSnapshot = {
+					userInputs: JSON.parse(JSON.stringify(state.userInputs)),
+					userStyles: JSON.parse(JSON.stringify(state.userStyles)),
+					views: JSON.parse(JSON.stringify(state.views)),
+					embroideryColor: state.embroideryColor
+				};
+				newPast = [...state.past, currentSnapshot].slice(-20);
+			}
 
 			return {
+				lastInputTime: now,
 				past: newPast,
 				future: [],
 				userStyles: {

@@ -1,3 +1,5 @@
+import { produce } from 'immer';
+
 export const createHistorySlice = (set, get, config = {}) => {
     // Config can define what parts of state to snapshot.
     // Default: snapshot 'views', 'userInputs', 'userStyles'
@@ -8,10 +10,12 @@ export const createHistorySlice = (set, get, config = {}) => {
         future: [],
 
         saveHistory: () => set((state) => {
+            // Optimized: Use structural sharing (reference copy) instead of deep cloning.
+            // This relies on the app using immutable updates (standard React/Zustand pattern).
             const snapshot = {};
             keysToSnapshot.forEach(key => {
                 if (state[key] !== undefined) {
-                    snapshot[key] = JSON.parse(JSON.stringify(state[key]));
+                    snapshot[key] = state[key];
                 }
             });
 
@@ -27,18 +31,17 @@ export const createHistorySlice = (set, get, config = {}) => {
             const previous = state.past[state.past.length - 1];
             const newPast = state.past.slice(0, state.past.length - 1);
 
-            // Create current snapshot for Redo stack
             const currentSnapshot = {};
             keysToSnapshot.forEach(key => {
                 if (state[key] !== undefined) {
-                    currentSnapshot[key] = JSON.parse(JSON.stringify(state[key]));
+                    currentSnapshot[key] = state[key];
                 }
             });
 
             return {
                 past: newPast,
                 future: [currentSnapshot, ...state.future],
-                ...previous, // Restore state
+                ...previous, // Restore state (references)
                 a11yMessage: 'Undid last change.'
             };
         }),
@@ -49,11 +52,10 @@ export const createHistorySlice = (set, get, config = {}) => {
             const next = state.future[0];
             const newFuture = state.future.slice(1);
 
-            // Create current snapshot for Undo stack
             const currentSnapshot = {};
             keysToSnapshot.forEach(key => {
                 if (state[key] !== undefined) {
-                    currentSnapshot[key] = JSON.parse(JSON.stringify(state[key]));
+                    currentSnapshot[key] = state[key];
                 }
             });
 
@@ -66,3 +68,4 @@ export const createHistorySlice = (set, get, config = {}) => {
         })
     };
 };
+

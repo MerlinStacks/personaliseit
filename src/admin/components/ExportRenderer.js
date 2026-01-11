@@ -5,8 +5,9 @@ import apiFetch from '@wordpress/api-fetch';
 import useFrontendStore from '../../frontend/store/useFrontendStore';
 import FrontendCanvas from '../../frontend/components/FrontendCanvas';
 import { generateSVG } from '../utils/generateSVG';
-import { jsPDF } from 'jspdf';
+import { PDFDocument } from 'pdf-lib';
 import FontService from '../../common/services/FontService';
+
 
 const ExportRenderer = () => {
     const [isLoading, setIsLoading] = useState(true);
@@ -168,14 +169,36 @@ const ExportRenderer = () => {
         const filename = `print_order_${params.get('order_id') || 'export'}.${format}`;
 
         if (format === 'pdf') {
-            const pdf = new jsPDF({
-                orientation: stage.width() > stage.height() ? 'l' : 'p',
-                unit: 'px',
-                format: [stage.width() * pixelRatio, stage.height() * pixelRatio]
-            });
-            const imgData = stage.toDataURL({ pixelRatio: pixelRatio });
-            pdf.addImage(imgData, 'PNG', 0, 0, stage.width() * pixelRatio, stage.height() * pixelRatio);
-            pdf.save(filename);
+            // pdf-lib: Modern async PDF generation
+            (async () => {
+                try {
+                    const pdfDoc = await PDFDocument.create();
+                    const imgData = stage.toDataURL({ pixelRatio: pixelRatio });
+
+                    // Convert data URL to bytes
+                    const imageBytes = await fetch(imgData).then(res => res.arrayBuffer());
+                    const pngImage = await pdfDoc.embedPng(imageBytes);
+
+                    const pdfWidth = stage.width() * pixelRatio;
+                    const pdfHeight = stage.height() * pixelRatio;
+
+                    const page = pdfDoc.addPage([pdfWidth, pdfHeight]);
+                    page.drawImage(pngImage, {
+                        x: 0,
+                        y: 0,
+                        width: pdfWidth,
+                        height: pdfHeight,
+                    });
+
+                    const pdfBytes = await pdfDoc.save();
+                    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+                    const url = URL.createObjectURL(blob);
+                    downloadURI(url, filename);
+                } catch (err) {
+                    console.error('PDF Export Failed:', err);
+                    alert('PDF Export Failed: ' + err.message);
+                }
+            })();
         } else if (format === 'svg') {
             try {
                 // True Vector SVG Export using custom generator

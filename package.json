@@ -1,6 +1,6 @@
 {
 	"name": "personaliseit",
-	"version": "3.6.5",
+	"version": "4.0.0",
 	"description": "WooCommerce Product Personalization Plugin",
 	"author": "CustomKings Personalised Gifts",
 	"license": "GPL-2.0-or-later",
@@ -14,7 +14,9 @@
 		"start": "wp-scripts start"
 	},
 	"dependencies": {
-		"@hello-pangea/dnd": "^18.0.1",
+		"@dnd-kit/core": "^6.3.1",
+		"@dnd-kit/sortable": "^10.0.0",
+		"@dnd-kit/utilities": "^3.2.2",
 		"@imgly/background-removal": "^1.7.0",
 		"@wordpress/api-fetch": "^6.0.0",
 		"@wordpress/components": "^25.0.0",
@@ -22,9 +24,10 @@
 		"@wordpress/i18n": "^4.0.0",
 		"@wordpress/url": "^3.0.0",
 		"clsx": "^2.0.0",
-		"jspdf": "^3.0.4",
+		"immer": "^11.1.3",
 		"konva": "^9.2.0",
 		"opentype.js": "^1.3.4",
+		"pdf-lib": "^1.17.1",
 		"react": "^18.2.0",
 		"react-dom": "^18.2.0",
 		"react-konva": "^18.2.0",

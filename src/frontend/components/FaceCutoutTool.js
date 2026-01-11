@@ -41,7 +41,7 @@ const FaceCutoutTool = ({ onSelect, onCancel }) => {
             // 2. Run BG Removal with Progress
             const blob = await runBackgroundRemoval(
                 localUrl,
-                (msg) => console.log('[FaceCutout]', msg),
+                () => { }, // No-op: debug logging disabled in production
                 onProgress // Pass callback
             );
 

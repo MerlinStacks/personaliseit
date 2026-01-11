@@ -4,13 +4,30 @@ import {
 	TextControl,
 	Tooltip,
 } from '@wordpress/components';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
+import {
+	DndContext,
+	closestCenter,
+	KeyboardSensor,
+	PointerSensor,
+	useSensor,
+	useSensors,
+} from '@dnd-kit/core';
+import {
+	arrayMove,
+	SortableContext,
+	sortableKeyboardCoordinates,
+	verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
 import useStore from '../../store/useStore';
 import PropertiesPanel from './PropertiesPanel';
 import LayerListItem from './LayerListItem';
 
+/**
+ * SidebarRight component for layer management in the designer.
+ * Uses dnd-kit for drag-and-drop layer reordering.
+ */
 const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 	const selectedLayerId = useStore((state) => state.selectedLayerId);
 	const setSelectedLayerId = useStore(
@@ -46,9 +63,28 @@ const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 
 	const personalisationMethod = useStore((state) => state.personalisationMethod);
 
-	const handleDragEnd = (result) => {
-		if (!result.destination) return;
-		reorderLayers(result.source.index, result.destination.index);
+	// dnd-kit sensors for pointer and keyboard accessibility
+	const sensors = useSensors(
+		useSensor(PointerSensor),
+		useSensor(KeyboardSensor, {
+			coordinateGetter: sortableKeyboardCoordinates,
+		})
+	);
+
+	/**
+	 * Handle drag end event from dnd-kit.
+	 * Converts reversed display indices to actual array indices for reordering.
+	 */
+	const handleDragEnd = (event) => {
+		const { active, over } = event;
+		if (active.id !== over?.id) {
+			const oldIndex = layersReversed.findIndex((l) => l.id === active.id);
+			const newIndex = layersReversed.findIndex((l) => l.id === over.id);
+			// Convert from reversed display index to actual array index
+			const actualOldIndex = layersSafe.length - 1 - oldIndex;
+			const actualNewIndex = layersSafe.length - 1 - newIndex;
+			reorderLayers(actualOldIndex, actualNewIndex);
+		}
 	};
 
 	const handleSelectLayer = (id) => {
@@ -67,6 +103,8 @@ const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 
 	// Use layers directly
 	const layersSafe = Array.isArray(layers) ? layers : [];
+	// Reversed for display (top layer first)
+	const layersReversed = layersSafe.slice().reverse();
 
 	return (
 		<div className="personaliseit-designer__right-panel">
@@ -176,51 +214,38 @@ const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 				</div>
 
 				<div className="personaliseit-designer__layers-list-scroll">
-					<DragDropContext onDragEnd={handleDragEnd}>
-						<Droppable droppableId="layers">
-							{(provided) => (
-								<ul
-									className="personaliseit-designer__layers-list-ul"
-									{...provided.droppableProps}
-									ref={provided.innerRef}
-								>
-									{layersSafe.length === 0 ? (
-										<div className="personaliseit-designer__layers-empty" style={{ padding: '20px', textAlign: 'center', color: '#999', fontSize: 12 }}>
-											{__('No layers added', 'personaliseit')}
-										</div>
-									) : (
-										layersSafe
-											.slice()
-											.reverse()
-											.map((layer, index) => (
-												<Draggable
-													key={layer.id}
-													draggableId={layer.id}
-													index={index}
-												>
-													{(provided, snapshot) => (
-														<LayerListItem
-															layer={layer}
-															selectedId={selectedLayerId}
-															index={index}
-															onSelect={handleSelectLayer}
-															onDuplicate={duplicateLayer}
-															onDelete={removeLayer}
-															onUpdate={updateLayer}
-															onFlip={flipLayer}
-															provided={provided}
-															snapshot={snapshot}
-															isDraggable={true}
-														/>
-													)}
-												</Draggable>
-											))
-									)}
-									{provided.placeholder}
-								</ul>
-							)}
-						</Droppable>
-					</DragDropContext>
+					<DndContext
+						sensors={sensors}
+						collisionDetection={closestCenter}
+						onDragEnd={handleDragEnd}
+					>
+						<SortableContext
+							items={layersReversed.map((l) => l.id)}
+							strategy={verticalListSortingStrategy}
+						>
+							<ul className="personaliseit-designer__layers-list-ul">
+								{layersReversed.length === 0 ? (
+									<div className="personaliseit-designer__layers-empty" style={{ padding: '20px', textAlign: 'center', color: '#999', fontSize: 12 }}>
+										{__('No layers added', 'personaliseit')}
+									</div>
+								) : (
+									layersReversed.map((layer, index) => (
+										<LayerListItem
+											key={layer.id}
+											layer={layer}
+											selectedId={selectedLayerId}
+											index={index}
+											onSelect={handleSelectLayer}
+											onDuplicate={duplicateLayer}
+											onDelete={removeLayer}
+											onUpdate={updateLayer}
+											onFlip={flipLayer}
+										/>
+									))
+								)}
+							</ul>
+						</SortableContext>
+					</DndContext>
 				</div>
 			</div>
 

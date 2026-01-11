@@ -31,7 +31,18 @@ class OrderController {
         if ( ! $item ) return new \WP_Error( 'not_found', 'Item not found', ['status'=>404] );
 
         $product_id = $item->get_product_id();
-        $user_data = $item->get_meta( '_personaliseit_data' );
+        
+        $user_data = null;
+        if ( class_exists( '\PersonaliseIt\Database\DesignTable' ) ) {
+            $design_row = \PersonaliseIt\Database\DesignTable::get_item_design( $order_id, $item_id );
+            if ( $design_row ) {
+                $user_data = $design_row->design_data;
+            }
+        }
+
+        if ( ! $user_data ) {
+            $user_data = $item->get_meta( '_personaliseit_data' );
+        }
         
         // Handle case where user inputs might be nested or stored differently?
         // In CartIntegration, we save $values['personaliseit_data'] directly.

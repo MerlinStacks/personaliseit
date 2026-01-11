@@ -1,12 +1,18 @@
 <?php
 namespace PersonaliseIt\Api;
 
+use PersonaliseIt\Services\SecurityService;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 class UploadController {
+    
+    private $security_service;
+
     public function __construct() {
+        $this->security_service = new SecurityService();
         add_action('rest_api_init', [$this, 'register_routes']);
     }
 
@@ -41,45 +47,21 @@ class UploadController {
 
         $file = $files['file'];
         
-        // Check size limit from settings
+        // Check size
         $max_size_mb = get_option('personaliseit_max_upload_size', 5);
         if ($file['size'] > $max_size_mb * 1024 * 1024) {
             return new \WP_Error('file_too_large', 'File exceeds maximum size limit', ['status' => 400]);
         }
 
-        // Use core WP upload handler setup
         if ( ! function_exists( 'wp_handle_upload' ) ) {
             require_once( ABSPATH . 'wp-admin/includes/image.php' );
             require_once( ABSPATH . 'wp-admin/includes/file.php' );
             require_once( ABSPATH . 'wp-admin/includes/media.php' );
         }
 
-        // Deep validation of file content
-        $uploaded_file_path = $file['tmp_name'];
-        
-        // 1. Check real MIME type
-        $finfo = finfo_open( FILEINFO_MIME_TYPE );
-        $mime_type = finfo_file( $finfo, $uploaded_file_path );
-        finfo_close( $finfo );
+        // Add filter to change upload dir
+        add_filter( 'upload_dir', [ $this, 'custom_upload_dir' ] );
 
-        $allowed_mimes = [
-            'image/jpeg',
-            'image/png',
-            'image/gif',
-            'image/webp'
-        ];
-
-        if ( ! in_array( $mime_type, $allowed_mimes, true ) ) {
-            return new \WP_Error( 'invalid_file_type', 'Invalid file type detected.', [ 'status' => 400 ] );
-        }
-
-        // 2. Check for image validity (headers etc)
-        $image_size = getimagesize( $uploaded_file_path );
-        if ( $image_size === false ) {
-             return new \WP_Error( 'invalid_image', 'File is not a valid image.', [ 'status' => 400 ] );
-        }
-
-        // 'test_form' => false because we are not submitting a standard POST form with nonce check here (handled via REST)
         $upload_overrides = [
             'test_form' => false,
             'mimes' => [
@@ -90,18 +72,45 @@ class UploadController {
             ]
         ];
         
-        // Handle the upload
         $movefile = wp_handle_upload($file, $upload_overrides);
+
+        // Remove filter immediately
+        remove_filter( 'upload_dir', [ $this, 'custom_upload_dir' ] );
 
         if ($movefile && !isset($movefile['error'])) {
             // Success
+            // Generate Signed URL
+            $url = $this->security_service->generate_signed_url( $movefile['file'] );
+
             return rest_ensure_response([
-                'url' => $movefile['url'],
-                'file' => $movefile['file'],
+                'url' => $url, // Signed URL
+                'file' => $movefile['file'], // Absolute path (internal use)
                 'type' => $movefile['type']
             ]);
         } else {
             return new \WP_Error('upload_error', $movefile['error'], ['status' => 500]);
         }
+    }
+
+    /**
+     * Filter upload directory to secure folder
+     */
+    public function custom_upload_dir( $uploads ) {
+        $subdir = '/personaliseit_secure';
+        $uploads['subdir'] = $subdir;
+        $uploads['path'] = $uploads['basedir'] . $subdir;
+        $uploads['url']  = $uploads['baseurl'] . $subdir; // Note: This URL is blocked by .htaccess, but WP needs a value
+        
+        // Auto-provision .htaccess protection
+        if ( ! file_exists( $uploads['path'] ) ) {
+            wp_mkdir_p( $uploads['path'] );
+        }
+        
+        $htaccess_path = $uploads['path'] . '/.htaccess';
+        if ( file_exists( $uploads['path'] ) && ! file_exists( $htaccess_path ) ) {
+            file_put_contents( $htaccess_path, "Order Deny,Allow\nDeny from all" );
+        }
+
+        return $uploads;
     }
 }
