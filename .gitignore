@@ -1,5 +1,19 @@
+# Dependencies
 node_modules
 vendor
+
+# Build output
 build
+
+# Logs
 *.log
+build_log.txt
+
+# OS files
 .DS_Store
+
+# AI/Agent files (not needed for plugin)
+.agent/
+REVIEW_LOG.md
+improvement_plan.md
+future_work.md
