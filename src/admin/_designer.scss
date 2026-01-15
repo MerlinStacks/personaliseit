@@ -158,14 +158,41 @@ $sidebar-width: 300px;
     .personaliseit-designer__layers {
         display: flex;
         flex-direction: column;
-        flex: 1; // Allow it to perform flexible growth if needed, but we share space with properties
-        // We probably want the layer list to be fixed height so properties have room.
-        // Or make it resizable.
-        // Let's set a fixed percentage or larger max-height.
-        max-height: 40%; // 40% of the sidebar
-        min-height: 200px;
-        border-bottom: 3px solid $border-color;
+        // height is controlled via inline styles (resizable)
+        min-height: 150px;
         overflow: hidden;
+    }
+
+    .personaliseit-designer__resizer {
+        height: 10px;
+        background: #f0f0f1;
+        border-top: 1px solid $border-color;
+        border-bottom: 1px solid $border-color;
+        cursor: row-resize;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        transition: background 0.2s;
+        z-index: 10;
+
+        &:hover {
+            background: #e0e0e0;
+
+            &::after {
+                border-color: #666;
+            }
+        }
+
+        &::after {
+            content: "";
+            display: block;
+            width: 32px;
+            height: 4px;
+            border-top: 2px solid #ccc;
+            border-bottom: 2px solid #ccc;
+            border-radius: 1px;
+        }
     }
 
     .personaliseit-designer__layers-tools {

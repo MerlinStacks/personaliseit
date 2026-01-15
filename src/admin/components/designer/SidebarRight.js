@@ -1,4 +1,4 @@
-import { useState, Fragment, useEffect } from '@wordpress/element';
+import { useState, Fragment, useEffect, useRef, useCallback } from '@wordpress/element';
 import {
 	Button,
 	TextControl,
@@ -47,6 +47,47 @@ const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 	const currentView = views.find((v) => v.id === currentViewId);
 	const layers = currentView ? currentView.layers : [];
 	const selectedLayer = layers.find((l) => l.id === selectedLayerId);
+
+	// Resizable Layers Panel State
+	const [layerListHeight, setLayerListHeight] = useState('40%');
+	const [isResizing, setIsResizing] = useState(false);
+	const sidebarRef = useRef(null);
+
+	const startResizing = useCallback(() => {
+		setIsResizing(true);
+	}, []);
+
+	const stopResizing = useCallback(() => {
+		setIsResizing(false);
+	}, []);
+
+	const resize = useCallback((mouseMoveEvent) => {
+		if (isResizing && sidebarRef.current) {
+			const sidebarRect = sidebarRef.current.getBoundingClientRect();
+			// Calculate new height relative to the top of the sidebar
+			let newHeight = mouseMoveEvent.clientY - sidebarRect.top;
+
+			// Constraints: min 150px, max sidebar height - 150px (for properties)
+			if (newHeight < 150) newHeight = 150;
+			if (newHeight > sidebarRect.height - 150) newHeight = sidebarRect.height - 150;
+
+			setLayerListHeight(newHeight + 'px');
+		}
+	}, [isResizing]);
+
+	useEffect(() => {
+		if (isResizing) {
+			window.addEventListener('mousemove', resize);
+			window.addEventListener('mouseup', stopResizing);
+		} else {
+			window.removeEventListener('mousemove', resize);
+			window.removeEventListener('mouseup', stopResizing);
+		}
+		return () => {
+			window.removeEventListener('mousemove', resize);
+			window.removeEventListener('mouseup', stopResizing);
+		};
+	}, [isResizing, resize, stopResizing]);
 
 	const [allCategories, setAllCategories] = useState([]);
 
@@ -107,9 +148,9 @@ const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 	const layersReversed = layersSafe.slice().reverse();
 
 	return (
-		<div className="personaliseit-designer__right-panel">
+		<div className="personaliseit-designer__right-panel" ref={sidebarRef}>
 			{/* Top Half: Layer Management (Scrolls) */}
-			<div className="personaliseit-designer__layers">
+			<div className="personaliseit-designer__layers" style={{ height: layerListHeight, flex: 'none', maxHeight: 'none' }}>
 				{/* Tools Header */}
 				<div className="personaliseit-designer__layers-tools">
 					<div className="personaliseit-designer__tools-row" style={{ justifyContent: 'space-between' }}>
@@ -248,6 +289,15 @@ const SidebarRight = ({ fonts, addNotice, setIsLoading }) => {
 					</DndContext>
 				</div>
 			</div>
+
+			{/* Resizer Handle */}
+			<div
+				className="personaliseit-designer__resizer"
+				onMouseDown={startResizing}
+				role="separator"
+				aria-orientation="horizontal"
+				title={__('Drag to resize layer list', 'personaliseit')}
+			/>
 
 			{/* Properties Section */}
 			<PropertiesPanel
