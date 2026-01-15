@@ -54,18 +54,9 @@ const TextLayerControl = ({
                             boxShadow: isTooShort ? '0 0 0 1px #d63638' : undefined
                         }}
                     />
-                    <div style={{
-                        fontSize: '11px',
-                        color: isTooShort ? '#d63638' : '#666',
-                        textAlign: 'right',
-                        marginTop: '2px',
-                        display: 'flex',
-                        justifyContent: 'space-between'
-                    }}>
-                        {isTooShort ? (
-                            <span>{__('Minimum', 'personaliseit')} {MIN_CHARS} {__('characters required', 'personaliseit')}</span>
-                        ) : (
-                            <span></span>
+                    <div className={`pi-char-counter ${isTooShort ? 'error' : currentLength > MAX_CHARS * 0.8 ? 'warning' : ''}`}>
+                        {isTooShort && (
+                            <span>{__('Minimum', 'personaliseit')} {MIN_CHARS} {__('characters', 'personaliseit')}</span>
                         )}
                         <span>{currentLength} / {MAX_CHARS}</span>
                     </div>

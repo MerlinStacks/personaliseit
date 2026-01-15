@@ -1,9 +1,11 @@
 
 import { createRoot } from '@wordpress/element';
+import apiFetch from '@wordpress/api-fetch';
 import useFrontendStore from './store/useFrontendStore';
 import CanvasComponent from './components/CanvasComponent';
 import ControlsComponent from './components/ControlsComponent';
 import CanvasVisibilityManager from './components/CanvasVisibilityManager';
+import ErrorBoundary from '../common/components/ErrorBoundary';
 import FontService from '../common/services/FontService';
 import './style.scss';
 
@@ -33,19 +35,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 			setActivePalette(window.personaliseitData.activePalette);
 		}
 	} else {
-		console.error('window.personaliseitData is missing!');
+		// Silent fail - personaliseitData missing but component will handle gracefully
 	}
 
-	// Fetch Fonts
-	fetch((window.personaliseitData?.restUrl || '/wp-json/') + 'personaliseit/v1/fonts')
-		.then((res) => res.json())
+	// Fetch Fonts using apiFetch for consistent nonce handling
+	apiFetch({ path: '/personaliseit/v1/fonts' })
 		.then((data) => {
 			if (Array.isArray(data)) {
 				setFonts(data);
 				FontService.loadFontsIntoDom(data);
 			}
 		})
-		.catch((error) => console.error('Error fetching fonts:', error));
+		.catch(() => {
+			// Silent fail - fonts may use fallbacks
+		});
 
 
 	// Render components
@@ -54,7 +57,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 	// Self-Healing: If canvas container is missing (hook stripped by theme) but permissions exist (controls visible),
 	// create the container manually so the app can start.
 	if (!canvasRootContainer && controlsContainer) {
-		console.warn("PersonaliseIt: Canvas container missing provided by PHP hook. Creating manually.");
 		canvasRootContainer = document.createElement('div');
 		canvasRootContainer.id = 'personaliseit-canvas-container';
 		// Initial style to avoid FOUC, layout manager will handle positioning
@@ -74,14 +76,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 	if (canvasRootContainer) {
 		createRoot(canvasRootContainer).render(
-			<>
+			<ErrorBoundary componentName="canvas">
 				<CanvasComponent />
 				<CanvasVisibilityManager />
-			</>
+			</ErrorBoundary>
 		);
 	}
 
 	if (controlsContainer) {
-		createRoot(controlsContainer).render(<ControlsComponent />);
+		createRoot(controlsContainer).render(
+			<ErrorBoundary componentName="controls">
+				<ControlsComponent />
+			</ErrorBoundary>
+		);
 	}
 });
+

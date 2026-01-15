@@ -115,8 +115,8 @@ const useFrontendStore = create((set, get) => ({
 			localStorage.setItem(`personaliseit_draft_${productId}`, JSON.stringify(draft));
 			set({ a11yMessage: 'Draft saved successfully.' });
 			return true;
-		} catch (e) {
-			console.error('Failed to save draft', e);
+		} catch {
+			// Silent fail - localStorage may be full or disabled
 			return false;
 		}
 	},
@@ -141,8 +141,8 @@ const useFrontendStore = create((set, get) => ({
 				a11yMessage: 'Draft loaded successfully.'
 			});
 			return true;
-		} catch (e) {
-			console.error('Failed to load draft', e);
+		} catch {
+			// Silent fail - draft may be corrupted or localStorage disabled
 			return false;
 		}
 	},

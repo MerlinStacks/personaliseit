@@ -169,11 +169,13 @@ class CartIntegration {
         $styles = isset( $data['styles'] ) ? $data['styles'] : [];
         foreach ( $styles as $layer_id => $style ) {
              if ( ! isset( $layers_map[ $layer_id ] ) ) continue;
-             if ( ! empty( $style['fill'] ) && $style['fill'] !== 'transparent' ) {
+             // Check both 'color' (current) and 'fill' (legacy) for backwards compatibility
+             $color_value = $style['color'] ?? $style['fill'] ?? null;
+             if ( ! empty( $color_value ) && $color_value !== 'transparent' ) {
                  $item_data[] = [
                      'key'     => sprintf( __('%s Color', 'personaliseit'), $layers_map[ $layer_id ] ),
-                     'value'   => $style['fill'],
-                     'display' => esc_html( $style['fill'] ),
+                     'value'   => $color_value,
+                     'display' => esc_html( $color_value ),
                  ];
              }
         }
@@ -234,8 +236,10 @@ class CartIntegration {
             // Styles
             $styles = isset( $values['personaliseit_data']['styles'] ) ? $values['personaliseit_data']['styles'] : [];
             foreach ( $styles as $layer_id => $style ) {
-                 if ( isset( $layers_map[ $layer_id ] ) && ! empty( $style['fill'] ) ) {
-                      $item->add_meta_data( sprintf( __('%s Color', 'personaliseit'), $layers_map[ $layer_id ] ), $style['fill'] );
+                 // Check both 'color' (current) and 'fill' (legacy) for backwards compatibility
+                 $color_value = $style['color'] ?? $style['fill'] ?? null;
+                 if ( isset( $layers_map[ $layer_id ] ) && ! empty( $color_value ) ) {
+                      $item->add_meta_data( sprintf( __('%s Color', 'personaliseit'), $layers_map[ $layer_id ] ), $color_value );
                  }
             }
 
@@ -309,9 +313,11 @@ class CartIntegration {
              // Add Styles (Colors)
              if ( ! empty( $data['styles'] ) ) {
                  foreach ( $data['styles'] as $layer_id => $style ) {
-                     if ( ! empty( $style['fill'] ) && $style['fill'] !== 'transparent' ) {
+                     // Check both 'color' (current) and 'fill' (legacy) for backwards compatibility
+                     $color_value = $style['color'] ?? $style['fill'] ?? null;
+                     if ( ! empty( $color_value ) && $color_value !== 'transparent' ) {
                          $label = isset( $layers_map[ $layer_id ] ) ? sprintf( __('%s Color', 'personaliseit'), $layers_map[$layer_id] ) : __('Color', 'personaliseit');
-                         echo '<li><strong>' . esc_html( $label ) . ':</strong> ' . esc_html( $style['fill'] ) . '</li>';
+                         echo '<li><strong>' . esc_html( $label ) . ':</strong> ' . esc_html( $color_value ) . '</li>';
                      }
                  }
              }
@@ -320,7 +326,7 @@ class CartIntegration {
              if ( ! empty( $data['embroideryColor'] ) ) {
                  $ec = $data['embroideryColor'];
                  $name = is_array($ec) ? ($ec['name'] ?? 'Selected') : $ec;
-                 $item->add_meta_data( __( 'Color', 'personaliseit' ), $name ); // This line was probably just echoing in previous version
+                 // Display only - meta already saved in add_order_item_meta()
                  echo '<li><strong>' . esc_html__( 'Color', 'personaliseit' ) . ':</strong> ' . esc_html( $name ) . '</li>';
              }
 

@@ -206,6 +206,11 @@ class Plugin {
         $asset_file = PERSONALISET_PATH . 'build/admin.asset.php';
         if ( file_exists( $asset_file ) ) {
             $assets = require $asset_file;
+            
+            // Cache-busting: Use file modification time for version
+            $css_file = PERSONALISET_PATH . 'build/style-admin.css';
+            $css_version = file_exists( $css_file ) ? filemtime( $css_file ) : $assets['version'];
+            
             wp_enqueue_script(
                 'personaliseit-admin',
                 PERSONALISET_URL . 'build/admin.js',
@@ -217,7 +222,7 @@ class Plugin {
                 'personaliseit-admin',
                 PERSONALISET_URL . 'build/style-admin.css',
                 [],
-                $assets['version']
+                $css_version
             );
 
             wp_enqueue_style( 'wp-color-picker' );
@@ -234,18 +239,24 @@ class Plugin {
         $asset_file = PERSONALISET_PATH . 'build/frontend.asset.php';
         if ( file_exists( $asset_file ) ) {
             $assets = require $asset_file;
+            
+            // Cache-busting: Use file modification time for version
+            $css_file = PERSONALISET_PATH . 'build/style-frontend.css';
+            $css_version = file_exists( $css_file ) ? filemtime( $css_file ) : $assets['version'];
+            $js_version = $assets['version'];
+            
             wp_enqueue_script(
                 'personaliseit-frontend',
                 PERSONALISET_URL . 'build/frontend.js',
                 $assets['dependencies'],
-                $assets['version'],
+                $js_version,
                 true
             );
             wp_enqueue_style(
                 'personaliseit-frontend',
                 PERSONALISET_URL . 'build/style-frontend.css',
                 [],
-                $assets['version']
+                $css_version
             );
         }
     }

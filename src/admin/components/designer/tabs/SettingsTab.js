@@ -3,6 +3,7 @@ import { ToggleControl, Button, Spinner } from '@wordpress/components';
 import { useState } from '@wordpress/element';
 import apiFetch from '@wordpress/api-fetch';
 import BackgroundRemovalService from '../../../../common/services/BackgroundRemovalService';
+import { showToast } from '../../../../common/components/Toast';
 
 const SettingsTab = ({ selectedLayer, updateLayer }) => {
     const [isRemovingBg, setIsRemovingBg] = useState(false);
@@ -27,7 +28,7 @@ const SettingsTab = ({ selectedLayer, updateLayer }) => {
             updateLayer(selectedLayer.id, { image: response.source_url });
         } catch (error) {
             console.error('BG Removal failed:', error);
-            alert(__('Failed to remove background. See console.', 'personaliseit'));
+            showToast.error(__('Failed to remove background. See console.', 'personaliseit'));
         } finally {
             setIsRemovingBg(false);
         }

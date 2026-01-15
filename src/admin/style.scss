@@ -1,3 +1,9 @@
+// =============================================================================
+// PersonaliseIt Admin Styles
+// =============================================================================
+@use '../common/styles/design-tokens' as *;
+@use '../common/styles/toast';
+
 @use 'product-selector';
 @use 'settings';
 @use 'designer';

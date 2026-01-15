@@ -1,5 +1,6 @@
 import { __ } from '@wordpress/i18n';
 import { useState, useEffect, useRef } from '@wordpress/element';
+import apiFetch from '@wordpress/api-fetch';
 
 /**
  * SpotifyLayerControl - Enhanced Spotify code input with inline UI.
@@ -118,19 +119,8 @@ const SpotifyLayerControl = ({
      */
     const fetchSpotifyMetadata = async (parsed) => {
         try {
-            const restUrl = window.personaliseitData?.restUrl || '/wp-json/';
-            const nonce = window.personaliseitData?.nonce;
-
-            const metadataUrl = `${restUrl}personaliseit/v1/spotify/metadata?uri=${encodeURIComponent(parsed.uri)}`;
-            const res = await fetch(metadataUrl, {
-                headers: nonce ? { 'X-WP-Nonce': nonce } : {}
-            });
-
-            if (!res.ok) {
-                return null;
-            }
-
-            const data = await res.json();
+            const metadataUrl = `/personaliseit/v1/spotify/metadata?uri=${encodeURIComponent(parsed.uri)}`;
+            const data = await apiFetch({ path: metadataUrl });
 
             // If empty name, return null to use defaults
             if (!data.name) {
@@ -142,8 +132,8 @@ const SpotifyLayerControl = ({
                 artist: data.artist,
                 type: data.type
             };
-        } catch (e) {
-            console.error('Failed to fetch Spotify metadata:', e);
+        } catch {
+            // Silent fail - metadata fetch is optional
             return null;
         }
     };
@@ -170,21 +160,9 @@ const SpotifyLayerControl = ({
         setIsLoading(true);
 
         try {
-            const restUrl = window.personaliseitData?.restUrl || '/wp-json/';
-            const nonce = window.personaliseitData?.nonce;
-
             // Fetch the Spotify code with the correct bar color from backend settings
-            const codeUrl = `${restUrl}personaliseit/v1/spotify/code?uri=${encodeURIComponent(parsed.uri)}&color=${barColor}&bg=000000`;
-            const res = await fetch(codeUrl, {
-                headers: nonce ? { 'X-WP-Nonce': nonce } : {}
-            });
-
-            if (!res.ok) {
-                const errData = await res.json().catch(() => ({}));
-                throw new Error(errData.message || __('Failed to generate code', 'personaliseit'));
-            }
-
-            const data = await res.json();
+            const codeUrl = `/personaliseit/v1/spotify/code?uri=${encodeURIComponent(parsed.uri)}&color=${barColor}&bg=000000`;
+            const data = await apiFetch({ path: codeUrl });
             let imageData = data.data; // Base64 data
 
             // Apply background removal (remove black background)
@@ -227,7 +205,6 @@ const SpotifyLayerControl = ({
             updateInput(layer.id, imageData);
             handleAddToCart();
         } catch (e) {
-            console.error('Spotify code generation failed:', e);
             setError(e.message || __('Failed to fetch Spotify code.', 'personaliseit'));
             lastGeneratedUri.current = ''; // Allow retry on error
         } finally {

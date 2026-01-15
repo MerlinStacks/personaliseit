@@ -12,6 +12,7 @@ import {
     FormTokenField,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
+import { showToast } from '../../common/components/Toast';
 
 const AssetManager = () => {
     const [assetsData, setAssetsData] = useState({}); // { 'Category': [assets] }
@@ -108,7 +109,7 @@ const AssetManager = () => {
         fetchAssets();
 
         if (failCount > 0) {
-            alert(__('Upload complete with errors.', 'personaliseit') + ` Success: ${successCount}, Failed: ${failCount}`);
+            showToast.warning(__('Upload complete with errors.', 'personaliseit'), `Success: ${successCount}, Failed: ${failCount}`);
         } else {
             // Optional success notification?
         }
@@ -125,7 +126,7 @@ const AssetManager = () => {
             fetchAssets();
         } catch (error) {
             console.error(error);
-            alert(__('Delete failed', 'personaliseit'));
+            showToast.error(__('Delete failed', 'personaliseit'));
         }
     };
 

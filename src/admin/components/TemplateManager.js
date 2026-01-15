@@ -4,6 +4,7 @@ import { Button, Spinner, Card, CardBody, Modal, TextControl } from '@wordpress/
 import { __ } from '@wordpress/i18n';
 import useStore from '../store/useStore';
 import AssignTemplateModal from './modals/AssignTemplateModal';
+import { showToast } from '../../common/components/Toast';
 
 const TemplateManager = () => {
     const [templates, setTemplates] = useState([]);
@@ -41,7 +42,7 @@ const TemplateManager = () => {
             setTemplates(posts);
         } catch (error) {
             console.error(error);
-            alert(__('Failed to load templates.', 'personaliseit'));
+            showToast.error(__('Failed to load templates.', 'personaliseit'));
         } finally {
             setIsLoading(false);
         }
@@ -63,7 +64,7 @@ const TemplateManager = () => {
             setTemplates(templates.filter(t => t.id !== id));
         } catch (error) {
             console.error(error);
-            alert(__('Failed to delete template.', 'personaliseit'));
+            showToast.error(__('Failed to delete template.', 'personaliseit'));
         }
     };
 
@@ -88,7 +89,7 @@ const TemplateManager = () => {
             handleEdit(result.id);
         } catch (error) {
             console.error(error);
-            alert(__('Failed to create template.', 'personaliseit'));
+            showToast.error(__('Failed to create template.', 'personaliseit'));
         }
     };
 

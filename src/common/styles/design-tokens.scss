@@ -1,0 +1,253 @@
+/**
+ * PersonaliseIt Design Tokens
+ * 
+ * Shared CSS Custom Properties for consistent styling across
+ * Admin Designer and Frontend Personalizer.
+ * 
+ * @since 4.2.0
+ * @package PersonaliseIt
+ */
+
+// =============================================================================
+// CSS Custom Properties (Runtime Tokens)
+// =============================================================================
+
+:root {
+  // ---------------------------------------------------------------------------
+  // Spacing Scale (4px base unit)
+  // ---------------------------------------------------------------------------
+  --pi-space-1: 4px;
+  --pi-space-2: 8px;
+  --pi-space-3: 12px;
+  --pi-space-4: 16px;
+  --pi-space-5: 20px;
+  --pi-space-6: 24px;
+  --pi-space-8: 32px;
+
+  // ---------------------------------------------------------------------------
+  // Border Radii
+  // ---------------------------------------------------------------------------
+  --pi-radius-sm: 4px;
+  --pi-radius-md: 8px;
+  --pi-radius-lg: 12px;
+  --pi-radius-xl: 16px;
+  --pi-radius-pill: 9999px;
+
+  // ---------------------------------------------------------------------------
+  // Elevation Shadows
+  // ---------------------------------------------------------------------------
+  --pi-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --pi-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --pi-shadow-lg: 0 10px 20px rgba(0, 0, 0, 0.1);
+  --pi-shadow-xl: 0 20px 40px rgba(0, 0, 0, 0.15);
+
+  // ---------------------------------------------------------------------------
+  // Z-Index Scale (Avoid conflicts)
+  // ---------------------------------------------------------------------------
+  --pi-z-dropdown: 100;
+  --pi-z-sticky: 200;
+  --pi-z-modal-backdrop: 900;
+  --pi-z-modal: 1000;
+  --pi-z-overlay: 9999;
+
+  // ---------------------------------------------------------------------------
+  // Transitions
+  // ---------------------------------------------------------------------------
+  --pi-transition-fast: 150ms ease;
+  --pi-transition-normal: 250ms ease;
+  --pi-transition-slow: 400ms ease;
+
+  // ---------------------------------------------------------------------------
+  // Brand Accents (Tool-Specific)
+  // ---------------------------------------------------------------------------
+  --pi-spotify-green: #1DB954;
+  --pi-error-red: #d63638;
+  --pi-success-green: #00a32a;
+  --pi-warning-yellow: #dba617;
+  --pi-wp-blue: #2271b1;
+  --pi-wp-blue-hover: #135e96;
+
+  // ---------------------------------------------------------------------------
+  // Touch Target Minimums (Accessibility)
+  // ---------------------------------------------------------------------------
+  --pi-touch-target-min: 44px;
+}
+
+// =============================================================================
+// Admin Context (Within wp-admin)
+// =============================================================================
+
+.personaliseit-designer-container {
+  --pi-bg-primary: #f0f0f1;
+  --pi-bg-secondary: #f6f7f7;
+  --pi-surface: #ffffff;
+  --pi-surface-elevated: #ffffff;
+  --pi-border: #dcdcde;
+  --pi-border-light: #e0e0e0;
+  --pi-text-primary: #1d2327;
+  --pi-text-secondary: #50575e;
+  --pi-text-muted: #757575;
+  --pi-accent: var(--pi-wp-blue);
+  --pi-accent-hover: var(--pi-wp-blue-hover);
+  --pi-accent-bg: #f0f6fc;
+}
+
+// =============================================================================
+// Frontend Context (Store Theme - Inherit where possible)
+// =============================================================================
+
+.personaliseit-app,
+.personaliseit-controls-wrapper {
+  // Inherit from theme by default, fallback to sensible defaults
+  --pi-bg-primary: inherit;
+  --pi-surface: #ffffff;
+  --pi-surface-elevated: #ffffff;
+  --pi-border: #e0e0e0;
+  --pi-border-light: #eeeeee;
+  --pi-text-primary: inherit;
+  --pi-text-secondary: #666666;
+  --pi-text-muted: #999999;
+  --pi-accent: var(--pi-wp-blue);
+  --pi-accent-hover: var(--pi-wp-blue-hover);
+  --pi-accent-bg: #f7f9fc;
+}
+
+// =============================================================================
+// SCSS Variables (Compile-Time Helpers)
+// =============================================================================
+
+// These are for use in SCSS calculations only, not runtime CSS
+$pi-breakpoint-mobile: 768px;
+$pi-breakpoint-tablet: 1024px;
+$pi-breakpoint-wp-admin: 782px;
+
+// =============================================================================
+// Utility Mixins
+// =============================================================================
+
+/// Apply consistent focus ring for accessibility
+@mixin pi-focus-ring {
+  outline: 2px solid var(--pi-accent);
+  outline-offset: 2px;
+}
+
+/// Card styling with elevation
+@mixin pi-card($elevation: 'sm') {
+  background: var(--pi-surface);
+  border: 1px solid var(--pi-border);
+  border-radius: var(--pi-radius-md);
+  
+  @if $elevation == 'sm' {
+    box-shadow: var(--pi-shadow-sm);
+  } @else if $elevation == 'md' {
+    box-shadow: var(--pi-shadow-md);
+  } @else if $elevation == 'lg' {
+    box-shadow: var(--pi-shadow-lg);
+  }
+}
+
+/// Modern input styling
+@mixin pi-input {
+  padding: var(--pi-space-3) var(--pi-space-4);
+  border: 1px solid var(--pi-border);
+  border-radius: var(--pi-radius-md);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: var(--pi-touch-target-min);
+  background: var(--pi-surface);
+  color: var(--pi-text-primary);
+  transition: border-color var(--pi-transition-fast), 
+              box-shadow var(--pi-transition-fast);
+
+  &:focus {
+    border-color: var(--pi-accent);
+    box-shadow: 0 0 0 1px var(--pi-accent);
+    outline: none;
+  }
+
+  &::placeholder {
+    color: var(--pi-text-muted);
+  }
+}
+
+/// Button base styling
+@mixin pi-button-base {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pi-space-2);
+  padding: var(--pi-space-2) var(--pi-space-4);
+  border-radius: var(--pi-radius-md);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  min-height: var(--pi-touch-target-min);
+  cursor: pointer;
+  transition: all var(--pi-transition-fast);
+  text-decoration: none;
+  border: none;
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+/// Primary button variant
+@mixin pi-button-primary {
+  @include pi-button-base;
+  background: var(--pi-accent);
+  color: #ffffff;
+
+  &:hover:not(:disabled) {
+    background: var(--pi-accent-hover);
+  }
+
+  &:focus {
+    @include pi-focus-ring;
+  }
+}
+
+/// Secondary button variant
+@mixin pi-button-secondary {
+  @include pi-button-base;
+  background: var(--pi-surface);
+  color: var(--pi-text-primary);
+  border: 1px solid var(--pi-border);
+
+  &:hover:not(:disabled) {
+    background: var(--pi-bg-secondary, #f5f5f5);
+    border-color: var(--pi-text-muted);
+  }
+
+  &:focus {
+    @include pi-focus-ring;
+  }
+}
+
+/// Pill toggle styling
+@mixin pi-pill-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--pi-space-2) var(--pi-space-4);
+  border-radius: var(--pi-radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  background: var(--pi-surface);
+  border: 1px solid var(--pi-border);
+  color: var(--pi-text-secondary);
+  cursor: pointer;
+  transition: all var(--pi-transition-fast);
+  min-height: 36px;
+
+  &:hover {
+    border-color: var(--pi-accent);
+    color: var(--pi-accent);
+  }
+
+  &.active {
+    background: var(--pi-accent);
+    border-color: var(--pi-accent);
+    color: #ffffff;
+  }
+}

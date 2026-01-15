@@ -12,6 +12,7 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import apiFetch from '@wordpress/api-fetch';
+import { showToast } from '../../common/components/Toast';
 
 const PaletteManager = () => {
     const [palettes, setPalettes] = useState([]);
@@ -132,7 +133,7 @@ const PaletteManager = () => {
         if (selectedPalette.colors.some(c => c.code === colorToAdd.code)) {
             // Optional: alert user? For now just return or allow duplicates if names different?
             // Let's prevent exact duplicate codes for sanity
-            alert(__('This color code already exists in the palette.', 'personaliseit'));
+            showToast.warning(__('This color code already exists in the palette.', 'personaliseit'));
             return;
         }
 

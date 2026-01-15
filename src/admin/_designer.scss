@@ -1,3 +1,9 @@
+// =============================================================================
+// PersonaliseIt Admin Designer
+// Uses design tokens from ../common/styles/design-tokens.scss
+// =============================================================================
+
+// Legacy SCSS variables (kept for compatibility, prefer CSS Custom Properties)
 $primary: #2271b1;
 $bg-color: #f0f0f1;
 $card-bg: #ffffff;
@@ -5,6 +11,7 @@ $text-main: #1d2327;
 $text-secondary: #50575e;
 $border-color: #dcdcde;
 $sidebar-width: 300px;
+
 
 // BEM Architecture
 .personaliseit-designer-container {
@@ -60,24 +67,29 @@ $sidebar-width: 300px;
         }
     }
 
-    // --- Sidebar Header ---
+    // --- Sidebar Header (Refreshed 2026) ---
     .personaliseit-designer__header {
-        padding: 10px 15px;
-        border-bottom: 1px solid $border-color;
-        background: #f8f9fa;
-        min-height: 48px;
+        padding: var(--pi-space-3, 12px) var(--pi-space-4, 16px) !important;
+        border-bottom: 2px solid var(--pi-accent, $primary) !important;
+        background: linear-gradient(to bottom, #ffffff, #f0f6fc) !important;
+        min-height: 52px !important;
         display: flex;
         align-items: center;
+        justify-content: space-between;
+        gap: var(--pi-space-3, 12px);
         flex-shrink: 0;
         z-index: 10;
         box-sizing: border-box;
 
         h3 {
-            margin: 0;
-            font-size: 13px;
-            font-weight: 600;
-            text-transform: uppercase;
-            color: $text-secondary;
+            margin: 0 !important;
+            font-size: 12px !important;
+            font-weight: 700 !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.5px !important;
+            color: var(--pi-accent, $primary) !important;
+            background: transparent !important;
+            padding: 0 !important;
         }
     }
 
@@ -107,24 +119,30 @@ $sidebar-width: 300px;
         overflow: hidden;
     }
 
-    // --- Toolbar ---
+    // --- Toolbar (Refreshed 2026) ---
     .personaliseit-designer__toolbar {
         position: absolute;
-        bottom: 20px;
+        bottom: var(--pi-space-5, 20px);
         left: 50%;
         transform: translateX(-50%);
-        background: $card-bg;
-        border: 1px solid $border-color;
-        border-radius: 20px;
-        padding: 5px 15px;
+        background: var(--pi-surface, $card-bg) !important;
+        border: 1px solid var(--pi-border, $border-color) !important;
+        border-radius: var(--pi-radius-pill, 24px) !important;
+        padding: var(--pi-space-2, 8px) var(--pi-space-5, 20px) !important;
         display: flex;
         align-items: center;
-        gap: 10px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        gap: var(--pi-space-3, 12px);
+        box-shadow: var(--pi-shadow-lg, 0 10px 20px rgba(0, 0, 0, 0.1)) !important;
         z-index: 20;
+        transition: box-shadow var(--pi-transition-fast, 150ms ease);
+
+        &:hover {
+            box-shadow: var(--pi-shadow-xl, 0 20px 40px rgba(0, 0, 0, 0.15)) !important;
+        }
 
         .components-button {
-            // override default WP btn styles if needed locally
+            border-radius: var(--pi-radius-md, 8px) !important;
+            transition: background var(--pi-transition-fast, 150ms ease);
         }
     }
 
@@ -214,31 +232,41 @@ $sidebar-width: 300px;
         flex-shrink: 0;
     }
 
+    // Properties Tabs (Refreshed 2026 - Segmented Control)
     .personaliseit-designer__properties-tabs {
         display: flex;
-        border-bottom: 1px solid $border-color;
+        border-bottom: 1px solid var(--pi-border, $border-color) !important;
         flex-shrink: 0;
+        background: var(--pi-bg-secondary, #f6f7f7) !important;
+        padding: var(--pi-space-1, 4px) !important;
+        gap: var(--pi-space-1, 4px);
 
         .personaliseit-designer__tab-btn {
             flex: 1;
-            height: 40px;
-            border-radius: 0;
+            height: 36px !important;
+            border-radius: var(--pi-radius-md, 8px) !important;
             justify-content: center;
-            background: transparent;
-            border: none;
-            border-bottom: 2px solid transparent;
-            color: $text-secondary;
+            background: transparent !important;
+            border: none !important;
+            color: var(--pi-text-secondary, $text-secondary) !important;
             cursor: pointer;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            transition: all var(--pi-transition-fast, 150ms ease);
+
+            &:hover:not(.active) {
+                background: rgba(0, 0, 0, 0.05) !important;
+            }
 
             &.active {
-                border-bottom-color: $primary;
-                color: $primary;
-                background: #f0f6fc;
-                font-weight: 500;
+                background: var(--pi-surface, #ffffff) !important;
+                color: var(--pi-accent, $primary) !important;
+                box-shadow: var(--pi-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05)) !important;
             }
 
             &:focus {
-                box-shadow: none;
+                outline: 2px solid var(--pi-accent, $primary) !important;
+                outline-offset: -2px;
             }
         }
     }
@@ -550,46 +578,233 @@ $sidebar-width: 300px;
 
 // --- New PI Icon Button Styles ---
 .pi-icon-button {
-    background: transparent;
-    border: none;
+    background: transparent !important;
+    border: none !important;
     cursor: pointer;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 4px;
-    border-radius: 4px;
-    color: #555;
-    transition: all 0.2s ease;
+    padding: 6px !important;
+    border-radius: 6px !important;
+    color: #666 !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     &.small {
-        padding: 2px;
-        min-width: 24px;
-        min-height: 24px;
+        padding: 4px !important;
+        min-width: 28px !important;
+        min-height: 28px !important;
     }
 
     &:hover {
-        background: rgba(0, 0, 0, 0.05);
-        color: #2271b1;
+        background: rgba(34, 113, 177, 0.1) !important;
+        color: #2271b1 !important;
+        transform: scale(1.1) !important;
     }
 
     &.danger:hover {
-        background: rgba(214, 54, 56, 0.1);
-        color: #d63638;
+        background: rgba(214, 54, 56, 0.1) !important;
+        color: #d63638 !important;
     }
 }
 
-// Fade actions in/out
+// --- 2026 Layer List Polish ---
 .pi-layer-list-item {
-    // Reset browser defaults
-    margin: 0;
+    margin: 4px 0 !important;
+    background: linear-gradient(to right, #ffffff, #fafbfc) !important;
+    border: 1px solid #e8eaed !important;
+    border-radius: 8px !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
 
     .pi-row-actions {
         opacity: 0;
         transition: opacity 0.2s ease;
     }
 
-    &:hover .pi-row-actions,
-    &.is-selected .pi-row-actions {
-        opacity: 1;
+    &:hover {
+        border-color: #2271b1 !important;
+        box-shadow: 0 4px 12px rgba(34, 113, 177, 0.15) !important;
+        transform: translateX(2px) !important;
+
+        .pi-row-actions {
+            opacity: 1;
+        }
+    }
+
+    &.is-selected {
+        background: linear-gradient(to right, #f0f6fc, #e8f0f8) !important;
+        border-color: #2271b1 !important;
+        border-left: 3px solid #2271b1 !important;
+        box-shadow: 0 2px 8px rgba(34, 113, 177, 0.2) !important;
+
+        .pi-row-actions {
+            opacity: 1;
+        }
+    }
+}
+
+// --- 2026 View List Items ---
+.personaliseit-designer-container .personaliseit-designer__view-item {
+    background: linear-gradient(to bottom, #ffffff, #f8f9fa) !important;
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 10px !important;
+    padding: 12px 16px !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+    &:hover {
+        border-color: #2271b1 !important;
+        box-shadow: 0 6px 20px rgba(34, 113, 177, 0.15) !important;
+        transform: translateY(-2px) !important;
+    }
+
+    &.active {
+        background: linear-gradient(to bottom, #f0f6fc, #e8f0f8) !important;
+        border-color: #2271b1 !important;
+        box-shadow: 0 0 0 3px rgba(34, 113, 177, 0.2), 0 4px 12px rgba(34, 113, 177, 0.1) !important;
+
+        span {
+            color: #2271b1 !important;
+            font-weight: 600 !important;
+        }
+    }
+}
+
+// --- 2026 Tool Buttons Row ---
+.personaliseit-designer__tools-row {
+    .personaliseit-designer__tool-btn {
+        border-radius: 8px !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+
+        &:hover {
+            background: #f0f6fc !important;
+            border-color: #2271b1 !important;
+            color: #2271b1 !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 8px rgba(34, 113, 177, 0.15) !important;
+        }
+    }
+}
+
+// --- 2026 Section Headings ---
+.personaliseit-designer__section h3 {
+    color: #1d2327 !important;
+    font-size: 11px !important;
+    font-weight: 700 !important;
+    text-transform: uppercase !important;
+    letter-spacing: 1px !important;
+    padding-bottom: 8px !important;
+    margin-bottom: 12px !important;
+    border-bottom: 2px dotted #e0e0e0 !important;
+}
+
+// --- 2026 Form Inputs ---
+.personaliseit-designer-container {
+
+    input[type="text"],
+    input[type="number"] {
+        border: 1px solid #dcdcde !important;
+        border-radius: 6px !important;
+        padding: 8px 12px !important;
+        transition: all 0.2s ease !important;
+        background: #fff !important;
+
+        &:focus {
+            border-color: #2271b1 !important;
+            box-shadow: 0 0 0 2px rgba(34, 113, 177, 0.2) !important;
+            outline: none !important;
+        }
+    }
+
+    // Make dropdowns/selects MUCH more visible
+    select,
+    .components-select-control__input {
+        border: 2px solid #8c8f94 !important;
+        border-radius: 6px !important;
+        padding: 8px 32px 8px 12px !important;
+        background-color: #f0f0f1 !important;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231d2327' d='M6 8L1 3h10z'/%3E%3C/svg%3E") !important;
+        background-repeat: no-repeat !important;
+        background-position: right 10px center !important;
+        color: #1d2327 !important;
+        font-weight: 500 !important;
+        min-height: 40px !important;
+        cursor: pointer !important;
+        transition: all 0.2s ease !important;
+        -webkit-appearance: none !important;
+        -moz-appearance: none !important;
+        appearance: none !important;
+
+        &:hover {
+            border-color: #2271b1 !important;
+            background-color: #fff !important;
+        }
+
+        &:focus {
+            border-color: #2271b1 !important;
+            box-shadow: 0 0 0 2px rgba(34, 113, 177, 0.2) !important;
+            outline: none !important;
+            background-color: #fff !important;
+        }
+    }
+
+    // WordPress Gutenberg select wrapper
+    .components-input-base {
+        border: 2px solid #8c8f94 !important;
+        border-radius: 6px !important;
+        background: #f0f0f1 !important;
+        min-height: 40px !important;
+
+        &:hover {
+            border-color: #2271b1 !important;
+        }
+
+        &:focus-within {
+            border-color: #2271b1 !important;
+            box-shadow: 0 0 0 2px rgba(34, 113, 177, 0.2) !important;
+        }
+    }
+}
+
+// --- 2026 Scrollbars ---
+.personaliseit-designer-container {
+    *::-webkit-scrollbar {
+        width: 6px !important;
+        height: 6px !important;
+    }
+
+    *::-webkit-scrollbar-track {
+        background: transparent !important;
+    }
+
+    *::-webkit-scrollbar-thumb {
+        background: rgba(34, 113, 177, 0.3) !important;
+        border-radius: 3px !important;
+
+        &:hover {
+            background: rgba(34, 113, 177, 0.5) !important;
+        }
+    }
+}
+
+// --- 2026 Glassmorphism Sidebar ---
+.personaliseit-designer__sidebar {
+    background: rgba(255, 255, 255, 0.95) !important;
+    backdrop-filter: blur(10px) !important;
+    -webkit-backdrop-filter: blur(10px) !important;
+}
+
+// --- 2026 Empty States ---
+.personaliseit-designer__layers-empty,
+.personaliseit-designer__properties-placeholder {
+    color: #8c8f94 !important;
+    font-size: 13px !important;
+    text-align: center !important;
+    padding: 40px 20px !important;
+
+    &::before {
+        content: "✨";
+        display: block;
+        font-size: 32px;
+        margin-bottom: 12px;
+        opacity: 0.5;
     }
 }

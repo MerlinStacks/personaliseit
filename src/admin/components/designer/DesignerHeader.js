@@ -51,14 +51,14 @@ const DesignerHeader = ({
     // Logic for Left Sidebar Header
     if (mobileView === 'left') {
         return (
-            <div className="personaliseit-designer__header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px' }}>
+            <div className="personaliseit-designer__header">
                 <Button
                     href={templateId ? 'admin.php?page=personaliseit-templates' : `/wp-admin/post.php?post=${selectedProduct?.id}&action=edit`}
                     icon="arrow-left-alt2"
                     label={__('Back', 'personaliseit')}
                     isSmall
                 />
-                <h3 style={{ margin: 0 }}>{__('Configuration', 'personaliseit')}</h3>
+                <h3>{__('Configuration', 'personaliseit')}</h3>
                 <Button icon="no" className="mobile-only-close" onClick={() => setMobileView('canvas')} label={__('Close', 'personaliseit')} />
             </div>
         );
@@ -68,7 +68,7 @@ const DesignerHeader = ({
     if (mobileView === 'right') {
         return (
             <>
-                <div className="personaliseit-designer__header" style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                <div className="personaliseit-designer__header">
                     <div style={{ display: 'flex', gap: '5px', justifyContent: 'flex-end', flexWrap: 'nowrap', width: '100%' }}>
                         <div style={{ flex: 1, display: 'flex', alignItems: 'center' }}>
                             <Button icon="no" className="mobile-only-close" onClick={() => setMobileView('canvas')} label={__('Close', 'personaliseit')} />

@@ -152,10 +152,10 @@ const CanvasVisibilityManager = () => {
         };
     }, []);
 
-    // Backup Poller (Slow) - just in case MutationObserver misses edge cases (like pure JS animations without DOM attrib changes?)
-    // Or if "Priority 1" target appears later.
+    // Backup Poller (Slow) - catches edge cases missed by MutationObserver
+    // Why: 3s interval balances responsiveness with CPU efficiency
     useEffect(() => {
-        const interval = setInterval(refreshTarget, 1000);
+        const interval = setInterval(refreshTarget, 3000);
         return () => clearInterval(interval);
     }, []);
 

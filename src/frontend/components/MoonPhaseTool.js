@@ -30,50 +30,50 @@ const MoonPhaseTool = ({ onSelect, onCancel }) => {
     };
 
     return (
-        <div className="moon-phase-tool-container" style={{ background: '#f8f9fa', padding: '10px', borderRadius: '4px', border: '1px solid #eee', marginTop: '10px' }}>
-            <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>{__('Select Date', 'personaliseit')}</label>
+        <div className="pi-tool-card moon-phase-tool-container">
+            <div className="pi-tool-card__header">
+                <span className="dashicons dashicons-calendar-alt" />
+                {__('Select Date', 'personaliseit')}
+            </div>
 
             <input
                 type="date"
                 className="pi-modern-input"
-                style={{ width: '100%', marginBottom: '10px' }}
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
             />
 
-            <div className="moon-preview" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: '10px', padding: '10px', background: '#fff', border: '1px solid #ddd', borderRadius: '4px' }}>
-                <div style={{ fontWeight: '600', marginBottom: '5px' }}>{getMoonPhaseName(phaseIndex)}</div>
+            <div className="pi-tool-card__preview">
+                <span className="pi-phase-badge">{getMoonPhaseName(phaseIndex)}</span>
                 {previewUrl && (
                     <img
                         src={previewUrl}
                         alt="Moon Phase"
-                        style={{ width: '80px', height: '80px' }}
+                        style={{ width: '100px', height: '100px', marginTop: '12px' }}
                         onError={(e) => {
                             e.target.onerror = null;
                             e.target.style.display = 'none';
-                            e.target.parentNode.innerHTML += '<span style="color:red; font-size:10px">Image Not Found</span>';
                         }}
                     />
                 )}
             </div>
 
-            <div style={{ display: 'flex', gap: '5px' }}>
+            <div className="pi-tool-card__actions">
                 <button
-                    className="pi-btn primary small"
+                    className="pi-btn primary"
                     onClick={handleApply}
                     style={{ flex: 1 }}
                 >
                     {__('Apply Moon Phase', 'personaliseit')}
                 </button>
                 <button
-                    className="pi-btn secondary small"
+                    className="pi-btn secondary"
                     onClick={onCancel}
                     style={{ flex: 1 }}
                 >
                     {__('Cancel', 'personaliseit')}
                 </button>
             </div>
-
         </div>
     );
 };

@@ -1,5 +1,6 @@
 import { useState, useRef } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 import { runBackgroundRemoval, fileFromBlob } from '../utils/backgroundRemoval';
 
 const FaceCutoutTool = ({ onSelect, onCancel }) => {
@@ -55,20 +56,11 @@ const FaceCutoutTool = ({ onSelect, onCancel }) => {
             const formData = new FormData();
             formData.append('file', fileFromBlob(blob, `face_cutout_${Date.now()}.png`));
 
-            const restUrl = window.personaliseitData?.restUrl || '/wp-json/';
-            const headers = {};
-            if (window.personaliseitData?.nonce) {
-                headers['X-WP-Nonce'] = window.personaliseitData.nonce;
-            }
-
-            const res = await fetch(restUrl + 'personaliseit/v1/upload', {
+            const data = await apiFetch({
+                path: '/personaliseit/v1/upload',
                 method: 'POST',
-                headers: headers,
                 body: formData
             });
-
-            if (!res.ok) throw new Error('Upload failed');
-            const data = await res.json();
 
             if (data.url) {
                 setProgress(100);
@@ -80,27 +72,28 @@ const FaceCutoutTool = ({ onSelect, onCancel }) => {
             }
 
         } catch (e) {
-            console.error(e);
-            setError(e.message);
+            setError(e.message || __('Face cutout failed', 'personaliseit'));
             setIsProcessing(false);
         }
     };
 
     return (
-        <div className="face-cutout-tool-container" style={{ background: '#f8f9fa', padding: '15px', borderRadius: '4px', border: '1px solid #eee', marginTop: '10px', textAlign: 'center' }}>
-
+        <div className="pi-tool-card face-cutout-tool-container">
             {isProcessing ? (
-                <div className="processing-state">
-                    <div className="spinner" style={{ margin: '0 auto 10px', width: '30px', height: '30px', border: '3px solid #f3f3f3', borderTop: '3px solid #3498db', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-                    <style>{`@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }`}</style>
-                    <p style={{ fontWeight: '600' }}>{__('Processing Cutout...', 'personaliseit')}</p>
-                    <div style={{ width: '100%', background: '#e0e0e0', borderRadius: '4px', height: '6px', overflow: 'hidden', marginTop: '8px' }}>
-                        <div style={{ width: `${progress}%`, background: '#2271b1', height: '100%', transition: 'width 0.3s ease' }}></div>
+                <div className="pi-processing-state">
+                    <div className="pi-spinner" />
+                    <p className="pi-processing-text">{__('Processing Cutout...', 'personaliseit')}</p>
+                    <div className="pi-progress-bar">
+                        <div className="pi-progress-bar__fill" style={{ width: `${progress}%` }} />
                     </div>
+                    <span className="pi-progress-percent">{progress}%</span>
                 </div>
             ) : (
                 <>
-                    <h4 style={{ margin: '0 0 10px', fontSize: '14px' }}>{__('Upload Photo for Face Cutout', 'personaliseit')}</h4>
+                    <div className="pi-tool-card__header">
+                        <span className="dashicons dashicons-format-image" />
+                        {__('Upload Photo for Face Cutout', 'personaliseit')}
+                    </div>
 
                     <input
                         ref={inputRef}
@@ -113,16 +106,21 @@ const FaceCutoutTool = ({ onSelect, onCancel }) => {
                     <button
                         className="pi-btn primary"
                         onClick={() => inputRef.current?.click()}
-                        style={{ width: '100%', marginBottom: '10px', padding: '10px' }}
+                        style={{ width: '100%', marginBottom: 'var(--pi-space-3)' }}
                     >
-                        <span className="dashicons dashicons-camera" style={{ marginRight: '6px' }}></span>
+                        <span className="dashicons dashicons-camera" />
                         {__('Select Photo', 'personaliseit')}
                     </button>
 
-                    {error && <div style={{ color: '#d63638', fontSize: '12px', marginBottom: '10px' }}>{error}</div>}
+                    {error && (
+                        <div className="pi-error-message">
+                            <span className="dashicons dashicons-warning" />
+                            {error}
+                        </div>
+                    )}
 
                     <button
-                        className="pi-btn secondary small"
+                        className="pi-btn secondary"
                         onClick={onCancel}
                         style={{ width: '100%' }}
                     >

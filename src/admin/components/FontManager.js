@@ -10,6 +10,7 @@ import {
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import FontService from '../../common/services/FontService';
+import { showToast } from '../../common/components/Toast';
 
 const FontManager = () => {
 	const [fonts, setFonts] = useState([]);
@@ -27,10 +28,10 @@ const FontManager = () => {
 		try {
 			const result = await FontService.addGoogleFont(family, url);
 			setFonts([...fonts, result]);
-			alert(__('Google Font added successfully!', 'personaliseit'));
+			showToast.success(__('Google Font added successfully!', 'personaliseit'));
 		} catch (error) {
 			console.error(error);
-			alert(__('Failed to add Google Font. Check URL.', 'personaliseit'));
+			showToast.error(__('Failed to add Google Font. Check URL.', 'personaliseit'));
 		} finally {
 			setIsLoading(false);
 		}
@@ -65,10 +66,10 @@ const FontManager = () => {
 			const updatedFont = result;
 			setFonts(fonts.map(f => f.id === editingFont.id ? updatedFont : f));
 			setEditingFont(updatedFont); // Update modal view
-			alert(__('Font variation updated successfully', 'personaliseit'));
+			showToast.success(__('Font variation updated successfully', 'personaliseit'));
 		} catch (error) {
 			console.error(error);
-			alert(__('Update failed', 'personaliseit'));
+			showToast.error(__('Update failed', 'personaliseit'));
 		} finally {
 			setIsUploading(false);
 		}
@@ -105,7 +106,7 @@ const FontManager = () => {
 			setFonts([...fonts, result]);
 		} catch (error) {
 			console.error(error);
-			alert(__('Upload failed', 'personaliseit'));
+			showToast.error(__('Upload failed', 'personaliseit'));
 		} finally {
 			setIsUploading(false);
 		}

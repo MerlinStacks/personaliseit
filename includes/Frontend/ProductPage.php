@@ -235,7 +235,10 @@ class ProductPage {
                  if ( $url ) {
                      $data['previewImage'] = $url;
                  } else {
-                     error_log('PersonaliseIt: Failed to save preview image. Input length: ' . strlen($data['previewImage']));
+                     // Log failure for debugging (uses WC_Logger if available)
+                     if ( function_exists( 'wc_get_logger' ) ) {
+                         wc_get_logger()->warning( 'Failed to save preview image. Input length: ' . strlen($data['previewImage']), [ 'source' => 'personaliseit' ] );
+                     }
                      // Avoid session bloat/crash by clearing if save failed
                      $data['previewImage'] = '';
                  }
@@ -278,7 +281,10 @@ class ProductPage {
             } elseif ( strpos( $hex, '89504e47' ) === 0 ) {
                 $mime_type = 'image/png';
             } else {
-                error_log( 'PersonaliseIt: Invalid MIME type for preview: ' . $mime_type );
+                // Log invalid MIME for debugging (uses WC_Logger if available)
+                if ( function_exists( 'wc_get_logger' ) ) {
+                    wc_get_logger()->warning( 'Invalid MIME type for preview: ' . $mime_type, [ 'source' => 'personaliseit' ] );
+                }
                 return false; 
             }
         }

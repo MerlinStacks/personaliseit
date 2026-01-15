@@ -1,368 +1,168 @@
-import { useEffect, useState, useRef } from '@wordpress/element';
-import { Spinner, Button } from '@wordpress/components';
+/**
+ * ExportRenderer - Admin component for exporting order designs
+ * 
+ * Provides a preview and export UI for order item personalization data.
+ * Supports single-view and multi-view exports in PNG, JPG, PDF, and SVG formats.
+ * 
+ * Refactored in Phase 5 to use extracted hooks and components.
+ */
+import { useEffect, useState, useRef, useCallback } from '@wordpress/element';
+import { Spinner } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
-import apiFetch from '@wordpress/api-fetch';
 import useFrontendStore from '../../frontend/store/useFrontendStore';
 import FrontendCanvas from '../../frontend/components/FrontendCanvas';
-import { generateSVG } from '../utils/generateSVG';
-import { PDFDocument } from 'pdf-lib';
-import FontService from '../../common/services/FontService';
+import ExportService from '../../common/services/ExportService';
 
+// Extracted hooks
+import useExportLoader from '../hooks/useExportLoader';
+import useExportActions from '../hooks/useExportActions';
 
+// Extracted components
+import { ExportViewSelector, ExportPreview, ExportActionButtons } from './export';
+
+/**
+ * Main export renderer component
+ */
 const ExportRenderer = () => {
-    const [isLoading, setIsLoading] = useState(true);
-    const [status, setStatus] = useState(__('Initializing...', 'personaliseit'));
     const [autoDownloadFired, setAutoDownloadFired] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
+    const exportStageRefs = useRef({});
 
-    // Two refs: one for preview (visible), one for export (hidden/clean)
-    const previewStageRef = useRef();
-    const exportStageRef = useRef();
+    // URL parameters
+    const params = new URLSearchParams(window.location.search);
+    const orderId = params.get('order_id');
+    const itemId = params.get('item_id');
+    const urlFormat = params.get('format');
 
-    const config = useFrontendStore((state) => state.config);
-    const setConfig = useFrontendStore((state) => state.setConfig);
-    const setProductImage = useFrontendStore((state) => state.setProductImage);
-    const setFonts = useFrontendStore((state) => state.setFonts);
-    const setUserInputs = useFrontendStore((state) => state.setUserInputs);
-    const setUserStyles = useFrontendStore((state) => state.setUserStyles);
-    const addLayer = useFrontendStore((state) => state.addLayer);
+    // Store state
+    const views = useFrontendStore((state) => state.views);
+    const currentViewId = useFrontendStore((state) => state.currentViewId);
+    const setCurrentViewId = useFrontendStore((state) => state.setCurrentViewId);
+    const userInputs = useFrontendStore((state) => state.userInputs);
 
-    useEffect(() => {
-        const runData = async () => {
-            const params = new URLSearchParams(window.location.search);
-            const orderId = params.get('order_id');
-            const itemId = params.get('item_id');
+    // Load order data
+    const { isLoading, status, setStatus } = useExportLoader(orderId, itemId);
 
-            if (!orderId || !itemId) {
-                setStatus(__('Error: Missing Order/Item ID', 'personaliseit'));
-                return;
-            }
+    // Export actions
+    const { handleExportSingle, handleExportAll } = useExportActions({
+        exportStageRefs,
+        orderId,
+        itemId,
+        setStatus,
+        setIsExporting
+    });
 
-            try {
-                // 1. Fetch Fonts
-                const fonts = await apiFetch({ path: '/personaliseit/v1/fonts' });
-                setFonts(fonts);
-                // Inject styles using shared utility
-                FontService.loadFontsIntoDom(fonts);
-
-                // Wait for fonts to load before metrics or export
-                await document.fonts.ready;
-
-                // 2. Fetch Order Data
-                const data = await apiFetch({ path: `/personaliseit/v1/order-item/${orderId}/${itemId}` });
-
-                if (data.config) setConfig(data.config);
-                if (data.productImage) setProductImage(data.productImage);
-
-                if (data.userInputs) {
-                    // Handle both nested format { inputs, styles, embroideryColor } and legacy flat format
-                    if (data.userInputs.inputs) {
-                        // New format with nested structure
-                        setUserInputs(data.userInputs.inputs);
-                        setUserStyles(data.userInputs.styles || {});
-
-                        // Apply embroidery color if present
-                        if (data.userInputs.embroideryColor) {
-                            const ec = data.userInputs.embroideryColor;
-                            useFrontendStore.getState().setEmbroideryColor(ec);
-                        }
-
-                        if (data.userInputs.customLayers) {
-                            const viewId = data.config.views ? data.config.views[0].id : (data.config.layers ? 'front' : null);
-                            if (viewId) {
-                                data.userInputs.customLayers.forEach(l => addLayer(viewId, l));
-                            }
-                        }
-                    } else {
-                        // Legacy flat format - userInputs is the inputs map directly
-                        // In this case there are no styles saved, use empty
-                        setUserInputs(data.userInputs);
-                        setUserStyles({});
-                    }
-                }
-
-                // Preload all image URLs from userInputs before marking as ready
-                const imageUrls = [];
-                const inputs = data.userInputs?.inputs || data.userInputs || {};
-                Object.values(inputs).forEach(val => {
-                    if (typeof val === 'string' && (val.startsWith('http') || val.startsWith('/'))) {
-                        // Looks like a URL - preload it
-                        imageUrls.push(val);
-                    }
-                });
-
-                if (imageUrls.length > 0) {
-                    setStatus(__('Loading images...', 'personaliseit'));
-                    await Promise.all(imageUrls.map(url => {
-                        return new Promise((resolve) => {
-                            const img = new Image();
-                            img.crossOrigin = 'anonymous';
-                            img.onload = resolve;
-                            img.onerror = resolve; // Continue even if one fails
-                            img.src = url;
-                        });
-                    }));
-                }
-
-                setIsLoading(false);
-                setStatus(__('Ready. Preparing download...', 'personaliseit'));
-
-            } catch (e) {
-                setStatus(__('Error:', 'personaliseit') + ' ' + e.message);
-                setIsLoading(false);
-            }
-        };
-        runData();
+    // Register stage ref for a view
+    const registerStageRef = useCallback((viewId, ref) => {
+        exportStageRefs.current[viewId] = ref;
     }, []);
 
-    // Auto-download effect
+    // Auto-download if format specified in URL
     useEffect(() => {
-        if (!isLoading && !autoDownloadFired && exportStageRef.current) {
-            const params = new URLSearchParams(window.location.search);
-            const format = params.get('format');
-            if (format) {
-                // Determine wait time based on format (PDF/SVG might need more time or fonts)
-                const wait = 2000;
-                setStatus(__('Generating file...', 'personaliseit'));
-
-                const timer = setTimeout(() => {
-                    handleExport(format);
-                    setAutoDownloadFired(true);
-                    setStatus(__('Downloaded. Closing...', 'personaliseit'));
-                    // Close the window after a short delay
-                    setTimeout(() => {
-                        window.close();
-                    }, 500);
-                }, wait);
-                return () => clearTimeout(timer);
-            } else {
-                setStatus(__('Ready. Click Export to download.', 'personaliseit'));
-            }
+        if (!isLoading && !autoDownloadFired && urlFormat && exportStageRefs.current[currentViewId]) {
+            const timer = setTimeout(() => {
+                handleExportSingle(urlFormat);
+                setAutoDownloadFired(true);
+                setStatus(__('Downloaded. Closing...', 'personaliseit'));
+                setTimeout(() => window.close(), 500);
+            }, 1500);
+            return () => clearTimeout(timer);
         }
-    }, [isLoading, autoDownloadFired]);
+    }, [isLoading, autoDownloadFired, urlFormat, currentViewId, handleExportSingle, setStatus]);
 
-    // Helper to check if design contains customer-uploaded images
-    const hasImageLayers = () => {
-        const state = useFrontendStore.getState();
-        const viewId = state.currentViewId || (state.views && state.views[0] ? state.views[0].id : null);
-        const view = state.views.find(v => v.id === viewId);
-        if (!view) return false;
+    // Derived state
+    const currentView = views.find(v => v.id === currentViewId);
+    const containsImages = currentView ? ExportService.hasImageLayers(currentView, userInputs) : false;
 
-        return view.layers.some(l =>
-            (l.type === 'image' || l.type === 'clipart') &&
-            !l.excludeFromExport &&
-            state.userInputs[l.id]
-        );
-    };
-
-
-    const handleExport = (formatOverride = null) => {
-        if (!exportStageRef.current) return;
-        const stage = exportStageRef.current.getStage();
-        const pixelRatio = 4; // 300 DPI equivalent roughly
-
-        // --- CLEAN EXPORT (Managed by exportMode check in DesignRenderer) ---
-        // No manual node hiding needed!
-        // ------------------------------------------------
-
-        const params = new URLSearchParams(window.location.search);
-        const format = formatOverride || params.get('format') || 'png';
-        const filename = `print_order_${params.get('order_id') || 'export'}.${format}`;
-
-        if (format === 'pdf') {
-            // pdf-lib: Modern async PDF generation
-            (async () => {
-                try {
-                    const pdfDoc = await PDFDocument.create();
-                    const imgData = stage.toDataURL({ pixelRatio: pixelRatio });
-
-                    // Convert data URL to bytes
-                    const imageBytes = await fetch(imgData).then(res => res.arrayBuffer());
-                    const pngImage = await pdfDoc.embedPng(imageBytes);
-
-                    const pdfWidth = stage.width() * pixelRatio;
-                    const pdfHeight = stage.height() * pixelRatio;
-
-                    const page = pdfDoc.addPage([pdfWidth, pdfHeight]);
-                    page.drawImage(pngImage, {
-                        x: 0,
-                        y: 0,
-                        width: pdfWidth,
-                        height: pdfHeight,
-                    });
-
-                    const pdfBytes = await pdfDoc.save();
-                    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-                    const url = URL.createObjectURL(blob);
-                    downloadURI(url, filename);
-                } catch (err) {
-                    console.error('PDF Export Failed:', err);
-                    alert('PDF Export Failed: ' + err.message);
-                }
-            })();
-        } else if (format === 'svg') {
-            try {
-                // True Vector SVG Export using custom generator
-                // Retrieve fonts directly from the store state where they are loaded
-                const fonts = useFrontendStore.getState().fonts || [];
-
-                // Construct stageData from store or simple object
-                const state = useFrontendStore.getState();
-                const viewId = state.currentViewId || (state.views && state.views[0] ? state.views[0].id : null);
-                const view = state.views.find(v => v.id === viewId);
-
-                // Merge User Inputs into Layers AND Filter Excluded
-                const mergedLayers = view.layers
-                    .filter(l => !l.excludeFromExport)
-                    .map(l => {
-                        const style = state.userStyles[l.id] || {};
-                        return {
-                            ...l,
-                            text: state.userInputs[l.id] || l.label,
-                            // If image/clipart, userInputs[l.id] contains the URL
-                            image: (l.type === 'image' || l.type === 'clipart') ? state.userInputs[l.id] : null,
-                            color: style.color || l.color,
-                            fontFamily: style.fontFamily || l.fontFamily
-                        };
-                    });
-
-                // Precision Text Metrics Calculation (Plan F)
-                const textMetrics = {};
-                const ctx = document.createElement('canvas').getContext('2d');
-
-                mergedLayers.forEach(l => {
-                    if (l.type === 'text') {
-                        const fontSize = Number(l.fontSize) || 24;
-                        const fontFamily = (state.userStyles[l.id] && state.userStyles[l.id].fontFamily) || l.fontFamily || 'Arial';
-                        ctx.font = `${fontSize}px "${fontFamily}"`;
-
-                        const text = (state.userInputs[l.id] || l.label || '').toString();
-                        const lines = text.split('\n');
-                        textMetrics[l.id] = { lines: [] };
-
-                        lines.forEach(line => {
-                            const m = ctx.measureText(line);
-                            textMetrics[l.id].lines.push({
-                                width: m.width,
-                                ascent: m.actualBoundingBoxAscent, // Distance from baseline to top of ink
-                                descent: m.actualBoundingBoxDescent // Distance from baseline to bottom of ink
-                            });
-                        });
-                    }
-                });
-
-                setStatus(__('Generating SVG (expanding fonts)...', 'personaliseit'));
-
-                // ASYNC call
-                // We must use Unscaled Dimensions for the SVG ViewBox because the Layer coordinates are Unscaled.
-                const scaleX = stage.scaleX() || 1;
-                const scaleY = stage.scaleY() || 1;
-
-                generateSVG({ layers: mergedLayers }, {
-                    width: stage.width() / scaleX,
-                    height: stage.height() / scaleY,
-                    fonts: fonts,
-                    textMetrics: textMetrics // Pass precise metrics
-                }).then(svgString => {
-                    const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
-                    const url = URL.createObjectURL(blob);
-                    downloadURI(url, filename);
-                    setStatus(__('Download ready.', 'personaliseit'));
-                }).catch(err => {
-                    console.error(err);
-                    alert('SVG Generation Error: ' + err.message);
-                });
-
-            } catch (e) {
-                console.error('SVG Export Failed:', e);
-                alert('SVG Export Failed: ' + e.message);
-            }
-        } else if (format === 'jpg') {
-            const dataUrl = stage.toDataURL({ pixelRatio: pixelRatio, mimeType: 'image/jpeg', quality: 0.9 });
-            downloadURI(dataUrl, filename);
-        } else {
-            // PNG
-            const dataUrl = stage.toDataURL({ pixelRatio: pixelRatio });
-            downloadURI(dataUrl, filename);
-        }
-    };
-
-    const downloadURI = (uri, name) => {
-        const link = document.createElement('a');
-        link.download = name;
-        link.href = uri;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-
-    if (isLoading) return <div style={{ padding: 20 }}><Spinner /> {status}</div>;
-
-    const params = new URLSearchParams(window.location.search);
-    const format = params.get('format');
-
-    // Minimal UI if auto-downloading
-    if (format && !autoDownloadFired) {
+    // Loading state
+    if (isLoading) {
         return (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#fff' }}>
+            <div className="personaliseit-export-loading">
                 <Spinner />
-                <p style={{ marginTop: 20 }}>{status}</p>
-                {/* Visual Preview (Standard Mode) */}
-                <div style={{
-                    position: 'absolute',
-                    opacity: 0,
-                    pointerEvents: 'none',
-                    width: config?.canvasWidth || 800,
-                    height: config?.canvasHeight || 800
-                }}>
-                    <FrontendCanvas stageRef={previewStageRef} />
-                </div>
-
-                {/* Clean Export Canvas (Export Mode) */}
-                <div style={{ position: 'absolute', top: -10000, left: -10000 }}>
-                    <FrontendCanvas stageRef={exportStageRef} exportMode={true} />
-                </div>
+                <p>{status}</p>
             </div>
         );
     }
 
-    const containsImages = hasImageLayers();
+    // Auto-download mode (minimal UI)
+    if (urlFormat && !autoDownloadFired) {
+        return (
+            <div className="personaliseit-export-autodownload">
+                <Spinner />
+                <p>{status}</p>
+                {views.map(view => (
+                    <div key={view.id} className="personaliseit-export-hidden">
+                        <ExportCanvas viewId={view.id} registerRef={registerStageRef} />
+                    </div>
+                ))}
+            </div>
+        );
+    }
 
     return (
-        <div className="personaliseit-export-wrapper" style={{ padding: 20, background: '#fff' }}>
-            <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h2>{__('High-Res Export Preview', 'personaliseit')} {format ? `(${format.toUpperCase()})` : ''}</h2>
-                <div style={{ display: 'flex', gap: 10 }}>
-                    <Button isPrimary onClick={() => handleExport('png')}>{__('Download PNG', 'personaliseit')}</Button>
-                    <Button isSecondary onClick={() => handleExport('jpg')}>{__('JPG', 'personaliseit')}</Button>
-                    <Button isSecondary onClick={() => handleExport('pdf')}>{__('PDF', 'personaliseit')}</Button>
-                    <Button
-                        isSecondary
-                        onClick={() => handleExport('svg')}
-                        disabled={containsImages}
-                        title={containsImages ? __('SVG export is not available when design contains images', 'personaliseit') : ''}
-                    >
-                        {__('SVG', 'personaliseit')}
-                    </Button>
+        <div className="personaliseit-export-wrapper">
+            {/* Header */}
+            <div className="personaliseit-export-header">
+                <h2>{__('Export Design', 'personaliseit')}</h2>
+                <span className="personaliseit-export-header__order">
+                    {__('Order', 'personaliseit')} #{orderId} / {__('Item', 'personaliseit')} #{itemId}
+                </span>
+            </div>
+
+            {/* View Selector */}
+            <ExportViewSelector
+                views={views}
+                currentViewId={currentViewId}
+                onViewChange={setCurrentViewId}
+            />
+
+            {/* Preview */}
+            <ExportPreview currentView={currentView} />
+
+            {/* Status */}
+            {status && <p className="personaliseit-export-status">{status}</p>}
+
+            {/* Export Actions */}
+            <ExportActionButtons
+                isExporting={isExporting}
+                containsImages={containsImages}
+                viewCount={views.length}
+                onExportSingle={handleExportSingle}
+                onExportAll={handleExportAll}
+            />
+
+            {/* Hidden export canvases for all views */}
+            {views.map(view => (
+                <div key={view.id} className="personaliseit-export-hidden">
+                    <ExportCanvas viewId={view.id} registerRef={registerStageRef} />
                 </div>
-            </div>
-            {status && <p>{status}</p>}
-
-            <div style={{ border: '1px solid #ccc', display: 'inline-block', width: config?.canvasWidth || 800, height: config?.canvasHeight || 800 }}>
-                <FrontendCanvas stageRef={previewStageRef} />
-            </div>
-
-            {/* Hidden Clean Export Canvas */}
-            <div style={{ position: 'absolute', top: -10000, left: -10000 }}>
-                <FrontendCanvas stageRef={exportStageRef} exportMode={true} />
-            </div>
-
-            <p style={{ marginTop: 10, fontSize: 12, color: '#666' }}>
-                {containsImages
-                    ? __('Note: SVG export is disabled because this design contains images.', 'personaliseit')
-                    : __('Note: SVG export converts text to vector paths for production use.', 'personaliseit')
-                }
-            </p>
+            ))}
         </div>
     );
 };
+
+/**
+ * Hidden canvas component for a specific view (used for export)
+ */
+const ExportCanvas = ({ viewId, registerRef }) => {
+    const stageRef = useRef();
+    const setCurrentViewId = useFrontendStore((state) => state.setCurrentViewId);
+
+    useEffect(() => {
+        const prevViewId = useFrontendStore.getState().currentViewId;
+        setCurrentViewId(viewId);
+
+        const timer = setTimeout(() => {
+            registerRef(viewId, stageRef);
+            if (prevViewId && prevViewId !== viewId) {
+                setCurrentViewId(prevViewId);
+            }
+        }, 100);
+
+        return () => clearTimeout(timer);
+    }, [viewId, registerRef, setCurrentViewId]);
+
+    return <FrontendCanvas stageRef={stageRef} exportMode={true} />;
+};
+
 export default ExportRenderer;

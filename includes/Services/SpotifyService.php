@@ -131,8 +131,10 @@ class SpotifyService {
 
         $status_code = wp_remote_retrieve_response_code( $response );
         if ( $status_code !== 200 ) {
-            $error_body = wp_remote_retrieve_body( $response );
-            error_log( 'Spotify Scannable API failed: Status=' . $status_code . ', URL=' . $url . ', Body=' . substr( $error_body, 0, 500 ) );
+            // Log Spotify API failure for debugging (uses WC_Logger if available)
+            if ( function_exists( 'wc_get_logger' ) ) {
+                wc_get_logger()->warning( 'Spotify Scannable API failed: Status=' . $status_code . ', URL=' . $url, [ 'source' => 'personaliseit' ] );
+            }
             return new WP_Error( 
                 'spotify_error', 
                 sprintf( __( 'Spotify code generation failed (status %d).', 'personaliseit' ), $status_code ),

@@ -1,0 +1,153 @@
+﻿
+> personaliseit@4.0.0 build
+> wp-scripts build
+
+assets by status [1m[33m25.9 MiB[39m[22m [1m[33m[big][39m[22m
+  assets by path [1m[32m*.js[39m[22m 2.32 MiB
+    assets by chunk 773 KiB (id hint: vendors) 2 assets
+    + 2 assets
+  assets by info 23.6 MiB [1m[32m[immutable][39m[22m
+    asset [1m[33mce14fe5a0a12cc7d4389.wasm[39m[22m [1m[33m22.8 MiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m [from: node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.jsep.wasm] [1m[33m[big][39m[22m (auxiliary id hint: vendors)
+    asset [1m[33mab504ce7f0961e5ef99b.mjs[39m[22m [1m[33m386 KiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m [from: node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (auxiliary id hint: vendors)
+    asset [1m[33mdca6612469f07d86505b.mjs[39m[22m [1m[33m386 KiB[39m[22m [1m[32m[emitted][39m[22m [1m[32m[immutable][39m[22m [from: node_modules/onnxruntime-web/dist/ort.bundle.min.mjs] [1m[32m[minimized][39m[22m [1m[33m[big][39m[22m (auxiliary id hint: vendors)
+assets by path [1m[32m./*.css[39m[22m 54 KiB
+  asset [1m[32m./style-admin.css[39m[22m 32.6 KiB [1m[32m[emitted][39m[22m (name: ./style-admin) (id hint: style)
+  asset [1m[32m./style-frontend.css[39m[22m 21.4 KiB [1m[32m[emitted][39m[22m (name: ./style-frontend) (id hint: style)
+assets by path [1m[32m*.php[39m[22m 307 bytes
+  asset [1m[32madmin.asset.php[39m[22m 162 bytes [1m[32m[emitted][39m[22m (name: admin)
+  asset [1m[32mfrontend.asset.php[39m[22m 145 bytes [1m[32m[emitted][39m[22m (name: frontend)
+asset [1m[32m848.js[39m[22m 79.4 KiB [1m[32m[emitted][39m[22m [1m[32m[minimized][39m[22m (id hint: vendors)
+Entrypoint [1madmin[39m[22m [1m[33m[big][39m[22m 1.24 MiB = [1m[32m./style-admin.css[39m[22m 32.6 KiB [1m[32madmin.js[39m[22m 1.2 MiB [1m[32madmin.asset.php[39m[22m 162 bytes
+Entrypoint [1mfrontend[39m[22m [1m[33m[big][39m[22m 390 KiB = [1m[32m./style-frontend.css[39m[22m 21.4 KiB [1m[32mfrontend.js[39m[22m 368 KiB [1m[32mfrontend.asset.php[39m[22m 145 bytes
+orphan modules 2.01 MiB (javascript) 1.9 KiB (runtime) [1m[33m[orphan][39m[22m 270 modules
+runtime modules 16.1 KiB 24 modules
+built modules 3.88 MiB (javascript) 54 KiB (css/mini-extract) 23.6 MiB (asset) [1m[33m[built][39m[22m
+  modules by path [1m./node_modules/konva/lib/[39m[22m 410 KiB 58 modules
+  modules by path [1m./node_modules/pako/[39m[22m 214 KiB 16 modules
+  modules by path [1m./src/[39m[22m 2.15 MiB (javascript) 54 KiB (css/mini-extract) 5 modules
+  modules by path [1m./node_modules/onnxruntime-web/dist/[39m[22m 23.6 MiB (asset) 781 KiB (javascript) 5 modules
+  modules by path [1m./node_modules/use-sync-external-store/[39m[22m 5.03 KiB 4 modules
+  modules by path [1m./node_modules/react-reconciler/[39m[22m 91.6 KiB
+    modules by path [1m./node_modules/react-reconciler/*.js[39m[22m 444 bytes 2 modules
+    modules by path [1m./node_modules/react-reconciler/cjs/*.js[39m[22m 91.2 KiB 2 modules
+  modules by path [1m./node_modules/scheduler/[39m[22m 4.33 KiB
+    [1m./node_modules/scheduler/index.js[39m[22m 198 bytes [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+    [1m./node_modules/scheduler/cjs/scheduler.production.min.js[39m[22m 4.14 KiB [1m[33m[built][39m[22m [1m[33m[code generated][39m[22m
+  + 5 modules
+
+[1mLOG from ./node_modules/sass-loader/dist/cjs.js sass-loader ./node_modules/css-loader/dist/cjs.js??ruleSet[1].rules[3].use[1]!./node_modules/postcss-loader/dist/cjs.js??ruleSet[1].rules[3].use[2]!./node_modules/sass-loader/dist/cjs.js??ruleSet[1].rules[3].use[3]!./src/admin/style.scss[39m[22m
+<w> [1m[33mDeprecation The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mMore info: https://sass-lang.com/d/legacy-js-api[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mnull[39m[22m
+
+[1mLOG from ./node_modules/sass-loader/dist/cjs.js sass-loader ./node_modules/css-loader/dist/cjs.js??ruleSet[1].rules[3].use[1]!./node_modules/postcss-loader/dist/cjs.js??ruleSet[1].rules[3].use[2]!./node_modules/sass-loader/dist/cjs.js??ruleSet[1].rules[3].use[3]!./src/frontend/style.scss[39m[22m
+<w> [1m[33mDeprecation The legacy JS API is deprecated and will be removed in Dart Sass 2.0.0.[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mMore info: https://sass-lang.com/d/legacy-js-api[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mnull[39m[22m
+<w> [1m[33mDeprecation Global built-in functions are deprecated and will be removed in Dart Sass 3.0.0.[39m[22m
+<w> [1m[33mUse color.adjust instead.[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mMore info and automated migrator: https://sass-lang.com/d/import[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33msrc\frontend\style.scss 627:25  root stylesheet[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mDeprecation darken() is deprecated. Suggestions:[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mcolor.scale($color, $lightness: -19.0298507463%)[39m[22m
+<w> [1m[33mcolor.adjust($color, $lightness: -10%)[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33mMore info: https://sass-lang.com/d/color-functions[39m[22m
+<w> [1m[33m[39m[22m
+<w> [1m[33msrc\frontend\style.scss 627:25  root stylesheet[39m[22m
+<w> [1m[33m[39m[22m
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/Settings.js[39m[22m [1m[32m214:29-39[39m[22m
+[1mexport 'GeneralTab' (imported as 'GeneralTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/Settings.js[39m[22m [1m[32m219:29-39[39m[22m
+[1mexport 'MethodsTab' (imported as 'MethodsTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/Settings.js[39m[22m [1m[32m224:29-41[39m[22m
+[1mexport 'DownloadsTab' (imported as 'DownloadsTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/Settings.js[39m[22m [1m[32m229:29-37[39m[22m
+[1mexport 'ToolsTab' (imported as 'ToolsTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/Settings.js[39m[22m [1m[32m237:29-34[39m[22m
+[1mexport 'AiTab' (imported as 'AiTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/Settings.js[39m[22m
+[1mThere are multiple modules with names that only differ in casing.
+This can lead to [1m[31munexpected[39m[22m[1m behavior when compiling on a filesystem with other case-semantic.
+Use equal casing. Compare these module identifiers:
+* C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\node_modules\babel-loader\lib\index.js??ruleSet[1].rules[0].use[0]!C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\src\admin\components\Settings.js
+    Used by 1 module(s), i. e.
+    C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\node_modules\babel-loader\lib\index.js??ruleSet[1].rules[0].use[0]!C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\src\admin\index.js
+* C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\node_modules\babel-loader\lib\index.js??ruleSet[1].rules[0].use[0]!C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\src\admin\components\settings.js
+    Used by 2 module(s), i. e.
+    C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\node_modules\babel-loader\lib\index.js??ruleSet[1].rules[0].use[0]!C:\Users\ratte\Local Sites\ck-staged\app\public\wp-content\plugins\personaliseit\src\admin\components\Settings.js[39m[22m
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/settings.js[39m[22m [1m[32m214:29-39[39m[22m
+[1mexport 'GeneralTab' (imported as 'GeneralTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/components/Settings.js 14:0-83 214:29-39 219:29-39 224:29-41 229:29-37 237:29-34
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/settings.js[39m[22m [1m[32m219:29-39[39m[22m
+[1mexport 'MethodsTab' (imported as 'MethodsTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/components/Settings.js 14:0-83 214:29-39 219:29-39 224:29-41 229:29-37 237:29-34
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/settings.js[39m[22m [1m[32m224:29-41[39m[22m
+[1mexport 'DownloadsTab' (imported as 'DownloadsTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/components/Settings.js 14:0-83 214:29-39 219:29-39 224:29-41 229:29-37 237:29-34
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/settings.js[39m[22m [1m[32m229:29-37[39m[22m
+[1mexport 'ToolsTab' (imported as 'ToolsTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/components/Settings.js 14:0-83 214:29-39 219:29-39 224:29-41 229:29-37 237:29-34
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/admin/components/settings.js[39m[22m [1m[32m237:29-34[39m[22m
+[1mexport 'AiTab' (imported as 'AiTab') was [1m[31mnot found[39m[22m[1m in './settings' (possible exports: [1m[32mdefault[39m[22m[1m)[39m[22m
+ @ ./src/admin/components/Settings.js 14:0-83 214:29-39 219:29-39 224:29-41 229:29-37 237:29-34
+ @ ./src/admin/index.js 10:0-45 67:49-57
+
+[1m[33mWARNING[39m[22m in [1m./src/common/services/BackgroundRemovalService.js[39m[22m [1m[32m26:25-46[39m[22m
+[1mexport 'default' (imported as 'imglyRemoveBackground') was [1m[31mnot found[39m[22m[1m in '@imgly/background-removal' (possible exports: [1m[32malphamask, applySegmentationMask, preload, removeBackground, removeForeground, segmentForeground[39m[22m[1m)[39m[22m
+ @ ./src/admin/components/StyleManager.js
+ @ ./src/admin/index.js 9:0-53 81:115-127
+
+[1m[33mWARNING[39m[22m in [1masset size limit: The following asset(s) exceed the recommended size limit (244 KiB).
+This can impact web performance.
+Assets: 
+  admin.js (1.2 MiB)
+  frontend.js (368 KiB)
+  273.js (387 KiB)
+  ce14fe5a0a12cc7d4389.wasm (22.8 MiB)
+  189.js (387 KiB)
+  ab504ce7f0961e5ef99b.mjs (386 KiB)
+  dca6612469f07d86505b.mjs (386 KiB)[39m[22m
+
+[1m[33mWARNING[39m[22m in [1mentrypoint size limit: The following entrypoint(s) combined asset size exceeds the recommended limit (244 KiB). This can impact web performance.
+Entrypoints:
+  admin (1.24 MiB)
+      ./style-admin.css
+      admin.js
+      admin.asset.php
+  frontend (390 KiB)
+      ./style-frontend.css
+      frontend.js
+      frontend.asset.php
+[39m[22m
+
+webpack 5.103.0 compiled with [1m[33m14 warnings[39m[22m in 11651 ms

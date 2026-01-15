@@ -96,7 +96,10 @@ class ProofGenerator {
                 $item->save();
             }
         } catch ( \Exception $e ) {
-            error_log( 'PersonaliseIt Proof Error: ' . $e->getMessage() );
+            // Log proof generation error (uses WC_Logger if available)
+            if ( function_exists( 'wc_get_logger' ) ) {
+                wc_get_logger()->error( 'Proof generation failed: ' . $e->getMessage(), [ 'source' => 'personaliseit' ] );
+            }
         }
     }
 

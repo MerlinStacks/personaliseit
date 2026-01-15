@@ -1,5 +1,6 @@
 import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import apiFetch from '@wordpress/api-fetch';
 
 /**
  * SpotifyTool component for generating Spotify codes.
@@ -76,20 +77,10 @@ const SpotifyTool = ({ onSelect, onCancel }) => {
         setError('');
 
         try {
-            const restUrl = window.personaliseitData?.restUrl || '/wp-json/';
-            const nonce = window.personaliseitData?.nonce;
-
             // Use the code proxy endpoint (no API key needed)
-            const res = await fetch(`${restUrl}personaliseit/v1/spotify/code?uri=${encodeURIComponent(parsed.uri)}`, {
-                headers: nonce ? { 'X-WP-Nonce': nonce } : {}
+            const data = await apiFetch({
+                path: `/personaliseit/v1/spotify/code?uri=${encodeURIComponent(parsed.uri)}`
             });
-
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(errData.message || 'Failed to generate code');
-            }
-
-            const data = await res.json();
 
             // Format type label for display
             const typeLabel = parsed.type.charAt(0).toUpperCase() + parsed.type.slice(1);
@@ -102,8 +93,7 @@ const SpotifyTool = ({ onSelect, onCancel }) => {
                 type: parsed.type
             });
         } catch (e) {
-            console.error(e);
-            setError(e.message);
+            setError(e.message || __('Failed to generate code', 'personaliseit'));
         } finally {
             setIsLoading(false);
         }
@@ -119,21 +109,9 @@ const SpotifyTool = ({ onSelect, onCancel }) => {
         setResults([]);
 
         try {
-            const restUrl = window.personaliseitData?.restUrl || '/wp-json/';
-            const nonce = window.personaliseitData?.nonce;
-
-            const res = await fetch(`${restUrl}personaliseit/v1/spotify/search?q=${encodeURIComponent(query)}&type=track,artist`, {
-                headers: {
-                    'X-WP-Nonce': nonce
-                }
+            const data = await apiFetch({
+                path: `/personaliseit/v1/spotify/search?q=${encodeURIComponent(query)}&type=track,artist`
             });
-
-            if (!res.ok) {
-                const errData = await res.json();
-                throw new Error(errData.message || 'Search failed');
-            }
-
-            const data = await res.json();
 
             // Normalize results
             let items = [];
@@ -171,8 +149,7 @@ const SpotifyTool = ({ onSelect, onCancel }) => {
      * Generate code from search result.
      */
     const handleSearchGenerate = async (item) => {
-        const restUrl = window.personaliseitData?.restUrl || '/wp-json/';
-        const proxyUrl = `${restUrl}personaliseit/v1/spotify/code?uri=${encodeURIComponent(item.uri)}`;
+        const proxyUrl = `/personaliseit/v1/spotify/code?uri=${encodeURIComponent(item.uri)}`;
         onSelect({
             uri: item.uri,
             proxyUrl,

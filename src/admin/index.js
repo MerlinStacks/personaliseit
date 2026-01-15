@@ -9,6 +9,7 @@ import StyleManager from './components/StyleManager';
 import Settings from './components/Settings';
 import ExportRenderer from './components/ExportRenderer';
 import TemplateManager from './components/TemplateManager';
+import ErrorBoundary from '../common/components/ErrorBoundary';
 import useStore from './store/useStore';
 import './style.scss';
 
@@ -131,6 +132,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	const rootElement = document.getElementById('personaliseit-admin-root');
 	if (rootElement) {
 		const page = rootElement.getAttribute('data-page') || 'designer';
-		createRoot(rootElement).render(<App initialPage={page} />);
+		createRoot(rootElement).render(
+			<ErrorBoundary componentName="admin">
+				<App initialPage={page} />
+			</ErrorBoundary>
+		);
 	}
 });
+

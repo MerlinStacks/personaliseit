@@ -80,5 +80,9 @@ foreach ( $personaliseit_taxonomies as $tax ) {
     }
 }
 
+// 5. Drop Custom Database Table
+// Why: The custom designs table stores order personalization data and should be removed on full uninstall
+$wpdb->query( "DROP TABLE IF EXISTS {$wpdb->prefix}personaliseit_designs" );
+
 // Flush cache
 wp_cache_flush();
