@@ -312,9 +312,18 @@ class AiController extends WP_REST_Controller {
              }
         }
 
-        // Fallback: If strict filtering returns nothing, maybe just return top 50 models purely for debugging or allow user to type?
-        // But for now, returning empty array is valid if no image models found. 
-        // We will return filtered list.
+        // Fallback: If strict filtering returns nothing, return top 50 models purely for debugging/manual selection.
+        if ( empty( $models ) && ! empty( $data['data'] ) ) {
+            $count = 0;
+            foreach ( $data['data'] as $model ) {
+                if ( $count >= 50 ) {
+                    break;
+                }
+                $models[] = [ 'id' => $model['id'], 'name' => $model['name'] ];
+                $count++;
+            }
+        }
+
         return rest_ensure_response( $models );
     }
 
