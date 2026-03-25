@@ -1,0 +1,24 @@
+{
+  "name": "overcustomise",
+  "version": "1.0.0",
+  "description": "WooCommerce product customiser for Custom Kings",
+  "private": true,
+  "scripts": {
+    "build": "wp-scripts build",
+    "start": "wp-scripts start",
+    "lint:js": "wp-scripts lint-js",
+    "lint:css": "wp-scripts lint-style"
+  },
+  "dependencies": {
+    "@uppy/core": "^4.3.0",
+    "@uppy/drag-drop": "^4.0.0",
+    "@uppy/xhr-upload": "^4.2.0",
+    "fabric": "^6.5.0"
+  },
+  "devDependencies": {
+    "@wordpress/scripts": "^30.0.0"
+  },
+  "wp-scripts": {
+    "webpack-config": "./webpack.config.js"
+  }
+}

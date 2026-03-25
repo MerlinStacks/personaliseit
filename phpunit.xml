@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.0/phpunit.xsd"
+    bootstrap="tests/bootstrap.php"
+    colors="true"
+    displayDetailsOnIncompleteTests="true"
+    displayDetailsOnSkippedTests="true"
+    displayDetailsOnTestsThatTriggerDeprecations="true"
+    displayDetailsOnTestsThatTriggerErrors="true"
+    displayDetailsOnTestsThatTriggerNotices="true"
+    displayDetailsOnTestsThatTriggerWarnings="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory suffix=".php">tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Integration">
+            <!-- Requires WP_TESTS_DIR env var pointing to wp-phpunit test suite -->
+            <directory suffix=".php">tests/Integration</directory>
+        </testsuite>
+    </testsuites>
+
+    <source>
+        <include>
+            <directory suffix=".php">includes</directory>
+        </include>
+        <exclude>
+            <!-- Exclude admin UI files — they output HTML directly -->
+            <file>includes/admin/class-oc-admin-menu.php</file>
+            <file>includes/admin/class-oc-admin-products.php</file>
+            <file>includes/admin/class-oc-admin-mockups.php</file>
+            <file>includes/admin/class-oc-admin-fonts.php</file>
+            <file>includes/admin/class-oc-admin-print-methods.php</file>
+            <file>includes/admin/class-oc-admin-settings.php</file>
+            <file>includes/admin/class-oc-admin-order-metabox.php</file>
+        </exclude>
+    </source>
+</phpunit>

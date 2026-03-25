@@ -1,0 +1,24 @@
+# Composer
+/vendor/
+
+# npm / webpack
+/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Test artefacts
+/.phpunit.result.cache
+/coverage/
+
+# Claude Code
+/.claude/
+PLAN.md
+todo.md

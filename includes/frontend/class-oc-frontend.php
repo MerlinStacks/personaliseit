@@ -1,0 +1,447 @@
+<?php
+/**
+ * Frontend integration — hooks into product pages.
+ * Loads the design assigned to the product, injects the customiser panel,
+ * enqueues assets, and validates add-to-cart.
+ *
+ * @package OverCustomise
+ */
+
+defined( 'ABSPATH' ) || exit;
+
+class OC_Frontend {
+
+	private ?object $design = null;
+	private array   $areas  = [];
+	private array   $layers = [];
+
+	public function register(): void {
+		add_action( 'wp',                                    [ $this, 'maybe_load_design' ],  10 );
+		add_action( 'wp_enqueue_scripts',                    [ $this, 'enqueue_assets' ],     20 );
+		add_action( 'woocommerce_before_add_to_cart_button', [ $this, 'inject_panel' ],       10 );
+		add_filter( 'woocommerce_add_to_cart_validation',    [ $this, 'validate' ],           10, 3 );
+	}
+
+	// ── Design pre-load ───────────────────────────────────────────────────────
+
+	public function maybe_load_design(): void {
+		if ( ! is_product() ) {
+			return;
+		}
+
+		$product_id = (int) get_queried_object_id();
+
+		$assignment = $this->get_assignment( $product_id );
+		if ( ! $assignment ) {
+			OC_Logger::info( "OC Frontend: no design assignment for product {$product_id}." );
+			return;
+		}
+
+		$design = OC_DB::get_design( (int) $assignment->design_id );
+		if ( ! $design ) {
+			OC_Logger::warning( "OC Frontend: design {$assignment->design_id} not found." );
+			return;
+		}
+		if ( ! (bool) $design->active ) {
+			OC_Logger::info( "OC Frontend: design {$design->id} is inactive." );
+			return;
+		}
+
+		$areas = OC_DB::get_design_print_areas( (int) $design->id );
+		if ( empty( $areas ) ) {
+			OC_Logger::info( "OC Frontend: design {$design->id} has no print areas." );
+			return;
+		}
+
+		$this->design = $design;
+		$this->areas  = $areas;
+		$this->layers = OC_DB::get_design_layers( (int) $design->id );
+	}
+
+	/**
+	 * Look up a product → design assignment.
+	 * Priority: variant-specific → parent-level → first variant with any assignment.
+	 *
+	 * @param int $product_id  Parent or variation product ID.
+	 * @param int $variant_id  0 = unknown / page load; >0 = specific variant chosen via JS.
+	 */
+	private function get_assignment( int $product_id, int $variant_id = 0 ): ?object {
+		global $wpdb;
+
+		$product = wc_get_product( $product_id );
+		if ( ! $product ) return null;
+
+		// Resolve parent + variant IDs regardless of which was passed.
+		if ( $product->is_type( 'variation' ) ) {
+			$variant_id = $product_id;
+			$product_id = $product->get_parent_id();
+		}
+
+		// 1. Variant-specific assignment (exact match).
+		if ( $variant_id > 0 ) {
+			$row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+				 WHERE product_id = %d AND variant_id = %d LIMIT 1",
+				$product_id, $variant_id
+			) );
+			if ( $row ) return $row;
+		}
+
+		// 2. Parent-level assignment (covers all variants).
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+			 WHERE product_id = %d AND variant_id = 0 LIMIT 1",
+			$product_id
+		) );
+		if ( $row ) return $row;
+
+		// 3. For a variable product with no parent-level assignment, fall back to
+		//    any variant's assignment so the customiser still appears on page load.
+		if ( $product->is_type( 'variable' ) || ( $product_id !== (int) get_queried_object_id() ) ) {
+			$variation_ids = wc_get_product( $product_id )?->get_children() ?? [];
+			if ( ! empty( $variation_ids ) ) {
+				$phs = implode( ',', array_fill( 0, count( $variation_ids ), '%d' ) );
+				$row = $wpdb->get_row(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+						 WHERE product_id = %d AND variant_id IN ($phs)
+						 ORDER BY variant_id ASC LIMIT 1",
+						$product_id,
+						...$variation_ids
+					)
+				);
+				if ( $row ) return $row;
+			}
+		}
+
+		return null;
+	}
+
+	// ── Assets ────────────────────────────────────────────────────────────────
+
+	public function enqueue_assets(): void {
+		if ( null === $this->design ) {
+			return;
+		}
+
+		wp_enqueue_script(
+			'oc-customiser-app',
+			OC_ASSETS_URL . 'frontend/customiser-app.js',
+			[],
+			OC_VERSION,
+			true
+		);
+
+		// Pass all data via wp_localize_script — no WP Interactivity API dependency.
+		wp_localize_script( 'oc-customiser-app', 'ocCustomiserData', $this->build_state() );
+
+		if ( file_exists( OC_PATH . 'assets/build/frontend/customiser-app.css' ) ) {
+			wp_enqueue_style( 'oc-customiser-app', OC_ASSETS_URL . 'frontend/customiser-app.css', [], OC_VERSION );
+		}
+
+		wp_add_inline_style( 'woocommerce-general', $this->get_panel_css() );
+	}
+
+	/** Build the complete initial state for the Interactivity API store. */
+	private function build_state(): array {
+		$all_fonts   = OC_Font_Registry::get_fonts_for_js();
+		$all_colours = OC_DB::get_colours( true );
+
+		// Group layers by area ID.
+		$layers_by_area = [];
+		foreach ( $this->layers as $layer ) {
+			$layers_by_area[ (int) $layer->area_id ][] = $layer;
+		}
+
+		// Build areas with their layers.
+		$areas_js    = [];
+		$layer_inputs = []; // layerId → default input values
+
+		foreach ( $this->areas as $area ) {
+			$area_layers  = $layers_by_area[ (int) $area->id ] ?? [];
+			$layers_js    = [];
+
+			$mockup_url = '';
+			$mockup_w   = 0;
+			$mockup_h   = 0;
+			if ( $area->mockup_attachment_id ) {
+				// Use the same 'large' size as the admin editor so coordinates
+				// (stored in 'large'-image pixel space) remain consistent.
+				$img_src  = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
+				if ( $img_src ) {
+					$mockup_url = $img_src[0];
+					$mockup_w   = (int) $img_src[1];
+					$mockup_h   = (int) $img_src[2];
+				}
+			}
+
+			foreach ( $area_layers as $layer ) {
+				if ( ! (bool) $layer->visible ) continue;
+
+				$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+				if ( ! is_array( $settings ) ) $settings = [];
+
+				$layers_js[] = [
+					'id'       => (int) $layer->id,
+					'type'     => $layer->type,
+					'label'    => $layer->label,
+					'x'        => (int) $layer->x,
+					'y'        => (int) $layer->y,
+					'w'        => (int) $layer->w,
+					'h'        => (int) $layer->h,
+					'required' => ! empty( $settings['required'] ),
+					'settings' => $settings,
+				];
+
+				// Default input per layer.
+				$layer_inputs[ (int) $layer->id ] = [
+					'value'         => $settings['default_text'] ?? '',
+					'fontId'        => 0,
+					'colorHex'      => '#000000',
+					'attachmentId'  => 0,
+					'attachmentUrl' => '',
+					'clipartId'     => 0,
+					'clipartUrl'    => '',
+				];
+			}
+
+			$areas_js[] = [
+				'id'          => (int) $area->id,
+				'label'       => $area->label,
+				'printMethod' => $area->print_method,
+				'mockupUrl'   => $mockup_url,
+				'mockupW'     => $mockup_w,
+				'mockupH'     => $mockup_h,
+				'bounds'      => [
+					'x' => (int) $area->canvas_x,
+					'y' => (int) $area->canvas_y,
+					'w' => (int) $area->canvas_w,
+					'h' => (int) $area->canvas_h,
+				],
+				'layers'      => $layers_js,
+			];
+		}
+
+		// Colours as swatches.
+		$colours_js = array_map( function ( $c ) {
+			return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ];
+		}, $all_colours );
+
+		// Clipart items grouped per clipart layer.
+		$clipart_by_layer = $this->build_clipart_by_layer();
+
+		return [
+			'designId'        => (int) $this->design->id,
+			'designName'      => $this->design->name,
+			'flatRate'        => (float) $this->design->flat_rate,
+			'areas'           => $areas_js,
+			'fonts'           => $all_fonts,
+			'colours'         => $colours_js,
+			'clipartByLayer'  => $clipart_by_layer,
+			'layerInputs'     => $layer_inputs,
+			'activeAreaIndex' => 0,
+			'isLoading'       => false,
+			'uploadUrl'       => rest_url( 'overcustomise/v1/upload-artwork' ),
+			'savePreviewUrl'  => rest_url( 'overcustomise/v1/save-preview' ),
+			'uploadNonce'     => wp_create_nonce( OC_Upload_Handler::NONCE_ACTION ),
+			'maxUploadSizeMb' => (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10,
+			'allowedFormats'  => (array) OC_Admin_Settings::get( 'allowed_upload_formats' ),
+		];
+	}
+
+	/** Load clipart items for all clipart layers. */
+	private function build_clipart_by_layer(): array {
+		global $wpdb;
+
+		$by_layer   = [];
+		$upload_dir = wp_upload_dir();
+
+		foreach ( $this->layers as $layer ) {
+			if ( $layer->type !== 'clipart' ) continue;
+
+			$settings   = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			$group_ids  = is_array( $settings ) ? ( $settings['clipart_groups'] ?? [] ) : [];
+			$layer_id   = (int) $layer->id;
+
+			if ( ! empty( $group_ids ) ) {
+				// Only clipart from specified groups.
+				$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+				$items = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT DISTINCT c.id, c.name, c.file_path
+						 FROM {$wpdb->prefix}oc_clipart c
+						 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
+						 WHERE gi.group_id IN ($placeholders) AND c.active = 1
+						 ORDER BY c.name ASC",
+						...$group_ids
+					)
+				) ?: [];
+			} else {
+				// All clipart.
+				$items = $wpdb->get_results(
+					"SELECT id, name, file_path FROM {$wpdb->prefix}oc_clipart WHERE active = 1 ORDER BY name ASC"
+				) ?: [];
+			}
+
+			$by_layer[ $layer_id ] = array_map( function ( $item ) use ( $upload_dir ) {
+				$url = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $item->file_path );
+				return [ 'id' => (int) $item->id, 'name' => $item->name, 'url' => $url ];
+			}, $items );
+		}
+
+		return $by_layer;
+	}
+
+	// ── Panel injection ───────────────────────────────────────────────────────
+
+	public function inject_panel(): void {
+		if ( ! is_singular( 'product' ) ) {
+			return;
+		}
+
+		// Admin hint when no design is assigned — only visible to shop managers.
+		if ( null === $this->design ) {
+			if ( current_user_can( 'manage_woocommerce' ) ) {
+				$product_id  = (int) get_queried_object_id();
+				$assign_url  = admin_url( 'admin.php?page=overcustomise-products&tab=products' );
+				echo '<div style="background:#fff3cd;border:1px solid #ffc107;border-radius:4px;padding:10px 14px;margin-bottom:16px;font-size:13px;">'
+				   . '&#9888; <strong>OverCustomise:</strong> No design is assigned to this product. '
+				   . '<a href="' . esc_url( $assign_url ) . '">Assign one in Products &rarr; Products tab</a>.'
+				   . '</div>';
+			}
+			return;
+		}
+
+		$template = OC_PATH . 'templates/frontend/customiser-panel.php';
+		if ( ! file_exists( $template ) ) {
+			return;
+		}
+
+		$design = $this->design;
+		$areas  = $this->areas;
+		$layers = $this->layers;
+
+		include $template;
+	}
+
+	// ── Validation ────────────────────────────────────────────────────────────
+
+	public function validate( bool $passed, int $product_id, int $qty ): bool {
+		if ( null === $this->design ) {
+			return $passed;
+		}
+
+		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
+
+		if ( empty( trim( $raw ) ) || '{}' === trim( $raw ) ) {
+			wc_add_notice( __( 'Please complete your personalisation before adding to cart.', 'overcustomise' ), 'error' );
+			return false;
+		}
+
+		$data = json_decode( $raw, true );
+		if ( ! is_array( $data ) ) {
+			wc_add_notice( __( 'Invalid personalisation data. Please try again.', 'overcustomise' ), 'error' );
+			return false;
+		}
+
+		// Check all required layers have a value.
+		$layer_inputs = $data['layers'] ?? [];
+		foreach ( $this->layers as $layer ) {
+			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			if ( empty( $settings['required'] ) ) continue;
+
+			$input = $layer_inputs[ (int) $layer->id ] ?? [];
+			$filled = false;
+
+			switch ( $layer->type ) {
+				case 'text':
+				case 'textarea':
+					$filled = ! empty( trim( $input['value'] ?? '' ) );
+					break;
+				case 'image':
+					$filled = ! empty( $input['attachmentId'] );
+					break;
+				case 'clipart':
+					$filled = ! empty( $input['clipartId'] );
+					break;
+				case 'spotify':
+					$filled = ! empty( trim( $input['value'] ?? '' ) );
+					break;
+				default:
+					$filled = true;
+			}
+
+			if ( ! $filled ) {
+				wc_add_notice(
+					sprintf( __( 'Please complete the "%s" field before adding to cart.', 'overcustomise' ), $layer->label ),
+					'error'
+				);
+				return false;
+			}
+		}
+
+		return $passed;
+	}
+
+	// ── Inline CSS ────────────────────────────────────────────────────────────
+
+	private function get_panel_css(): string {
+		return '
+		.oc-customiser-panel { margin-bottom: 24px; width: 100%; }
+
+		/* Area tabs */
+		.oc-area-tabs { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
+		.oc-area-tab { padding:6px 14px; border:1px solid #ddd; border-radius:3px; background:#fff; cursor:pointer; font-size:13px; transition:background .15s,border-color .15s; }
+		.oc-area-tab.oc-active { background:#0073aa; border-color:#0073aa; color:#fff; }
+
+
+		/* Layer controls */
+		.oc-layer-controls { display:flex; flex-direction:column; gap:18px; }
+		.oc-layer-section { border:1px solid #e8e8e8; border-radius:6px; overflow:hidden; }
+		.oc-layer-header { padding:10px 14px; background:#f8f8f8; border-bottom:1px solid #e8e8e8; font-size:13px; font-weight:600; color:#3c434a; display:flex; align-items:center; gap:8px; }
+		.oc-layer-type-badge { font-size:10px; font-weight:500; padding:2px 7px; border-radius:3px; background:#e0e0e0; color:#555; text-transform:uppercase; letter-spacing:.03em; }
+		.oc-layer-required { color:#b32d2e; font-size:11px; margin-left:auto; }
+		.oc-layer-body { padding:14px; display:flex; flex-direction:column; gap:10px; }
+
+		/* Controls */
+		.oc-control-group { display:flex; flex-direction:column; gap:5px; }
+		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
+		.oc-control-group input[type="text"],
+		.oc-control-group textarea,
+		.oc-control-group select { width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:3px; font-size:14px; box-sizing:border-box; }
+		.oc-control-group textarea { resize:vertical; min-height:80px; }
+		.oc-char-count { font-size:11px; color:#888; text-align:right; }
+
+		/* Font select */
+		.oc-font-row { display:flex; gap:8px; align-items:center; }
+		.oc-font-row select { flex:1; }
+
+		/* Colour swatches */
+		.oc-colour-swatches { display:flex; flex-wrap:wrap; gap:8px; }
+		.oc-colour-swatch { width:32px; height:32px; border-radius:50%; border:2px solid transparent; cursor:pointer; transition:transform .1s,border-color .1s; }
+		.oc-colour-swatch:hover { transform:scale(1.15); }
+		.oc-colour-swatch.oc-selected { border-color:#0073aa; box-shadow:0 0 0 2px rgba(0,115,170,.3); }
+		.oc-color-freeform { display:flex; align-items:center; gap:8px; margin-top:4px; }
+		.oc-color-freeform input[type="color"] { width:40px; height:32px; padding:2px; border:1px solid #ddd; border-radius:3px; cursor:pointer; }
+
+		/* Upload zone */
+		.oc-upload-zone { border:2px dashed #ccc; border-radius:4px; min-height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:border-color .15s,background .15s; }
+		.oc-upload-zone:hover,.oc-upload-zone.uppy-is-drag-over { border-color:#0073aa; background:#f0f8ff; }
+		.oc-artwork-preview { display:flex; align-items:center; gap:10px; margin-top:8px; padding:8px; background:#f9f9f9; border-radius:3px; border:1px solid #e0e0e0; }
+		.oc-artwork-thumb { max-width:60px; max-height:60px; object-fit:contain; border:1px solid #ddd; border-radius:2px; }
+		.oc-artwork-remove { font-size:12px; color:#b32d2e; background:none; border:1px solid #b32d2e; border-radius:3px; padding:3px 8px; cursor:pointer; }
+		.oc-artwork-remove:hover { background:#fde8e8; }
+
+		/* Clipart grid */
+		.oc-clipart-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); gap:8px; max-height:240px; overflow-y:auto; padding:4px; }
+		.oc-clipart-item { border:2px solid transparent; border-radius:4px; padding:4px; cursor:pointer; background:#fff; transition:border-color .1s,background .1s; }
+		.oc-clipart-item:hover { border-color:#0073aa; background:#f0f8ff; }
+		.oc-clipart-item.oc-selected { border-color:#0073aa; background:#ddefff; }
+		.oc-clipart-item img { width:100%; aspect-ratio:1; object-fit:contain; display:block; }
+		.oc-clipart-empty { font-size:13px; color:#888; text-align:center; padding:16px; }
+
+		/* Spotify */
+		.oc-spotify-hint { font-size:11px; color:#888; }
+		';
+	}
+}
