@@ -43,17 +43,15 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$pdf->Rect( 0, 0, $w_mm, $h_mm, 'F' );
 
 		// ── Artwork layer ──────────────────────────────────────────────────
-		if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
-			$attachment_path = get_attached_file( (int) $area_data['artworkAttachmentId'] );
-			if ( $attachment_path && file_exists( $attachment_path ) ) {
+		$artwork_path = self::resolve_artwork_path( $area_data );
+		if ( $artwork_path ) {
 				// Render artwork greyscale, fitted to page.
 				$pdf->Image(
-					$attachment_path,
+					$artwork_path,
 					0, 0,
 					$w_mm, $h_mm,
 					'', '', '', false, 300, '', false, false, 0
 				);
-			}
 		}
 
 		// ── Text layer ─────────────────────────────────────────────────────

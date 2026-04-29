@@ -45,16 +45,14 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		$page_h = $h_mm + $bleed * 2;
 
 		// ── Background / full-bleed artwork ───────────────────────────────
-		if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
-			$path = get_attached_file( (int) $area_data['artworkAttachmentId'] );
-			if ( $path && file_exists( $path ) ) {
-				if ( $full_bleed ) {
-					// Artwork bleeds to page edge.
-					$pdf->Image( $path, 0, 0, $page_w, $page_h, '', '', '', false, 300 );
-				} else {
-					// Artwork inside live area only.
-					$pdf->Image( $path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
-				}
+		$artwork_path = self::resolve_artwork_path( $area_data );
+		if ( $artwork_path ) {
+			if ( $full_bleed ) {
+				// Artwork bleeds to page edge.
+				$pdf->Image( $artwork_path, 0, 0, $page_w, $page_h, '', '', '', false, 300 );
+			} else {
+				// Artwork inside live area only.
+				$pdf->Image( $artwork_path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
 			}
 		} else {
 			// Solid white background through bleed.

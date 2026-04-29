@@ -123,10 +123,10 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 
 	#[Test]
 	public function upload_artwork_rejects_when_no_file_sent(): void {
-		$nonce = wp_create_nonce( OC_Upload_Handler::NONCE_ACTION );
+		$token = OC_Rest_API::issue_public_token();
 
 		$request = new WP_REST_Request( 'POST', '/overcustomise/v1/upload-artwork' );
-		$request->set_header( 'X-OC-Nonce', $nonce );
+		$request->set_header( 'X-OC-Token', $token );
 		// No file params set.
 
 		$response = rest_get_server()->dispatch( $request );

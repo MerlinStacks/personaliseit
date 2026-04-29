@@ -69,18 +69,31 @@ class OC_Print_Generator {
 			throw new \RuntimeException( 'No customisation data on order item.' );
 		}
 
-		// Look up the print area.
+		// Look up the print area — try the v2 design table first, fall back to legacy.
 		global $wpdb;
 		$area = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_print_areas WHERE id = %d LIMIT 1",
+			"SELECT * FROM {$wpdb->prefix}oc_design_print_areas WHERE id = %d LIMIT 1",
 			$record->print_area_id
 		) );
+		$is_v2_area = (bool) $area;
+
+		if ( ! $area ) {
+			$area = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_print_areas WHERE id = %d LIMIT 1",
+				$record->print_area_id
+			) );
+		}
 
 		if ( ! $area ) {
 			throw new \RuntimeException( "Print area #{$record->print_area_id} not found." );
 		}
 
-		$area_data = $customisation[ $area->area_key ] ?? null;
+		if ( $is_v2_area ) {
+			$area_data = self::build_v2_area_data( (int) $area->design_id, (int) $area->id, $customisation );
+		} else {
+			$area_data = $customisation[ $area->area_key ] ?? null;
+		}
+
 		if ( ! is_array( $area_data ) ) {
 			throw new \RuntimeException( "No customisation data for area '{$area->area_key}'." );
 		}
@@ -122,6 +135,25 @@ class OC_Print_Generator {
 				continue;
 			}
 
+			// v2 (design system) ────────────────────────────────────────────
+			if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
+				$design_id = (int) ( $customisation['designId'] ?? $item->get_meta( '_oc_design_id', true ) );
+				if ( ! $design_id ) {
+					continue;
+				}
+
+				$areas = OC_DB::get_design_print_areas( $design_id );
+				foreach ( $areas as $area ) {
+					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
+					if ( empty( $area_data['text'] ) && empty( $area_data['artworkAttachmentId'] ) ) {
+						continue;
+					}
+					$this->generate_for_area( $order, (int) $item_id, $area, $area_data );
+				}
+				continue;
+			}
+
+			// v1 (legacy) ────────────────────────────────────────────────────
 			$product_id = (int) $item->get_product_id();
 			$config     = OC_DB::get_config_by_product( $product_id );
 
@@ -141,6 +173,110 @@ class OC_Print_Generator {
 				$this->generate_for_area( $order, (int) $item_id, $area, $area_data );
 			}
 		}
+	}
+
+	/**
+	 * Collapse v2 per-layer customisation inputs for a single design print area
+	 * into the v1 area_data shape the type-specific generators still consume.
+	 *
+	 * v2 shape: { layers: { layerId: {type, value, fontId, colorHex, attachmentId, ...} } }
+	 * Output:   { text, fontId, color, artworkAttachmentId }
+	 */
+	private static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
+		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+		$all_layers   = OC_DB::get_design_layers( $design_id );
+
+		$text_parts   = [];
+		$font_id      = 0;
+		$color        = '';
+		$attachment   = 0;
+		$artwork_path = '';
+
+		foreach ( $all_layers as $layer ) {
+			if ( (int) $layer->area_id !== $area_id ) {
+				continue;
+			}
+			$input = $layer_inputs[ (int) $layer->id ] ?? null;
+			if ( ! is_array( $input ) ) {
+				continue;
+			}
+
+			switch ( $layer->type ) {
+				case 'text':
+				case 'textarea':
+				case 'spotify':
+					$val = trim( (string) ( $input['value'] ?? '' ) );
+					if ( '' !== $val ) {
+						$text_parts[] = $val;
+					}
+					if ( ! $font_id && ! empty( $input['fontId'] ) ) {
+						$font_id = (int) $input['fontId'];
+					}
+					if ( '' === $color && ! empty( $input['colorHex'] ) ) {
+						$color = (string) $input['colorHex'];
+					}
+					break;
+
+				case 'image':
+				case 'clipart':
+				case 'lineart':
+					if ( ! $attachment && ! empty( $input['attachmentId'] ) ) {
+						$attachment = (int) $input['attachmentId'];
+					}
+					if ( '' === $artwork_path && 'clipart' === $layer->type ) {
+						$clipart_id  = (int) ( $input['clipartId'] ?? 0 );
+						$clipart_url = is_string( $input['clipartUrl'] ?? null ) ? (string) $input['clipartUrl'] : '';
+						$artwork_path = self::resolve_clipart_path( $clipart_id, $clipart_url );
+					}
+					break;
+			}
+		}
+
+		return [
+			'text'                => implode( "\n", $text_parts ),
+			'fontId'              => $font_id,
+			'color'               => '' !== $color ? $color : '#000000',
+			'artworkAttachmentId' => $attachment,
+			'artworkPath'         => $artwork_path,
+		];
+	}
+
+	/**
+	 * Resolve a clipart file path from clipart DB id or clipart URL.
+	 */
+	private static function resolve_clipart_path( int $clipart_id, string $clipart_url ): string {
+		global $wpdb;
+
+		if ( $clipart_id > 0 ) {
+			$file_path = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
+					$clipart_id
+				)
+			);
+			if ( is_string( $file_path ) && '' !== $file_path ) {
+				$real = realpath( $file_path );
+				if ( $real && file_exists( $real ) ) {
+					return $real;
+				}
+			}
+		}
+
+		if ( '' !== $clipart_url ) {
+			$uploads = wp_upload_dir();
+			$baseurl = isset( $uploads['baseurl'] ) ? rtrim( (string) $uploads['baseurl'], '/' ) : '';
+			$basedir = isset( $uploads['basedir'] ) ? rtrim( (string) $uploads['basedir'], '/\\' ) : '';
+			if ( '' !== $baseurl && '' !== $basedir && 0 === strpos( $clipart_url, $baseurl . '/' ) ) {
+				$relative = ltrim( substr( $clipart_url, strlen( $baseurl ) ), '/' );
+				$candidate = $basedir . '/' . $relative;
+				$real = realpath( $candidate );
+				if ( $real && file_exists( $real ) ) {
+					return $real;
+				}
+			}
+		}
+
+		return '';
 	}
 
 	/** Generate (or attempt to generate) the print file for one area. */
@@ -292,18 +428,35 @@ class OC_Print_Generator {
 			wp_die( esc_html__( 'File not found on disk.', 'overcustomise' ), 404 );
 		}
 
+		// Defence-in-depth: file path must resolve inside the uploads directory.
+		$upload      = wp_upload_dir();
+		$base_real   = realpath( $upload['basedir'] );
+		$target_real = realpath( $record->file_path );
+		if ( ! $base_real || ! $target_real || 0 !== strpos( $target_real, $base_real ) ) {
+			wp_die( esc_html__( 'Invalid file path.', 'overcustomise' ), 400 );
+		}
+
 		$filename  = basename( $record->file_path );
 		$mime_type = self::mime_for_extension( pathinfo( $filename, PATHINFO_EXTENSION ) );
 
+		// RFC 6266: use a safe ASCII fallback plus filename* for any UTF-8 names.
+		$ascii_fallback = preg_replace( '/[^\w\-.]+/', '_', $filename ) ?: 'download';
+		$utf8_encoded   = rawurlencode( $filename );
+
 		// Stream the file to the browser.
 		header( 'Content-Type: '        . $mime_type );
-		header( 'Content-Disposition: attachment; filename="' . $filename . '"' );
+		header( sprintf(
+			'Content-Disposition: attachment; filename="%s"; filename*=UTF-8\'\'%s',
+			$ascii_fallback,
+			$utf8_encoded
+		) );
 		header( 'Content-Length: '      . filesize( $record->file_path ) );
 		header( 'Cache-Control: private, no-cache, no-store, must-revalidate' );
 		header( 'Pragma: no-cache' );
+		header( 'X-Content-Type-Options: nosniff' );
 
 		// Disable any output buffering to avoid memory issues with large files.
-		if ( ob_get_level() ) {
+		while ( ob_get_level() ) {
 			ob_end_clean();
 		}
 

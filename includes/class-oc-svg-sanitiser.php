@@ -39,22 +39,54 @@ class OC_SVG_Sanitiser {
 		$svg = ltrim( $svg, "\xEF\xBB\xBF" );
 		$svg = trim( $svg );
 
-		// Must start with either <?xml or <svg.
+		// Hard cap input size (5 MB) to prevent memory abuse from malformed SVGs.
+		if ( strlen( $svg ) > 5 * 1024 * 1024 ) {
+			throw new \InvalidArgumentException( 'SVG exceeds size limit.' );
+		}
+
+		// Must contain an <svg> element.
 		if ( ! preg_match( '/<svg[\s>]/i', $svg ) ) {
 			throw new \InvalidArgumentException( 'Not a valid SVG file.' );
 		}
 
-		$dom = new \DOMDocument();
+		// Reject any DOCTYPE to block XXE / billion-laughs entity expansion.
+		if ( preg_match( '/<!DOCTYPE/i', $svg ) ) {
+			throw new \InvalidArgumentException( 'SVG DOCTYPE declarations are not permitted.' );
+		}
+
+		// Strip any XML processing instructions other than the optional prolog.
+		if ( preg_match( '/<\?(?!xml\b)[^>]*\?>/i', $svg ) ) {
+			throw new \InvalidArgumentException( 'SVG processing instructions are not permitted.' );
+		}
+
+		$dom               = new \DOMDocument();
 		$dom->formatOutput = false;
+
+		// Belt-and-braces: disable external entity loading on PHP < 8 where
+		// this call is still meaningful; it's a no-op on PHP 8+ where libxml
+		// 2.9+ disables this by default. Suppress deprecation notices.
+		$prev_entity_loader = null;
+		if ( PHP_VERSION_ID < 80000 && function_exists( 'libxml_disable_entity_loader' ) ) {
+			$prev_entity_loader = @libxml_disable_entity_loader( true ); // phpcs:ignore Generic.PHP.DeprecatedFunctions.Deprecated
+		}
 
 		// Suppress XML parse errors; we'll check $dom->documentElement after.
 		$previous = libxml_use_internal_errors( true );
-		$loaded   = $dom->loadXML( $svg, LIBXML_NONET );
+		$loaded   = $dom->loadXML( $svg, LIBXML_NONET | LIBXML_NOCDATA );
 		libxml_clear_errors();
 		libxml_use_internal_errors( $previous );
 
+		if ( null !== $prev_entity_loader && function_exists( 'libxml_disable_entity_loader' ) ) {
+			@libxml_disable_entity_loader( $prev_entity_loader ); // phpcs:ignore Generic.PHP.DeprecatedFunctions.Deprecated
+		}
+
 		if ( ! $loaded || ! $dom->documentElement ) {
 			throw new \InvalidArgumentException( 'SVG could not be parsed as XML.' );
+		}
+
+		// Reject anything that isn't actually an SVG at the root.
+		if ( 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			throw new \InvalidArgumentException( 'Root element is not <svg>.' );
 		}
 
 		self::clean_node( $dom->documentElement );
@@ -141,12 +173,12 @@ class OC_SVG_Sanitiser {
 		$to_remove = [];
 
 		foreach ( $el->attributes as $attr ) {
-			$name      = strtolower( $attr->localName );
-			$node_name = strtolower( $attr->nodeName );
-			$value     = $attr->value;
+			$name  = strtolower( $attr->localName );
+			$value = $attr->value;
 
-			// Event handlers: on*, xml:base.
-			if ( str_starts_with( $name, 'on' ) || 'xml:base' === $node_name ) {
+			// Event handlers (on*) and xml:base (detected by localName + xml namespace).
+			$is_xml_base = 'base' === $name && 'http://www.w3.org/XML/1998/namespace' === $attr->namespaceURI;
+			if ( str_starts_with( $name, 'on' ) || $is_xml_base ) {
 				$to_remove[] = $attr;
 				continue;
 			}

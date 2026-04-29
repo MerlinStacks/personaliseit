@@ -10,7 +10,6 @@
  */
 
 use PHPUnit\Framework\TestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -30,6 +29,18 @@ class UploadHandlerReflector {
 		$m = self::rc()->getMethod( 'detect_mime' );
 		$m->setAccessible( true );
 		return $m->invoke( null, $tmp_path, $filename );
+	}
+
+	public static function normalise_extension( string $ext ): string {
+		$m = self::rc()->getMethod( 'normalise_extension' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $ext );
+	}
+
+	public static function type_from_extension( string $ext ): ?string {
+		$m = self::rc()->getMethod( 'type_from_extension' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $ext );
 	}
 }
 
@@ -108,6 +119,17 @@ class Test_Upload_Handler_Validation extends TestCase {
 
 		$this->assertArrayHasKey( 'application/pdf', $prop );
 		$this->assertSame( 'pdf', $prop['application/pdf'] );
+	}
+
+	#[Test]
+	public function normalise_extension_trims_dot_and_case(): void {
+		$this->assertSame( 'jpeg', UploadHandlerReflector::normalise_extension( '.JpEg' ) );
+	}
+
+	#[Test]
+	public function type_from_extension_handles_jpeg_alias(): void {
+		$this->assertSame( 'jpg', UploadHandlerReflector::type_from_extension( 'jpeg' ) );
+		$this->assertSame( 'jpg', UploadHandlerReflector::type_from_extension( 'jpg' ) );
 	}
 
 	// ── process() — missing file throws ──────────────────────────────────

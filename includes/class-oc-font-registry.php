@@ -54,12 +54,25 @@ class OC_Font_Registry {
 		}
 
 		$upload = wp_upload_dir();
-		echo "\n<style id=\"oc-font-faces\">\n";
+		$output = '';
 
 		foreach ( $fonts as $font ) {
-			$url    = esc_url( $upload['baseurl'] . '/' . $font->file_path );
-			$format = $this->get_font_format( $font->file_path );
-			printf(
+			$rel = ltrim( (string) $font->file_path, '/' );
+			if ( '' === $rel ) {
+				continue;
+			}
+			// Block paths that try to escape the uploads directory.
+			if ( str_contains( $rel, '..' ) ) {
+				continue;
+			}
+			$abs = $upload['basedir'] . '/' . $rel;
+			if ( ! file_exists( $abs ) ) {
+				continue;
+			}
+
+			$url    = esc_url( $upload['baseurl'] . '/' . $rel );
+			$format = $this->get_font_format( $rel );
+			$output .= sprintf(
 				"@font-face {\n\tfont-family: '%s';\n\tsrc: url('%s') format('%s');\n\tfont-weight: %s;\n\tfont-style: %s;\n\tfont-display: swap;\n}\n",
 				esc_js( $font->name ),
 				$url,
@@ -69,7 +82,11 @@ class OC_Font_Registry {
 			);
 		}
 
-		echo "</style>\n";
+		if ( '' === $output ) {
+			return;
+		}
+
+		echo "\n<style id=\"oc-font-faces\">\n" . $output . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 
 	/** Return CSS format string for a font file path. */
@@ -93,10 +110,13 @@ class OC_Font_Registry {
 		$result = [];
 
 		foreach ( $fonts as $font ) {
+			if ( empty( $font->file_path ) ) {
+				continue;
+			}
 			$result[] = [
 				'id'                => (int) $font->id,
 				'name'              => $font->name,
-				'url'               => $upload['baseurl'] . '/' . $font->file_path,
+				'url'               => $upload['baseurl'] . '/' . ltrim( $font->file_path, '/' ),
 				'weight'            => $font->weight,
 				'style'             => $font->style,
 				'embroidery'        => (bool) $font->embroidery_suitable,

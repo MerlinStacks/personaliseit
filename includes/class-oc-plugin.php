@@ -30,6 +30,7 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 		require_once OC_PATH . 'includes/class-oc-db.php';
 		require_once OC_PATH . 'includes/class-oc-logger.php';
+		require_once OC_PATH . 'includes/class-oc-command-runner.php';
 		require_once OC_PATH . 'includes/class-oc-font-registry.php';
 		require_once OC_PATH . 'includes/class-oc-rest-api.php';
 		require_once OC_PATH . 'includes/class-oc-blocks-integration.php';

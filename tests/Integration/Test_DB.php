@@ -17,6 +17,9 @@ class Test_DB extends WP_UnitTestCase {
 
 	public static function setUpBeforeClass(): void {
 		parent::setUpBeforeClass();
+		if ( ! method_exists( static::class, 'factory' ) ) {
+			static::markTestSkipped( 'Integration tests require WP_TESTS_DIR to be set.' );
+		}
 		self::$product_id = self::factory()->post->create( [ 'post_type' => 'product' ] );
 	}
 

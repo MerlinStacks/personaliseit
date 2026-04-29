@@ -153,6 +153,12 @@
 		renderAll();
 		snapshot(); // seed initial history state
 		initInteractions();
+
+		// Safety net: force hidden-field re-render immediately before submit,
+		// so the latest in-memory settings are always serialised into POST data.
+		document.getElementById( 'oc-design-form' )?.addEventListener( 'submit', () => {
+			renderHiddenFields();
+		} );
 	}
 
 	// ── Normalisers ────────────────────────────────────────────────────────────
@@ -306,6 +312,9 @@
 		const fGroups = data.fontGroups    || [];
 		const cGroups = data.colourGroups  || [];
 		const aGroups = data.clipartGroups || [];
+		// Engraving has no colour — don't show colour group pickers for layers in engraving areas.
+		const area        = areas[ selectedIndex ];
+		const isEngraving = area && area.method === 'engraving';
 
 		switch ( tabId ) {
 			case 'general':
@@ -323,12 +332,15 @@
 			case 'style':
 				return field( 'Alignment', alignBtns( s.alignment || 'center' ) ) +
 					( fGroups.length ? field( 'Font groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-fg-check', fGroups, s.font_groups || [] ) ) : field( 'Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>' ) ) +
-					( cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : field( 'Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>' ) );
+					( isEngraving
+						? ''
+						: ( cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : field( 'Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>' ) ) );
 			case 'file':
 				return field( 'Accepted formats', formatChecks( s.formats || [ 'png', 'jpg', 'svg', 'webp' ] ) ) +
 					field( 'Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc( s.max_size_mb || 10 ) + '" />' );
 			case 'appearance':
 			case 'colours':
+				if ( isEngraving ) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
 				return cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
 			case 'library':
 				return aGroups.length ? field( 'Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-ag-check', aGroups, s.clipart_groups || [] ) ) : '<span class="oc-settings-empty">No clipart groups created yet.</span>';
@@ -411,6 +423,7 @@
 			card.appendChild( thumb );
 			card.appendChild( lbl );
 			card.addEventListener( 'click', () => {
+				if ( area.locked ) return; // locked areas can't be selected from strip
 				selectedIndex      = i;
 				selectedLayerIndex = -1;
 				activeLayerTab     = 'general';
@@ -451,11 +464,12 @@
 
 			item.addEventListener( 'click', e => {
 				if ( e.target.closest( '.oc-layer-actions' ) ) return;
+				if ( area.locked ) return; // locked areas can't be selected from list
 				selectedIndex = i; selectedLayerIndex = -1; activeLayerTab = 'general';
 				renderAll();
 			} );
 			item.querySelector( '.oc-layer-vis-btn'    ).addEventListener( 'click', e => { e.stopPropagation(); area.visible = ! area.visible; snapshot(); renderAll(); } );
-			item.querySelector( '.oc-layer-lock-btn'   ).addEventListener( 'click', e => { e.stopPropagation(); area.locked  = ! area.locked;  snapshot(); renderAll(); } );
+			item.querySelector( '.oc-layer-lock-btn'   ).addEventListener( 'click', e => { e.stopPropagation(); area.locked = ! area.locked; snapshot(); renderAll(); } );
 			item.querySelector( '.oc-layer-delete-btn' ).addEventListener( 'click', e => {
 				e.stopPropagation();
 				if ( ! confirm( 'Remove this print area and all its layers?' ) ) return;
@@ -710,7 +724,10 @@
 		const isHidden = layer ? ! layer.visible : ! area.visible;
 		const isLocked = layer ? layer.locked    : area.locked;
 
-		box.style.display = isHidden ? 'none' : '';
+		// Hide bounds box entirely when the area (not a layer) is locked, so the
+		// locked area doesn't look "selected" on canvas while mockup + ghosts still render.
+		const hideForLocked = ! layer && area.locked;
+		box.style.display = ( isHidden || hideForLocked ) ? 'none' : '';
 		box.style.opacity = '';
 		box.style.left    = Math.round( entity.x * scale ) + 'px';
 		box.style.top     = Math.round( entity.y * scale ) + 'px';
@@ -879,7 +896,11 @@
 		} );
 		document.getElementById( 'oc-prop-method' )?.addEventListener( 'change', () => {
 			const area = areas[ selectedIndex ];
-			if ( area ) { area.method = document.getElementById( 'oc-prop-method' ).value; renderAreasList(); renderHiddenFields(); }
+			if ( area ) {
+				area.method = document.getElementById( 'oc-prop-method' ).value;
+				// Re-render everything so layer panels reflect method-dependent UI (e.g. hide colour picks under engraving).
+				renderAll();
+			}
 		} );
 		[ 'oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h' ].forEach( id => {
 			document.getElementById( id )?.addEventListener( 'input', syncBoundsFromInputs );

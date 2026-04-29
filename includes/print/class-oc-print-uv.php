@@ -75,11 +75,9 @@ class OC_Print_UV extends OC_Print_Base {
 		$pdf->Rect( 0, 0, $page_w, $page_h, 'F' );
 
 		// Artwork.
-		if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
-			$path = get_attached_file( (int) $area_data['artworkAttachmentId'] );
-			if ( $path && file_exists( $path ) ) {
-				$pdf->Image( $path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
-			}
+		$artwork_path = self::resolve_artwork_path( $area_data );
+		if ( $artwork_path ) {
+			$pdf->Image( $artwork_path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
 		}
 
 		// Text.

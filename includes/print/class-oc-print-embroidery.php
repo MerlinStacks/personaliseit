@@ -57,10 +57,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return false;
 		}
 
-		if ( ! function_exists( 'exec' ) ) {
-			return false;
-		}
-
 		$python = (string) OC_Admin_Settings::get( 'python_binary' ) ?: 'python3';
 		$script = (string) OC_Admin_Settings::get( 'pyembroidery_cli_path' );
 
@@ -69,8 +65,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		// Quick sanity check — call script with --version.
-		exec( escapeshellcmd( $python ) . ' ' . escapeshellarg( $script ) . ' --version 2>&1', $out, $code );
-		return 0 === $code;
+		try {
+			$result = OC_Command_Runner::run( [ $python, $script, '--version' ] );
+		} catch ( \InvalidArgumentException $e ) {
+			return false;
+		}
+		return 0 === (int) $result['code'];
 	}
 
 	// ── Tier 1: DST generation ─────────────────────────────────────────────
@@ -113,22 +113,34 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
-		$cmd = implode( ' ', array_filter( [
-			escapeshellcmd( $python ),
-			escapeshellarg( $script ),
-			'--text',   escapeshellarg( $text ),
-			$font_path ? '--font ' . escapeshellarg( $font_path ) : '',
-			'--color',  escapeshellarg( $color ),
-			'--width',  escapeshellarg( (string) $w_mm ),
-			'--height', escapeshellarg( (string) $h_mm ),
-			'--output', escapeshellarg( $dst_path ),
-		] ) );
+		$parts = [
+			$python,
+			$script,
+			'--text',
+			$text,
+			'--color',
+			$color,
+			'--width',
+			(string) $w_mm,
+			'--height',
+			(string) $h_mm,
+			'--output',
+			$dst_path,
+		];
+		if ( $font_path ) {
+			$parts[] = '--font';
+			$parts[] = $font_path;
+		}
 
-		exec( $cmd . ' 2>&1', $output, $return_code );
+		try {
+			$result = OC_Command_Runner::run( $parts );
+		} catch ( \InvalidArgumentException $e ) {
+			throw new \RuntimeException( 'pyembroidery CLI rejected command: ' . $e->getMessage() );
+		}
 
-		if ( 0 !== $return_code || ! file_exists( $dst_path ) ) {
+		if ( 0 !== (int) $result['code'] || ! file_exists( $dst_path ) ) {
 			throw new \RuntimeException(
-				'pyembroidery CLI failed (exit ' . $return_code . '): ' . implode( "\n", $output )
+				'pyembroidery CLI failed (exit ' . (int) $result['code'] . '): ' . implode( "\n", (array) $result['output'] )
 			);
 		}
 

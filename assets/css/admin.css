@@ -1652,7 +1652,7 @@
 .oc-layer--locked .oc-layer-item-name { color: var(--oc-gray-500); }
 
 /* Canvas bounds box — locked state */
-.oc-bounds-box--locked { cursor: not-allowed !important; }
+.oc-bounds-box--locked { cursor: not-allowed !important; pointer-events: none; }
 .oc-bounds-box--locked .oc-bounds-handle { cursor: not-allowed !important; pointer-events: none; }
 
 /* Drag handle */
@@ -1738,7 +1738,7 @@
 .oc-layer-type-btn-icon     { font-size: 15px; line-height: 1; }
 
 /* Layer ghost boxes on canvas */
-.oc-canvas-layer-ghost      { position: absolute; box-sizing: border-box; border: 1.5px solid; transition: opacity .1s; }
+.oc-canvas-layer-ghost      { position: absolute; box-sizing: border-box; border: 1.5px solid; transition: opacity .1s; pointer-events: auto; }
 .oc-canvas-layer-ghost:hover { opacity: .75; }
 
 /* Area boundary outline (shown when a layer is selected) */
@@ -2178,3 +2178,160 @@
 	height: 40px;
 }
 .oc-clipart-group-picker .oc-group-font-item { gap: 10px; }
+
+/* Settings page tabs */
+.oc-settings-page .oc-page-header {
+	margin-bottom: 18px;
+}
+.oc-settings-layout {
+	display: grid;
+	grid-template-columns: 280px minmax(0, 1fr);
+	gap: 18px;
+	align-items: start;
+}
+.oc-settings-sidebar {
+	position: sticky;
+	top: 46px;
+}
+.oc-settings-tabs {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.oc-settings-tab-btn {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	border: 1px solid var(--oc-gray-200);
+	background: var(--oc-white);
+	border-radius: 7px;
+	padding: 10px 12px;
+	cursor: pointer;
+	font-size: 13px;
+	color: var(--oc-gray-700);
+	text-align: left;
+	transition: border-color .15s, background .15s, box-shadow .15s, transform .15s;
+}
+.oc-settings-tab-btn:hover {
+	border-color: var(--oc-primary-border);
+	background: var(--oc-primary-light);
+	color: var(--oc-gray-900);
+	transform: translateX(1px);
+}
+.oc-settings-tab-btn.is-active {
+	border-color: var(--oc-primary);
+	background: var(--oc-primary-light);
+	color: var(--oc-primary);
+	box-shadow: 0 0 0 1px var(--oc-primary-border) inset;
+}
+.oc-settings-tab-title {
+	font-weight: 600;
+}
+.oc-settings-help-card .oc-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+.oc-settings-help-card .oc-form-help {
+	margin: 0;
+}
+.oc-settings-content .oc-card {
+	margin-bottom: 14px;
+}
+.oc-settings-tab-panel {
+	display: none;
+}
+.oc-settings-tab-panel.is-active {
+	display: block;
+}
+.oc-settings-savebar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+.oc-settings-save-meta {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+.oc-settings-dirty-indicator {
+	display: none;
+	padding: 3px 9px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	background: var(--oc-warning-bg);
+	color: var(--oc-warning);
+}
+.oc-settings-dirty-indicator.is-visible {
+	display: inline-flex;
+}
+.oc-inline-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+.oc-input-xs {
+	width: 80px;
+}
+.oc-input-small {
+	width: 110px;
+}
+.oc-input-suffix {
+	font-size: 13px;
+	color: var(--oc-gray-500);
+}
+.oc-select-wide {
+	width: 220px;
+}
+.oc-icc-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+.oc-icc-label {
+	font-size: 12px;
+	color: var(--oc-gray-500);
+	width: 90px;
+	flex-shrink: 0;
+}
+
+@media (max-width: 1080px) {
+	.oc-settings-layout {
+		grid-template-columns: 1fr;
+	}
+	.oc-settings-sidebar {
+		position: static;
+	}
+	.oc-settings-tabs {
+		flex-direction: row;
+		flex-wrap: wrap;
+	}
+	.oc-settings-tab-btn {
+		flex: 1 1 180px;
+	}
+}
+
+@media (max-width: 782px) {
+	.oc-settings-savebar {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.oc-settings-save-meta {
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 6px;
+	}
+	.oc-settings-content .oc-form-grid {
+		grid-template-columns: 1fr;
+	}
+	.oc-settings-content .oc-form-label {
+		padding-bottom: 6px;
+		border-bottom: none;
+	}
+	.oc-settings-content .oc-form-field {
+		padding-top: 0;
+	}
+}

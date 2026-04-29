@@ -40,8 +40,9 @@ class OC_Admin_Clipart {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'overcustomise' ) );
 		}
 
-		if ( isset( $_GET['action'] ) && 'toggle' === $_GET['action'] ) { $this->handle_toggle(); }
-		if ( isset( $_GET['action'] ) && 'delete' === $_GET['action'] ) { $this->handle_delete(); }
+		$get_action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
+		if ( 'toggle' === $get_action ) { $this->handle_toggle(); }
+		if ( 'delete' === $get_action ) { $this->handle_delete(); }
 
 		$clipart = OC_DB::get_clipart( false );
 		$groups  = OC_DB::get_clipart_groups();
@@ -514,7 +515,13 @@ class OC_Admin_Clipart {
 			$id
 		) );
 		if ( $row && $row->file_path && file_exists( $row->file_path ) ) {
-			@unlink( $row->file_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors
+			// Only unlink files that live under wp-content/uploads.
+			$upload    = wp_upload_dir();
+			$base_real = realpath( $upload['basedir'] );
+			$path_real = realpath( $row->file_path );
+			if ( $base_real && $path_real && 0 === strpos( $path_real, $base_real ) ) {
+				wp_delete_file( $path_real );
+			}
 		}
 
 		$wpdb->delete( "{$wpdb->prefix}oc_clipart", [ 'id' => $id ], [ '%d' ] );
@@ -561,12 +568,27 @@ class OC_Admin_Clipart {
 
 		// Save file.
 		if ( 'svg' === $ext ) {
-			$raw       = file_get_contents( $tmp ); // phpcs:ignore WordPress.WP.AlternativeFunctions
-			$sanitised = OC_SVG_Sanitiser::sanitise( $raw );
+			if ( ! is_uploaded_file( $tmp ) ) {
+				return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
+			}
+			$raw = file_get_contents( $tmp ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+			if ( false === $raw ) {
+				return new \WP_Error( 'read_failed', __( 'Could not read uploaded file.', 'overcustomise' ) );
+			}
+			try {
+				$sanitised = OC_SVG_Sanitiser::sanitise( $raw );
+			} catch ( \InvalidArgumentException $e ) {
+				return new \WP_Error( 'unsafe_svg', $e->getMessage() );
+			}
 			if ( false === file_put_contents( $dest, $sanitised ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions
 				return new \WP_Error( 'write_failed', __( 'Could not save file.', 'overcustomise' ) );
 			}
 		} else {
+			// Raster: confirm real image before moving.
+			$image_info = @getimagesize( $tmp );
+			if ( ! $image_info ) {
+				return new \WP_Error( 'not_image', __( 'File is not a valid image.', 'overcustomise' ) );
+			}
 			if ( ! move_uploaded_file( $tmp, $dest ) ) {
 				return new \WP_Error( 'move_failed', __( 'Could not move uploaded file.', 'overcustomise' ) );
 			}

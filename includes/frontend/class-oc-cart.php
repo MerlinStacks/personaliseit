@@ -19,6 +19,7 @@ class OC_Cart {
 
 		// Replace product thumbnail with personalised preview in cart/checkout.
 		add_filter( 'woocommerce_cart_item_thumbnail', [ $this, 'cart_item_thumbnail' ], 10, 3 );
+		add_filter( 'woocommerce_store_api_cart_item_images', [ $this, 'store_api_cart_item_images' ], 10, 3 );
 
 		// Apply flat rate fee.
 		add_action( 'woocommerce_cart_calculate_fees', [ $this, 'add_flat_rate_fee' ], 10 );
@@ -37,7 +38,12 @@ class OC_Cart {
 	public function add_cart_item_data( array $cart_item_data, int $product_id, int $variation_id ): array {
 		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
 
-		if ( empty( trim( $raw ) ) ) {
+		if ( ! is_string( $raw ) || '' === trim( $raw ) ) {
+			return $cart_item_data;
+		}
+
+		// Hard cap on payload size to prevent memory abuse via oversized JSON.
+		if ( strlen( $raw ) > 256 * 1024 ) {
 			return $cart_item_data;
 		}
 
@@ -45,6 +51,8 @@ class OC_Cart {
 		if ( ! is_array( $decoded ) ) {
 			return $cart_item_data;
 		}
+
+		$valid_layer_types = [ 'text', 'textarea', 'image', 'spotify', 'lineart', 'clipart' ];
 
 		// ── v2 format: { v:2, designId, layers:{layerId:{type,...}} } ────────
 		if ( isset( $decoded['v'] ) && 2 === (int) $decoded['v'] ) {
@@ -54,19 +62,48 @@ class OC_Cart {
 			$design = OC_DB::get_design( $design_id );
 			if ( ! $design || ! (bool) $design->active ) return $cart_item_data;
 
-			$sanitised_layers = [];
-			foreach ( (array) ( $decoded['layers'] ?? [] ) as $layer_id => $layer_data ) {
-				if ( ! is_array( $layer_data ) ) continue;
-				$type = sanitize_key( $layer_data['type'] ?? 'text' );
+			$design_layers = [];
+			foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
+				$layer_id = isset( $layer->id ) ? absint( $layer->id ) : 0;
+				if ( ! $layer_id ) {
+					continue;
+				}
+				$layer_type = isset( $layer->type ) ? sanitize_key( (string) $layer->type ) : '';
+				if ( '' === $layer_type ) {
+					continue;
+				}
+				$design_layers[ $layer_id ] = $layer_type;
+			}
+			if ( empty( $design_layers ) ) {
+				return $cart_item_data;
+			}
 
-				$sanitised_layers[ absint( $layer_id ) ] = [
+			// Reject if layers isn't actually an array.
+			if ( ! isset( $decoded['layers'] ) || ! is_array( $decoded['layers'] ) ) {
+				return $cart_item_data;
+			}
+
+			$sanitised_layers = [];
+			foreach ( $decoded['layers'] as $layer_id => $layer_data ) {
+				if ( ! is_array( $layer_data ) ) continue;
+
+				$layer_key = absint( $layer_id );
+				if ( ! $layer_key ) continue;
+				if ( ! isset( $design_layers[ $layer_key ] ) ) continue;
+
+				$type = $design_layers[ $layer_key ];
+				if ( ! in_array( $type, $valid_layer_types, true ) ) {
+					continue;
+				}
+
+				$sanitised_layers[ $layer_key ] = [
 					'type'          => $type,
-					'value'         => sanitize_text_field( $layer_data['value']         ?? '' ),
-					'fontId'        => absint( $layer_data['fontId']        ?? 0 ),
-					'colorHex'      => sanitize_hex_color( $layer_data['colorHex']  ?? '#000000' ) ?: '#000000',
-					'attachmentId'  => absint( $layer_data['attachmentId']  ?? 0 ),
-					'clipartId'     => absint( $layer_data['clipartId']     ?? 0 ),
-					'clipartUrl'    => esc_url_raw( $layer_data['clipartUrl'] ?? '' ),
+					'value'         => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',
+					'fontId'        => absint( $layer_data['fontId']       ?? 0 ),
+					'colorHex'      => sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000',
+					'attachmentId'  => absint( $layer_data['attachmentId'] ?? 0 ),
+					'clipartId'     => absint( $layer_data['clipartId']    ?? 0 ),
+					'clipartUrl'    => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
 				];
 			}
 
@@ -78,8 +115,12 @@ class OC_Cart {
 			$cart_item_data['_oc_unique_key']    = md5( $raw . microtime() );
 
 			// Preview image URL (uploaded by JS before form submit).
-			if ( ! empty( $decoded['previewUrl'] ) ) {
-				$cart_item_data['_oc_preview_url'] = esc_url_raw( $decoded['previewUrl'] );
+			$preview_url = $decoded['previewUrl'] ?? '';
+			if ( is_string( $preview_url ) && '' !== $preview_url ) {
+				$safe_preview_url = $this->validate_preview_url( $preview_url );
+				if ( '' !== $safe_preview_url ) {
+					$cart_item_data['_oc_preview_url'] = $safe_preview_url;
+				}
 			}
 
 			return $cart_item_data;
@@ -92,10 +133,12 @@ class OC_Cart {
 		$sanitised = [];
 		foreach ( $decoded as $area_key => $area_data ) {
 			if ( ! is_array( $area_data ) ) continue;
-			$sanitised[ sanitize_key( $area_key ) ] = [
-				'text'               => sanitize_text_field( $area_data['text']  ?? '' ),
+			$safe_key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
+			if ( '' === $safe_key ) continue;
+			$sanitised[ $safe_key ] = [
+				'text'               => is_scalar( $area_data['text'] ?? null ) ? sanitize_text_field( (string) $area_data['text'] ) : '',
 				'fontId'             => absint( $area_data['fontId'] ?? 0 ),
-				'color'              => sanitize_hex_color( $area_data['color'] ?? '#000000' ) ?: '#000000',
+				'color'              => sanitize_hex_color( is_string( $area_data['color'] ?? null ) ? $area_data['color'] : '#000000' ) ?: '#000000',
 				'artworkAttachmentId' => absint( $area_data['artworkAttachmentId'] ?? 0 ),
 			];
 		}
@@ -106,6 +149,32 @@ class OC_Cart {
 		$cart_item_data['_oc_flat_rate']     = (float) $config->flat_rate;
 		$cart_item_data['_oc_unique_key']    = md5( $raw . microtime() );
 		return $cart_item_data;
+	}
+
+	/** Ensure preview URLs point to plugin-generated preview files only. */
+	private function validate_preview_url( string $preview_url ): string {
+		$sanitised_url = esc_url_raw( $preview_url );
+		if ( '' === $sanitised_url ) {
+			return '';
+		}
+
+		$uploads = wp_upload_dir();
+		$baseurl = isset( $uploads['baseurl'] ) ? rtrim( (string) $uploads['baseurl'], '/' ) : '';
+		if ( '' === $baseurl ) {
+			return '';
+		}
+
+		$expected_prefix = $baseurl . '/overcustomise/previews/preview-';
+		if ( 0 !== strpos( $sanitised_url, $expected_prefix ) ) {
+			return '';
+		}
+
+		$path = wp_parse_url( $sanitised_url, PHP_URL_PATH );
+		if ( ! is_string( $path ) || ! preg_match( '#/overcustomise/previews/preview-[a-f0-9]{32}\.(?:png|jpe?g)$#i', $path ) ) {
+			return '';
+		}
+
+		return $sanitised_url;
 	}
 
 	// -------------------------------------------------------------------------
@@ -177,6 +246,38 @@ class OC_Cart {
 			return '<img src="' . esc_url( $cart_item['_oc_preview_url'] ) . '" class="oc-cart-preview-thumb" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" />';
 		}
 		return $thumbnail;
+	}
+
+	/**
+	 * Replace Cart/Checkout Blocks line-item image with the personalised preview.
+	 *
+	 * @param array  $product_images Existing Store API image objects.
+	 * @param array  $cart_item      Raw cart item data.
+	 * @param string $cart_item_key  Cart item key.
+	 * @return array
+	 */
+	public function store_api_cart_item_images( array $product_images, array $cart_item, string $cart_item_key ): array {
+		$preview = $cart_item['_oc_preview_url'] ?? '';
+		if ( ! is_string( $preview ) || '' === $preview ) {
+			return $product_images;
+		}
+
+		$preview_url = esc_url_raw( $preview );
+		if ( '' === $preview_url ) {
+			return $product_images;
+		}
+
+		return [
+			(object) [
+				'id'        => 0,
+				'src'       => $preview_url,
+				'thumbnail' => $preview_url,
+				'srcset'    => '',
+				'sizes'     => '',
+				'name'      => __( 'Personalised preview', 'overcustomise' ),
+				'alt'       => __( 'Personalised preview', 'overcustomise' ),
+			],
+		];
 	}
 
 	// -------------------------------------------------------------------------
@@ -274,6 +375,7 @@ class OC_Cart {
 				echo '<div><strong>' . esc_html( $label ) . ':</strong> ' . $value . '</div>';
 			}
 
+			$this->render_admin_print_files( $item_id );
 			echo '</div>';
 			return;
 		}
@@ -313,6 +415,7 @@ class OC_Cart {
 			echo '</div>';
 		}
 
+		$this->render_admin_print_files( $item_id );
 		echo '</div>';
 	}
 
@@ -343,6 +446,42 @@ class OC_Cart {
 
 			default:
 				return '';
+		}
+	}
+
+	/**
+	 * Show generated print file status/links on backend order item rows.
+	 * Runs only in wp-admin to avoid exposing internal production files on frontend pages.
+	 */
+	private function render_admin_print_files( int $item_id ): void {
+		if ( ! is_admin() ) {
+			return;
+		}
+
+		$print_files = OC_DB::get_print_files_for_item( $item_id );
+		if ( empty( $print_files ) ) {
+			return;
+		}
+
+		echo '<div style="margin-top:6px;"><strong>' . esc_html__( 'Print Files:', 'overcustomise' ) . '</strong></div>';
+		foreach ( $print_files as $file ) {
+			$status_label = ucfirst( str_replace( '_', ' ', (string) $file->file_status ) );
+			echo '<div style="margin-top:3px;">';
+			echo esc_html( ucfirst( str_replace( '_', ' ', (string) $file->file_type ) ) . ': ' . $status_label );
+
+			if ( 'files_ready' === $file->file_status && ! empty( $file->file_path ) && file_exists( $file->file_path ) ) {
+				$download_url = add_query_arg(
+					[
+						'oc_download_file' => (int) $file->id,
+						'_wpnonce'         => wp_create_nonce( 'oc_download_' . (int) $file->id ),
+					],
+					admin_url()
+				);
+				echo ' <a href="' . esc_url( $download_url ) . '" class="button button-small" style="margin-left:6px;">'
+					. esc_html__( 'Download', 'overcustomise' ) . '</a>';
+			}
+
+			echo '</div>';
 		}
 	}
 }

@@ -21,10 +21,21 @@ class OC_Admin_Order_Metabox {
 	}
 
 	public function add_meta_box(): void {
-		$screen = wc_get_container()->get( \Automattic\WooCommerce\Internal\Admin\Orders\PageController::class )->get_edit_screen_id();
+		$screens    = [ 'shop_order' ];
+		$hpos_class = '\\Automattic\\WooCommerce\\Internal\\Admin\\Orders\\PageController';
 
-		// Register on both legacy CPT screen and HPOS screen.
-		foreach ( [ 'shop_order', $screen ] as $screen_id ) {
+		if ( function_exists( 'wc_get_container' ) && class_exists( $hpos_class ) ) {
+			try {
+				$hpos_screen = wc_get_container()->get( $hpos_class )->get_edit_screen_id();
+				if ( $hpos_screen ) {
+					$screens[] = $hpos_screen;
+				}
+			} catch ( \Throwable $e ) {
+				// HPOS container not ready — fall back to legacy screen only.
+			}
+		}
+
+		foreach ( $screens as $screen_id ) {
 			add_meta_box(
 				'oc-print-files',
 				__( 'OverCustomise — Print Files', 'overcustomise' ),
@@ -57,15 +68,29 @@ class OC_Admin_Order_Metabox {
 
 		foreach ( $items as $item_id => $item ) {
 			$product_id = $item->get_product_id();
-			$config     = OC_DB::get_config_by_product( $product_id );
+			$config_id     = (int) $item->get_meta( '_oc_config_id', true );
+			$customisation = $item->get_meta( '_oc_customisation', true );
+			$design_id     = 0;
 
-			// Skip items with no customisation config.
-			if ( ! $config ) {
-				continue;
+			if ( is_array( $customisation ) && isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
+				$design_id = (int) ( $customisation['designId'] ?? $item->get_meta( '_oc_design_id', true ) );
 			}
 
-			$print_files = OC_DB::get_print_files_for_item( $item_id );
-			$areas       = OC_DB::get_print_areas( (int) $config->id );
+			if ( ! $config_id ) {
+				$config = OC_DB::get_config_by_product( $product_id );
+				if ( $config ) {
+					$config_id = (int) $config->id;
+				}
+			}
+
+			$print_files  = OC_DB::get_print_files_for_item( $item_id );
+			$legacy_areas = $config_id ? OC_DB::get_print_areas( $config_id ) : [];
+			$design_areas = $design_id ? OC_DB::get_design_print_areas( $design_id ) : [];
+
+			// Skip items that have no OverCustomise data at all.
+			if ( empty( $print_files ) && empty( $legacy_areas ) && empty( $design_areas ) && empty( $customisation ) ) {
+				continue;
+			}
 
 			echo '<div style="border:1px solid #ddd;border-radius:4px;padding:12px 16px;margin-bottom:16px;">';
 			printf(
@@ -74,56 +99,58 @@ class OC_Admin_Order_Metabox {
 			);
 
 			// Customisation summary from order item meta.
-			$customisation = $item->get_meta( '_oc_customisation', true );
 			if ( $customisation && is_array( $customisation ) ) {
-				echo '<ul style="margin:0 0 10px;padding-left:18px;">';
-				foreach ( $customisation as $area_key => $area_data ) {
-					if ( is_array( $area_data ) ) {
-						// Nested structure: { areaKey: { text, fontId, color } }.
-						$text      = $area_data['text']  ?? '';
-						$color     = $area_data['color'] ?? '';
-						$font_name = '';
-						if ( ! empty( $area_data['fontId'] ) ) {
-							global $wpdb;
-							$font_name = (string) $wpdb->get_var( $wpdb->prepare(
-								"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
-								$area_data['fontId']
-							) );
+				if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
+					$this->render_v2_customisation_summary( $customisation, $design_id );
+				} else {
+					echo '<ul style="margin:0 0 10px;padding-left:18px;">';
+					foreach ( $customisation as $area_key => $area_data ) {
+						if ( is_array( $area_data ) ) {
+							// Nested structure: { areaKey: { text, fontId, color } }.
+							$text      = $area_data['text']  ?? '';
+							$color     = $area_data['color'] ?? '';
+							$font_name = '';
+							if ( ! empty( $area_data['fontId'] ) ) {
+								global $wpdb;
+								$font_name = (string) $wpdb->get_var( $wpdb->prepare(
+									"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
+									$area_data['fontId']
+								) );
+							}
+							printf(
+								'<li><strong>%s:</strong> %s%s%s</li>',
+								esc_html( ucwords( str_replace( '-', ' ', $area_key ) ) ),
+								esc_html( $text ),
+								$font_name ? ' &mdash; ' . esc_html( $font_name ) : '',
+								$color ? sprintf(
+									' &mdash; <span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
+									esc_attr( $color ),
+									esc_html( $color )
+								) : ''
+							);
+						} else {
+							// Flat legacy fallback.
+							printf(
+								'<li><strong>%s:</strong> %s</li>',
+								esc_html( ucfirst( str_replace( '_', ' ', $area_key ) ) ),
+								esc_html( (string) $area_data )
+							);
 						}
-						printf(
-							'<li><strong>%s:</strong> %s%s%s</li>',
-							esc_html( ucwords( str_replace( '-', ' ', $area_key ) ) ),
-							esc_html( $text ),
-							$font_name ? ' &mdash; ' . esc_html( $font_name ) : '',
-							$color ? sprintf(
-								' &mdash; <span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
-								esc_attr( $color ),
-								esc_html( $color )
-							) : ''
-						);
-					} else {
-						// Flat legacy fallback.
-						printf(
-							'<li><strong>%s:</strong> %s</li>',
-							esc_html( ucfirst( str_replace( '_', ' ', $area_key ) ) ),
-							esc_html( (string) $area_data )
-						);
 					}
+					echo '</ul>';
 				}
-				echo '</ul>';
 			}
 
 			if ( empty( $print_files ) ) {
 				echo '<p style="color:#888;">' . esc_html__( 'No print files generated yet.', 'overcustomise' ) . '</p>';
 			} else {
 				foreach ( $print_files as $file ) {
-					$area_label = '';
-					foreach ( $areas as $area ) {
-						if ( (int) $area->id === (int) $file->print_area_id ) {
-							$area_label = $area->label;
-							break;
-						}
-					}
+					$area_label = $this->resolve_area_label(
+						(int) $file->print_area_id,
+						$legacy_areas,
+						$design_areas,
+						$design_id > 0
+					);
 
 					echo '<div style="margin-bottom:8px;padding:8px;background:#f9f9f9;border-radius:3px;">';
 					printf(
@@ -135,7 +162,7 @@ class OC_Admin_Order_Metabox {
 					);
 
 					// Download button for ready files.
-					if ( 'files_ready' === $file->file_status && $file->file_path ) {
+					if ( 'files_ready' === $file->file_status && $file->file_path && file_exists( $file->file_path ) ) {
 						$download_url = add_query_arg( [
 							'oc_download_file' => $file->id,
 							'_wpnonce'         => wp_create_nonce( 'oc_download_' . $file->id ),
@@ -145,6 +172,8 @@ class OC_Admin_Order_Metabox {
 							esc_url( $download_url ),
 							esc_html__( 'Download', 'overcustomise' )
 						);
+					} elseif ( 'files_ready' === $file->file_status ) {
+						echo ' &nbsp;<em style="color:#888;">' . esc_html__( '(File missing on disk)', 'overcustomise' ) . '</em>';
 					}
 
 					// Download brief + DST upload for embroidery awaiting manual digitising.
@@ -198,19 +227,143 @@ class OC_Admin_Order_Metabox {
 		}
 	}
 
+	private function render_v2_customisation_summary( array $customisation, int $design_id ): void {
+		$layers = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+
+		if ( empty( $layers ) ) {
+			return;
+		}
+
+		$layer_map = [];
+		if ( $design_id > 0 ) {
+			foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
+				$layer_map[ (int) $layer->id ] = $layer;
+			}
+		}
+
+		echo '<ul style="margin:0 0 10px;padding-left:18px;">';
+		foreach ( $layers as $layer_id => $layer_data ) {
+			if ( ! is_array( $layer_data ) ) {
+				continue;
+			}
+
+			$type       = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : 'layer';
+			$layer_obj  = $layer_map[ (int) $layer_id ] ?? null;
+			$label      = $layer_obj ? ( $layer_obj->label ?: ucfirst( $layer_obj->type ) ) : ucfirst( $type );
+			$value_html = $this->v2_layer_display_value( $layer_data );
+
+			if ( '' === $value_html ) {
+				continue;
+			}
+
+			printf(
+				'<li><strong>%s:</strong> %s</li>',
+				esc_html( $label ),
+				$value_html // already escaped/sanitized in helper.
+			);
+		}
+		echo '</ul>';
+	}
+
+	private function v2_layer_display_value( array $layer_data ): string {
+		$type = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
+
+		if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) ) {
+			$value     = trim( (string) ( $layer_data['value'] ?? '' ) );
+			$font_name = '';
+			$color     = '';
+			if ( ! empty( $layer_data['fontId'] ) ) {
+				global $wpdb;
+				$font_name = (string) $wpdb->get_var( $wpdb->prepare(
+					"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
+					(int) $layer_data['fontId']
+				) );
+			}
+			if ( ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] ) ) {
+				$color = sanitize_hex_color( $layer_data['colorHex'] ) ?: '';
+			}
+			if ( '' === $value ) {
+				return '';
+			}
+
+			$html = esc_html( $value );
+			if ( '' !== $font_name ) {
+				$html .= ' &mdash; ' . esc_html( $font_name );
+			}
+			if ( '' !== $color ) {
+				$html .= sprintf(
+					' &mdash; <span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
+					esc_attr( $color ),
+					esc_html( $color )
+				);
+			}
+			return $html;
+		}
+
+		if ( 'image' === $type && ! empty( $layer_data['attachmentId'] ) ) {
+			$thumb = wp_get_attachment_image(
+				(int) $layer_data['attachmentId'],
+				[ 48, 48 ],
+				false,
+				[ 'style' => 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' ]
+			);
+			return $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
+		}
+
+		if ( 'clipart' === $type ) {
+			$has_clipart = ! empty( $layer_data['clipartId'] ) || ! empty( $layer_data['clipartUrl'] );
+			return $has_clipart ? esc_html__( '[Clipart selected]', 'overcustomise' ) : '';
+		}
+
+		return '';
+	}
+
+	private function resolve_area_label(
+		int $print_area_id,
+		array $legacy_areas,
+		array $design_areas,
+		bool $prefer_design
+	): string {
+		$search_sets = $prefer_design ? [ $design_areas, $legacy_areas ] : [ $legacy_areas, $design_areas ];
+
+		foreach ( $search_sets as $areas ) {
+			foreach ( $areas as $area ) {
+				if ( (int) $area->id === $print_area_id ) {
+					return (string) $area->label;
+				}
+			}
+		}
+
+		return '';
+	}
+
 	/** Handle DST/EMB file upload submitted from the order metabox. */
 	public function handle_dst_upload( int $post_id ): void {
-		if ( empty( $_POST['oc_dst_file_id'] ) || empty( $_FILES['oc_dst_file']['tmp_name'] ) ) {
+		// Bail on autosaves / cron / ajax without the expected POST.
+		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
 			return;
 		}
 
-		$file_id = (int) $_POST['oc_dst_file_id'];
-
-		if ( ! wp_verify_nonce( $_POST['_oc_dst_nonce'] ?? '', 'oc_dst_upload_' . $file_id ) ) {
-			return;
-		}
-
+		// Capability check first — cheapest guard and scoped to admins.
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		// Require the nonce and file id together before touching any POST data.
+		if ( empty( $_POST['_oc_dst_nonce'] ) || empty( $_POST['oc_dst_file_id'] ) ) {
+			return;
+		}
+
+		$file_id = absint( $_POST['oc_dst_file_id'] );
+		if ( ! $file_id ) {
+			return;
+		}
+
+		if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_POST['_oc_dst_nonce'] ) ), 'oc_dst_upload_' . $file_id ) ) {
+			return;
+		}
+
+		if ( empty( $_FILES['oc_dst_file']['tmp_name'] ) ) {
 			return;
 		}
 
@@ -219,11 +372,10 @@ class OC_Admin_Order_Metabox {
 			return;
 		}
 
-		$file    = $_FILES['oc_dst_file'];
-		$allowed = [ 'dst', 'emb', 'jef', 'vp3', 'pes', 'xxx' ];
-		$ext     = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
+		$file = $_FILES['oc_dst_file'];
 
-		if ( ! in_array( $ext, $allowed, true ) ) {
+		if ( ! empty( $file['error'] ) && UPLOAD_ERR_OK !== (int) $file['error'] ) {
+			OC_Logger::warning( "DST upload error code {$file['error']} for print file #{$file_id}." );
 			return;
 		}
 
@@ -231,12 +383,32 @@ class OC_Admin_Order_Metabox {
 			return;
 		}
 
+		$original_name = isset( $file['name'] ) ? basename( (string) $file['name'] ) : '';
+		if ( '' === $original_name ) {
+			return;
+		}
+
+		$allowed = [ 'dst', 'emb', 'jef', 'vp3', 'pes', 'xxx' ];
+		$ext     = strtolower( pathinfo( $original_name, PATHINFO_EXTENSION ) );
+
+		if ( ! in_array( $ext, $allowed, true ) ) {
+			return;
+		}
+
+		// Size sanity cap — embroidery stitch files are tiny; 10 MB is generous.
+		$max_bytes = 10 * 1024 * 1024;
+		if ( (int) ( $file['size'] ?? 0 ) <= 0 || (int) $file['size'] > $max_bytes ) {
+			return;
+		}
+
 		// Store the DST in the same order directory as the brief.
 		$upload_dir = wp_upload_dir();
-		$dir        = $upload_dir['basedir'] . '/overcustomise/print-files/' . $record->order_id;
-		wp_mkdir_p( $dir );
+		$dir        = $upload_dir['basedir'] . '/overcustomise/print-files/' . (int) $record->order_id;
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return;
+		}
 
-		$dest = $dir . '/' . $record->order_item_id . '-' . $record->print_area_id . '-dst.' . $ext;
+		$dest = $dir . '/' . (int) $record->order_item_id . '-' . (int) $record->print_area_id . '-dst.' . $ext;
 
 		if ( move_uploaded_file( $file['tmp_name'], $dest ) ) {
 			OC_DB::update_print_file( $file_id, [

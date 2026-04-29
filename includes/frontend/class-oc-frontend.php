@@ -243,7 +243,9 @@ class OC_Frontend {
 			'isLoading'       => false,
 			'uploadUrl'       => rest_url( 'overcustomise/v1/upload-artwork' ),
 			'savePreviewUrl'  => rest_url( 'overcustomise/v1/save-preview' ),
-			'uploadNonce'     => wp_create_nonce( OC_Upload_Handler::NONCE_ACTION ),
+			'validateSpotifyUrl' => rest_url( 'overcustomise/v1/validate-spotify' ),
+			'uploadNonce'     => wp_create_nonce( 'wp_rest' ),
+			'requestToken'    => OC_Rest_API::issue_public_token(),
 			'maxUploadSizeMb' => (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10,
 			'allowedFormats'  => (array) OC_Admin_Settings::get( 'allowed_upload_formats' ),
 		];
@@ -344,36 +346,90 @@ class OC_Frontend {
 			return false;
 		}
 
-		// Check all required layers have a value.
-		$layer_inputs = $data['layers'] ?? [];
+		// Check layer requirements and hard validation rules before cart insert.
+		$layer_inputs = is_array( $data['layers'] ?? null ) ? $data['layers'] : [];
 		foreach ( $this->layers as $layer ) {
-			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			if ( empty( $settings['required'] ) ) continue;
+			// Ignore hidden layers: they are not user-editable in the frontend panel.
+			if ( ! (bool) ( $layer->visible ?? true ) ) {
+				continue;
+			}
 
-			$input = $layer_inputs[ (int) $layer->id ] ?? [];
-			$filled = false;
+			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			if ( ! is_array( $settings ) ) {
+				$settings = [];
+			}
+
+			$required = ! empty( $settings['required'] );
+			$input    = is_array( $layer_inputs[ (int) $layer->id ] ?? null ) ? $layer_inputs[ (int) $layer->id ] : [];
+			$filled   = false;
+			$label    = $layer->label ?: ucfirst( (string) $layer->type );
 
 			switch ( $layer->type ) {
 				case 'text':
 				case 'textarea':
-					$filled = ! empty( trim( $input['value'] ?? '' ) );
+					$value  = trim( (string) ( $input['value'] ?? '' ) );
+					$filled = '' !== $value;
+
+					$char_limit = absint( $settings['char_limit'] ?? 0 );
+					if ( $char_limit > 0 && $this->string_length( $value ) > $char_limit ) {
+						wc_add_notice(
+							sprintf(
+								/* translators: 1: layer label, 2: max chars */
+								__( '"%1$s" exceeds the maximum of %2$d characters.', 'overcustomise' ),
+								$label,
+								$char_limit
+							),
+							'error'
+						);
+						return false;
+					}
 					break;
+
 				case 'image':
 					$filled = ! empty( $input['attachmentId'] );
 					break;
+
 				case 'clipart':
 					$filled = ! empty( $input['clipartId'] );
 					break;
+
 				case 'spotify':
-					$filled = ! empty( trim( $input['value'] ?? '' ) );
+					$spotify_value = trim( (string) ( $input['value'] ?? '' ) );
+					$filled        = '' !== $spotify_value;
+
+					$char_limit = absint( $settings['char_limit'] ?? 0 );
+					if ( $char_limit > 0 && $this->string_length( $spotify_value ) > $char_limit ) {
+						wc_add_notice(
+							sprintf(
+								/* translators: 1: layer label, 2: max chars */
+								__( '"%1$s" exceeds the maximum of %2$d characters.', 'overcustomise' ),
+								$label,
+								$char_limit
+							),
+							'error'
+						);
+						return false;
+					}
+
+					if ( $filled ) {
+						$status = sanitize_key( (string) ( $input['spotifyStatus'] ?? '' ) );
+						if ( in_array( $status, [ 'invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited' ], true ) ) {
+							wc_add_notice(
+								sprintf( __( 'The Spotify link in "%s" could not be validated. Please use a valid public Spotify link.', 'overcustomise' ), $label ),
+								'error'
+							);
+							return false;
+						}
+					}
 					break;
+
 				default:
 					$filled = true;
 			}
 
-			if ( ! $filled ) {
+			if ( $required && ! $filled ) {
 				wc_add_notice(
-					sprintf( __( 'Please complete the "%s" field before adding to cart.', 'overcustomise' ), $layer->label ),
+					sprintf( __( 'Please complete the "%s" field before adding to cart.', 'overcustomise' ), $label ),
 					'error'
 				);
 				return false;
@@ -381,6 +437,14 @@ class OC_Frontend {
 		}
 
 		return $passed;
+	}
+
+	/** Return UTF-8 character length when mbstring is available. */
+	private function string_length( string $value ): int {
+		if ( function_exists( 'mb_strlen' ) ) {
+			return (int) mb_strlen( $value, 'UTF-8' );
+		}
+		return strlen( $value );
 	}
 
 	// ── Inline CSS ────────────────────────────────────────────────────────────
@@ -424,13 +488,33 @@ class OC_Frontend {
 		.oc-color-freeform { display:flex; align-items:center; gap:8px; margin-top:4px; }
 		.oc-color-freeform input[type="color"] { width:40px; height:32px; padding:2px; border:1px solid #ddd; border-radius:3px; cursor:pointer; }
 
-		/* Upload zone */
-		.oc-upload-zone { border:2px dashed #ccc; border-radius:4px; min-height:80px; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:border-color .15s,background .15s; }
-		.oc-upload-zone:hover,.oc-upload-zone.uppy-is-drag-over { border-color:#0073aa; background:#f0f8ff; }
-		.oc-artwork-preview { display:flex; align-items:center; gap:10px; margin-top:8px; padding:8px; background:#f9f9f9; border-radius:3px; border:1px solid #e0e0e0; }
-		.oc-artwork-thumb { max-width:60px; max-height:60px; object-fit:contain; border:1px solid #ddd; border-radius:2px; }
-		.oc-artwork-remove { font-size:12px; color:#b32d2e; background:none; border:1px solid #b32d2e; border-radius:3px; padding:3px 8px; cursor:pointer; }
+		/* Upload zone — wrapper + Uppy DragDrop overrides */
+		.oc-upload-zone { border-radius:6px; min-height:120px; cursor:pointer; overflow:hidden; background:#fafbfc; }
+		.oc-upload-zone .uppy-Root,
+		.oc-upload-zone .uppy-DragDrop-container { width:100% !important; height:100% !important; min-height:120px; }
+		.oc-upload-zone .uppy-DragDrop-inner {
+			display:flex; flex-direction:column; align-items:center; justify-content:center;
+			gap:8px; padding:18px 14px; min-height:120px;
+			border:2px dashed #cbd5e1; border-radius:6px;
+			background:transparent; transition:border-color .15s, background .15s;
+		}
+		.oc-upload-zone .uppy-DragDrop--isDragDropSupported { border:none; }
+		.oc-upload-zone .uppy-DragDrop-container:hover .uppy-DragDrop-inner,
+		.oc-upload-zone .uppy-DragDrop--isDraggingOver .uppy-DragDrop-inner {
+			border-color:#0073aa; background:#eef7ff;
+		}
+		.oc-upload-zone .uppy-DragDrop-arrow { width:32px; height:32px; fill:#94a3b8; }
+		.oc-upload-zone .uppy-DragDrop-label {
+			font-size:13px; color:#334155; margin:0; font-weight:500;
+		}
+		.oc-upload-zone .uppy-DragDrop-browse {
+			color:#0073aa; font-weight:600; text-decoration:underline;
+		}
+		.oc-upload-zone .uppy-DragDrop-note { font-size:11px; color:#64748b; margin-top:2px; }
+		.oc-artwork-actions { display:flex; justify-content:flex-end; margin-top:8px; }
+		.oc-artwork-remove { font-size:12px; color:#b32d2e; background:#fff; border:1px solid #b32d2e; border-radius:3px; padding:4px 10px; cursor:pointer; margin-left:auto; }
 		.oc-artwork-remove:hover { background:#fde8e8; }
+		.oc-artwork-error { color:#b32d2e; font-size:12px; margin-top:6px; padding:6px 10px; background:#fef2f2; border:1px solid #fecaca; border-radius:4px; }
 
 		/* Clipart grid */
 		.oc-clipart-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); gap:8px; max-height:240px; overflow-y:auto; padding:4px; }
@@ -441,7 +525,12 @@ class OC_Frontend {
 		.oc-clipart-empty { font-size:13px; color:#888; text-align:center; padding:16px; }
 
 		/* Spotify */
-		.oc-spotify-hint { font-size:11px; color:#888; }
+		.oc-spotify-help { position:relative; display:inline-flex; align-items:center; width:fit-content; }
+		.oc-spotify-help-toggle { width:22px; height:22px; border:1px solid #c7c7c7; border-radius:50%; background:#fff; color:#666; font-size:11px; font-weight:700; line-height:1; cursor:help; padding:0; }
+		.oc-spotify-hint { position:absolute; top:calc(100% + 8px); left:0; z-index:5; display:none; width:min(260px,80vw); margin:0; padding:8px 10px; border-radius:4px; border:1px solid #d9d9d9; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); font-size:11px; font-weight:500; line-height:1.45; color:#666; }
+		.oc-spotify-help:hover .oc-spotify-hint,
+		.oc-spotify-help:focus-within .oc-spotify-hint { display:block; }
+		.oc-spotify-help.oc-open .oc-spotify-hint { display:block; }
 		';
 	}
 }

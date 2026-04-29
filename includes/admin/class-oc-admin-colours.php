@@ -25,8 +25,9 @@ class OC_Admin_Colours {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'overcustomise' ) );
 		}
 
-		if ( isset( $_GET['action'] ) && 'toggle' === $_GET['action'] ) { $this->handle_toggle(); }
-		if ( isset( $_GET['action'] ) && 'delete' === $_GET['action'] ) { $this->handle_delete(); }
+		$get_action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
+		if ( 'toggle' === $get_action ) { $this->handle_toggle(); }
+		if ( 'delete' === $get_action ) { $this->handle_delete(); }
 
 		$colours = OC_DB::get_colours( false );
 		$groups  = OC_DB::get_colour_groups();

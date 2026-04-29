@@ -265,6 +265,34 @@ abstract class OC_Print_Base {
 		return $font_size_pt * 0.3528 * 1.2; // 1pt = 0.3528mm
 	}
 
+	/**
+	 * Resolve artwork path for print renderers.
+	 *
+	 * Accepts either:
+	 * - artworkAttachmentId (media library attachment)
+	 * - artworkPath (absolute path under uploads)
+	 */
+	protected static function resolve_artwork_path( array $area_data ): ?string {
+		if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
+			$attachment_path = get_attached_file( (int) $area_data['artworkAttachmentId'] );
+			if ( $attachment_path && file_exists( $attachment_path ) ) {
+				return $attachment_path;
+			}
+		}
+
+		if ( ! empty( $area_data['artworkPath'] ) && is_string( $area_data['artworkPath'] ) ) {
+			$candidate = $area_data['artworkPath'];
+			$real      = realpath( $candidate );
+			$uploads   = wp_upload_dir();
+			$base_real = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
+			if ( $real && $base_real && 0 === strpos( $real, $base_real ) && file_exists( $real ) ) {
+				return $real;
+			}
+		}
+
+		return null;
+	}
+
 	// -------------------------------------------------------------------------
 	// Crop marks
 	// -------------------------------------------------------------------------

@@ -63,7 +63,8 @@ class OC_Admin_Products {
 	// ── Main two-tab page ─────────────────────────────────────────────────────
 
 	private function render_main(): void {
-		$active_tab = ( isset( $_GET['tab'] ) && 'designs' === $_GET['tab'] ) ? 'designs' : 'products';
+		$tab        = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
+		$active_tab = 'designs' === $tab ? 'designs' : 'products';
 		?>
 		<div class="wrap oc-page">
 
@@ -393,7 +394,7 @@ class OC_Admin_Products {
 		if ( isset( $_POST['oc_design_nonce'] ) ) {
 			$saved_id = $this->handle_design_save();
 			if ( $saved_id ) {
-				wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&saved=1' ) );
+				wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=edit&id=' . $saved_id . '&saved=1' ) );
 				exit;
 			}
 		}
@@ -663,6 +664,9 @@ class OC_Admin_Products {
 	// ── Save / Delete ─────────────────────────────────────────────────────────
 
 	private function handle_design_save(): int {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
+		}
 		if ( ! wp_verify_nonce( sanitize_key( $_POST['oc_design_nonce'] ?? '' ), 'oc_save_design' ) ) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -764,9 +768,11 @@ class OC_Admin_Products {
 				? sanitize_key( $layer_data['type'] )
 				: 'text';
 			$label    = sanitize_text_field( $layer_data['label']    ?? '' );
-			$settings = wp_json_encode( (array) json_decode(
-				sanitize_textarea_field( $layer_data['settings'] ?? '{}' ), true
-			) );
+			// WordPress slashes $_POST, so unslash before json_decode — otherwise the
+			// escaped quotes make it invalid JSON and settings get silently dropped.
+			$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
+			$decoded      = json_decode( is_string( $settings_raw ) ? $settings_raw : '{}', true );
+			$settings     = wp_json_encode( is_array( $decoded ) ? $decoded : [] );
 
 			$wpdb->insert(
 				"{$wpdb->prefix}oc_design_layers",

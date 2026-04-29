@@ -39,6 +39,16 @@ class OC_Upload_Handler {
 		'image/jpg'                  => 'jpg',
 	];
 
+	/** Allowed file extensions mapped to canonical type keys. */
+	private const EXT_TO_TYPE = [
+		'svg'  => 'svg',
+		'pdf'  => 'pdf',
+		'eps'  => 'eps',
+		'png'  => 'png',
+		'jpg'  => 'jpg',
+		'jpeg' => 'jpg',
+	];
+
 	// -------------------------------------------------------------------------
 	// Public API
 	// -------------------------------------------------------------------------
@@ -50,8 +60,8 @@ class OC_Upload_Handler {
 	 * @return array{attachment_id:int,preview_url:string,original_url:string,file_type:string}
 	 * @throws \RuntimeException On validation or processing failure.
 	 */
-	public static function process( array $_file ): array {
-		self::validate( $_file );
+	public static function process( array $_file, ?array $overrides = null ): array {
+		self::validate( $_file, $overrides );
 
 		$mime     = self::detect_mime( $_file['tmp_name'], $_file['name'] );
 		$type_key = self::SUPPORTED_TYPES[ $mime ] ?? null;
@@ -75,15 +85,32 @@ class OC_Upload_Handler {
 	// -------------------------------------------------------------------------
 
 	/** @throws \RuntimeException */
-	private static function validate( array $_file ): void {
+	private static function validate( array $_file, ?array $overrides = null ): void {
 		if ( empty( $_file['tmp_name'] ) || ! is_uploaded_file( $_file['tmp_name'] ) ) {
 			throw new \RuntimeException( __( 'No file uploaded.', 'overcustomise' ) );
 		}
 
-		$max_mb   = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
+		// PHP upload error codes other than OK indicate truncation or failure.
+		if ( isset( $_file['error'] ) && UPLOAD_ERR_OK !== (int) $_file['error'] ) {
+			throw new \RuntimeException( __( 'Upload failed before reaching the server.', 'overcustomise' ) );
+		}
+
+		// basename() strips any directory components that may have slipped through.
+		$name = isset( $_file['name'] ) ? basename( (string) $_file['name'] ) : '';
+		if ( '' === $name ) {
+			throw new \RuntimeException( __( 'Filename is missing.', 'overcustomise' ) );
+		}
+
+		$max_mb = isset( $overrides['max_size_mb'] ) && $overrides['max_size_mb'] > 0
+			? (int) $overrides['max_size_mb']
+			: ( (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10 );
 		$max_bytes = $max_mb * 1024 * 1024;
 
-		if ( $_file['size'] > $max_bytes ) {
+		$size = (int) ( $_file['size'] ?? 0 );
+		if ( $size <= 0 ) {
+			throw new \RuntimeException( __( 'Uploaded file is empty.', 'overcustomise' ) );
+		}
+		if ( $size > $max_bytes ) {
 			throw new \RuntimeException(
 				sprintf(
 					/* translators: %d: max size in MB */
@@ -93,8 +120,15 @@ class OC_Upload_Handler {
 			);
 		}
 
-		$allowed_formats = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
-		$ext             = strtolower( pathinfo( $_file['name'], PATHINFO_EXTENSION ) );
+		$allowed_formats = ! empty( $overrides['formats'] ) && is_array( $overrides['formats'] )
+			? $overrides['formats']
+			: (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
+		$allowed_formats = array_values( array_filter( array_map( [ self::class, 'normalise_extension' ], $allowed_formats ) ) );
+		$ext             = self::normalise_extension( pathinfo( $name, PATHINFO_EXTENSION ) );
+
+		if ( '' === $ext ) {
+			throw new \RuntimeException( __( 'File has no extension.', 'overcustomise' ) );
+		}
 
 		if ( ! empty( $allowed_formats ) && ! in_array( $ext, $allowed_formats, true ) ) {
 			throw new \RuntimeException(
@@ -105,6 +139,47 @@ class OC_Upload_Handler {
 				)
 			);
 		}
+
+		$detected_mime = self::detect_mime( $_file['tmp_name'], $name );
+		$detected_type = self::SUPPORTED_TYPES[ $detected_mime ] ?? null;
+		if ( null === $detected_type ) {
+			throw new \RuntimeException(
+				sprintf( __( 'Unsupported file type: %s', 'overcustomise' ), $detected_mime )
+			);
+		}
+
+		$ext_type = self::type_from_extension( $ext );
+		if ( null === $ext_type ) {
+			throw new \RuntimeException(
+				sprintf(
+					/* translators: %s: file extension */
+					__( 'File type .%s is not supported.', 'overcustomise' ),
+					$ext
+				)
+			);
+		}
+
+		if ( $detected_type !== $ext_type ) {
+			throw new \RuntimeException(
+				sprintf(
+					/* translators: 1: extension, 2: detected mime */
+					__( 'File extension .%1$s does not match detected content type (%2$s).', 'overcustomise' ),
+					$ext,
+					$detected_mime
+				)
+			);
+		}
+	}
+
+	/** Normalise a file extension (lowercase, no leading dot). */
+	private static function normalise_extension( string $ext ): string {
+		return ltrim( strtolower( trim( $ext ) ), '.' );
+	}
+
+	/** Map a file extension to its canonical file type key. */
+	private static function type_from_extension( string $ext ): ?string {
+		$normalised = self::normalise_extension( $ext );
+		return self::EXT_TO_TYPE[ $normalised ] ?? null;
 	}
 
 	// -------------------------------------------------------------------------
@@ -113,15 +188,23 @@ class OC_Upload_Handler {
 
 	/** Process SVG: sanitise → save to WP media library. */
 	private static function process_svg( array $_file ): array {
-		$sanitised = OC_SVG_Sanitiser::sanitise( file_get_contents( $_file['tmp_name'] ) );
+		$raw = file_get_contents( $_file['tmp_name'] );
+		if ( false === $raw ) {
+			throw new \RuntimeException( __( 'Could not read uploaded SVG.', 'overcustomise' ) );
+		}
+
+		$sanitised = OC_SVG_Sanitiser::sanitise( $raw );
 
 		// Write sanitised content to a temp file so WP can handle the upload.
 		$tmp = wp_tempnam( 'oc-svg-' );
-		file_put_contents( $tmp, $sanitised );
+		if ( false === file_put_contents( $tmp, $sanitised ) ) {
+			@unlink( $tmp );
+			throw new \RuntimeException( __( 'Could not stage sanitised SVG for upload.', 'overcustomise' ) );
+		}
 
 		$attachment_id = self::save_to_media_library(
 			$tmp,
-			sanitize_file_name( $_file['name'] ),
+			sanitize_file_name( basename( (string) $_file['name'] ) ),
 			'image/svg+xml'
 		);
 
@@ -143,11 +226,13 @@ class OC_Upload_Handler {
 
 	/** Process PDF or EPS: convert page 1 to PNG preview, save both files. */
 	private static function process_pdf_eps( array $_file, string $type ): array {
+		$safe_name = sanitize_file_name( basename( (string) $_file['name'] ) );
+
 		// Save the original file first.
 		$original_id = self::save_to_media_library(
 			$_file['tmp_name'],
-			sanitize_file_name( $_file['name'] ),
-			'application/pdf' === $_file['type'] ? 'application/pdf' : 'application/postscript'
+			$safe_name,
+			'pdf' === $type ? 'application/pdf' : 'application/postscript'
 		);
 
 		if ( is_wp_error( $original_id ) ) {
@@ -157,8 +242,12 @@ class OC_Upload_Handler {
 		$original_url  = wp_get_attachment_url( $original_id );
 		$original_path = get_attached_file( $original_id );
 
+		if ( ! $original_path || ! file_exists( $original_path ) ) {
+			throw new \RuntimeException( __( 'Saved original file could not be located.', 'overcustomise' ) );
+		}
+
 		// Generate PNG preview.
-		$preview_path = $original_path . '-preview.png';
+		$preview_path      = $original_path . '-preview.png';
 		$preview_generated = false;
 
 		if ( extension_loaded( 'imagick' ) ) {
@@ -172,7 +261,7 @@ class OC_Upload_Handler {
 		if ( $preview_generated && file_exists( $preview_path ) ) {
 			$preview_id = self::save_to_media_library(
 				$preview_path,
-				pathinfo( $_file['name'], PATHINFO_FILENAME ) . '-preview.png',
+				pathinfo( $safe_name, PATHINFO_FILENAME ) . '-preview.png',
 				'image/png'
 			);
 			@unlink( $preview_path );
@@ -183,7 +272,7 @@ class OC_Upload_Handler {
 		} else {
 			// Fallback: use a generic placeholder.
 			$preview_url = OC_URL . 'assets/images/pdf-placeholder.svg';
-			OC_Logger::warning( "Could not generate preview for {$_file['name']} — neither Imagick nor GhostScript available." );
+			OC_Logger::warning( 'Could not generate preview for ' . $safe_name . ' — neither Imagick nor GhostScript available.' );
 		}
 
 		return [
@@ -198,14 +287,14 @@ class OC_Upload_Handler {
 	private static function process_raster( array $_file, string $type ): array {
 		// Confirm it is actually an image via getimagesize.
 		$image_info = @getimagesize( $_file['tmp_name'] );
-		if ( ! $image_info ) {
+		if ( ! $image_info || empty( $image_info['mime'] ) ) {
 			throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 		}
 
 		$mime          = $image_info['mime'];
 		$attachment_id = self::save_to_media_library(
 			$_file['tmp_name'],
-			sanitize_file_name( $_file['name'] ),
+			sanitize_file_name( basename( (string) $_file['name'] ) ),
 			$mime
 		);
 
@@ -249,20 +338,56 @@ class OC_Upload_Handler {
 
 	/** Convert PDF/EPS page 1 to PNG via GhostScript CLI. */
 	private static function convert_via_ghostscript( string $source, string $dest ): bool {
-		if ( ! function_exists( 'exec' ) ) {
+		$binary = self::detect_ghostscript_binary();
+		if ( '' === $binary ) {
 			return false;
 		}
 
-		$source_escaped = escapeshellarg( $source );
-		$dest_escaped   = escapeshellarg( $dest );
+		try {
+			$result = OC_Command_Runner::run( [
+				$binary,
+				'-dNOPAUSE',
+				'-dBATCH',
+				'-dFirstPage=1',
+				'-dLastPage=1',
+				'-sDEVICE=png16m',
+				'-r150',
+				'-dFITALL',
+				'-sOutputFile=' . $dest,
+				$source,
+			] );
+		} catch ( \InvalidArgumentException $e ) {
+			OC_Logger::warning( 'Ghostscript command rejected: ' . $e->getMessage() );
+			return false;
+		}
 
-		exec(
-			"gs -dNOPAUSE -dBATCH -dFirstPage=1 -dLastPage=1 -sDEVICE=png16m -r150 -dFITALL -sOutputFile={$dest_escaped} {$source_escaped} 2>&1",
-			$output,
-			$return_code
-		);
+		if ( 0 !== (int) $result['code'] ) {
+			OC_Logger::warning( 'Ghostscript conversion failed: ' . implode( "\n", (array) $result['output'] ) );
+			return false;
+		}
 
-		return 0 === $return_code && file_exists( $dest );
+		return file_exists( $dest );
+	}
+
+	/** Detect a usable Ghostscript binary for the host platform. */
+	private static function detect_ghostscript_binary(): string {
+		$candidates = [ 'gs' ];
+		if ( str_starts_with( strtoupper( PHP_OS_FAMILY ), 'WINDOWS' ) ) {
+			$candidates = [ 'gswin64c', 'gswin32c', 'gs' ];
+		}
+
+		foreach ( $candidates as $bin ) {
+			try {
+				$probe = OC_Command_Runner::run( [ $bin, '--version' ] );
+				if ( 0 === (int) $probe['code'] ) {
+					return $bin;
+				}
+			} catch ( \InvalidArgumentException $e ) {
+				// Ignore invalid binary candidates and continue probing.
+			}
+		}
+
+		return '';
 	}
 
 	// -------------------------------------------------------------------------
@@ -287,9 +412,15 @@ class OC_Upload_Handler {
 		wp_mkdir_p( $subdir );
 
 		// Write .htaccess protection.
+		// Keep artwork files publicly readable (for previews), but block script execution.
 		$htaccess = $subdir . '/.htaccess';
-		if ( ! file_exists( $htaccess ) ) {
-			file_put_contents( $htaccess, "Options -Indexes\nDeny from all\n" );
+		$rules    = "Options -Indexes\n"
+			. "<FilesMatch \"\\.(php|phtml|phar|cgi|pl|py|sh|bash)$\">\n"
+			. "<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n"
+			. "<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n"
+			. "</FilesMatch>\n";
+		if ( ! file_exists( $htaccess ) || false === strpos( (string) file_get_contents( $htaccess ), 'FilesMatch' ) ) {
+			file_put_contents( $htaccess, $rules );
 		}
 
 		// Unique destination filename.
@@ -312,16 +443,21 @@ class OC_Upload_Handler {
 
 		$file_url = $upload_dir['baseurl'] . '/' . self::UPLOAD_SUBDIR . '/' . $dest_filename;
 
-		$attachment_id = wp_insert_attachment( $attachment, $dest_path );
+		$attachment_id = wp_insert_attachment( $attachment, $dest_path, 0, true );
 
 		if ( is_wp_error( $attachment_id ) ) {
 			return $attachment_id;
+		}
+		if ( ! $attachment_id ) {
+			return new \WP_Error( 'insert_failed', __( 'Could not register uploaded file.', 'overcustomise' ) );
 		}
 
 		// Generate image sizes for raster images.
 		if ( in_array( $mime_type, [ 'image/png', 'image/jpeg', 'image/jpg' ], true ) ) {
 			$metadata = wp_generate_attachment_metadata( $attachment_id, $dest_path );
-			wp_update_attachment_metadata( $attachment_id, $metadata );
+			if ( is_array( $metadata ) ) {
+				wp_update_attachment_metadata( $attachment_id, $metadata );
+			}
 		}
 
 		// Tag as OC artwork for easy identification.

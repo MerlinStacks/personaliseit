@@ -40,8 +40,12 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	public function tearDown(): void {
-		WC()->cart->empty_cart();
-		$this->product->delete( true );
+		if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
+			WC()->cart->empty_cart();
+		}
+		if ( isset( $this->product ) ) {
+			$this->product->delete( true );
+		}
 		parent::tearDown();
 	}
 
@@ -165,5 +169,110 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertIsArray( $meta );
 		$this->assertArrayHasKey( 'front', $meta );
 		$this->assertSame( 'Engraved', $meta['front']['text'] );
+	}
+
+	#[Test]
+	public function v2_customisation_only_accepts_layers_from_assigned_design(): void {
+		global $wpdb;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_designs', [
+			'name'        => 'Mug Design',
+			'custom_type' => 'text_only',
+			'flat_rate'   => 5.00,
+			'active'      => 1,
+		] );
+		$design_id = (int) $wpdb->insert_id;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [
+			'design_id'  => $design_id,
+			'area_id'    => 0,
+			'type'       => 'clipart',
+			'label'      => 'Artwork',
+			'sort_order' => 0,
+		] );
+		$layer_id = (int) $wpdb->insert_id;
+
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'v'        => 2,
+			'designId' => $design_id,
+			'layers'   => [
+				$layer_id => [
+					'type'       => 'text', // Should be replaced with DB-backed type.
+					'value'      => 'Hello',
+					'clipartId'  => 321,
+					'clipartUrl' => 'https://example.com/clipart.svg',
+				],
+				999999 => [
+					'type'  => 'text',
+					'value' => 'Injected',
+				],
+			],
+		] );
+
+		$key  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$item = WC()->cart->get_cart_item( $key );
+
+		$layers = $item['_oc_customisation']['layers'] ?? [];
+		$this->assertArrayHasKey( $layer_id, $layers );
+		$this->assertArrayNotHasKey( 999999, $layers );
+		$this->assertSame( 'clipart', $layers[ $layer_id ]['type'] );
+	}
+
+	#[Test]
+	public function v2_preview_url_must_be_plugin_generated_preview_path(): void {
+		global $wpdb;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_designs', [
+			'name'        => 'Tumbler Design',
+			'custom_type' => 'text_only',
+			'flat_rate'   => 5.00,
+			'active'      => 1,
+		] );
+		$design_id = (int) $wpdb->insert_id;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [
+			'design_id'  => $design_id,
+			'area_id'    => 0,
+			'type'       => 'text',
+			'label'      => 'Name',
+			'sort_order' => 0,
+		] );
+		$layer_id = (int) $wpdb->insert_id;
+
+		$uploads      = wp_upload_dir();
+		$allowed_url  = rtrim( (string) $uploads['baseurl'], '/' ) . '/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$disallowed   = 'https://attacker.example/fake-preview.png';
+
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'v'          => 2,
+			'designId'   => $design_id,
+			'previewUrl' => $allowed_url,
+			'layers'     => [
+				$layer_id => [
+					'type'  => 'text',
+					'value' => 'Alex',
+				],
+			],
+		] );
+		$key_allowed  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$item_allowed = WC()->cart->get_cart_item( $key_allowed );
+		$this->assertSame( $allowed_url, $item_allowed['_oc_preview_url'] ?? '' );
+
+		WC()->cart->empty_cart();
+
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'v'          => 2,
+			'designId'   => $design_id,
+			'previewUrl' => $disallowed,
+			'layers'     => [
+				$layer_id => [
+					'type'  => 'text',
+					'value' => 'Alex',
+				],
+			],
+		] );
+		$key_disallowed  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$item_disallowed = WC()->cart->get_cart_item( $key_disallowed );
+		$this->assertArrayNotHasKey( '_oc_preview_url', $item_disallowed );
 	}
 }

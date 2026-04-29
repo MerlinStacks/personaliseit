@@ -30,8 +30,9 @@ class OC_Admin_Fonts {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'overcustomise' ) );
 		}
 
-		if ( isset( $_GET['action'] ) && 'toggle' === $_GET['action'] ) { $this->handle_toggle(); }
-		if ( isset( $_GET['action'] ) && 'delete' === $_GET['action'] ) { $this->handle_delete(); }
+		$get_action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
+		if ( 'toggle' === $get_action ) { $this->handle_toggle(); }
+		if ( 'delete' === $get_action ) { $this->handle_delete(); }
 
 		$fonts  = OC_DB::get_fonts( false );
 		$groups = OC_DB::get_font_groups();
@@ -420,8 +421,8 @@ class OC_Admin_Fonts {
 		$wpdb->update(
 			"{$wpdb->prefix}oc_fonts",
 			[ 'name' => $new_name ],
-			[ 'name' => $old_name ],
-			[ '%s' ], [ '%s' ]
+			[ 'id' => $id ],
+			[ '%s' ], [ '%d' ]
 		);
 
 		wp_send_json_success( [ 'newName' => $new_name, 'oldName' => $old_name ] );
@@ -511,9 +512,23 @@ class OC_Admin_Fonts {
 			return new \WP_Error( 'no_file', __( 'Please select a font file.', 'overcustomise' ) );
 		}
 
-		$file    = $_FILES['oc_font_file'];
-		$ext     = strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) );
-		$allowed = [ 'ttf', 'otf', 'woff', 'woff2' ];
+		$file = $_FILES['oc_font_file'];
+
+		if ( ! empty( $file['error'] ) && UPLOAD_ERR_OK !== (int) $file['error'] ) {
+			return new \WP_Error( 'upload_error', __( 'Upload failed before reaching the server.', 'overcustomise' ) );
+		}
+		if ( empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
+			return new \WP_Error( 'no_file', __( 'Please select a font file.', 'overcustomise' ) );
+		}
+
+		// Cap to 10 MB — fonts are small.
+		if ( (int) ( $file['size'] ?? 0 ) > 10 * 1024 * 1024 ) {
+			return new \WP_Error( 'too_large', __( 'Font file exceeds size limit.', 'overcustomise' ) );
+		}
+
+		$filename = basename( (string) $file['name'] );
+		$ext      = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+		$allowed  = [ 'ttf', 'otf', 'woff', 'woff2' ];
 
 		if ( ! in_array( $ext, $allowed, true ) ) {
 			return new \WP_Error( 'bad_ext', __( 'Invalid file type. Allowed: TTF, OTF, WOFF, WOFF2.', 'overcustomise' ) );
@@ -528,7 +543,10 @@ class OC_Admin_Fonts {
 			file_put_contents( $htaccess, "Options -Indexes\n" );
 		}
 
-		$base = sanitize_file_name( pathinfo( $file['name'], PATHINFO_FILENAME ) ) . '-' . time();
+		$base = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) ) . '-' . time();
+		if ( '' === trim( $base, '-' ) || '-' === substr( $base, 0, 1 ) && strlen( $base ) === 11 ) {
+			$base = 'font-' . time();
+		}
 
 		if ( in_array( $ext, [ 'ttf', 'otf' ], true ) ) {
 			$tmp = $font_dir . '/' . $base . '.' . $ext;
