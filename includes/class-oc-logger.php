@@ -20,7 +20,12 @@ class OC_Logger {
 
 	private static function get_logger(): \WC_Logger_Interface {
 		if ( null === self::$logger ) {
-			self::$logger = wc_get_logger();
+			// Fallback to error_log if WooCommerce is not active.
+			if ( ! function_exists( 'wc_get_logger' ) ) {
+				self::$logger = new OC_Fallback_Logger();
+			} else {
+				self::$logger = wc_get_logger();
+			}
 		}
 		return self::$logger;
 	}
@@ -47,5 +52,15 @@ class OC_Logger {
 
 	public static function error( string $message ): void {
 		self::log( $message, 'error' );
+	}
+}
+
+/**
+ * Fallback logger when WooCommerce is not active.
+ */
+class OC_Fallback_Logger {
+	public function log( string $level, string $message, array $context = [] ): void {
+		$prefix = strtoupper( $level ) . ' ';
+		error_log( $prefix . $message );
 	}
 }

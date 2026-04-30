@@ -125,7 +125,7 @@ class OC_Rest_API {
 		}
 
 		$expected_ip_hash = (string) ( $ctx['ip_hash'] ?? '' );
-		if ( '' !== $expected_ip_hash && ! hash_equals( $expected_ip_hash, md5( self::client_ip() ) ) ) {
+		if ( '' !== $expected_ip_hash && ! hash_equals( $expected_ip_hash, hash( 'sha256', self::client_ip() ) ) ) {
 			return new \WP_Error( 'invalid_token', __( 'Security verification failed.', 'overcustomise' ), [ 'status' => 403 ] );
 		}
 
@@ -141,9 +141,26 @@ class OC_Rest_API {
 
 	/** Get a normalised client IP for lightweight request binding. */
 	private static function client_ip(): string {
-		return isset( $_SERVER['REMOTE_ADDR'] )
-			? preg_replace( '/[^0-9a-f:.]/i', '', (string) $_SERVER['REMOTE_ADDR'] )
-			: 'unknown';
+		$ip = '';
+		
+		// Check for proxy headers (only if configured to trust them).
+		if ( defined( 'OC_TRUST_PROXY' ) && OC_TRUST_PROXY ) {
+			$proxy_headers = [ 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'HTTP_CLIENT_IP' ];
+			foreach ( $proxy_headers as $header ) {
+				if ( ! empty( $_SERVER[ $header ] ) ) {
+					// Extract first IP from comma-separated list.
+					$ips = explode( ',', (string) $_SERVER[ $header ] );
+					$ip  = trim( $ips[0] );
+					break;
+				}
+			}
+		}
+		
+		if ( '' === $ip && isset( $_SERVER['REMOTE_ADDR'] ) ) {
+			$ip = (string) $_SERVER['REMOTE_ADDR'];
+		}
+		
+		return preg_replace( '/[^0-9a-f:.]/i', '', $ip ?: 'unknown' );
 	}
 
 	/**
@@ -153,7 +170,7 @@ class OC_Rest_API {
 	 */
 	private function enforce_rate_limit( string $prefix, int $max, string $message ): ?\WP_Error {
 		$ip         = self::client_ip();
-		$rate_key   = $prefix . md5( $ip );
+		$rate_key   = $prefix . hash( 'sha256', $ip );
 		$rate_count = (int) get_transient( $rate_key );
 		if ( $rate_count >= $max ) {
 			return new \WP_Error( 'rate_limited', $message, [ 'status' => 429 ] );
@@ -425,6 +442,17 @@ class OC_Rest_API {
 		}
 
 		$oembed_url = 'https://open.spotify.com/oembed?url=' . rawurlencode( $parsed['open_url'] );
+		
+		// Validate the oembed URL is exactly the expected Spotify domain.
+		$parsed_oembed = wp_parse_url( $oembed_url );
+		if ( ! is_array( $parsed_oembed ) || strtolower( $parsed_oembed['host'] ?? '' ) !== 'open.spotify.com' ) {
+			return rest_ensure_response( [
+				'valid'   => false,
+				'reason'  => 'invalid_format',
+				'message' => __( 'Invalid Spotify link format.', 'overcustomise' ),
+			] );
+		}
+		
 		$response   = wp_remote_get( $oembed_url, [
 			'timeout'     => 8,
 			'redirection' => 3,

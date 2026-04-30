@@ -639,8 +639,12 @@ class OC_Admin_Fonts {
 
 		if ( $font ) {
 			$upload = wp_upload_dir();
-			$path   = $upload['basedir'] . '/' . $font->file_path;
-			if ( file_exists( $path ) ) wp_delete_file( $path );
+			$path   = $upload['basedir'] . '/' . ltrim( (string) $font->file_path, '/' );
+			$base   = realpath( $upload['basedir'] );
+			$real   = realpath( $path );
+			if ( $base && $real && 0 === strpos( $real, $base ) && file_exists( $real ) ) {
+				wp_delete_file( $real );
+			}
 			$wpdb->delete( "{$wpdb->prefix}oc_fonts", [ 'id' => $id ], [ '%d' ] );
 		}
 

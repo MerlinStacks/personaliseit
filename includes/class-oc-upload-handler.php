@@ -247,7 +247,8 @@ class OC_Upload_Handler {
 		}
 
 		// Generate PNG preview.
-		$preview_path      = $original_path . '-preview.png';
+		$preview_info      = pathinfo( $original_path );
+		$preview_path      = $preview_info['dirname'] . '/' . $preview_info['filename'] . '-preview.png';
 		$preview_generated = false;
 
 		if ( extension_loaded( 'imagick' ) ) {

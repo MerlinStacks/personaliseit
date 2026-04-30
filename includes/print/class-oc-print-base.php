@@ -79,8 +79,22 @@ abstract class OC_Print_Base {
 
 	/** Return the absolute path to a font file, or null if not accessible. */
 	protected static function get_font_path( object $font ): ?string {
-		$path = wp_upload_dir()['basedir'] . '/' . $font->file_path;
-		return file_exists( $path ) ? $path : null;
+		// Validate font path doesn't contain directory traversal.
+		$file_path = ltrim( (string) ( $font->file_path ?? '' ), '/' );
+		if ( '' === $file_path || str_contains( $file_path, '..' ) ) {
+			return null;
+		}
+		
+		$path = wp_upload_dir()['basedir'] . '/' . $file_path;
+		$real = realpath( $path );
+		$base = realpath( wp_upload_dir()['basedir'] );
+		
+		// Ensure the font file is within the uploads directory.
+		if ( ! $real || ! $base || 0 !== strpos( $real, $base ) ) {
+			return null;
+		}
+		
+		return file_exists( $real ) ? $real : null;
 	}
 
 	/**

@@ -295,9 +295,16 @@ class OC_DB {
 	/** Fetch all colours (optionally active-only). */
 	public static function get_colours( bool $active_only = true ): array {
 		global $wpdb;
-		$where = $active_only ? 'WHERE active = 1' : '';
+		if ( $active_only ) {
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_colours WHERE active = %d ORDER BY name ASC",
+					1
+				)
+			) ?: [];
+		}
 		return $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_colours {$where} ORDER BY name ASC"
+			"SELECT * FROM {$wpdb->prefix}oc_colours ORDER BY name ASC"
 		) ?: [];
 	}
 
@@ -361,9 +368,16 @@ class OC_DB {
 	/** Fetch all active fonts. */
 	public static function get_fonts( bool $active_only = true ): array {
 		global $wpdb;
-		$where = $active_only ? 'WHERE active = 1' : '';
+		if ( $active_only ) {
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE active = %d ORDER BY name ASC",
+					1
+				)
+			) ?: [];
+		}
 		return $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_fonts {$where} ORDER BY name ASC"
+			"SELECT * FROM {$wpdb->prefix}oc_fonts ORDER BY name ASC"
 		) ?: [];
 	}
 
@@ -424,9 +438,16 @@ class OC_DB {
 	/** Fetch all clipart (optionally active-only). */
 	public static function get_clipart( bool $active_only = true ): array {
 		global $wpdb;
-		$where = $active_only ? 'WHERE active = 1' : '';
+		if ( $active_only ) {
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_clipart WHERE active = %d ORDER BY name ASC",
+					1
+				)
+			) ?: [];
+		}
 		return $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_clipart {$where} ORDER BY name ASC"
+			"SELECT * FROM {$wpdb->prefix}oc_clipart ORDER BY name ASC"
 		) ?: [];
 	}
 
@@ -471,9 +492,16 @@ class OC_DB {
 	/** Fetch all designs (optionally active-only). */
 	public static function get_designs( bool $active_only = false ): array {
 		global $wpdb;
-		$where = $active_only ? 'WHERE active = 1' : '';
+		if ( $active_only ) {
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_designs WHERE active = %d ORDER BY name ASC",
+					1
+				)
+			) ?: [];
+		}
 		return $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_designs {$where} ORDER BY name ASC"
+			"SELECT * FROM {$wpdb->prefix}oc_designs ORDER BY name ASC"
 		) ?: [];
 	}
 

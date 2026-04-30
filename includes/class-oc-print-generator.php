@@ -52,15 +52,9 @@ class OC_Print_Generator {
 		}
 
 		// Find the order item.
-		$target_item = null;
-		foreach ( $order->get_items() as $item_id => $item ) {
-			if ( (int) $item_id === (int) $record->order_item_id ) {
-				$target_item = $item;
-				break;
-			}
-		}
+		$target_item = $order->get_item( (int) $record->order_item_id );
 
-		if ( null === $target_item ) {
+		if ( ! $target_item ) {
 			throw new \RuntimeException( "Order item #{$record->order_item_id} not found in order." );
 		}
 
