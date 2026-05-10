@@ -37,6 +37,7 @@ class OC_File_Cleanup {
 		$base_real    = $uploads_base ? realpath( $uploads_base ) : false;
 
 		foreach ( $expired as $record ) {
+			$deleted = false;
 			if ( ! empty( $record->file_path ) ) {
 				$abs        = (string) $record->file_path;
 				$abs_real   = realpath( $abs );
@@ -47,24 +48,28 @@ class OC_File_Cleanup {
 				if ( $inside_uploads ) {
 					if ( $wp_filesystem && method_exists( $wp_filesystem, 'exists' ) ) {
 						if ( $wp_filesystem->exists( $abs ) ) {
-							$wp_filesystem->delete( $abs );
+							$deleted = (bool) $wp_filesystem->delete( $abs );
 						}
 					} elseif ( file_exists( $abs ) ) {
 						// Fallback when WP_Filesystem isn't available.
-						@unlink( $abs ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+						$deleted = @unlink( $abs ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 					}
 				} else {
 					OC_Logger::warning( 'File cleanup skipped suspicious path: ' . $abs );
 				}
 			}
 
-			$wpdb->update(
-				"{$wpdb->prefix}oc_print_files",
-				[ 'file_status' => 'expired', 'file_path' => null ],
-				[ 'id' => $record->id ],
-				[ '%s', '%s' ],
-				[ '%d' ]
-			);
+			if ( $deleted || empty( $record->file_path ) ) {
+				$wpdb->update(
+					"{$wpdb->prefix}oc_print_files",
+					[ 'file_status' => 'expired', 'file_path' => null ],
+					[ 'id' => $record->id ],
+					[ '%s', '%s' ],
+					[ '%d' ]
+				);
+			} else {
+				OC_Logger::warning( 'File cleanup failed to delete: ' . (string) $record->file_path );
+			}
 		}
 
 		OC_Logger::info( sprintf( 'File cleanup: expired %d print file records.', count( $expired ) ) );

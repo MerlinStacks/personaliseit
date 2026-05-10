@@ -1347,6 +1347,18 @@
 .oc-design-name-input:focus  { border-bottom-color: var(--oc-primary); background: var(--oc-primary-light); border-radius: 3px 3px 0 0; }
 .oc-design-name-input::placeholder { color: var(--oc-gray-400); font-weight: 400; }
 
+/* Autosave indicator */
+.oc-autosave-indicator {
+	font-size: 11px;
+	color: var(--oc-gray-400);
+	white-space: nowrap;
+	min-width: 100px;
+	text-align: right;
+	user-select: none;
+}
+.oc-autosave-indicator--dirty { color: var(--oc-warning); }
+.oc-autosave-indicator--saved { color: var(--oc-success); }
+
 .oc-design-editor {
 	display: grid;
 	grid-template-columns: 268px 1fr 276px;

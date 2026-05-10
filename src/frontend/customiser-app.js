@@ -40,13 +40,42 @@ class OCCustomiser {
 			this.inputs[ parseInt( k, 10 ) ] = { ...v };
 		} );
 
+		this.editMode      = !!( data.editMode && data.cartKey );
+		this.cartKey       = this.editMode ? data.cartKey : '';
 		this.canvases      = {};   // areaIndex → Fabric StaticCanvas
 		this.fontCache     = {};   // fontName  → load Promise
-		this.galleryImg    = null; // the main <img> in the product gallery
-		this._previewUrl   = null; // saved preview URL (set just before cart submit)
+		this.galleryImg        = null; // the main <img> in the product gallery
+		this._previewUrl       = null; // saved preview URL (set just before cart submit)
 		this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
+		this._mobilePreviewVisible = false;
 		this.spotifyValidateTimers = {};
+		this.spotifyValidateTokens = {};
 		this.preflightRoot = null;
+		this.clipartByGroup = {};
+		this.clipartSearchTimers = {};
+		this.clipartSearchTerms = {};
+		this.clipartCategoryFilters = {};
+
+		if ( this.editMode ) {
+			Object.entries( data.layerInputs || {} ).forEach( ( [ k, v ] ) => {
+				const key = parseInt( k, 10 );
+				if ( this.inputs[ key ] && typeof v === 'object' && v !== null ) {
+					Object.assign( this.inputs[ key ], v );
+				}
+			} );
+		}
+
+		for ( const [ lidStr, items ] of Object.entries( data.clipartByLayer || {} ) ) {
+			const lid = parseInt( lidStr, 10 );
+			for ( const item of items ) {
+				for ( const gn of ( item.groupNames || [] ) ) {
+					if ( ! this.clipartByGroup[ gn ] ) {
+						this.clipartByGroup[ gn ] = {};
+					}
+					this.clipartByGroup[ gn ][ lid ] = item;
+				}
+			}
+		}
 	}
 
 	restHeaders( extra = {} ) {
@@ -81,7 +110,9 @@ class OCCustomiser {
 
 		// Wire up controls IMMEDIATELY — don't block on canvas.
 		this.setupInputListeners();
+		this.setupMobilePreview();
 		this.setupUploadZones();
+		if ( this.editMode ) this.updateInputsFromDOM();
 		this.setupFormSubmit();
 		this.updateHiddenField();
 
@@ -190,34 +221,41 @@ class OCCustomiser {
 	}
 
 	pushToGallery( canvas ) {
-		// Gallery markup can be replaced on variation/theme events.
 		this.findGalleryImage();
 
+		let dataUrl;
 		try {
-			const dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
-			if ( this.applyTVPGOverlayPreview( dataUrl ) ) {
-				return;
-			}
-
-			const targets = new Set();
-			if ( this.galleryImg ) {
-				targets.add( this.galleryImg );
-			}
-
-			// TVPG: update all main slider image slides to keep Swiper state in sync.
-			document.querySelectorAll(
-				'.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img'
-			).forEach( img => targets.add( img ) );
-
-			// Default WooCommerce/gallery fallback.
-			document.querySelectorAll(
-				'.woocommerce-product-gallery .woocommerce-product-gallery__image img'
-			).forEach( img => targets.add( img ) );
-
-			targets.forEach( img => this.applyPreviewToImage( img, dataUrl ) );
+			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
 		} catch ( e ) {
 			console.warn( '[OC] toDataURL failed — image may be cross-origin:', e.message );
+			return;
 		}
+
+		const previewImg = document.getElementById( 'oc-canvas-preview' );
+		if ( previewImg ) {
+			previewImg.src = dataUrl;
+			previewImg.srcset = '';
+		}
+
+		if ( this.applyTVPGOverlayPreview( dataUrl ) ) {
+			this._focusPreviewSlide = false;
+			return;
+		}
+
+		const targets = new Set();
+		if ( this.galleryImg ) {
+			targets.add( this.galleryImg );
+		}
+
+		document.querySelectorAll(
+			'.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img'
+		).forEach( img => targets.add( img ) );
+
+		document.querySelectorAll(
+			'.woocommerce-product-gallery .woocommerce-product-gallery__image img'
+		).forEach( img => targets.add( img ) );
+
+		targets.forEach( img => this.applyPreviewToImage( img, dataUrl ) );
 
 		this._focusPreviewSlide = false;
 	}
@@ -352,11 +390,18 @@ class OCCustomiser {
 				const raw  = ( input.value || '' ).trim() || ( layer.settings?.default_text || '' ).trim();
 				if ( ! raw ) break;
 
-				const font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
+				let font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
 				// Engraving uses a fixed etched colour — user colour is irrelevant for laser engraving.
 				const color = isEngraving ? '#2a1f14' : ( input.colorHex || '#000000' );
 				const align = layer.settings?.alignment || 'center';
-				if ( font ) await this.loadFont( font );
+				if ( font ) {
+					try {
+						await this.loadFont( font );
+					} catch ( err ) {
+						console.warn( '[OC] Font load failed, falling back to sans-serif:', err );
+						font = null;
+					}
+				}
 
 				let fontSize = Math.max( 10, Math.round( lh * 0.42 ) );
 				const obj    = new FabricText( raw, {
@@ -393,9 +438,10 @@ class OCCustomiser {
 				break;
 
 			case 'lineart': {
-				if ( ! input.colorHex || input.colorHex === '#000000' ) break;
+				const lineartColor = String( input.colorHex || '' ).trim();
+				if ( ! lineartColor ) break;
 				const r = new Rect( { left: lx, top: ly, width: lw, height: lh,
-					fill: input.colorHex, opacity: 0.6, selectable: false, evented: false } );
+					fill: lineartColor, opacity: 0.6, selectable: false, evented: false } );
 				r._ocContent = true;
 				canvas.add( r );
 				break;
@@ -546,7 +592,11 @@ class OCCustomiser {
 		const ff = new FontFace( font.name, `url('${ font.url }')`, {
 			weight: font.weight || 'normal', style: font.style || 'normal',
 		} );
-		this.fontCache[ font.name ] = ff.load().then( f => document.fonts.add( f ) ).catch( () => {} );
+		this.fontCache[ font.name ] = ff.load().then( f => document.fonts.add( f ) ).catch( err => {
+			delete this.fontCache[ font.name ];
+			console.warn( '[OC] Font load failed:', err );
+			throw err;
+		} );
 		return this.fontCache[ font.name ];
 	}
 
@@ -556,14 +606,37 @@ class OCCustomiser {
 		// Area tabs
 		document.querySelectorAll( '.oc-area-tab' ).forEach( btn => {
 			btn.addEventListener( 'click', () => this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) ) );
+			btn.addEventListener( 'touchend', ( e ) => {
+				e.preventDefault();
+				this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) );
+			}, { passive: false } );
 		} );
 
 		// Text / textarea
 		document.querySelectorAll( '[data-oc-layer-text]' ).forEach( el => {
 			const lid = parseInt( el.dataset.ocLayerText, 10 );
+			const counter = el.parentElement?.querySelector( `.oc-char-counter[data-oc-char-counter="${ lid }"]` );
+			const updateCounter = () => {
+				if ( ! counter ) return;
+				const limit = parseInt( counter.dataset.charLimit, 10 ) || 0;
+				if ( limit === 0 ) {
+					counter.style.display = 'none';
+					return;
+				}
+				const current = el.value.length;
+				counter.textContent = `${ current } / ${ limit }`;
+				counter.classList.remove( '--under', '--near', '--over' );
+				const pct = current / limit;
+				if ( pct > 0.95 ) counter.classList.add( '--over' );
+				else if ( pct >= 0.80 ) counter.classList.add( '--near' );
+				else counter.classList.add( '--under' );
+				counter.style.display = '';
+			};
+			updateCounter();
 			el.addEventListener( 'input', () => {
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].value = el.value;
+				updateCounter();
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -596,21 +669,21 @@ class OCCustomiser {
 			} );
 		} );
 
-		// Spotify help tooltip: tap to toggle on touch devices, close on outside tap.
-		const closeSpotifyHelp = () => {
-			document.querySelectorAll( '.oc-spotify-help.oc-open' ).forEach( help => {
+		// Help tooltips: tap to toggle on touch devices, close on outside tap.
+		const closeHelpTooltips = () => {
+			document.querySelectorAll( '.oc-help-tooltip.oc-open, .oc-spotify-help.oc-open' ).forEach( help => {
 				help.classList.remove( 'oc-open' );
-				help.querySelector( '.oc-spotify-help-toggle' )?.setAttribute( 'aria-expanded', 'false' );
+				help.querySelector( '.oc-help-toggle, .oc-spotify-help-toggle' )?.setAttribute( 'aria-expanded', 'false' );
 			} );
 		};
-		document.querySelectorAll( '.oc-spotify-help-toggle' ).forEach( btn => {
+		document.querySelectorAll( '.oc-help-toggle, .oc-spotify-help-toggle' ).forEach( btn => {
 			btn.addEventListener( 'click', e => {
 				e.preventDefault();
 				e.stopPropagation();
-				const help = btn.closest( '.oc-spotify-help' );
+				const help = btn.closest( '.oc-help-tooltip, .oc-spotify-help' );
 				if ( ! help ) return;
 				const willOpen = ! help.classList.contains( 'oc-open' );
-				closeSpotifyHelp();
+				closeHelpTooltips();
 				if ( willOpen ) {
 					help.classList.add( 'oc-open' );
 					btn.setAttribute( 'aria-expanded', 'true' );
@@ -618,7 +691,7 @@ class OCCustomiser {
 			} );
 		} );
 		document.addEventListener( 'click', e => {
-			if ( ! e.target.closest( '.oc-spotify-help' ) ) closeSpotifyHelp();
+			if ( ! e.target.closest( '.oc-help-tooltip, .oc-spotify-help' ) ) closeHelpTooltips();
 		} );
 
 		// Font selects — also reflect the picked font in the closed select.
@@ -627,16 +700,24 @@ class OCCustomiser {
 			const fam = opt?.style?.fontFamily || '';
 			if ( fam ) el.style.fontFamily = fam;
 		};
-		document.querySelectorAll( '[data-oc-layer-font]' ).forEach( el => {
-			reflectFontOnSelect( el );
-			const lid = parseInt( el.dataset.ocLayerFont, 10 );
-			el.addEventListener( 'change', async () => {
-				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
-				this.inputs[ lid ].fontId = parseInt( el.value, 10 );
-				const font = this.fonts.find( f => f.id === this.inputs[ lid ].fontId );
-				if ( font ) await this.loadFont( font );
+			document.querySelectorAll( '[data-oc-layer-font]' ).forEach( el => {
 				reflectFontOnSelect( el );
-				this.requestPreviewFocus();
+				const lid = parseInt( el.dataset.ocLayerFont, 10 );
+				el.addEventListener( 'change', async () => {
+					if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
+					this.inputs[ lid ].fontId = parseInt( el.value, 10 );
+					const font = this.fonts.find( f => f.id === this.inputs[ lid ].fontId );
+					if ( font ) {
+						try {
+							await this.loadFont( font );
+						} catch ( err ) {
+							console.warn( '[OC] Font load failed:', err );
+						}
+					}
+					reflectFontOnSelect( el );
+					const preview = document.querySelector( `.oc-font-preview[data-oc-font-preview="${ lid }"]` );
+					if ( preview && font ) preview.style.fontFamily = font.name;
+					this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
 			} );
@@ -683,6 +764,29 @@ class OCCustomiser {
 			} );
 		} );
 
+		// Clipart search (debounced 200ms)
+		document.querySelectorAll( '[data-oc-clipart-search]' ).forEach( input => {
+			const lid = parseInt( input.dataset.ocClipartSearch, 10 );
+			this.clipartSearchTerms[ lid ] = '';
+			input.addEventListener( 'input', () => {
+				this.clipartSearchTerms[ lid ] = input.value;
+				clearTimeout( this.clipartSearchTimers[ lid ] );
+				this.clipartSearchTimers[ lid ] = setTimeout( () => {
+					this.filterClipart( lid );
+				}, 200 );
+			} );
+		} );
+
+		// Clipart category filter
+		document.querySelectorAll( '[data-oc-clipart-category]' ).forEach( select => {
+			const lid = parseInt( select.dataset.ocClipartCategory, 10 );
+			this.clipartCategoryFilters[ lid ] = '';
+			select.addEventListener( 'change', () => {
+				this.clipartCategoryFilters[ lid ] = select.value;
+				this.filterClipart( lid );
+			} );
+		} );
+
 		// Remove uploaded image
 		document.querySelectorAll( '[data-oc-remove-image]' ).forEach( btn => {
 			btn.addEventListener( 'click', () => {
@@ -694,11 +798,56 @@ class OCCustomiser {
 				}
 				btn.closest( '.oc-artwork-wrap' )?.querySelector( '.oc-artwork-actions' )
 					?.setAttribute( 'style', 'display:none' );
+				const warnEl = document.querySelector( `.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]` );
+				if ( warnEl ) warnEl.style.display = 'none';
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
 			} );
 		} );
+
+		// Dismiss resolution warning
+		document.querySelectorAll( '.oc-resolution-warning' ).forEach( warnEl => {
+			warnEl.addEventListener( 'click', e => {
+				if ( e.target === warnEl && warnEl.classList.contains( 'oc-res-warning' ) ) {
+					warnEl.style.display = 'none';
+				}
+			} );
+		} );
+	}
+
+	filterClipart( layerId ) {
+		const grid = document.querySelector( `.oc-clipart-grid[data-oc-clipart-grid="${ layerId }"]` )
+			|| document.querySelector( `[data-oc-clipart-search="${ layerId }"]` )?.closest( '.oc-layer-body' )?.querySelector( '.oc-clipart-grid' );
+		if ( ! grid ) return;
+
+		const items = grid.querySelectorAll( '.oc-clipart-item' );
+		const term = ( this.clipartSearchTerms[ layerId ] || '' ).toLowerCase().trim();
+		const category = this.clipartCategoryFilters[ layerId ] || '';
+		let visibleCount = 0;
+
+		items.forEach( btn => {
+			const name = ( btn.title || '' ).toLowerCase();
+			const groups = btn.dataset.ocClipartGroups ? btn.dataset.ocClipartGroups.split( '||' ).filter( Boolean ) : [];
+			const matchesSearch = !term || name.includes( term );
+			const matchesCategory = !category || groups.includes( category );
+			const visible = matchesSearch && matchesCategory;
+			btn.style.display = visible ? '' : 'none';
+			if ( visible ) visibleCount++;
+		} );
+
+		let noResults = grid.querySelector( '.oc-clipart-no-results' );
+		if ( visibleCount === 0 ) {
+			if ( ! noResults ) {
+				noResults = document.createElement( 'p' );
+				noResults.className = 'oc-clipart-no-results';
+				noResults.textContent = 'No clipart matches your search.';
+				grid.appendChild( noResults );
+			}
+			noResults.style.display = '';
+		} else if ( noResults ) {
+			noResults.style.display = 'none';
+		}
 	}
 
 	setSpotifyError( layerId, message, inputEl = null ) {
@@ -794,6 +943,7 @@ class OCCustomiser {
 
 		for ( const area of this.areas ) {
 			for ( const layer of ( area.layers || [] ) ) {
+				if ( layer.locked ) continue; // Locked layers skip preflight validation
 				const input    = this.inputs[ layer.id ] || {};
 				const settings = layer.settings || {};
 				const required = Boolean( settings.required );
@@ -854,6 +1004,18 @@ class OCCustomiser {
 						}
 						break;
 
+					case 'lineart':
+						value = String( input.colorHex || '' ).trim();
+						if ( required && ! value ) {
+							errors.push( `${ label } requires a line-art colour.` );
+							fieldEl?.classList.add( 'oc-preflight-field-error' );
+							if ( fieldEl ) {
+								fieldEl.setCustomValidity( 'Please choose a line-art colour.' );
+								fieldEl.setAttribute( 'aria-invalid', 'true' );
+							}
+						}
+						break;
+
 					case 'spotify':
 						value = String( input.value || '' ).trim();
 						if ( required && ! value ) {
@@ -893,6 +1055,8 @@ class OCCustomiser {
 	async validateSpotifyLayer( layerId, rawValue, inputEl = null ) {
 		const value = String( rawValue || '' ).trim();
 		if ( ! this.inputs[ layerId ] ) this.inputs[ layerId ] = {};
+		const token = ( this.spotifyValidateTokens[ layerId ] || 0 ) + 1;
+		this.spotifyValidateTokens[ layerId ] = token;
 
 		if ( ! value ) {
 			this.inputs[ layerId ].spotifyStatus = '';
@@ -928,13 +1092,34 @@ class OCCustomiser {
 				headers: this.restHeaders( { 'Content-Type': 'application/json' } ),
 				body: JSON.stringify( { url: value } ),
 			} );
-			const json = await res.json();
+			const isJson = res.headers.get( 'content-type' )?.includes( 'application/json' );
+			let json = null;
+			let text = '';
+			if ( isJson ) {
+				try {
+					json = await res.json();
+				} catch ( err ) {
+					console.warn( '[OC] Spotify validation JSON parse failed:', err );
+				}
+			} else {
+				text = await res.text();
+			}
+			if ( this.spotifyValidateTokens[ layerId ] !== token ) return;
 			if ( ! res.ok ) {
-				const statusReason = json?.code === 'rate_limited' ? 'rate_limited' : 'unreachable';
-				const statusMessage = json?.message || 'Could not validate Spotify right now. Please try again.';
+				const statusReason = json?.code === 'rate_limited' || res.status === 429 ? 'rate_limited' : 'unreachable';
+				const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
 				this.inputs[ layerId ].spotifyStatus = statusReason;
 				this.inputs[ layerId ].spotifyUri = '';
 				this.setSpotifyError( layerId, statusMessage, inputEl );
+				this.scheduleRedraw();
+				this.updateHiddenField();
+				return;
+			}
+
+			if ( ! json ) {
+				this.inputs[ layerId ].spotifyStatus = 'unreachable';
+				this.inputs[ layerId ].spotifyUri = '';
+				this.setSpotifyError( layerId, 'Could not validate Spotify right now. Please try again.', inputEl );
 				this.scheduleRedraw();
 				this.updateHiddenField();
 				return;
@@ -952,6 +1137,7 @@ class OCCustomiser {
 				this.setSpotifyError( layerId, json?.message || 'Spotify link is invalid or unavailable.', inputEl );
 			}
 		} catch ( e ) {
+			if ( this.spotifyValidateTokens[ layerId ] !== token ) return;
 			this.inputs[ layerId ].spotifyStatus = 'unreachable';
 			this.inputs[ layerId ].spotifyUri = '';
 			this.setSpotifyError( layerId, 'Could not validate Spotify right now. Please try again.', inputEl );
@@ -963,9 +1149,112 @@ class OCCustomiser {
 
 	// ── Form submit — upload preview then proceed ──────────────────────────────
 
+	updateInputsFromDOM() {
+		for ( const layerIdStr in this.inputs ) {
+			const layerId = parseInt( layerIdStr, 10 );
+			const inp = this.inputs[ layerId ];
+			if ( ! inp ) continue;
+
+			const textEl = document.querySelector( `[data-oc-layer-text="${ layerId }"]` );
+			if ( textEl && inp.value !== undefined ) {
+				textEl.value = inp.value;
+			}
+
+			const fontEl = document.querySelector( `[data-oc-layer-font="${ layerId }"]` );
+			if ( fontEl && inp.fontId ) {
+				fontEl.value = inp.fontId;
+			}
+
+			const swatch = document.querySelector( `[data-oc-layer-swatch="${ layerId }"][data-hex="${ inp.colorHex }"]` );
+			if ( swatch ) {
+				swatch.closest( '.oc-colour-swatches' )?.querySelectorAll( '.oc-colour-swatch' )
+					.forEach( s => s.classList.toggle( 'oc-selected', s === swatch ) );
+			}
+
+			const colorEl = document.querySelector( `[data-oc-layer-color="${ layerId }"]` );
+			if ( colorEl && inp.colorHex ) {
+				colorEl.value = inp.colorHex;
+			}
+
+			const clipartBtn = document.querySelector( `[data-oc-layer-clipart="${ layerId }"][data-oc-clipart="${ inp.clipartId }"]` );
+			if ( clipartBtn ) {
+				clipartBtn.closest( '.oc-clipart-grid' )?.querySelectorAll( '.oc-clipart-item' )
+					.forEach( i => i.classList.toggle( 'oc-selected', i === clipartBtn ) );
+			}
+		}
+
+		this.updateHiddenField();
+		this.areas.forEach( ( _, i ) => this.redraw( i ) );
+	}
+
 	setupFormSubmit() {
 		const form = document.querySelector( 'form.cart' );
 		if ( ! form ) return;
+
+		if ( this.editMode ) {
+			form.addEventListener( 'submit', async e => {
+				e.preventDefault();
+
+				const preflight = await this.runPreflight();
+				this.renderPreflightMessages( preflight.errors, preflight.warnings );
+				if ( ! preflight.ok ) return;
+
+				if ( preflight.warnings.length ) {
+					const proceed = window.confirm(
+						'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.'
+					);
+					if ( ! proceed ) return;
+				}
+
+				await this.uploadPreview();
+				this.updateHiddenField();
+
+				const layers = {};
+				this.areas.forEach( area => {
+					( area.layers || [] ).forEach( layer => {
+						const inp = this.inputs[ layer.id ];
+						if ( inp ) layers[ layer.id ] = { type: layer.type, ...inp };
+					} );
+				} );
+
+				try {
+					const res = await fetch( this.data.updateCartItemUrl, {
+						method:  'POST',
+						headers: this.restHeaders( { 'Content-Type': 'application/json' } ),
+						body: JSON.stringify( {
+							cart_key:   this.cartKey,
+							designId:   this.data.designId,
+							layers,
+							previewUrl: this._previewUrl || '',
+						} ),
+					} );
+					let json = null;
+					const isJson = res.headers.get( 'content-type' )?.includes( 'application/json' );
+					if ( isJson ) {
+						try {
+							json = await res.json();
+						} catch ( err ) {
+							console.warn( '[OC] Cart update response parse failed:', err );
+						}
+					}
+
+					if ( ! res.ok ) {
+						this.renderPreflightMessages( [ json?.message || 'Failed to update customisation.' ], [] );
+						return;
+					}
+
+					if ( json?.success ) {
+						window.location.href = wc_cart_params?.cart_url || '/cart/';
+					} else {
+						this.renderPreflightMessages( [ json?.message || 'Failed to update customisation.' ], [] );
+					}
+				} catch ( err ) {
+					console.error( '[OC] Update cart item failed:', err );
+					this.renderPreflightMessages( [ 'Failed to update customisation. Please try again.' ], [] );
+				}
+			} );
+			return;
+		}
 
 		form.addEventListener( 'submit', async e => {
 			if ( form._ocSubmitReady ) return; // preview already saved — let submit through
@@ -992,7 +1281,8 @@ class OCCustomiser {
 			form._ocSubmitReady = true;
 			// requestSubmit() re-triggers HTML5 validation before submitting.
 			if ( form.requestSubmit ) {
-				form.requestSubmit( form.querySelector( '[type="submit"]' ) );
+				const submitter = form.querySelector( '[type="submit"]' ) || undefined;
+				form.requestSubmit( submitter );
 			} else {
 				form.submit();
 			}
@@ -1007,6 +1297,8 @@ class OCCustomiser {
 		try {
 			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.85 } );
 		} catch ( e ) {
+			this._previewUrl = '';
+			this.updateHiddenField();
 			console.warn( '[OC] Could not capture preview for cart:', e.message );
 			return;
 		}
@@ -1017,12 +1309,32 @@ class OCCustomiser {
 				headers: this.restHeaders( { 'Content-Type': 'application/json' } ),
 				body:    JSON.stringify( { image: dataUrl } ),
 			} );
-			const json = await res.json();
+			if ( ! res.ok ) {
+				this._previewUrl = '';
+				this.updateHiddenField();
+				return;
+			}
+			let json = null;
+			const isJson = res.headers.get( 'content-type' )?.includes( 'application/json' );
+			if ( isJson ) {
+				try {
+					json = await res.json();
+				} catch ( err ) {
+					console.warn( '[OC] Preview upload JSON parse failed:', err );
+				}
+			}
+			if ( ! json ) {
+				this._previewUrl = '';
+				this.updateHiddenField();
+				return;
+			}
 			if ( json.url ) {
 				this._previewUrl = json.url;
 				this.updateHiddenField(); // embed previewUrl in the cart payload
 			}
 		} catch ( e ) {
+			this._previewUrl = '';
+			this.updateHiddenField();
 			// Non-fatal — cart submits without a preview image.
 			console.warn( '[OC] Preview upload failed:', e.message );
 		}
@@ -1038,6 +1350,36 @@ class OCCustomiser {
 			el.style.display = parseInt( el.dataset.areaIndex, 10 ) === index ? '' : 'none';
 		} );
 		this.redraw( index );
+
+		if ( window.innerWidth < 640 ) {
+			const activeTab = document.querySelector( `.oc-area-tab[aria-selected="true"]` );
+			if ( activeTab ) {
+				activeTab.scrollIntoView( { behavior: 'smooth', block: 'nearest', inline: 'center' } );
+			}
+		}
+	}
+
+	setupMobilePreview() {
+		const toggleBtn = document.getElementById( 'oc-preview-toggle' );
+		const canvasWrap = document.getElementById( 'oc-canvas-wrap' );
+		if ( ! toggleBtn || ! canvasWrap ) return;
+
+		const updateToggle = () => {
+			const isVisible = canvasWrap.classList.contains( 'oc-preview-visible' );
+			this._mobilePreviewVisible = isVisible;
+			toggleBtn.setAttribute( 'aria-expanded', isVisible ? 'true' : 'false' );
+			toggleBtn.textContent = isVisible ? 'Hide Preview' : 'Show Preview';
+		};
+
+		toggleBtn.addEventListener( 'click', () => {
+			canvasWrap.classList.toggle( 'oc-preview-visible' );
+			updateToggle();
+		} );
+
+		toggleBtn.addEventListener( 'touchend', ( e ) => {
+			e.preventDefault();
+			toggleBtn.click();
+		}, { passive: false } );
 	}
 
 	// ── Uppy upload zones ────────────────────────────────────────────────────────
@@ -1046,12 +1388,21 @@ class OCCustomiser {
 		document.querySelectorAll( '[data-oc-upload-zone]' ).forEach( zoneEl => {
 			const lid = parseInt( zoneEl.dataset.ocUploadZone, 10 );
 			if ( ! lid ) return;
+			const uploadUrl = this.data?.uploadUrl || '';
+			if ( ! uploadUrl ) {
+				this.showUploadError( zoneEl, 'Uploads are unavailable right now.' );
+				return;
+			}
 
 			// Find the layer's per-layer settings; fall back to global defaults.
 			let layer = null;
 			for ( const area of this.areas ) {
 				layer = ( area.layers || [] ).find( l => l.id === lid );
 				if ( layer ) break;
+			}
+			if ( ! layer ) {
+				console.warn( '[OC] Upload zone has no matching layer:', lid );
+				return;
 			}
 			const layerFormats = Array.isArray( layer?.settings?.formats ) ? layer.settings.formats : [];
 			const globalFormats = Array.isArray( this.data.allowedFormats ) ? this.data.allowedFormats : [];
@@ -1081,13 +1432,13 @@ class OCCustomiser {
 				},
 			} );
 			uppy.use( XHRUpload, {
-				endpoint:   this.data.uploadUrl + ( this.data.uploadUrl.includes( '?' ) ? '&' : '?' ) + 'layer_id=' + lid,
+				endpoint:   uploadUrl + ( uploadUrl.includes( '?' ) ? '&' : '?' ) + 'layer_id=' + lid,
 				formData:   true,
 				fieldName:  'artwork',
 				headers:    this.restHeaders(),
 			} );
 
-			uppy.on( 'upload-success', ( file, res ) => {
+			uppy.on( 'upload-success', async ( file, res ) => {
 				console.log( '[OC] Upload success — response body:', res?.body );
 				if ( ! res?.body ) {
 					this.showUploadError( zoneEl, 'Upload succeeded but server returned no data.' );
@@ -1103,11 +1454,36 @@ class OCCustomiser {
 				}
 				const actions = zoneEl.closest( '.oc-artwork-wrap' )?.querySelector( '.oc-artwork-actions' );
 				if ( actions ) actions.style.display = '';
-				this.getImageMeta( this.inputs[ lid ].attachmentUrl ).then( meta => {
-					if ( meta && this.inputs[ lid ] ) {
-						this.inputs[ lid ].imageMeta = meta;
+				const meta = await this.getImageMeta( this.inputs[ lid ].attachmentUrl );
+				if ( meta && this.inputs[ lid ] ) {
+					this.inputs[ lid ].imageMeta = meta;
+					const thresholdW = Math.round( layer.w * ( 300 / 72 ) );
+					const thresholdH = Math.round( layer.h * ( 300 / 72 ) );
+					const warnEl = document.querySelector( `.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]` );
+					if ( warnEl ) {
+						const belowThreshold = meta.width < thresholdW || meta.height < thresholdH;
+						const belowHalf = meta.width < thresholdW * 0.5 || meta.height < thresholdH * 0.5;
+						if ( belowHalf ) {
+							warnEl.className = 'oc-resolution-warning oc-res-error';
+							warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${ thresholdW } x ${ thresholdH } pixels.`;
+							warnEl.style.display = '';
+							this.inputs[ lid ].attachmentId = 0;
+							this.inputs[ lid ].attachmentUrl = '';
+							this.inputs[ lid ].imageMeta = null;
+							if ( actions ) actions.style.display = 'none';
+							this.showUploadError( zoneEl, 'Image resolution too low. Please upload a higher resolution image.' );
+							this.scheduleRedraw();
+							this.updateHiddenField();
+							return;
+						} else if ( belowThreshold ) {
+							warnEl.className = 'oc-resolution-warning oc-res-warning';
+							warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${ thresholdW } x ${ thresholdH } pixels.`;
+							warnEl.style.display = '';
+						} else {
+							warnEl.style.display = 'none';
+						}
 					}
-				} );
+				}
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();

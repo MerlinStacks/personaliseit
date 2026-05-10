@@ -5,7 +5,7 @@
  * Description: WooCommerce product customiser — text, artwork and print file generation for Custom Kings.
  * Version:     1.0.0
  * Requires at least: 6.8
- * Requires PHP: 8.3
+ * Requires PHP: 8.0
  * Author:      Custom Kings
  * License:     GPL-2.0-or-later
  * Text Domain: overcustomise
@@ -23,7 +23,7 @@ define( 'OC_FILE',        __FILE__ );
 define( 'OC_PATH',        plugin_dir_path( __FILE__ ) );
 define( 'OC_URL',         plugin_dir_url( __FILE__ ) );
 define( 'OC_ASSETS_URL',  OC_URL . 'assets/build/' );
-define( 'OC_DB_VERSION',  '1.7.0' );
+define( 'OC_DB_VERSION',  '1.9.0' );
 
 // Declare WooCommerce feature compatibility.
 add_action( 'before_woocommerce_init', function (): void {
@@ -53,3 +53,4 @@ add_action( 'plugins_loaded', function (): void {
 require_once plugin_dir_path( __FILE__ ) . 'includes/class-oc-plugin.php';
 register_activation_hook( __FILE__, [ 'OC_Plugin', 'activate' ] );
 register_deactivation_hook( __FILE__, [ 'OC_Plugin', 'deactivate' ] );
+register_uninstall_hook( __FILE__, [ 'OC_Plugin', 'uninstall' ] );

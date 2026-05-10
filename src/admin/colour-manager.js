@@ -215,8 +215,17 @@ async function saveColour() {
 		id:     editColourId || 0,
 	} );
 
-	const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-	const json = await res.json();
+	let json;
+	try {
+		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		json = await res.json();
+	} catch ( e ) {
+		console.warn( '[OC] Colour save failed:', e );
+		err.textContent   = 'Save failed. Please try again.';
+		err.style.display = '';
+		return;
+	}
 
 	if ( ! json.success ) {
 		err.textContent   = json.data?.message || 'Save failed.';
@@ -454,10 +463,21 @@ async function saveGroup() {
 	} );
 	colourIds.forEach( id => body.append( 'colour_ids[]', id ) );
 
-	const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-	const json = await res.json();
+	let json;
+	try {
+		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		json = await res.json();
+	} catch ( e ) {
+		console.warn( '[OC] Colour group save failed:', e );
+		alert( 'Save failed. Please try again.' );
+		return;
+	}
 
-	if ( ! json.success ) return;
+	if ( ! json.success ) {
+		alert( json.data?.message || 'Save failed.' );
+		return;
+	}
 
 	const saved = normaliseGroup( json.data );
 
@@ -482,10 +502,21 @@ async function deleteGroup() {
 		id:     editGroupId,
 	} );
 
-	const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-	const json = await res.json();
+	let json;
+	try {
+		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		json = await res.json();
+	} catch ( e ) {
+		console.warn( '[OC] Colour group delete failed:', e );
+		alert( 'Delete failed. Please try again.' );
+		return;
+	}
 
-	if ( ! json.success ) return;
+	if ( ! json.success ) {
+		alert( json.data?.message || 'Delete failed.' );
+		return;
+	}
 
 	groups = groups.filter( g => g.id !== editGroupId );
 	updateGroupGridUI();

@@ -88,6 +88,14 @@
 
 	let mediaFrame = null;
 
+	// ── Autosave ─────────────────────────────────────────────────────────────────
+	let isDirty           = false;
+	let autosaveTimer     = null;
+	let lastSavedTime     = null;
+	let autosaveError     = '';
+	let designId          = 0;
+	let autosaveInterval  = 30000;
+
 	// ── Undo / Redo ────────────────────────────────────────────────────────────
 
 	function snapshot() {
@@ -96,6 +104,7 @@
 		if ( history.length > HISTORY_MAX ) history.shift();
 		historyIndex = history.length - 1;
 		updateUndoRedoBtns();
+		markDirty();
 	}
 
 	function undo() {
@@ -111,7 +120,17 @@
 	}
 
 	function restoreHistory() {
-		areas = JSON.parse( history[ historyIndex ] );
+		let snapshot;
+		try {
+			snapshot = JSON.parse( history[ historyIndex ] );
+		} catch ( err ) {
+			console.warn( '[OC] Failed to restore history snapshot:', err );
+			history = [];
+			historyIndex = -1;
+			updateUndoRedoBtns();
+			return;
+		}
+		areas = snapshot;
 		// Ensure uidCounter is above all restored _uid values to avoid collisions
 		areas.forEach( a => {
 			uidCounter = Math.max( uidCounter, a._uid || 0 );
@@ -131,9 +150,157 @@
 		if ( r ) r.disabled = historyIndex >= history.length - 1;
 	}
 
+	// ── Autosave helpers ────────────────────────────────────────────────────────
+
+	function markDirty() {
+		isDirty = true;
+		updateAutosaveIndicator();
+	}
+
+	function updateAutosaveIndicator() {
+		var el = document.getElementById( 'oc-autosave-indicator' );
+		if ( ! el ) return;
+		if ( autosaveError ) {
+			el.textContent = autosaveError;
+			el.className = 'oc-autosave-indicator oc-autosave-indicator--error';
+		} else if ( isDirty ) {
+			el.textContent = 'Unsaved changes';
+			el.className = 'oc-autosave-indicator oc-autosave-indicator--dirty';
+		} else if ( lastSavedTime ) {
+			var diff = Math.round( ( Date.now() - lastSavedTime ) / 1000 );
+			var label = diff < 60 ? diff + 's ago' : Math.floor( diff / 60 ) + 'm ago';
+			el.textContent = 'Saved ' + label;
+			el.className = 'oc-autosave-indicator oc-autosave-indicator--saved';
+		} else {
+			el.textContent = '';
+			el.className = 'oc-autosave-indicator';
+		}
+	}
+
+	function collectState() {
+		return {
+			areas: areas.map( function ( a ) {
+				return {
+					id: a.id, label: a.label, method: a.method,
+					mockupId: a.mockupId, mockupUrl: a.mockupUrl,
+					x: a.x, y: a.y, w: a.w, h: a.h,
+					sortOrder: a.sortOrder, visible: a.visible, locked: a.locked,
+					layers: ( a.layers || [] ).map( function ( l ) {
+						return {
+							id: l.id, type: l.type, label: l.label,
+							x: l.x, y: l.y, w: l.w, h: l.h,
+							sortOrder: l.sortOrder, visible: l.visible, locked: l.locked,
+							settings: l.settings || {},
+						};
+					} ),
+				};
+			} ),
+		};
+	}
+
+	function applyAutosavedState( savedState ) {
+		var layersByAreaId = {};
+		( savedState.areas || [] ).forEach( function ( a ) {
+			( a.layers || [] ).forEach( function ( l ) {
+				var aid = Number( l.areaId || 0 );
+				if ( ! layersByAreaId[ aid ] ) layersByAreaId[ aid ] = [];
+				layersByAreaId[ aid ].push( normaliseLayer( l ) );
+			} );
+		} );
+		areas = ( savedState.areas || [] ).map( function ( a, i ) {
+			return Object.assign( normaliseArea( a, i ), { layers: layersByAreaId[ Number( a.id ) ] || [] } );
+		} );
+		selectedIndex = areas.length > 0 ? 0 : -1;
+		selectedLayerIndex = -1;
+		activeLayerTab = 'general';
+		history = [];
+		historyIndex = -1;
+		snapshot();
+		renderAll();
+	}
+
+	function doAutosave() {
+		if ( ! isDirty || ! designId ) return;
+		var state = collectState();
+		var body = new URLSearchParams( {
+			action:  'oc_autosave_design',
+			nonce:   ocProductsData.nonce,
+			design_id: designId,
+			state:   JSON.stringify( state ),
+		} );
+		fetch( ocProductsData.ajaxUrl, { method: 'POST', body: body } )
+			.then( function ( r ) {
+				if ( ! r.ok ) throw new Error( 'HTTP ' + r.status );
+				return r.json();
+			} )
+			.then( function ( json ) {
+				if ( json.success ) {
+					isDirty = false;
+					lastSavedTime = Date.now();
+					autosaveError = '';
+					updateAutosaveIndicator();
+				} else {
+					autosaveError = 'Autosave failed';
+					updateAutosaveIndicator();
+				}
+			} )
+			.catch( function ( err ) {
+				console.warn( '[OC] Autosave failed:', err );
+				autosaveError = 'Autosave failed';
+				updateAutosaveIndicator();
+			} );
+	}
+
+	function startAutosavePoll() {
+		if ( autosaveTimer ) clearInterval( autosaveTimer );
+		autosaveTimer = setInterval( doAutosave, autosaveInterval );
+	}
+
+	function stopAutosavePoll() {
+		if ( autosaveTimer ) { clearInterval( autosaveTimer ); autosaveTimer = null; }
+	}
+
 	// ── Init ───────────────────────────────────────────────────────────────────
 
 	function init() {
+		const data = window.ocProductsData || {};
+		designId = Number( data.designId || 0 );
+
+		if ( designId > 0 ) {
+			var body = new URLSearchParams( {
+				action:    'oc_restore_autosave',
+				nonce:     data.nonce,
+				design_id: designId,
+			} );
+			fetch( data.ajaxUrl, { method: 'POST', body: body } )
+				.then( function ( r ) {
+					if ( ! r.ok ) throw new Error( 'HTTP ' + r.status );
+					return r.json();
+				} )
+				.then( function ( json ) {
+					if ( json.success && json.data && json.data.state ) {
+						var ts = json.data.timestamp || 0;
+						var diff = Math.round( ( Date.now() - ts * 1000 ) / 1000 );
+						var mins = Math.max( 1, Math.floor( diff / 60 ) );
+						var msg = 'You have unsaved changes from ' + mins + ' minute' + ( mins > 1 ? 's' : '' ) + ' ago. Restore?';
+						if ( confirm( msg ) ) {
+							applyAutosavedState( json.data.state );
+							isDirty = true;
+							startAutosavePoll();
+							updateAutosaveIndicator();
+							initInteractions();
+							return;
+						}
+					}
+					loadDefaultData();
+				} )
+				.catch( loadDefaultData );
+		} else {
+			loadDefaultData();
+		}
+	}
+
+	function loadDefaultData() {
 		const data = window.ocProductsData || {};
 
 		const layersByAreaId = {};
@@ -152,12 +319,18 @@
 
 		renderAll();
 		snapshot(); // seed initial history state
+		isDirty = false; // reset after seed
 		initInteractions();
+
+		if ( designId > 0 ) {
+			startAutosavePoll();
+		}
 
 		// Safety net: force hidden-field re-render immediately before submit,
 		// so the latest in-memory settings are always serialised into POST data.
 		document.getElementById( 'oc-design-form' )?.addEventListener( 'submit', () => {
 			renderHiddenFields();
+			stopAutosavePoll();
 		} );
 	}
 
@@ -359,25 +532,27 @@
 			layer.label = e.target.value;
 			renderLayerList( area );
 			renderHiddenFields();
+			markDirty();
 		} );
 		[ 'oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h' ].forEach( id => {
 			document.getElementById( id )?.addEventListener( 'input', syncBoundsFromInputs );
 		} );
-		document.getElementById( 'oc-set-default-text' )?.addEventListener( 'input', e => { s.default_text = e.target.value; renderHiddenFields(); } );
-		document.getElementById( 'oc-set-char-limit'   )?.addEventListener( 'input', e => { s.char_limit   = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); } );
+		document.getElementById( 'oc-set-default-text' )?.addEventListener( 'input', e => { s.default_text = e.target.value; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-char-limit'   )?.addEventListener( 'input', e => { s.char_limit   = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); markDirty(); } );
 		document.querySelectorAll( '.oc-align-btn' ).forEach( btn => {
 			btn.addEventListener( 'click', () => {
 				s.alignment = btn.dataset.align;
 				document.querySelectorAll( '.oc-align-btn' ).forEach( b => b.classList.toggle( 'oc-align-btn--active', b.dataset.align === btn.dataset.align ) );
 				renderHiddenFields();
+				markDirty();
 			} );
 		} );
-		document.querySelectorAll( '.oc-fg-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.font_groups   = [ ...document.querySelectorAll( '.oc-fg-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); } ); } );
-		document.querySelectorAll( '.oc-cg-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.colour_groups  = [ ...document.querySelectorAll( '.oc-cg-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); } ); } );
-		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); } ); } );
-		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); } ); } );
-		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); } );
-		document.getElementById( 'oc-set-required'   )?.addEventListener( 'change', e => { s.required = e.target.checked; renderHiddenFields(); } );
+		document.querySelectorAll( '.oc-fg-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.font_groups   = [ ...document.querySelectorAll( '.oc-fg-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
+		document.querySelectorAll( '.oc-cg-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.colour_groups  = [ ...document.querySelectorAll( '.oc-cg-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
+		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
+		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); markDirty(); } ); } );
+		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-required'   )?.addEventListener( 'change', e => { s.required = e.target.checked; renderHiddenFields(); markDirty(); } );
 	}
 
 	// ── Render ─────────────────────────────────────────────────────────────────
@@ -892,7 +1067,7 @@
 		// Area prop inputs
 		document.getElementById( 'oc-prop-label' )?.addEventListener( 'input', () => {
 			const area = areas[ selectedIndex ];
-			if ( area ) { area.label = document.getElementById( 'oc-prop-label' ).value; renderAreasList(); renderAreaStrip(); renderHiddenFields(); }
+			if ( area ) { area.label = document.getElementById( 'oc-prop-label' ).value; renderAreasList(); renderAreaStrip(); renderHiddenFields(); markDirty(); }
 		} );
 		document.getElementById( 'oc-prop-method' )?.addEventListener( 'change', () => {
 			const area = areas[ selectedIndex ];
@@ -900,10 +1075,11 @@
 				area.method = document.getElementById( 'oc-prop-method' ).value;
 				// Re-render everything so layer panels reflect method-dependent UI (e.g. hide colour picks under engraving).
 				renderAll();
+				markDirty();
 			}
 		} );
 		[ 'oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h' ].forEach( id => {
-			document.getElementById( id )?.addEventListener( 'input', syncBoundsFromInputs );
+			document.getElementById( id )?.addEventListener( 'input', () => { syncBoundsFromInputs(); markDirty(); } );
 		} );
 		[ 'oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h' ].forEach( id => {
 			document.getElementById( id )?.addEventListener( 'input', syncBoundsFromInputs );
@@ -913,7 +1089,7 @@
 		document.getElementById( 'oc-choose-mockup-btn' )?.addEventListener( 'click', openMockupPicker );
 		document.getElementById( 'oc-remove-mockup-btn' )?.addEventListener( 'click', () => {
 			const area = areas[ selectedIndex ];
-			if ( area ) { area.mockupId = 0; area.mockupUrl = ''; renderAll(); }
+			if ( area ) { area.mockupId = 0; area.mockupUrl = ''; renderAll(); markDirty(); }
 		} );
 
 		// Undo/Redo buttons
@@ -1189,7 +1365,7 @@
 		entity.y = parseInt( document.getElementById( prefix + '-y' )?.value || 0, 10 );
 		entity.w = Math.max( 1, parseInt( document.getElementById( prefix + '-w' )?.value || 1, 10 ) );
 		entity.h = Math.max( 1, parseInt( document.getElementById( prefix + '-h' )?.value || 1, 10 ) );
-		updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity ); renderHiddenFields();
+		updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity ); renderHiddenFields(); markDirty();
 	}
 
 	function syncRightBounds( entity ) {
@@ -1204,6 +1380,10 @@
 
 	function openMockupPicker() {
 		if ( selectedIndex < 0 ) return;
+		if ( ! window.wp || ! window.wp.media ) {
+			alert( 'Media library is not available.' );
+			return;
+		}
 		if ( ! mediaFrame ) {
 			const data = window.ocProductsData || {};
 			mediaFrame = wp.media( { title: data.mediaTitle || 'Select Mockup Image', button: { text: data.mediaBtn || 'Use as Mockup' }, library: { type: 'image' }, multiple: false } );
@@ -1214,6 +1394,7 @@
 					area.mockupId  = att.id;
 					area.mockupUrl = ( att.sizes && att.sizes.large && att.sizes.large.url ) || att.url;
 					renderAll();
+					markDirty();
 				}
 			} );
 		}

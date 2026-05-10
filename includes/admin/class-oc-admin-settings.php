@@ -173,7 +173,7 @@ class OC_Admin_Settings {
 									<div class="oc-form-grid">
 										<div class="oc-form-row">
 											<div class="oc-form-label">
-												<label for="oc_file_retention_days"><?php esc_html_e( 'Print file retention', 'overcustomise' ); ?></label>
+												<label for="oc_file_retention_days"><?php esc_html_e( 'Print file retention', 'overcustomise' ); ?><?php OC_Tooltips::render( 'file-retention', __( 'How long generated print files are kept before automatic deletion.', 'overcustomise' ) ); ?></label>
 											</div>
 											<div class="oc-form-field">
 												<div class="oc-inline-row">
@@ -311,7 +311,7 @@ class OC_Admin_Settings {
 									<div class="oc-form-grid">
 										<div class="oc-form-row">
 											<div class="oc-form-label">
-												<label for="oc_bleed_mm"><?php esc_html_e( 'Bleed size', 'overcustomise' ); ?></label>
+												<label for="oc_bleed_mm"><?php esc_html_e( 'Bleed size', 'overcustomise' ); ?><?php OC_Tooltips::render( 'bleed-size', __( 'Extra artwork area beyond the trim edge, in millimetres.', 'overcustomise' ) ); ?></label>
 											</div>
 											<div class="oc-form-field">
 												<div class="oc-inline-row">
@@ -344,7 +344,7 @@ class OC_Admin_Settings {
 										</div>
 										<div class="oc-form-row">
 											<div class="oc-form-label">
-												<?php esc_html_e( 'ICC profiles', 'overcustomise' ); ?>
+												<?php esc_html_e( 'ICC profiles', 'overcustomise' ); ?><?php OC_Tooltips::render( 'icc-profiles', __( 'ICC colour profile names or paths embedded in generated PDFs for each print method.', 'overcustomise' ) ); ?>
 											</div>
 											<div class="oc-form-field">
 												<div class="oc-icc-grid">

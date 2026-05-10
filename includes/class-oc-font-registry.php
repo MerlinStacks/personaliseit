@@ -54,6 +54,9 @@ class OC_Font_Registry {
 		}
 
 		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return;
+		}
 		$output = '';
 
 		foreach ( $fonts as $font ) {
@@ -107,6 +110,9 @@ class OC_Font_Registry {
 	public static function get_fonts_for_js(): array {
 		$fonts  = OC_DB::get_fonts( true );
 		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return [];
+		}
 		$result = [];
 
 		foreach ( $fonts as $font ) {

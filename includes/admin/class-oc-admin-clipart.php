@@ -553,6 +553,9 @@ class OC_Admin_Clipart {
 
 		// Prepare target directory.
 		$upload_dir = wp_upload_dir();
+		if ( ! empty( $upload_dir['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload_dir['error'] );
+		}
 		$target_dir = $upload_dir['basedir'] . '/' . self::CLIPART_SUBDIR . '/';
 
 		if ( ! wp_mkdir_p( $target_dir ) ) {
@@ -596,7 +599,7 @@ class OC_Admin_Clipart {
 
 		// Store record in DB.
 		global $wpdb;
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			"{$wpdb->prefix}oc_clipart",
 			[
 				'name'      => $name,
@@ -607,6 +610,10 @@ class OC_Admin_Clipart {
 			[ '%s', '%s', '%s', '%d' ]
 		);
 		$id = (int) $wpdb->insert_id;
+		if ( false === $inserted || $id <= 0 ) {
+			@unlink( $dest );
+			return new \WP_Error( 'db_error', __( 'Could not save clipart record.', 'overcustomise' ) );
+		}
 
 		return [
 			'id'        => $id,

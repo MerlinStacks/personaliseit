@@ -158,7 +158,7 @@ class OC_Admin_Print_Methods {
 					</div>
 					<div class="oc-form-row">
 						<div class="oc-form-label">
-							<?php esc_html_e( 'Colour space', 'overcustomise' ); ?>
+							<?php esc_html_e( 'Colour space', 'overcustomise' ); ?><?php OC_Tooltips::render( 'colour-space-' . $key, __( 'The colour model used for output files. Fixed per print method and cannot be changed.', 'overcustomise' ) ); ?>
 						</div>
 						<div class="oc-form-field">
 							<div style="display:flex;align-items:center;gap:8px;">
@@ -171,7 +171,7 @@ class OC_Admin_Print_Methods {
 					<?php if ( 'uv' === $key ) : ?>
 						<div class="oc-form-row">
 							<div class="oc-form-label">
-								<?php esc_html_e( 'White ink layer', 'overcustomise' ); ?>
+								<?php esc_html_e( 'White ink layer', 'overcustomise' ); ?><?php OC_Tooltips::render( 'white-ink', __( 'Adds a white underbase layer beneath colours, required for dark or transparent substrates.', 'overcustomise' ) ); ?>
 							</div>
 							<div class="oc-form-field">
 								<label class="oc-checkbox-label">

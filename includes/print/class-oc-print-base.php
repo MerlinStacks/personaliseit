@@ -42,15 +42,22 @@ abstract class OC_Print_Base {
 	 */
 	protected static function ensure_output_dir( int $order_id ): string {
 		$upload_dir = wp_upload_dir();
+		if ( ! empty( $upload_dir['error'] ) ) {
+			throw new \RuntimeException( (string) $upload_dir['error'] );
+		}
 		$base       = $upload_dir['basedir'] . '/' . self::PRINT_SUBDIR;
 		$dir        = $base . '/' . $order_id;
 
-		wp_mkdir_p( $dir );
+		if ( ! wp_mkdir_p( $dir ) ) {
+			throw new \RuntimeException( __( 'Could not create print output directory.', 'overcustomise' ) );
+		}
 
 		// Protect the print-files root with .htaccess if not already there.
 		$htaccess = $base . '/.htaccess';
 		if ( ! file_exists( $htaccess ) ) {
-			file_put_contents( $htaccess, "Options -Indexes\nDeny from all\n" );
+			if ( false === file_put_contents( $htaccess, "Options -Indexes\nDeny from all\n" ) ) {
+				throw new \RuntimeException( __( 'Could not protect print directory.', 'overcustomise' ) );
+			}
 		}
 
 		return $dir;

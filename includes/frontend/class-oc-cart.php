@@ -209,6 +209,26 @@ class OC_Cart {
 				$item_data[] = [ 'key' => $label, 'value' => $value ];
 			}
 
+			$cart_item_key = '';
+			if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
+				foreach ( WC()->cart->get_cart() as $key => $ci ) {
+					if ( isset( $ci['unique_key'] ) && isset( $cart_item['unique_key'] ) && $ci['unique_key'] === $cart_item['unique_key'] ) {
+						$cart_item_key = $key;
+						break;
+					}
+				}
+			}
+			if ( '' !== $cart_item_key && ! empty( $cart_item['product_id'] ) ) {
+				$product_url = get_permalink( (int) $cart_item['product_id'] );
+				if ( $product_url ) {
+					$edit_url = add_query_arg( 'oc_edit_cart_key', $cart_item_key, $product_url );
+					$item_data[] = [
+						'key'   => '',
+						'value' => '<a href="' . esc_url( $edit_url ) . '" class="oc-edit-customisation">' . esc_html__( '✏️ Edit Customisation', 'overcustomise' ) . '</a>',
+					];
+				}
+			}
+
 			return $item_data;
 		}
 
@@ -235,6 +255,26 @@ class OC_Cart {
 				'key'   => sprintf( __( 'Personalisation (%s)', 'overcustomise' ), ucwords( str_replace( '-', ' ', $area_key ) ) ),
 				'value' => implode( ' ', $parts ),
 			];
+		}
+
+		$cart_item_key = '';
+		if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
+			foreach ( WC()->cart->get_cart() as $key => $ci ) {
+				if ( isset( $ci['unique_key'] ) && isset( $cart_item['unique_key'] ) && $ci['unique_key'] === $cart_item['unique_key'] ) {
+					$cart_item_key = $key;
+					break;
+				}
+			}
+		}
+		if ( '' !== $cart_item_key && ! empty( $cart_item['product_id'] ) ) {
+			$product_url = get_permalink( (int) $cart_item['product_id'] );
+			if ( $product_url ) {
+				$edit_url = add_query_arg( 'oc_edit_cart_key', $cart_item_key, $product_url );
+				$item_data[] = [
+					'key'   => '',
+					'value' => '<a href="' . esc_url( $edit_url ) . '" class="oc-edit-customisation">' . esc_html__( '✏️ Edit Customisation', 'overcustomise' ) . '</a>',
+				];
+			}
 		}
 
 		return $item_data;

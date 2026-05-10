@@ -109,18 +109,48 @@ class OC_Print_Generator {
 			'file_path'    => null,
 		] );
 
-		$result = $this->dispatch( $order, (int) $record->order_item_id, $area, $area_data );
+		$result = self::generate_for_area( $order, (int) $record->order_item_id, $area, $area_data );
+
+		$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
 
 		OC_DB::update_print_file( $file_id, [
-			'file_path'   => $result['file_path'],
-			'file_status' => $result['status'],
+			'file_path'      => $result['file_path'],
+			'file_status'    => $result['status'],
+			'thumbnail_path' => $thumb_path,
 		] );
 
 		return $result;
 	}
 
+	/**
+	 * Generate a thumbnail for a PDF print file.
+	 *
+	 * @param string $file_path Absolute path to the generated file.
+	 * @return string|null      Absolute path to thumbnail, or null.
+	 */
+	private static function maybe_generate_thumbnail( string $file_path ): ?string {
+		$ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+
+		if ( 'pdf' !== $ext || ! file_exists( $file_path ) ) {
+			return null;
+		}
+
+		$thumb_path = pathinfo( $file_path, PATHINFO_DIRNAME ) . '/'
+			. pathinfo( $file_path, PATHINFO_FILENAME ) . '-thumb.png';
+
+		if ( ! OC_Preview_Generator::from_pdf( $file_path, $thumb_path ) ) {
+			return null;
+		}
+
+		return $thumb_path;
+	}
+
 	/** Generate print files for all customised items in a new order. */
 	public function generate_for_order( \WC_Order $order ): void {
+		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90;
+		$now            = current_time( 'mysql', true );
+		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
+
 		foreach ( $order->get_items() as $item_id => $item ) {
 			/** @var \WC_Order_Item_Product $item */
 			$customisation = $item->get_meta( '_oc_customisation', true );
@@ -136,13 +166,98 @@ class OC_Print_Generator {
 					continue;
 				}
 
+				// Check for active VDP template.
+				$vdp = new OC_VDP();
+				if ( $vdp->is_enabled( $design_id ) ) {
+					$template = $vdp->get_template( $design_id );
+					if ( is_array( $template ) && '' !== $template['csv_file_path'] && file_exists( $template['csv_file_path'] ) ) {
+						$csv_data = $vdp->parse_csv( $template['csv_file_path'] );
+						$rows     = $csv_data['rows'] ?? [];
+
+						if ( ! empty( $rows ) ) {
+							$areas = OC_DB::get_design_print_areas( $design_id );
+							$layer_map = [];
+							foreach ( $template['fields'] as $field ) {
+								$layer_map[ (int) $field['layer_id'] ] = $field['field_name'];
+							}
+
+							foreach ( $rows as $row ) {
+								foreach ( $areas as $area ) {
+									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
+
+									// Merge VDP field values into text layers.
+									$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+									$all_layers   = OC_DB::get_design_layers( $design_id );
+									foreach ( $all_layers as $layer ) {
+										if ( (int) $layer->area_id !== (int) $area->id ) {
+											continue;
+										}
+										$layer_lid = (int) $layer->id;
+										if ( isset( $layer_map[ $layer_lid ] ) && isset( $layer_inputs[ $layer_lid ] ) ) {
+											$field_name = $layer_map[ $layer_lid ];
+											if ( isset( $row[ $field_name ] ) ) {
+												$merged_value = $vdp->merge_values( $row[ $field_name ], $row );
+												$layer_inputs[ $layer_lid ]['value'] = $merged_value;
+											}
+										}
+									}
+
+									$merged_customisation = $customisation;
+									$merged_customisation['layers'] = $layer_inputs;
+									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $merged_customisation );
+
+									if ( empty( $area_data['text'] ) && empty( $area_data['artworkAttachmentId'] ) ) {
+										continue;
+									}
+
+									OC_DB::insert_print_file( [
+										'order_id'      => $order->get_id(),
+										'order_item_id' => (int) $item_id,
+										'print_area_id' => (int) $area->id,
+										'file_type'     => $area->print_method,
+										'file_status'   => 'pending',
+										'generated_at'  => $now,
+										'expires_at'    => $expires_at,
+									] );
+
+									OC_Print_Queue::instance()->enqueue(
+										(int) $order->get_id(),
+										(int) $item_id,
+										(int) $area->id,
+										$area_data,
+										(string) $area->print_method
+									);
+								}
+							}
+						}
+						continue;
+					}
+				}
+
 				$areas = OC_DB::get_design_print_areas( $design_id );
 				foreach ( $areas as $area ) {
 					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
 					if ( empty( $area_data['text'] ) && empty( $area_data['artworkAttachmentId'] ) ) {
 						continue;
 					}
-					$this->generate_for_area( $order, (int) $item_id, $area, $area_data );
+
+					OC_DB::insert_print_file( [
+						'order_id'      => $order->get_id(),
+						'order_item_id' => (int) $item_id,
+						'print_area_id' => (int) $area->id,
+						'file_type'     => $area->print_method,
+						'file_status'   => 'pending',
+						'generated_at'  => $now,
+						'expires_at'    => $expires_at,
+					] );
+
+					OC_Print_Queue::instance()->enqueue(
+						(int) $order->get_id(),
+						(int) $item_id,
+						(int) $area->id,
+						$area_data,
+						(string) $area->print_method
+					);
 				}
 				continue;
 			}
@@ -164,7 +279,23 @@ class OC_Print_Generator {
 					continue;
 				}
 
-				$this->generate_for_area( $order, (int) $item_id, $area, $area_data );
+				OC_DB::insert_print_file( [
+					'order_id'      => $order->get_id(),
+					'order_item_id' => (int) $item_id,
+					'print_area_id' => (int) $area->id,
+					'file_type'     => $area->print_method,
+					'file_status'   => 'pending',
+					'generated_at'  => $now,
+					'expires_at'    => $expires_at,
+				] );
+
+				OC_Print_Queue::instance()->enqueue(
+					(int) $order->get_id(),
+					(int) $item_id,
+					(int) $area->id,
+					$area_data,
+					(string) $area->print_method
+				);
 			}
 		}
 	}
@@ -211,12 +342,15 @@ class OC_Print_Generator {
 					}
 					break;
 
-				case 'image':
-				case 'clipart':
-				case 'lineart':
-					if ( ! $attachment && ! empty( $input['attachmentId'] ) ) {
-						$attachment = (int) $input['attachmentId'];
-					}
+			case 'image':
+			case 'clipart':
+			case 'lineart':
+				if ( 'lineart' === $layer->type && '' === $color && ! empty( $input['colorHex'] ) ) {
+					$color = (string) $input['colorHex'];
+				}
+				if ( ! $attachment && ! empty( $input['attachmentId'] ) ) {
+					$attachment = (int) $input['attachmentId'];
+				}
 					if ( '' === $artwork_path && 'clipart' === $layer->type ) {
 						$clipart_id  = (int) ( $input['clipartId'] ?? 0 );
 						$clipart_url = is_string( $input['clipartUrl'] ?? null ) ? (string) $input['clipartUrl'] : '';
@@ -273,63 +407,15 @@ class OC_Print_Generator {
 		return '';
 	}
 
-	/** Generate (or attempt to generate) the print file for one area. */
-	private function generate_for_area(
-		\WC_Order $order,
-		int $item_id,
-		object $area,
-		array $area_data
-	): void {
-		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90;
-		$now            = current_time( 'mysql', true );
-		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
-
-		// Reserve a DB row before generation so any failure can be recorded.
-		$record_id = OC_DB::insert_print_file( [
-			'order_id'      => $order->get_id(),
-			'order_item_id' => $item_id,
-			'print_area_id' => (int) $area->id,
-			'file_type'     => $area->print_method,
-			'file_status'   => 'generating',
-			'generated_at'  => $now,
-			'expires_at'    => $expires_at,
-		] );
-
-		if ( ! $record_id ) {
-			OC_Logger::error( "OC_Print_Generator: could not insert print file record for item {$item_id}, area {$area->area_key}." );
-			return;
-		}
-
-		try {
-			[ 'file_path' => $file_path, 'status' => $status ] = $this->dispatch( $order, $item_id, $area, $area_data );
-
-			OC_DB::update_print_file( $record_id, [
-				'file_path'   => $file_path,
-				'file_status' => $status,
-			] );
-
-			OC_Logger::info( "Print file generated: {$file_path} (status: {$status})" );
-
-		} catch ( \Throwable $e ) {
-			OC_Logger::error( sprintf(
-				'Print file generation failed — order %d, item %d, area %s: %s',
-				$order->get_id(),
-				$item_id,
-				$area->area_key,
-				$e->getMessage()
-			) );
-
-			OC_DB::update_print_file( $record_id, [ 'file_status' => 'pending' ] );
-		}
-	}
-
 	/**
-	 * Dispatch to the correct type-specific generator.
+	 * Generate the print file for one area. Called from the queue processor
+	 * or from the regenerate() method. Does NOT insert DB rows — caller handles
+	 * oc_print_files state.
 	 *
 	 * @return array{file_path:string, status:string}
 	 * @throws \RuntimeException
 	 */
-	private function dispatch(
+	public static function generate_for_area(
 		\WC_Order $order,
 		int $item_id,
 		object $area,

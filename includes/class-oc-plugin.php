@@ -27,6 +27,8 @@ class OC_Plugin {
 
 	private function load_includes(): void {
 		// Core utilities.
+		require_once OC_PATH . 'includes/class-oc-tooltips.php';
+		require_once OC_PATH . 'includes/class-oc-cache.php';
 		require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 		require_once OC_PATH . 'includes/class-oc-db.php';
 		require_once OC_PATH . 'includes/class-oc-logger.php';
@@ -37,7 +39,12 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/class-oc-file-cleanup.php';
 		require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
 		require_once OC_PATH . 'includes/class-oc-upload-handler.php';
+		require_once OC_PATH . 'includes/class-oc-preview-generator.php';
 		require_once OC_PATH . 'includes/class-oc-print-generator.php';
+		require_once OC_PATH . 'includes/class-oc-print-queue.php';
+		require_once OC_PATH . 'includes/class-oc-autosave.php';
+		require_once OC_PATH . 'includes/class-oc-vdp.php';
+		require_once OC_PATH . 'includes/class-oc-webhooks.php';
 		require_once OC_PATH . 'includes/print/class-oc-print-base.php';
 		require_once OC_PATH . 'includes/print/class-oc-print-engraving.php';
 		require_once OC_PATH . 'includes/print/class-oc-print-uv.php';
@@ -84,6 +91,12 @@ class OC_Plugin {
 		// Print file generation (fires on checkout order creation).
 		( new OC_Print_Generator() )->register();
 
+		// Print queue processor.
+		OC_Print_Queue::instance()->register();
+
+		// Webhooks.
+		( new OC_Webhooks() )->register();
+
 		if ( is_admin() ) {
 			( new OC_Admin_Menu() )->register();
 			( new OC_Admin_Order_Metabox() )->register();
@@ -98,6 +111,21 @@ class OC_Plugin {
 
 		// File cleanup cron callback.
 		add_action( 'oc_daily_file_cleanup', [ 'OC_File_Cleanup', 'run' ] );
+
+		// Register custom cron recurrence.
+		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
+	}
+
+	// -------------------------------------------------------------------------
+	// Cron schedules
+	// -------------------------------------------------------------------------
+
+	public static function add_cron_schedules( array $schedules ): array {
+		$schedules['oc_every_minute'] = [
+			'interval' => 60,
+			'display'  => __( 'Every Minute', 'overcustomise' ),
+		];
+		return $schedules;
 	}
 
 	// -------------------------------------------------------------------------
@@ -117,6 +145,10 @@ class OC_Plugin {
 			wp_schedule_event( time(), 'daily', 'oc_daily_file_cleanup' );
 		}
 
+		if ( ! wp_next_scheduled( 'oc_process_print_queue' ) ) {
+			wp_schedule_event( time(), 'oc_every_minute', 'oc_process_print_queue' );
+		}
+
 		update_option( 'oc_db_version', OC_DB_VERSION );
 	}
 
@@ -125,5 +157,64 @@ class OC_Plugin {
 		if ( $timestamp ) {
 			wp_unschedule_event( $timestamp, 'oc_daily_file_cleanup' );
 		}
+
+		$timestamp = wp_next_scheduled( 'oc_process_print_queue' );
+		if ( $timestamp ) {
+			wp_unschedule_event( $timestamp, 'oc_process_print_queue' );
+		}
+
+		// Clear webhook delivery options.
+		global $wpdb;
+		$options = $wpdb->get_results( "SELECT option_name FROM {$wpdb->prefix}options WHERE option_name LIKE 'oc_wh_delivery_%'" );
+		foreach ( $options as $opt ) {
+			delete_option( $opt->option_name );
+		}
+	}
+
+	public static function uninstall(): void {
+		require_once OC_PATH . 'includes/class-oc-db.php';
+		OC_DB::drop_all_tables();
+
+		delete_option( 'oc_db_version' );
+		delete_option( 'oc_settings' );
+		delete_option( 'oc_print_methods' );
+
+		wp_clear_scheduled_hook( 'oc_daily_file_cleanup' );
+		wp_clear_scheduled_hook( 'oc_process_print_queue' );
+
+		unregister_taxonomy( 'oc_mockup', 'attachment' );
+
+		$upload_dir = wp_upload_dir();
+		$upload_path = $upload_dir['basedir'] . '/overcustomise/';
+		if ( is_dir( $upload_path ) ) {
+			self::delete_directory( $upload_path );
+		}
+
+		wp_cache_flush_group( 'oc_data' );
+
+		// Clear webhook delivery options.
+		global $wpdb;
+		$options = $wpdb->get_results( "SELECT option_name FROM {$wpdb->prefix}options WHERE option_name LIKE 'oc_wh_delivery_%'" );
+		foreach ( $options as $opt ) {
+			delete_option( $opt->option_name );
+		}
+	}
+
+	private static function delete_directory( string $dir ): void {
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+		$items = scandir( $dir );
+		if ( false === $items ) {
+			return;
+		}
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+			$path = $dir . DIRECTORY_SEPARATOR . $item;
+			is_dir( $path ) ? self::delete_directory( $path ) : wp_delete_file( $path );
+		}
+		rmdir( $dir );
 	}
 }

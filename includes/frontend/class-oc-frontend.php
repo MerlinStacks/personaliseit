@@ -14,6 +14,7 @@ class OC_Frontend {
 	private ?object $design = null;
 	private array   $areas  = [];
 	private array   $layers = [];
+	private ?array  $edit_cart_item = null;
 
 	public function register(): void {
 		add_action( 'wp',                                    [ $this, 'maybe_load_design' ],  10 );
@@ -25,6 +26,47 @@ class OC_Frontend {
 	// ── Design pre-load ───────────────────────────────────────────────────────
 
 	public function maybe_load_design(): void {
+		$edit_cart_key = isset( $_GET['oc_edit_cart_key'] ) ? sanitize_text_field( wp_unslash( $_GET['oc_edit_cart_key'] ) ) : '';
+
+		if ( $edit_cart_key !== '' ) {
+			$cart = WC()->cart ?? null;
+			if ( $cart && isset( $cart->cart_contents[ $edit_cart_key ] ) ) {
+				$ci = $cart->cart_contents[ $edit_cart_key ];
+				if ( ! empty( $ci['_oc_customisation'] ) ) {
+					$this->edit_cart_item = [
+						'key'      => $edit_cart_key,
+						'customisation' => $ci['_oc_customisation'],
+					];
+				}
+			}
+		}
+
+		if ( null !== $this->edit_cart_item ) {
+			$cs = $this->edit_cart_item['customisation'];
+			$design_id = 0;
+			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] ) {
+				$design_id = (int) ( $cs['designId'] ?? 0 );
+			}
+			if ( ! $design_id ) {
+				return;
+			}
+
+			$design = OC_DB::get_design( $design_id );
+			if ( ! $design || ! (bool) $design->active ) {
+				return;
+			}
+
+			$areas = OC_DB::get_design_print_areas( (int) $design->id );
+			if ( empty( $areas ) ) {
+				return;
+			}
+
+			$this->design = $design;
+			$this->areas  = $areas;
+			$this->layers = OC_DB::get_design_layers( (int) $design->id );
+			return;
+		}
+
 		if ( ! is_product() ) {
 			return;
 		}
@@ -190,6 +232,7 @@ class OC_Frontend {
 					'w'        => (int) $layer->w,
 					'h'        => (int) $layer->h,
 					'required' => ! empty( $settings['required'] ),
+					'locked'   => ! empty( $layer->locked ),
 					'settings' => $settings,
 				];
 
@@ -230,6 +273,33 @@ class OC_Frontend {
 		// Clipart items grouped per clipart layer.
 		$clipart_by_layer = $this->build_clipart_by_layer();
 
+		// Flatten all clipart groups across layers into a unique list.
+		$clipart_groups = [];
+		foreach ( $clipart_by_layer as $layer_items ) {
+			foreach ( $layer_items as $item ) {
+				foreach ( $item['groupNames'] as $gn ) {
+					if ( ! in_array( $gn, $clipart_groups, true ) ) {
+						$clipart_groups[] = $gn;
+					}
+				}
+			}
+		}
+		sort( $clipart_groups );
+
+		$edit_mode = false;
+		$cart_key  = '';
+		if ( null !== $this->edit_cart_item ) {
+			$edit_mode = true;
+			$cart_key  = $this->edit_cart_item['key'];
+			$cs = $this->edit_cart_item['customisation'];
+			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] && isset( $cs['layers'] ) && is_array( $cs['layers'] ) ) {
+				foreach ( $cs['layers'] as $lid => $ldata ) {
+					if ( ! is_array( $ldata ) || ! isset( $layer_inputs[ (int) $lid ] ) ) continue;
+					$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
+				}
+			}
+		}
+
 		return [
 			'designId'        => (int) $this->design->id,
 			'designName'      => $this->design->name,
@@ -238,16 +308,20 @@ class OC_Frontend {
 			'fonts'           => $all_fonts,
 			'colours'         => $colours_js,
 			'clipartByLayer'  => $clipart_by_layer,
+			'clipartGroups'   => $clipart_groups,
 			'layerInputs'     => $layer_inputs,
 			'activeAreaIndex' => 0,
 			'isLoading'       => false,
 			'uploadUrl'       => rest_url( 'overcustomise/v1/upload-artwork' ),
 			'savePreviewUrl'  => rest_url( 'overcustomise/v1/save-preview' ),
 			'validateSpotifyUrl' => rest_url( 'overcustomise/v1/validate-spotify' ),
+			'updateCartItemUrl' => rest_url( 'overcustomise/v1/update-cart-item' ),
 			'uploadNonce'     => wp_create_nonce( 'wp_rest' ),
 			'requestToken'    => OC_Rest_API::issue_public_token(),
 			'maxUploadSizeMb' => (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10,
 			'allowedFormats'  => (array) OC_Admin_Settings::get( 'allowed_upload_formats' ),
+			'editMode'        => $edit_mode,
+			'cartKey'         => $cart_key,
 		];
 	}
 
@@ -266,28 +340,40 @@ class OC_Frontend {
 			$layer_id   = (int) $layer->id;
 
 			if ( ! empty( $group_ids ) ) {
-				// Only clipart from specified groups.
 				$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
 				$items = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT DISTINCT c.id, c.name, c.file_path
+						"SELECT DISTINCT c.id, c.name, c.file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
 						 FROM {$wpdb->prefix}oc_clipart c
 						 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
+						 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 						 WHERE gi.group_id IN ($placeholders) AND c.active = 1
+						 GROUP BY c.id, c.name, c.file_path
 						 ORDER BY c.name ASC",
 						...$group_ids
 					)
 				) ?: [];
 			} else {
-				// All clipart.
 				$items = $wpdb->get_results(
-					"SELECT id, name, file_path FROM {$wpdb->prefix}oc_clipart WHERE active = 1 ORDER BY name ASC"
+					"SELECT c.id, c.name, c.file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
+					 FROM {$wpdb->prefix}oc_clipart c
+					 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
+					 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
+					 WHERE c.active = 1
+					 GROUP BY c.id, c.name, c.file_path
+					 ORDER BY c.name ASC"
 				) ?: [];
 			}
 
 			$by_layer[ $layer_id ] = array_map( function ( $item ) use ( $upload_dir ) {
 				$url = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $item->file_path );
-				return [ 'id' => (int) $item->id, 'name' => $item->name, 'url' => $url ];
+				$groupNames = $item->group_names ? array_filter( array_map( 'trim', explode( '||', $item->group_names ) ) ) : [];
+				return [
+					'id'         => (int) $item->id,
+					'name'       => $item->name,
+					'url'        => $url,
+					'groupNames' => $groupNames,
+				];
 			}, $items );
 		}
 
@@ -351,6 +437,11 @@ class OC_Frontend {
 		foreach ( $this->layers as $layer ) {
 			// Ignore hidden layers: they are not user-editable in the frontend panel.
 			if ( ! (bool) ( $layer->visible ?? true ) ) {
+				continue;
+			}
+
+			// Ignore locked layers: they use admin-set defaults and have no customer input.
+			if ( ! empty( $layer->locked ) ) {
 				continue;
 			}
 
@@ -458,6 +549,11 @@ class OC_Frontend {
 		.oc-area-tab { padding:6px 14px; border:1px solid #ddd; border-radius:3px; background:#fff; cursor:pointer; font-size:13px; transition:background .15s,border-color .15s; }
 		.oc-area-tab.oc-active { background:#0073aa; border-color:#0073aa; color:#fff; }
 
+		/* Mobile preview toggle */
+		.oc-preview-toggle-wrap { display:none; margin-bottom:12px; }
+		.oc-preview-toggle { display:none; width:100%; padding:12px; border:1px solid #ddd; border-radius:6px; background:#f8f8f8; cursor:pointer; font-size:14px; font-weight:600; text-align:center; min-height:44px; }
+		.oc-canvas-wrap { display:none; }
+		.oc-canvas-wrap img { width:100%; height:auto; display:block; border-radius:6px; border:1px solid #ddd; }
 
 		/* Layer controls */
 		.oc-layer-controls { display:flex; flex-direction:column; gap:18px; }
@@ -524,13 +620,102 @@ class OC_Frontend {
 		.oc-clipart-item img { width:100%; aspect-ratio:1; object-fit:contain; display:block; }
 		.oc-clipart-empty { font-size:13px; color:#888; text-align:center; padding:16px; }
 
-		/* Spotify */
+		/* Generic help tooltip */
+		.oc-help-tooltip { position:relative; display:inline-flex; align-items:center; width:fit-content; }
+		.oc-help-toggle { width:22px; height:22px; border:1px solid #c7c7c7; border-radius:50%; background:#fff; color:#666; font-size:11px; font-weight:700; line-height:1; cursor:help; padding:0; }
+		.oc-help-toggle:hover { color:#0073aa; border-color:#0073aa; }
+		.oc-help-hint { position:absolute; top:calc(100% + 8px); left:0; z-index:5; display:none; max-width:280px; margin:0; padding:8px 10px; border-radius:4px; border:1px solid #d9d9d9; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); font-size:11px; font-weight:500; line-height:1.45; color:#666; word-wrap:break-word; overflow-wrap:break-word; opacity:0; transform:translateY(-4px); transition:opacity .2s ease, transform .2s ease; pointer-events:none; }
+		.oc-help-tooltip:hover .oc-help-hint,
+		.oc-help-tooltip:focus-within .oc-help-hint { display:block; opacity:1; transform:translateY(0); pointer-events:auto; }
+		.oc-help-tooltip.oc-open .oc-help-hint { display:block; opacity:1; transform:translateY(0); pointer-events:auto; }
+		/* Legacy Spotify tooltip aliases */
 		.oc-spotify-help { position:relative; display:inline-flex; align-items:center; width:fit-content; }
 		.oc-spotify-help-toggle { width:22px; height:22px; border:1px solid #c7c7c7; border-radius:50%; background:#fff; color:#666; font-size:11px; font-weight:700; line-height:1; cursor:help; padding:0; }
-		.oc-spotify-hint { position:absolute; top:calc(100% + 8px); left:0; z-index:5; display:none; width:min(260px,80vw); margin:0; padding:8px 10px; border-radius:4px; border:1px solid #d9d9d9; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); font-size:11px; font-weight:500; line-height:1.45; color:#666; }
+		.oc-spotify-hint { position:absolute; top:calc(100% + 8px); left:0; z-index:5; display:none; max-width:280px; margin:0; padding:8px 10px; border-radius:4px; border:1px solid #d9d9d9; background:#fff; box-shadow:0 1px 2px rgba(0,0,0,.08); font-size:11px; font-weight:500; line-height:1.45; color:#666; }
 		.oc-spotify-help:hover .oc-spotify-hint,
 		.oc-spotify-help:focus-within .oc-spotify-hint { display:block; }
 		.oc-spotify-help.oc-open .oc-spotify-hint { display:block; }
+
+		/* Mobile media queries */
+		@media (max-width: 639px) {
+			.oc-customiser-panel {
+				padding-bottom: env(safe-area-inset-bottom, 0px);
+			}
+			.oc-area-tabs {
+				flex-wrap: nowrap;
+				overflow-x: auto;
+				-webkit-overflow-scrolling: touch;
+				scrollbar-width: none;
+				padding: 2px 0;
+				margin-inline: -8px;
+				padding-inline: 8px;
+			}
+			.oc-area-tabs::-webkit-scrollbar { display: none; }
+			.oc-area-tab {
+				min-width: 44px;
+				min-height: 44px;
+				padding: 8px 14px;
+				touch-action: manipulation;
+				-webkit-tap-highlight-color: transparent;
+				flex-shrink: 0;
+			}
+			.oc-preview-toggle-wrap {
+				display: block;
+			}
+			.oc-preview-toggle {
+				display: block;
+				font-size: 16px;
+			}
+			.oc-canvas-wrap {
+				display: none;
+				margin-bottom: 12px;
+				border-radius: 6px;
+				overflow: hidden;
+			}
+			.oc-canvas-wrap.oc-preview-visible {
+				display: block;
+			}
+			.oc-control-group {
+				flex-direction: column;
+				align-items: stretch;
+			}
+			.oc-control-group input[type="text"],
+			.oc-control-group textarea,
+			.oc-control-group select {
+				font-size: 16px;
+				min-height: 48px;
+				touch-action: manipulation;
+			}
+			.oc-colour-swatches {
+				gap: 10px;
+			}
+			.oc-colour-swatch {
+				min-width: 44px;
+				min-height: 44px;
+				width: 44px;
+				height: 44px;
+				touch-action: manipulation;
+			}
+			.oc-clipart-grid {
+				grid-template-columns: repeat(2, 1fr);
+				gap: 10px;
+			}
+			.oc-clipart-item {
+				min-height: 72px;
+				touch-action: manipulation;
+			}
+			.oc-artwork-remove {
+				min-height: 44px;
+				width: 100%;
+				text-align: center;
+				touch-action: manipulation;
+			}
+			.oc-spotify-help-toggle {
+				min-width: 44px;
+				min-height: 44px;
+				touch-action: manipulation;
+			}
+		}
 		';
 	}
 }

@@ -36,6 +36,25 @@ $upload_dir  = wp_upload_dir();
 	</div>
 	<?php endif; ?>
 
+	<div class="oc-preview-toggle-wrap">
+		<button type="button" class="oc-preview-toggle" id="oc-preview-toggle" aria-expanded="false">
+			<?php esc_html_e( 'Show Preview', 'overcustomise' ); ?>
+		</button>
+	</div>
+
+	<div class="oc-canvas-wrap" id="oc-canvas-wrap">
+		<?php
+		$first_area = $areas[0] ?? null;
+		if ( $first_area && ! empty( $first_area->mockup_attachment_id ) ) {
+			$mockup_src = wp_get_attachment_image_src( (int) $first_area->mockup_attachment_id, 'large' );
+			$mockup_url = $mockup_src ? $mockup_src[0] : '';
+			if ( $mockup_url ) : ?>
+				<img id="oc-canvas-preview" src="<?php echo esc_url( $mockup_url ); ?>" alt="<?php esc_attr_e( 'Customisation preview', 'overcustomise' ); ?>" />
+			<?php endif;
+		}
+		?>
+	</div>
+
 	<!-- Controls (one block per area) -->
 	<?php foreach ( $areas as $i => $area ) :
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
@@ -46,6 +65,7 @@ $upload_dir  = wp_upload_dir();
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
+					if ( (bool) ( $layer->locked ?? false ) ) continue; // Locked layers: no customer input
 					$s         = json_decode( $layer->settings ?: '{}', true ) ?: [];
 					$required  = ! empty( $s['required'] );
 					$char_lim  = (int) ( $s['char_limit'] ?? 0 );
@@ -107,8 +127,10 @@ $upload_dir  = wp_upload_dir();
 										<?php if ( $char_lim ) echo 'maxlength="' . esc_attr( $char_lim ) . '"'; ?>
 										placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 										autocomplete="off"
+										inputmode="text"
 										data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 									/>
+									<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
 								</div>
 
 							<?php elseif ( $layer->type === 'textarea' ) : ?>
@@ -118,16 +140,20 @@ $upload_dir  = wp_upload_dir();
 										id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
 										<?php if ( $char_lim ) echo 'maxlength="' . esc_attr( $char_lim ) . '"'; ?>
 										placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
+										inputmode="text"
 										data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 									><?php echo esc_textarea( $default ); ?></textarea>
+									<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
 								</div>
 
 							<?php elseif ( $layer->type === 'image' ) : ?>
 								<div class="oc-artwork-wrap">
+									<?php OC_Tooltips::render( 'upload-' . $layer->id, sprintf( __( 'Upload your design artwork. SVG, PNG, or JPG up to %d MB.', 'overcustomise' ), (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ) ); ?>
 									<div class="oc-upload-zone"
 										data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
-									</div>
-									<div class="oc-artwork-actions" style="display:none;">
+								</div>
+								<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
+								<div class="oc-artwork-actions" style="display:none;">
 										<button type="button" class="oc-artwork-remove"
 											data-oc-remove-image="<?php echo esc_attr( $layer->id ); ?>">
 											<?php esc_html_e( 'Remove', 'overcustomise' ); ?>
@@ -142,23 +168,56 @@ $upload_dir  = wp_upload_dir();
 									global $wpdb;
 									$phs   = implode( ',', array_fill( 0, count( $cg_ids ), '%d' ) );
 									$items = $wpdb->get_results( $wpdb->prepare(
-										"SELECT DISTINCT c.id, c.name, c.file_path FROM {$wpdb->prefix}oc_clipart c
+										"SELECT DISTINCT c.id, c.name, c.file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
 										 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
-										 WHERE gi.group_id IN ($phs) AND c.active = 1 ORDER BY c.name ASC",
+										 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
+										 WHERE gi.group_id IN ($phs) AND c.active = 1
+										 GROUP BY c.id, c.name, c.file_path ORDER BY c.name ASC",
 										...$cg_ids
 									) ) ?: [];
 								} else {
 									global $wpdb;
-									$items = $wpdb->get_results( "SELECT id, name, file_path FROM {$wpdb->prefix}oc_clipart WHERE active = 1 ORDER BY name ASC" ) ?: [];
+									$items = $wpdb->get_results( "SELECT id, name, file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
+									 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
+									 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
+									 WHERE c.active = 1
+									 GROUP BY c.id, c.name, c.file_path ORDER BY c.name ASC" ) ?: [];
 								}
+								$group_names = [];
+								foreach ( $items as $ci ) {
+									if ( ! empty( $ci->group_names ) ) {
+										foreach ( array_filter( array_map( 'trim', explode( '||', $ci->group_names ) ) ) as $gn ) {
+											if ( ! in_array( $gn, $group_names, true ) ) {
+												$group_names[] = $gn;
+											}
+										}
+									}
+								}
+								sort( $group_names );
 								?>
-								<div class="oc-clipart-grid">
+								<?php OC_Tooltips::render( 'clipart-' . $layer->id, __( 'Select a pre-made design element to add to your product.', 'overcustomise' ) ); ?>
+								<div class="oc-clipart-filters" data-oc-clipart-filters="<?php echo esc_attr( $layer->id ); ?>">
+									<input type="search" class="oc-clipart-search" placeholder="<?php esc_attr_e( 'Search clipart…', 'overcustomise' ); ?>" data-oc-clipart-search="<?php echo esc_attr( $layer->id ); ?>" />
+									<?php if ( ! empty( $group_names ) ) : ?>
+									<select class="oc-clipart-category" data-oc-clipart-category="<?php echo esc_attr( $layer->id ); ?>">
+										<option value=""><?php esc_html_e( 'All categories', 'overcustomise' ); ?></option>
+										<?php foreach ( $group_names as $gn ) : ?>
+											<option value="<?php echo esc_attr( $gn ); ?>"><?php echo esc_html( $gn ); ?></option>
+										<?php endforeach; ?>
+									</select>
+									<?php endif; ?>
+								</div>
+								<div class="oc-clipart-grid" data-oc-clipart-grid="<?php echo esc_attr( $layer->id ); ?>">
 									<?php foreach ( $items as $ci ) :
-										$curl = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $ci->file_path ); ?>
+										$curl = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $ci->file_path );
+										$ci_group_names = $ci->group_names ? array_filter( array_map( 'trim', explode( '||', $ci->group_names ) ) ) : [];
+										$ci_groups_attr = implode( '||', $ci_group_names );
+										?>
 										<button type="button" class="oc-clipart-item"
 											data-oc-clipart="<?php echo esc_attr( $ci->id ); ?>"
 											data-oc-layer-clipart="<?php echo esc_attr( $layer->id ); ?>"
 											data-oc-clipart-url="<?php echo esc_attr( $curl ); ?>"
+											data-oc-clipart-groups="<?php echo esc_attr( $ci_groups_attr ); ?>"
 											title="<?php echo esc_attr( $ci->name ); ?>">
 											<img src="<?php echo esc_url( $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
 										</button>
@@ -169,6 +228,7 @@ $upload_dir  = wp_upload_dir();
 								</div>
 
 							<?php elseif ( $layer->type === 'lineart' && ! $is_engraving ) : ?>
+								<?php OC_Tooltips::render( 'lineart-' . $layer->id, __( 'Choose a solid colour background for this area.', 'overcustomise' ) ); ?>
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
@@ -195,17 +255,10 @@ $upload_dir  = wp_upload_dir();
 										id="oc-spotify-<?php echo esc_attr( $layer->id ); ?>"
 										placeholder="https://open.spotify.com/track/…"
 										autocomplete="off"
+										inputmode="url"
 										data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 										data-oc-layer-spotify="<?php echo esc_attr( $layer->id ); ?>" />
-									<div class="oc-spotify-help">
-										<button type="button" class="oc-spotify-help-toggle"
-											aria-expanded="false"
-											aria-haspopup="true"
-											aria-label="<?php esc_attr_e( 'Spotify link help', 'overcustomise' ); ?>">
-											?
-										</button>
-										<p class="oc-spotify-hint"><?php esc_html_e( 'Use a public Spotify track, album, artist, playlist, episode, or show link.', 'overcustomise' ); ?></p>
-									</div>
+									<?php OC_Tooltips::render( 'spotify-' . $layer->id, __( 'Use a public Spotify track, album, artist, playlist, episode, or show link.', 'overcustomise' ) ); ?>
 									<div class="oc-spotify-error" data-oc-spotify-error="<?php echo esc_attr( $layer->id ); ?>" style="display:none;" aria-live="polite"></div>
 								</div>
 							<?php endif; ?>
@@ -213,7 +266,7 @@ $upload_dir  = wp_upload_dir();
 							<!-- Font picker (text / textarea) -->
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! empty( $layer_fonts ) ) : ?>
 								<div class="oc-control-group">
-									<label><?php esc_html_e( 'Font', 'overcustomise' ); ?></label>
+									<label><?php esc_html_e( 'Font', 'overcustomise' ); ?><?php OC_Tooltips::render( 'font-' . $layer->id, __( 'Choose the font style for your text.', 'overcustomise' ) ); ?></label>
 									<select data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>">
 										<?php foreach ( $layer_fonts as $font ) : ?>
 											<option value="<?php echo esc_attr( $font['id'] ); ?>"
@@ -222,13 +275,14 @@ $upload_dir  = wp_upload_dir();
 											</option>
 										<?php endforeach; ?>
 									</select>
+									<div class="oc-font-preview" data-oc-font-preview="<?php echo esc_attr( $layer->id ); ?>">Abc 123</div>
 								</div>
 							<?php endif; ?>
 
 							<!-- Colour picker (text / textarea) — skipped for engraving. -->
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! $is_engraving ) : ?>
 								<div class="oc-control-group">
-									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?></label>
+									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?><?php OC_Tooltips::render( 'color-' . $layer->id, __( 'Pick a colour from the options below.', 'overcustomise' ) ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
 										<div class="oc-colour-swatches">
 											<?php foreach ( $layer_colours as $colour ) : ?>

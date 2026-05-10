@@ -535,12 +535,19 @@ class OC_Admin_Fonts {
 		}
 
 		$upload   = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload['error'] );
+		}
 		$font_dir = $upload['basedir'] . '/' . self::FONT_SUBDIR;
-		wp_mkdir_p( $font_dir );
+		if ( ! wp_mkdir_p( $font_dir ) ) {
+			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
+		}
 
 		$htaccess = $font_dir . '/.htaccess';
 		if ( ! file_exists( $htaccess ) ) {
-			file_put_contents( $htaccess, "Options -Indexes\n" );
+			if ( false === file_put_contents( $htaccess, "Options -Indexes\n" ) ) {
+				return new \WP_Error( 'htaccess_failed', __( 'Could not protect font directory.', 'overcustomise' ) );
+			}
 		}
 
 		$base = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) ) . '-' . time();
@@ -577,7 +584,7 @@ class OC_Admin_Fonts {
 		$embroidery = isset( $_POST['oc_font_embroidery'] ) ? 1 : 0;
 
 		global $wpdb;
-		$wpdb->insert(
+		$inserted = $wpdb->insert(
 			"{$wpdb->prefix}oc_fonts",
 			[ 'name' => $name, 'file_path' => $rel_path, 'weight' => $weight,
 			  'style' => $style, 'embroidery_suitable' => $embroidery, 'active' => 1 ],
@@ -585,6 +592,10 @@ class OC_Admin_Fonts {
 		);
 
 		$id  = (int) $wpdb->insert_id;
+		if ( false === $inserted || $id <= 0 ) {
+			wp_delete_file( $dest );
+			return new \WP_Error( 'db_error', __( 'Could not save font record.', 'overcustomise' ) );
+		}
 		$url = $upload['baseurl'] . '/' . $rel_path;
 
 		return [

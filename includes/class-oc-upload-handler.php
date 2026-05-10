@@ -193,10 +193,17 @@ class OC_Upload_Handler {
 			throw new \RuntimeException( __( 'Could not read uploaded SVG.', 'overcustomise' ) );
 		}
 
-		$sanitised = OC_SVG_Sanitiser::sanitise( $raw );
+		try {
+			$sanitised = OC_SVG_Sanitiser::sanitise( $raw );
+		} catch ( \InvalidArgumentException $e ) {
+			throw new \RuntimeException( $e->getMessage() );
+		}
 
 		// Write sanitised content to a temp file so WP can handle the upload.
 		$tmp = wp_tempnam( 'oc-svg-' );
+		if ( false === $tmp ) {
+			throw new \RuntimeException( __( 'Could not stage sanitised SVG for upload.', 'overcustomise' ) );
+		}
 		if ( false === file_put_contents( $tmp, $sanitised ) ) {
 			@unlink( $tmp );
 			throw new \RuntimeException( __( 'Could not stage sanitised SVG for upload.', 'overcustomise' ) );
@@ -289,6 +296,8 @@ class OC_Upload_Handler {
 		// Confirm it is actually an image via getimagesize.
 		$image_info = @getimagesize( $_file['tmp_name'] );
 		if ( ! $image_info || empty( $image_info['mime'] ) ) {
+			$err = error_get_last();
+			OC_Logger::warning( 'Image validation failed: ' . ( $err['message'] ?? 'unknown error' ) );
 			throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 		}
 
@@ -409,8 +418,13 @@ class OC_Upload_Handler {
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 
 		$upload_dir = wp_upload_dir();
+		if ( ! empty( $upload_dir['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload_dir['error'] );
+		}
 		$subdir     = $upload_dir['basedir'] . '/' . self::UPLOAD_SUBDIR;
-		wp_mkdir_p( $subdir );
+		if ( ! wp_mkdir_p( $subdir ) ) {
+			return new \WP_Error( 'mkdir_failed', __( 'Could not create upload directory.', 'overcustomise' ) );
+		}
 
 		// Write .htaccess protection.
 		// Keep artwork files publicly readable (for previews), but block script execution.
@@ -421,7 +435,9 @@ class OC_Upload_Handler {
 			. "<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n"
 			. "</FilesMatch>\n";
 		if ( ! file_exists( $htaccess ) || false === strpos( (string) file_get_contents( $htaccess ), 'FilesMatch' ) ) {
-			file_put_contents( $htaccess, $rules );
+			if ( false === file_put_contents( $htaccess, $rules ) ) {
+				return new \WP_Error( 'htaccess_failed', __( 'Could not protect upload directory.', 'overcustomise' ) );
+			}
 		}
 
 		// Unique destination filename.
@@ -447,9 +463,11 @@ class OC_Upload_Handler {
 		$attachment_id = wp_insert_attachment( $attachment, $dest_path, 0, true );
 
 		if ( is_wp_error( $attachment_id ) ) {
+			@unlink( $dest_path );
 			return $attachment_id;
 		}
 		if ( ! $attachment_id ) {
+			@unlink( $dest_path );
 			return new \WP_Error( 'insert_failed', __( 'Could not register uploaded file.', 'overcustomise' ) );
 		}
 
@@ -484,6 +502,9 @@ class OC_Upload_Handler {
 		if ( class_exists( 'finfo', false ) ) {
 			$finfo = new \finfo( FILEINFO_MIME_TYPE );
 			$mime  = $finfo->file( $tmp_path );
+			if ( false === $mime ) {
+				$mime = 'application/octet-stream';
+			}
 		} elseif ( function_exists( 'mime_content_type' ) ) {
 			$mime = mime_content_type( $tmp_path ) ?: 'application/octet-stream';
 		} else {

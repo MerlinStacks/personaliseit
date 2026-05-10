@@ -66,6 +66,8 @@ class OC_Admin_Order_Metabox {
 			return;
 		}
 
+		echo '<style>@keyframes oc-spin{to{transform:rotate(360deg)}}</style>';
+
 		foreach ( $items as $item_id => $item ) {
 			$product_id = $item->get_product_id();
 			$config_id     = (int) $item->get_meta( '_oc_config_id', true );
@@ -152,6 +154,8 @@ class OC_Admin_Order_Metabox {
 						$design_id > 0
 					);
 
+					$queue_info = OC_Print_Queue::instance()->get_status( (int) $file->id );
+
 					echo '<div style="margin-bottom:8px;padding:8px;background:#f9f9f9;border-radius:3px;">';
 					printf(
 						'<strong>%s</strong> &mdash; %s &mdash; <span style="color:%s;">%s</span>',
@@ -160,6 +164,20 @@ class OC_Admin_Order_Metabox {
 						esc_attr( $this->get_status_color( $file->file_status ) ),
 						esc_html( $this->get_status_label( $file->file_status ) )
 					);
+
+					if ( $queue_info['in_queue'] ) {
+						printf(
+							' &nbsp;<span class="oc-queue-badge" style="display:inline-block;padding:2px 8px;background:#0073aa;color:#fff;border-radius:10px;font-size:11px;font-weight:600;">%s</span>',
+							esc_html( sprintf( __( 'In Queue (#%d)', 'overcustomise' ), $queue_info['queue_position'] ) )
+						);
+					}
+
+					if ( $queue_info['is_processing'] ) {
+						echo ' &nbsp;<span class="oc-processing-badge" style="display:inline-block;padding:2px 8px;background:#9e6c00;color:#fff;border-radius:10px;font-size:11px;font-weight:600;">'
+							. esc_html__( 'Processing', 'overcustomise' )
+							. ' <span class="oc-spinner" style="display:inline-block;width:12px;height:12px;border:2px solid #fff;border-top-color:transparent;border-radius:50%;animation:oc-spin 0.8s linear infinite;"></span>'
+							. '</span>';
+					}
 
 					// Download button for ready files.
 					if ( 'files_ready' === $file->file_status && $file->file_path && file_exists( $file->file_path ) ) {
@@ -174,6 +192,11 @@ class OC_Admin_Order_Metabox {
 						);
 					} elseif ( 'files_ready' === $file->file_status ) {
 						echo ' &nbsp;<em style="color:#888;">' . esc_html__( '(File missing on disk)', 'overcustomise' ) . '</em>';
+					}
+
+					// Inline thumbnail preview for files_ready.
+					if ( 'files_ready' === $file->file_status ) {
+						$this->render_thumbnail( $file, $order );
 					}
 
 					// Download brief + DST upload for embroidery awaiting manual digitising.
@@ -417,6 +440,45 @@ class OC_Admin_Order_Metabox {
 			] );
 			OC_Logger::info( "DST uploaded for print file #{$file_id}: {$dest}" );
 		}
+	}
+
+	private function render_thumbnail( object $file, \WC_Order $order ): void {
+		$thumb_url = null;
+
+		if ( ! empty( $file->thumbnail_path ) && file_exists( $file->thumbnail_path ) ) {
+			$thumb_url = $this->get_protected_file_url( $file->thumbnail_path, $file->id, 'oc_download_' );
+		}
+
+		echo '<div style="margin-top:6px;">';
+
+		if ( $thumb_url ) {
+			printf(
+				'<a href="%s" class="thickbox" style="display:inline-block;"><img src="%s" width="150" style="border:1px solid #ddd;border-radius:3px;cursor:zoom-in;transition:opacity 0.15s;" onmouseover="this.style.opacity=\'0.75\'" onmouseout="this.style.opacity=\'1\'"></a>',
+				esc_url( $thumb_url ),
+				esc_url( $thumb_url )
+			);
+		} else {
+			echo '<svg width="150" height="100" viewBox="0 0 150 100" style="border:1px solid #ddd;border-radius:3px;background:#fafafa;cursor:default;">';
+			echo '<rect x="25" y="10" width="100" height="80" rx="4" fill="#e0e0e0" stroke="#ccc" stroke-width="1"/>';
+			echo '<text x="75" y="52" text-anchor="middle" font-family="sans-serif" font-size="11" fill="#888">PDF</text>';
+			echo '<text x="75" y="68" text-anchor="middle" font-family="sans-serif" font-size="9" fill="#aaa">Preview</text>';
+			echo '</svg>';
+		}
+
+		echo '</div>';
+	}
+
+	private function get_protected_file_url( string $file_path, int $file_id, string $nonce_action ): string {
+		$upload_dir = wp_upload_dir();
+		$base_url   = rtrim( $upload_dir['baseurl'], '/' );
+		$base_dir   = rtrim( $upload_dir['basedir'], '/' );
+
+		if ( strpos( realpath( $file_path ) ?: '', realpath( $base_dir ) ?: '' ) === 0 ) {
+			$relative = substr( $file_path, strlen( $base_dir ) + 1 );
+			return $base_url . '/' . $relative;
+		}
+
+		return admin_url( 'admin-ajax.php?action=oc_serve_thumb&file_id=' . $file_id . '&_wpnonce=' . wp_create_nonce( $nonce_action . $file_id ) );
 	}
 
 	private function get_status_label( string $status ): string {

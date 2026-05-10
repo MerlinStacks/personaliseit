@@ -14,7 +14,9 @@ class OC_Admin_Products {
 	// ── AJAX ──────────────────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
-		add_action( 'wp_ajax_oc_assign_design', [ self::class, 'ajax_assign_design' ] );
+		add_action( 'wp_ajax_oc_assign_design',  [ self::class, 'ajax_assign_design' ] );
+		add_action( 'wp_ajax_oc_autosave_design', [ self::class, 'ajax_autosave_design' ] );
+		add_action( 'wp_ajax_oc_restore_autosave',  [ self::class, 'ajax_restore_autosave' ] );
 	}
 
 	public static function ajax_assign_design(): void {
@@ -38,6 +40,50 @@ class OC_Admin_Products {
 		}
 
 		wp_send_json_success();
+	}
+
+	public static function ajax_autosave_design(): void {
+		check_ajax_referer( 'oc-products-nonce', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
+		}
+
+		$design_id = (int) ( $_POST['design_id'] ?? 0 );
+		if ( ! $design_id ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid design.', 'overcustomise' ) ] );
+		}
+
+		$state_raw = wp_unslash( $_POST['state'] ?? '' );
+		if ( ! is_string( $state_raw ) || ! $state_raw ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid state.', 'overcustomise' ) ] );
+		}
+		$state = json_decode( $state_raw, true );
+		if ( ! is_array( $state ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid state.', 'overcustomise' ) ] );
+		}
+
+		$ok = OC_Autosave::store( $design_id, $state );
+		if ( $ok ) {
+			wp_send_json_success( [ 'timestamp' => time() ] );
+		} else {
+			wp_send_json_error( [ 'message' => __( 'Autosave failed.', 'overcustomise' ) ] );
+		}
+	}
+
+	public static function ajax_restore_autosave(): void {
+		check_ajax_referer( 'oc-products-nonce', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
+		}
+
+		$design_id = (int) ( $_POST['design_id'] ?? 0 );
+		$data = OC_Autosave::restore( $design_id );
+
+		if ( $data ) {
+			wp_send_json_success( $data );
+		} else {
+			wp_send_json_error( [ 'message' => __( 'No autosave found.', 'overcustomise' ) ] );
+		}
 	}
 
 	// ── Router ────────────────────────────────────────────────────────────────
@@ -451,6 +497,7 @@ class OC_Admin_Products {
 		}, $all_layers );
 
 		wp_localize_script( 'oc-products-page', 'ocProductsData', [
+			'designId'     => $id,
 			'areas'        => $areas_js,
 			'layers'       => $layers_js,
 			'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
@@ -481,6 +528,7 @@ class OC_Admin_Products {
 					       placeholder="<?php esc_attr_e( 'Design name…', 'overcustomise' ); ?>" />
 				</div>
 				<div style="display:flex;align-items:center;gap:14px;">
+					<span id="oc-autosave-indicator" class="oc-autosave-indicator"></span>
 					<label class="oc-toggle-label" style="margin:0;font-size:12px;">
 						<span class="oc-toggle">
 							<input type="checkbox" name="oc_active" value="1" form="oc-design-form"
@@ -535,7 +583,7 @@ class OC_Admin_Products {
 									<input type="text" id="oc-prop-label" class="oc-input" style="width:100%;" placeholder="<?php esc_attr_e( 'e.g. Front', 'overcustomise' ); ?>" />
 								</div>
 								<div class="oc-editor-field">
-									<label for="oc-prop-method"><?php esc_html_e( 'Print Method', 'overcustomise' ); ?></label>
+									<label for="oc-prop-method"><?php esc_html_e( 'Print Method', 'overcustomise' ); ?><?php OC_Tooltips::render( 'print-method', __( 'The decoration technique for this area: UV printing, engraving, embroidery, or sublimation.', 'overcustomise' ) ); ?></label>
 									<select id="oc-prop-method" class="oc-select" style="width:100%;">
 										<option value="uv"><?php esc_html_e( 'UV Printing', 'overcustomise' ); ?></option>
 										<option value="engraving"><?php esc_html_e( 'Engraving', 'overcustomise' ); ?></option>
@@ -553,6 +601,7 @@ class OC_Admin_Products {
 								</div>
 								<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;margin-bottom:8px;">
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
+									<?php OC_Tooltips::render( 'print-bounds', __( 'Pixel coordinates and dimensions of the printable area on the mockup image.', 'overcustomise' ) ); ?>
 									<span style="font-size:10px;color:var(--oc-gray-400);">px</span>
 								</div>
 								<div class="oc-bounds-grid">
@@ -641,6 +690,7 @@ class OC_Admin_Products {
 								<p><?php esc_html_e( 'Select a layer to edit its properties.', 'overcustomise' ); ?></p>
 							</div>
 							<div id="oc-layer-props-inner" style="display:none;">
+								<?php OC_Tooltips::render( 'layer-settings', __( 'Configure position, size, visibility, and type-specific options for this layer.', 'overcustomise' ) ); ?>
 								<div class="oc-editor-section-header" style="padding-bottom:8px;">
 									<div style="display:flex;align-items:center;gap:6px;min-width:0;">
 										<span id="oc-layer-color-dot" class="oc-area-dot" style="width:10px;height:10px;"></span>
@@ -793,6 +843,8 @@ class OC_Admin_Products {
 				[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
 			);
 		}
+
+		OC_Autosave::clear( $design_id );
 
 		return $design_id;
 	}

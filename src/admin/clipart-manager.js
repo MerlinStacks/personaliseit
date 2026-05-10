@@ -268,7 +268,14 @@ function initUploadModal() {
 
 		try {
 			const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body: fd } );
-			const json = await res.json();
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+			const text = await res.text();
+			let json;
+			try {
+				json = JSON.parse( text );
+			} catch ( err ) {
+				throw new Error( text || 'Invalid server response.' );
+			}
 
 			if ( ! json.success ) {
 				if ( errDiv ) { errDiv.textContent = ( json.data && json.data.message ) || 'Upload failed.'; errDiv.style.display = ''; }
@@ -280,7 +287,7 @@ function initUploadModal() {
 			if ( nameInput ) nameInput.value = '';
 			closeModal();
 		} catch ( err ) {
-			if ( errDiv ) { errDiv.textContent = 'Upload failed. Please try again.'; errDiv.style.display = ''; }
+			if ( errDiv ) { errDiv.textContent = err?.message || 'Upload failed. Please try again.'; errDiv.style.display = ''; }
 		} finally {
 			submitBtn.disabled   = false;
 			submitBtn.textContent = origLabel;
@@ -358,20 +365,29 @@ function initEditModal() {
 			name,
 		} );
 
-		const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-		const json = await res.json();
+		try {
+			const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+			const json = await res.json();
 
-		if ( ! json.success ) {
-			if ( errDiv ) { errDiv.textContent = ( json.data && json.data.message ) || 'Save failed.'; errDiv.style.display = ''; }
-			return;
-		}
+			if ( ! json.success ) {
+				if ( errDiv ) { errDiv.textContent = ( json.data && json.data.message ) || 'Save failed.'; errDiv.style.display = ''; }
+				return;
+			}
 
-		const idx = clipart.findIndex( c => c.id === editClipartId );
-		if ( idx !== -1 ) {
-			clipart[ idx ].name = name;
-			updateClipartGridUI();
+			const idx = clipart.findIndex( c => c.id === editClipartId );
+			if ( idx !== -1 ) {
+				clipart[ idx ].name = name;
+				updateClipartGridUI();
+			}
+			closeModal();
+		} catch ( e ) {
+			console.warn( '[OC] Clipart rename failed:', e );
+			if ( errDiv ) {
+				errDiv.textContent = 'Save failed. Please try again.';
+				errDiv.style.display = '';
+			}
 		}
-		closeModal();
 	} );
 
 	// Wire up server-rendered cards.
@@ -536,9 +552,20 @@ async function saveGroup() {
 	} );
 	clipartIds.forEach( id => body.append( 'clipart_ids[]', id ) );
 
-	const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-	const json = await res.json();
-	if ( ! json.success ) return;
+	let json;
+	try {
+		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		json = await res.json();
+	} catch ( e ) {
+		console.warn( '[OC] Clipart group save failed:', e );
+		alert( 'Save failed. Please try again.' );
+		return;
+	}
+	if ( ! json.success ) {
+		alert( json.data?.message || 'Save failed.' );
+		return;
+	}
 
 	const saved = normaliseGroup( json.data );
 
@@ -563,9 +590,20 @@ async function deleteGroup() {
 		id:     editGroupId,
 	} );
 
-	const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-	const json = await res.json();
-	if ( ! json.success ) return;
+	let json;
+	try {
+		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		json = await res.json();
+	} catch ( e ) {
+		console.warn( '[OC] Clipart group delete failed:', e );
+		alert( 'Delete failed. Please try again.' );
+		return;
+	}
+	if ( ! json.success ) {
+		alert( json.data?.message || 'Delete failed.' );
+		return;
+	}
 
 	groups = groups.filter( g => g.id !== editGroupId );
 	updateGroupGridUI();

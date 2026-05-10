@@ -74,10 +74,31 @@ class OC_Rest_API {
 			'permission_callback' => [ $this, 'public_write_permission' ],
 		] );
 
+		// Get cart item customisation data for editing.
+		register_rest_route( self::NAMESPACE, '/cart-item-customisation/(?P<cart_key>[^/]+)', [
+			'methods'             => \WP_REST_Server::READABLE,
+			'callback'            => [ $this, 'get_cart_item_customisation' ],
+			'permission_callback' => '__return_true',
+		] );
+
+		// Update cart item customisation from edit mode.
+		register_rest_route( self::NAMESPACE, '/update-cart-item', [
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => [ $this, 'update_cart_item' ],
+			'permission_callback' => [ $this, 'public_write_permission' ],
+		] );
+
 		// Admin: regenerate print files for an order item.
 		register_rest_route( self::NAMESPACE, '/regenerate-files', [
 			'methods'             => \WP_REST_Server::CREATABLE,
 			'callback'            => [ $this, 'regenerate_files' ],
+			'permission_callback' => fn() => current_user_can( 'manage_woocommerce' ),
+		] );
+
+		// Admin: upload CSV for VDP.
+		register_rest_route( self::NAMESPACE, '/vdp-upload-csv', [
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => [ $this, 'upload_vdp_csv' ],
 			'permission_callback' => fn() => current_user_can( 'manage_woocommerce' ),
 		] );
 	}
@@ -90,7 +111,7 @@ class OC_Rest_API {
 		$token = wp_generate_password( 48, false, false );
 		$key   = self::public_token_key( $token );
 		set_transient( $key, [
-			'ip_hash' => md5( self::client_ip() ),
+			'ip_hash' => hash( 'sha256', self::client_ip() ),
 		], self::PUBLIC_TOKEN_TTL );
 		return $token;
 	}
@@ -383,10 +404,15 @@ class OC_Rest_API {
 		if ( ! is_array( $image_info ) || empty( $image_info['mime'] )
 			|| ! in_array( $image_info['mime'], [ 'image/jpeg', 'image/png' ], true )
 		) {
+			$err = error_get_last();
+			OC_Logger::warning( 'Preview image validation failed: ' . ( $err['message'] ?? 'unknown error' ) );
 			return new \WP_Error( 'invalid_image', __( 'Invalid image format.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
 		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload['error'], [ 'status' => 500 ] );
+		}
 		$dir    = $upload['basedir'] . '/overcustomise/previews';
 		if ( ! wp_mkdir_p( $dir ) ) {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create preview directory.', 'overcustomise' ), [ 'status' => 500 ] );
@@ -475,6 +501,13 @@ class OC_Rest_API {
 				'spotifyUri' => $parsed['spotify_uri'],
 				'openUrl'    => $parsed['open_url'],
 			] );
+		}
+
+		if ( 429 === $status ) {
+			return new \WP_Error( 'rate_limited', __( 'Spotify validation is rate limited. Please try again shortly.', 'overcustomise' ), [ 'status' => 429 ] );
+		}
+		if ( $status >= 500 ) {
+			return new \WP_Error( 'unreachable', __( 'Could not validate Spotify right now. Please try again.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
 		$is_playlist = 'playlist' === $parsed['type'];
@@ -579,5 +612,261 @@ class OC_Rest_API {
 			'file_path' => basename( (string) ( $result['file_path'] ?? '' ) ),
 			'status'    => $result['status'] ?? '',
 		] );
+	}
+
+	/** Upload and register a CSV file for VDP on a design. */
+	public function upload_vdp_csv( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$nonce = $request->get_header( 'X-WP-Nonce' ) ?: $request->get_header( 'X-OC-Nonce' );
+		if ( ! $nonce || ! wp_verify_nonce( $nonce, 'wp_rest' ) ) {
+			return new \WP_Error( 'invalid_nonce', __( 'Security check failed.', 'overcustomise' ), [ 'status' => 403 ] );
+		}
+
+		$design_id = absint( $request->get_param( 'design_id' ) );
+		if ( ! $design_id ) {
+			return new \WP_Error( 'invalid_param', __( 'design_id required.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$design = OC_DB::get_design( $design_id );
+		if ( ! $design || ! (bool) $design->active ) {
+			return new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$files = $request->get_file_params();
+		if ( empty( $files['csv'] ) || ! is_uploaded_file( $files['csv']['tmp_name'] ) ) {
+			return new \WP_Error( 'no_file', __( 'No CSV file received.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		if ( UPLOAD_ERR_OK !== (int) $files['csv']['error'] ) {
+			return new \WP_Error( 'upload_failed', __( 'CSV upload failed.', 'overcustomise' ), [ 'status' => 422 ] );
+		}
+
+		$ext = strtolower( pathinfo( $files['csv']['name'], PATHINFO_EXTENSION ) );
+		if ( 'csv' !== $ext ) {
+			return new \WP_Error( 'invalid_type', __( 'Only CSV files are allowed.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$max_bytes = 5 * 1024 * 1024;
+		if ( (int) $files['csv']['size'] > $max_bytes ) {
+			return new \WP_Error( 'too_large', __( 'CSV file exceeds 5 MB.', 'overcustomise' ), [ 'status' => 413 ] );
+		}
+
+		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload['error'], [ 'status' => 500 ] );
+		}
+		$dir    = $upload['basedir'] . '/overcustomise/vdp';
+		if ( ! wp_mkdir_p( $dir ) ) {
+			return new \WP_Error( 'mkdir_failed', __( 'Could not create VDP directory.', 'overcustomise' ), [ 'status' => 500 ] );
+		}
+
+		$filename = 'vdp-' . $design_id . '-' . time() . '.csv';
+		$filepath = $dir . '/' . $filename;
+
+		if ( false === move_uploaded_file( $files['csv']['tmp_name'], $filepath ) ) {
+			return new \WP_Error( 'save_failed', __( 'Could not save CSV file.', 'overcustomise' ), [ 'status' => 500 ] );
+		}
+
+		$vdp = new OC_VDP();
+		$csv_data = $vdp->parse_csv( $filepath );
+
+		if ( empty( $csv_data['headers'] ) ) {
+			@unlink( $filepath );
+			return new \WP_Error( 'empty_csv', __( 'CSV file is empty or unreadable.', 'overcustomise' ), [ 'status' => 422 ] );
+		}
+
+		// Delete existing template and fields for this design.
+		OC_DB::delete_vdp_template( $design_id );
+
+		// Upsert template.
+		OC_DB::upsert_vdp_template( [
+			'design_id'     => $design_id,
+			'csv_file_path' => $filepath,
+			'active'        => 1,
+		] );
+
+		$template = OC_DB::get_vdp_template( $design_id );
+		if ( ! $template ) {
+			@unlink( $filepath );
+			return new \WP_Error( 'db_error', __( 'Could not create VDP template.', 'overcustomise' ), [ 'status' => 500 ] );
+		}
+
+		// Insert fields from CSV headers.
+		$all_layers = OC_DB::get_design_layers( $design_id );
+		$layer_ids  = array_values( array_map( static fn( $l ) => (int) $l->id, $all_layers ) );
+
+		foreach ( $csv_data['headers'] as $index => $header ) {
+			$layer_id = $layer_ids[ $index ] ?? 0;
+			$inserted = OC_DB::insert_vdp_field( [
+				'template_id' => (int) $template->id,
+				'field_name'  => $header,
+				'layer_id'    => $layer_id,
+				'sort_order'  => $index,
+			] );
+			if ( $inserted <= 0 ) {
+				OC_DB::delete_vdp_template( $design_id );
+				@unlink( $filepath );
+				return new \WP_Error( 'db_error', __( 'Could not save VDP fields.', 'overcustomise' ), [ 'status' => 500 ] );
+			}
+		}
+
+		return rest_ensure_response( [
+			'success'    => true,
+			'template_id'=> (int) $template->id,
+			'fields'     => $csv_data['headers'],
+			'row_count'  => count( $csv_data['rows'] ),
+			'file_path'  => $filepath,
+		] );
+	}
+
+	/** Return customisation data for a cart item so it can be edited. */
+	public function get_cart_item_customisation( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$cart_key = sanitize_text_field( $request->get_param( 'cart_key' ) );
+		$cart     = WC()->cart ?? null;
+
+		if ( ! $cart || ! isset( $cart->cart_contents[ $cart_key ] ) ) {
+			return new \WP_Error( 'not_found', __( 'Cart item not found.', 'overcustomise' ), [ 'status' => 404 ] );
+		}
+
+		$cart_item = $cart->cart_contents[ $cart_key ];
+		$customisation = $cart_item['_oc_customisation'] ?? null;
+
+		if ( empty( $customisation ) ) {
+			return new \WP_Error( 'no_customisation', __( 'No customisation data for this cart item.', 'overcustomise' ), [ 'status' => 404 ] );
+		}
+
+		return rest_ensure_response( [
+			'customisation' => $customisation,
+			'designId'      => (int) ( $cart_item['_oc_design_id'] ?? 0 ),
+			'previewUrl'    => (string) ( $cart_item['_oc_preview_url'] ?? '' ),
+		] );
+	}
+
+	/** Update a cart item's customisation data from the edit flow. */
+	public function update_cart_item( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$auth = $this->verify_public_write_auth( $request );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		$cart = WC()->cart ?? null;
+		if ( ! $cart ) {
+			return new \WP_Error( 'no_cart', __( 'Cart not available.', 'overcustomise' ), [ 'status' => 500 ] );
+		}
+
+		$cart_key = sanitize_text_field( $request->get_param( 'cart_key' ) );
+		if ( '' === $cart_key || ! isset( $cart->cart_contents[ $cart_key ] ) ) {
+			return new \WP_Error( 'not_found', __( 'Cart item not found.', 'overcustomise' ), [ 'status' => 404 ] );
+		}
+
+		$cart_item = $cart->cart_contents[ $cart_key ];
+		$customisation = $cart_item['_oc_customisation'] ?? null;
+
+		if ( empty( $customisation ) ) {
+			return new \WP_Error( 'no_customisation', __( 'No customisation data for this cart item.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$body = $request->get_json_params();
+		if ( ! is_array( $body ) || ! isset( $body['designId'] ) || ! isset( $body['layers'] ) ) {
+			return new \WP_Error( 'invalid_data', __( 'Invalid customisation data.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$design_id = absint( $body['designId'] );
+		$raw_layers = $body['layers'];
+
+		if ( ! is_array( $raw_layers ) || empty( $raw_layers ) ) {
+			return new \WP_Error( 'invalid_data', __( 'No layers provided.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$design = OC_DB::get_design( $design_id );
+		if ( ! $design || ! (bool) $design->active ) {
+			return new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$design_layers = [];
+		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
+			$layer_id = isset( $layer->id ) ? absint( $layer->id ) : 0;
+			if ( ! $layer_id ) continue;
+			$layer_type = isset( $layer->type ) ? sanitize_key( (string) $layer->type ) : '';
+			if ( '' === $layer_type ) continue;
+			$design_layers[ $layer_id ] = $layer_type;
+		}
+
+		if ( empty( $design_layers ) ) {
+			return new \WP_Error( 'invalid_design', __( 'Design has no layers.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$valid_layer_types = [ 'text', 'textarea', 'image', 'spotify', 'lineart', 'clipart' ];
+
+		$sanitised_layers = [];
+		foreach ( $raw_layers as $layer_id => $layer_data ) {
+			if ( ! is_array( $layer_data ) ) continue;
+
+			$layer_key = absint( $layer_id );
+			if ( ! $layer_key ) continue;
+			if ( ! isset( $design_layers[ $layer_key ] ) ) continue;
+
+			$type = $design_layers[ $layer_key ];
+			if ( ! in_array( $type, $valid_layer_types, true ) ) continue;
+
+			$sanitised_layers[ $layer_key ] = [
+				'type'         => $type,
+				'value'        => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',
+				'fontId'       => absint( $layer_data['fontId'] ?? 0 ),
+				'colorHex'     => sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000',
+				'attachmentId' => absint( $layer_data['attachmentId'] ?? 0 ),
+				'clipartId'    => absint( $layer_data['clipartId'] ?? 0 ),
+				'clipartUrl'   => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
+			];
+		}
+
+		if ( empty( $sanitised_layers ) ) {
+			return new \WP_Error( 'invalid_data', __( 'No valid layers provided.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$old_preview = (string) ( $cart_item['_oc_preview_url'] ?? '' );
+
+		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [ 'v' => 2, 'designId' => $design_id, 'layers' => $sanitised_layers ];
+		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
+		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
+		$cart->cart_contents[ $cart_key ]['_oc_unique_key']    = md5( wp_json_encode( $sanitised_layers ) . microtime() );
+
+		unset( $cart->cart_contents[ $cart_key ]['_oc_preview_url'] );
+
+		$preview_url = $body['previewUrl'] ?? '';
+		if ( is_string( $preview_url ) && '' !== $preview_url ) {
+			$uploads = wp_upload_dir();
+			$baseurl = isset( $uploads['baseurl'] ) ? rtrim( (string) $uploads['baseurl'], '/' ) : '';
+			$sanitized_url = esc_url_raw( $preview_url );
+			if ( '' !== $sanitized_url && '' !== $baseurl ) {
+				$expected_prefix = $baseurl . '/overcustomise/previews/preview-';
+				if ( 0 === strpos( $sanitized_url, $expected_prefix ) ) {
+					$path = wp_parse_url( $sanitized_url, PHP_URL_PATH );
+					if ( is_string( $path ) && preg_match( '#/overcustomise/previews/preview-[a-f0-9]{32}\.(?:png|jpe?g)$#i', $path ) ) {
+						$cart->cart_contents[ $cart_key ]['_oc_preview_url'] = $sanitized_url;
+					}
+				}
+			}
+		}
+
+		if ( method_exists( $cart, 'update_totals_after_cart_modification' ) ) {
+			$cart->update_totals_after_cart_modification();
+		}
+
+		if ( $old_preview ) {
+			$path = wp_parse_url( $old_preview, PHP_URL_PATH );
+			if ( is_string( $path ) && '' !== $path ) {
+				$filename = basename( $path );
+				$uploads  = wp_upload_dir();
+				$basedir  = isset( $uploads['basedir'] ) ? (string) $uploads['basedir'] : '';
+				if ( '' !== $filename && '' !== $basedir ) {
+					$filepath = $basedir . '/overcustomise/previews/' . $filename;
+					if ( file_exists( $filepath ) ) {
+						@unlink( $filepath );
+					}
+				}
+			}
+		}
+
+		return rest_ensure_response( [ 'success' => true ] );
 	}
 }

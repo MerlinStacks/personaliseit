@@ -192,8 +192,18 @@
 		if ( ! file ) return;
 		currentFile = file;
 
-		const buffer = await file.arrayBuffer();
-		const names  = parseFontNames( buffer );
+		let buffer;
+		let names;
+		try {
+			buffer = await file.arrayBuffer();
+			names  = parseFontNames( buffer );
+		} catch ( e ) {
+			console.warn( '[OC] Font file read failed:', e );
+			currentFile = null;
+			uploadError.textContent = 'Could not read that font file. Please try another.';
+			uploadError.style.display = '';
+			return;
+		}
 
 		if ( names && ! nameLocked ) {
 			const family    = names[ 16 ] || names[ 1 ] || filenameToTitle( file.name );
@@ -220,8 +230,11 @@
 			document.fonts.add( ff );
 			currentFontFace = ff;
 			applyPreviewStyle();
-		} catch {
+		} catch ( e ) {
+			console.warn( '[OC] Font preview failed:', e );
 			previewText.style.fontFamily = '';
+			uploadError.textContent = 'Preview unavailable for this font. You can still upload it.';
+			uploadError.style.display = '';
 		}
 
 		showStep2();
@@ -258,7 +271,14 @@
 
 		try {
 			const res  = await fetch( ajaxUrl, { method: 'POST', body: fd } );
-			const json = await res.json();
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+			const text = await res.text();
+			let json;
+			try {
+				json = JSON.parse( text );
+			} catch ( err ) {
+				throw new Error( text || 'Invalid server response.' );
+			}
 
 			if ( ! json.success ) {
 				showUploadError( json.data?.message || 'Upload failed.' );
@@ -277,7 +297,7 @@
 			}
 
 		} catch ( err ) {
-			showUploadError( 'Network error — please try again.' );
+			showUploadError( err?.message || 'Network error — please try again.' );
 		} finally {
 			submitBtn.disabled    = false;
 			submitBtn.textContent = label;
@@ -423,6 +443,7 @@
 			fd.append( 'name',   newName );
 
 			const res  = await fetch( ajaxUrl, { method: 'POST', body: fd } );
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
 			const json = await res.json();
 
 			if ( ! json.success ) {
@@ -444,8 +465,8 @@
 
 			detailFontName = newName;
 
-		} catch {
-			alert( 'Network error — please try again.' );
+		} catch ( err ) {
+			alert( err?.message || 'Network error — please try again.' );
 		} finally {
 			detailSaveBtn.disabled    = false;
 			detailSaveBtn.textContent = 'Rename family';
@@ -686,6 +707,7 @@
 			}
 
 			const res  = await fetch( ajaxUrl, { method: 'POST', body: fd } );
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
 			const json = await res.json();
 
 			if ( ! json.success ) { alert( json.data?.message || 'Save failed.' ); return; }
@@ -709,8 +731,8 @@
 			}
 
 			closeGroupModal();
-		} catch {
-			alert( 'Network error — please try again.' );
+		} catch ( err ) {
+			alert( err?.message || 'Network error — please try again.' );
 		} finally {
 			groupSaveBtn.disabled    = false;
 			groupSaveBtn.textContent = label;
@@ -729,8 +751,9 @@
 		fd.append( 'id',      editingGroup.id );
 
 		try {
-			const res  = await fetch( ajaxUrl, { method: 'POST', body: fd } );
-			const json = await res.json();
+		const res  = await fetch( ajaxUrl, { method: 'POST', body: fd } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		const json = await res.json();
 			if ( ! json.success ) { alert( 'Delete failed.' ); return; }
 
 			// Remove from state.
@@ -742,8 +765,8 @@
 
 			updateGroupsCount();
 			closeGroupModal();
-		} catch {
-			alert( 'Network error — please try again.' );
+		} catch ( err ) {
+			alert( err?.message || 'Network error — please try again.' );
 		}
 	}
 

@@ -27,8 +27,13 @@ class OC_WOFF_Converter {
 	 * @return bool True on success, false on failure.
 	 */
 	public static function convert( string $src_path, string $dest_path ): bool {
-		$data = @file_get_contents( $src_path );
+		if ( ! file_exists( $src_path ) || ! is_readable( $src_path ) ) {
+			OC_Logger::warning( 'WOFF conversion failed: source file is not readable.' );
+			return false;
+		}
+		$data = file_get_contents( $src_path );
 		if ( false === $data || strlen( $data ) < 12 ) {
+			OC_Logger::warning( 'WOFF conversion failed: could not read font data.' );
 			return false;
 		}
 
@@ -37,6 +42,7 @@ class OC_WOFF_Converter {
 		$num_tables   = unpack( 'n', substr( $data, 4, 2 ) )[1];
 
 		if ( ! in_array( strtolower( bin2hex( $sfnt_version ) ), self::VALID_SIGNATURES, true ) ) {
+			OC_Logger::warning( 'WOFF conversion failed: invalid font signature.' );
 			return false;
 		}
 
@@ -71,9 +77,12 @@ class OC_WOFF_Converter {
 				return false; // Corrupt or truncated font.
 			}
 			$raw        = substr( $data, $t['offset'], $t['length'] );
-			$compressed = gzcompress( $raw, 9 );
-
-			if ( strlen( $compressed ) < strlen( $raw ) ) {
+			$compressed = function_exists( 'gzcompress' ) ? gzcompress( $raw, 9 ) : false;
+			if ( false === $compressed ) {
+				// Compression failed — fall back to raw data.
+				$table_data  = $raw;
+				$comp_length = $t['length'];
+			} elseif ( strlen( $compressed ) < strlen( $raw ) ) {
 				$table_data  = $compressed;
 				$comp_length = strlen( $compressed );
 			} else {
@@ -133,6 +142,14 @@ class OC_WOFF_Converter {
 			}
 		}
 
-		return file_put_contents( $dest_path, $woff ) !== false;
+		if ( ! file_exists( dirname( $dest_path ) ) || ! is_writable( dirname( $dest_path ) ) ) {
+			OC_Logger::warning( 'WOFF conversion failed: destination not writable.' );
+			return false;
+		}
+		if ( false === file_put_contents( $dest_path, $woff ) ) {
+			OC_Logger::warning( 'WOFF conversion failed: could not write output file.' );
+			return false;
+		}
+		return true;
 	}
 }
