@@ -260,6 +260,7 @@ class OC_Frontend {
 					'y' => (int) $area->canvas_y,
 					'w' => (int) $area->canvas_w,
 					'h' => (int) $area->canvas_h,
+					'rotation' => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
 				],
 				'layers'      => $layers_js,
 			];

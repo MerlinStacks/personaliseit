@@ -5955,8 +5955,11 @@ class OCCustomiser {
     const b = area.bounds;
     if (b && b.w > 0) {
       canvas.add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
-        left: b.x * scaleX,
-        top: b.y * scaleX,
+        left: (b.x + b.w / 2) * scaleX,
+        top: (b.y + b.h / 2) * scaleX,
+        originX: 'center',
+        originY: 'center',
+        angle: Number(b.rotation) || 0,
         width: b.w * scaleX,
         height: b.h * scaleX,
         fill: 'rgba(255,255,255,0.05)',
@@ -6018,10 +6021,15 @@ class OCCustomiser {
   }
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
-    const lx = layer.x * scale;
-    const ly = layer.y * scale;
+    const bounds = area?.bounds || {};
+    const rotation = Number(bounds.rotation) || 0;
+    const center = this.rotatedLayerCenter(layer, bounds, rotation);
+    const lx = (center.x - layer.w / 2) * scale;
+    const ly = (center.y - layer.h / 2) * scale;
     const lw = Math.max(layer.w * scale, 10);
     const lh = Math.max(layer.h * scale, 10);
+    const lcX = center.x * scale;
+    const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
     switch (layer.type) {
       case 'text':
@@ -6043,11 +6051,12 @@ class OCCustomiser {
           }
           let fontSize = Math.max(10, Math.round(lh * 0.42));
           const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-            left: lx + lw / 2,
-            top: ly + lh / 2,
+            left: lcX,
+            top: lcY,
             originX: 'center',
             originY: 'center',
             width: lw,
+            angle: rotation,
             fontFamily: font?.name || 'sans-serif',
             fontSize,
             fill: color,
@@ -6079,18 +6088,21 @@ class OCCustomiser {
           break;
         }
       case 'image':
-        if (input.attachmentUrl) await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving);
+        if (input.attachmentUrl) await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation);
         break;
       case 'clipart':
-        if (input.clipartUrl) await this.renderFabricImg(canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving);
+        if (input.clipartUrl) await this.renderFabricImg(canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation);
         break;
       case 'lineart':
         {
           const lineartColor = String(input.colorHex || '').trim();
           if (!lineartColor) break;
           const r = new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
-            left: lx,
-            top: ly,
+            left: lcX,
+            top: lcY,
+            originX: 'center',
+            originY: 'center',
+            angle: rotation,
             width: lw,
             height: lh,
             fill: lineartColor,
@@ -6109,10 +6121,11 @@ class OCCustomiser {
           if (input.spotifyStatus === 'invalid_format' || input.spotifyStatus === 'playlist_private_or_invalid' || input.spotifyStatus === 'invalid_or_unavailable') {
             const invalidText = input.spotifyStatus === 'playlist_private_or_invalid' ? 'Private / invalid Spotify playlist' : 'Invalid Spotify link';
             const invalidObj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(invalidText, {
-              left: lx + lw / 2,
-              top: ly + lh / 2,
+              left: lcX,
+              top: lcY,
               originX: 'center',
               originY: 'center',
+              angle: rotation,
               fontFamily: 'monospace',
               fontSize: Math.max(9, Math.round(lh * 0.17)),
               fill: '#b32d2e',
@@ -6128,17 +6141,18 @@ class OCCustomiser {
           if (spotifyCodeUrl) {
             // Try CORS-safe load first; if Spotify CDN blocks CORS for this origin,
             // retry without crossOrigin so users still see the scannable in live preview.
-            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true);
+            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation);
             if (!rendered) {
-              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true);
+              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation);
             }
             if (rendered) break;
           }
           const fallback = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText('\u266b Spotify code unavailable', {
-            left: lx + lw / 2,
-            top: ly + lh / 2,
+            left: lcX,
+            top: lcY,
             originX: 'center',
             originY: 'center',
+            angle: rotation,
             fontFamily: 'monospace',
             fontSize: Math.max(9, Math.round(lh * 0.22)),
             fill: '#666666',
@@ -6151,6 +6165,25 @@ class OCCustomiser {
           break;
         }
     }
+  }
+  rotatedLayerCenter(layer, bounds, rotation) {
+    let x = layer.x + layer.w / 2;
+    let y = layer.y + layer.h / 2;
+    if (!bounds?.w || !rotation) return {
+      x,
+      y
+    };
+    const cx = bounds.x + bounds.w / 2;
+    const cy = bounds.y + bounds.h / 2;
+    const rad = rotation * Math.PI / 180;
+    const dx = x - cx;
+    const dy = y - cy;
+    x = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
+    y = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
+    return {
+      x,
+      y
+    };
   }
   extractSpotifyUri(inputValue) {
     const raw = String(inputValue || '').trim();
@@ -6188,7 +6221,7 @@ class OCCustomiser {
     const size = 640;
     return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
   }
-  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false) {
+  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0) {
     try {
       const imgLoadOpts = crossOrigin ? {
         crossOrigin
@@ -6206,6 +6239,7 @@ class OCCustomiser {
         originY: 'center',
         scaleX: s,
         scaleY: s,
+        angle,
         selectable: false,
         evented: false
       });

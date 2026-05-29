@@ -463,6 +463,7 @@ class OC_Admin_Products {
 				'y'          => (int) $area->canvas_y,
 				'w'          => (int) $area->canvas_w,
 				'h'          => (int) $area->canvas_h,
+				'rotation'   => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
 				'sortOrder'  => (int) $area->sort_order,
 				'visible'    => (bool) $area->visible,
 				'locked'     => (bool) $area->locked,
@@ -609,6 +610,7 @@ class OC_Admin_Products {
 									<div class="oc-editor-field"><label>Y</label><input type="number" id="oc-prop-y" class="oc-input" min="0" style="width:100%;" /></div>
 									<div class="oc-editor-field"><label>W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" style="width:100%;" /></div>
 									<div class="oc-editor-field"><label>H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" style="width:100%;" /></div>
+									<div class="oc-editor-field"><label><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" style="width:100%;" /></div>
 								</div>
 								</div>
 						</div>
@@ -633,6 +635,7 @@ class OC_Admin_Products {
 							<img id="oc-canvas-mockup-img" src="" alt="" draggable="false" />
 							<div id="oc-canvas-ghosts"></div>
 							<div class="oc-bounds-box" id="oc-bounds-box" style="display:none;">
+								<div class="oc-bounds-rotate-handle" title="<?php esc_attr_e( 'Rotate print area', 'overcustomise' ); ?>"></div>
 								<div class="oc-bounds-handle" data-dir="nw"></div>
 								<div class="oc-bounds-handle" data-dir="n"></div>
 								<div class="oc-bounds-handle" data-dir="ne"></div>
@@ -769,6 +772,8 @@ class OC_Admin_Products {
 			$canvas_y   = max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) );
 			$canvas_w   = max( 1, (int) ( $area_data['canvas_w'] ?? 300 ) );
 			$canvas_h   = max( 1, (int) ( $area_data['canvas_h'] ?? 300 ) );
+			$rotation   = (int) ( $area_data['canvas_rotation'] ?? 0 );
+			$rotation   = ( ( $rotation % 360 ) + 360 ) % 360;
 			$sort_order = (int) ( $area_data['sort_order'] ?? 0 );
 
 			$row = [
@@ -781,11 +786,12 @@ class OC_Admin_Products {
 				'canvas_y'             => $canvas_y,
 				'canvas_w'             => $canvas_w,
 				'canvas_h'             => $canvas_h,
+				'canvas_rotation'      => $rotation,
 				'sort_order'           => $sort_order,
 				'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
 				'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
 			];
-			$row_fmt = [ '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
+			$row_fmt = [ '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
 
 			if ( $area_id > 0 ) {
 				$wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id ], $row_fmt, [ '%d' ] );
@@ -916,11 +922,12 @@ class OC_Admin_Products {
 					'canvas_y'             => $area->canvas_y,
 					'canvas_w'             => $area->canvas_w,
 					'canvas_h'             => $area->canvas_h,
+					'canvas_rotation'      => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
 					'sort_order'           => $area->sort_order,
 					'visible'              => $area->visible,
 					'locked'               => $area->locked,
 				],
-				[ '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ]
+				[ '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ]
 			);
 			$area_id_map[ (int) $area->id ] = (int) $wpdb->insert_id;
 		}

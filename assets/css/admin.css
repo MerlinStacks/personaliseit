@@ -1502,6 +1502,34 @@
 	box-sizing: border-box;
 	border: 2px solid;
 	cursor: move;
+	transform-origin: center center;
+}
+
+.oc-bounds-rotate-handle {
+	position: absolute;
+	top: -34px;
+	left: 50%;
+	width: 16px;
+	height: 16px;
+	margin-left: -8px;
+	background: var(--oc-white);
+	border: 2px solid;
+	border-color: inherit;
+	border-radius: 50%;
+	box-sizing: border-box;
+	cursor: grab;
+	z-index: 2;
+}
+
+.oc-bounds-rotate-handle::after {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 100%;
+	width: 2px;
+	height: 16px;
+	background: currentColor;
+	transform: translateX(-50%);
 }
 
 .oc-bounds-handle {
@@ -1531,6 +1559,7 @@
 	box-sizing: border-box;
 	border: 2px dashed;
 	pointer-events: none;
+	transform-origin: center center;
 }
 .oc-canvas-ghost-label {
 	position: absolute;
@@ -1666,6 +1695,7 @@
 /* Canvas bounds box — locked state */
 .oc-bounds-box--locked { cursor: not-allowed !important; pointer-events: none; }
 .oc-bounds-box--locked .oc-bounds-handle { cursor: not-allowed !important; pointer-events: none; }
+.oc-bounds-box--locked .oc-bounds-rotate-handle { cursor: not-allowed !important; pointer-events: none; }
 
 /* Drag handle */
 .oc-layer-drag-handle {
@@ -1759,6 +1789,7 @@
 	box-sizing: border-box;
 	border: 1.5px dashed rgba( 255, 255, 255, .35 );
 	pointer-events: none;
+	transform-origin: center center;
 }
 
 /* ── Layer settings UI ─────────────────────────────────────────────────── */

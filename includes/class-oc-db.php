@@ -46,6 +46,7 @@ class OC_DB {
 			canvas_y             INT NOT NULL DEFAULT 0,
 			canvas_w             INT NOT NULL DEFAULT 300,
 			canvas_h             INT NOT NULL DEFAULT 300,
+			canvas_rotation      INT NOT NULL DEFAULT 0,
 			sort_order           INT NOT NULL DEFAULT 0,
 			PRIMARY KEY (id),
 			KEY config_id (config_id)
@@ -192,6 +193,7 @@ class OC_DB {
 			canvas_y             INT NOT NULL DEFAULT 0,
 			canvas_w             INT NOT NULL DEFAULT 300,
 			canvas_h             INT NOT NULL DEFAULT 300,
+			canvas_rotation      INT NOT NULL DEFAULT 0,
 			sort_order           INT NOT NULL DEFAULT 0,
 			visible              TINYINT(1) NOT NULL DEFAULT 1,
 			locked               TINYINT(1) NOT NULL DEFAULT 0,
@@ -338,6 +340,24 @@ class OC_DB {
 						"ALTER TABLE {$wpdb->prefix}oc_print_files
 						 ADD COLUMN thumbnail_path VARCHAR(500) DEFAULT NULL AFTER file_path"
 					);
+				}
+			}
+
+			if ( version_compare( $installed, '1.10.0', '<' ) ) {
+				foreach ( [ 'oc_print_areas', 'oc_design_print_areas' ] as $table ) {
+					$table_name = $wpdb->prefix . $table;
+					$col = $wpdb->get_results(
+						"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+						 WHERE TABLE_SCHEMA = DATABASE()
+						 AND TABLE_NAME = '{$table_name}'
+						 AND COLUMN_NAME = 'canvas_rotation'"
+					);
+					if ( empty( $col ) ) {
+						$wpdb->query(
+							"ALTER TABLE {$table_name}
+							 ADD COLUMN canvas_rotation INT NOT NULL DEFAULT 0 AFTER canvas_h"
+						);
+					}
 				}
 			}
 

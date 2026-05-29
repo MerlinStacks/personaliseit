@@ -296,6 +296,7 @@
           y: a.y,
           w: a.w,
           h: a.h,
+          rotation: a.rotation,
           sortOrder: a.sortOrder,
           visible: a.visible,
           locked: a.locked,
@@ -463,6 +464,7 @@
       y: Number(a.y) || 0,
       w: Number(a.w) || 300,
       h: Number(a.h) || 300,
+      rotation: normaliseRotation(a.rotation),
       sortOrder: i,
       visible: a.visible !== false && a.visible !== 0,
       locked: !!a.locked
@@ -542,6 +544,10 @@
   }
   function clamp(v, lo, hi) {
     return Math.min(Math.max(v, lo), hi);
+  }
+  function normaliseRotation(value) {
+    const angle = Number(value) || 0;
+    return Math.round((angle % 360 + 360) % 360);
   }
   function clampLayerToArea(layer, area) {
     if (!layer || !area) return;
@@ -844,6 +850,7 @@
     setVal('oc-prop-y', area.y);
     setVal('oc-prop-w', area.w);
     setVal('oc-prop-h', area.h);
+    setVal('oc-prop-rotation', area.rotation);
     const thumb = document.getElementById('oc-mockup-thumb-img');
     const noThumb = document.getElementById('oc-mockup-thumb-empty');
     const removeBtn = document.getElementById('oc-remove-mockup-btn');
@@ -1061,15 +1068,18 @@
     const hideForLocked = !layer && area.locked;
     box.style.display = isHidden || hideForLocked ? 'none' : '';
     box.style.opacity = '';
-    box.style.left = Math.round(entity.x * scale) + 'px';
-    box.style.top = Math.round(entity.y * scale) + 'px';
-    box.style.width = Math.round(entity.w * scale) + 'px';
-    box.style.height = Math.round(entity.h * scale) + 'px';
+    pos(box, entity, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? area : null);
     box.style.borderColor = color;
     box.style.background = hexRgba(color, 0.12);
     box.classList.toggle('oc-bounds-box--locked', isLocked);
+    box.classList.toggle('oc-bounds-box--rotatable', !layer);
     box.querySelectorAll('.oc-bounds-handle').forEach(h => {
       h.style.borderColor = color;
+    });
+    box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
+      h.style.borderColor = color;
+      h.style.color = color;
+      h.style.display = layer ? 'none' : '';
     });
 
     // Layer content preview inside bounds box
@@ -1097,14 +1107,14 @@
       if (i === selectedIndex || a.mockupUrl !== activeMockup || !activeMockup || !a.visible) return;
       const g = ghost(a, areaColor(i), 0.06);
       g.appendChild(ghostLabel(a.label || 'Area ' + (i + 1), areaColor(i)));
-      pos(g, a, scale);
+      pos(g, a, scale, normaliseRotation(a.rotation));
       ghosts.appendChild(g);
     });
     if (!area) return;
     if (selectedLayerIndex >= 0) {
       const outline = document.createElement('div');
       outline.className = 'oc-canvas-area-outline';
-      pos(outline, area, scale);
+      pos(outline, area, scale, normaliseRotation(area.rotation));
       ghosts.appendChild(outline);
     }
     (area.layers || []).forEach((layer, li) => {
@@ -1113,7 +1123,7 @@
       g.classList.add('oc-canvas-layer-ghost');
       g.appendChild(ghostLabel(layerIcon(layer.type) + ' ' + (layer.label || layerLabel(layer.type)), layerColor(layer.type)));
       applyLayerPreview(layer, g, Math.round(layer.h * scale), true);
-      pos(g, layer, scale);
+      pos(g, layer, scale, normaliseRotation(area.rotation), area);
       if (layer.locked) {
         g.style.cursor = 'not-allowed';
         g.style.opacity = '0.5';
@@ -1141,15 +1151,28 @@
     l.style.color = color;
     return l;
   }
-  function pos(el, entity, scale) {
-    el.style.left = Math.round(entity.x * scale) + 'px';
-    el.style.top = Math.round(entity.y * scale) + 'px';
+  function pos(el, entity, scale, rotation = 0, area = null) {
+    let cx = entity.x + entity.w / 2;
+    let cy = entity.y + entity.h / 2;
+    if (area && rotation) {
+      const acx = area.x + area.w / 2;
+      const acy = area.y + area.h / 2;
+      const rad = rotation * Math.PI / 180;
+      const dx = cx - acx;
+      const dy = cy - acy;
+      cx = acx + dx * Math.cos(rad) - dy * Math.sin(rad);
+      cy = acy + dx * Math.sin(rad) + dy * Math.cos(rad);
+    }
+    el.style.left = Math.round((cx - entity.w / 2) * scale) + 'px';
+    el.style.top = Math.round((cy - entity.h / 2) * scale) + 'px';
     el.style.width = Math.round(entity.w * scale) + 'px';
     el.style.height = Math.round(entity.h * scale) + 'px';
+    el.style.transform = rotation ? 'rotate(' + rotation + 'deg)' : '';
+    el.style.transformOrigin = 'center center';
   }
   function updateCoordsReadout(entity) {
     const el = document.getElementById('oc-coords-text');
-    if (el && entity) el.textContent = 'X\u2009' + entity.x + '\u2002 Y\u2009' + entity.y + '\u2002 W\u2009' + entity.w + '\u2002 H\u2009' + entity.h;
+    if (el && entity) el.textContent = 'X\u2009' + entity.x + '\u2002 Y\u2009' + entity.y + '\u2002 W\u2009' + entity.w + '\u2002 H\u2009' + entity.h + (entity.rotation ? '\u2002 R\u2009' + entity.rotation + '\u00b0' : '');
   }
 
   // ── Hidden fields ──────────────────────────────────────────────────────────
@@ -1160,7 +1183,7 @@
     let html = '';
     areas.forEach((area, i) => {
       const p = 'oc_design_areas[' + i + ']';
-      html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
+      html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
     });
     let li = 0;
     areas.forEach((area, areaIdx) => {
@@ -1220,7 +1243,7 @@
         markDirty();
       }
     });
-    ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h'].forEach(id => {
+    ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => {
         syncBoundsFromInputs();
         markDirty();
@@ -1333,6 +1356,13 @@
           e.preventDefault();
           e.stopPropagation();
           startDrag(e, 'resize', h.dataset.dir);
+        });
+      });
+      box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
+        h.addEventListener('mousedown', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          startDrag(e, 'rotate', '');
         });
       });
     }
@@ -1535,7 +1565,8 @@
       startX: entity.x,
       startY: entity.y,
       startW: entity.w,
-      startH: entity.h
+      startH: entity.h,
+      startRotation: normaliseRotation(entity.rotation)
     };
   }
   function onDragMove(e) {
@@ -1547,6 +1578,18 @@
     if (!entity || !img) return;
     const scale = getScale(img);
     if (!scale) return;
+    if (drag.type === 'rotate') {
+      const rect = img.getBoundingClientRect();
+      const cx = rect.left + (area.x + area.w / 2) * scale;
+      const cy = rect.top + (area.y + area.h / 2) * scale;
+      entity.rotation = normaliseRotation(Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90);
+      updateBoundsBox();
+      renderGhosts();
+      updateCoordsReadout(entity);
+      syncRightBounds(entity);
+      renderHiddenFields();
+      return;
+    }
     const dx = Math.round((e.clientX - drag.startClientX) / scale);
     const dy = Math.round((e.clientY - drag.startClientY) / scale);
     const natW = img.naturalWidth || 2000;
@@ -1603,6 +1646,7 @@
     entity.y = parseInt(document.getElementById(prefix + '-y')?.value || 0, 10);
     entity.w = Math.max(1, parseInt(document.getElementById(prefix + '-w')?.value || 1, 10));
     entity.h = Math.max(1, parseInt(document.getElementById(prefix + '-h')?.value || 1, 10));
+    if (!layer) entity.rotation = normaliseRotation(document.getElementById('oc-prop-rotation')?.value || 0);
     if (layer) clampLayerToArea(layer, area);
     updateBoundsBox();
     renderGhosts();
@@ -1618,6 +1662,7 @@
     setVal(prefix + '-y', entity.y);
     setVal(prefix + '-w', entity.w);
     setVal(prefix + '-h', entity.h);
+    if (entity === area) setVal('oc-prop-rotation', normaliseRotation(entity.rotation));
   }
   function openMockupPicker() {
     if (selectedIndex < 0) return;
