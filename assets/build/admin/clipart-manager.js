@@ -1,1 +1,569 @@
-(()=>{let e=(window.ocClipartData||[]).map(o),t=(window.ocClipartGroups||[]).map(l),n=null,c=null,a=null;function o(e){return{id:Number(e.id),name:e.name||"",fileType:e.fileType||"",active:!!e.active,url:e.url||"",toggleUrl:e.toggleUrl||"",deleteUrl:e.deleteUrl||""}}function l(e){return{id:Number(e.id),name:e.name||"",clipartIds:(e.clipartIds||[]).map(Number)}}function d(e){return String(e).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}function i(){const t=document.getElementById("oc-clipart-grid"),n=document.getElementById("oc-clipart-empty"),c=document.getElementById("oc-clipart-count"),a=document.querySelector('.oc-tab[data-target="oc-tab-clipart"] .oc-tab-count');if(t){if(c&&(c.textContent=e.length+" "+(1===e.length?"item":"items")),a&&(a.textContent=e.length),0===e.length)return n&&(n.style.display=""),void(t.style.display="none");n&&(n.style.display="none"),t.style.display="",t.innerHTML="",e.forEach(e=>t.appendChild(function(e){const t=document.createElement("div");return t.className="oc-clipart-card"+(e.active?"":" oc-clipart-card--inactive"),t.dataset.clipartId=e.id,t.setAttribute("role","button"),t.setAttribute("tabindex","0"),t.innerHTML='<div class="oc-clipart-preview"><img src="'+d(e.url)+'" alt="'+d(e.name)+'" loading="lazy" /></div><div class="oc-clipart-card-body"><div class="oc-clipart-card-title-row"><p class="oc-clipart-card-name" title="'+d(e.name)+'">'+d(e.name)+'</p><span class="oc-badge '+(e.active?"oc-badge-active":"oc-badge-inactive")+'">'+(e.active?"Active":"Inactive")+'</span></div><p class="oc-clipart-type-label">'+d(e.fileType.toUpperCase())+'</p><div class="oc-clipart-card-actions"><a href="'+d(e.toggleUrl)+'" class="oc-btn oc-btn-secondary oc-btn-sm">'+(e.active?"Deactivate":"Activate")+'</a><a href="'+d(e.deleteUrl)+'" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a></div></div>',t.addEventListener("click",t=>{t.target.closest("a")||r(e.id)}),t.addEventListener("keydown",t=>{"Enter"!==t.key&&" "!==t.key||r(e.id)}),t}(e)))}}function r(t){c=t;const n=e.find(e=>e.id===t);if(!n)return;const a=document.getElementById("oc-clipart-modal"),o=document.getElementById("oc_clipart_name"),l=document.getElementById("oc-clipart-modal-preview-img"),d=document.getElementById("oc-clipart-error"),i=document.getElementById("oc-clipart-delete-btn");o&&(o.value=n.name),l&&(l.src=n.url,l.alt=n.name),d&&(d.style.display="none",d.textContent=""),i&&(i.style.display=""),a&&(a.hidden=!1,document.body.style.overflow="hidden",o&&o.focus())}function s(){const n=document.getElementById("oc-clipart-group-grid"),c=document.getElementById("oc-clipart-groups-empty"),a=document.getElementById("oc-clipart-groups-count"),o=document.querySelector('.oc-tab[data-target="oc-tab-clipart-groups"] .oc-tab-count');if(n){if(a&&(a.textContent=t.length+" "+(1===t.length?"group":"groups")),o&&(o.textContent=t.length),0===t.length)return c&&(c.style.display=""),void(n.style.display="none");c&&(c.style.display="none"),n.style.display="",n.innerHTML="",t.forEach(t=>n.appendChild(function(t){const n=document.createElement("div");n.className="oc-group-card oc-clipart-group-card",n.dataset.groupId=t.id,n.dataset.groupName=t.name,n.setAttribute("role","button"),n.setAttribute("tabindex","0");let c=t.clipartIds.slice(0,6).map(t=>{const n=(c=t,e.find(e=>e.id===c));var c;return n?'<div class="oc-clipart-thumb" title="'+d(n.name)+'"><img src="'+d(n.url)+'" alt="'+d(n.name)+'" /></div>':""}).join("");return t.clipartIds.length>6&&(c+='<span class="oc-group-card-more">+'+(t.clipartIds.length-6)+"</span>"),0===t.clipartIds.length&&(c='<span style="color:var(--oc-gray-400);font-size:12px;">Empty group</span>'),n.innerHTML='<div class="oc-group-card-body"><p class="oc-group-card-name">'+d(t.name)+'</p><p class="oc-group-card-count">'+t.clipartIds.length+" "+(1===t.clipartIds.length?"item":"items")+'</p><div class="oc-clipart-group-thumbs">'+c+"</div></div>",n.addEventListener("click",()=>v(t.id)),n.addEventListener("keydown",e=>{"Enter"!==e.key&&" "!==e.key||v(t.id)}),n}(t)))}}const p=()=>document.getElementById("oc-clipart-group-modal"),u=()=>document.getElementById("oc-clipart-group-name-input"),m=()=>document.getElementById("oc-clipart-group-picker"),y=()=>document.getElementById("oc-clipart-group-selected-count"),g=()=>document.getElementById("oc-clipart-group-delete-btn");function v(n){a=n||null;const c=n?t.find(e=>e.id===n):null;u().value=c?c.name:"";const o=g();o&&(o.style.display=c?"":"none"),function(t){const n=m();n&&(n.innerHTML="",e.forEach(e=>{const c=t.includes(e.id),a=document.createElement("label");a.className="oc-group-font-item",a.innerHTML='<input type="checkbox" value="'+e.id+'"'+(c?" checked":"")+' /><div class="oc-clipart-thumb oc-clipart-picker-thumb" title="'+d(e.name)+'"><img src="'+d(e.url)+'" alt="'+d(e.name)+'" /></div><span class="oc-group-font-info"><span class="oc-group-font-info-name">'+d(e.name)+'</span><span class="oc-group-font-info-meta">'+d(e.fileType.toUpperCase())+"</span></span>",a.querySelector("input").addEventListener("change",E),n.appendChild(a)}),E())}(c?c.clipartIds:[]),p().hidden=!1,document.body.style.overflow="hidden",u().focus()}function f(){p().hidden=!0,document.body.style.overflow="",a=null}function E(){const e=m()?m().querySelectorAll("input:checked").length:0;y()&&(y().textContent=e+" selected")}async function b(){const e=u().value.trim(),n=function(){const e=m();return e?Array.from(e.querySelectorAll("input:checked")).map(e=>Number(e.value)):[]}();if(!e)return void u().focus();const c=new URLSearchParams({action:a?"oc_clipart_group_update":"oc_clipart_group_create",nonce:window.ocClipartNonce,name:e,id:a||0});n.forEach(e=>c.append("clipart_ids[]",e));const o=await fetch(window.ocAjaxUrl,{method:"POST",body:c}),d=await o.json();if(!d.success)return;const i=l(d.data);if(a){const e=t.findIndex(e=>e.id===a);-1!==e&&(t[e]=i)}else t.push(i);s(),f()}async function h(){if(!a)return;if(!confirm("Delete this clipart group?"))return;const e=new URLSearchParams({action:"oc_clipart_group_delete",nonce:window.ocClipartNonce,id:a}),n=await fetch(window.ocAjaxUrl,{method:"POST",body:e});(await n.json()).success&&(t=t.filter(e=>e.id!==a),s(),f())}document.addEventListener("DOMContentLoaded",()=>{!function(){const e=document.querySelectorAll(".oc-tab"),t=document.querySelectorAll(".oc-tab-panel"),n=document.getElementById("oc-upload-clipart-btn"),c=document.getElementById("oc-create-clipart-group-btn");e.forEach(a=>{a.addEventListener("click",()=>{e.forEach(e=>e.classList.remove("oc-tab--active")),t.forEach(e=>{e.hidden=!0}),a.classList.add("oc-tab--active");const o=document.getElementById(a.dataset.target);o&&(o.hidden=!1);const l="oc-tab-clipart-groups"===a.dataset.target;n&&(n.style.display=l?"none":""),c&&(c.style.display=l?"inline-flex":"none")})})}(),function(){const t=document.getElementById("oc-upload-clipart-modal"),c=document.getElementById("oc-upload-clipart-btn"),a=document.getElementById("oc-clipart-upload-modal-close"),l=document.getElementById("oc-clipart-drop-zone"),d=document.getElementById("oc_clipart_file"),r=document.getElementById("oc-clipart-upload-step-1"),s=document.getElementById("oc-clipart-upload-step-2"),p=document.getElementById("oc-clipart-upload-modal-footer"),u=document.getElementById("oc-clipart-upload-preview-img"),m=document.getElementById("oc_clipart_upload_name"),y=document.getElementById("oc-clipart-upload-error"),g=document.getElementById("oc-clipart-upload-back-btn"),v=document.getElementById("oc-clipart-upload-submit-btn");function f(){t.hidden=!0,document.body.style.overflow="",n=null}function E(){r&&(r.style.display=""),s&&(s.style.display="none"),p&&(p.style.display="none"),y&&(y.style.display="none",y.textContent=""),n=null}function b(e){/\.(svg|png|jpe?g|webp|gif)$/i.test(e.name)?function(e){if(n=e,u){const t=URL.createObjectURL(e);u.src=t,u.onload=()=>URL.revokeObjectURL(t)}m&&!m.value&&(m.value=e.name.replace(/\.[^.]+$/,"").replace(/[-_]+/g," ").replace(/\b\w/g,e=>e.toUpperCase())),r&&(r.style.display="none"),s&&(s.style.display=""),p&&(p.style.display=""),y&&(y.style.display="none")}(e):alert("File type not supported. Use SVG, PNG, JPG, WEBP, or GIF.")}t&&(l?.addEventListener("dragover",e=>{e.preventDefault(),l.classList.add("oc-drop-zone--over")}),l?.addEventListener("dragleave",()=>l.classList.remove("oc-drop-zone--over")),l?.addEventListener("drop",e=>{e.preventDefault(),l.classList.remove("oc-drop-zone--over");const t=e.dataTransfer.files[0];t&&b(t)}),l?.addEventListener("click",()=>d?.click()),d?.addEventListener("change",()=>{d.files[0]&&b(d.files[0])}),c?.addEventListener("click",function(){E(),t.hidden=!1,document.body.style.overflow="hidden"}),a?.addEventListener("click",f),g?.addEventListener("click",()=>{m&&(m.value=""),E()}),t?.addEventListener("click",e=>{e.target===t&&f()}),v?.addEventListener("click",async()=>{if(!n)return;const t=m?.value.trim()||"";if(!t)return void(y&&(y.textContent="Name is required.",y.style.display=""));const c=v.textContent;v.disabled=!0,v.textContent="Uploading…";const a=new FormData;a.append("action","oc_clipart_upload"),a.append("nonce",window.ocClipartNonce),a.append("name",t),a.append("clipart_file",n);try{const t=await fetch(window.ocAjaxUrl,{method:"POST",body:a}),n=await t.json();if(!n.success)return void(y&&(y.textContent=n.data&&n.data.message||"Upload failed.",y.style.display=""));e.push(o(n.data)),i(),m&&(m.value=""),f()}catch(e){y&&(y.textContent="Upload failed. Please try again.",y.style.display="")}finally{v.disabled=!1,v.textContent=c}}))}(),function(){const t=document.getElementById("oc-clipart-modal"),n=document.getElementById("oc-clipart-modal-close"),a=document.getElementById("oc-clipart-cancel-btn"),o=document.getElementById("oc-clipart-save-btn"),l=document.getElementById("oc-clipart-delete-btn"),d=document.getElementById("oc_clipart_name"),s=document.getElementById("oc-clipart-error");function p(){t.hidden=!0,document.body.style.overflow="",c=null}t&&(n?.addEventListener("click",p),a?.addEventListener("click",p),t?.addEventListener("click",e=>{e.target===t&&p()}),l?.addEventListener("click",()=>{if(!c)return;const t=e.find(e=>e.id===c);t&&confirm("Delete this clipart?")&&(window.location.href=t.deleteUrl)}),o?.addEventListener("click",async()=>{if(!c)return;const t=d&&d.value.trim()||"";if(!t)return void(d&&d.focus());const n=new URLSearchParams({action:"oc_clipart_rename",nonce:window.ocClipartNonce,id:c,name:t}),a=await fetch(window.ocAjaxUrl,{method:"POST",body:n}),o=await a.json();if(!o.success)return void(s&&(s.textContent=o.data&&o.data.message||"Save failed.",s.style.display=""));const l=e.findIndex(e=>e.id===c);-1!==l&&(e[l].name=t,i()),p()}),document.querySelectorAll(".oc-clipart-card").forEach(e=>{e.addEventListener("click",t=>{t.target.closest("a")||r(Number(e.dataset.clipartId))}),e.addEventListener("keydown",t=>{"Enter"!==t.key&&" "!==t.key||r(Number(e.dataset.clipartId))})}))}(),document.getElementById("oc-create-clipart-group-btn")?.addEventListener("click",()=>v(null)),document.getElementById("oc-clipart-group-modal-close")?.addEventListener("click",f),document.getElementById("oc-clipart-group-cancel-btn")?.addEventListener("click",f),p()?.addEventListener("click",e=>{e.target===p()&&f()}),document.getElementById("oc-clipart-group-save-btn")?.addEventListener("click",b),g()?.addEventListener("click",h),document.querySelectorAll(".oc-clipart-group-card").forEach(e=>{e.addEventListener("click",()=>v(Number(e.dataset.groupId))),e.addEventListener("keydown",t=>{"Enter"!==t.key&&" "!==t.key||v(Number(e.dataset.groupId))})})})})();
+/******/ (() => { // webpackBootstrap
+/*!**************************************!*\
+  !*** ./src/admin/clipart-manager.js ***!
+  \**************************************/
+/**
+ * Clipart Manager admin JS.
+ *
+ * Handles:
+ *  - Tab switching (Clipart / Clipart Groups)
+ *  - Upload modal with drag-and-drop (step 1 then step 2 then AJAX)
+ *  - Edit modal — rename via AJAX; delete via server redirect link
+ *  - Clipart group editor modal (create / update / delete)
+ */
+
+/* global ocClipartData, ocClipartGroups, ocClipartNonce, ocAjaxUrl */
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+let clipart = (window.ocClipartData || []).map(normaliseClipart);
+let groups = (window.ocClipartGroups || []).map(normaliseGroup);
+let currentFile = null;
+let editClipartId = null;
+let editGroupId = null;
+
+// ---------------------------------------------------------------------------
+// Normalisers
+// ---------------------------------------------------------------------------
+
+function normaliseClipart(c) {
+  return {
+    id: Number(c.id),
+    name: c.name || '',
+    fileType: c.fileType || '',
+    active: !!c.active,
+    url: c.url || '',
+    toggleUrl: c.toggleUrl || '',
+    deleteUrl: c.deleteUrl || ''
+  };
+}
+function normaliseGroup(g) {
+  return {
+    id: Number(g.id),
+    name: g.name || '',
+    clipartIds: (g.clipartIds || []).map(Number)
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Escape helper
+// ---------------------------------------------------------------------------
+
+function h(str) {
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ---------------------------------------------------------------------------
+// Tab switching
+// ---------------------------------------------------------------------------
+
+function initTabs() {
+  const tabs = document.querySelectorAll('.oc-tab');
+  const panels = document.querySelectorAll('.oc-tab-panel');
+  const uploadBtn = document.getElementById('oc-upload-clipart-btn');
+  const createGrpBtn = document.getElementById('oc-create-clipart-group-btn');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('oc-tab--active'));
+      panels.forEach(p => {
+        p.hidden = true;
+      });
+      tab.classList.add('oc-tab--active');
+      const target = document.getElementById(tab.dataset.target);
+      if (target) target.hidden = false;
+      const isGroups = tab.dataset.target === 'oc-tab-clipart-groups';
+      if (uploadBtn) uploadBtn.style.display = isGroups ? 'none' : '';
+      if (createGrpBtn) createGrpBtn.style.display = isGroups ? 'inline-flex' : 'none';
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Clipart card grid
+// ---------------------------------------------------------------------------
+
+function buildClipartCardEl(item) {
+  const card = document.createElement('div');
+  card.className = 'oc-clipart-card' + (item.active ? '' : ' oc-clipart-card--inactive');
+  card.dataset.clipartId = item.id;
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  card.innerHTML = '<div class="oc-clipart-preview">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" loading="lazy" />' + '</div>' + '<div class="oc-clipart-card-body">' + '<div class="oc-clipart-card-title-row">' + '<p class="oc-clipart-card-name" title="' + h(item.name) + '">' + h(item.name) + '</p>' + '<span class="oc-badge ' + (item.active ? 'oc-badge-active' : 'oc-badge-inactive') + '">' + (item.active ? 'Active' : 'Inactive') + '</span>' + '</div>' + '<p class="oc-clipart-type-label">' + h(item.fileType.toUpperCase()) + '</p>' + '<div class="oc-clipart-card-actions">' + '<a href="' + h(item.toggleUrl) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' + (item.active ? 'Deactivate' : 'Activate') + '</a>' + '<a href="' + h(item.deleteUrl) + '" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>' + '</div>' + '</div>';
+  card.addEventListener('click', e => {
+    if (e.target.closest('a')) return;
+    openEditModal(item.id);
+  });
+  card.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') openEditModal(item.id);
+  });
+  return card;
+}
+function updateClipartGridUI() {
+  const grid = document.getElementById('oc-clipart-grid');
+  const empty = document.getElementById('oc-clipart-empty');
+  const count = document.getElementById('oc-clipart-count');
+  const tab = document.querySelector('.oc-tab[data-target="oc-tab-clipart"] .oc-tab-count');
+  if (!grid) return;
+  if (count) count.textContent = clipart.length + ' ' + (1 === clipart.length ? 'item' : 'items');
+  if (tab) tab.textContent = clipart.length;
+  if (clipart.length === 0) {
+    if (empty) empty.style.display = '';
+    grid.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  grid.style.display = '';
+  grid.innerHTML = '';
+  clipart.forEach(c => grid.appendChild(buildClipartCardEl(c)));
+}
+
+// ---------------------------------------------------------------------------
+// Upload modal
+// ---------------------------------------------------------------------------
+
+function initUploadModal() {
+  const modal = document.getElementById('oc-upload-clipart-modal');
+  const openBtn = document.getElementById('oc-upload-clipart-btn');
+  const closeBtn = document.getElementById('oc-clipart-upload-modal-close');
+  const dropZone = document.getElementById('oc-clipart-drop-zone');
+  const fileInput = document.getElementById('oc_clipart_file');
+  const step1 = document.getElementById('oc-clipart-upload-step-1');
+  const step2 = document.getElementById('oc-clipart-upload-step-2');
+  const footer = document.getElementById('oc-clipart-upload-modal-footer');
+  const previewImg = document.getElementById('oc-clipart-upload-preview-img');
+  const nameInput = document.getElementById('oc_clipart_upload_name');
+  const errDiv = document.getElementById('oc-clipart-upload-error');
+  const backBtn = document.getElementById('oc-clipart-upload-back-btn');
+  const submitBtn = document.getElementById('oc-clipart-upload-submit-btn');
+  if (!modal) return;
+  function openModal() {
+    resetToStep1();
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+  }
+  function closeModal() {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    currentFile = null;
+  }
+  function resetToStep1() {
+    if (step1) step1.style.display = '';
+    if (step2) step2.style.display = 'none';
+    if (footer) footer.style.display = 'none';
+    if (errDiv) {
+      errDiv.style.display = 'none';
+      errDiv.textContent = '';
+    }
+    currentFile = null;
+  }
+  function showStep2(file) {
+    currentFile = file;
+    if (previewImg) {
+      const url = URL.createObjectURL(file);
+      previewImg.src = url;
+      previewImg.onload = () => URL.revokeObjectURL(url);
+    }
+    if (nameInput && !nameInput.value) {
+      nameInput.value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    }
+    if (step1) step1.style.display = 'none';
+    if (step2) step2.style.display = '';
+    if (footer) footer.style.display = '';
+    if (errDiv) errDiv.style.display = 'none';
+  }
+  function handleFile(file) {
+    if (!/\.(svg|png|jpe?g|webp|gif)$/i.test(file.name)) {
+      alert('File type not supported. Use SVG, PNG, JPG, WEBP, or GIF.');
+      return;
+    }
+    showStep2(file);
+  }
+  dropZone?.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('oc-drop-zone--over');
+  });
+  dropZone?.addEventListener('dragleave', () => dropZone.classList.remove('oc-drop-zone--over'));
+  dropZone?.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('oc-drop-zone--over');
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  });
+  dropZone?.addEventListener('click', () => fileInput?.click());
+  fileInput?.addEventListener('change', () => {
+    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+  });
+  openBtn?.addEventListener('click', openModal);
+  closeBtn?.addEventListener('click', closeModal);
+  backBtn?.addEventListener('click', () => {
+    if (nameInput) nameInput.value = '';
+    resetToStep1();
+  });
+  modal?.addEventListener('click', e => {
+    if (e.target === modal) closeModal();
+  });
+  submitBtn?.addEventListener('click', async () => {
+    if (!currentFile) return;
+    const name = nameInput?.value.trim() || '';
+    if (!name) {
+      if (errDiv) {
+        errDiv.textContent = 'Name is required.';
+        errDiv.style.display = '';
+      }
+      return;
+    }
+    const origLabel = submitBtn.textContent;
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Uploading\u2026';
+    const fd = new FormData();
+    fd.append('action', 'oc_clipart_upload');
+    fd.append('nonce', window.ocClipartNonce);
+    fd.append('name', name);
+    fd.append('clipart_file', currentFile);
+    try {
+      const res = await fetch(window.ocAjaxUrl, {
+        method: 'POST',
+        body: fd
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      let json;
+      try {
+        json = JSON.parse(text);
+      } catch (err) {
+        throw new Error(text || 'Invalid server response.');
+      }
+      if (!json.success) {
+        if (errDiv) {
+          errDiv.textContent = json.data && json.data.message || 'Upload failed.';
+          errDiv.style.display = '';
+        }
+        return;
+      }
+      clipart.push(normaliseClipart(json.data));
+      updateClipartGridUI();
+      if (nameInput) nameInput.value = '';
+      closeModal();
+    } catch (err) {
+      if (errDiv) {
+        errDiv.textContent = err?.message || 'Upload failed. Please try again.';
+        errDiv.style.display = '';
+      }
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = origLabel;
+    }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Edit modal (rename)
+// ---------------------------------------------------------------------------
+
+function openEditModal(id) {
+  editClipartId = id;
+  const item = clipart.find(c => c.id === id);
+  if (!item) return;
+  const modal = document.getElementById('oc-clipart-modal');
+  const nameInp = document.getElementById('oc_clipart_name');
+  const preview = document.getElementById('oc-clipart-modal-preview-img');
+  const errDiv = document.getElementById('oc-clipart-error');
+  const delBtn = document.getElementById('oc-clipart-delete-btn');
+  if (nameInp) nameInp.value = item.name;
+  if (preview) {
+    preview.src = item.url;
+    preview.alt = item.name;
+  }
+  if (errDiv) {
+    errDiv.style.display = 'none';
+    errDiv.textContent = '';
+  }
+  if (delBtn) delBtn.style.display = '';
+  if (modal) {
+    modal.hidden = false;
+    document.body.style.overflow = 'hidden';
+    if (nameInp) nameInp.focus();
+  }
+}
+function initEditModal() {
+  const modal = document.getElementById('oc-clipart-modal');
+  const closeBtn = document.getElementById('oc-clipart-modal-close');
+  const cancelBtn = document.getElementById('oc-clipart-cancel-btn');
+  const saveBtn = document.getElementById('oc-clipart-save-btn');
+  const deleteBtn = document.getElementById('oc-clipart-delete-btn');
+  const nameInput = document.getElementById('oc_clipart_name');
+  const errDiv = document.getElementById('oc-clipart-error');
+  if (!modal) return;
+  function closeModal() {
+    modal.hidden = true;
+    document.body.style.overflow = '';
+    editClipartId = null;
+  }
+  closeBtn?.addEventListener('click', closeModal);
+  cancelBtn?.addEventListener('click', closeModal);
+  modal?.addEventListener('click', e => {
+    if (e.target === modal) closeModal();
+  });
+  deleteBtn?.addEventListener('click', () => {
+    if (!editClipartId) return;
+    const item = clipart.find(c => c.id === editClipartId);
+    if (item && confirm('Delete this clipart?')) {
+      window.location.href = item.deleteUrl;
+    }
+  });
+  saveBtn?.addEventListener('click', async () => {
+    if (!editClipartId) return;
+    const name = nameInput && nameInput.value.trim() || '';
+    if (!name) {
+      if (nameInput) nameInput.focus();
+      return;
+    }
+    const body = new URLSearchParams({
+      action: 'oc_clipart_rename',
+      nonce: window.ocClipartNonce,
+      id: editClipartId,
+      name
+    });
+    try {
+      const res = await fetch(window.ocAjaxUrl, {
+        method: 'POST',
+        body
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (!json.success) {
+        if (errDiv) {
+          errDiv.textContent = json.data && json.data.message || 'Save failed.';
+          errDiv.style.display = '';
+        }
+        return;
+      }
+      const idx = clipart.findIndex(c => c.id === editClipartId);
+      if (idx !== -1) {
+        clipart[idx].name = name;
+        updateClipartGridUI();
+      }
+      closeModal();
+    } catch (e) {
+      console.warn('[OC] Clipart rename failed:', e);
+      if (errDiv) {
+        errDiv.textContent = 'Save failed. Please try again.';
+        errDiv.style.display = '';
+      }
+    }
+  });
+
+  // Wire up server-rendered cards.
+  document.querySelectorAll('.oc-clipart-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('a')) return;
+      openEditModal(Number(card.dataset.clipartId));
+    });
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') openEditModal(Number(card.dataset.clipartId));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Group card grid
+// ---------------------------------------------------------------------------
+
+function clipartById(id) {
+  return clipart.find(c => c.id === id);
+}
+function buildGroupCardEl(group) {
+  const card = document.createElement('div');
+  card.className = 'oc-group-card oc-clipart-group-card';
+  card.dataset.groupId = group.id;
+  card.dataset.groupName = group.name;
+  card.setAttribute('role', 'button');
+  card.setAttribute('tabindex', '0');
+  let thumbsHtml = group.clipartIds.slice(0, 6).map(cid => {
+    const c = clipartById(cid);
+    if (!c) return '';
+    return '<div class="oc-clipart-thumb" title="' + h(c.name) + '"><img src="' + h(c.url) + '" alt="' + h(c.name) + '" /></div>';
+  }).join('');
+  if (group.clipartIds.length > 6) {
+    thumbsHtml += '<span class="oc-group-card-more">+' + (group.clipartIds.length - 6) + '</span>';
+  }
+  if (group.clipartIds.length === 0) {
+    thumbsHtml = '<span style="color:var(--oc-gray-400);font-size:12px;">Empty group</span>';
+  }
+  card.innerHTML = '<div class="oc-group-card-body">' + '<p class="oc-group-card-name">' + h(group.name) + '</p>' + '<p class="oc-group-card-count">' + group.clipartIds.length + ' ' + (1 === group.clipartIds.length ? 'item' : 'items') + '</p>' + '<div class="oc-clipart-group-thumbs">' + thumbsHtml + '</div>' + '</div>';
+  card.addEventListener('click', () => openGroupModal(group.id));
+  card.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') openGroupModal(group.id);
+  });
+  return card;
+}
+function updateGroupGridUI() {
+  const grid = document.getElementById('oc-clipart-group-grid');
+  const empty = document.getElementById('oc-clipart-groups-empty');
+  const count = document.getElementById('oc-clipart-groups-count');
+  const tab = document.querySelector('.oc-tab[data-target="oc-tab-clipart-groups"] .oc-tab-count');
+  if (!grid) return;
+  if (count) count.textContent = groups.length + ' ' + (1 === groups.length ? 'group' : 'groups');
+  if (tab) tab.textContent = groups.length;
+  if (groups.length === 0) {
+    if (empty) empty.style.display = '';
+    grid.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  grid.style.display = '';
+  grid.innerHTML = '';
+  groups.forEach(g => grid.appendChild(buildGroupCardEl(g)));
+}
+
+// ---------------------------------------------------------------------------
+// Group modal
+// ---------------------------------------------------------------------------
+
+const groupModal = () => document.getElementById('oc-clipart-group-modal');
+const groupNameInput = () => document.getElementById('oc-clipart-group-name-input');
+const groupPicker = () => document.getElementById('oc-clipart-group-picker');
+const groupSelCount = () => document.getElementById('oc-clipart-group-selected-count');
+const groupDeleteBtn = () => document.getElementById('oc-clipart-group-delete-btn');
+function openGroupModal(id) {
+  editGroupId = id || null;
+  const group = id ? groups.find(g => g.id === id) : null;
+  groupNameInput().value = group ? group.name : '';
+  const deleteBtn = groupDeleteBtn();
+  if (deleteBtn) deleteBtn.style.display = group ? '' : 'none';
+  renderClipartPicker(group ? group.clipartIds : []);
+  groupModal().hidden = false;
+  document.body.style.overflow = 'hidden';
+  groupNameInput().focus();
+}
+function closeGroupModal() {
+  groupModal().hidden = true;
+  document.body.style.overflow = '';
+  editGroupId = null;
+}
+function renderClipartPicker(selectedIds) {
+  const picker = groupPicker();
+  if (!picker) return;
+  picker.innerHTML = '';
+  clipart.forEach(item => {
+    const checked = selectedIds.includes(item.id);
+    const label = document.createElement('label');
+    label.className = 'oc-group-font-item';
+    label.innerHTML = '<input type="checkbox" value="' + item.id + '"' + (checked ? ' checked' : '') + ' />' + '<div class="oc-clipart-thumb oc-clipart-picker-thumb" title="' + h(item.name) + '">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" />' + '</div>' + '<span class="oc-group-font-info">' + '<span class="oc-group-font-info-name">' + h(item.name) + '</span>' + '<span class="oc-group-font-info-meta">' + h(item.fileType.toUpperCase()) + '</span>' + '</span>';
+    label.querySelector('input').addEventListener('change', updateGroupSelCount);
+    picker.appendChild(label);
+  });
+  updateGroupSelCount();
+}
+function updateGroupSelCount() {
+  const n = groupPicker() ? groupPicker().querySelectorAll('input:checked').length : 0;
+  if (groupSelCount()) groupSelCount().textContent = n + ' selected';
+}
+function selectedClipartIds() {
+  const picker = groupPicker();
+  if (!picker) return [];
+  return Array.from(picker.querySelectorAll('input:checked')).map(cb => Number(cb.value));
+}
+async function saveGroup() {
+  const name = groupNameInput().value.trim();
+  const clipartIds = selectedClipartIds();
+  if (!name) {
+    groupNameInput().focus();
+    return;
+  }
+  const action = editGroupId ? 'oc_clipart_group_update' : 'oc_clipart_group_create';
+  const body = new URLSearchParams({
+    action,
+    nonce: window.ocClipartNonce,
+    name,
+    id: editGroupId || 0
+  });
+  clipartIds.forEach(id => body.append('clipart_ids[]', id));
+  let json;
+  try {
+    const res = await fetch(window.ocAjaxUrl, {
+      method: 'POST',
+      body
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    json = await res.json();
+  } catch (e) {
+    console.warn('[OC] Clipart group save failed:', e);
+    alert('Save failed. Please try again.');
+    return;
+  }
+  if (!json.success) {
+    alert(json.data?.message || 'Save failed.');
+    return;
+  }
+  const saved = normaliseGroup(json.data);
+  if (editGroupId) {
+    const idx = groups.findIndex(g => g.id === editGroupId);
+    if (idx !== -1) groups[idx] = saved;
+  } else {
+    groups.push(saved);
+  }
+  updateGroupGridUI();
+  closeGroupModal();
+}
+async function deleteGroup() {
+  if (!editGroupId) return;
+  if (!confirm('Delete this clipart group?')) return;
+  const body = new URLSearchParams({
+    action: 'oc_clipart_group_delete',
+    nonce: window.ocClipartNonce,
+    id: editGroupId
+  });
+  let json;
+  try {
+    const res = await fetch(window.ocAjaxUrl, {
+      method: 'POST',
+      body
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    json = await res.json();
+  } catch (e) {
+    console.warn('[OC] Clipart group delete failed:', e);
+    alert('Delete failed. Please try again.');
+    return;
+  }
+  if (!json.success) {
+    alert(json.data?.message || 'Delete failed.');
+    return;
+  }
+  groups = groups.filter(g => g.id !== editGroupId);
+  updateGroupGridUI();
+  closeGroupModal();
+}
+function initGroupModal() {
+  document.getElementById('oc-create-clipart-group-btn')?.addEventListener('click', () => openGroupModal(null));
+  document.getElementById('oc-clipart-group-modal-close')?.addEventListener('click', closeGroupModal);
+  document.getElementById('oc-clipart-group-cancel-btn')?.addEventListener('click', closeGroupModal);
+  groupModal()?.addEventListener('click', e => {
+    if (e.target === groupModal()) closeGroupModal();
+  });
+  document.getElementById('oc-clipart-group-save-btn')?.addEventListener('click', saveGroup);
+  groupDeleteBtn()?.addEventListener('click', deleteGroup);
+  document.querySelectorAll('.oc-clipart-group-card').forEach(card => {
+    card.addEventListener('click', () => openGroupModal(Number(card.dataset.groupId)));
+    card.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') openGroupModal(Number(card.dataset.groupId));
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Boot
+// ---------------------------------------------------------------------------
+
+document.addEventListener('DOMContentLoaded', () => {
+  initTabs();
+  initUploadModal();
+  initEditModal();
+  initGroupModal();
+});
+/******/ })()
+;
+//# sourceMappingURL=clipart-manager.js.map

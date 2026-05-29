@@ -43,6 +43,44 @@
 	*::before,
 	*::after { box-sizing: border-box; }
 
+	// ── Heading ────────────────────────────────────────────────────────────
+	.oc-customiser-heading {
+		display: flex;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: var(--oc-gap);
+		padding: var(--oc-gap);
+		border: 1px solid var(--oc-border);
+		border-radius: var(--oc-radius-lg);
+		background: linear-gradient(135deg, var(--oc-surface), color-mix(in srgb, var(--oc-accent) 7%, transparent));
+	}
+
+	.oc-customiser-kicker {
+		margin: 0 0 4px;
+		color: var(--oc-accent);
+		font-size: .72em;
+		font-weight: 800;
+		letter-spacing: .11em;
+		line-height: 1.2;
+		text-transform: uppercase;
+	}
+
+	.oc-customiser-title {
+		margin: 0;
+		font: inherit;
+		font-size: clamp(1.2rem, 2.5vw, 1.6rem);
+		font-weight: 800;
+		line-height: 1.15;
+	}
+
+	.oc-customiser-help {
+		max-width: 280px;
+		margin: 0;
+		color: var(--oc-fg-muted);
+		font-size: .9em;
+		line-height: 1.45;
+	}
+
 	// ── Area tabs ─────────────────────────────────────────────────────────
 	.oc-area-tabs {
 		display: flex;
@@ -84,6 +122,45 @@
 			color: var(--oc-accent-ink);
 			border-color: var(--oc-accent);
 		}
+	}
+
+	// ── Preview card ───────────────────────────────────────────────────────
+	.oc-canvas-wrap {
+		position: relative;
+		padding: var(--oc-gap-sm);
+		border: 1px solid var(--oc-border);
+		border-radius: var(--oc-radius-lg);
+		background: var(--oc-accent-ink, #fff);
+		box-shadow: var(--oc-shadow-sm);
+	}
+
+	.oc-preview-label {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+		margin-bottom: var(--oc-gap-xs);
+		color: var(--oc-fg-muted);
+		font-size: .72em;
+		font-weight: 800;
+		letter-spacing: .08em;
+		line-height: 1.2;
+		text-transform: uppercase;
+
+		&::before {
+			content: "";
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: #27ae60;
+			box-shadow: 0 0 0 4px rgb(39 174 96 / 0.12);
+		}
+	}
+
+	#oc-canvas-preview {
+		display: block;
+		width: 100%;
+		height: auto;
+		border-radius: var(--oc-radius);
 	}
 
 	// ── Layer sections ────────────────────────────────────────────────────
@@ -243,6 +320,7 @@
 		}
 
 		&.oc-active,
+		&.oc-selected,
 		&[aria-pressed="true"] {
 			border-color: var(--oc-accent);
 			box-shadow: 0 0 0 3px color-mix(in srgb, var(--oc-accent) 35%, transparent);
@@ -363,6 +441,7 @@
 		}
 
 		&.oc-active,
+		&.oc-selected,
 		&[aria-pressed="true"] {
 			border-color: var(--oc-accent);
 			box-shadow: 0 0 0 2px var(--oc-accent) inset;
@@ -714,6 +793,18 @@
 		margin-block: var(--oc-gap);
 		padding-bottom: env(safe-area-inset-bottom, 0px);
 
+		.oc-customiser-heading {
+			align-items: flex-start;
+			flex-direction: column;
+			gap: var(--oc-gap-xs);
+			padding: var(--oc-gap-sm);
+		}
+
+		.oc-customiser-help {
+			max-width: none;
+			font-size: .84em;
+		}
+
 		.oc-area-tabs {
 			gap: var(--oc-gap-xs);
 			padding-block: 2px;
@@ -762,8 +853,7 @@
 		.oc-canvas-wrap {
 			display: none;
 			overflow: hidden;
-			border-radius: var(--oc-radius-lg);
-			border: 1px solid var(--oc-border);
+			padding: var(--oc-gap-xs);
 
 			&.oc-preview-visible {
 				display: block;

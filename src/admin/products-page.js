@@ -395,6 +395,16 @@
 	function setVal( id, v ) { const el = document.getElementById( id ); if ( el ) el.value = v; }
 	function getScale( img ) { return ( img && img.naturalWidth ) ? img.clientWidth / img.naturalWidth : 0; }
 	function clamp( v, lo, hi ) { return Math.min( Math.max( v, lo ), hi ); }
+
+	function clampLayerToArea( layer, area ) {
+		if ( ! layer || ! area ) return;
+		const maxW = Math.max( 1, area.w );
+		const maxH = Math.max( 1, area.h );
+		layer.w = clamp( Math.round( layer.w ), 1, maxW );
+		layer.h = clamp( Math.round( layer.h ), 1, maxH );
+		layer.x = clamp( Math.round( layer.x ), area.x, area.x + area.w - layer.w );
+		layer.y = clamp( Math.round( layer.y ), area.y, area.y + area.h - layer.h );
+	}
 	function hexRgba( hex, a ) {
 		const r = parseInt( hex.slice( 1, 3 ), 16 );
 		const g = parseInt( hex.slice( 3, 5 ), 16 );
@@ -1128,7 +1138,9 @@
 		const def = LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
 		const lx  = area.x + Math.max( 0, Math.round( ( area.w - def.w ) / 2 ) );
 		const ly  = area.y + Math.max( 0, Math.round( ( area.h - def.h ) / 2 ) );
-		area.layers.push( { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x: lx, y: ly, w: def.w, h: def.h, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length } );
+		const layer = { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x: lx, y: ly, w: def.w, h: def.h, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length };
+		clampLayerToArea( layer, area );
+		area.layers.push( layer );
 		selectedLayerIndex = area.layers.length - 1;
 		snapshot();
 		renderAll();
@@ -1173,11 +1185,13 @@
 	function startDrawRect( e ) {
 		const img = document.getElementById( 'oc-canvas-mockup-img' );
 		if ( ! img ) return;
+		const area = areas[ selectedIndex ];
+		if ( ! area ) return;
 		const scale = getScale( img );
 		if ( ! scale ) return;
 		const rect = img.getBoundingClientRect();
-		const sx   = clamp( Math.round( ( e.clientX - rect.left ) / scale ), 0, img.naturalWidth );
-		const sy   = clamp( Math.round( ( e.clientY - rect.top  ) / scale ), 0, img.naturalHeight );
+		const sx   = clamp( Math.round( ( e.clientX - rect.left ) / scale ), area.x, area.x + area.w );
+		const sy   = clamp( Math.round( ( e.clientY - rect.top  ) / scale ), area.y, area.y + area.h );
 		drawState = { startX: sx, startY: sy, curX: sx, curY: sy, startClientX: e.clientX, startClientY: e.clientY };
 
 		drawEl = document.createElement( 'div' );
@@ -1190,10 +1204,12 @@
 		if ( ! drawState ) return;
 		const img = document.getElementById( 'oc-canvas-mockup-img' );
 		if ( ! img ) return;
+		const area = areas[ selectedIndex ];
+		if ( ! area ) return;
 		const scale = getScale( img );
 		const rect  = img.getBoundingClientRect();
-		drawState.curX = clamp( Math.round( ( e.clientX - rect.left ) / scale ), 0, img.naturalWidth );
-		drawState.curY = clamp( Math.round( ( e.clientY - rect.top  ) / scale ), 0, img.naturalHeight );
+		drawState.curX = clamp( Math.round( ( e.clientX - rect.left ) / scale ), area.x, area.x + area.w );
+		drawState.curY = clamp( Math.round( ( e.clientY - rect.top  ) / scale ), area.y, area.y + area.h );
 		updateDrawEl();
 	}
 
@@ -1290,7 +1306,9 @@
 	function addLayerAt( type, x, y, w, h ) {
 		const area = areas[ selectedIndex ];
 		if ( ! area ) return;
-		area.layers.push( { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x, y, w, h, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length } );
+		const layer = { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x, y, w, h, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length };
+		clampLayerToArea( layer, area );
+		area.layers.push( layer );
 		selectedLayerIndex = area.layers.length - 1;
 		snapshot();
 		renderAll();
@@ -1318,6 +1336,8 @@
 		if ( ! drag ) return;
 		const entity = activeEntity();
 		const img    = document.getElementById( 'oc-canvas-mockup-img' );
+		const area   = areas[ selectedIndex ];
+		const layer  = area && selectedLayerIndex >= 0 ? area.layers[ selectedLayerIndex ] : null;
 		if ( ! entity || ! img ) return;
 
 		const scale = getScale( img );
@@ -1329,19 +1349,24 @@
 		const natH = img.naturalHeight || 2000;
 		const d    = drag.dir;
 
+		const minX = layer ? area.x : 0;
+		const minY = layer ? area.y : 0;
+		const maxX = layer ? area.x + area.w : natW;
+		const maxY = layer ? area.y + area.h : natH;
+
 		if ( drag.type === 'move' ) {
-			entity.x = clamp( drag.startX + dx, 0, natW - entity.w );
-			entity.y = clamp( drag.startY + dy, 0, natH - entity.h );
+			entity.x = clamp( drag.startX + dx, minX, maxX - entity.w );
+			entity.y = clamp( drag.startY + dy, minY, maxY - entity.h );
 		} else {
 			let nx = drag.startX, ny = drag.startY, nw = drag.startW, nh = drag.startH;
 			if ( d.includes( 'e' ) ) { nw = Math.max( 10, drag.startW + dx ); }
 			if ( d.includes( 's' ) ) { nh = Math.max( 10, drag.startH + dy ); }
 			if ( d.includes( 'w' ) ) { nw = Math.max( 10, drag.startW - dx ); nx = drag.startX + drag.startW - nw; }
 			if ( d.includes( 'n' ) ) { nh = Math.max( 10, drag.startH - dy ); ny = drag.startY + drag.startH - nh; }
-			entity.x = clamp( nx, 0, natW );
-			entity.y = clamp( ny, 0, natH );
-			entity.w = Math.min( nw, natW - entity.x );
-			entity.h = Math.min( nh, natH - entity.y );
+			entity.x = clamp( nx, minX, maxX );
+			entity.y = clamp( ny, minY, maxY );
+			entity.w = Math.min( nw, maxX - entity.x );
+			entity.h = Math.min( nh, maxY - entity.y );
 		}
 
 		updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity );
@@ -1365,6 +1390,7 @@
 		entity.y = parseInt( document.getElementById( prefix + '-y' )?.value || 0, 10 );
 		entity.w = Math.max( 1, parseInt( document.getElementById( prefix + '-w' )?.value || 1, 10 ) );
 		entity.h = Math.max( 1, parseInt( document.getElementById( prefix + '-h' )?.value || 1, 10 ) );
+		if ( layer ) clampLayerToArea( layer, area );
 		updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity ); renderHiddenFields(); markDirty();
 	}
 

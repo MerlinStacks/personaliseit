@@ -604,12 +604,25 @@ class OCCustomiser {
 
 	setupInputListeners() {
 		// Area tabs
-		document.querySelectorAll( '.oc-area-tab' ).forEach( btn => {
+		const areaTabs = Array.from( document.querySelectorAll( '.oc-area-tab' ) );
+		areaTabs.forEach( btn => {
 			btn.addEventListener( 'click', () => this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) ) );
 			btn.addEventListener( 'touchend', ( e ) => {
 				e.preventDefault();
 				this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) );
 			}, { passive: false } );
+			btn.addEventListener( 'keydown', ( e ) => {
+				if ( ! [ 'ArrowLeft', 'ArrowRight', 'Home', 'End' ].includes( e.key ) ) return;
+				e.preventDefault();
+				const currentIndex = areaTabs.indexOf( btn );
+				let nextIndex = currentIndex;
+				if ( e.key === 'ArrowLeft' ) nextIndex = Math.max( 0, currentIndex - 1 );
+				if ( e.key === 'ArrowRight' ) nextIndex = Math.min( areaTabs.length - 1, currentIndex + 1 );
+				if ( e.key === 'Home' ) nextIndex = 0;
+				if ( e.key === 'End' ) nextIndex = areaTabs.length - 1;
+				areaTabs[ nextIndex ]?.focus();
+				this.switchArea( parseInt( areaTabs[ nextIndex ]?.dataset.areaIndex || '0', 10 ) );
+			} );
 		} );
 
 		// Text / textarea
@@ -700,24 +713,24 @@ class OCCustomiser {
 			const fam = opt?.style?.fontFamily || '';
 			if ( fam ) el.style.fontFamily = fam;
 		};
-			document.querySelectorAll( '[data-oc-layer-font]' ).forEach( el => {
-				reflectFontOnSelect( el );
-				const lid = parseInt( el.dataset.ocLayerFont, 10 );
-				el.addEventListener( 'change', async () => {
-					if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
-					this.inputs[ lid ].fontId = parseInt( el.value, 10 );
-					const font = this.fonts.find( f => f.id === this.inputs[ lid ].fontId );
-					if ( font ) {
-						try {
-							await this.loadFont( font );
-						} catch ( err ) {
-							console.warn( '[OC] Font load failed:', err );
-						}
+		document.querySelectorAll( '[data-oc-layer-font]' ).forEach( el => {
+			reflectFontOnSelect( el );
+			const lid = parseInt( el.dataset.ocLayerFont, 10 );
+			el.addEventListener( 'change', async () => {
+				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
+				this.inputs[ lid ].fontId = parseInt( el.value, 10 );
+				const font = this.fonts.find( f => f.id === this.inputs[ lid ].fontId );
+				if ( font ) {
+					try {
+						await this.loadFont( font );
+					} catch ( err ) {
+						console.warn( '[OC] Font load failed:', err );
 					}
-					reflectFontOnSelect( el );
-					const preview = document.querySelector( `.oc-font-preview[data-oc-font-preview="${ lid }"]` );
-					if ( preview && font ) preview.style.fontFamily = font.name;
-					this.requestPreviewFocus();
+				}
+				reflectFontOnSelect( el );
+				const preview = document.querySelector( `.oc-font-preview[data-oc-font-preview="${ lid }"]` );
+				if ( preview && font ) preview.style.fontFamily = font.name;
+				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
 			} );
@@ -730,7 +743,11 @@ class OCCustomiser {
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].colorHex = btn.dataset.hex;
 				btn.closest( '.oc-colour-swatches' )?.querySelectorAll( '.oc-colour-swatch' )
-					.forEach( s => s.classList.toggle( 'oc-selected', s === btn ) );
+					.forEach( s => {
+						const isSelected = s === btn;
+						s.classList.toggle( 'oc-selected', isSelected );
+						s.setAttribute( 'aria-pressed', isSelected ? 'true' : 'false' );
+					} );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -757,7 +774,11 @@ class OCCustomiser {
 				this.inputs[ lid ].clipartId  = parseInt( btn.dataset.ocClipart, 10 );
 				this.inputs[ lid ].clipartUrl = btn.dataset.ocClipartUrl;
 				btn.closest( '.oc-clipart-grid' )?.querySelectorAll( '.oc-clipart-item' )
-					.forEach( i => i.classList.toggle( 'oc-selected', i === btn ) );
+					.forEach( i => {
+						const isSelected = i === btn;
+						i.classList.toggle( 'oc-selected', isSelected );
+						i.setAttribute( 'aria-pressed', isSelected ? 'true' : 'false' );
+					} );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -1345,6 +1366,7 @@ class OCCustomiser {
 		document.querySelectorAll( '.oc-area-tab' ).forEach( ( btn, i ) => {
 			btn.classList.toggle( 'oc-active', i === index );
 			btn.setAttribute( 'aria-selected', i === index ? 'true' : 'false' );
+			btn.setAttribute( 'tabindex', i === index ? '0' : '-1' );
 		} );
 		document.querySelectorAll( '.oc-area-controls' ).forEach( el => {
 			el.style.display = parseInt( el.dataset.areaIndex, 10 ) === index ? '' : 'none';

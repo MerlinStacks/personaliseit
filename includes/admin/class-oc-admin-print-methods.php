@@ -18,6 +18,11 @@ class OC_Admin_Print_Methods {
 				'label'        => __( 'Engraving', 'overcustomise' ),
 				'dpi'          => 600,
 				'colour_space' => 'grayscale',
+				'material'     => 'default',
+				'gamma'        => 2.0,
+				'contrast'     => 0,
+				'edge_boost'   => 0,
+				'dithering'    => 'none',
 				'enabled'      => true,
 				'notes'        => '',
 			],
@@ -26,6 +31,7 @@ class OC_Admin_Print_Methods {
 				'dpi'             => 300,
 				'colour_space'    => 'cmyk',
 				'white_ink_layer' => false,
+				'white_spot_name' => 'WHITE',
 				'enabled'         => true,
 				'notes'           => '',
 			],
@@ -168,20 +174,87 @@ class OC_Admin_Print_Methods {
 						</div>
 					</div>
 
+					<?php if ( 'engraving' === $key ) : ?>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-engraving-material"><?php esc_html_e( 'Default material', 'overcustomise' ); ?></label><?php OC_Tooltips::render( 'engraving-material', __( 'Selects the default engraving profile used by file generation.', 'overcustomise' ) ); ?>
+						</div>
+						<div class="oc-form-field">
+							<select id="oc-engraving-material" name="<?php echo esc_attr( "oc_pm[{$key}][material]" ); ?>" class="oc-select" style="width:220px;">
+								<option value="default" <?php selected( (string) $m['material'], 'default' ); ?>><?php esc_html_e( 'Default', 'overcustomise' ); ?></option>
+								<option value="wood" <?php selected( (string) $m['material'], 'wood' ); ?>><?php esc_html_e( 'Wood', 'overcustomise' ); ?></option>
+								<option value="glass" <?php selected( (string) $m['material'], 'glass' ); ?>><?php esc_html_e( 'Glass', 'overcustomise' ); ?></option>
+							</select>
+						</div>
+					</div>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-engraving-gamma"><?php esc_html_e( 'Gamma', 'overcustomise' ); ?></label>
+						</div>
+						<div class="oc-form-field">
+							<input type="number" id="oc-engraving-gamma" name="<?php echo esc_attr( "oc_pm[{$key}][gamma]" ); ?>"
+							       value="<?php echo esc_attr( $m['gamma'] ); ?>" min="0.2" max="4" step="0.1" class="small-text oc-input" style="width:90px;" />
+							<p class="oc-form-help"><?php esc_html_e( 'Higher values darken engraving tones. Typical range: 0.8 to 2.2.', 'overcustomise' ); ?></p>
+						</div>
+					</div>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-engraving-contrast"><?php esc_html_e( 'Contrast', 'overcustomise' ); ?></label>
+						</div>
+						<div class="oc-form-field">
+							<input type="number" id="oc-engraving-contrast" name="<?php echo esc_attr( "oc_pm[{$key}][contrast]" ); ?>"
+							       value="<?php echo esc_attr( $m['contrast'] ); ?>" min="-100" max="100" step="1" class="small-text oc-input" style="width:90px;" />
+							<p class="oc-form-help"><?php esc_html_e( 'Adjust tonal separation before engraving.', 'overcustomise' ); ?></p>
+						</div>
+					</div>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-engraving-edge-boost"><?php esc_html_e( 'Edge boost', 'overcustomise' ); ?></label>
+						</div>
+						<div class="oc-form-field">
+							<input type="number" id="oc-engraving-edge-boost" name="<?php echo esc_attr( "oc_pm[{$key}][edge_boost]" ); ?>"
+							       value="<?php echo esc_attr( $m['edge_boost'] ); ?>" min="0" max="100" step="1" class="small-text oc-input" style="width:90px;" />
+							<p class="oc-form-help"><?php esc_html_e( 'Adds definition for materials like glass.', 'overcustomise' ); ?></p>
+						</div>
+					</div>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-engraving-dithering"><?php esc_html_e( 'Dithering', 'overcustomise' ); ?></label>
+						</div>
+						<div class="oc-form-field">
+							<select id="oc-engraving-dithering" name="<?php echo esc_attr( "oc_pm[{$key}][dithering]" ); ?>" class="oc-select" style="width:220px;">
+								<option value="none" <?php selected( (string) $m['dithering'], 'none' ); ?>><?php esc_html_e( 'None (smooth grayscale)', 'overcustomise' ); ?></option>
+								<option value="floyd_steinberg" <?php selected( (string) $m['dithering'], 'floyd_steinberg' ); ?>><?php esc_html_e( 'Floyd-Steinberg', 'overcustomise' ); ?></option>
+							</select>
+						</div>
+					</div>
+					<?php endif; ?>
+
 					<?php if ( 'uv' === $key ) : ?>
-						<div class="oc-form-row">
-							<div class="oc-form-label">
-								<?php esc_html_e( 'White ink layer', 'overcustomise' ); ?><?php OC_Tooltips::render( 'white-ink', __( 'Adds a white underbase layer beneath colours, required for dark or transparent substrates.', 'overcustomise' ) ); ?>
-							</div>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<?php esc_html_e( 'White ink layer', 'overcustomise' ); ?><?php OC_Tooltips::render( 'white-ink', __( 'Adds a white underbase layer beneath colours, required for dark or transparent substrates.', 'overcustomise' ) ); ?>
+						</div>
 							<div class="oc-form-field">
 								<label class="oc-checkbox-label">
 									<input type="checkbox" name="<?php echo esc_attr( "oc_pm[{$key}][white_ink_layer]" ); ?>" value="1"
 									       <?php checked( (bool) $m['white_ink_layer'] ); ?> />
 									<?php esc_html_e( 'Include a white underbase layer in UV print files', 'overcustomise' ); ?>
 								</label>
-							</div>
 						</div>
-					<?php endif; ?>
+					</div>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-uv-white-spot-name"><?php esc_html_e( 'White spot colour name', 'overcustomise' ); ?></label><?php OC_Tooltips::render( 'white-spot-name', __( 'PDF exports use this exact spot colour name for the UV white plate.', 'overcustomise' ) ); ?>
+						</div>
+						<div class="oc-form-field">
+							<input type="text" id="oc-uv-white-spot-name" name="<?php echo esc_attr( "oc_pm[{$key}][white_spot_name]" ); ?>"
+							       value="<?php echo esc_attr( $m['white_spot_name'] ); ?>"
+							       class="regular-text oc-input" maxlength="64" />
+							<p class="oc-form-help"><?php esc_html_e( 'Example: WHITE, SPOT_WHITE or UV_WHITE.', 'overcustomise' ); ?></p>
+						</div>
+					</div>
+				<?php endif; ?>
 
 					<?php if ( 'embroidery' === $key ) : ?>
 						<div class="oc-form-row">
@@ -281,6 +354,24 @@ class OC_Admin_Print_Methods {
 
 		if ( 'uv' === $key ) {
 			$sanitised['white_ink_layer'] = ! empty( $posted['white_ink_layer'] );
+			$spot_name                    = sanitize_text_field( wp_unslash( (string) ( $posted['white_spot_name'] ?? '' ) ) );
+			$spot_name                    = preg_replace( '/[^A-Za-z0-9_\- ]+/', '', $spot_name );
+			$spot_name                    = trim( (string) $spot_name );
+			$sanitised['white_spot_name'] = '' !== $spot_name ? substr( $spot_name, 0, 64 ) : 'WHITE';
+		}
+
+		if ( 'engraving' === $key ) {
+			$materials = [ 'default', 'wood', 'glass' ];
+			$dithers   = [ 'none', 'floyd_steinberg' ];
+
+			$material  = sanitize_key( (string) ( $posted['material'] ?? '' ) );
+			$dithering = sanitize_key( (string) ( $posted['dithering'] ?? '' ) );
+
+			$sanitised['material']   = in_array( $material, $materials, true ) ? $material : 'default';
+			$sanitised['gamma']      = max( 0.2, min( 4.0, (float) ( $posted['gamma'] ?? $current['gamma'] ) ) );
+			$sanitised['contrast']   = max( -100, min( 100, (int) ( $posted['contrast'] ?? $current['contrast'] ) ) );
+			$sanitised['edge_boost'] = max( 0, min( 100, (int) ( $posted['edge_boost'] ?? $current['edge_boost'] ) ) );
+			$sanitised['dithering']  = in_array( $dithering, $dithers, true ) ? $dithering : 'none';
 		}
 
 		if ( 'embroidery' === $key ) {

@@ -15,22 +15,34 @@ foreach ( $layers as $layer ) {
 	$layers_by_area[ (int) $layer->area_id ][] = $layer;
 }
 
-$all_fonts   = OC_Font_Registry::get_fonts_for_js();
-$all_colours = OC_DB::get_colours( true );
-$upload_dir  = wp_upload_dir();
+$all_fonts          = OC_Font_Registry::get_fonts_for_js();
+$all_colours        = OC_DB::get_colours( true );
+$upload_dir         = wp_upload_dir();
+$has_multiple_areas = count( $areas ) > 1;
 ?>
 
 <div id="oc-customiser-panel" class="oc-customiser-panel">
 
+	<div class="oc-customiser-heading">
+		<div>
+			<p class="oc-customiser-kicker"><?php esc_html_e( 'Make it yours', 'overcustomise' ); ?></p>
+			<h2 class="oc-customiser-title"><?php esc_html_e( 'Customise your product', 'overcustomise' ); ?></h2>
+		</div>
+		<p class="oc-customiser-help"><?php esc_html_e( 'Add your details below and the preview will update as you go.', 'overcustomise' ); ?></p>
+	</div>
+
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 
-	<?php if ( count( $areas ) > 1 ) : ?>
-	<div class="oc-area-tabs" role="tablist">
+	<?php if ( $has_multiple_areas ) : ?>
+	<div class="oc-area-tabs" role="tablist" aria-label="<?php esc_attr_e( 'Customisation areas', 'overcustomise' ); ?>">
 		<?php foreach ( $areas as $i => $area ) : ?>
 			<button type="button" role="tab"
 				class="oc-area-tab<?php echo 0 === $i ? ' oc-active' : ''; ?>"
+				id="oc-area-tab-<?php echo esc_attr( $i ); ?>"
 				data-area-index="<?php echo esc_attr( $i ); ?>"
 				aria-selected="<?php echo 0 === $i ? 'true' : 'false'; ?>"
+				aria-controls="oc-area-panel-<?php echo esc_attr( $i ); ?>"
+				<?php echo 0 === $i ? '' : 'tabindex="-1"'; ?>
 			><?php echo esc_html( $area->label ); ?></button>
 		<?php endforeach; ?>
 	</div>
@@ -38,11 +50,12 @@ $upload_dir  = wp_upload_dir();
 
 	<div class="oc-preview-toggle-wrap">
 		<button type="button" class="oc-preview-toggle" id="oc-preview-toggle" aria-expanded="false">
-			<?php esc_html_e( 'Show Preview', 'overcustomise' ); ?>
+			<?php esc_html_e( 'Show live preview', 'overcustomise' ); ?>
 		</button>
 	</div>
 
-	<div class="oc-canvas-wrap" id="oc-canvas-wrap">
+	<div class="oc-canvas-wrap" id="oc-canvas-wrap" aria-label="<?php esc_attr_e( 'Live customisation preview', 'overcustomise' ); ?>">
+		<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
 		<?php
 		$first_area = $areas[0] ?? null;
 		if ( $first_area && ! empty( $first_area->mockup_attachment_id ) ) {
@@ -60,7 +73,10 @@ $upload_dir  = wp_upload_dir();
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
 		if ( empty( $area_layers ) ) continue;
 		?>
-		<div class="oc-area-controls" data-area-index="<?php echo esc_attr( $i ); ?>"
+		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>"
+			<?php if ( $has_multiple_areas ) : ?>
+				role="tabpanel" aria-labelledby="oc-area-tab-<?php echo esc_attr( $i ); ?>"
+			<?php endif; ?>
 			<?php echo 0 !== $i ? 'style="display:none;"' : ''; ?>>
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
@@ -218,6 +234,8 @@ $upload_dir  = wp_upload_dir();
 											data-oc-layer-clipart="<?php echo esc_attr( $layer->id ); ?>"
 											data-oc-clipart-url="<?php echo esc_attr( $curl ); ?>"
 											data-oc-clipart-groups="<?php echo esc_attr( $ci_groups_attr ); ?>"
+											aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart', 'overcustomise' ), $ci->name ) ); ?>"
+											aria-pressed="false"
 											title="<?php echo esc_attr( $ci->name ); ?>">
 											<img src="<?php echo esc_url( $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
 										</button>
@@ -234,12 +252,14 @@ $upload_dir  = wp_upload_dir();
 									<?php if ( ! empty( $layer_colours ) ) : ?>
 										<div class="oc-colour-swatches">
 											<?php foreach ( $layer_colours as $colour ) : ?>
-												<button type="button" class="oc-colour-swatch"
-													style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-													title="<?php echo esc_attr( $colour->name ); ?>"
-													data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-													data-hex="<?php echo esc_attr( $colour->hex ); ?>">
-												</button>
+											<button type="button" class="oc-colour-swatch"
+												style="background:<?php echo esc_attr( $colour->hex ); ?>;"
+												title="<?php echo esc_attr( $colour->name ); ?>"
+												aria-label="<?php echo esc_attr( sprintf( __( 'Select %s', 'overcustomise' ), $colour->name ) ); ?>"
+												aria-pressed="false"
+												data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
+												data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+											</button>
 											<?php endforeach; ?>
 										</div>
 									<?php else : ?>
@@ -286,12 +306,14 @@ $upload_dir  = wp_upload_dir();
 									<?php if ( ! empty( $layer_colours ) ) : ?>
 										<div class="oc-colour-swatches">
 											<?php foreach ( $layer_colours as $colour ) : ?>
-												<button type="button" class="oc-colour-swatch"
-													style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-													title="<?php echo esc_attr( $colour->name ); ?>"
-													data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-													data-hex="<?php echo esc_attr( $colour->hex ); ?>">
-												</button>
+											<button type="button" class="oc-colour-swatch"
+												style="background:<?php echo esc_attr( $colour->hex ); ?>;"
+												title="<?php echo esc_attr( $colour->name ); ?>"
+												aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
+												aria-pressed="false"
+												data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
+												data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+											</button>
 											<?php endforeach; ?>
 										</div>
 									<?php else : ?>
