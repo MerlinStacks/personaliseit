@@ -168,6 +168,11 @@
 		display: none;
 	}
 
+	.oc-gallery-mounted-preview {
+		display: block !important;
+		margin: 0 0 var(--oc-gap);
+	}
+
 	// ── Layer sections ────────────────────────────────────────────────────
 	.oc-layer-controls {
 		display: flex;
@@ -1016,4 +1021,9 @@
 			display: none !important;
 		}
 	}
+}
+
+.oc-canvas-wrap.oc-gallery-mounted-preview {
+	display: block !important;
+	margin: 0 0 16px;
 }

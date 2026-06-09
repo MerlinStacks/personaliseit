@@ -163,6 +163,10 @@
 .oc-customiser-panel .oc-preview-toggle-wrap {
   display: none;
 }
+.oc-customiser-panel .oc-gallery-mounted-preview {
+  display: block !important;
+  margin: 0 0 var(--oc-gap);
+}
 .oc-customiser-panel .oc-layer-controls {
   display: flex;
   flex-direction: column;
@@ -920,6 +924,10 @@
   .oc-customiser-panel .oc-canvas-wrap {
     display: none !important;
   }
+}
+.oc-canvas-wrap.oc-gallery-mounted-preview {
+  display: block !important;
+  margin: 0 0 16px;
 }
 
 /*# sourceMappingURL=customiser-app.css.map*/
