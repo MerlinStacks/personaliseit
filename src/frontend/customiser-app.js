@@ -89,6 +89,13 @@ class OCCustomiser {
 		return headers;
 	}
 
+	uploadEndpoint( uploadUrl, layerId ) {
+		const params = new URLSearchParams( { layer_id: String( layerId ) } );
+		if ( this.data.uploadNonce ) params.set( '_wpnonce', this.data.uploadNonce );
+		if ( this.data.requestToken ) params.set( 'oc_token', this.data.requestToken );
+		return uploadUrl + ( uploadUrl.includes( '?' ) ? '&' : '?' ) + params.toString();
+	}
+
 	// ── Init ───────────────────────────────────────────────────────────────────
 
 	init() {
@@ -1630,10 +1637,9 @@ class OCCustomiser {
 				},
 			} );
 			uppy.use( XHRUpload, {
-				endpoint:   uploadUrl + ( uploadUrl.includes( '?' ) ? '&' : '?' ) + 'layer_id=' + lid,
+				endpoint:   this.uploadEndpoint( uploadUrl, lid ),
 				formData:   true,
 				fieldName:  'artwork',
-				headers:    this.restHeaders(),
 			} );
 
 			uppy.on( 'upload-progress', ( file, progress ) => {

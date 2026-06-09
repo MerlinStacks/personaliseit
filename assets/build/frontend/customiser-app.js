@@ -5757,6 +5757,14 @@ class OCCustomiser {
     }
     return headers;
   }
+  uploadEndpoint(uploadUrl, layerId) {
+    const params = new URLSearchParams({
+      layer_id: String(layerId)
+    });
+    if (this.data.uploadNonce) params.set('_wpnonce', this.data.uploadNonce);
+    if (this.data.requestToken) params.set('oc_token', this.data.requestToken);
+    return uploadUrl + (uploadUrl.includes('?') ? '&' : '?') + params.toString();
+  }
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
@@ -7243,10 +7251,9 @@ class OCCustomiser {
         }
       });
       uppy.use(_uppy_xhr_upload__WEBPACK_IMPORTED_MODULE_3__["default"], {
-        endpoint: uploadUrl + (uploadUrl.includes('?') ? '&' : '?') + 'layer_id=' + lid,
+        endpoint: this.uploadEndpoint(uploadUrl, lid),
         formData: true,
-        fieldName: 'artwork',
-        headers: this.restHeaders()
+        fieldName: 'artwork'
       });
       uppy.on('upload-progress', (file, progress) => {
         const percent = progress?.bytesTotal ? Math.round(progress.bytesUploaded / progress.bytesTotal * 100) : 0;
