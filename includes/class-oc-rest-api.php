@@ -826,7 +826,12 @@ class OC_Rest_API {
 
 		$old_preview = (string) ( $cart_item['_oc_preview_url'] ?? '' );
 
-		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [ 'v' => 2, 'designId' => $design_id, 'layers' => $sanitised_layers ];
+		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [
+			'v'                  => 2,
+			'designId'           => $design_id,
+			'engravingUndertone' => OC_DB::sanitize_engraving_undertone( (string) ( $body['engravingUndertone'] ?? 'warm' ) ),
+			'layers'             => $sanitised_layers,
+		];
 		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
 		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
 		$cart->cart_contents[ $cart_key ]['_oc_unique_key']    = md5( wp_json_encode( $sanitised_layers ) . microtime() );

@@ -28,13 +28,14 @@ class OC_Admin_Products {
 		$product_id = (int) ( $_POST['product_id'] ?? 0 );
 		$variant_id = (int) ( $_POST['variant_id'] ?? 0 );
 		$design_id  = (int) ( $_POST['design_id']  ?? 0 );
+		$undertone  = OC_DB::sanitize_engraving_undertone( (string) ( $_POST['engraving_undertone'] ?? 'warm' ) );
 
 		if ( ! $product_id ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid product.', 'overcustomise' ) ] );
 		}
 
 		if ( $design_id ) {
-			OC_DB::upsert_assignment( $product_id, $variant_id, $design_id );
+			OC_DB::upsert_assignment( $product_id, $variant_id, $design_id, $undertone );
 		} else {
 			OC_DB::delete_assignment( $product_id, $variant_id );
 		}
@@ -157,6 +158,7 @@ class OC_Admin_Products {
 		// Load active designs for the assignment dropdown.
 		$designs    = OC_DB::get_designs( true );
 		$assign_map = OC_DB::get_all_assignments();
+		$undertones = OC_DB::get_engraving_undertones();
 
 		// Load all published WC products.
 		$wc_products = wc_get_products( [
@@ -209,6 +211,7 @@ class OC_Admin_Products {
 								<th style="width:40%"><?php esc_html_e( 'Product / Variant', 'overcustomise' ); ?></th>
 								<th><?php esc_html_e( 'SKU', 'overcustomise' ); ?></th>
 								<th><?php esc_html_e( 'Assigned Design', 'overcustomise' ); ?></th>
+								<th><?php esc_html_e( 'Engraving Undertone', 'overcustomise' ); ?></th>
 								<th style="width:60px;"></th>
 							</tr>
 						</thead>
@@ -221,7 +224,7 @@ class OC_Admin_Products {
 								$search_str = strtolower( $pname . ' ' . $psku );
 								?>
 								<?php if ( $is_var ) : ?>
-									<?php $parent_assigned = $assign_map[ $pid ][0] ?? 0; ?>
+									<?php $parent_assignment = $assign_map[ $pid ][0] ?? [ 'design_id' => 0, 'engraving_undertone' => 'warm' ]; ?>
 									<!-- Variable product parent row with all-variants dropdown -->
 									<tr class="oc-product-row oc-product-row--parent" data-search="<?php echo esc_attr( $search_str ); ?>">
 										<td class="oc-col-primary" colspan="2">
@@ -231,9 +234,10 @@ class OC_Admin_Products {
 											<?php endif; ?>
 										</td>
 										<td>
-											<?php $this->render_design_select( $designs, $pid, 0, $parent_assigned ); ?>
+											<?php $this->render_design_select( $designs, $pid, 0, (int) $parent_assignment['design_id'] ); ?>
 											<small style="color:var(--oc-gray-500);display:block;margin-top:3px;font-size:11px;"><?php esc_html_e( 'All variants (default)', 'overcustomise' ); ?></small>
 										</td>
+										<td><?php $this->render_undertone_select( $undertones, $pid, 0, (string) $parent_assignment['engraving_undertone'], (int) $parent_assignment['design_id'] ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 									<!-- One row per variant -->
@@ -244,28 +248,30 @@ class OC_Admin_Products {
 										$vattrs = array_filter( $variation->get_variation_attributes() );
 										$vlabel = implode( ' / ', array_map( 'ucfirst', $vattrs ) ) ?: '#' . $vid;
 										$vsearch = strtolower( $pname . ' ' . $vlabel . ' ' . $vsku );
-										$vassigned = $assign_map[ $pid ][ $vid ] ?? 0;
+										$vassignment = $assign_map[ $pid ][ $vid ] ?? [ 'design_id' => 0, 'engraving_undertone' => 'warm' ];
 										?>
 										<tr class="oc-product-row oc-product-row--variant" data-search="<?php echo esc_attr( $vsearch ); ?>">
 											<td class="oc-col-variant"><?php echo esc_html( $vlabel ); ?></td>
 											<td><span class="oc-code"><?php echo esc_html( $vsku ); ?></span></td>
 											<td>
-												<?php $this->render_design_select( $designs, $pid, $vid, $vassigned ); ?>
+												<?php $this->render_design_select( $designs, $pid, $vid, (int) $vassignment['design_id'] ); ?>
 											</td>
+											<td><?php $this->render_undertone_select( $undertones, $pid, $vid, (string) $vassignment['engraving_undertone'], (int) $vassignment['design_id'] ); ?></td>
 											<td><span class="oc-assign-status" aria-live="polite"></span></td>
 										</tr>
 									<?php endforeach; ?>
 								<?php else : ?>
 									<!-- Simple product row -->
-									<?php $assigned = $assign_map[ $pid ][0] ?? 0; ?>
+									<?php $assignment = $assign_map[ $pid ][0] ?? [ 'design_id' => 0, 'engraving_undertone' => 'warm' ]; ?>
 									<tr class="oc-product-row" data-search="<?php echo esc_attr( $search_str ); ?>">
 										<td class="oc-col-primary">
 											<strong><?php echo esc_html( $pname ); ?></strong>
 										</td>
 										<td><span class="oc-code"><?php echo esc_html( $psku ); ?></span></td>
 										<td>
-											<?php $this->render_design_select( $designs, $pid, 0, $assigned ); ?>
+											<?php $this->render_design_select( $designs, $pid, 0, (int) $assignment['design_id'] ); ?>
 										</td>
+										<td><?php $this->render_undertone_select( $undertones, $pid, 0, (string) $assignment['engraving_undertone'], (int) $assignment['design_id'] ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 								<?php endif; ?>
@@ -290,25 +296,29 @@ class OC_Admin_Products {
 				} );
 			}
 
-			// AJAX assignment save.
-			document.querySelectorAll( '.oc-design-assign-select' ).forEach( function ( sel ) {
-				sel.addEventListener( 'change', function () {
-					var status = this.closest( 'tr' ).querySelector( '.oc-assign-status' );
+			function saveAssignment( sel ) {
+				var row = sel.closest( 'tr' );
+				var designSelect = row.querySelector( '.oc-design-assign-select' );
+				var undertoneSelect = row.querySelector( '.oc-engraving-undertone-select' );
+				var status = row.querySelector( '.oc-assign-status' );
 					if ( status ) { status.textContent = 'Saving\u2026'; status.className = 'oc-assign-status oc-assign-status--saving'; }
-					sel.disabled = true;
+					designSelect.disabled = true;
+					undertoneSelect.disabled = true;
 
 					var body = new URLSearchParams( {
 						action:     'oc_assign_design',
 						nonce:      ocProductsData.nonce,
-						product_id: this.dataset.productId,
-						variant_id: this.dataset.variantId,
-						design_id:  this.value,
+						product_id: designSelect.dataset.productId,
+						variant_id: designSelect.dataset.variantId,
+						design_id:  designSelect.value,
+						engraving_undertone: undertoneSelect.value,
 					} );
 
 					fetch( ocProductsData.ajaxUrl, { method: 'POST', body: body } )
 						.then( function ( r ) { return r.json(); } )
 						.then( function ( json ) {
-							sel.disabled = false;
+							designSelect.disabled = false;
+							undertoneSelect.disabled = designSelect.value === '0';
 							if ( status ) {
 								status.textContent = json.success ? 'Saved' : 'Error';
 								status.className = 'oc-assign-status ' + ( json.success ? 'oc-assign-status--saved' : 'oc-assign-status--error' );
@@ -316,10 +326,22 @@ class OC_Admin_Products {
 							}
 						} )
 						.catch( function () {
-							sel.disabled = false;
+							designSelect.disabled = false;
+							undertoneSelect.disabled = designSelect.value === '0';
 							if ( status ) { status.textContent = 'Error'; status.className = 'oc-assign-status oc-assign-status--error'; }
 						} );
+			}
+
+			// AJAX assignment save.
+			document.querySelectorAll( '.oc-design-assign-select' ).forEach( function ( sel ) {
+				sel.addEventListener( 'change', function () {
+					var undertoneSelect = this.closest( 'tr' ).querySelector( '.oc-engraving-undertone-select' );
+					if ( undertoneSelect ) undertoneSelect.disabled = this.value === '0';
+					saveAssignment( this );
 				} );
+			} );
+			document.querySelectorAll( '.oc-engraving-undertone-select' ).forEach( function ( sel ) {
+				sel.addEventListener( 'change', function () { saveAssignment( this ); } );
 			} );
 		} )();
 		</script>
@@ -338,6 +360,23 @@ class OC_Admin_Products {
 				<option value="<?php echo esc_attr( $design->id ); ?>"
 				        <?php selected( $assigned_id, $design->id ); ?>>
 					<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
+				</option>
+			<?php endforeach; ?>
+		</select>
+		<?php
+	}
+
+	/** Render an engraving undertone selector for one product/variant row. */
+	private function render_undertone_select( array $undertones, int $product_id, int $variant_id, string $selected, int $assigned_id ): void {
+		?>
+		<select class="oc-engraving-undertone-select oc-select"
+		        data-product-id="<?php echo esc_attr( $product_id ); ?>"
+		        data-variant-id="<?php echo esc_attr( $variant_id ); ?>"
+		        style="min-width:150px;max-width:220px;"
+		        <?php disabled( 0 === $assigned_id ); ?>>
+			<?php foreach ( $undertones as $key => $label ) : ?>
+				<option value="<?php echo esc_attr( $key ); ?>" <?php selected( $selected, $key ); ?>>
+					<?php echo esc_html( $label ); ?>
 				</option>
 			<?php endforeach; ?>
 		</select>

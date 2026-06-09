@@ -134,6 +134,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function save_to_order_item_writes_customisation_meta(): void {
+		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
 		$customisation = [
 			'front' => [
 				'text'                => 'Engraved',
@@ -148,6 +149,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 			'_oc_customisation' => $customisation,
 			'_oc_config_id'     => 1,
 			'_oc_flat_rate'     => 0.0,
+			'_oc_preview_url'   => $preview_url,
 		];
 
 		// Create an order and item to write to.
@@ -169,6 +171,18 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertIsArray( $meta );
 		$this->assertArrayHasKey( 'front', $meta );
 		$this->assertSame( 'Engraved', $meta['front']['text'] );
+		$this->assertSame( 'Front: Engraved', $saved_item->get_meta( 'Personalisation Details', true ) );
+		$this->assertStringContainsString( 'View Preview Image', $saved_item->get_meta( 'Preview Image', true ) );
+		$this->assertStringContainsString( $preview_url, $saved_item->get_meta( 'Preview Image', true ) );
+	}
+
+	#[Test]
+	public function internal_order_item_meta_is_registered_as_hidden(): void {
+		$hidden = ( new OC_Cart() )->hidden_order_item_meta( [] );
+
+		$this->assertContains( '_oc_customisation', $hidden );
+		$this->assertContains( '_oc_preview_url', $hidden );
+		$this->assertContains( '_oc_flat_rate', $hidden );
 	}
 
 	#[Test]

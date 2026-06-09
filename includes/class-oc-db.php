@@ -209,6 +209,7 @@ class OC_DB {
 			product_id BIGINT UNSIGNED NOT NULL,
 			variant_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			design_id  BIGINT UNSIGNED NOT NULL,
+			engraving_undertone VARCHAR(20) NOT NULL DEFAULT 'warm',
 			PRIMARY KEY  (id),
 			UNIQUE KEY   product_variant (product_id, variant_id),
 			KEY          design_id (design_id)
@@ -358,6 +359,22 @@ class OC_DB {
 							 ADD COLUMN canvas_rotation INT NOT NULL DEFAULT 0 AFTER canvas_h"
 						);
 					}
+				}
+			}
+
+			if ( version_compare( $installed, '1.11.0', '<' ) ) {
+				$table_name = $wpdb->prefix . 'oc_product_assignments';
+				$col = $wpdb->get_results(
+					"SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+					 WHERE TABLE_SCHEMA = DATABASE()
+					 AND TABLE_NAME = '{$table_name}'
+					 AND COLUMN_NAME = 'engraving_undertone'"
+				);
+				if ( empty( $col ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN engraving_undertone VARCHAR(20) NOT NULL DEFAULT 'warm' AFTER design_id"
+					);
 				}
 			}
 
@@ -735,35 +752,58 @@ class OC_DB {
 
 	// ── Product assignments ───────────────────────────────────────────────────
 
-	/** Fetch all product design assignments keyed as [product_id][variant_id] => design_id. */
+	/** Valid engraving undertones keyed by stored value. */
+	public static function get_engraving_undertones(): array {
+		return [
+			'warm'    => __( 'Warm wood', 'overcustomise' ),
+			'cool'    => __( 'Cool metal', 'overcustomise' ),
+			'gold'    => __( 'Gold', 'overcustomise' ),
+			'rose'    => __( 'Rose gold', 'overcustomise' ),
+			'dark'    => __( 'Dark material', 'overcustomise' ),
+			'neutral' => __( 'Neutral', 'overcustomise' ),
+		];
+	}
+
+	/** Sanitize an engraving undertone key. */
+	public static function sanitize_engraving_undertone( string $undertone ): string {
+		$undertone = sanitize_key( $undertone );
+		return array_key_exists( $undertone, self::get_engraving_undertones() ) ? $undertone : 'warm';
+	}
+
+	/** Fetch all product design assignments keyed as [product_id][variant_id]. */
 	public static function get_all_assignments(): array {
-		$cache_key = 'all_assignments';
+		$cache_key = 'all_assignments_v2';
 		$cached    = OC_Cache::get( $cache_key );
 		if ( null !== $cached ) {
 			return $cached;
 		}
 		global $wpdb;
 		$rows = $wpdb->get_results(
-			"SELECT product_id, variant_id, design_id FROM {$wpdb->prefix}oc_product_assignments"
+			"SELECT product_id, variant_id, design_id, engraving_undertone FROM {$wpdb->prefix}oc_product_assignments"
 		) ?: [];
 
 		$map = [];
 		foreach ( $rows as $row ) {
-			$map[ (int) $row->product_id ][ (int) $row->variant_id ] = (int) $row->design_id;
+			$map[ (int) $row->product_id ][ (int) $row->variant_id ] = [
+				'design_id'            => (int) $row->design_id,
+				'engraving_undertone'  => self::sanitize_engraving_undertone( (string) ( $row->engraving_undertone ?? '' ) ),
+			];
 		}
 		OC_Cache::set( $cache_key, $map );
 		return $map;
 	}
 
 	/** Insert or update a product/variant → design assignment. */
-	public static function upsert_assignment( int $product_id, int $variant_id, int $design_id ): void {
+	public static function upsert_assignment( int $product_id, int $variant_id, int $design_id, string $engraving_undertone = 'warm' ): void {
 		global $wpdb;
+		$engraving_undertone = self::sanitize_engraving_undertone( $engraving_undertone );
 		$wpdb->query( $wpdb->prepare(
-			"INSERT INTO {$wpdb->prefix}oc_product_assignments (product_id, variant_id, design_id)
-			 VALUES (%d, %d, %d)
-			 ON DUPLICATE KEY UPDATE design_id = VALUES(design_id)",
-			$product_id, $variant_id, $design_id
+			"INSERT INTO {$wpdb->prefix}oc_product_assignments (product_id, variant_id, design_id, engraving_undertone)
+			 VALUES (%d, %d, %d, %s)
+			 ON DUPLICATE KEY UPDATE design_id = VALUES(design_id), engraving_undertone = VALUES(engraving_undertone)",
+			$product_id, $variant_id, $design_id, $engraving_undertone
 		) );
+		OC_Cache::delete( 'all_assignments_v2' );
 	}
 
 	/** Remove a product/variant assignment (unassign design). */
@@ -774,6 +814,7 @@ class OC_DB {
 			[ 'product_id' => $product_id, 'variant_id' => $variant_id ],
 			[ '%d', '%d' ]
 		);
+		OC_Cache::delete( 'all_assignments_v2' );
 	}
 
 	/** Fetch pending queue jobs, ordered by creation time, limited to $limit. */

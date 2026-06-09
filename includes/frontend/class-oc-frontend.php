@@ -15,6 +15,7 @@ class OC_Frontend {
 	private array   $areas  = [];
 	private array   $layers = [];
 	private ?array  $edit_cart_item = null;
+	private string  $engraving_undertone = 'warm';
 
 	public function register(): void {
 		add_action( 'wp',                                    [ $this, 'maybe_load_design' ],  10 );
@@ -46,6 +47,7 @@ class OC_Frontend {
 			$design_id = 0;
 			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] ) {
 				$design_id = (int) ( $cs['designId'] ?? 0 );
+				$this->engraving_undertone = OC_DB::sanitize_engraving_undertone( (string) ( $cs['engravingUndertone'] ?? 'warm' ) );
 			}
 			if ( ! $design_id ) {
 				return;
@@ -98,6 +100,7 @@ class OC_Frontend {
 		$this->design = $design;
 		$this->areas  = $areas;
 		$this->layers = OC_DB::get_design_layers( (int) $design->id );
+		$this->engraving_undertone = OC_DB::sanitize_engraving_undertone( (string) ( $assignment->engraving_undertone ?? 'warm' ) );
 	}
 
 	/**
@@ -166,11 +169,15 @@ class OC_Frontend {
 			return;
 		}
 
+		$asset_file = OC_PATH . 'assets/build/frontend/customiser-app.asset.php';
+		$asset      = file_exists( $asset_file ) ? include $asset_file : [];
+		$version    = isset( $asset['version'] ) ? (string) $asset['version'] : OC_VERSION;
+
 		wp_enqueue_script(
 			'oc-customiser-app',
 			OC_ASSETS_URL . 'frontend/customiser-app.js',
-			[],
-			OC_VERSION,
+			$asset['dependencies'] ?? [],
+			$version,
 			true
 		);
 
@@ -178,7 +185,7 @@ class OC_Frontend {
 		wp_localize_script( 'oc-customiser-app', 'ocCustomiserData', $this->build_state() );
 
 		if ( file_exists( OC_PATH . 'assets/build/frontend/customiser-app.css' ) ) {
-			wp_enqueue_style( 'oc-customiser-app', OC_ASSETS_URL . 'frontend/customiser-app.css', [], OC_VERSION );
+			wp_enqueue_style( 'oc-customiser-app', OC_ASSETS_URL . 'frontend/customiser-app.css', [], $version );
 		}
 
 		wp_add_inline_style( 'woocommerce-general', $this->get_panel_css() );
@@ -305,6 +312,7 @@ class OC_Frontend {
 			'designId'        => (int) $this->design->id,
 			'designName'      => $this->design->name,
 			'flatRate'        => (float) $this->design->flat_rate,
+			'engravingUndertone' => $this->engraving_undertone,
 			'areas'           => $areas_js,
 			'fonts'           => $all_fonts,
 			'colours'         => $colours_js,

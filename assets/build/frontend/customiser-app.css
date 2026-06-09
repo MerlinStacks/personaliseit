@@ -49,39 +49,6 @@
 .oc-customiser-panel *::after {
   box-sizing: border-box;
 }
-.oc-customiser-panel .oc-customiser-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--oc-gap);
-  padding: var(--oc-gap);
-  border: 1px solid var(--oc-border);
-  border-radius: var(--oc-radius-lg);
-  background: linear-gradient(135deg, var(--oc-surface), color-mix(in srgb, var(--oc-accent) 7%, transparent));
-}
-.oc-customiser-panel .oc-customiser-kicker {
-  margin: 0 0 4px;
-  color: var(--oc-accent);
-  font-size: 0.72em;
-  font-weight: 800;
-  letter-spacing: 0.11em;
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-.oc-customiser-panel .oc-customiser-title {
-  margin: 0;
-  font: inherit;
-  font-size: clamp(1.2rem, 2.5vw, 1.6rem);
-  font-weight: 800;
-  line-height: 1.15;
-}
-.oc-customiser-panel .oc-customiser-help {
-  max-width: 280px;
-  margin: 0;
-  color: var(--oc-fg-muted);
-  font-size: 0.9em;
-  line-height: 1.45;
-}
 .oc-customiser-panel .oc-area-tabs {
   display: flex;
   gap: var(--oc-gap-xs);
@@ -510,6 +477,32 @@
   display: flex;
   justify-content: flex-end;
 }
+.oc-customiser-panel .oc-upload-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.oc-customiser-panel .oc-upload-progress-label {
+  color: var(--oc-fg-muted);
+  font-size: 0.78em;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+.oc-customiser-panel .oc-upload-progress-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--oc-surface-2);
+}
+.oc-customiser-panel .oc-upload-progress-bar {
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: var(--oc-accent);
+  transition: width 0.18s ease;
+}
 .oc-customiser-panel .oc-artwork-remove {
   -webkit-appearance: none;
      -moz-appearance: none;
@@ -739,16 +732,6 @@
     gap: var(--oc-gap-sm);
     margin-block: var(--oc-gap);
     padding-bottom: env(safe-area-inset-bottom, 0px);
-  }
-  .oc-customiser-panel .oc-customiser-heading {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--oc-gap-xs);
-    padding: var(--oc-gap-sm);
-  }
-  .oc-customiser-panel .oc-customiser-help {
-    max-width: none;
-    font-size: 0.84em;
   }
   .oc-customiser-panel .oc-area-tabs {
     gap: var(--oc-gap-xs);

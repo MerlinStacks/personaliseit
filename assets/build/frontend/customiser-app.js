@@ -6123,6 +6123,7 @@ class OCCustomiser {
     const lcX = center.x * scale;
     const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
+    const engravingPalette = this.engravingPalette();
     const fontLimit = value => Math.max(0, parseInt(value, 10) || 0);
     const clampFontSize = (size, settings) => {
       const min = fontLimit(settings?.min_font_size) * scale;
@@ -6138,8 +6139,8 @@ class OCCustomiser {
           const raw = (input.value || '').trim() || (layer.settings?.default_text || '').trim();
           if (!raw) break;
           let font = this.fonts.find(f => f.id === (input.fontId || 0));
-          // Engraving uses a fixed etched colour — user colour is irrelevant for laser engraving.
-          const color = isEngraving ? '#2a1f14' : input.colorHex || '#000000';
+          // Engraving uses the product undertone instead of a customer-selected colour.
+          const color = isEngraving ? engravingPalette.text : input.colorHex || '#000000';
           const align = layer.settings?.alignment || 'center';
           if (font) {
             try {
@@ -6172,7 +6173,7 @@ class OCCustomiser {
             obj.set({
               opacity: 0.92,
               shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
-                color: 'rgba(255,255,255,0.35)',
+                color: engravingPalette.highlight,
                 offsetX: 0,
                 offsetY: 1,
                 blur: 1
@@ -6189,10 +6190,10 @@ class OCCustomiser {
           break;
         }
       case 'image':
-        if (input.attachmentUrl) await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation);
+        if (input.attachmentUrl) await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette);
         break;
       case 'clipart':
-        if (input.clipartUrl) await this.renderFabricImg(canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation);
+        if (input.clipartUrl) await this.renderFabricImg(canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette);
         break;
       case 'lineart':
         {
@@ -6238,13 +6239,13 @@ class OCCustomiser {
             canvas.add(invalidObj);
             break;
           }
-          const spotifyCodeUrl = this.buildSpotifyCodeUrl(input.spotifyUri || val, isEngraving);
+          const spotifyCodeUrl = this.buildSpotifyCodeUrl(input.spotifyUri || val, isEngraving, engravingPalette);
           if (spotifyCodeUrl) {
             // Try CORS-safe load first; if Spotify CDN blocks CORS for this origin,
             // retry without crossOrigin so users still see the scannable in live preview.
-            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation);
+            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette);
             if (!rendered) {
-              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation);
+              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette);
             }
             if (rendered) break;
           }
@@ -6308,7 +6309,60 @@ class OCCustomiser {
     if (!/^[A-Za-z0-9]+$/.test(id)) return '';
     return `spotify:${type}:${id}`;
   }
-  buildSpotifyCodeUrl(inputValue, isEngraving) {
+  engravingPalette() {
+    const palettes = {
+      warm: {
+        text: '#2a1f14',
+        bg: 'F5F2EF',
+        highlight: 'rgba(255,255,255,0.35)',
+        brightness: -0.35,
+        contrast: 0.15,
+        opacity: 0.88
+      },
+      cool: {
+        text: '#27313a',
+        bg: 'ECEFF1',
+        highlight: 'rgba(255,255,255,0.42)',
+        brightness: -0.28,
+        contrast: 0.18,
+        opacity: 0.9
+      },
+      gold: {
+        text: '#4a3410',
+        bg: 'F7E7BE',
+        highlight: 'rgba(255,246,215,0.45)',
+        brightness: -0.32,
+        contrast: 0.16,
+        opacity: 0.88
+      },
+      rose: {
+        text: '#4a241f',
+        bg: 'F3D6CC',
+        highlight: 'rgba(255,234,224,0.45)',
+        brightness: -0.3,
+        contrast: 0.16,
+        opacity: 0.88
+      },
+      dark: {
+        text: '#d1b994',
+        bg: '2F2924',
+        highlight: 'rgba(255,235,200,0.25)',
+        brightness: 0.05,
+        contrast: 0.22,
+        opacity: 0.92
+      },
+      neutral: {
+        text: '#333333',
+        bg: 'F0F0F0',
+        highlight: 'rgba(255,255,255,0.35)',
+        brightness: -0.3,
+        contrast: 0.15,
+        opacity: 0.88
+      }
+    };
+    return palettes[this.data.engravingUndertone] || palettes.warm;
+  }
+  buildSpotifyCodeUrl(inputValue, isEngraving, engravingPalette = null) {
     const spotifyUri = this.extractSpotifyUri(inputValue);
     if (!spotifyUri) return '';
 
@@ -6317,12 +6371,12 @@ class OCCustomiser {
     // /uri/plain/{format}/{background-hex}/{bar-colour}/{size}/{spotify-uri}
     // We request SVG and then strip white in-canvas for transparent compositing.
     const format = 'svg';
-    const bgHex = isEngraving ? 'F5F2EF' : 'FFFFFF';
+    const bgHex = isEngraving ? engravingPalette?.bg || 'F5F2EF' : 'FFFFFF';
     const bar = isEngraving ? 'black' : 'black';
     const size = 640;
     return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
   }
-  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0) {
+  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null) {
     try {
       const imgLoadOpts = crossOrigin ? {
         crossOrigin
@@ -6352,10 +6406,11 @@ class OCCustomiser {
         }));
       }
       if (isEngraving) {
+        const palette = engravingPalette || this.engravingPalette();
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale(), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness({
-          brightness: -0.35
+          brightness: palette.brightness
         }), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
-          contrast: 0.15
+          contrast: palette.contrast
         }));
       }
       if (filters.length) {
@@ -6363,8 +6418,9 @@ class OCCustomiser {
         img.applyFilters();
       }
       if (isEngraving) {
+        const palette = engravingPalette || this.engravingPalette();
         img.set({
-          opacity: 0.88
+          opacity: palette.opacity
         });
       }
       img._ocContent = true;
@@ -6597,17 +6653,8 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-remove-image]').forEach(btn => {
       btn.addEventListener('click', () => {
         const lid = parseInt(btn.dataset.ocRemoveImage, 10);
-        if (this.inputs[lid]) {
-          this.inputs[lid].attachmentId = 0;
-          this.inputs[lid].attachmentUrl = '';
-          this.inputs[lid].imageMeta = null;
-        }
-        btn.closest('.oc-artwork-wrap')?.querySelector('.oc-artwork-actions')?.setAttribute('style', 'display:none');
-        const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
-        if (warnEl) warnEl.style.display = 'none';
-        this.requestPreviewFocus();
-        this.scheduleRedraw();
-        this.updateHiddenField();
+        const zoneEl = btn.closest('.oc-artwork-wrap')?.querySelector(`[data-oc-upload-zone="${lid}"]`);
+        if (zoneEl) this.clearUploadedImage(lid, zoneEl);
       });
     });
 
@@ -7173,6 +7220,12 @@ class OCCustomiser {
       const maxMb = layerMaxMb > 0 ? layerMaxMb : globalMaxMb > 0 ? globalMaxMb : 10;
       const uppy = new _uppy_core__WEBPACK_IMPORTED_MODULE_1__["default"]({
         autoProceed: true,
+        onBeforeFileAdded: () => {
+          uppy.getFiles().forEach(existingFile => uppy.removeFile(existingFile.id));
+          this.setUploadProgress(zoneEl, 0, 'Starting upload...');
+          this.showUploadError(zoneEl, '');
+          return true;
+        },
         restrictions: {
           maxNumberOfFiles: 1,
           maxFileSize: maxMb * 1024 * 1024,
@@ -7195,8 +7248,13 @@ class OCCustomiser {
         fieldName: 'artwork',
         headers: this.restHeaders()
       });
+      uppy.on('upload-progress', (file, progress) => {
+        const percent = progress?.bytesTotal ? Math.round(progress.bytesUploaded / progress.bytesTotal * 100) : 0;
+        this.setUploadProgress(zoneEl, percent, `Uploading ${percent}%`);
+      });
       uppy.on('upload-success', async (file, res) => {
         console.log('[OC] Upload success — response body:', res?.body);
+        this.setUploadProgress(zoneEl, 100, 'Upload complete');
         if (!res?.body) {
           this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
           return;
@@ -7249,12 +7307,48 @@ class OCCustomiser {
       uppy.on('upload-error', (file, error, response) => {
         const msg = response?.body?.message || error?.message || 'Upload failed.';
         console.warn('[OC] Upload error:', msg, response);
+        this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, msg);
       });
       uppy.on('restriction-failed', (file, error) => {
+        this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, error?.message || 'File not allowed.');
       });
     });
+  }
+  clearUploadedImage(layerId, zoneEl) {
+    if (this.inputs[layerId]) {
+      this.inputs[layerId].attachmentId = 0;
+      this.inputs[layerId].attachmentUrl = '';
+      this.inputs[layerId].imageMeta = null;
+    }
+    const actions = zoneEl.closest('.oc-artwork-wrap')?.querySelector('.oc-artwork-actions');
+    if (actions) actions.style.display = 'none';
+    const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${layerId}"]`);
+    if (warnEl) warnEl.style.display = 'none';
+    this.requestPreviewFocus();
+    this.scheduleRedraw();
+    this.updateHiddenField();
+    this.showUploadError(zoneEl, '');
+  }
+  setUploadProgress(zoneEl, percent, label) {
+    const wrap = zoneEl.closest('.oc-artwork-wrap');
+    if (!wrap) return;
+    let progressEl = wrap.querySelector('.oc-upload-progress');
+    if (!progressEl) {
+      progressEl = document.createElement('div');
+      progressEl.className = 'oc-upload-progress';
+      progressEl.innerHTML = '<div class="oc-upload-progress-label"></div><div class="oc-upload-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="oc-upload-progress-bar"></div></div>';
+      zoneEl.insertAdjacentElement('afterend', progressEl);
+    }
+    const safePercent = Math.max(0, Math.min(100, parseInt(percent, 10) || 0));
+    const labelEl = progressEl.querySelector('.oc-upload-progress-label');
+    const track = progressEl.querySelector('.oc-upload-progress-track');
+    const bar = progressEl.querySelector('.oc-upload-progress-bar');
+    if (labelEl) labelEl.textContent = label || '';
+    if (track) track.setAttribute('aria-valuenow', String(safePercent));
+    if (bar) bar.style.width = `${safePercent}%`;
+    progressEl.style.display = label ? '' : 'none';
   }
   showUploadError(zoneEl, message) {
     const wrap = zoneEl.closest('.oc-artwork-wrap');
@@ -7288,6 +7382,7 @@ class OCCustomiser {
     const payload = {
       v: 2,
       designId: this.data.designId,
+      engravingUndertone: this.data.engravingUndertone || 'warm',
       layers
     };
     if (this._previewUrl) payload.previewUrl = this._previewUrl;

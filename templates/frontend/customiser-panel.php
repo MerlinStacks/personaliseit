@@ -23,14 +23,6 @@ $has_multiple_areas = count( $areas ) > 1;
 
 <div id="oc-customiser-panel" class="oc-customiser-panel">
 
-	<div class="oc-customiser-heading">
-		<div>
-			<p class="oc-customiser-kicker"><?php esc_html_e( 'Make it yours', 'overcustomise' ); ?></p>
-			<h2 class="oc-customiser-title"><?php esc_html_e( 'Customise your product', 'overcustomise' ); ?></h2>
-		</div>
-		<p class="oc-customiser-help"><?php esc_html_e( 'Add your details below and the preview will update as you go.', 'overcustomise' ); ?></p>
-	</div>
-
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 
 	<?php if ( $has_multiple_areas ) : ?>
@@ -295,7 +287,6 @@ $has_multiple_areas = count( $areas ) > 1;
 											</option>
 										<?php endforeach; ?>
 									</select>
-									<div class="oc-font-preview" data-oc-font-preview="<?php echo esc_attr( $layer->id ); ?>">Abc 123</div>
 								</div>
 							<?php endif; ?>
 
