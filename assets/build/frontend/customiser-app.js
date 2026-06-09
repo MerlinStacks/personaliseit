@@ -5796,7 +5796,7 @@ class OCCustomiser {
     // True Video Product Gallery (Swiper): prefer active non-video slide.
     '.tvpg-main-slider .swiper-slide-active:not(.tvpg-video-slide) .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide-active .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide:not(.tvpg-video-slide) .woocommerce-product-gallery__image img',
     // Flatsome theme
-    '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image.is-selected img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image:first-child img', '.product-gallery .woocommerce-product-gallery__image:first-child img', '.product-images .woocommerce-product-gallery__image:first-child a img', '.product-image-wrap .woocommerce-product-gallery__image:first-child img',
+    '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image.is-selected img', '.product-gallery-slider .flickity-slider .slide.is-selected img', '.product-gallery-slider .is-selected img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image:first-child img', '.product-gallery-slider .flickity-slider .slide:first-child img', '.product-gallery .woocommerce-product-gallery__image:first-child img', '.product-images .woocommerce-product-gallery__image:first-child a img', '.product-image-wrap .woocommerce-product-gallery__image:first-child img',
     // WC Blocks
     '.wp-block-woocommerce-product-image-gallery .woocommerce-product-gallery__image:first-child img',
     // Default WC / Storefront
@@ -5827,14 +5827,25 @@ class OCCustomiser {
 
     // WooCommerce zoom/lightbox compatibility attributes.
     img.setAttribute('data-large_image', dataUrl);
+    img.setAttribute('data-large-image', dataUrl);
     img.setAttribute('data-src', dataUrl);
     img.setAttribute('data-lazy-src', dataUrl);
+    img.setAttribute('data-zoom-image', dataUrl);
     img.removeAttribute('data-srcset');
     img.removeAttribute('data-lazy-srcset');
+    img.removeAttribute('data-o_srcset');
+    img.removeAttribute('data-o_src');
     const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
     if (galleryItem) {
       galleryItem.setAttribute('data-thumb', dataUrl);
     }
+  }
+  refreshFlatsomeGallery() {
+    const slider = document.querySelector('.product-gallery-slider');
+    if (!slider) return;
+    const flickity = slider.flickity || window.jQuery?.(slider).data('flickity');
+    flickity?.reloadCells?.();
+    flickity?.resize?.();
   }
   setPanelPreviewHandoff(isActive) {
     const panel = document.getElementById('oc-customiser-panel');
@@ -5926,10 +5937,16 @@ class OCCustomiser {
     if (this.galleryImg) {
       targets.add(this.galleryImg);
     }
-    ['.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image img', '.product-gallery .woocommerce-product-gallery__image img', '.product-images .woocommerce-product-gallery__image img', '.product-image-wrap .woocommerce-product-gallery__image img', '.woocommerce-product-gallery .woocommerce-product-gallery__image img'].forEach(selector => {
+    ['.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .slide img', '.product-gallery-slider .slide img', '.product-gallery-slider img', '.product-thumbnails img', '.product-gallery .woocommerce-product-gallery__image img', '.product-images .woocommerce-product-gallery__image img', '.product-image-wrap .woocommerce-product-gallery__image img', '.woocommerce-product-gallery .woocommerce-product-gallery__image img'].forEach(selector => {
       document.querySelectorAll(selector).forEach(img => targets.add(img));
     });
-    targets.forEach(img => this.applyPreviewToImage(img, dataUrl));
+    const applyTargets = () => targets.forEach(img => this.applyPreviewToImage(img, dataUrl));
+    applyTargets();
+    if (document.querySelector('.product-gallery-slider')) {
+      this.refreshFlatsomeGallery();
+      requestAnimationFrame(applyTargets);
+      setTimeout(applyTargets, 250);
+    }
     this.setPanelPreviewHandoff(targets.size > 0 || this.mountPreviewInGallery());
     this._focusPreviewSlide = false;
   }
