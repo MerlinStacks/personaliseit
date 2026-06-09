@@ -264,10 +264,19 @@ abstract class OC_Print_Base {
 	 * @param float  $h_mm       Live area height in mm.
 	 * @return float             Font size in points.
 	 */
-	protected static function auto_font_size( \TCPDF $pdf, string $text, string $font_name, float $w_mm, float $h_mm ): float {
-		$size = max( 8.0, $h_mm * 0.4 );
+	protected static function auto_font_size( \TCPDF $pdf, string $text, string $font_name, float $w_mm, float $h_mm, float $min_size = 0.0, float $max_size = 0.0 ): float {
+		$min_size = max( 4.0, $min_size );
+		$max_size = max( 0.0, $max_size );
+		$size     = max( 8.0, $h_mm * 0.4 );
 
-		while ( $size > 4.0 ) {
+		if ( $max_size > 0.0 ) {
+			$size = min( $size, $max_size );
+		}
+		if ( $min_size > $size ) {
+			$size = $min_size;
+		}
+
+		while ( $size > $min_size ) {
 			$pdf->SetFont( $font_name, '', $size );
 			if ( $pdf->GetStringWidth( $text ) <= $w_mm * 0.92 ) {
 				break;
@@ -276,6 +285,14 @@ abstract class OC_Print_Base {
 		}
 
 		return $size;
+	}
+
+	/** Resolve optional font-size bounds from generated area data. */
+	protected static function font_size_bounds( array $area_data ): array {
+		return [
+			(float) max( 0, absint( $area_data['minFontSize'] ?? 0 ) ),
+			(float) max( 0, absint( $area_data['maxFontSize'] ?? 0 ) ),
+		];
 	}
 
 	/**

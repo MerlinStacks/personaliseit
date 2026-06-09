@@ -72,7 +72,8 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$text = trim( $area_data['text'] ?? '' );
 		if ( $text !== '' ) {
 			$font_name = self::resolve_font( (int) ( $area_data['fontId'] ?? 0 ) );
-			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm );
+			[ $min_font_size, $max_font_size ] = self::font_size_bounds( $area_data );
+			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 
 			$pdf->SetTextColor( 0, 0, 0 );
 			$pdf->SetFont( $font_name, '', $font_size );

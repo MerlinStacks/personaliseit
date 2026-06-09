@@ -126,6 +126,7 @@
   border-color: var(--oc-accent);
 }
 .oc-customiser-panel .oc-canvas-wrap {
+  display: none;
   position: relative;
   padding: var(--oc-gap-sm);
   border: 1px solid var(--oc-border);
@@ -158,6 +159,9 @@
   width: 100%;
   height: auto;
   border-radius: var(--oc-radius);
+}
+.oc-customiser-panel .oc-preview-toggle-wrap {
+  display: none;
 }
 .oc-customiser-panel .oc-layer-controls {
   display: flex;
@@ -914,7 +918,7 @@
     display: none !important;
   }
   .oc-customiser-panel .oc-canvas-wrap {
-    display: block !important;
+    display: none !important;
   }
 }
 

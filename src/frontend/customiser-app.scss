@@ -126,6 +126,7 @@
 
 	// ── Preview card ───────────────────────────────────────────────────────
 	.oc-canvas-wrap {
+		display: none;
 		position: relative;
 		padding: var(--oc-gap-sm);
 		border: 1px solid var(--oc-border);
@@ -161,6 +162,10 @@
 		width: 100%;
 		height: auto;
 		border-radius: var(--oc-radius);
+	}
+
+	.oc-preview-toggle-wrap {
+		display: none;
 	}
 
 	// ── Layer sections ────────────────────────────────────────────────────
@@ -1008,7 +1013,7 @@
 		}
 
 		.oc-canvas-wrap {
-			display: block !important;
+			display: none !important;
 		}
 	}
 }

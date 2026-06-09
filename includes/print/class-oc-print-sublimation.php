@@ -67,7 +67,8 @@ class OC_Print_Sublimation extends OC_Print_Base {
 			$color     = $area_data['color'] ?? '#000000';
 			[ $c, $m, $y, $k ] = self::hex_to_cmyk( $color );
 
-			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm );
+			[ $min_font_size, $max_font_size ] = self::font_size_bounds( $area_data );
+			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 			$pdf->SetFont( $font_name, '', $font_size );
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 

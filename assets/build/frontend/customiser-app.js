@@ -5796,7 +5796,7 @@ class OCCustomiser {
     // True Video Product Gallery (Swiper): prefer active non-video slide.
     '.tvpg-main-slider .swiper-slide-active:not(.tvpg-video-slide) .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide-active .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide:not(.tvpg-video-slide) .woocommerce-product-gallery__image img',
     // Flatsome theme
-    '.product-images .woocommerce-product-gallery__image:first-child a img', '.product-image-wrap .woocommerce-product-gallery__image:first-child img',
+    '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image.is-selected img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image:first-child img', '.product-gallery .woocommerce-product-gallery__image:first-child img', '.product-images .woocommerce-product-gallery__image:first-child a img', '.product-image-wrap .woocommerce-product-gallery__image:first-child img',
     // WC Blocks
     '.wp-block-woocommerce-product-image-gallery .woocommerce-product-gallery__image:first-child img',
     // Default WC / Storefront
@@ -5816,14 +5816,31 @@ class OCCustomiser {
     if (!img) return;
     img.src = dataUrl;
     img.srcset = '';
+    img.sizes = '';
 
     // Update zoom / lightbox href if wrapped in <a>.
     const a = img.closest('a');
-    if (a) a.href = dataUrl;
+    if (a) {
+      a.href = dataUrl;
+      a.setAttribute('data-src', dataUrl);
+    }
 
     // WooCommerce zoom/lightbox compatibility attributes.
     img.setAttribute('data-large_image', dataUrl);
     img.setAttribute('data-src', dataUrl);
+    img.setAttribute('data-lazy-src', dataUrl);
+    img.removeAttribute('data-srcset');
+    img.removeAttribute('data-lazy-srcset');
+    const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
+    if (galleryItem) {
+      galleryItem.setAttribute('data-thumb', dataUrl);
+    }
+  }
+  setPanelPreviewHandoff(isActive) {
+    const panel = document.getElementById('oc-customiser-panel');
+    if (panel) {
+      panel.classList.toggle('oc-gallery-preview-active', isActive);
+    }
   }
   applyTVPGOverlayPreview(dataUrl) {
     const mainSliderEl = document.querySelector('.tvpg-main-slider');
@@ -5894,9 +5911,11 @@ class OCCustomiser {
     if (this.galleryImg) {
       targets.add(this.galleryImg);
     }
-    document.querySelectorAll('.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img').forEach(img => targets.add(img));
-    document.querySelectorAll('.woocommerce-product-gallery .woocommerce-product-gallery__image img').forEach(img => targets.add(img));
+    ['.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image img', '.product-gallery .woocommerce-product-gallery__image img', '.product-images .woocommerce-product-gallery__image img', '.product-image-wrap .woocommerce-product-gallery__image img', '.woocommerce-product-gallery .woocommerce-product-gallery__image img'].forEach(selector => {
+      document.querySelectorAll(selector).forEach(img => targets.add(img));
+    });
     targets.forEach(img => this.applyPreviewToImage(img, dataUrl));
+    this.setPanelPreviewHandoff(targets.size > 0);
     this._focusPreviewSlide = false;
   }
   requestPreviewFocus() {
@@ -6031,6 +6050,14 @@ class OCCustomiser {
     const lcX = center.x * scale;
     const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
+    const fontLimit = value => Math.max(0, parseInt(value, 10) || 0);
+    const clampFontSize = (size, settings) => {
+      const min = fontLimit(settings?.min_font_size) * scale;
+      const max = fontLimit(settings?.max_font_size) * scale;
+      if (max && (!min || min <= max)) size = Math.min(size, max);
+      if (min) size = Math.max(size, min);
+      return size;
+    };
     switch (layer.type) {
       case 'text':
       case 'textarea':
@@ -6049,7 +6076,8 @@ class OCCustomiser {
               font = null;
             }
           }
-          let fontSize = Math.max(10, Math.round(lh * 0.42));
+          const minFontSize = fontLimit(layer.settings?.min_font_size) * scale;
+          let fontSize = clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
             left: lcX,
             top: lcY,
@@ -6078,7 +6106,7 @@ class OCCustomiser {
               })
             });
           }
-          while (obj.width > lw && fontSize > 8) {
+          while (obj.width > lw && fontSize > Math.max(8, minFontSize)) {
             fontSize -= 1;
             obj.set({
               fontSize

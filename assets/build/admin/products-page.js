@@ -495,6 +495,8 @@
           default_text: '',
           char_limit: 0,
           alignment: 'center',
+          min_font_size: 0,
+          max_font_size: 0,
           font_groups: [],
           colour_groups: [],
           required: false
@@ -545,6 +547,16 @@
   function clamp(v, lo, hi) {
     return Math.min(Math.max(v, lo), hi);
   }
+  function fontLimit(value) {
+    return Math.max(0, parseInt(value, 10) || 0);
+  }
+  function clampFontSize(size, settings, scale) {
+    const min = fontLimit(settings?.min_font_size) * scale;
+    const max = fontLimit(settings?.max_font_size) * scale;
+    if (max && (!min || min <= max)) size = Math.min(size, max);
+    if (min) size = Math.max(size, min);
+    return size;
+  }
   function normaliseRotation(value) {
     const angle = Number(value) || 0;
     return Math.round((angle % 360 + 360) % 360);
@@ -577,7 +589,7 @@
     if (layer.type === 'text' || layer.type === 'textarea') {
       const text = s.default_text || layer.label || layerLabel(layer.type);
       const align = s.alignment || 'center';
-      const fs = Math.max(8, Math.min(renderedH * (isGhost ? 0.36 : 0.42), isGhost ? 22 : 30));
+      const fs = clampFontSize(Math.max(8, Math.min(renderedH * (isGhost ? 0.36 : 0.42), isGhost ? 22 : 30)), s, renderedH / Math.max(1, layer.h));
       const d = document.createElement('div');
       d.className = 'oc-lp oc-lp-text';
       d.style.fontSize = fs + 'px';
@@ -649,7 +661,7 @@
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
-        return field('Alignment', alignBtns(s.alignment || 'center')) + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        return field('Alignment', alignBtns(s.alignment || 'center')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
         return field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />');
       case 'appearance':
@@ -683,6 +695,16 @@
     });
     document.getElementById('oc-set-char-limit')?.addEventListener('input', e => {
       s.char_limit = parseInt(e.target.value, 10) || 0;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-min-font-size')?.addEventListener('input', e => {
+      s.min_font_size = fontLimit(e.target.value);
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-max-font-size')?.addEventListener('input', e => {
+      s.max_font_size = fontLimit(e.target.value);
       renderHiddenFields();
       markDirty();
     });

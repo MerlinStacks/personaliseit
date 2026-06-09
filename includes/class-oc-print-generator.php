@@ -314,6 +314,8 @@ class OC_Print_Generator {
 		$text_parts   = [];
 		$font_id      = 0;
 		$color        = '';
+		$min_font     = 0;
+		$max_font     = 0;
 		$attachment   = 0;
 		$artwork_path = '';
 
@@ -340,6 +342,15 @@ class OC_Print_Generator {
 					if ( '' === $color && ! empty( $input['colorHex'] ) ) {
 						$color = (string) $input['colorHex'];
 					}
+					$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+					if ( is_array( $settings ) ) {
+						if ( ! $min_font && ! empty( $settings['min_font_size'] ) ) {
+							$min_font = absint( $settings['min_font_size'] );
+						}
+						if ( ! $max_font && ! empty( $settings['max_font_size'] ) ) {
+							$max_font = absint( $settings['max_font_size'] );
+						}
+					}
 					break;
 
 			case 'image':
@@ -364,6 +375,8 @@ class OC_Print_Generator {
 			'text'                => implode( "\n", $text_parts ),
 			'fontId'              => $font_id,
 			'color'               => '' !== $color ? $color : '#000000',
+			'minFontSize'         => $min_font,
+			'maxFontSize'         => $max_font,
 			'artworkAttachmentId' => $attachment,
 			'artworkPath'         => $artwork_path,
 		];
