@@ -196,6 +196,55 @@ class OCCustomiser {
 		flickity?.resize?.();
 	}
 
+	getFlickityInstance( slider ) {
+		if ( ! slider ) return null;
+		return slider.flickity || window.jQuery?.( slider ).data( 'flickity' ) || null;
+	}
+
+	applyFlatsomeOverlayPreview( dataUrl ) {
+		const slider = document.querySelector( '.product-gallery-slider' );
+		if ( ! slider ) return false;
+
+		let flickity = this.getFlickityInstance( slider );
+		let previewSlide = slider.querySelector( '.oc-live-preview-slide' );
+
+		if ( ! previewSlide ) {
+			previewSlide = document.createElement( 'div' );
+			previewSlide.className = 'woocommerce-product-gallery__image slide oc-live-preview-slide';
+			previewSlide.innerHTML =
+				'<a href="#">' +
+					'<img class="oc-live-preview-image wp-post-image" alt="Custom preview">' +
+				'</a>';
+
+			if ( flickity?.append ) {
+				flickity.append( previewSlide );
+			} else {
+				slider.appendChild( previewSlide );
+			}
+		}
+
+		const previewImg = previewSlide.querySelector( 'img.oc-live-preview-image' );
+		if ( previewImg ) {
+			this.applyPreviewToImage( previewImg, dataUrl );
+		}
+
+		previewSlide.setAttribute( 'data-thumb', dataUrl );
+		previewSlide.querySelector( 'a' )?.setAttribute( 'href', dataUrl );
+
+		flickity = this.getFlickityInstance( slider );
+		if ( flickity ) {
+			flickity.reloadCells?.();
+			flickity.resize?.();
+
+			const previewIndex = ( flickity.cells || [] ).findIndex( cell => cell.element === previewSlide );
+			if ( previewIndex >= 0 ) {
+				flickity.select?.( previewIndex, false, true );
+			}
+		}
+
+		return true;
+	}
+
 	setPanelPreviewHandoff( isActive ) {
 		const panel = document.getElementById( 'oc-customiser-panel' );
 		if ( panel ) {
@@ -297,6 +346,12 @@ class OCCustomiser {
 		}
 
 		if ( this.applyTVPGOverlayPreview( dataUrl ) ) {
+			this.setPanelPreviewHandoff( true );
+			this._focusPreviewSlide = false;
+			return;
+		}
+
+		if ( this.applyFlatsomeOverlayPreview( dataUrl ) ) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
 			return;
