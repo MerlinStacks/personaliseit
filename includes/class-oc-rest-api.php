@@ -340,9 +340,11 @@ class OC_Rest_API {
 			if ( $row && $row->settings ) {
 				$s = json_decode( $row->settings, true );
 				if ( is_array( $s ) ) {
+					$formats     = isset( $s['formats'] ) && is_array( $s['formats'] ) ? array_values( array_filter( $s['formats'] ) ) : [];
+					$max_size_mb = isset( $s['max_size_mb'] ) ? (int) $s['max_size_mb'] : 0;
 					$layer_overrides = [
-						'formats'     => isset( $s['formats'] )     && is_array( $s['formats'] ) ? array_values( array_filter( array_map( 'strtolower', $s['formats'] ) ) ) : null,
-						'max_size_mb' => isset( $s['max_size_mb'] ) ? max( 1, (int) $s['max_size_mb'] ) : null,
+						'formats'     => ! empty( $formats ) ? array_map( 'strtolower', $formats ) : null,
+						'max_size_mb' => $max_size_mb > 0 ? $max_size_mb : null,
 					];
 				}
 			}

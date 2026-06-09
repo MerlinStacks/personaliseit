@@ -1703,7 +1703,15 @@ class OCCustomiser {
 			} );
 
 			uppy.on( 'upload-error', ( file, error, response ) => {
-				const msg = response?.body?.message || error?.message || 'Upload failed.';
+				let responseBody = response?.body || null;
+				if ( ! responseBody && response?.responseText ) {
+					try {
+						responseBody = JSON.parse( response.responseText );
+					} catch ( e ) {
+						responseBody = { message: response.responseText };
+					}
+				}
+				const msg = responseBody?.message || error?.message || 'Upload failed.';
 				console.warn( '[OC] Upload error:', msg, response );
 				this.setUploadProgress( zoneEl, 0, '' );
 				this.showUploadError( zoneEl, msg );
