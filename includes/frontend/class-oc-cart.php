@@ -32,7 +32,7 @@ class OC_Cart {
 
 		// Display preview + details in admin and frontend order pages.
 		add_action( 'woocommerce_order_item_meta_end', [ $this, 'display_in_order' ], 10, 3 );
-		add_action( 'woocommerce_after_order_itemmeta', [ $this, 'display_in_admin_order_item' ], 10, 3 );
+		add_action( 'woocommerce_before_order_itemmeta', [ $this, 'display_in_admin_order_item' ], 10, 3 );
 	}
 
 	// -------------------------------------------------------------------------
@@ -411,17 +411,25 @@ class OC_Cart {
 
 	public function display_in_order( int $item_id, WC_Order_Item $item, WC_Order $order ): void {
 		$customisation = $item->get_meta( '_oc_customisation', true );
-		if ( empty( $customisation ) || ! is_array( $customisation ) ) {
+		$preview_url   = $item->get_meta( '_oc_preview_url', true );
+		$print_files   = is_admin() ? OC_DB::get_print_files_for_item( $item_id ) : [];
+
+		if ( ( empty( $customisation ) || ! is_array( $customisation ) ) && empty( $preview_url ) && empty( $print_files ) ) {
 			return;
 		}
 
 		echo '<div class="oc-order-item-meta" style="margin-top:8px;padding:8px 10px;background:#f9f9f9;border-radius:4px;font-size:12px;line-height:1.5;">';
 
 		// ── Preview image ─────────────────────────────────────────────────────
-		$preview_url = $item->get_meta( '_oc_preview_url', true );
 		if ( $preview_url ) {
 			echo '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
 			   . 'style="display:block;max-width:120px;max-height:120px;object-fit:contain;margin-bottom:8px;border:1px solid #e0e0e0;border-radius:3px;" />';
+		}
+
+		if ( empty( $customisation ) || ! is_array( $customisation ) ) {
+			$this->render_admin_print_files( $item_id, $print_files, true );
+			echo '</div>';
+			return;
 		}
 
 		// ── v2 format ─────────────────────────────────────────────────────────
@@ -445,7 +453,7 @@ class OC_Cart {
 				echo '<div><strong>' . esc_html( $label ) . ':</strong> ' . $value . '</div>';
 			}
 
-			$this->render_admin_print_files( $item_id );
+			$this->render_admin_print_files( $item_id, $print_files, true );
 			echo '</div>';
 			return;
 		}
@@ -485,7 +493,7 @@ class OC_Cart {
 			echo '</div>';
 		}
 
-		$this->render_admin_print_files( $item_id );
+		$this->render_admin_print_files( $item_id, $print_files, true );
 		echo '</div>';
 	}
 
@@ -619,13 +627,17 @@ class OC_Cart {
 	 * Show generated print file status/links on backend order item rows.
 	 * Runs only in wp-admin to avoid exposing internal production files on frontend pages.
 	 */
-	private function render_admin_print_files( int $item_id ): void {
+	private function render_admin_print_files( int $item_id, ?array $print_files = null, bool $show_empty = false ): void {
 		if ( ! is_admin() ) {
 			return;
 		}
 
-		$print_files = OC_DB::get_print_files_for_item( $item_id );
+		$print_files = null === $print_files ? OC_DB::get_print_files_for_item( $item_id ) : $print_files;
 		if ( empty( $print_files ) ) {
+			if ( $show_empty ) {
+				echo '<div style="margin-top:6px;"><strong>' . esc_html__( 'Print Files:', 'overcustomise' ) . '</strong> '
+					. esc_html__( 'No print files generated yet.', 'overcustomise' ) . '</div>';
+			}
 			return;
 		}
 
@@ -644,7 +656,9 @@ class OC_Cart {
 					admin_url()
 				);
 				echo ' <a href="' . esc_url( $download_url ) . '" class="button button-small" style="margin-left:6px;">'
-					. esc_html__( 'Download', 'overcustomise' ) . '</a>';
+					. esc_html__( 'Download Print File', 'overcustomise' ) . '</a>';
+			} elseif ( 'files_ready' === $file->file_status ) {
+				echo ' <em style="color:#888;">' . esc_html__( 'File missing on disk.', 'overcustomise' ) . '</em>';
 			}
 
 			echo '</div>';
