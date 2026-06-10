@@ -20,7 +20,7 @@ class OC_Admin_Settings {
 			// File management.
 			'file_retention_days'    => 90,
 			'max_upload_size_mb'     => 10,
-			'allowed_upload_formats' => [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg' ],
+			'allowed_upload_formats' => [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ],
 
 			// Embroidery.
 			'python_binary'          => 'python3',
@@ -214,9 +214,9 @@ class OC_Admin_Settings {
 											</div>
 											<div class="oc-form-field">
 												<div class="oc-checkbox-group">
-													<?php
-													$all_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg' ];
-													foreach ( $all_formats as $fmt ) :
+											<?php
+											$all_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ];
+											foreach ( $all_formats as $fmt ) :
 														$checked = in_array( $fmt, (array) $s['allowed_upload_formats'], true );
 														?>
 														<label class="oc-checkbox-label">
@@ -580,7 +580,7 @@ class OC_Admin_Settings {
 			return;
 		}
 
-		$allowed_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg' ];
+		$allowed_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ];
 		$posted_formats  = isset( $_POST['oc_allowed_upload_formats'] )
 			? array_intersect( (array) $_POST['oc_allowed_upload_formats'], $allowed_formats )
 			: [];

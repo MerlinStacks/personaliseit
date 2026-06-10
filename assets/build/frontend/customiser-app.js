@@ -7221,8 +7221,9 @@ class OCCustomiser {
       }
       const layerFormats = Array.isArray(layer?.settings?.formats) ? layer.settings.formats : [];
       const globalFormats = Array.isArray(this.data.allowedFormats) ? this.data.allowedFormats : [];
-      const effective = (layerFormats.length ? layerFormats : globalFormats).map(f => String(f).toLowerCase().replace(/^\./, ''));
-      const allowedExt = effective.length ? effective.map(ext => `.${ext}`) : ['.jpg', '.jpeg', '.png', '.svg', '.pdf'];
+      const serverFormats = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
+      const effective = (layerFormats.length ? layerFormats : globalFormats).map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => serverFormats.includes(ext));
+      const allowedExt = effective.length ? effective.map(ext => `.${ext}`) : ['.jpg', '.jpeg', '.png', '.svg', '.pdf', '.webp'];
       const layerMaxMb = parseInt(layer?.settings?.max_size_mb, 10);
       const globalMaxMb = parseInt(this.data.maxUploadSizeMb, 10);
       const maxMb = layerMaxMb > 0 ? layerMaxMb : globalMaxMb > 0 ? globalMaxMb : 10;

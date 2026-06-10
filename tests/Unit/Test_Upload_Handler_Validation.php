@@ -122,6 +122,16 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
+	public function webp_mime_is_in_supported_types(): void {
+		$rc   = new \ReflectionClass( OC_Upload_Handler::class );
+		$prop = $rc->getConstant( 'SUPPORTED_TYPES' );
+
+		$this->assertArrayHasKey( 'image/webp', $prop );
+		$this->assertSame( 'webp', $prop['image/webp'] );
+		$this->assertSame( 'webp', UploadHandlerReflector::type_from_extension( 'webp' ) );
+	}
+
+	#[Test]
 	public function normalise_extension_trims_dot_and_case(): void {
 		$this->assertSame( 'jpeg', UploadHandlerReflector::normalise_extension( '.JpEg' ) );
 	}

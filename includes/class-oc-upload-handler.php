@@ -37,6 +37,7 @@ class OC_Upload_Handler {
 		'image/png'                  => 'png',
 		'image/jpeg'                 => 'jpg',
 		'image/jpg'                  => 'jpg',
+		'image/webp'                 => 'webp',
 	];
 
 	/** Allowed file extensions mapped to canonical type keys. */
@@ -47,6 +48,7 @@ class OC_Upload_Handler {
 		'png'  => 'png',
 		'jpg'  => 'jpg',
 		'jpeg' => 'jpg',
+		'webp' => 'webp',
 	];
 
 	// -------------------------------------------------------------------------
@@ -472,7 +474,7 @@ class OC_Upload_Handler {
 		}
 
 		// Generate image sizes for raster images.
-		if ( in_array( $mime_type, [ 'image/png', 'image/jpeg', 'image/jpg' ], true ) ) {
+		if ( in_array( $mime_type, [ 'image/png', 'image/jpeg', 'image/jpg', 'image/webp' ], true ) ) {
 			$metadata = wp_generate_attachment_metadata( $attachment_id, $dest_path );
 			if ( is_array( $metadata ) ) {
 				wp_update_attachment_metadata( $attachment_id, $metadata );

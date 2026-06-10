@@ -641,7 +641,7 @@
     return '<div class="oc-group-checks">' + groups.map(g => '<label class="oc-group-check-item"><input type="checkbox" class="' + cls + '" value="' + esc(g.id) + '"' + (selected.indexOf(Number(g.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(g.name) + '</span></label>').join('') + '</div>';
   }
   function formatChecks(selected) {
-    return '<div class="oc-group-checks">' + ['png', 'jpg', 'svg', 'webp', 'gif'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
+    return '<div class="oc-group-checks">' + ['png', 'jpg', 'svg', 'webp', 'pdf', 'eps'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
   }
 
   // ── Tab content builders ───────────────────────────────────────────────────

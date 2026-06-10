@@ -495,7 +495,7 @@
 	}
 	function formatChecks( selected ) {
 		return '<div class="oc-group-checks">' +
-			[ 'png', 'jpg', 'svg', 'webp', 'gif' ].map( fmt =>
+			[ 'png', 'jpg', 'svg', 'webp', 'pdf', 'eps' ].map( fmt =>
 				'<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + ( selected.indexOf( fmt ) !== -1 ? ' checked' : '' ) + ' /><span>' + fmt.toUpperCase() + '</span></label>'
 			).join( '' ) + '</div>';
 	}
