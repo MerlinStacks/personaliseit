@@ -191,7 +191,7 @@ abstract class OC_Print_Base {
 
 		$autoloader = OC_PATH . 'vendor/autoload.php';
 		if ( ! file_exists( $autoloader ) ) {
-			throw new \RuntimeException( 'TCPDF not available — run `composer install` in the plugin directory.' );
+			throw new \RuntimeException( sprintf( 'TCPDF not available — Composer autoload file missing at %s. Run `composer install` in that plugin directory.', $autoloader ) );
 		}
 
 		// Point TCPDF's font cache to the WP uploads directory so it is always
@@ -203,6 +203,10 @@ abstract class OC_Print_Base {
 		}
 
 		require_once $autoloader;
+
+		if ( ! class_exists( '\\TCPDF' ) ) {
+			throw new \RuntimeException( sprintf( 'TCPDF not available — Composer autoload loaded from %s but TCPDF class was not registered.', $autoloader ) );
+		}
 	}
 
 	/**

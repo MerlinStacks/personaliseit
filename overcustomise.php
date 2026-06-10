@@ -25,6 +25,12 @@ define( 'OC_URL',         plugin_dir_url( __FILE__ ) );
 define( 'OC_ASSETS_URL',  OC_URL . 'assets/build/' );
 define( 'OC_DB_VERSION',  '1.11.0' );
 
+// Load Composer dependencies early so print generation has TCPDF available.
+$oc_autoloader = OC_PATH . 'vendor/autoload.php';
+if ( file_exists( $oc_autoloader ) ) {
+	require_once $oc_autoloader;
+}
+
 // Declare WooCommerce feature compatibility.
 add_action( 'before_woocommerce_init', function (): void {
 	if ( class_exists( \Automattic\WooCommerce\Utilities\FeaturesUtil::class ) ) {
