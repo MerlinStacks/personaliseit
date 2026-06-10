@@ -230,6 +230,8 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertArrayHasKey( $layer_id, $layers );
 		$this->assertArrayNotHasKey( 999999, $layers );
 		$this->assertSame( 'clipart', $layers[ $layer_id ]['type'] );
+		$this->assertSame( $design_id, $item['_oc_customisation']['renderSpec']['designId'] ?? 0 );
+		$this->assertArrayHasKey( 'areas', $item['_oc_customisation']['renderSpec'] ?? [] );
 	}
 
 	#[Test]

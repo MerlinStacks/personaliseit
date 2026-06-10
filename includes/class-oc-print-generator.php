@@ -208,6 +208,7 @@ class OC_Print_Generator {
 
 									$merged_customisation = $customisation;
 									$merged_customisation['layers'] = $layer_inputs;
+									$merged_customisation['renderSpec'] = OC_Render_Spec::build( $design_id, $layer_inputs );
 									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $merged_customisation );
 
 									if ( ! self::area_has_printable_data( $area_data ) ) {
@@ -350,116 +351,19 @@ class OC_Print_Generator {
 	 * Output:   { text, fontId, color, artworkAttachmentId }
 	 */
 	private static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
+		$render_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		if ( ! empty( $render_spec ) ) {
+			$area_data = OC_Render_Spec::area_from_spec( $render_spec, $area_id );
+			if ( ! empty( $area_data ) ) {
+				return $area_data;
+			}
+		}
+
 		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
-		$all_layers   = OC_DB::get_design_layers( $design_id );
+		$render_spec  = OC_Render_Spec::build( $design_id, $layer_inputs );
+		$area_data    = OC_Render_Spec::area_from_spec( $render_spec, $area_id );
 
-		$text_parts   = [];
-		$font_id      = 0;
-		$color        = '';
-		$min_font     = 0;
-		$max_font     = 0;
-		$attachment   = 0;
-		$artwork_path = '';
-
-		foreach ( $all_layers as $layer ) {
-			if ( (int) $layer->area_id !== $area_id ) {
-				continue;
-			}
-			$input = $layer_inputs[ (int) $layer->id ] ?? null;
-			if ( ! is_array( $input ) ) {
-				continue;
-			}
-
-			switch ( $layer->type ) {
-				case 'text':
-				case 'textarea':
-				case 'spotify':
-					$val = trim( (string) ( $input['value'] ?? '' ) );
-					if ( '' !== $val ) {
-						$text_parts[] = $val;
-					}
-					if ( ! $font_id && ! empty( $input['fontId'] ) ) {
-						$font_id = (int) $input['fontId'];
-					}
-					if ( '' === $color && ! empty( $input['colorHex'] ) ) {
-						$color = (string) $input['colorHex'];
-					}
-					$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-					if ( is_array( $settings ) ) {
-						if ( ! $min_font && ! empty( $settings['min_font_size'] ) ) {
-							$min_font = absint( $settings['min_font_size'] );
-						}
-						if ( ! $max_font && ! empty( $settings['max_font_size'] ) ) {
-							$max_font = absint( $settings['max_font_size'] );
-						}
-					}
-					break;
-
-			case 'image':
-			case 'clipart':
-			case 'lineart':
-				if ( 'lineart' === $layer->type && '' === $color && ! empty( $input['colorHex'] ) ) {
-					$color = (string) $input['colorHex'];
-				}
-				if ( ! $attachment && ! empty( $input['attachmentId'] ) ) {
-					$attachment = (int) $input['attachmentId'];
-				}
-					if ( '' === $artwork_path && 'clipart' === $layer->type ) {
-						$clipart_id  = (int) ( $input['clipartId'] ?? 0 );
-						$clipart_url = is_string( $input['clipartUrl'] ?? null ) ? (string) $input['clipartUrl'] : '';
-						$artwork_path = self::resolve_clipart_path( $clipart_id, $clipart_url );
-					}
-					break;
-			}
-		}
-
-		return [
-			'text'                => implode( "\n", $text_parts ),
-			'fontId'              => $font_id,
-			'color'               => '' !== $color ? $color : '#000000',
-			'minFontSize'         => $min_font,
-			'maxFontSize'         => $max_font,
-			'artworkAttachmentId' => $attachment,
-			'artworkPath'         => $artwork_path,
-		];
-	}
-
-	/**
-	 * Resolve a clipart file path from clipart DB id or clipart URL.
-	 */
-	private static function resolve_clipart_path( int $clipart_id, string $clipart_url ): string {
-		global $wpdb;
-
-		if ( $clipart_id > 0 ) {
-			$file_path = $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
-					$clipart_id
-				)
-			);
-			if ( is_string( $file_path ) && '' !== $file_path ) {
-				$real = realpath( $file_path );
-				if ( $real && file_exists( $real ) ) {
-					return $real;
-				}
-			}
-		}
-
-		if ( '' !== $clipart_url ) {
-			$uploads = wp_upload_dir();
-			$baseurl = isset( $uploads['baseurl'] ) ? rtrim( (string) $uploads['baseurl'], '/' ) : '';
-			$basedir = isset( $uploads['basedir'] ) ? rtrim( (string) $uploads['basedir'], '/\\' ) : '';
-			if ( '' !== $baseurl && '' !== $basedir && 0 === strpos( $clipart_url, $baseurl . '/' ) ) {
-				$relative = ltrim( substr( $clipart_url, strlen( $baseurl ) ), '/' );
-				$candidate = $basedir . '/' . $relative;
-				$real = realpath( $candidate );
-				if ( $real && file_exists( $real ) ) {
-					return $real;
-				}
-			}
-		}
-
-		return '';
+		return ! empty( $area_data ) ? $area_data : [];
 	}
 
 	/**

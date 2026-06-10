@@ -44,6 +44,21 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		$page_w = $w_mm + $bleed * 2;
 		$page_h = $h_mm + $bleed * 2;
 
+		$pdf->SetFillColorArray( [ 0, 0, 0, 0 ] );
+		$pdf->Rect( 0, 0, $page_w, $page_h, 'F' );
+
+		if ( self::has_layer_payload( $area_data ) ) {
+			self::render_layer_payload( $pdf, $area, $area_data, $bleed, $bleed, 'colour' );
+			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+
+			$output_dir  = self::ensure_output_dir( $order->get_id() );
+			$output_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'pdf' );
+
+			$pdf->Output( $output_path, 'F' );
+
+			return $output_path;
+		}
+
 		// ── Background / full-bleed artwork ───────────────────────────────
 		$artwork_path = self::resolve_artwork_path( $area_data );
 		if ( $artwork_path ) {
@@ -54,10 +69,6 @@ class OC_Print_Sublimation extends OC_Print_Base {
 				// Artwork inside live area only.
 				$pdf->Image( $artwork_path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
 			}
-		} else {
-			// Solid white background through bleed.
-			$pdf->SetFillColorArray( [ 0, 0, 0, 0 ] );
-			$pdf->Rect( 0, 0, $page_w, $page_h, 'F' );
 		}
 
 		// ── Text overlay ──────────────────────────────────────────────────

@@ -30,6 +30,11 @@ abstract class OC_Print_Base {
 		return round( $pixels * 25.4 / self::CANVAS_DPI, 3 );
 	}
 
+	/** Convert canvas pixels to font points at CANVAS_DPI. */
+	protected static function px_to_pt( float $pixels ): float {
+		return round( $pixels * 72 / self::CANVAS_DPI, 3 );
+	}
+
 	// -------------------------------------------------------------------------
 	// Output directory management
 	// -------------------------------------------------------------------------
@@ -333,6 +338,123 @@ abstract class OC_Print_Base {
 		}
 
 		return null;
+	}
+
+	/** Return true when the print payload contains v2 layer geometry. */
+	protected static function has_layer_payload( array $area_data ): bool {
+		return ! empty( $area_data['layers'] ) && is_array( $area_data['layers'] );
+	}
+
+	/**
+	 * Render v2 layers into the PDF using the same layer boxes as the live preview.
+	 * Layer coordinates are stored in mockup pixels, so they are offset back into
+	 * print-area space before converting to millimetres.
+	 */
+	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour' ): void {
+		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
+		$area_x = isset( $bounds['x'] ) ? (int) $bounds['x'] : (int) ( $area->canvas_x ?? 0 );
+		$area_y = isset( $bounds['y'] ) ? (int) $bounds['y'] : (int) ( $area->canvas_y ?? 0 );
+
+		foreach ( $area_data['layers'] as $layer ) {
+			if ( ! is_array( $layer ) ) {
+				continue;
+			}
+
+			$type = (string) ( $layer['type'] ?? '' );
+			$x_mm = $origin_x_mm + self::px_to_mm( (int) ( $layer['x'] ?? 0 ) - $area_x );
+			$y_mm = $origin_y_mm + self::px_to_mm( (int) ( $layer['y'] ?? 0 ) - $area_y );
+			$w_mm = self::px_to_mm( max( 1, (int) ( $layer['w'] ?? 1 ) ) );
+			$h_mm = self::px_to_mm( max( 1, (int) ( $layer['h'] ?? 1 ) ) );
+			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+
+			switch ( $type ) {
+				case 'text':
+				case 'textarea':
+					self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+					break;
+
+				case 'image':
+				case 'clipart':
+					self::render_layer_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm );
+					break;
+
+				case 'lineart':
+					$hex = (string) ( $input['colorHex'] ?? '#000000' );
+					if ( 'engraving' === $mode ) {
+						$pdf->SetFillColor( 0, 0, 0 );
+					} else {
+						[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
+						$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
+					}
+					$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'F' );
+					break;
+			}
+		}
+	}
+
+	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
+		$text = trim( (string) ( $input['value'] ?? $settings['default_text'] ?? '' ) );
+		if ( '' === $text ) {
+			return;
+		}
+
+		$font_name = self::resolve_font( (int) ( $input['fontId'] ?? 0 ) );
+		$font_size = max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );
+		$min_size  = ! empty( $settings['min_font_size'] ) ? self::px_to_pt( (float) $settings['min_font_size'] ) : 0.0;
+		$max_size  = ! empty( $settings['max_font_size'] ) ? self::px_to_pt( (float) $settings['max_font_size'] ) : 0.0;
+		if ( $max_size > 0.0 ) {
+			$font_size = min( $font_size, $max_size );
+		}
+		if ( $min_size > 0.0 ) {
+			$font_size = max( $font_size, $min_size );
+		}
+
+		while ( $font_size > max( 4.0, $min_size ) ) {
+			$pdf->SetFont( $font_name, '', $font_size );
+			if ( $pdf->GetStringWidth( $text ) <= $w_mm ) {
+				break;
+			}
+			$font_size -= 0.5;
+		}
+
+		$pdf->SetFont( $font_name, '', $font_size );
+		if ( 'engraving' === $mode ) {
+			$pdf->SetTextColor( 0, 0, 0 );
+		} else {
+			[ $c, $m, $y, $k ] = self::hex_to_cmyk( (string) ( $input['colorHex'] ?? '#000000' ) );
+			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
+		}
+
+		$align = strtoupper( substr( (string) ( $settings['alignment'] ?? 'center' ), 0, 1 ) );
+		if ( ! in_array( $align, [ 'L', 'C', 'R' ], true ) ) {
+			$align = 'C';
+		}
+		$cell_h = self::cell_h( $font_size );
+		$pdf->SetXY( $x_mm, $y_mm + max( 0.0, ( $h_mm - $cell_h ) / 2 ) );
+		$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
+	}
+
+	private static function render_layer_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		$path = self::resolve_artwork_path( $layer );
+		if ( ! $path ) {
+			return;
+		}
+
+		$draw_w = $w_mm;
+		$draw_h = $h_mm;
+		$draw_x = $x_mm;
+		$draw_y = $y_mm;
+		$size = @getimagesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( is_array( $size ) && ! empty( $size[0] ) && ! empty( $size[1] ) ) {
+			$scale = min( $w_mm / (float) $size[0], $h_mm / (float) $size[1] );
+			$draw_w = (float) $size[0] * $scale;
+			$draw_h = (float) $size[1] * $scale;
+			$draw_x = $x_mm + ( $w_mm - $draw_w ) / 2;
+			$draw_y = $y_mm + ( $h_mm - $draw_h ) / 2;
+		}
+
+		$pdf->Image( $path, $draw_x, $draw_y, $draw_w, $draw_h, '', '', '', false, 300 );
 	}
 
 	// -------------------------------------------------------------------------

@@ -34,6 +34,7 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/class-oc-logger.php';
 		require_once OC_PATH . 'includes/class-oc-command-runner.php';
 		require_once OC_PATH . 'includes/class-oc-font-registry.php';
+		require_once OC_PATH . 'includes/class-oc-render-spec.php';
 		require_once OC_PATH . 'includes/class-oc-rest-api.php';
 		require_once OC_PATH . 'includes/class-oc-blocks-integration.php';
 		require_once OC_PATH . 'includes/class-oc-file-cleanup.php';

@@ -118,6 +118,7 @@ class OC_Cart {
 				'designId'           => $design_id,
 				'engravingUndertone' => OC_DB::sanitize_engraving_undertone( (string) ( $decoded['engravingUndertone'] ?? 'warm' ) ),
 				'layers'             => $sanitised_layers,
+				'renderSpec'         => OC_Render_Spec::build( $design_id, $sanitised_layers ),
 			];
 			$cart_item_data['_oc_design_id']     = $design_id;
 			$cart_item_data['_oc_flat_rate']     = (float) $design->flat_rate;

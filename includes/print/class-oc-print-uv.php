@@ -39,7 +39,7 @@ class OC_Print_UV extends OC_Print_Base {
 		$pdf->AddPage();
 
 		// ── Page 1: Colour artwork ─────────────────────────────────────────
-		self::render_colour_page( $pdf, $w_mm, $h_mm, $bleed, $area_data );
+		self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $bleed, $area_data );
 		self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
 
 		// ── Page 2: White ink mask (optional) ─────────────────────────────
@@ -63,6 +63,7 @@ class OC_Print_UV extends OC_Print_Base {
 
 	private static function render_colour_page(
 		\TCPDF $pdf,
+		object $area,
 		float $w_mm,
 		float $h_mm,
 		float $bleed,
@@ -74,6 +75,11 @@ class OC_Print_UV extends OC_Print_Base {
 		// White background extending through bleed.
 		$pdf->SetFillColorArray( [ 0, 0, 0, 0 ] ); // white CMYK
 		$pdf->Rect( 0, 0, $page_w, $page_h, 'F' );
+
+		if ( self::has_layer_payload( $area_data ) ) {
+			self::render_layer_payload( $pdf, $area, $area_data, $bleed, $bleed, 'colour' );
+			return;
+		}
 
 		// Artwork.
 		$artwork_path = self::resolve_artwork_path( $area_data );
