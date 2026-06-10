@@ -25,6 +25,7 @@ class OC_Print_Generator {
 		// Admin handlers.
 		add_action( 'admin_init', [ $this, 'handle_admin_download' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_regenerate' ] );
+		add_action( 'admin_init', [ $this, 'handle_admin_generate_missing' ] );
 	}
 
 	// -------------------------------------------------------------------------
@@ -151,6 +152,8 @@ class OC_Print_Generator {
 		$now            = current_time( 'mysql', true );
 		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
+		$created_count = 0;
+
 		foreach ( $order->get_items() as $item_id => $item ) {
 			/** @var \WC_Order_Item_Product $item */
 			$customisation = $item->get_meta( '_oc_customisation', true );
@@ -206,7 +209,11 @@ class OC_Print_Generator {
 									$merged_customisation['layers'] = $layer_inputs;
 									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $merged_customisation );
 
-									if ( empty( $area_data['text'] ) && empty( $area_data['artworkAttachmentId'] ) ) {
+									if ( ! self::area_has_printable_data( $area_data ) ) {
+										$order->add_order_note( sprintf( __( 'OverCustomise skipped print area "%s": no printable customer data was found.', 'overcustomise' ), $area->label ?: $area->area_key ) );
+										continue;
+									}
+									if ( self::print_file_exists( (int) $order->get_id(), (int) $item_id, (int) $area->id ) ) {
 										continue;
 									}
 
@@ -227,6 +234,7 @@ class OC_Print_Generator {
 										$area_data,
 										(string) $area->print_method
 									);
+									$created_count++;
 								}
 							}
 						}
@@ -237,7 +245,11 @@ class OC_Print_Generator {
 				$areas = OC_DB::get_design_print_areas( $design_id );
 				foreach ( $areas as $area ) {
 					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
-					if ( empty( $area_data['text'] ) && empty( $area_data['artworkAttachmentId'] ) ) {
+					if ( ! self::area_has_printable_data( $area_data ) ) {
+						$order->add_order_note( sprintf( __( 'OverCustomise skipped print area "%s": no printable customer data was found.', 'overcustomise' ), $area->label ?: $area->area_key ) );
+						continue;
+					}
+					if ( self::print_file_exists( (int) $order->get_id(), (int) $item_id, (int) $area->id ) ) {
 						continue;
 					}
 
@@ -258,6 +270,7 @@ class OC_Print_Generator {
 						$area_data,
 						(string) $area->print_method
 					);
+					$created_count++;
 				}
 				continue;
 			}
@@ -278,6 +291,9 @@ class OC_Print_Generator {
 				if ( null === $area_data || ! is_array( $area_data ) ) {
 					continue;
 				}
+				if ( self::print_file_exists( (int) $order->get_id(), (int) $item_id, (int) $area->id ) ) {
+					continue;
+				}
 
 				OC_DB::insert_print_file( [
 					'order_id'      => $order->get_id(),
@@ -296,8 +312,33 @@ class OC_Print_Generator {
 					$area_data,
 					(string) $area->print_method
 				);
+				$created_count++;
 			}
 		}
+
+		if ( $created_count > 0 ) {
+			$order->add_order_note( sprintf( __( 'OverCustomise queued %d print file(s) for generation.', 'overcustomise' ), $created_count ) );
+		}
+	}
+
+	private static function area_has_printable_data( array $area_data ): bool {
+		foreach ( [ 'text', 'artworkAttachmentId', 'artworkPath' ] as $key ) {
+			if ( ! empty( $area_data[ $key ] ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private static function print_file_exists( int $order_id, int $item_id, int $print_area_id ): bool {
+		global $wpdb;
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d LIMIT 1",
+			$order_id,
+			$item_id,
+			$print_area_id
+		) );
 	}
 
 	/**
@@ -489,6 +530,38 @@ class OC_Print_Generator {
 		// Redirect back to the order edit screen.
 		$redirect = admin_url( 'post.php?post=' . (int) $record->order_id . '&action=edit' );
 		wp_safe_redirect( $redirect );
+		exit;
+	}
+
+	/** Handle the admin "Generate Print Files" link for orders missing file rows. */
+	public function handle_admin_generate_missing(): void {
+		if ( empty( $_GET['oc_generate_print_files'] ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
+		}
+
+		$order_id = absint( $_GET['oc_generate_print_files'] );
+		if ( ! $order_id || ! wp_verify_nonce( $_GET['_wpnonce'] ?? '', 'oc_generate_print_files_' . $order_id ) ) {
+			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ), 403 );
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof \WC_Order ) {
+			wp_die( esc_html__( 'Order not found.', 'overcustomise' ), 404 );
+		}
+
+		try {
+			$this->generate_for_order( $order );
+		} catch ( \Throwable $e ) {
+			OC_Logger::error( 'Admin print-file generation failed for order #' . $order_id . ': ' . $e->getMessage() );
+			$order->add_order_note( sprintf( __( 'OverCustomise print-file generation failed: %s', 'overcustomise' ), $e->getMessage() ) );
+		}
+
+		$redirect = wp_get_referer() ?: admin_url( 'post.php?post=' . $order_id . '&action=edit' );
+		wp_safe_redirect( remove_query_arg( [ 'oc_generate_print_files', '_wpnonce' ], $redirect ) );
 		exit;
 	}
 

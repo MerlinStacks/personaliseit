@@ -427,7 +427,7 @@ class OC_Cart {
 		}
 
 		if ( empty( $customisation ) || ! is_array( $customisation ) ) {
-			$this->render_admin_print_files( $item_id, $print_files, true );
+			$this->render_admin_print_files( $item_id, $print_files, true, $order );
 			echo '</div>';
 			return;
 		}
@@ -453,7 +453,7 @@ class OC_Cart {
 				echo '<div><strong>' . esc_html( $label ) . ':</strong> ' . $value . '</div>';
 			}
 
-			$this->render_admin_print_files( $item_id, $print_files, true );
+			$this->render_admin_print_files( $item_id, $print_files, true, $order );
 			echo '</div>';
 			return;
 		}
@@ -493,7 +493,7 @@ class OC_Cart {
 			echo '</div>';
 		}
 
-		$this->render_admin_print_files( $item_id, $print_files, true );
+		$this->render_admin_print_files( $item_id, $print_files, true, $order );
 		echo '</div>';
 	}
 
@@ -627,7 +627,7 @@ class OC_Cart {
 	 * Show generated print file status/links on backend order item rows.
 	 * Runs only in wp-admin to avoid exposing internal production files on frontend pages.
 	 */
-	private function render_admin_print_files( int $item_id, ?array $print_files = null, bool $show_empty = false ): void {
+	private function render_admin_print_files( int $item_id, ?array $print_files = null, bool $show_empty = false, ?WC_Order $order = null ): void {
 		if ( ! is_admin() ) {
 			return;
 		}
@@ -636,7 +636,21 @@ class OC_Cart {
 		if ( empty( $print_files ) ) {
 			if ( $show_empty ) {
 				echo '<div style="margin-top:6px;"><strong>' . esc_html__( 'Print Files:', 'overcustomise' ) . '</strong> '
-					. esc_html__( 'No print files generated yet.', 'overcustomise' ) . '</div>';
+					. esc_html__( 'No print files generated yet.', 'overcustomise' );
+
+				if ( $order instanceof WC_Order ) {
+					$generate_url = add_query_arg(
+						[
+							'oc_generate_print_files' => $order->get_id(),
+							'_wpnonce'                => wp_create_nonce( 'oc_generate_print_files_' . $order->get_id() ),
+						],
+						admin_url()
+					);
+					echo ' <a href="' . esc_url( $generate_url ) . '" class="button button-small" style="margin-left:6px;">'
+						. esc_html__( 'Generate Print Files', 'overcustomise' ) . '</a>';
+				}
+
+				echo '</div>';
 			}
 			return;
 		}
