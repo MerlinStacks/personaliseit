@@ -214,6 +214,7 @@ class OC_Print_Queue {
 		$pending_count = 0;
 		$processing    = false;
 		$failed        = false;
+		$error_message = '';
 
 		if ( is_array( $queue_status ) ) {
 			foreach ( $queue_status as $q ) {
@@ -224,6 +225,9 @@ class OC_Print_Queue {
 						$processing = true;
 					} elseif ( 'failed' === $q->status ) {
 						$failed = true;
+						if ( '' === $error_message && ! empty( $q->error_message ) ) {
+							$error_message = (string) $q->error_message;
+						}
 					}
 				}
 			}
@@ -236,6 +240,7 @@ class OC_Print_Queue {
 			'queue_position'  => $pending_count,
 			'is_processing'   => $processing,
 			'has_failed_job'  => $failed,
+			'error_message'   => $error_message,
 		];
 	}
 }

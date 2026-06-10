@@ -590,13 +590,20 @@ class OC_Print_Generator {
 		$jobs = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$wpdb->prefix}oc_print_queue
 			 WHERE order_id = %d
-			 AND (status = 'pending' OR (status = 'failed' AND attempts < %d))
+			 AND status IN ('pending', 'failed')
 			 ORDER BY created_at ASC",
-			$order_id,
-			3
+			$order_id
 		) ) ?: [];
 
 		foreach ( $jobs as $job ) {
+			if ( 'failed' === $job->status ) {
+				OC_DB::update_queue_job( (int) $job->id, [
+					'status'        => 'pending',
+					'attempts'      => 0,
+					'error_message' => null,
+					'processed_at'  => null,
+				] );
+			}
 			OC_Print_Queue::instance()->process_one( (int) $job->id );
 		}
 

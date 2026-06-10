@@ -666,6 +666,10 @@ class OC_Cart {
 				echo ' <em style="color:#9e6c00;">' . esc_html__( 'Processing now.', 'overcustomise' ) . '</em>';
 			} elseif ( ! empty( $queue_info['has_failed_job'] ) ) {
 				echo ' <em style="color:#b32d2e;">' . esc_html__( 'Queue job failed.', 'overcustomise' ) . '</em>';
+				if ( ! empty( $queue_info['error_message'] ) ) {
+					echo '<div style="margin:3px 0 0 16px;color:#b32d2e;"><strong>' . esc_html__( 'Error:', 'overcustomise' ) . '</strong> '
+						. esc_html( (string) $queue_info['error_message'] ) . '</div>';
+				}
 			} elseif ( ! empty( $queue_info['in_queue'] ) ) {
 				echo ' <em style="color:#666;">' . esc_html__( 'Waiting in queue.', 'overcustomise' ) . '</em>';
 			}
