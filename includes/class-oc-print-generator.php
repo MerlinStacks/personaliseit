@@ -26,6 +26,7 @@ class OC_Print_Generator {
 		add_action( 'admin_init', [ $this, 'handle_admin_download' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_regenerate' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_generate_missing' ] );
+		add_action( 'admin_init', [ $this, 'handle_admin_process_queue' ] );
 	}
 
 	// -------------------------------------------------------------------------
@@ -562,6 +563,47 @@ class OC_Print_Generator {
 
 		$redirect = wp_get_referer() ?: admin_url( 'post.php?post=' . $order_id . '&action=edit' );
 		wp_safe_redirect( remove_query_arg( [ 'oc_generate_print_files', '_wpnonce' ], $redirect ) );
+		exit;
+	}
+
+	/** Handle the admin "Process Print Queue" link for an order. */
+	public function handle_admin_process_queue(): void {
+		if ( empty( $_GET['oc_process_print_queue_order'] ) ) {
+			return;
+		}
+
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
+		}
+
+		$order_id = absint( $_GET['oc_process_print_queue_order'] );
+		if ( ! $order_id || ! wp_verify_nonce( $_GET['_wpnonce'] ?? '', 'oc_process_print_queue_order_' . $order_id ) ) {
+			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ), 403 );
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof \WC_Order ) {
+			wp_die( esc_html__( 'Order not found.', 'overcustomise' ), 404 );
+		}
+
+		global $wpdb;
+		$jobs = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_print_queue
+			 WHERE order_id = %d
+			 AND (status = 'pending' OR (status = 'failed' AND attempts < %d))
+			 ORDER BY created_at ASC",
+			$order_id,
+			3
+		) ) ?: [];
+
+		foreach ( $jobs as $job ) {
+			OC_Print_Queue::instance()->process_one( (int) $job->id );
+		}
+
+		$order->add_order_note( sprintf( __( 'OverCustomise manually processed %d print queue job(s).', 'overcustomise' ), count( $jobs ) ) );
+
+		$redirect = wp_get_referer() ?: admin_url( 'post.php?post=' . $order_id . '&action=edit' );
+		wp_safe_redirect( remove_query_arg( [ 'oc_process_print_queue_order', '_wpnonce' ], $redirect ) );
 		exit;
 	}
 

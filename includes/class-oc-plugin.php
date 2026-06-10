@@ -106,14 +106,15 @@ class OC_Plugin {
 			OC_Admin_Clipart::register_ajax();
 		}
 
+		// Register custom cron recurrence.
+		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
+
 		// DB upgrades.
 		add_action( 'init', [ OC_DB::class, 'maybe_upgrade' ] );
+		add_action( 'init', [ self::class, 'ensure_cron_events' ] );
 
 		// File cleanup cron callback.
 		add_action( 'oc_daily_file_cleanup', [ 'OC_File_Cleanup', 'run' ] );
-
-		// Register custom cron recurrence.
-		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
 	}
 
 	// -------------------------------------------------------------------------
@@ -126,6 +127,17 @@ class OC_Plugin {
 			'display'  => __( 'Every Minute', 'overcustomise' ),
 		];
 		return $schedules;
+	}
+
+	/** Ensure queue/file cleanup events exist even if activation scheduling failed. */
+	public static function ensure_cron_events(): void {
+		if ( ! wp_next_scheduled( 'oc_daily_file_cleanup' ) ) {
+			wp_schedule_event( time(), 'daily', 'oc_daily_file_cleanup' );
+		}
+
+		if ( ! wp_next_scheduled( 'oc_process_print_queue' ) ) {
+			wp_schedule_event( time(), 'oc_every_minute', 'oc_process_print_queue' );
+		}
 	}
 
 	// -------------------------------------------------------------------------
