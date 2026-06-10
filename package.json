@@ -5,7 +5,6 @@
   "private": true,
   "scripts": {
     "build": "wp-scripts build",
-    "release": "bash scripts/build-release.sh",
     "start": "wp-scripts start",
     "lint:js": "wp-scripts lint-js",
     "lint:css": "wp-scripts lint-style"

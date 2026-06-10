@@ -1,8 +1,16 @@
-# Composer
-/vendor/
-
 # npm / webpack
 /node_modules/
+
+# Composer dev tooling. Runtime Composer libraries are bundled with the plugin.
+/vendor/bin/
+/vendor/myclabs/
+/vendor/nikic/
+/vendor/phar-io/
+/vendor/phpunit/
+/vendor/sebastian/
+/vendor/staabm/
+/vendor/theseer/
+/vendor/wp-phpunit/
 
 # OS
 .DS_Store
