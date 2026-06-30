@@ -544,7 +544,7 @@ class OCCustomiser {
 				if ( ! raw ) break;
 
 				let font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
-				// Engraving uses the product undertone instead of a customer-selected colour.
+				// Engraving uses a fixed silver tone instead of a customer-selected colour.
 				const color = isEngraving ? engravingPalette.text : ( input.colorHex || layer.settings?.default_color || '#000000' );
 				const align = layer.settings?.alignment || 'center';
 				if ( font ) {
@@ -702,15 +702,7 @@ class OCCustomiser {
 	}
 
 	engravingPalette() {
-		const palettes = {
-			warm:    { text: '#2a1f14', bg: 'F5F2EF', highlight: 'rgba(255,255,255,0.35)', brightness: -0.35, contrast: 0.15, opacity: 0.88 },
-			cool:    { text: '#27313a', bg: 'ECEFF1', highlight: 'rgba(255,255,255,0.42)', brightness: -0.28, contrast: 0.18, opacity: 0.9 },
-			gold:    { text: '#4a3410', bg: 'F7E7BE', highlight: 'rgba(255,246,215,0.45)', brightness: -0.32, contrast: 0.16, opacity: 0.88 },
-			rose:    { text: '#4a241f', bg: 'F3D6CC', highlight: 'rgba(255,234,224,0.45)', brightness: -0.3, contrast: 0.16, opacity: 0.88 },
-			dark:    { text: '#d1b994', bg: '2F2924', highlight: 'rgba(255,235,200,0.25)', brightness: 0.05, contrast: 0.22, opacity: 0.92 },
-			neutral: { text: '#333333', bg: 'F0F0F0', highlight: 'rgba(255,255,255,0.35)', brightness: -0.3, contrast: 0.15, opacity: 0.88 },
-		};
-		return palettes[ this.data.engravingUndertone ] || palettes.warm;
+		return { text: '#dadad6', bg: 'ECEFF1', highlight: 'rgba(255,255,255,0.42)', brightness: -0.28, contrast: 0.18, opacity: 0.9 };
 	}
 
 	buildSpotifyCodeUrl( inputValue, isEngraving, engravingPalette = null ) {
@@ -1810,7 +1802,7 @@ class OCCustomiser {
 				if ( inp ) layers[ layer.id ] = { type: layer.type, ...inp };
 			} );
 		} );
-		const payload = { v: 2, designId: this.data.designId, engravingUndertone: this.data.engravingUndertone || 'warm', layers };
+		const payload = { v: 2, designId: this.data.designId, layers };
 		if ( this._previewUrl ) payload.previewUrl = this._previewUrl;
 		el.value = JSON.stringify( payload );
 	}

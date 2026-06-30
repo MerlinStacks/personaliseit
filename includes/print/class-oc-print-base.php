@@ -18,8 +18,8 @@ abstract class OC_Print_Base {
 	/** Assumed DPI for canvas coordinates stored in the DB. */
 	protected const CANVAS_DPI = 300;
 
-	/** Warm engraving tone used instead of flat process black for etched output. */
-	protected const ENGRAVING_TONE_RGB = [ 42, 31, 20 ];
+	/** Silver engraving tone used instead of flat process black for etched output. */
+	protected const ENGRAVING_TONE_RGB = [ 218, 218, 214 ];
 
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';

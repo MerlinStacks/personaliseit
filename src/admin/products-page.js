@@ -430,9 +430,10 @@
 		return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
 	}
 	function methodLabel( m ) { return ( ( window.ocProductsData || {} ).methodLabels || {} )[ m ] || m; }
+	function engravingTextColor() { return '#dadad6'; }
 
 	/** Apply rich visual content to a layer container element */
-	function applyLayerPreview( layer, el, renderedH, isGhost ) {
+	function applyLayerPreview( layer, el, renderedH, isGhost, isEngraving ) {
 		// Remove any existing preview children
 		el.querySelectorAll( '.oc-lp' ).forEach( c => c.remove() );
 		if ( ! layer ) return;
@@ -452,7 +453,7 @@
 			d.className      = 'oc-lp oc-lp-text';
 			d.style.fontSize = fs + 'px';
 			d.style.textAlign = align;
-			d.style.color = normaliseHex( s.default_color );
+			d.style.color = isEngraving ? engravingTextColor() : normaliseHex( s.default_color );
 			if ( font ) d.style.fontFamily = "'" + String( font.name ).replace( /'/g, "\\'" ) + "', sans-serif";
 			if ( layer.type === 'textarea' ) d.style.alignItems = 'flex-start';
 			d.textContent    = text;
@@ -477,6 +478,7 @@
 			const fs = Math.max( 14, Math.min( renderedH * 0.35, 36 ) );
 			const d  = document.createElement( 'div' );
 			d.className = 'oc-lp oc-lp-icon';
+			if ( isEngraving && layer.type === 'lineart' ) d.style.color = engravingTextColor();
 			d.innerHTML = '<span style="font-size:' + Math.round( fs ) + 'px;">' + ( icons[ layer.type ] || '' ) + '</span><span>' + ( labels[ layer.type ] || layerLabel( layer.type ) ) + '</span>';
 			el.appendChild( d );
 		}
@@ -982,7 +984,7 @@
 		// Layer content preview inside bounds box
 		box.querySelectorAll( '.oc-bounds-box-pill' ).forEach( el => el.remove() );
 		const renderedH = Math.round( entity.h * scale );
-		applyLayerPreview( layer, box, renderedH, false );
+		applyLayerPreview( layer, box, renderedH, false, area.method === 'engraving' );
 
 		if ( layer ) {
 			const pill = document.createElement( 'div' );
@@ -1027,7 +1029,7 @@
 			const g = ghost( layer, layerColor( layer.type ), 0.1 );
 			g.classList.add( 'oc-canvas-layer-ghost' );
 			g.appendChild( ghostLabel( layerIcon( layer.type ) + ' ' + ( layer.label || layerLabel( layer.type ) ), layerColor( layer.type ) ) );
-			applyLayerPreview( layer, g, Math.round( layer.h * scale ), true );
+			applyLayerPreview( layer, g, Math.round( layer.h * scale ), true, area.method === 'engraving' );
 
 			pos( g, layer, scale, normaliseRotation( area.rotation ), area );
 

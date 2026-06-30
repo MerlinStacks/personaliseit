@@ -15,7 +15,6 @@ class OC_Frontend {
 	private array   $areas  = [];
 	private array   $layers = [];
 	private ?array  $edit_cart_item = null;
-	private string  $engraving_undertone = 'warm';
 
 	public function register(): void {
 		add_action( 'wp',                                    [ $this, 'maybe_load_design' ],  10 );
@@ -47,7 +46,6 @@ class OC_Frontend {
 			$design_id = 0;
 			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] ) {
 				$design_id = (int) ( $cs['designId'] ?? 0 );
-				$this->engraving_undertone = OC_DB::sanitize_engraving_undertone( (string) ( $cs['engravingUndertone'] ?? 'warm' ) );
 			}
 			if ( ! $design_id ) {
 				return;
@@ -100,7 +98,6 @@ class OC_Frontend {
 		$this->design = $design;
 		$this->areas  = $areas;
 		$this->layers = OC_DB::get_design_layers( (int) $design->id );
-		$this->engraving_undertone = OC_DB::sanitize_engraving_undertone( (string) ( $assignment->engraving_undertone ?? 'warm' ) );
 	}
 
 	/**
@@ -313,7 +310,6 @@ class OC_Frontend {
 			'designId'        => (int) $this->design->id,
 			'designName'      => $this->design->name,
 			'flatRate'        => (float) $this->design->flat_rate,
-			'engravingUndertone' => $this->engraving_undertone,
 			'areas'           => $areas_js,
 			'fonts'           => $all_fonts,
 			'colours'         => $colours_js,

@@ -850,11 +850,10 @@ class OC_Rest_API {
 		$old_preview = (string) ( $cart_item['_oc_preview_url'] ?? '' );
 
 		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [
-			'v'                  => 2,
-			'designId'           => $design_id,
-			'engravingUndertone' => OC_DB::sanitize_engraving_undertone( (string) ( $body['engravingUndertone'] ?? 'warm' ) ),
-			'layers'             => $sanitised_layers,
-			'renderSpec'         => OC_Render_Spec::build( $design_id, $sanitised_layers ),
+			'v'          => 2,
+			'designId'   => $design_id,
+			'layers'     => $sanitised_layers,
+			'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
 		];
 		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
 		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
