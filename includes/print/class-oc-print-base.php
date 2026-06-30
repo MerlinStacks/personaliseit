@@ -18,6 +18,9 @@ abstract class OC_Print_Base {
 	/** Assumed DPI for canvas coordinates stored in the DB. */
 	protected const CANVAS_DPI = 300;
 
+	/** Warm engraving tone used instead of flat process black for etched output. */
+	protected const ENGRAVING_TONE_RGB = [ 42, 31, 20 ];
+
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
 
@@ -382,7 +385,7 @@ abstract class OC_Print_Base {
 				case 'lineart':
 					$hex = (string) ( $input['colorHex'] ?? '#000000' );
 					if ( 'engraving' === $mode ) {
-						$pdf->SetFillColor( 0, 0, 0 );
+						$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
 					} else {
 						[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
 						$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
@@ -422,7 +425,7 @@ abstract class OC_Print_Base {
 
 		$pdf->SetFont( $font_name, '', $font_size );
 		if ( 'engraving' === $mode ) {
-			$pdf->SetTextColor( 0, 0, 0 );
+			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
 		} else {
 			[ $c, $m, $y, $k ] = self::hex_to_cmyk( (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' ) );
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );

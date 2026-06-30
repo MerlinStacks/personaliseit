@@ -49,12 +49,12 @@
 	// ── Layer tabs ─────────────────────────────────────────────────────────────
 
 	const LAYER_TABS = {
-		text:     [ { id: 'general', label: 'General' }, { id: 'content', label: 'Content' }, { id: 'style', label: 'Style' }, { id: 'properties', label: 'Properties' }, { id: 'validation', label: 'Validation' } ],
-		textarea: [ { id: 'general', label: 'General' }, { id: 'content', label: 'Content' }, { id: 'style', label: 'Style' }, { id: 'properties', label: 'Properties' }, { id: 'validation', label: 'Validation' } ],
-		image:    [ { id: 'general', label: 'General' }, { id: 'file',       label: 'File'       }, { id: 'validation', label: 'Validation' } ],
-		spotify:  [ { id: 'general', label: 'General' }, { id: 'appearance', label: 'Appearance' }, { id: 'validation', label: 'Validation' } ],
-		lineart:  [ { id: 'general', label: 'General' }, { id: 'colours',    label: 'Colours'    }, { id: 'validation', label: 'Validation' } ],
-		clipart:  [ { id: 'general', label: 'General' }, { id: 'library',    label: 'Library'    }, { id: 'validation', label: 'Validation' } ],
+		text:     [ { id: 'general', label: 'General', icon: 'G' }, { id: 'content', label: 'Content', icon: 'T' }, { id: 'style', label: 'Style', icon: 'A' }, { id: 'properties', label: 'Properties', icon: '\u2699' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		textarea: [ { id: 'general', label: 'General', icon: 'G' }, { id: 'content', label: 'Content', icon: 'T' }, { id: 'style', label: 'Style', icon: 'A' }, { id: 'properties', label: 'Properties', icon: '\u2699' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		image:    [ { id: 'general', label: 'General', icon: 'G' }, { id: 'file',       label: 'File',       icon: '\ud83d\uddbc' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		spotify:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'appearance', label: 'Appearance', icon: '\u25d0' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		lineart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'colours',    label: 'Colours',    icon: '\u25cf' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		clipart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'library',    label: 'Library',    icon: '\u2726' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 	};
 
 	// ── Area colours ───────────────────────────────────────────────────────────
@@ -405,6 +405,10 @@
 		if ( min ) size = Math.max( size, min );
 		return size;
 	}
+	function findFont( fontId ) {
+		const fonts = ( window.ocProductsData || {} ).fonts || [];
+		return fonts.find( f => Number( f.id ) === Number( fontId ) ) || ( ! fontId ? fonts[ 0 ] : null );
+	}
 	function normaliseRotation( value ) {
 		const angle = Number( value ) || 0;
 		return Math.round( ( ( angle % 360 ) + 360 ) % 360 );
@@ -438,12 +442,18 @@
 		if ( layer.type === 'text' || layer.type === 'textarea' ) {
 			const text  = s.default_text || layer.label || layerLabel( layer.type );
 			const align = s.alignment || 'center';
-			const fs    = clampFontSize( Math.max( 8, Math.min( renderedH * ( isGhost ? 0.36 : 0.42 ), isGhost ? 22 : 30 ) ), s, renderedH / Math.max( 1, layer.h ) );
+			const scale = renderedH / Math.max( 1, layer.h );
+			const defaultFontSize = fontLimit( s.default_font_size );
+			const autoFontSize = Math.max( 8, Math.min( renderedH * ( isGhost ? 0.36 : 0.42 ), isGhost ? 22 : 30 ) );
+			const fs = clampFontSize( defaultFontSize ? defaultFontSize * scale : autoFontSize, s, scale );
+			const font = findFont( s.default_font_id || 0 );
 
 			const d = document.createElement( 'div' );
 			d.className      = 'oc-lp oc-lp-text';
 			d.style.fontSize = fs + 'px';
 			d.style.textAlign = align;
+			d.style.color = normaliseHex( s.default_color );
+			if ( font ) d.style.fontFamily = "'" + String( font.name ).replace( /'/g, "\\'" ) + "', sans-serif";
 			if ( layer.type === 'textarea' ) d.style.alignItems = 'flex-start';
 			d.textContent    = text;
 			el.appendChild( d );
@@ -573,23 +583,25 @@
 		document.getElementById( 'oc-layer-label' )?.addEventListener( 'input', e => {
 			layer.label = e.target.value;
 			renderLayerList( area );
+			renderCanvas();
 			renderHiddenFields();
 			markDirty();
 		} );
 		[ 'oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h' ].forEach( id => {
 			document.getElementById( id )?.addEventListener( 'input', syncBoundsFromInputs );
 		} );
-		document.getElementById( 'oc-set-default-text' )?.addEventListener( 'input', e => { s.default_text = e.target.value; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-default-text' )?.addEventListener( 'input', e => { s.default_text = e.target.value; renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-char-limit'   )?.addEventListener( 'input', e => { s.char_limit   = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); markDirty(); } );
-		document.getElementById( 'oc-set-default-font' )?.addEventListener( 'change', e => { s.default_font_id = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); markDirty(); } );
-		document.getElementById( 'oc-set-default-font-size' )?.addEventListener( 'input', e => { s.default_font_size = fontLimit( e.target.value ); renderHiddenFields(); markDirty(); } );
-		document.getElementById( 'oc-set-default-color' )?.addEventListener( 'input', e => { s.default_color = normaliseHex( e.target.value ); renderHiddenFields(); markDirty(); } );
-		document.getElementById( 'oc-set-min-font-size' )?.addEventListener( 'input', e => { s.min_font_size = fontLimit( e.target.value ); renderHiddenFields(); markDirty(); } );
-		document.getElementById( 'oc-set-max-font-size' )?.addEventListener( 'input', e => { s.max_font_size = fontLimit( e.target.value ); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-default-font' )?.addEventListener( 'change', e => { s.default_font_id = parseInt( e.target.value, 10 ) || 0; renderCanvas(); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-default-font-size' )?.addEventListener( 'input', e => { s.default_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-default-color' )?.addEventListener( 'input', e => { s.default_color = normaliseHex( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-min-font-size' )?.addEventListener( 'input', e => { s.min_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-max-font-size' )?.addEventListener( 'input', e => { s.max_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.querySelectorAll( '.oc-align-btn' ).forEach( btn => {
 			btn.addEventListener( 'click', () => {
 				s.alignment = btn.dataset.align;
 				document.querySelectorAll( '.oc-align-btn' ).forEach( b => b.classList.toggle( 'oc-align-btn--active', b.dataset.align === btn.dataset.align ) );
+				renderCanvas();
 				renderHiddenFields();
 				markDirty();
 			} );
@@ -879,7 +891,7 @@
 		if ( ! settingsEl ) return;
 
 		let html = '<div class="oc-layer-tabs-bar">';
-		tabs.forEach( t => { html += '<button type="button" class="oc-layer-tab' + ( t.id === activeLayerTab ? ' oc-layer-tab--active' : '' ) + '" data-tab="' + t.id + '">' + t.label + '</button>'; } );
+		tabs.forEach( t => { html += '<button type="button" class="oc-layer-tab' + ( t.id === activeLayerTab ? ' oc-layer-tab--active' : '' ) + '" data-tab="' + t.id + '" title="' + esc( t.label ) + '" aria-label="' + esc( t.label ) + '"><span aria-hidden="true">' + esc( t.icon || t.label.charAt( 0 ) ) + '</span></button>'; } );
 		html += '</div>';
 		tabs.forEach( t => {
 			html += '<div class="oc-layer-tab-panel' + ( t.id === activeLayerTab ? ' oc-layer-tab-panel--active' : '' ) + '" data-panel="' + t.id + '">';

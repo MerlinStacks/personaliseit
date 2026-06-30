@@ -596,7 +596,7 @@ class OCCustomiser {
 				break;
 
 			case 'lineart': {
-				const lineartColor = String( input.colorHex || '' ).trim();
+				const lineartColor = isEngraving ? engravingPalette.text : String( input.colorHex || '' ).trim();
 				if ( ! lineartColor ) break;
 				const r = new Rect( { left: lcX, top: lcY, originX: 'center', originY: 'center', angle: rotation, width: lw, height: lh,
 					fill: lineartColor, opacity: 0.6, selectable: false, evented: false } );

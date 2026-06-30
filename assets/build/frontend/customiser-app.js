@@ -6206,7 +6206,7 @@ class OCCustomiser {
         break;
       case 'lineart':
         {
-          const lineartColor = String(input.colorHex || '').trim();
+          const lineartColor = isEngraving ? engravingPalette.text : String(input.colorHex || '').trim();
           if (!lineartColor) break;
           const r = new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
             left: lcX,

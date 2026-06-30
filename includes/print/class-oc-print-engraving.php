@@ -3,7 +3,7 @@
  * Engraving print file generator.
  *
  * Produces a greyscale PDF at the print area dimensions.
- * Text is rendered black on white; artwork is converted to greyscale.
+ * Text is rendered in an engraving tone on white; artwork is converted to greyscale.
  * No bleed — engraving requires precise trim dimensions.
  *
  * @package OverCustomise
@@ -86,7 +86,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 			[ $min_font_size, $max_font_size ] = self::font_size_bounds( $area_data );
 			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 
-			$pdf->SetTextColor( 0, 0, 0 );
+			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
 			$pdf->SetFont( $font_name, '', $font_size );
 			$pdf->SetXY( 0, ( $h_mm - self::cell_h( $font_size ) ) / 2 );
 			$pdf->Cell( $w_mm, self::cell_h( $font_size ), $text, 0, 0, 'C', false );

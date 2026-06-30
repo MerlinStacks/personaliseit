@@ -1805,12 +1805,11 @@
 .oc-layer-tabs-bar::-webkit-scrollbar { display: none; }
 
 .oc-layer-tab {
-	flex: 1;
-	padding: 7px 6px;
-	font-size: 10px;
+	flex: 0 0 34px;
+	padding: 7px 4px;
+	font-size: 13px;
 	font-weight: 600;
-	text-transform: uppercase;
-	letter-spacing: .05em;
+	line-height: 1;
 	color: var(--oc-gray-500);
 	background: none;
 	border: none;
@@ -1861,8 +1860,11 @@
 	margin: 4px 0;
 }
 .oc-settings-toggle {
+	display: flex;
+	align-items: center;
+	width: 100%;
 	font-size: 12px;
-	margin-top: 4px;
+	margin: 0 0 8px;
 }
 
 /* Alignment button group */
