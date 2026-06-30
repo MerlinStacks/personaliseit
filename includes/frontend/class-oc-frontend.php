@@ -246,8 +246,9 @@ class OC_Frontend {
 				// Default input per layer.
 				$layer_inputs[ (int) $layer->id ] = [
 					'value'         => $settings['default_text'] ?? '',
-					'fontId'        => 0,
-					'colorHex'      => '#000000',
+					'fontId'        => absint( $settings['default_font_id'] ?? 0 ),
+					'fontSize'      => absint( $settings['default_font_size'] ?? 0 ),
+					'colorHex'      => sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000',
 					'attachmentId'  => 0,
 					'attachmentUrl' => '',
 					'clipartId'     => 0,

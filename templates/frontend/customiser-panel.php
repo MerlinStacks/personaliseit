@@ -79,6 +79,11 @@ $has_multiple_areas = count( $areas ) > 1;
 					$char_lim  = (int) ( $s['char_limit'] ?? 0 );
 					$default   = $s['default_text'] ?? '';
 					$alignment = $s['alignment']    ?? 'center';
+					$default_font_size = absint( $s['default_font_size'] ?? 0 );
+					$default_colour    = sanitize_hex_color( (string) ( $s['default_color'] ?? '#000000' ) ) ?: '#000000';
+					$allow_font_change   = ! array_key_exists( 'allow_font_change', $s ) || ! empty( $s['allow_font_change'] );
+					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
+					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$cg_ids    = $s['colour_groups'] ?? [];
 					$fg_ids    = $s['font_groups']   ?? [];
 
@@ -276,12 +281,13 @@ $has_multiple_areas = count( $areas ) > 1;
 							<?php endif; ?>
 
 							<!-- Font picker (text / textarea) -->
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! empty( $layer_fonts ) ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_font_change && ! empty( $layer_fonts ) ) : ?>
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Font', 'overcustomise' ); ?><?php OC_Tooltips::render( 'font-' . $layer->id, __( 'Choose the font style for your text.', 'overcustomise' ) ); ?></label>
 									<select data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>">
 										<?php foreach ( $layer_fonts as $font ) : ?>
 											<option value="<?php echo esc_attr( $font['id'] ); ?>"
+												<?php selected( absint( $s['default_font_id'] ?? 0 ), absint( $font['id'] ) ); ?>
 												style="font-family:'<?php echo esc_attr( $font['name'] ); ?>';">
 												<?php echo esc_html( $font['name'] ); ?>
 											</option>
@@ -290,25 +296,32 @@ $has_multiple_areas = count( $areas ) > 1;
 								</div>
 							<?php endif; ?>
 
+							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_size_change ) : ?>
+								<div class="oc-control-group">
+									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Text size', 'overcustomise' ); ?></label>
+									<input type="number" min="1" step="1" value="<?php echo esc_attr( $default_font_size ?: 24 ); ?>" id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>" data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
+								</div>
+							<?php endif; ?>
+
 							<!-- Colour picker (text / textarea) — skipped for engraving. -->
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! $is_engraving ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! $is_engraving && $allow_colour_change ) : ?>
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?><?php OC_Tooltips::render( 'color-' . $layer->id, __( 'Pick a colour from the options below.', 'overcustomise' ) ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
 										<div class="oc-colour-swatches">
 											<?php foreach ( $layer_colours as $colour ) : ?>
-											<button type="button" class="oc-colour-swatch"
-												style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-												title="<?php echo esc_attr( $colour->name ); ?>"
-												aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
-												aria-pressed="false"
-												data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-												data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+										<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
+											style="background:<?php echo esc_attr( $colour->hex ); ?>;"
+											title="<?php echo esc_attr( $colour->name ); ?>"
+											aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
+											aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
+											data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
+											data-hex="<?php echo esc_attr( $colour->hex ); ?>">
 											</button>
 											<?php endforeach; ?>
 										</div>
 									<?php else : ?>
-										<input type="color" value="#000000"
+										<input type="color" value="<?php echo esc_attr( $default_colour ); ?>"
 											data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
 									<?php endif; ?>
 								</div>

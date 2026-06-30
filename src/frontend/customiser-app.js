@@ -102,14 +102,14 @@ class OCCustomiser {
 		this.findGalleryImage();
 		this.preflightRoot = document.getElementById( 'oc-preflight-messages' );
 
-		// Seed first font for text layers so they render immediately.
+		// Seed configured/default fonts for text layers so they render immediately.
 		if ( this.fonts.length ) {
 			const firstFont = this.fonts[ 0 ];
 			this.areas.forEach( area => {
 				( area.layers || [] ).forEach( layer => {
 					if ( ( layer.type === 'text' || layer.type === 'textarea' ) ) {
 						const inp = this.inputs[ layer.id ];
-						if ( inp && ! inp.fontId ) inp.fontId = firstFont.id;
+						if ( inp && ! inp.fontId ) inp.fontId = layer.settings?.default_font_id || firstFont.id;
 					}
 				} );
 			} );
@@ -545,7 +545,7 @@ class OCCustomiser {
 
 				let font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
 				// Engraving uses the product undertone instead of a customer-selected colour.
-				const color = isEngraving ? engravingPalette.text : ( input.colorHex || '#000000' );
+				const color = isEngraving ? engravingPalette.text : ( input.colorHex || layer.settings?.default_color || '#000000' );
 				const align = layer.settings?.alignment || 'center';
 				if ( font ) {
 					try {
@@ -557,7 +557,10 @@ class OCCustomiser {
 				}
 
 				const minFontSize = fontLimit( layer.settings?.min_font_size ) * scale;
-				let fontSize = clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
+				const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
+				let fontSize = configuredFontSize
+					? clampFontSize( Math.max( 1, parseInt( configuredFontSize, 10 ) ) * scale, layer.settings )
+					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				const obj    = new FabricText( raw, {
 					left: lcX, top: lcY,
 					originX: 'center', originY: 'center',
@@ -917,6 +920,18 @@ class OCCustomiser {
 				reflectFontOnSelect( el );
 				const preview = document.querySelector( `.oc-font-preview[data-oc-font-preview="${ lid }"]` );
 				if ( preview && font ) preview.style.fontFamily = font.name;
+				this.requestPreviewFocus();
+				this.scheduleRedraw();
+				this.updateHiddenField();
+			} );
+		} );
+
+		// Font size
+		document.querySelectorAll( '[data-oc-layer-font-size]' ).forEach( el => {
+			const lid = parseInt( el.dataset.ocLayerFontSize, 10 );
+			el.addEventListener( 'input', () => {
+				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
+				this.inputs[ lid ].fontSize = Math.max( 1, parseInt( el.value, 10 ) || 1 );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -1372,6 +1387,11 @@ class OCCustomiser {
 			const colorEl = document.querySelector( `[data-oc-layer-color="${ layerId }"]` );
 			if ( colorEl && inp.colorHex ) {
 				colorEl.value = inp.colorHex;
+			}
+
+			const sizeEl = document.querySelector( `[data-oc-layer-font-size="${ layerId }"]` );
+			if ( sizeEl && inp.fontSize ) {
+				sizeEl.value = inp.fontSize;
 			}
 
 			const clipartBtn = document.querySelector( `[data-oc-layer-clipart="${ layerId }"][data-oc-clipart="${ inp.clipartId }"]` );

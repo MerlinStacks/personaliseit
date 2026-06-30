@@ -51,6 +51,7 @@ class OC_Render_Spec {
 		$text_parts   = [];
 		$font_id      = 0;
 		$color        = '';
+		$font_size    = 0;
 		$min_font     = 0;
 		$max_font     = 0;
 		$attachment   = 0;
@@ -74,8 +75,20 @@ class OC_Render_Spec {
 				if ( ! $font_id && ! empty( $input['fontId'] ) ) {
 					$font_id = (int) $input['fontId'];
 				}
+				if ( ! $font_id && ! empty( $settings['default_font_id'] ) ) {
+					$font_id = (int) $settings['default_font_id'];
+				}
 				if ( '' === $color && ! empty( $input['colorHex'] ) ) {
 					$color = (string) $input['colorHex'];
+				}
+				if ( '' === $color && ! empty( $settings['default_color'] ) ) {
+					$color = (string) $settings['default_color'];
+				}
+				if ( ! $font_size && ! empty( $input['fontSize'] ) ) {
+					$font_size = absint( $input['fontSize'] );
+				}
+				if ( ! $font_size && ! empty( $settings['default_font_size'] ) ) {
+					$font_size = absint( $settings['default_font_size'] );
 				}
 				if ( ! $min_font && ! empty( $settings['min_font_size'] ) ) {
 					$min_font = absint( $settings['min_font_size'] );
@@ -99,6 +112,7 @@ class OC_Render_Spec {
 		return [
 			'text'                => implode( "\n", $text_parts ),
 			'fontId'              => $font_id,
+			'fontSize'            => $font_size,
 			'color'               => '' !== $color ? $color : '#000000',
 			'minFontSize'         => $min_font,
 			'maxFontSize'         => $max_font,

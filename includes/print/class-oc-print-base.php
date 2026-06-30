@@ -399,8 +399,10 @@ abstract class OC_Print_Base {
 			return;
 		}
 
-		$font_name = self::resolve_font( (int) ( $input['fontId'] ?? 0 ) );
-		$font_size = max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );
+		$font_name = self::resolve_font( (int) ( $input['fontId'] ?? $settings['default_font_id'] ?? 0 ) );
+		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
+			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )
+			: max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );
 		$min_size  = ! empty( $settings['min_font_size'] ) ? self::px_to_pt( (float) $settings['min_font_size'] ) : 0.0;
 		$max_size  = ! empty( $settings['max_font_size'] ) ? self::px_to_pt( (float) $settings['max_font_size'] ) : 0.0;
 		if ( $max_size > 0.0 ) {
@@ -422,7 +424,7 @@ abstract class OC_Print_Base {
 		if ( 'engraving' === $mode ) {
 			$pdf->SetTextColor( 0, 0, 0 );
 		} else {
-			[ $c, $m, $y, $k ] = self::hex_to_cmyk( (string) ( $input['colorHex'] ?? '#000000' ) );
+			[ $c, $m, $y, $k ] = self::hex_to_cmyk( (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' ) );
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 		}
 

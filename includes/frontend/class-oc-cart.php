@@ -76,7 +76,11 @@ class OC_Cart {
 				if ( '' === $layer_type ) {
 					continue;
 				}
-				$design_layers[ $layer_id ] = $layer_type;
+				$settings = $layer->settings ? json_decode( (string) $layer->settings, true ) : [];
+				$design_layers[ $layer_id ] = [
+					'type'     => $layer_type,
+					'settings' => is_array( $settings ) ? $settings : [],
+				];
 			}
 			if ( empty( $design_layers ) ) {
 				return $cart_item_data;
@@ -95,16 +99,33 @@ class OC_Cart {
 				if ( ! $layer_key ) continue;
 				if ( ! isset( $design_layers[ $layer_key ] ) ) continue;
 
-				$type = $design_layers[ $layer_key ];
+				$type     = $design_layers[ $layer_key ]['type'];
+				$settings = $design_layers[ $layer_key ]['settings'];
 				if ( ! in_array( $type, $valid_layer_types, true ) ) {
 					continue;
+				}
+
+				$font_id   = absint( $layer_data['fontId'] ?? 0 );
+				$font_size = absint( $layer_data['fontSize'] ?? 0 );
+				$color_hex = sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000';
+				if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
+					if ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) {
+						$font_id = absint( $settings['default_font_id'] ?? 0 );
+					}
+					if ( empty( $settings['allow_size_change'] ) ) {
+						$font_size = absint( $settings['default_font_size'] ?? 0 );
+					}
+					if ( array_key_exists( 'allow_colour_change', $settings ) && empty( $settings['allow_colour_change'] ) ) {
+						$color_hex = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
+					}
 				}
 
 				$sanitised_layers[ $layer_key ] = [
 					'type'          => $type,
 					'value'         => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',
-					'fontId'        => absint( $layer_data['fontId']       ?? 0 ),
-					'colorHex'      => sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000',
+					'fontId'        => $font_id,
+					'fontSize'      => $font_size,
+					'colorHex'      => $color_hex,
 					'attachmentId'  => absint( $layer_data['attachmentId'] ?? 0 ),
 					'clipartId'     => absint( $layer_data['clipartId']    ?? 0 ),
 					'clipartUrl'    => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',

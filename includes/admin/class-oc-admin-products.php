@@ -544,6 +544,7 @@ class OC_Admin_Products {
 			'nonce'        => wp_create_nonce( 'oc-products-nonce' ),
 			'mediaTitle'   => __( 'Select Mockup Image', 'overcustomise' ),
 			'mediaBtn'     => __( 'Use as Mockup', 'overcustomise' ),
+			'fonts'        => OC_Font_Registry::get_fonts_for_js(),
 			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_font_groups() ),
 			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_colour_groups() ),
 			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_clipart_groups() ),

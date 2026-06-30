@@ -108,6 +108,9 @@
       id: 'style',
       label: 'Style'
     }, {
+      id: 'properties',
+      label: 'Properties'
+    }, {
       id: 'validation',
       label: 'Validation'
     }],
@@ -120,6 +123,9 @@
     }, {
       id: 'style',
       label: 'Style'
+    }, {
+      id: 'properties',
+      label: 'Properties'
     }, {
       id: 'validation',
       label: 'Validation'
@@ -495,10 +501,16 @@
           default_text: '',
           char_limit: 0,
           alignment: 'center',
+          default_font_id: 0,
+          default_font_size: 0,
+          default_color: '#000000',
           min_font_size: 0,
           max_font_size: 0,
           font_groups: [],
           colour_groups: [],
+          allow_font_change: true,
+          allow_colour_change: true,
+          allow_size_change: false,
           required: false
         };
       case 'image':
@@ -549,6 +561,9 @@
   }
   function fontLimit(value) {
     return Math.max(0, parseInt(value, 10) || 0);
+  }
+  function normaliseHex(value) {
+    return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#000000';
   }
   function clampFontSize(size, settings, scale) {
     const min = fontLimit(settings?.min_font_size) * scale;
@@ -640,6 +655,9 @@
     if (!groups.length) return '<span class="oc-settings-empty">No groups created yet.</span>';
     return '<div class="oc-group-checks">' + groups.map(g => '<label class="oc-group-check-item"><input type="checkbox" class="' + cls + '" value="' + esc(g.id) + '"' + (selected.indexOf(Number(g.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(g.name) + '</span></label>').join('') + '</div>';
   }
+  function fontOptions(fonts, selected) {
+    return '<option value="0">Auto / first available</option>' + fonts.map(f => '<option value="' + esc(f.id) + '"' + (Number(selected) === Number(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('');
+  }
   function formatChecks(selected) {
     return '<div class="oc-group-checks">' + ['png', 'jpg', 'svg', 'webp', 'pdf', 'eps'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
   }
@@ -650,6 +668,7 @@
     const s = layer.settings;
     const data = window.ocProductsData || {};
     const fGroups = data.fontGroups || [];
+    const fonts = data.fonts || [];
     const cGroups = data.colourGroups || [];
     const aGroups = data.clipartGroups || [];
     // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
@@ -661,7 +680,7 @@
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
-        return field('Alignment', alignBtns(s.alignment || 'center')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        return field('Alignment', alignBtns(s.alignment || 'center')) + (fonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(fonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">No fonts uploaded yet.</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
         return field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />');
       case 'appearance':
@@ -672,6 +691,8 @@
         return aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>';
       case 'validation':
         return toggleField('Required field', 'oc-set-required', s.required);
+      case 'properties':
+        return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Font', 'oc-set-allow-font-change', s.allow_font_change !== false) + (isEngraving ? '' : toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false)) + toggleField('Size', 'oc-set-allow-size-change', !!s.allow_size_change);
       default:
         return '';
     }
@@ -695,6 +716,21 @@
     });
     document.getElementById('oc-set-char-limit')?.addEventListener('input', e => {
       s.char_limit = parseInt(e.target.value, 10) || 0;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-default-font')?.addEventListener('change', e => {
+      s.default_font_id = parseInt(e.target.value, 10) || 0;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-default-font-size')?.addEventListener('input', e => {
+      s.default_font_size = fontLimit(e.target.value);
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-default-color')?.addEventListener('input', e => {
+      s.default_color = normaliseHex(e.target.value);
       renderHiddenFields();
       markDirty();
     });
@@ -751,6 +787,21 @@
     });
     document.getElementById('oc-set-required')?.addEventListener('change', e => {
       s.required = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-allow-font-change')?.addEventListener('change', e => {
+      s.allow_font_change = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-allow-colour-change')?.addEventListener('change', e => {
+      s.allow_colour_change = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-allow-size-change')?.addEventListener('change', e => {
+      s.allow_size_change = e.target.checked;
       renderHiddenFields();
       markDirty();
     });
