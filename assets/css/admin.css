@@ -1387,6 +1387,11 @@
 }
 .oc-editor-section--grow { flex: 1; overflow-y: auto; }
 
+.oc-editor-left .oc-editor-section--grow {
+	flex: 0 0 auto;
+	overflow-y: visible;
+}
+
 .oc-editor-section-header {
 	display: flex;
 	align-items: center;
