@@ -481,11 +481,13 @@
   // ── Normalisers ────────────────────────────────────────────────────────────
 
   function normaliseArea(a, i) {
+    const unit = ['px', 'mm', 'cm', 'in'].includes(a.unit) ? a.unit : 'px';
     return {
       _uid: ++uidCounter,
       id: Number(a.id) || 0,
       label: a.label || '',
       method: a.method || 'uv',
+      unit,
       mockupId: Number(a.mockupId) || 0,
       mockupUrl: a.mockupUrl || '',
       x: Number(a.x) || 0,
@@ -601,6 +603,9 @@
   function normaliseRotation(value) {
     const angle = Number(value) || 0;
     return Math.round((angle % 360 + 360) % 360);
+  }
+  function normaliseUnit(value) {
+    return ['px', 'mm', 'cm', 'in'].includes(value) ? value : 'px';
   }
   function clampLayerToArea(layer, area) {
     if (!layer || !area) return;
@@ -963,6 +968,7 @@
     if (inner) inner.style.display = '';
     setVal('oc-prop-label', area.label);
     setVal('oc-prop-method', area.method);
+    setVal('oc-prop-unit', area.unit || 'px');
     setVal('oc-prop-x', area.x);
     setVal('oc-prop-y', area.y);
     setVal('oc-prop-w', area.w);
@@ -1300,7 +1306,7 @@
     let html = '';
     areas.forEach((area, i) => {
       const p = 'oc_design_areas[' + i + ']';
-      html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
+      html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc(area.unit || 'px') + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
     });
     let li = 0;
     areas.forEach((area, areaIdx) => {
@@ -1357,6 +1363,14 @@
         area.method = document.getElementById('oc-prop-method').value;
         // Re-render everything so layer panels reflect method-dependent UI (e.g. hide colour picks under engraving).
         renderAll();
+        markDirty();
+      }
+    });
+    document.getElementById('oc-prop-unit')?.addEventListener('change', () => {
+      const area = areas[selectedIndex];
+      if (area) {
+        area.unit = normaliseUnit(document.getElementById('oc-prop-unit').value);
+        renderHiddenFields();
         markDirty();
       }
     });

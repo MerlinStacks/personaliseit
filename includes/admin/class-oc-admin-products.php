@@ -461,6 +461,7 @@ class OC_Admin_Products {
 				'id'        => (int) $area->id,
 				'label'     => $area->label,
 				'method'    => $area->print_method,
+				'unit'      => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
 				'mockupId'  => (int) $area->mockup_attachment_id,
 				'mockupUrl' => $area->mockup_attachment_id
 					? ( wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'large' ) ?: '' )
@@ -591,8 +592,7 @@ class OC_Admin_Products {
 									<input type="text" id="oc-prop-label" class="oc-input" style="width:100%;" placeholder="<?php esc_attr_e( 'e.g. Front', 'overcustomise' ); ?>" />
 								</div>
 								<div class="oc-editor-field">
-									<label for="oc-prop-method"><?php esc_html_e( 'Print Method', 'overcustomise' ); ?><?php OC_Tooltips::render( 'print-method', __( 'The decoration technique for this area: UV printing, engraving, embroidery, or sublimation.', 'overcustomise' ) ); ?></label>
-									<select id="oc-prop-method" class="oc-select" style="width:100%;">
+									<select id="oc-prop-method" class="oc-select" style="width:100%;" aria-label="<?php esc_attr_e( 'Print Method', 'overcustomise' ); ?>">
 										<option value="uv"><?php esc_html_e( 'UV Printing', 'overcustomise' ); ?></option>
 										<option value="engraving"><?php esc_html_e( 'Engraving', 'overcustomise' ); ?></option>
 										<option value="embroidery"><?php esc_html_e( 'Embroidery', 'overcustomise' ); ?></option>
@@ -609,8 +609,13 @@ class OC_Admin_Products {
 								</div>
 								<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;margin-bottom:8px;">
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
-									<?php OC_Tooltips::render( 'print-bounds', __( 'Pixel coordinates and dimensions of the printable area on the mockup image.', 'overcustomise' ) ); ?>
-									<span style="font-size:10px;color:var(--oc-gray-400);">px</span>
+									<?php OC_Tooltips::render( 'print-bounds', __( 'Coordinates and dimensions of the printable area. Pixels map to the mockup; physical units set the generated print file size.', 'overcustomise' ) ); ?>
+									<select id="oc-prop-unit" class="oc-select" style="width:auto;min-width:64px;font-size:11px;padding:2px 6px;">
+										<option value="px">px</option>
+										<option value="mm">mm</option>
+										<option value="cm">cm</option>
+										<option value="in">in</option>
+									</select>
 								</div>
 								<div class="oc-bounds-grid">
 									<div class="oc-editor-field"><label>X</label><input type="number" id="oc-prop-x" class="oc-input" min="0" style="width:100%;" /></div>
@@ -774,6 +779,9 @@ class OC_Admin_Products {
 			$method     = in_array( $area_data['print_method'] ?? '', [ 'engraving', 'uv', 'embroidery', 'sublimation' ], true )
 				? sanitize_key( $area_data['print_method'] )
 				: 'uv';
+			$unit       = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
+				? sanitize_key( $area_data['canvas_unit'] )
+				: 'px';
 			$mockup_id  = (int) ( $area_data['mockup_attachment_id'] ?? 0 );
 			$canvas_x   = max( 0, (int) ( $area_data['canvas_x'] ?? 0 ) );
 			$canvas_y   = max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) );
@@ -788,6 +796,7 @@ class OC_Admin_Products {
 				'area_key'             => $area_key,
 				'label'                => $label,
 				'print_method'         => $method,
+				'canvas_unit'          => $unit,
 				'mockup_attachment_id' => $mockup_id ?: null,
 				'canvas_x'             => $canvas_x,
 				'canvas_y'             => $canvas_y,
@@ -798,7 +807,7 @@ class OC_Admin_Products {
 				'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
 				'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
 			];
-			$row_fmt = [ '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
+			$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
 
 			if ( $area_id > 0 ) {
 				$wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id ], $row_fmt, [ '%d' ] );

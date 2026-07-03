@@ -101,8 +101,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$text  = $area_data['text'] ?? '';
 		$color = $area_data['color'] ?? '#000000';
-		$w_mm  = self::px_to_mm( (int) $area->canvas_w );
-		$h_mm  = self::px_to_mm( (int) $area->canvas_h );
+		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
 
 		// Resolve font path.
 		$font_path = '';
@@ -169,8 +168,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	): string {
 		self::require_tcpdf();
 
-		$w_mm = max( 100.0, self::px_to_mm( (int) $area->canvas_w ) );
-		$h_mm = max( 60.0,  self::px_to_mm( (int) $area->canvas_h ) );
+		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
+		$w_mm = max( 100.0, $area_w_mm );
+		$h_mm = max( 60.0, $area_h_mm );
 
 		$pdf = self::make_pdf( 210, 297, 0 ); // A4
 		$pdf->SetTitle( sprintf( 'Embroidery Brief — Order #%d', $order->get_id() ) );

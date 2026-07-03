@@ -188,6 +188,7 @@ class OC_DB {
 			area_key             VARCHAR(50)  NOT NULL DEFAULT 'front',
 			label                VARCHAR(100) NOT NULL DEFAULT 'Front',
 			print_method         ENUM('engraving','uv','embroidery','sublimation') NOT NULL DEFAULT 'uv',
+			canvas_unit          VARCHAR(10) NOT NULL DEFAULT 'px',
 			mockup_attachment_id BIGINT UNSIGNED DEFAULT NULL,
 			canvas_x             INT NOT NULL DEFAULT 0,
 			canvas_y             INT NOT NULL DEFAULT 0,

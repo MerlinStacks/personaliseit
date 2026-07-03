@@ -164,6 +164,7 @@ class OC_Render_Spec {
 			'areaKey'     => (string) $area->area_key,
 			'label'       => (string) $area->label,
 			'printMethod' => (string) $area->print_method,
+			'unit'        => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
 			'bounds'      => [
 				'x'        => (int) $area->canvas_x,
 				'y'        => (int) $area->canvas_y,

@@ -30,8 +30,7 @@ class OC_Print_UV extends OC_Print_Base {
 	): string {
 		self::require_tcpdf();
 
-		$w_mm  = self::px_to_mm( (int) $area->canvas_w );
-		$h_mm  = self::px_to_mm( (int) $area->canvas_h );
+		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
 		$bleed = (float) OC_Admin_Settings::get( 'bleed_mm' ) ?: 3.0;
 
 		$pdf = self::make_pdf( $w_mm, $h_mm, $bleed );

@@ -33,6 +33,31 @@ abstract class OC_Print_Base {
 		return round( $pixels * 25.4 / self::CANVAS_DPI, 3 );
 	}
 
+	/** Convert a stored print-bound value to millimetres using its selected unit. */
+	protected static function unit_to_mm( float $value, string $unit ): float {
+		switch ( $unit ) {
+			case 'mm':
+				return round( $value, 3 );
+			case 'cm':
+				return round( $value * 10, 3 );
+			case 'in':
+				return round( $value * 25.4, 3 );
+			case 'px':
+			default:
+				return self::px_to_mm( (int) round( $value ) );
+		}
+	}
+
+	/** Return the physical print area dimensions in millimetres. */
+	protected static function area_dimensions_mm( object $area ): array {
+		$unit = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
+
+		return [
+			self::unit_to_mm( (float) ( $area->canvas_w ?? 1 ), $unit ),
+			self::unit_to_mm( (float) ( $area->canvas_h ?? 1 ), $unit ),
+		];
+	}
+
 	/** Convert canvas pixels to font points at CANVAS_DPI. */
 	protected static function px_to_pt( float $pixels ): float {
 		return round( $pixels * 72 / self::CANVAS_DPI, 3 );
@@ -355,8 +380,9 @@ abstract class OC_Print_Base {
 	 */
 	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour' ): void {
 		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
-		$area_x = isset( $bounds['x'] ) ? (int) $bounds['x'] : (int) ( $area->canvas_x ?? 0 );
-		$area_y = isset( $bounds['y'] ) ? (int) $bounds['y'] : (int) ( $area->canvas_y ?? 0 );
+		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
+		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
+		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -364,10 +390,10 @@ abstract class OC_Print_Base {
 			}
 
 			$type = (string) ( $layer['type'] ?? '' );
-			$x_mm = $origin_x_mm + self::px_to_mm( (int) ( $layer['x'] ?? 0 ) - $area_x );
-			$y_mm = $origin_y_mm + self::px_to_mm( (int) ( $layer['y'] ?? 0 ) - $area_y );
-			$w_mm = self::px_to_mm( max( 1, (int) ( $layer['w'] ?? 1 ) ) );
-			$h_mm = self::px_to_mm( max( 1, (int) ( $layer['h'] ?? 1 ) ) );
+			$x_mm = $origin_x_mm + self::unit_to_mm( (float) ( $layer['x'] ?? 0 ) - $area_x, $unit );
+			$y_mm = $origin_y_mm + self::unit_to_mm( (float) ( $layer['y'] ?? 0 ) - $area_y, $unit );
+			$w_mm = self::unit_to_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $unit );
+			$h_mm = self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit );
 			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 
