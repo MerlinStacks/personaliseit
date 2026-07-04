@@ -1,3 +1,5 @@
+import { createFont } from 'fonteditor-core';
+
 /**
  * Admin — Font Manager JS.
  *
@@ -435,6 +437,11 @@
 		}
 
 		try {
+			if ( font.ext === 'OTF' ) {
+				await convertFontInBrowser( font );
+				return;
+			}
+
 			const fd = new FormData();
 			fd.append( 'action', 'oc_font_convert' );
 			fd.append( 'nonce', nonce );
@@ -445,19 +452,15 @@
 			const json = await res.json();
 
 			if ( ! json.success ) {
+				if ( font.ext === 'WOFF' ) {
+					await convertFontInBrowser( font );
+					return;
+				}
 				window.alert( json.data?.message || 'Font conversion failed.' );
 				return;
 			}
 
-			const updated = json.data;
-			fonts = fonts.map( f => Number( f.id ) === Number( updated.id ) ? updated : f );
-			replaceFontCard( updated );
-
-			if ( detailFontName === updated.name ) {
-				renderDetailVariants( updated.name );
-			}
-
-			window.alert( 'Font converted for print. Existing designs will keep using this font.' );
+			applyConvertedFont( json.data );
 		} catch ( err ) {
 			window.alert( err?.message || 'Network error — please try again.' );
 		} finally {
@@ -466,6 +469,47 @@
 				button.textContent = label;
 			}
 		}
+	}
+
+	async function convertFontInBrowser( font ) {
+		const response = await fetch( font.url, { credentials: 'same-origin', cache: 'no-store' } );
+		if ( ! response.ok ) throw new Error( `Could not load font file (${response.status}).` );
+
+		const sourceType = String( font.ext || '' ).toLowerCase();
+		const source = createFont( await response.arrayBuffer(), {
+			type: sourceType,
+			compound2simple: true,
+		} );
+		const converted = source.write( { type: 'ttf' } );
+		const blob = new Blob( [ converted ], { type: 'font/ttf' } );
+
+		const fd = new FormData();
+		fd.append( 'action', 'oc_font_replace_print' );
+		fd.append( 'nonce', nonce );
+		fd.append( 'id', font.id );
+		fd.append( 'oc_font_file', blob, `${safeFilename( font.name ) || 'font'}-print.ttf` );
+
+		const res = await fetch( ajaxUrl, { method: 'POST', body: fd } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		const json = await res.json();
+		if ( ! json.success ) throw new Error( json.data?.message || 'Browser conversion failed.' );
+
+		applyConvertedFont( json.data );
+	}
+
+	function applyConvertedFont( updated ) {
+		fonts = fonts.map( f => Number( f.id ) === Number( updated.id ) ? updated : f );
+		replaceFontCard( updated );
+
+		if ( detailFontName === updated.name ) {
+			renderDetailVariants( updated.name );
+		}
+
+		window.alert( 'Font converted for print. Existing designs will keep using this font.' );
+	}
+
+	function safeFilename( value ) {
+		return String( value || '' ).toLowerCase().replace( /[^a-z0-9_-]+/g, '-' ).replace( /^-+|-+$/g, '' );
 	}
 
 	function replaceFontCard( font ) {

@@ -602,7 +602,6 @@ class OC_Admin_Settings {
 			'icc_engraving'          => sanitize_text_field( $_POST['oc_icc_engraving'] ?? '' ),
 			'icc_uv'                 => sanitize_text_field( $_POST['oc_icc_uv'] ?? '' ),
 			'icc_sublimation'        => sanitize_text_field( $_POST['oc_icc_sublimation'] ?? '' ),
-			'fontforge_binary'       => sanitize_text_field( $_POST['oc_fontforge_binary'] ?? 'fontforge' ),
 		];
 
 		update_option( self::OPTION_KEY, $settings );

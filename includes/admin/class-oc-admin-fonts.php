@@ -18,6 +18,7 @@ class OC_Admin_Fonts {
 		add_action( 'wp_ajax_oc_font_upload',       [ self::class, 'ajax_upload' ] );
 		add_action( 'wp_ajax_oc_font_rename',       [ self::class, 'ajax_rename' ] );
 		add_action( 'wp_ajax_oc_font_convert',      [ self::class, 'ajax_convert' ] );
+		add_action( 'wp_ajax_oc_font_replace_print', [ self::class, 'ajax_replace_print' ] );
 		add_action( 'wp_ajax_oc_group_create',      [ self::class, 'ajax_group_create' ] );
 		add_action( 'wp_ajax_oc_group_update',      [ self::class, 'ajax_group_update' ] );
 		add_action( 'wp_ajax_oc_group_delete',      [ self::class, 'ajax_group_delete' ] );
@@ -432,6 +433,23 @@ class OC_Admin_Fonts {
 		is_wp_error( $result ) ? wp_send_json_error( [ 'message' => $result->get_error_message() ] ) : wp_send_json_success( $result );
 	}
 
+	// ── AJAX: replace font file with browser-converted print TTF ────────────────
+
+	public static function ajax_replace_print(): void {
+		check_ajax_referer( 'oc_font_actions', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
+		}
+
+		$id = (int) ( $_POST['id'] ?? 0 );
+		if ( ! $id || empty( $_FILES['oc_font_file']['name'] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
+
+		$result = self::replace_font_file_for_print( $id, $_FILES['oc_font_file'] );
+		is_wp_error( $result ) ? wp_send_json_error( [ 'message' => $result->get_error_message() ] ) : wp_send_json_success( $result );
+	}
+
 	// ── AJAX: group create ─────────────────────────────────────────────────────
 
 	public static function ajax_group_create(): void {
@@ -643,13 +661,10 @@ class OC_Admin_Fonts {
 		}
 
 		if ( 'otf' === $output_ext && self::is_cff_opentype_file( $source_for_print ) ) {
-			$dest = self::convert_cff_to_truetype( $source_for_print, $font_dir, (string) $font->file_path );
 			if ( $source_for_print !== $real ) {
 				wp_delete_file( $source_for_print );
 			}
-			if ( is_wp_error( $dest ) ) {
-				return $dest;
-			}
+			return new \WP_Error( 'browser_conversion_required', __( 'This font needs browser conversion. Please use the Convert for print button from the Font Manager page.', 'overcustomise' ) );
 		} else {
 			$filename = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) . '-print.' . $output_ext;
 			$dest     = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $filename );
@@ -660,6 +675,62 @@ class OC_Admin_Fonts {
 			} else {
 				rename( $source_for_print, $dest );
 			}
+		}
+
+		$rel_path = self::FONT_SUBDIR . '/' . basename( $dest );
+		$updated  = $wpdb->update(
+			"{$wpdb->prefix}oc_fonts",
+			[ 'file_path' => $rel_path ],
+			[ 'id' => $id ],
+			[ '%s' ],
+			[ '%d' ]
+		);
+
+		if ( false === $updated ) {
+			wp_delete_file( $dest );
+			return new \WP_Error( 'db_error', __( 'Could not update font record.', 'overcustomise' ) );
+		}
+
+		$font->file_path = $rel_path;
+		return self::font_payload( $font );
+	}
+
+	private static function replace_font_file_for_print( int $id, array $file ): array|\WP_Error {
+		if ( ! empty( $file['error'] ) && UPLOAD_ERR_OK !== (int) $file['error'] ) {
+			return new \WP_Error( 'upload_error', __( 'Converted font upload failed.', 'overcustomise' ) );
+		}
+		if ( empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
+			return new \WP_Error( 'no_file', __( 'Converted font file was not received.', 'overcustomise' ) );
+		}
+		if ( (int) ( $file['size'] ?? 0 ) > 20 * 1024 * 1024 ) {
+			return new \WP_Error( 'too_large', __( 'Converted font file exceeds the size limit.', 'overcustomise' ) );
+		}
+
+		$signature = file_get_contents( (string) $file['tmp_name'], false, null, 0, 4 );
+		if ( false === $signature || ! in_array( bin2hex( $signature ), [ '00010000', '74727565' ], true ) ) {
+			return new \WP_Error( 'bad_font', __( 'The converted file is not a TrueType-outline font.', 'overcustomise' ) );
+		}
+
+		global $wpdb;
+		$font = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_fonts WHERE id = %d", $id ) );
+		if ( ! $font ) {
+			return new \WP_Error( 'not_found', __( 'Font not found.', 'overcustomise' ) );
+		}
+
+		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload['error'] );
+		}
+
+		$font_dir = trailingslashit( $upload['basedir'] ) . self::FONT_SUBDIR;
+		if ( ! wp_mkdir_p( $font_dir ) ) {
+			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
+		}
+
+		$base = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) ?: 'font-' . $id;
+		$dest = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $base . '-print.ttf' );
+		if ( ! move_uploaded_file( (string) $file['tmp_name'], $dest ) ) {
+			return new \WP_Error( 'move_failed', __( 'Could not save converted font file.', 'overcustomise' ) );
 		}
 
 		$rel_path = self::FONT_SUBDIR . '/' . basename( $dest );
@@ -718,36 +789,6 @@ class OC_Admin_Fonts {
 		fclose( $handle );
 
 		return 'OTTO' === $signature;
-	}
-
-	private static function convert_cff_to_truetype( string $source, string $font_dir, string $original_path ): string|\WP_Error {
-		$binary = trim( (string) OC_Admin_Settings::get( 'fontforge_binary' ) ) ?: 'fontforge';
-		$dest   = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, sanitize_file_name( pathinfo( $original_path, PATHINFO_FILENAME ) ) . '-print.ttf' );
-		$script = wp_tempnam( 'oc-fontforge-' . wp_generate_uuid4() . '.pe' );
-
-		if ( ! is_string( $script ) || '' === $script ) {
-			return new \WP_Error( 'script_failed', __( 'Could not create a temporary FontForge script.', 'overcustomise' ) );
-		}
-
-		if ( false === file_put_contents( $script, "Open(\$1)\nGenerate(\$2)\nQuit(0)\n" ) ) {
-			wp_delete_file( $script );
-			return new \WP_Error( 'script_failed', __( 'Could not write the temporary FontForge script.', 'overcustomise' ) );
-		}
-
-		try {
-			$result = OC_Command_Runner::run( [ $binary, '-script', $script, $source, $dest ] );
-		} catch ( \InvalidArgumentException $e ) {
-			wp_delete_file( $script );
-			return new \WP_Error( 'fontforge_unavailable', sprintf( __( 'FontForge is not available: %s', 'overcustomise' ), $e->getMessage() ) );
-		}
-
-		wp_delete_file( $script );
-
-		if ( 0 !== (int) $result['code'] || ! file_exists( $dest ) ) {
-			return new \WP_Error( 'fontforge_failed', sprintf( __( 'FontForge could not convert this font. Install/configure FontForge or upload a TTF version. Output: %s', 'overcustomise' ), implode( ' ', array_slice( (array) $result['output'], 0, 5 ) ) ) );
-		}
-
-		return $dest;
 	}
 
 	private static function woff_sfnt_extension( string $path ): string {
