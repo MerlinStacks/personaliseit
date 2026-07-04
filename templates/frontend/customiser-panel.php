@@ -297,8 +297,7 @@ foreach ( $layers as $layer ) {
 							<!-- Font picker (text / textarea) -->
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_font_change && ! empty( $layer_fonts ) ) : ?>
 								<div class="oc-control-group">
-									<label><?php esc_html_e( 'Font', 'overcustomise' ); ?><?php OC_Tooltips::render( 'font-' . $layer->id, __( 'Choose the font style for your text.', 'overcustomise' ) ); ?></label>
-									<select data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>">
+									<select data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>" aria-label="<?php esc_attr_e( 'Font', 'overcustomise' ); ?>">
 										<?php foreach ( $layer_fonts as $font ) : ?>
 											<option value="<?php echo esc_attr( $font['id'] ); ?>"
 												<?php selected( absint( $s['default_font_id'] ?? 0 ), absint( $font['id'] ) ); ?>

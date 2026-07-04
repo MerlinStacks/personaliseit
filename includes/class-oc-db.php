@@ -542,7 +542,7 @@ class OC_DB {
 		$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
 		$allowed_ids  = $wpdb->get_col(
 			$wpdb->prepare(
-				"SELECT DISTINCT colour_id FROM {$wpdb->prefix}oc_colour_group_items WHERE group_id IN ($placeholders) ORDER BY sort_order ASC",
+				"SELECT colour_id FROM {$wpdb->prefix}oc_colour_group_items WHERE group_id IN ($placeholders) GROUP BY colour_id ORDER BY MIN(sort_order) ASC",
 				...$group_ids
 			)
 		) ?: [];

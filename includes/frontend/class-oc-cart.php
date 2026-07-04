@@ -12,6 +12,7 @@ class OC_Cart {
 
 	public function register(): void {
 		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_preview_styles' ] );
+		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_admin_preview_modal' ] );
 
 		// Store customisation in the cart item.
 		add_filter( 'woocommerce_add_cart_item_data', [ $this, 'add_cart_item_data' ], 10, 3 );
@@ -67,6 +68,20 @@ class OC_Cart {
 				height: 64px;
 			}
 		' );
+	}
+
+	/** Load WordPress' image modal on WooCommerce order admin screens. */
+	public function enqueue_admin_preview_modal(): void {
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen ) {
+			return;
+		}
+
+		if ( 'shop_order' !== $screen->post_type && 'woocommerce_page_wc-orders' !== $screen->id ) {
+			return;
+		}
+
+		add_thickbox();
 	}
 
 	// -------------------------------------------------------------------------
@@ -486,15 +501,6 @@ class OC_Cart {
 		$item->update_meta_data( '_oc_flat_rate',     $values['_oc_flat_rate']     ?? 0 );
 		if ( ! empty( $values['_oc_preview_url'] ) ) {
 			$item->update_meta_data( '_oc_preview_url', $values['_oc_preview_url'] );
-			$item->update_meta_data(
-				__( 'Preview Image', 'overcustomise' ),
-				'<a href="' . esc_url( $values['_oc_preview_url'] ) . '" target="_blank" rel="noopener noreferrer">' . esc_html__( 'View Preview Image', 'overcustomise' ) . '</a>'
-			);
-		}
-
-		$details = $this->build_personalisation_details( $values['_oc_customisation'] );
-		if ( '' !== $details ) {
-			$item->update_meta_data( __( 'Personalisation Details', 'overcustomise' ), $details );
 		}
 	}
 
@@ -507,6 +513,8 @@ class OC_Cart {
 			'_oc_flat_rate',
 			'_oc_preview_url',
 			'_oc_unique_key',
+			__( 'Preview Image', 'overcustomise' ),
+			__( 'Personalisation Details', 'overcustomise' ),
 		] ) ) );
 	}
 
@@ -527,8 +535,10 @@ class OC_Cart {
 
 		// ── Preview image ─────────────────────────────────────────────────────
 		if ( $preview_url ) {
-			echo '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
-			   . 'style="display:block;max-width:120px;max-height:120px;object-fit:contain;margin-bottom:8px;border:1px solid #e0e0e0;border-radius:3px;" />';
+			echo '<a href="' . esc_url( $preview_url ) . '" class="thickbox" style="display:inline-block;margin-bottom:8px;">'
+			   . '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
+			   . 'style="display:block;max-width:120px;max-height:120px;object-fit:contain;border:1px solid #e0e0e0;border-radius:3px;cursor:zoom-in;" />'
+			   . '</a>';
 		}
 
 		if ( empty( $customisation ) || ! is_array( $customisation ) ) {
@@ -636,92 +646,6 @@ class OC_Cart {
 
 			case 'clipart':
 				return ! empty( $layer_data['clipartId'] ) ? esc_html__( '[Clipart selected]', 'overcustomise' ) : '';
-
-			default:
-				return '';
-		}
-	}
-
-	/** Build plain-text customer input details for WooCommerce's standard item meta table. */
-	private function build_personalisation_details( array $customisation ): string {
-		$lines = [];
-
-		if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
-			$design_id = (int) ( $customisation['designId'] ?? 0 );
-			$layers    = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
-			$layer_map = [];
-
-			if ( $design_id ) {
-				foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
-					$layer_map[ (int) $layer->id ] = $layer;
-				}
-			}
-
-			foreach ( $layers as $layer_id => $layer_data ) {
-				if ( ! is_array( $layer_data ) ) {
-					continue;
-				}
-
-				$value = $this->layer_plain_display_value( $layer_data );
-				if ( '' === $value ) {
-					continue;
-				}
-
-				$layer = $layer_map[ (int) $layer_id ] ?? null;
-				$label = $layer ? ( $layer->label ?: ucfirst( $layer->type ) ) : ucfirst( $layer_data['type'] ?? __( 'Layer', 'overcustomise' ) );
-				$lines[] = sprintf( '%s: %s', $label, $value );
-			}
-
-			return implode( "\n", $lines );
-		}
-
-		foreach ( $customisation as $area_key => $area_data ) {
-			if ( ! is_array( $area_data ) ) {
-				continue;
-			}
-
-			$parts = [];
-			if ( ! empty( $area_data['text'] ) ) {
-				$parts[] = (string) $area_data['text'];
-			}
-			if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
-				$parts[] = __( '[Artwork attached]', 'overcustomise' );
-			}
-
-			if ( empty( $parts ) ) {
-				continue;
-			}
-
-			$lines[] = sprintf(
-				'%s: %s',
-				ucwords( str_replace( '-', ' ', (string) $area_key ) ),
-				implode( ' ', $parts )
-			);
-		}
-
-		return implode( "\n", $lines );
-	}
-
-	/** Return a plain-text display value for order item metadata. */
-	private function layer_plain_display_value( array $layer_data ): string {
-		switch ( $layer_data['type'] ?? '' ) {
-			case 'text':
-			case 'textarea':
-			case 'spotify':
-				return trim( (string) ( $layer_data['value'] ?? '' ) );
-
-			case 'image':
-				return ! empty( $layer_data['attachmentId'] ) ? __( '[Image uploaded]', 'overcustomise' ) : '';
-
-			case 'clipart':
-				return ! empty( $layer_data['clipartId'] ) ? __( '[Clipart selected]', 'overcustomise' ) : '';
-
-			case 'lineart':
-				return ! empty( $layer_data['colorHex'] ) ? sprintf(
-					/* translators: %s: selected colour hex value. */
-					__( 'Line art colour %s', 'overcustomise' ),
-					(string) $layer_data['colorHex']
-				) : '';
 
 			default:
 				return '';

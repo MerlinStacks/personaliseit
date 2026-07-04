@@ -622,11 +622,14 @@ class OC_Admin_Products {
 		}, $areas );
 
 		wp_enqueue_media();
+		$products_asset = OC_PATH . 'assets/build/admin/products-page.asset.php';
+		$products_meta  = file_exists( $products_asset ) ? include $products_asset : [];
+		$products_ver   = isset( $products_meta['version'] ) ? (string) $products_meta['version'] : OC_VERSION;
 		wp_enqueue_script(
 			'oc-products-page',
 			OC_ASSETS_URL . 'admin/products-page.js',
 			[ 'wp-util' ],
-			OC_VERSION,
+			$products_ver,
 			true
 		);
 		// Build layers JSON for JS.
@@ -853,7 +856,6 @@ class OC_Admin_Products {
 								<p><?php esc_html_e( 'Select a layer to edit its properties.', 'overcustomise' ); ?></p>
 							</div>
 							<div id="oc-layer-props-inner" style="display:none;">
-								<?php OC_Tooltips::render( 'layer-settings', __( 'Configure position, size, visibility, and type-specific options for this layer.', 'overcustomise' ) ); ?>
 								<div class="oc-editor-section-header" style="padding-bottom:8px;">
 									<div style="display:flex;align-items:center;gap:6px;min-width:0;">
 										<span id="oc-layer-color-dot" class="oc-area-dot" style="width:10px;height:10px;"></span>

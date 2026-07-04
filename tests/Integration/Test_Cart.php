@@ -171,9 +171,9 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertIsArray( $meta );
 		$this->assertArrayHasKey( 'front', $meta );
 		$this->assertSame( 'Engraved', $meta['front']['text'] );
-		$this->assertSame( 'Front: Engraved', $saved_item->get_meta( 'Personalisation Details', true ) );
-		$this->assertStringContainsString( 'View Preview Image', $saved_item->get_meta( 'Preview Image', true ) );
-		$this->assertStringContainsString( $preview_url, $saved_item->get_meta( 'Preview Image', true ) );
+		$this->assertSame( $preview_url, $saved_item->get_meta( '_oc_preview_url', true ) );
+		$this->assertSame( '', $saved_item->get_meta( 'Personalisation Details', true ) );
+		$this->assertSame( '', $saved_item->get_meta( 'Preview Image', true ) );
 	}
 
 	#[Test]
@@ -183,6 +183,8 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertContains( '_oc_customisation', $hidden );
 		$this->assertContains( '_oc_preview_url', $hidden );
 		$this->assertContains( '_oc_flat_rate', $hidden );
+		$this->assertContains( 'Preview Image', $hidden );
+		$this->assertContains( 'Personalisation Details', $hidden );
 	}
 
 	#[Test]
