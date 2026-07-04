@@ -612,7 +612,6 @@ class OCCustomiser {
 						shadow: new Shadow( { color: engravingPalette.highlight, offsetX: 0, offsetY: 1, blur: 1 } ),
 					} );
 				} else if ( isEmbroidery ) {
-					const threadEdge = this.embroideryStrokeColor( color );
 					const threadLift = this.embroideryHighlightColor( color );
 					const threadShadow = this.embroideryShadowColor( color );
 
@@ -625,9 +624,8 @@ class OCCustomiser {
 						fontFamily: font?.name || 'sans-serif',
 						fontSize,
 						fill: threadShadow,
-						stroke: threadShadow,
-						strokeWidth: Math.max( 1.2, fontSize * 0.055 ),
-						opacity: 0.34,
+						opacity: 0.24,
+						shadow: new Shadow( { color: 'rgba(0,0,0,0.22)', offsetX: 0.6, offsetY: 0.9, blur: 1.8 } ),
 						textAlign: align,
 						selectable: false,
 						evented: false,
@@ -645,8 +643,8 @@ class OCCustomiser {
 						fontSize,
 						fill: 'rgba(255,255,255,0)',
 						stroke: threadLift,
-						strokeWidth: Math.max( 0.35, fontSize * 0.012 ),
-						opacity: 0.45,
+						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
+						opacity: 0.22,
 						textAlign: align,
 						selectable: false,
 						evented: false,
@@ -655,9 +653,9 @@ class OCCustomiser {
 					canvas.add( stitchLift );
 
 					obj.set( {
-						stroke: threadEdge,
-						strokeWidth: Math.max( 0.7, fontSize * 0.026 ),
-						shadow: new Shadow( { color: 'rgba(0,0,0,0.36)', offsetX: 1, offsetY: 1.35, blur: 0.75 } ),
+						stroke: this.embroiderySoftEdgeColor( color ),
+						strokeWidth: Math.max( 0.18, fontSize * 0.005 ),
+						shadow: new Shadow( { color: 'rgba(0,0,0,0.22)', offsetX: 0.7, offsetY: 0.95, blur: 1.1 } ),
 					} );
 				}
 
@@ -673,7 +671,6 @@ class OCCustomiser {
 						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
 						fontSize,
-						strokeWidth: Math.max( 1.2, fontSize * 0.055 ),
 					} );
 					this.applyContentClip( stitchPad, contentClip() );
 				}
@@ -682,7 +679,7 @@ class OCCustomiser {
 						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
 						fontSize,
-						strokeWidth: Math.max( 0.35, fontSize * 0.012 ),
+						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
 					this.applyContentClip( stitchLift, contentClip() );
 				}
@@ -840,28 +837,33 @@ class OCCustomiser {
 		ctx.fillStyle = base;
 		ctx.fillRect( 0, 0, source.width, source.height );
 
-		ctx.lineWidth = Math.max( 1.1, size * 0.15 );
+		ctx.lineWidth = Math.max( 1.2, size * 0.12 );
 		ctx.lineCap = 'round';
-		ctx.strokeStyle = `rgba(${ hi.r },${ hi.g },${ hi.b },0.58)`;
-		for ( let i = -source.height; i < source.width * 2; i += Math.max( 4, size * 0.48 ) ) {
+		const stitchGap = Math.max( 2.4, size * 0.24 );
+		let stitchIndex = 0;
+		for ( let i = -source.height; i < source.width * 2; i += stitchGap ) {
+			ctx.strokeStyle = stitchIndex % 2
+				? `rgba(${ hi.r },${ hi.g },${ hi.b },0.48)`
+				: `rgba(${ lo.r },${ lo.g },${ lo.b },0.24)`;
+			ctx.beginPath();
+			ctx.moveTo( i, source.height + 1.5 );
+			ctx.lineTo( i + source.height + 1.5, -1.5 );
+			ctx.stroke();
+			stitchIndex += 1;
+		}
+
+		ctx.lineWidth = Math.max( 0.45, size * 0.045 );
+		ctx.strokeStyle = `rgba(${ lo.r },${ lo.g },${ lo.b },0.16)`;
+		for ( let i = -source.height; i < source.width * 2; i += Math.max( 3.2, size * 0.32 ) ) {
 			ctx.beginPath();
 			ctx.moveTo( i, source.height + 1 );
 			ctx.lineTo( i + source.height + 1, -1 );
 			ctx.stroke();
 		}
 
-		ctx.lineWidth = Math.max( 0.7, size * 0.08 );
-		ctx.strokeStyle = `rgba(${ lo.r },${ lo.g },${ lo.b },0.48)`;
-		for ( let i = -source.height + Math.max( 2, size * 0.24 ); i < source.width * 2; i += Math.max( 4, size * 0.48 ) ) {
-			ctx.beginPath();
-			ctx.moveTo( i, -1 );
-			ctx.lineTo( i + source.height + 1, source.height + 1 );
-			ctx.stroke();
-		}
-
-		ctx.lineWidth = 0.7;
-		ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-		for ( let y = 1; y < source.height; y += 3 ) {
+		ctx.lineWidth = 0.5;
+		ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+		for ( let y = 1; y < source.height; y += 4 ) {
 			ctx.beginPath();
 			ctx.moveTo( 0, y + 0.5 );
 			ctx.lineTo( source.width, y + 0.5 );
@@ -871,11 +873,11 @@ class OCCustomiser {
 		return new Pattern( { source, repeat: 'repeat' } );
 	}
 
-	embroideryStrokeColor( color ) {
+	embroiderySoftEdgeColor( color ) {
 		const rgb = this.hexToRgb( color );
-		if ( ! rgb ) return 'rgba(0,0,0,0.35)';
+		if ( ! rgb ) return 'rgba(0,0,0,0.16)';
 
-		return `rgba(${ Math.max( 0, rgb.r - 68 ) },${ Math.max( 0, rgb.g - 68 ) },${ Math.max( 0, rgb.b - 68 ) },0.82)`;
+		return `rgba(${ Math.max( 0, rgb.r - 36 ) },${ Math.max( 0, rgb.g - 36 ) },${ Math.max( 0, rgb.b - 36 ) },0.24)`;
 	}
 
 	embroideryHighlightColor( color ) {
