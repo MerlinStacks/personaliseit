@@ -210,6 +210,7 @@ class OC_DB {
 			product_id BIGINT UNSIGNED NOT NULL,
 			variant_id BIGINT UNSIGNED NOT NULL DEFAULT 0,
 			design_id  BIGINT UNSIGNED NOT NULL,
+			design_variants LONGTEXT DEFAULT NULL,
 			PRIMARY KEY  (id),
 			UNIQUE KEY   product_variant (product_id, variant_id),
 			KEY          design_id (design_id)
@@ -399,6 +400,16 @@ class OC_DB {
 					$wpdb->query(
 						"ALTER TABLE {$table_name}
 						 ADD COLUMN locked TINYINT(1) NOT NULL DEFAULT 0 AFTER visible"
+					);
+				}
+			}
+
+			if ( version_compare( $installed, '1.12.0', '<' ) ) {
+				$table_name = $wpdb->prefix . 'oc_product_assignments';
+				if ( ! self::column_exists( $table_name, 'design_variants' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN design_variants LONGTEXT DEFAULT NULL AFTER design_id"
 					);
 				}
 			}
@@ -798,13 +809,14 @@ class OC_DB {
 		}
 		global $wpdb;
 		$rows = $wpdb->get_results(
-			"SELECT product_id, variant_id, design_id FROM {$wpdb->prefix}oc_product_assignments"
+			"SELECT product_id, variant_id, design_id, design_variants FROM {$wpdb->prefix}oc_product_assignments"
 		) ?: [];
 
 		$map = [];
 		foreach ( $rows as $row ) {
 			$map[ (int) $row->product_id ][ (int) $row->variant_id ] = [
-				'design_id' => (int) $row->design_id,
+				'design_id'       => (int) $row->design_id,
+				'design_variants' => (string) ( $row->design_variants ?? '' ),
 			];
 		}
 		OC_Cache::set( $cache_key, $map );
@@ -820,6 +832,19 @@ class OC_DB {
 			 ON DUPLICATE KEY UPDATE design_id = VALUES(design_id)",
 			$product_id, $variant_id, $design_id
 		) );
+		OC_Cache::delete( 'all_assignments_v2' );
+	}
+
+	/** Update enabled customer-selectable design variants for a product/variant assignment. */
+	public static function update_assignment_variants( int $product_id, int $variant_id, array $variants ): void {
+		global $wpdb;
+		$wpdb->update(
+			"{$wpdb->prefix}oc_product_assignments",
+			[ 'design_variants' => wp_json_encode( array_values( $variants ) ) ],
+			[ 'product_id' => $product_id, 'variant_id' => $variant_id ],
+			[ '%s' ],
+			[ '%d', '%d' ]
+		);
 		OC_Cache::delete( 'all_assignments_v2' );
 	}
 

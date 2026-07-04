@@ -178,6 +178,12 @@ class OC_Cart {
 				'layers'     => $sanitised_layers,
 				'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
 			];
+			if ( is_string( $decoded['designVariant'] ?? null ) && '' !== $decoded['designVariant'] ) {
+				$cart_item_data['_oc_customisation']['designVariant'] = sanitize_key( $decoded['designVariant'] );
+			}
+			if ( is_string( $decoded['designVariantLabel'] ?? null ) && '' !== $decoded['designVariantLabel'] ) {
+				$cart_item_data['_oc_customisation']['designVariantLabel'] = sanitize_text_field( $decoded['designVariantLabel'] );
+			}
 			$cart_item_data['_oc_design_id']     = $design_id;
 			$cart_item_data['_oc_flat_rate']     = (float) $design->flat_rate;
 			$cart_item_data['_oc_unique_key']    = md5( $raw . microtime() );
@@ -266,6 +272,13 @@ class OC_Cart {
 		if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
 			$design_id = (int) ( $customisation['designId'] ?? $cart_item['_oc_design_id'] ?? 0 );
 			$layers    = $customisation['layers'] ?? [];
+
+			if ( ! empty( $customisation['designVariantLabel'] ) ) {
+				$item_data[] = [
+					'key'   => __( 'Artwork Option', 'overcustomise' ),
+					'value' => esc_html( (string) $customisation['designVariantLabel'] ),
+				];
+			}
 
 			// Build label map from design layers.
 			$layer_map = [];

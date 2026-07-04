@@ -15,6 +15,7 @@ class OC_Admin_Products {
 
 	public static function register_ajax(): void {
 		add_action( 'wp_ajax_oc_assign_design',  [ self::class, 'ajax_assign_design' ] );
+		add_action( 'wp_ajax_oc_save_design_variants', [ self::class, 'ajax_save_design_variants' ] );
 		add_action( 'wp_ajax_oc_autosave_design', [ self::class, 'ajax_autosave_design' ] );
 		add_action( 'wp_ajax_oc_restore_autosave',  [ self::class, 'ajax_restore_autosave' ] );
 	}
@@ -39,6 +40,37 @@ class OC_Admin_Products {
 			OC_DB::delete_assignment( $product_id, $variant_id );
 		}
 
+		wp_send_json_success();
+	}
+
+	public static function ajax_save_design_variants(): void {
+		check_ajax_referer( 'oc-products-nonce', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
+		}
+
+		$product_id = (int) ( $_POST['product_id'] ?? 0 );
+		$variant_id = (int) ( $_POST['variant_id'] ?? 0 );
+		$raw        = wp_unslash( $_POST['variants'] ?? '[]' );
+		$decoded    = is_string( $raw ) ? json_decode( $raw, true ) : [];
+
+		if ( ! $product_id || ! is_array( $decoded ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid variants.', 'overcustomise' ) ] );
+		}
+
+		$variants = [];
+		foreach ( $decoded as $item ) {
+			$attachment_id = absint( $item['attachmentId'] ?? 0 );
+			if ( ! $attachment_id ) {
+				continue;
+			}
+			$variants[] = [
+				'label'        => sanitize_text_field( (string) ( $item['label'] ?? '' ) ),
+				'attachmentId' => $attachment_id,
+			];
+		}
+
+		OC_DB::update_assignment_variants( $product_id, $variant_id, $variants );
 		wp_send_json_success();
 	}
 
@@ -154,6 +186,8 @@ class OC_Admin_Products {
 	// ── Tab 1: Products ───────────────────────────────────────────────────────
 
 	private function render_products_tab(): void {
+		wp_enqueue_media();
+
 		// Load active designs for the assignment dropdown.
 		$designs    = OC_DB::get_designs( true );
 		$assign_map = OC_DB::get_all_assignments();
@@ -209,6 +243,7 @@ class OC_Admin_Products {
 								<th style="width:40%"><?php esc_html_e( 'Product / Variant', 'overcustomise' ); ?></th>
 								<th><?php esc_html_e( 'SKU', 'overcustomise' ); ?></th>
 								<th><?php esc_html_e( 'Assigned Design', 'overcustomise' ); ?></th>
+								<th><?php esc_html_e( 'Design Variants', 'overcustomise' ); ?></th>
 								<th style="width:60px;"></th>
 							</tr>
 						</thead>
@@ -234,6 +269,7 @@ class OC_Admin_Products {
 											<?php $this->render_design_select( $designs, $pid, 0, (int) $parent_assignment['design_id'] ); ?>
 											<small style="color:var(--oc-gray-500);display:block;margin-top:3px;font-size:11px;"><?php esc_html_e( 'All variants (default)', 'overcustomise' ); ?></small>
 										</td>
+										<td><?php $this->render_design_variants_control( $pid, 0, $parent_assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 									<!-- One row per variant -->
@@ -252,6 +288,7 @@ class OC_Admin_Products {
 											<td>
 												<?php $this->render_design_select( $designs, $pid, $vid, (int) $vassignment['design_id'] ); ?>
 											</td>
+											<td><?php $this->render_design_variants_control( $pid, $vid, $vassignment['design_variants'] ?? '' ); ?></td>
 											<td><span class="oc-assign-status" aria-live="polite"></span></td>
 										</tr>
 									<?php endforeach; ?>
@@ -266,6 +303,7 @@ class OC_Admin_Products {
 										<td>
 											<?php $this->render_design_select( $designs, $pid, 0, (int) $assignment['design_id'] ); ?>
 										</td>
+										<td><?php $this->render_design_variants_control( $pid, 0, $assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 								<?php endif; ?>
@@ -321,6 +359,84 @@ class OC_Admin_Products {
 						} );
 			}
 
+			function parseVariants( box ) {
+				try { return JSON.parse( box.querySelector( '.oc-design-variants-data' ).value || '[]' ); }
+				catch ( e ) { return []; }
+			}
+
+			function escHtml( value ) {
+				return String( value || '' )
+					.replace( /&/g, '&amp;' )
+					.replace( /</g, '&lt;' )
+					.replace( />/g, '&gt;' )
+					.replace( /"/g, '&quot;' )
+					.replace( /'/g, '&#039;' );
+			}
+
+			function renderVariants( box ) {
+				var list = box.querySelector( '.oc-design-variants-list' );
+				var data = parseVariants( box );
+				list.innerHTML = data.map( function ( item, i ) {
+					return '<div class="oc-design-variant-admin-item" data-index="' + i + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' +
+						'<img src="' + escHtml( item.url ) + '" alt="" style="width:44px;height:44px;object-fit:contain;border:1px solid #ddd;background:#fff;" />' +
+						'<input type="text" class="oc-input oc-design-variant-label" value="' + escHtml( item.label ) + '" placeholder="Option label" style="width:120px;" />' +
+						'<button type="button" class="button oc-design-variant-remove">Remove</button>' +
+					'</div>';
+				} ).join( '' );
+			}
+
+			function saveVariants( box ) {
+				var status = box.querySelector( '.oc-design-variants-status' );
+				var data = parseVariants( box );
+				box.querySelectorAll( '.oc-design-variant-admin-item' ).forEach( function ( row ) {
+					var i = parseInt( row.dataset.index, 10 );
+					if ( data[ i ] ) data[ i ].label = row.querySelector( '.oc-design-variant-label' ).value;
+				} );
+				box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
+				if ( status ) status.textContent = 'Saving\u2026';
+
+				fetch( ocProductsData.ajaxUrl, { method: 'POST', body: new URLSearchParams( {
+					action: 'oc_save_design_variants',
+					nonce: ocProductsData.nonce,
+					product_id: box.dataset.productId,
+					variant_id: box.dataset.variantId,
+					variants: JSON.stringify( data ),
+				} ) } ).then( function ( r ) { return r.json(); } ).then( function ( json ) {
+					if ( status ) status.textContent = json.success ? 'Saved' : 'Error';
+					setTimeout( function () { if ( status ) status.textContent = ''; }, 2000 );
+				} ).catch( function () { if ( status ) status.textContent = 'Error'; } );
+			}
+
+			document.querySelectorAll( '.oc-design-variants-admin' ).forEach( function ( box ) {
+				renderVariants( box );
+				box.addEventListener( 'click', function ( e ) {
+					if ( e.target.classList.contains( 'oc-design-variant-remove' ) ) {
+						var data = parseVariants( box );
+						data.splice( parseInt( e.target.closest( '.oc-design-variant-admin-item' ).dataset.index, 10 ), 1 );
+						box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
+						renderVariants( box );
+						saveVariants( box );
+					}
+					if ( e.target.classList.contains( 'oc-design-variant-add' ) ) {
+						var frame = wp.media( { title: 'Choose design variant image', button: { text: 'Use image' }, multiple: true } );
+						frame.on( 'select', function () {
+							var data = parseVariants( box );
+							frame.state().get( 'selection' ).each( function ( attachment ) {
+								var a = attachment.toJSON();
+								data.push( { label: a.title || '', attachmentId: a.id, url: ( a.sizes && a.sizes.thumbnail ? a.sizes.thumbnail.url : a.url ) } );
+							} );
+							box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
+							renderVariants( box );
+							saveVariants( box );
+						} );
+						frame.open();
+					}
+				} );
+				box.addEventListener( 'change', function ( e ) {
+					if ( e.target.classList.contains( 'oc-design-variant-label' ) ) saveVariants( box );
+				} );
+			} );
+
 			// AJAX assignment save.
 			document.querySelectorAll( '.oc-design-assign-select' ).forEach( function ( sel ) {
 				sel.addEventListener( 'change', function () {
@@ -347,6 +463,34 @@ class OC_Admin_Products {
 				</option>
 			<?php endforeach; ?>
 		</select>
+		<?php
+	}
+
+	/** Render per-assignment design variant image controls. */
+	private function render_design_variants_control( int $product_id, int $variant_id, string $variants_json ): void {
+		$variants = json_decode( $variants_json, true );
+		if ( ! is_array( $variants ) ) {
+			$variants = [];
+		}
+
+		$variants = array_values( array_filter( array_map( function ( $item ) {
+			$attachment_id = absint( $item['attachmentId'] ?? 0 );
+			if ( ! $attachment_id ) {
+				return null;
+			}
+			return [
+				'label'        => sanitize_text_field( (string) ( $item['label'] ?? '' ) ),
+				'attachmentId' => $attachment_id,
+				'url'          => wp_get_attachment_image_url( $attachment_id, 'thumbnail' ) ?: '',
+			];
+		}, $variants ) ) );
+		?>
+		<div class="oc-design-variants-admin" data-product-id="<?php echo esc_attr( $product_id ); ?>" data-variant-id="<?php echo esc_attr( $variant_id ); ?>">
+			<input type="hidden" class="oc-design-variants-data" value="<?php echo esc_attr( wp_json_encode( $variants ) ); ?>" />
+			<div class="oc-design-variants-list"></div>
+			<button type="button" class="button oc-design-variant-add"><?php esc_html_e( 'Add variant', 'overcustomise' ); ?></button>
+			<span class="oc-design-variants-status" style="margin-left:6px;color:var(--oc-gray-500);font-size:11px;" aria-live="polite"></span>
+		</div>
 		<?php
 	}
 

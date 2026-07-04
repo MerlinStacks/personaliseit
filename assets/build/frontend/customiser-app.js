@@ -5703,6 +5703,8 @@ class OCCustomiser {
     this.data = data;
     this.areas = data.areas || [];
     this.fonts = data.fonts || [];
+    this.designVariants = data.designVariants || [];
+    this.selectedDesignVariant = this.designVariants[0]?.id || '';
     this.activeArea = 0;
 
     // Deep-clone mutable per-layer inputs; keys are integer layer IDs.
@@ -5788,6 +5790,7 @@ class OCCustomiser {
 
     // Wire up controls IMMEDIATELY — don't block on canvas.
     this.setupInputListeners();
+    this.setupDesignVariantOptions();
     this.setupUploadZones();
     if (this.editMode) this.updateInputsFromDOM();
     this.setupFormSubmit();
@@ -6075,6 +6078,20 @@ class OCCustomiser {
     canvas.renderAll();
     this.canvases[areaIndex] = canvas;
     console.log(`[OC] Canvas ${areaIndex} ready — ${displayW}x${displayH}, scale=${scaleX.toFixed(3)}`);
+  }
+  async rebuildCanvas(areaIndex) {
+    const oldCanvas = this.canvases[areaIndex];
+    if (oldCanvas?.dispose) {
+      oldCanvas.dispose();
+    }
+    delete this.canvases[areaIndex];
+    const oldEl = document.getElementById(`oc-canvas-${areaIndex}`);
+    if (!oldEl) return;
+    const canvasEl = document.createElement('canvas');
+    canvasEl.id = oldEl.id;
+    oldEl.replaceWith(canvasEl);
+    await this.initCanvas(canvasEl, areaIndex);
+    await this.redraw(areaIndex);
   }
   blankCanvas(el, w, h, msg) {
     const c = new fabric__WEBPACK_IMPORTED_MODULE_0__.StaticCanvas(el, {
@@ -6634,6 +6651,34 @@ class OCCustomiser {
         if (e.target === warnEl && warnEl.classList.contains('oc-res-warning')) {
           warnEl.style.display = 'none';
         }
+      });
+    });
+  }
+  setupDesignVariantOptions() {
+    if (!this.designVariants.length) return;
+    document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
+        if (!variant || variant.id === this.selectedDesignVariant) return;
+        this.selectedDesignVariant = variant.id;
+        document.querySelectorAll('[data-oc-design-variant]').forEach(option => {
+          const isSelected = option === btn;
+          option.classList.toggle('oc-selected', isSelected);
+          option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        });
+        if (this.areas[0]) {
+          this.areas[0].mockupUrl = variant.mockupUrl;
+          this.areas[0].mockupW = variant.mockupW;
+          this.areas[0].mockupH = variant.mockupH;
+          const previewImg = document.getElementById('oc-canvas-preview');
+          if (previewImg) {
+            previewImg.src = variant.mockupUrl;
+            previewImg.srcset = '';
+          }
+          this.requestPreviewFocus();
+          await this.rebuildCanvas(0);
+        }
+        this.updateHiddenField();
       });
     });
   }
@@ -7492,6 +7537,11 @@ class OCCustomiser {
       designId: this.data.designId,
       layers
     };
+    if (this.selectedDesignVariant) {
+      const variant = this.designVariants.find(item => item.id === this.selectedDesignVariant);
+      payload.designVariant = this.selectedDesignVariant;
+      if (variant?.label) payload.designVariantLabel = variant.label;
+    }
     if (this._previewUrl) payload.previewUrl = this._previewUrl;
     el.value = JSON.stringify(payload);
   }

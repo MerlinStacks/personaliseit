@@ -141,9 +141,6 @@
   gap: var(--oc-gap-xs);
   padding: var(--oc-gap-sm) var(--oc-gap);
 }
-.oc-customiser-panel .oc-layer-section + .oc-layer-section {
-  border-top: 1px solid var(--oc-border);
-}
 .oc-customiser-panel .oc-layer-header {
   display: flex;
   align-items: center;

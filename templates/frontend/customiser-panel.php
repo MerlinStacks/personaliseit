@@ -33,6 +33,26 @@ foreach ( $layers as $layer ) {
 
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 
+	<?php if ( ! empty( $design_variants ) ) : ?>
+		<div class="oc-design-variants" aria-label="<?php esc_attr_e( 'Artwork options', 'overcustomise' ); ?>">
+			<div class="oc-control-group">
+				<label><?php esc_html_e( 'Artwork Option', 'overcustomise' ); ?></label>
+				<div class="oc-design-variant-grid">
+					<?php foreach ( $design_variants as $i => $variant ) : ?>
+						<button type="button"
+							class="oc-design-variant-option<?php echo 0 === $i ? ' oc-selected' : ''; ?>"
+							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
+							aria-pressed="<?php echo 0 === $i ? 'true' : 'false'; ?>"
+							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
+							<img src="<?php echo esc_url( $variant['thumbUrl'] ); ?>" alt="" loading="lazy" />
+							<span><?php echo esc_html( $variant['label'] ); ?></span>
+						</button>
+					<?php endforeach; ?>
+				</div>
+			</div>
+		</div>
+	<?php endif; ?>
+
 	<?php if ( $has_multiple_areas ) : ?>
 	<div class="oc-area-tabs" role="tablist" aria-label="<?php esc_attr_e( 'Customisation areas', 'overcustomise' ); ?>">
 		<?php foreach ( $areas as $i => $area ) : ?>

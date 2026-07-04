@@ -14,6 +14,7 @@ class OC_Frontend {
 	private ?object $design = null;
 	private array   $areas  = [];
 	private array   $layers = [];
+	private array   $design_variants = [];
 	private ?array  $edit_cart_item = null;
 
 	public function register(): void {
@@ -98,6 +99,7 @@ class OC_Frontend {
 		$this->design = $design;
 		$this->areas  = $areas;
 		$this->layers = OC_DB::get_design_layers( (int) $design->id );
+		$this->design_variants = $this->build_design_variants( $assignment->design_variants ?? '' );
 	}
 
 	/**
@@ -309,6 +311,7 @@ class OC_Frontend {
 		return [
 			'designId'        => (int) $this->design->id,
 			'designName'      => $this->design->name,
+			'designVariants'  => $this->design_variants,
 			'flatRate'        => (float) $this->design->flat_rate,
 			'areas'           => $areas_js,
 			'fonts'           => $all_fonts,
@@ -329,6 +332,58 @@ class OC_Frontend {
 			'editMode'        => $edit_mode,
 			'cartKey'         => $cart_key,
 		];
+	}
+
+	/** Build frontend-safe design variant options from assignment JSON. */
+	private function build_design_variants( string $variants_json ): array {
+		$first_area = $this->areas[0] ?? null;
+		if ( ! $first_area || empty( $first_area->mockup_attachment_id ) ) {
+			return [];
+		}
+
+		$default_src = wp_get_attachment_image_src( (int) $first_area->mockup_attachment_id, 'large' );
+		if ( ! $default_src ) {
+			return [];
+		}
+
+		$options = [
+			[
+				'id'           => 'default',
+				'label'        => $this->design->name ?: __( 'Option 1', 'overcustomise' ),
+				'attachmentId' => (int) $first_area->mockup_attachment_id,
+				'mockupUrl'    => $default_src[0],
+				'mockupW'      => (int) $default_src[1],
+				'mockupH'      => (int) $default_src[2],
+				'thumbUrl'     => wp_get_attachment_image_url( (int) $first_area->mockup_attachment_id, 'thumbnail' ) ?: $default_src[0],
+			],
+		];
+
+		$decoded = json_decode( $variants_json, true );
+		if ( ! is_array( $decoded ) ) {
+			return [];
+		}
+
+		foreach ( $decoded as $index => $item ) {
+			$attachment_id = absint( $item['attachmentId'] ?? 0 );
+			if ( ! $attachment_id ) {
+				continue;
+			}
+			$src = wp_get_attachment_image_src( $attachment_id, 'large' );
+			if ( ! $src ) {
+				continue;
+			}
+			$options[] = [
+				'id'           => 'variant-' . $attachment_id,
+				'label'        => sanitize_text_field( (string) ( $item['label'] ?? '' ) ) ?: sprintf( __( 'Option %d', 'overcustomise' ), count( $options ) + 1 ),
+				'attachmentId' => $attachment_id,
+				'mockupUrl'    => $src[0],
+				'mockupW'      => (int) $src[1],
+				'mockupH'      => (int) $src[2],
+				'thumbUrl'     => wp_get_attachment_image_url( $attachment_id, 'thumbnail' ) ?: $src[0],
+			];
+		}
+
+		return count( $options ) > 1 ? $options : [];
 	}
 
 	/** Load clipart items for all clipart layers. */
@@ -414,6 +469,7 @@ class OC_Frontend {
 		$design = $this->design;
 		$areas  = $this->areas;
 		$layers = $this->layers;
+		$design_variants = $this->design_variants;
 
 		include $template;
 	}
@@ -570,6 +626,14 @@ class OC_Frontend {
 		/* Controls */
 		.oc-control-group { display:flex; flex-direction:column; gap:5px; }
 		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
+		.oc-design-variants { margin-bottom:18px; }
+		.oc-design-variant-grid { display:flex; flex-wrap:wrap; gap:14px; }
+		.oc-design-variant-option { width:126px; min-height:126px; padding:8px; border:2px solid #ddd; background:#fff; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; transition:border-color .15s, box-shadow .15s; }
+		.oc-design-variant-option:hover { border-color:#0073aa; }
+		.oc-design-variant-option.oc-selected { border-color:#d88da0; box-shadow:0 0 0 1px #d88da0; }
+		.oc-design-variant-option img { max-width:100%; height:84px; object-fit:contain; display:block; }
+		.oc-design-variant-option span { font-size:11px; font-weight:700; color:#d84d7a; text-transform:uppercase; letter-spacing:.04em; text-align:center; }
+		@media (max-width:480px) { .oc-design-variant-option { width:calc(50% - 7px); } }
 		.oc-control-group:has(> [data-oc-tooltip]) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:10px; row-gap:5px; }
 		.oc-control-group:has(> [data-oc-tooltip]) > label,
 		.oc-control-group:has(> [data-oc-tooltip]) > .oc-char-counter,

@@ -142,10 +142,6 @@
 		flex-direction: column;
 		gap: var(--oc-gap-xs);
 		padding: var(--oc-gap-sm) var(--oc-gap);
-
-		& + .oc-layer-section {
-			border-top: 1px solid var(--oc-border);
-		}
 	}
 
 	.oc-layer-header {
