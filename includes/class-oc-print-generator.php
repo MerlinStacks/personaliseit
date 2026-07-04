@@ -360,6 +360,8 @@ class OC_Print_Generator {
 	}
 
 	private static function normalise_v2_layer_font_inputs( int $design_id, array $layer_inputs ): array {
+		$fallback_font_id = self::first_active_font_id();
+
 		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
 			$layer_id = (int) $layer->id;
 			if ( ! $layer_id || ! in_array( (string) $layer->type, [ 'text', 'textarea' ], true ) ) {
@@ -375,12 +377,19 @@ class OC_Print_Generator {
 				$layer_inputs[ $layer_id ] = [];
 			}
 
-			if ( empty( $layer_inputs[ $layer_id ]['fontId'] ) && ! empty( $settings['default_font_id'] ) ) {
-				$layer_inputs[ $layer_id ]['fontId'] = absint( $settings['default_font_id'] );
+			if ( empty( $layer_inputs[ $layer_id ]['fontId'] ) ) {
+				$layer_inputs[ $layer_id ]['fontId'] = absint( $settings['default_font_id'] ?? 0 ) ?: $fallback_font_id;
 			}
 		}
 
 		return $layer_inputs;
+	}
+
+	private static function first_active_font_id(): int {
+		$fonts = OC_DB::get_fonts( true );
+		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
+
+		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
 	}
 
 	/**

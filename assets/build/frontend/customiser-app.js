@@ -5728,6 +5728,7 @@ class OCCustomiser {
     this.clipartSearchTerms = {};
     this.clipartCategoryFilters = {};
     this.spotifyModalCloseTimer = null;
+    this.mobileCartPreviewDialog = null;
     if (this.editMode) {
       Object.entries(data.layerInputs || {}).forEach(([k, v]) => {
         const key = parseInt(k, 10);
@@ -7083,22 +7084,25 @@ class OCCustomiser {
       return;
     }
     form.addEventListener('submit', async e => {
-      if (form._ocSubmitReady) return; // preview already saved — let submit through
-
+      if (form._ocSubmitReady) {
+        return; // preview already saved — let submit through
+      }
+      e.preventDefault();
       const preflight = await this.runPreflight();
       this.renderPreflightMessages(preflight.errors, preflight.warnings);
       if (!preflight.ok) {
-        e.preventDefault();
         return;
       }
       if (preflight.warnings.length) {
         const proceed = window.confirm('We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.');
         if (!proceed) {
-          e.preventDefault();
           return;
         }
       }
-      e.preventDefault();
+      const acceptedPreview = await this.confirmMobileCartPreview();
+      if (!acceptedPreview) {
+        return;
+      }
       await this.uploadPreview();
       form._ocSubmitReady = true;
       // requestSubmit() re-triggers HTML5 validation before submitting.
@@ -7108,6 +7112,87 @@ class OCCustomiser {
       } else {
         form.submit();
       }
+    });
+  }
+  isMobileCartPreviewRequired() {
+    return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
+  }
+  getCurrentPreviewDataUrl() {
+    const canvas = this.canvases[this.activeArea];
+    if (canvas) {
+      try {
+        return canvas.toDataURL({
+          format: 'jpeg',
+          quality: 0.92
+        });
+      } catch (e) {
+        // Fall back to the already-rendered preview image below.
+      }
+    }
+    return document.getElementById('oc-canvas-preview')?.src || '';
+  }
+  getMobileCartPreviewDialog() {
+    if (this.mobileCartPreviewDialog) {
+      return this.mobileCartPreviewDialog;
+    }
+    const panel = document.getElementById('oc-customiser-panel') || document.body;
+    const dialog = document.createElement('dialog');
+    dialog.id = 'oc-cart-preview-dialog';
+    dialog.className = 'oc-cart-preview-dialog';
+    dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
+    dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
+    dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-image-wrap">' + '<img class="oc-cart-preview-image" alt="Customisation preview">' + '</div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
+    panel.appendChild(dialog);
+    this.mobileCartPreviewDialog = dialog;
+    return dialog;
+  }
+  confirmMobileCartPreview() {
+    if (!this.isMobileCartPreviewRequired()) {
+      return Promise.resolve(true);
+    }
+    const previewUrl = this.getCurrentPreviewDataUrl();
+    const dialog = this.getMobileCartPreviewDialog();
+    const img = dialog.querySelector('.oc-cart-preview-image');
+    if (img && previewUrl) {
+      img.src = previewUrl;
+    }
+    if (!dialog.showModal) {
+      return Promise.resolve(true);
+    }
+    return new Promise(resolve => {
+      const acceptBtn = dialog.querySelector('[data-oc-cart-preview-accept]');
+      const changeBtn = dialog.querySelector('[data-oc-cart-preview-change]');
+      const previousFocus = dialog.ownerDocument.activeElement;
+      const finish = accepted => {
+        dialog.classList.remove('is-visible');
+        dialog.removeEventListener('click', onBackdropClick);
+        dialog.removeEventListener('cancel', onCancel);
+        acceptBtn?.removeEventListener('click', onAccept);
+        changeBtn?.removeEventListener('click', onChange);
+        if (dialog.open) {
+          dialog.close();
+        }
+        previousFocus?.focus?.();
+        resolve(accepted);
+      };
+      const onAccept = () => finish(true);
+      const onChange = () => finish(false);
+      const onBackdropClick = event => {
+        if (event.target === dialog) {
+          finish(false);
+        }
+      };
+      const onCancel = event => {
+        event.preventDefault();
+        finish(false);
+      };
+      acceptBtn?.addEventListener('click', onAccept);
+      changeBtn?.addEventListener('click', onChange);
+      dialog.addEventListener('click', onBackdropClick);
+      dialog.addEventListener('cancel', onCancel);
+      dialog.showModal();
+      window.requestAnimationFrame(() => dialog.classList.add('is-visible'));
+      acceptBtn?.focus?.();
     });
   }
   async uploadPreview() {

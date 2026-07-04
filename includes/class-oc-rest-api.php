@@ -805,6 +805,7 @@ class OC_Rest_API {
 		$valid_layer_types = [ 'text', 'textarea', 'image', 'spotify', 'lineart', 'clipart' ];
 
 		$sanitised_layers = [];
+		$fallback_font_id = $this->first_active_font_id();
 		foreach ( $raw_layers as $layer_id => $layer_data ) {
 			if ( ! is_array( $layer_data ) ) continue;
 
@@ -821,7 +822,7 @@ class OC_Rest_API {
 			$color_hex = sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000';
 			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
 				if ( ! $font_id ) {
-					$font_id = absint( $settings['default_font_id'] ?? 0 );
+					$font_id = absint( $settings['default_font_id'] ?? 0 ) ?: $fallback_font_id;
 				}
 				if ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) {
 					$font_id = absint( $settings['default_font_id'] ?? 0 );
@@ -884,7 +885,8 @@ class OC_Rest_API {
 			$cart->update_totals_after_cart_modification();
 		}
 
-		if ( $old_preview ) {
+		$new_preview = (string) ( $cart->cart_contents[ $cart_key ]['_oc_preview_url'] ?? '' );
+		if ( $old_preview && $old_preview !== $new_preview ) {
 			$path = wp_parse_url( $old_preview, PHP_URL_PATH );
 			if ( is_string( $path ) && '' !== $path ) {
 				$filename = basename( $path );
@@ -900,5 +902,12 @@ class OC_Rest_API {
 		}
 
 		return rest_ensure_response( [ 'success' => true ] );
+	}
+
+	private function first_active_font_id(): int {
+		$fonts = OC_DB::get_fonts( true );
+		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
+
+		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
 	}
 }

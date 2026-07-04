@@ -19,6 +19,7 @@ class OC_Cart {
 
 		// Replace product thumbnail with personalised preview in cart/checkout.
 		add_filter( 'woocommerce_cart_item_thumbnail', [ $this, 'cart_item_thumbnail' ], 10, 3 );
+		add_filter( 'woocommerce_cart_item_name', [ $this, 'checkout_item_name_preview' ], 10, 3 );
 		add_filter( 'woocommerce_store_api_cart_item_images', [ $this, 'store_api_cart_item_images' ], 10, 3 );
 
 		// Apply flat rate fee.
@@ -92,6 +93,7 @@ class OC_Cart {
 			}
 
 			$sanitised_layers = [];
+			$fallback_font_id = self::first_active_font_id();
 			foreach ( $decoded['layers'] as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) continue;
 
@@ -110,7 +112,7 @@ class OC_Cart {
 				$color_hex = sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000';
 				if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
 					if ( ! $font_id ) {
-						$font_id = absint( $settings['default_font_id'] ?? 0 );
+						$font_id = absint( $settings['default_font_id'] ?? 0 ) ?: $fallback_font_id;
 					}
 					if ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) {
 						$font_id = absint( $settings['default_font_id'] ?? 0 );
@@ -182,6 +184,13 @@ class OC_Cart {
 		$cart_item_data['_oc_flat_rate']     = (float) $config->flat_rate;
 		$cart_item_data['_oc_unique_key']    = md5( $raw . microtime() );
 		return $cart_item_data;
+	}
+
+	private static function first_active_font_id(): int {
+		$fonts = OC_DB::get_fonts( true );
+		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
+
+		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
 	}
 
 	/** Ensure preview URLs point to plugin-generated preview files only. */
@@ -316,9 +325,18 @@ class OC_Cart {
 	/** Replace the cart/checkout product thumbnail with the personalised preview. */
 	public function cart_item_thumbnail( string $thumbnail, array $cart_item, string $cart_item_key ): string {
 		if ( ! empty( $cart_item['_oc_preview_url'] ) ) {
-			return '<img src="' . esc_url( $cart_item['_oc_preview_url'] ) . '" class="oc-cart-preview-thumb" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" />';
+			return $this->preview_image_html( (string) $cart_item['_oc_preview_url'] );
 		}
 		return $thumbnail;
+	}
+
+	/** Add a preview image to classic checkout rows, where WooCommerce has no thumbnail column. */
+	public function checkout_item_name_preview( string $product_name, array $cart_item, string $cart_item_key ): string {
+		if ( ! is_checkout() || is_cart() || empty( $cart_item['_oc_preview_url'] ) ) {
+			return $product_name;
+		}
+
+		return '<span class="oc-checkout-preview-thumb">' . $this->preview_image_html( (string) $cart_item['_oc_preview_url'] ) . '</span>' . $product_name;
 	}
 
 	/**
@@ -341,9 +359,10 @@ class OC_Cart {
 		}
 
 		return [
-			(object) [
+			[
 				'id'        => 0,
 				'src'       => $preview_url,
+				'full_src'  => $preview_url,
 				'thumbnail' => $preview_url,
 				'srcset'    => '',
 				'sizes'     => '',
@@ -351,6 +370,10 @@ class OC_Cart {
 				'alt'       => __( 'Personalised preview', 'overcustomise' ),
 			],
 		];
+	}
+
+	private function preview_image_html( string $preview_url ): string {
+		return '<img src="' . esc_url( $preview_url ) . '" class="oc-cart-preview-thumb" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" width="80" height="80" loading="lazy" style="width:80px;height:80px;object-fit:contain;border:1px solid #e0e0e0;border-radius:4px;margin-right:10px;vertical-align:middle;" />';
 	}
 
 	// -------------------------------------------------------------------------
