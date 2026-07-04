@@ -137,10 +137,6 @@
 .oc-customiser-panel .oc-layer-controls {
   display: flex;
   flex-direction: column;
-  background: var(--oc-surface);
-  border: 1px solid var(--oc-border);
-  border-radius: var(--oc-radius-lg);
-  overflow: hidden;
 }
 .oc-customiser-panel .oc-layer-section {
   display: flex;

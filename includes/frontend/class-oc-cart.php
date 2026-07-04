@@ -109,6 +109,9 @@ class OC_Cart {
 				$font_size = absint( $layer_data['fontSize'] ?? 0 );
 				$color_hex = sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000';
 				if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
+					if ( ! $font_id ) {
+						$font_id = absint( $settings['default_font_id'] ?? 0 );
+					}
 					if ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) {
 						$font_id = absint( $settings['default_font_id'] ?? 0 );
 					}

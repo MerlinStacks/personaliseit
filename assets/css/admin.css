@@ -1613,6 +1613,22 @@
 	gap: 8px;
 }
 
+.oc-bounds-size-row {
+	display: flex;
+	grid-column: 1 / -1;
+	gap: 8px;
+	align-items: flex-end;
+}
+
+.oc-bounds-size-row .oc-editor-field {
+	flex: 1 1 0;
+	margin-bottom: 0;
+}
+
+.oc-bounds-size-row .oc-bounds-unit-field {
+	flex: 0 0 68px;
+}
+
 /* Left panel — area props section (below areas list) */
 .oc-left-area-props {
 	border-top: 2px solid var(--oc-gray-200);

@@ -134,7 +134,21 @@ abstract class OC_Print_Base {
 			return null;
 		}
 		
-		return file_exists( $real ) ? $real : null;
+		if ( ! file_exists( $real ) ) {
+			return null;
+		}
+
+		if ( 'woff' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && class_exists( 'OC_WOFF_Converter' ) ) {
+			$upload_dir = wp_upload_dir();
+			$cache_dir  = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts';
+			wp_mkdir_p( $cache_dir );
+			$dest = trailingslashit( $cache_dir ) . sanitize_file_name( pathinfo( $real, PATHINFO_FILENAME ) ) . '-' . md5_file( $real ) . '.ttf';
+			if ( file_exists( $dest ) || OC_WOFF_Converter::extract_sfnt( $real, $dest ) ) {
+				return $dest;
+			}
+		}
+
+		return $real;
 	}
 
 	/**
@@ -428,7 +442,8 @@ abstract class OC_Print_Base {
 			return;
 		}
 
-		$font_name = self::resolve_font( (int) ( $input['fontId'] ?? $settings['default_font_id'] ?? 0 ) );
+		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+		$font_name = self::resolve_font( $font_id );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )
 			: max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );

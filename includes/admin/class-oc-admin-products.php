@@ -609,19 +609,23 @@ class OC_Admin_Products {
 								</div>
 								<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;margin-bottom:8px;">
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
-									<?php OC_Tooltips::render( 'print-bounds', __( 'Coordinates and dimensions of the printable area. Pixels map to the mockup; physical units set the generated print file size.', 'overcustomise' ) ); ?>
-									<select id="oc-prop-unit" class="oc-select" style="width:auto;min-width:64px;font-size:11px;padding:2px 6px;">
-										<option value="px">px</option>
-										<option value="mm">mm</option>
-										<option value="cm">cm</option>
-										<option value="in">in</option>
-									</select>
 								</div>
 								<div class="oc-bounds-grid">
 									<div class="oc-editor-field"><label>X</label><input type="number" id="oc-prop-x" class="oc-input" min="0" style="width:100%;" /></div>
 									<div class="oc-editor-field"><label>Y</label><input type="number" id="oc-prop-y" class="oc-input" min="0" style="width:100%;" /></div>
-									<div class="oc-editor-field"><label>W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" style="width:100%;" /></div>
-									<div class="oc-editor-field"><label>H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" style="width:100%;" /></div>
+									<div class="oc-bounds-size-row">
+										<div class="oc-editor-field"><label>W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" style="width:100%;" /></div>
+										<div class="oc-editor-field"><label>H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" style="width:100%;" /></div>
+										<div class="oc-editor-field oc-bounds-unit-field">
+											<label for="oc-prop-unit"><?php esc_html_e( 'Unit', 'overcustomise' ); ?></label>
+											<select id="oc-prop-unit" class="oc-select" style="width:100%;">
+												<option value="px">px</option>
+												<option value="mm">mm</option>
+												<option value="cm">cm</option>
+												<option value="in">in</option>
+											</select>
+										</div>
+									</div>
 									<div class="oc-editor-field"><label><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" style="width:100%;" /></div>
 								</div>
 								</div>
@@ -867,8 +871,18 @@ class OC_Admin_Products {
 		}
 
 		OC_Autosave::clear( $design_id );
+		$this->clear_design_cache( $design_id );
 
 		return $design_id;
+	}
+
+	private function clear_design_cache( int $design_id ): void {
+		OC_Cache::delete( 'design_' . $design_id );
+		OC_Cache::delete( 'design_areas_' . $design_id );
+		OC_Cache::delete( 'design_layers_' . $design_id );
+		OC_Cache::delete( 'designs_all' );
+		OC_Cache::delete( 'designs_active' );
+		OC_Cache::delete( 'designs_area_counts' );
 	}
 
 	private function handle_design_delete(): void {

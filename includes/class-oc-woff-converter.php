@@ -152,4 +152,93 @@ class OC_WOFF_Converter {
 		}
 		return true;
 	}
+
+	/**
+	 * Extract the original TTF/OTF sfnt data from a WOFF1 file.
+	 *
+	 * @param string $src_path  Absolute path to the WOFF file.
+	 * @param string $dest_path Absolute path for the extracted TTF/OTF file.
+	 * @return bool True on success, false on failure.
+	 */
+	public static function extract_sfnt( string $src_path, string $dest_path ): bool {
+		if ( ! file_exists( $src_path ) || ! is_readable( $src_path ) ) {
+			OC_Logger::warning( 'WOFF extraction failed: source file is not readable.' );
+			return false;
+		}
+
+		$data = file_get_contents( $src_path );
+		if ( false === $data || strlen( $data ) < 44 || '774f4646' !== strtolower( bin2hex( substr( $data, 0, 4 ) ) ) ) {
+			OC_Logger::warning( 'WOFF extraction failed: invalid WOFF file.' );
+			return false;
+		}
+
+		$flavor     = substr( $data, 4, 4 );
+		$num_tables = unpack( 'n', substr( $data, 12, 2 ) )[1];
+		if ( ! in_array( strtolower( bin2hex( $flavor ) ), self::VALID_SIGNATURES, true ) || $num_tables < 1 ) {
+			OC_Logger::warning( 'WOFF extraction failed: invalid font signature.' );
+			return false;
+		}
+
+		$tables = [];
+		$offset = 44;
+		for ( $i = 0; $i < $num_tables; $i++ ) {
+			if ( strlen( $data ) < $offset + 20 ) {
+				return false;
+			}
+			$tag         = substr( $data, $offset, 4 );
+			$table_start = unpack( 'N', substr( $data, $offset + 4, 4 ) )[1];
+			$comp_length = unpack( 'N', substr( $data, $offset + 8, 4 ) )[1];
+			$orig_length = unpack( 'N', substr( $data, $offset + 12, 4 ) )[1];
+			$checksum    = substr( $data, $offset + 16, 4 );
+			if ( $table_start + $comp_length > strlen( $data ) ) {
+				return false;
+			}
+
+			$table_data = substr( $data, $table_start, $comp_length );
+			if ( $comp_length !== $orig_length ) {
+				$inflated = function_exists( 'gzuncompress' ) ? gzuncompress( $table_data ) : false;
+				if ( false === $inflated || strlen( $inflated ) !== $orig_length ) {
+					OC_Logger::warning( 'WOFF extraction failed: could not decompress table.' );
+					return false;
+				}
+				$table_data = $inflated;
+			}
+
+			$tables[] = [
+				'tag'      => $tag,
+				'checksum' => $checksum,
+				'length'   => $orig_length,
+				'data'     => $table_data,
+			];
+			$offset += 20;
+		}
+
+		$entry_selector = (int) floor( log( $num_tables, 2 ) );
+		$search_range   = (int) pow( 2, $entry_selector ) * 16;
+		$range_shift    = $num_tables * 16 - $search_range;
+		$out            = $flavor . pack( 'nnnn', $num_tables, $search_range, $entry_selector, $range_shift );
+
+		$table_offset = 12 + $num_tables * 16;
+		foreach ( $tables as &$table ) {
+			$table['offset'] = $table_offset;
+			$out .= $table['tag'] . $table['checksum'] . pack( 'NN', $table_offset, $table['length'] );
+			$table_offset += ( $table['length'] + 3 ) & ~3;
+		}
+		unset( $table );
+
+		foreach ( $tables as $table ) {
+			$out .= $table['data'];
+			$pad = ( 4 - ( $table['length'] % 4 ) ) % 4;
+			if ( $pad > 0 ) {
+				$out .= str_repeat( "\0", $pad );
+			}
+		}
+
+		if ( ! file_exists( dirname( $dest_path ) ) || ! is_writable( dirname( $dest_path ) ) ) {
+			OC_Logger::warning( 'WOFF extraction failed: destination not writable.' );
+			return false;
+		}
+
+		return false !== file_put_contents( $dest_path, $out );
+	}
 }

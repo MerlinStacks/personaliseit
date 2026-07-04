@@ -362,8 +362,61 @@ class OC_DB {
 				}
 			}
 
+			if ( version_compare( $installed, '1.11.1', '<' ) ) {
+				$table_name = $wpdb->prefix . 'oc_design_print_areas';
+
+				if ( ! self::column_exists( $table_name, 'canvas_unit' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN canvas_unit VARCHAR(10) NOT NULL DEFAULT 'px' AFTER print_method"
+					);
+				}
+
+				if ( ! self::column_exists( $table_name, 'visible' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN visible TINYINT(1) NOT NULL DEFAULT 1 AFTER sort_order"
+					);
+				}
+
+				if ( ! self::column_exists( $table_name, 'locked' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN locked TINYINT(1) NOT NULL DEFAULT 0 AFTER visible"
+					);
+				}
+
+				$table_name = $wpdb->prefix . 'oc_design_layers';
+
+				if ( ! self::column_exists( $table_name, 'visible' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN visible TINYINT(1) NOT NULL DEFAULT 1 AFTER sort_order"
+					);
+				}
+
+				if ( ! self::column_exists( $table_name, 'locked' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN locked TINYINT(1) NOT NULL DEFAULT 0 AFTER visible"
+					);
+				}
+			}
+
 			update_option( 'oc_db_version', OC_DB_VERSION );
 		}
+	}
+
+	private static function column_exists( string $table_name, string $column_name ): bool {
+		global $wpdb;
+
+		return (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s',
+				$table_name,
+				$column_name
+			)
+		);
 	}
 
 	// -------------------------------------------------------------------------

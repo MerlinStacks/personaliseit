@@ -555,27 +555,12 @@ class OC_Admin_Fonts {
 			$base = 'font-' . time();
 		}
 
-		if ( in_array( $ext, [ 'ttf', 'otf' ], true ) ) {
-			$tmp = $font_dir . '/' . $base . '.' . $ext;
-			if ( ! move_uploaded_file( $file['tmp_name'], $tmp ) ) {
-				return new \WP_Error( 'upload_failed', __( 'File upload failed.', 'overcustomise' ) );
-			}
-			$dest = $font_dir . '/' . $base . '.woff';
-			$ok   = OC_WOFF_Converter::convert( $tmp, $dest );
-			wp_delete_file( $tmp );
-			if ( ! $ok ) {
-				return new \WP_Error( 'convert_failed', __( 'WOFF conversion failed.', 'overcustomise' ) );
-			}
-			$rel_path   = self::FONT_SUBDIR . '/' . $base . '.woff';
-			$stored_ext = 'WOFF';
-		} else {
-			$dest = $font_dir . '/' . $base . '.' . $ext;
-			if ( ! move_uploaded_file( $file['tmp_name'], $dest ) ) {
-				return new \WP_Error( 'upload_failed', __( 'File upload failed.', 'overcustomise' ) );
-			}
-			$rel_path   = self::FONT_SUBDIR . '/' . $base . '.' . $ext;
-			$stored_ext = strtoupper( $ext );
+		$dest = $font_dir . '/' . $base . '.' . $ext;
+		if ( ! move_uploaded_file( $file['tmp_name'], $dest ) ) {
+			return new \WP_Error( 'upload_failed', __( 'File upload failed.', 'overcustomise' ) );
 		}
+		$rel_path   = self::FONT_SUBDIR . '/' . $base . '.' . $ext;
+		$stored_ext = strtoupper( $ext );
 
 		$name       = sanitize_text_field( $_POST['oc_font_name'] ?? '' );
 		$weight     = sanitize_text_field( $_POST['oc_font_weight'] ?? 'normal' );
