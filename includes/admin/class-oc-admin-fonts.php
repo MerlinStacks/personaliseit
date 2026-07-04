@@ -608,10 +608,10 @@ class OC_Admin_Fonts {
 		if ( 'woff2' === $ext ) {
 			return new \WP_Error( 'woff2_unsupported', __( 'WOFF2 cannot be converted automatically. Upload the original TTF or OTF and keep the same font name/style.', 'overcustomise' ) );
 		}
-		if ( 'woff' !== $ext ) {
+		if ( ! in_array( $ext, [ 'woff', 'otf' ], true ) ) {
 			return new \WP_Error( 'already_compatible', __( 'This font is already print-compatible.', 'overcustomise' ) );
 		}
-		if ( ! class_exists( 'OC_WOFF_Converter' ) ) {
+		if ( 'woff' === $ext && ! class_exists( 'OC_WOFF_Converter' ) ) {
 			return new \WP_Error( 'converter_missing', __( 'Font converter is unavailable.', 'overcustomise' ) );
 		}
 
@@ -632,15 +632,34 @@ class OC_Admin_Fonts {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
 		}
 
-		$output_ext = self::woff_sfnt_extension( $real );
-		if ( 'otf' === $output_ext ) {
-			return new \WP_Error( 'unsupported_cff', __( 'This WOFF contains OpenType/CFF outlines, which TCPDF cannot embed. Upload a TrueType-outline TTF/OTF version of the font instead.', 'overcustomise' ) );
+		$source_for_print = $real;
+		$output_ext       = 'otf' === $ext ? 'otf' : self::woff_sfnt_extension( $real );
+
+		if ( 'woff' === $ext ) {
+			$source_for_print = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) . '-source.' . $output_ext );
+			if ( ! OC_WOFF_Converter::extract_sfnt( $real, $source_for_print ) ) {
+				return new \WP_Error( 'convert_failed', __( 'Could not extract this WOFF font. Upload the original TTF or OTF instead.', 'overcustomise' ) );
+			}
 		}
 
-		$filename   = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) . '-print.' . $output_ext;
-		$dest       = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $filename );
-		if ( ! OC_WOFF_Converter::extract_sfnt( $real, $dest ) ) {
-			return new \WP_Error( 'convert_failed', __( 'Could not convert this WOFF font. Upload the original TTF or OTF instead.', 'overcustomise' ) );
+		if ( 'otf' === $output_ext && self::is_cff_opentype_file( $source_for_print ) ) {
+			$dest = self::convert_cff_to_truetype( $source_for_print, $font_dir, (string) $font->file_path );
+			if ( $source_for_print !== $real ) {
+				wp_delete_file( $source_for_print );
+			}
+			if ( is_wp_error( $dest ) ) {
+				return $dest;
+			}
+		} else {
+			$filename = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) . '-print.' . $output_ext;
+			$dest     = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $filename );
+			if ( $source_for_print === $real ) {
+				if ( ! copy( $source_for_print, $dest ) ) {
+					return new \WP_Error( 'copy_failed', __( 'Could not prepare this font for print.', 'overcustomise' ) );
+				}
+			} else {
+				rename( $source_for_print, $dest );
+			}
 		}
 
 		$rel_path = self::FONT_SUBDIR . '/' . basename( $dest );
@@ -687,7 +706,48 @@ class OC_Admin_Fonts {
 	}
 
 	private static function can_convert_for_print( string $file_path ): bool {
-		return 'woff' === strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+		return in_array( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ), [ 'woff', 'otf' ], true );
+	}
+
+	private static function is_cff_opentype_file( string $path ): bool {
+		$handle = fopen( $path, 'rb' );
+		if ( ! $handle ) {
+			return false;
+		}
+		$signature = fread( $handle, 4 );
+		fclose( $handle );
+
+		return 'OTTO' === $signature;
+	}
+
+	private static function convert_cff_to_truetype( string $source, string $font_dir, string $original_path ): string|\WP_Error {
+		$binary = trim( (string) OC_Admin_Settings::get( 'fontforge_binary' ) ) ?: 'fontforge';
+		$dest   = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, sanitize_file_name( pathinfo( $original_path, PATHINFO_FILENAME ) ) . '-print.ttf' );
+		$script = wp_tempnam( 'oc-fontforge-' . wp_generate_uuid4() . '.pe' );
+
+		if ( ! is_string( $script ) || '' === $script ) {
+			return new \WP_Error( 'script_failed', __( 'Could not create a temporary FontForge script.', 'overcustomise' ) );
+		}
+
+		if ( false === file_put_contents( $script, "Open(\$1)\nGenerate(\$2)\nQuit(0)\n" ) ) {
+			wp_delete_file( $script );
+			return new \WP_Error( 'script_failed', __( 'Could not write the temporary FontForge script.', 'overcustomise' ) );
+		}
+
+		try {
+			$result = OC_Command_Runner::run( [ $binary, '-script', $script, $source, $dest ] );
+		} catch ( \InvalidArgumentException $e ) {
+			wp_delete_file( $script );
+			return new \WP_Error( 'fontforge_unavailable', sprintf( __( 'FontForge is not available: %s', 'overcustomise' ), $e->getMessage() ) );
+		}
+
+		wp_delete_file( $script );
+
+		if ( 0 !== (int) $result['code'] || ! file_exists( $dest ) ) {
+			return new \WP_Error( 'fontforge_failed', sprintf( __( 'FontForge could not convert this font. Install/configure FontForge or upload a TTF version. Output: %s', 'overcustomise' ), implode( ' ', array_slice( (array) $result['output'], 0, 5 ) ) ) );
+		}
+
+		return $dest;
 	}
 
 	private static function woff_sfnt_extension( string $path ): string {

@@ -555,9 +555,7 @@ class OC_Frontend {
 		.oc-area-tab { padding:6px 14px; border:1px solid #ddd; border-radius:3px; background:#fff; cursor:pointer; font-size:13px; transition:background .15s,border-color .15s; }
 		.oc-area-tab.oc-active { background:#0073aa; border-color:#0073aa; color:#fff; }
 
-		/* Mobile preview toggle */
-		.oc-preview-toggle-wrap { display:none; margin-bottom:12px; }
-		.oc-preview-toggle { display:none; width:100%; padding:12px; border:1px solid #ddd; border-radius:6px; background:#f8f8f8; cursor:pointer; font-size:14px; font-weight:600; text-align:center; min-height:44px; }
+		/* Hidden preview image used for cart confirmation fallback */
 		.oc-canvas-wrap { display:none; }
 		.oc-canvas-wrap img { width:100%; height:auto; display:block; border-radius:6px; border:1px solid #ddd; }
 
@@ -711,13 +709,6 @@ class OC_Frontend {
 				touch-action: manipulation;
 				-webkit-tap-highlight-color: transparent;
 				flex-shrink: 0;
-			}
-			.oc-preview-toggle-wrap {
-				display: block;
-			}
-			.oc-preview-toggle {
-				display: block;
-				font-size: 16px;
 			}
 			.oc-canvas-wrap {
 				display: none;

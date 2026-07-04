@@ -5719,7 +5719,6 @@ class OCCustomiser {
     this.galleryImg = null; // the main <img> in the product gallery
     this._previewUrl = null; // saved preview URL (set just before cart submit)
     this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
-    this._mobilePreviewVisible = false;
     this.spotifyValidateTimers = {};
     this.spotifyValidateTokens = {};
     this.preflightRoot = null;
@@ -5789,7 +5788,6 @@ class OCCustomiser {
 
     // Wire up controls IMMEDIATELY — don't block on canvas.
     this.setupInputListeners();
-    this.setupMobilePreview();
     this.setupUploadZones();
     if (this.editMode) this.updateInputsFromDOM();
     this.setupFormSubmit();
@@ -7091,16 +7089,19 @@ class OCCustomiser {
       const preflight = await this.runPreflight();
       this.renderPreflightMessages(preflight.errors, preflight.warnings);
       if (!preflight.ok) {
+        this.resetCartSubmitState(form);
         return;
       }
       if (preflight.warnings.length) {
         const proceed = window.confirm('We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.');
         if (!proceed) {
+          this.resetCartSubmitState(form);
           return;
         }
       }
       const acceptedPreview = await this.confirmMobileCartPreview();
       if (!acceptedPreview) {
+        this.resetCartSubmitState(form);
         return;
       }
       await this.uploadPreview();
@@ -7112,6 +7113,15 @@ class OCCustomiser {
       } else {
         form.submit();
       }
+    });
+  }
+  resetCartSubmitState(form) {
+    form.classList.remove('loading', 'processing');
+    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
+      button.classList.remove('loading', 'processing');
+      button.disabled = false;
+      button.removeAttribute('disabled');
+      button.setAttribute('aria-disabled', 'false');
     });
   }
   isMobileCartPreviewRequired() {
@@ -7271,27 +7281,6 @@ class OCCustomiser {
         });
       }
     }
-  }
-  setupMobilePreview() {
-    const toggleBtn = document.getElementById('oc-preview-toggle');
-    const canvasWrap = document.getElementById('oc-canvas-wrap');
-    if (!toggleBtn || !canvasWrap) return;
-    const updateToggle = () => {
-      const isVisible = canvasWrap.classList.contains('oc-preview-visible');
-      this._mobilePreviewVisible = isVisible;
-      toggleBtn.setAttribute('aria-expanded', isVisible ? 'true' : 'false');
-      toggleBtn.textContent = isVisible ? 'Hide Preview' : 'Show Preview';
-    };
-    toggleBtn.addEventListener('click', () => {
-      canvasWrap.classList.toggle('oc-preview-visible');
-      updateToggle();
-    });
-    toggleBtn.addEventListener('touchend', e => {
-      e.preventDefault();
-      toggleBtn.click();
-    }, {
-      passive: false
-    });
   }
 
   // ── Uppy upload zones ────────────────────────────────────────────────────────

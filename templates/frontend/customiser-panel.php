@@ -48,12 +48,6 @@ foreach ( $layers as $layer ) {
 	</div>
 	<?php endif; ?>
 
-	<div class="oc-preview-toggle-wrap">
-		<button type="button" class="oc-preview-toggle" id="oc-preview-toggle" aria-expanded="false">
-			<?php esc_html_e( 'Show live preview', 'overcustomise' ); ?>
-		</button>
-	</div>
-
 	<div class="oc-canvas-wrap" id="oc-canvas-wrap" aria-label="<?php esc_attr_e( 'Live customisation preview', 'overcustomise' ); ?>">
 		<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
 		<?php

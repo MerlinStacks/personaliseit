@@ -151,19 +151,36 @@ class OC_Blocks_Integration {
 			true
 		);
 
-		wp_add_inline_style( 'wc-blocks-style', $this->get_css() );
+		wp_register_style( 'oc-blocks-integration', false, [], OC_VERSION );
+		wp_enqueue_style( 'oc-blocks-integration' );
+		wp_add_inline_style( 'oc-blocks-integration', $this->get_css() );
 	}
 
 	private function get_css(): string {
 		return '
-		.oc-blocks-panel { padding: 12px 0; }
-		.oc-blocks-item { display:flex; gap:12px; align-items:flex-start; padding:8px 0; border-top:1px solid #e0e0e0; }
-		.oc-blocks-item:first-child { border-top:none; }
-		.oc-blocks-preview { width:64px; height:64px; object-fit:contain; border:1px solid #e0e0e0; border-radius:4px; flex-shrink:0; }
-		.oc-blocks-details { flex:1; min-width:0; font-size:13px; }
-		.oc-blocks-name { font-weight:600; margin:0 0 4px; }
-		.oc-blocks-line { margin:2px 0; color:#555; }
-		.oc-blocks-line strong { color:#333; margin-right:4px; }
+		.oc-cart-preview-thumb,
+		.oc-checkout-preview-thumb img,
+		.oc-blocks-line-preview img,
+		.wc-block-components-product-image img[src*="/overcustomise/previews/"],
+		.wc-block-mini-cart-items img[src*="/overcustomise/previews/"] {
+			width: 80px;
+			height: 80px;
+			object-fit: contain !important;
+			border: 1px solid #e0e0e0;
+			border-radius: 4px;
+			background: #fff;
+		}
+		.oc-checkout-preview-thumb,
+		.oc-blocks-line-preview {
+			display: inline-flex;
+			align-items: center;
+			margin-right: 10px;
+			vertical-align: middle;
+		}
+		.oc-blocks-line-preview img {
+			width: 64px;
+			height: 64px;
+		}
 		';
 	}
 }

@@ -11,6 +11,8 @@ defined( 'ABSPATH' ) || exit;
 class OC_Cart {
 
 	public function register(): void {
+		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_preview_styles' ] );
+
 		// Store customisation in the cart item.
 		add_filter( 'woocommerce_add_cart_item_data', [ $this, 'add_cart_item_data' ], 10, 3 );
 
@@ -34,6 +36,37 @@ class OC_Cart {
 		// Display preview + details in admin and frontend order pages.
 		add_action( 'woocommerce_order_item_meta_end', [ $this, 'display_in_order' ], 10, 3 );
 		add_action( 'woocommerce_before_order_itemmeta', [ $this, 'display_in_admin_order_item' ], 10, 3 );
+	}
+
+	/** Ensure personalised previews are contained rather than cropped across classic, Blocks, and Mini Cart. */
+	public function enqueue_preview_styles(): void {
+		wp_register_style( 'oc-cart-preview', false, [], OC_VERSION );
+		wp_enqueue_style( 'oc-cart-preview' );
+		wp_add_inline_style( 'oc-cart-preview', '
+			.oc-cart-preview-thumb,
+			.oc-checkout-preview-thumb img,
+			.oc-blocks-line-preview img,
+			.wc-block-components-product-image img[src*="/overcustomise/previews/"],
+			.wc-block-mini-cart-items img[src*="/overcustomise/previews/"] {
+				width: 80px;
+				height: 80px;
+				object-fit: contain !important;
+				border: 1px solid #e0e0e0;
+				border-radius: 4px;
+				background: #fff;
+			}
+			.oc-checkout-preview-thumb,
+			.oc-blocks-line-preview {
+				display: inline-flex;
+				align-items: center;
+				margin-right: 10px;
+				vertical-align: middle;
+			}
+			.oc-blocks-line-preview img {
+				width: 64px;
+				height: 64px;
+			}
+		' );
 	}
 
 	// -------------------------------------------------------------------------
