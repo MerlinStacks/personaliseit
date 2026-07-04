@@ -343,8 +343,9 @@ class OC_Rest_API {
 					$formats     = isset( $s['formats'] ) && is_array( $s['formats'] ) ? array_values( array_filter( $s['formats'] ) ) : [];
 					$max_size_mb = isset( $s['max_size_mb'] ) ? (int) $s['max_size_mb'] : 0;
 					$layer_overrides = [
-						'formats'     => ! empty( $formats ) ? array_map( 'strtolower', $formats ) : null,
-						'max_size_mb' => $max_size_mb > 0 ? $max_size_mb : null,
+						'formats'           => ! empty( $formats ) ? array_map( 'strtolower', $formats ) : null,
+						'max_size_mb'       => $max_size_mb > 0 ? $max_size_mb : null,
+						'remove_background' => ! empty( $s['remove_background'] ),
 					];
 				}
 			}

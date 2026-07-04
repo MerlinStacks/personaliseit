@@ -379,7 +379,7 @@
 		switch ( type ) {
 			case 'text':
 			case 'textarea': return { default_text: '', char_limit: 0, alignment: 'center', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false };
-			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, required: false };
+			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, remove_background: false, required: false };
 			case 'spotify':  return { colour_groups: [], required: false };
 			case 'lineart':  return { colour_groups: [], required: false };
 			case 'clipart':  return { clipart_groups: [], required: false };
@@ -562,7 +562,8 @@
 						: ( cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : field( 'Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>' ) ) );
 			case 'file':
 				return field( 'Accepted formats', formatChecks( s.formats || [ 'png', 'jpg', 'svg', 'webp' ] ) ) +
-					field( 'Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc( s.max_size_mb || 10 ) + '" />' );
+					field( 'Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc( s.max_size_mb || 10 ) + '" />' ) +
+					toggleField( 'Automatically remove background', 'oc-set-remove-background', !! s.remove_background );
 			case 'appearance':
 			case 'colours':
 				if ( isEngraving ) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
@@ -616,6 +617,7 @@
 		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
 		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); markDirty(); } ); } );
 		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-remove-background' )?.addEventListener( 'change', e => { s.remove_background = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-required'   )?.addEventListener( 'change', e => { s.required = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-font-change' )?.addEventListener( 'change', e => { s.allow_font_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-colour-change' )?.addEventListener( 'change', e => { s.allow_colour_change = e.target.checked; renderHiddenFields(); markDirty(); } );

@@ -385,7 +385,7 @@ abstract class OC_Print_Base {
 
 		while ( $size > $min_size ) {
 			$pdf->SetFont( $font_name, '', $size );
-			if ( $pdf->GetStringWidth( $text ) <= $w_mm * 0.92 ) {
+			if ( self::text_fits_box( $pdf, $text, $w_mm * 0.92, $h_mm, $size ) ) {
 				break;
 			}
 			$size -= 0.5;
@@ -408,6 +408,35 @@ abstract class OC_Print_Base {
 	 */
 	protected static function cell_h( float $font_size_pt ): float {
 		return $font_size_pt * 0.3528 * 1.2; // 1pt = 0.3528mm
+	}
+
+	/** Return true when the current font size fits within the supplied box. */
+	protected static function text_fits_box(
+		\TCPDF $pdf,
+		string $text,
+		float $w_mm,
+		float $h_mm,
+		float $font_size_pt
+	): bool {
+		return $pdf->GetStringWidth( $text ) <= $w_mm && self::cell_h( $font_size_pt ) <= $h_mm;
+	}
+
+	/** Draw text constrained to the supplied box. */
+	protected static function draw_clipped_text_cell(
+		\TCPDF $pdf,
+		float $x_mm,
+		float $y_mm,
+		float $w_mm,
+		float $h_mm,
+		string $text,
+		float $cell_h,
+		string $align = 'C'
+	): void {
+		$pdf->StartTransform();
+		$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
+		$pdf->SetXY( $x_mm, $y_mm + max( 0.0, ( $h_mm - $cell_h ) / 2 ) );
+		$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
+		$pdf->StopTransform();
 	}
 
 	/**
@@ -519,7 +548,7 @@ abstract class OC_Print_Base {
 
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			if ( $pdf->GetStringWidth( $text ) <= $w_mm ) {
+			if ( self::text_fits_box( $pdf, $text, $w_mm, $h_mm, $font_size ) ) {
 				break;
 			}
 			$font_size -= 0.5;
@@ -538,8 +567,7 @@ abstract class OC_Print_Base {
 			$align = 'C';
 		}
 		$cell_h = self::cell_h( $font_size );
-		$pdf->SetXY( $x_mm, $y_mm + max( 0.0, ( $h_mm - $cell_h ) / 2 ) );
-		$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
+		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align );
 	}
 
 	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {

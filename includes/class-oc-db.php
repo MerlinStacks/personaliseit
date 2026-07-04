@@ -538,18 +538,15 @@ class OC_DB {
 			return $colours;
 		}
 
-		$allowed_ids = [];
-		foreach ( self::get_colour_groups() as $group ) {
-			if ( ! in_array( (int) $group->id, $group_ids, true ) ) {
-				continue;
-			}
-
-			foreach ( (array) ( $group->colour_ids ?? [] ) as $colour_id ) {
-				$allowed_ids[] = (int) $colour_id;
-			}
-		}
-
-		$allowed_ids = array_values( array_unique( $allowed_ids ) );
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+		$allowed_ids  = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT colour_id FROM {$wpdb->prefix}oc_colour_group_items WHERE group_id IN ($placeholders) ORDER BY sort_order ASC",
+				...$group_ids
+			)
+		) ?: [];
+		$allowed_ids  = array_values( array_unique( array_map( 'absint', $allowed_ids ) ) );
 		if ( empty( $allowed_ids ) ) {
 			return [];
 		}

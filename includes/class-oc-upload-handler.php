@@ -58,7 +58,8 @@ class OC_Upload_Handler {
 	/**
 	 * Process an uploaded file.
 	 *
-	 * @param  array $_file   An element from $_FILES.
+	 * @param  array      $_file     An element from $_FILES.
+	 * @param  array|null $overrides Per-layer validation and processing overrides.
 	 * @return array{attachment_id:int,preview_url:string,original_url:string,file_type:string}
 	 * @throws \RuntimeException On validation or processing failure.
 	 */
@@ -74,12 +75,18 @@ class OC_Upload_Handler {
 			);
 		}
 
-		return match ( $type_key ) {
+		$result = match ( $type_key ) {
 			'svg'   => self::process_svg( $_file ),
 			'pdf'   => self::process_pdf_eps( $_file, 'pdf' ),
 			'eps'   => self::process_pdf_eps( $_file, 'eps' ),
 			default => self::process_raster( $_file, $type_key ),
 		};
+
+		if ( ! empty( $overrides['remove_background'] ) ) {
+			$result = apply_filters( 'oc_upload_remove_background', $result, $_file, $type_key );
+		}
+
+		return $result;
 	}
 
 	// -------------------------------------------------------------------------

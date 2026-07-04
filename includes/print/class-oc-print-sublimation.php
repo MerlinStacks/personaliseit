@@ -83,8 +83,7 @@ class OC_Print_Sublimation extends OC_Print_Base {
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 
 			$cell_h = self::cell_h( $font_size );
-			$pdf->SetXY( $bleed, $bleed + ( $h_mm - $cell_h ) / 2 );
-			$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, 'C' );
+			self::draw_clipped_text_cell( $pdf, $bleed, $bleed, $w_mm, $h_mm, $text, $cell_h );
 		}
 
 		self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );

@@ -9,6 +9,13 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Colours {
 
+	/** Clear cached colour and colour-group data after manager changes. */
+	private static function clear_colour_cache(): void {
+		OC_Cache::delete( 'colours_active' );
+		OC_Cache::delete( 'colours_all' );
+		OC_Cache::delete( 'colour_groups' );
+	}
+
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
@@ -337,6 +344,8 @@ class OC_Admin_Colours {
 			"SELECT active FROM {$wpdb->prefix}oc_colours WHERE id = %d", $id
 		) );
 
+		self::clear_colour_cache();
+
 		wp_send_json_success( [
 			'id'        => $id,
 			'name'      => $name,
@@ -365,6 +374,7 @@ class OC_Admin_Colours {
 
 		global $wpdb;
 		$wpdb->insert( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ '%s' ] );
+		self::clear_colour_cache();
 		wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'name' => $name, 'colourIds' => [] ] );
 	}
 
@@ -392,6 +402,7 @@ class OC_Admin_Colours {
 				[ '%d', '%d', '%d' ]
 			);
 		}
+		self::clear_colour_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'colourIds' => array_values( $colour_ids ) ] );
 	}
 
@@ -408,6 +419,7 @@ class OC_Admin_Colours {
 		global $wpdb;
 		$wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] );
 		$wpdb->delete( "{$wpdb->prefix}oc_colour_groups",      [ 'id'       => $id ], [ '%d' ] );
+		self::clear_colour_cache();
 		wp_send_json_success();
 	}
 
@@ -425,6 +437,7 @@ class OC_Admin_Colours {
 
 		global $wpdb;
 		$wpdb->update( "{$wpdb->prefix}oc_colours", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		self::clear_colour_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-colours' ) );
 		exit;
 	}
@@ -440,6 +453,7 @@ class OC_Admin_Colours {
 
 		global $wpdb;
 		$wpdb->delete( "{$wpdb->prefix}oc_colours", [ 'id' => $id ], [ '%d' ] );
+		self::clear_colour_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-colours' ) );
 		exit;
 	}

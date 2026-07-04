@@ -99,8 +99,7 @@ class OC_Print_UV extends OC_Print_Base {
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 
 			$cell_h = self::cell_h( $font_size );
-			$pdf->SetXY( $bleed, $bleed + ( $h_mm - $cell_h ) / 2 );
-			$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, 'C' );
+			self::draw_clipped_text_cell( $pdf, $bleed, $bleed, $w_mm, $h_mm, $text, $cell_h );
 		}
 	}
 
@@ -135,8 +134,7 @@ class OC_Print_UV extends OC_Print_Base {
 
 			$pdf->SetFont( $font_name, '', $font_size );
 			$cell_h = self::cell_h( $font_size );
-			$pdf->SetXY( $bleed, $bleed + ( $h_mm - $cell_h ) / 2 );
-			$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, 'C' );
+			self::draw_clipped_text_cell( $pdf, $bleed, $bleed, $w_mm, $h_mm, $text, $cell_h );
 		}
 
 		// Note text for operator.

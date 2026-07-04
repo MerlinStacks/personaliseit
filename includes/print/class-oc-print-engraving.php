@@ -87,8 +87,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
 			$pdf->SetFont( $font_name, '', $font_size );
-			$pdf->SetXY( 0, ( $h_mm - self::cell_h( $font_size ) ) / 2 );
-			$pdf->Cell( $w_mm, self::cell_h( $font_size ), $text, 0, 0, 'C', false );
+			self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
 		}
 
 		$output_dir  = self::ensure_output_dir( $order->get_id() );
