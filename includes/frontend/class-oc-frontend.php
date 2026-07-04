@@ -633,9 +633,6 @@ class OC_Frontend {
 		.oc-upload-zone.oc-upload-zone--uploaded .uppy-DragDrop-browse { color:inherit; text-decoration:none; font-weight:800; }
 		.oc-upload-zone.oc-upload-zone--uploaded .uppy-DragDrop-note { display:block; margin-top:3px; color:#426c55; font-size:11px; font-weight:700; text-transform:uppercase; }
 		.oc-upload-zone.oc-upload-zone--error .uppy-DragDrop-container { border-color:#d7aaa6; background:#fff7f6; }
-		.oc-artwork-actions { display:flex; justify-content:flex-end; margin-top:8px; }
-		.oc-artwork-remove { font-size:12px; color:#b32d2e; background:#fff; border:1px solid #b32d2e; border-radius:3px; padding:4px 10px; cursor:pointer; margin-left:auto; }
-		.oc-artwork-remove:hover { background:#fde8e8; }
 		.oc-artwork-error { color:#b32d2e; font-size:12px; margin-top:6px; padding:6px 10px; background:#fef2f2; border:1px solid #fecaca; border-radius:4px; }
 		.oc-resolution-warning { padding:10px 12px; border-radius:4px; font-size:12px; line-height:1.45; position:relative; }
 		.oc-resolution-warning.oc-res-warning { background:#fff7f6; border:1px solid #e5bbb7; color:#7f2d27; }
@@ -760,12 +757,6 @@ class OC_Frontend {
 			}
 			.oc-clipart-item {
 				min-height: 72px;
-				touch-action: manipulation;
-			}
-			.oc-artwork-remove {
-				min-height: 44px;
-				width: 100%;
-				text-align: center;
 				touch-action: manipulation;
 			}
 			.oc-help-toggle,
