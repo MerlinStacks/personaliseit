@@ -683,6 +683,13 @@ class OC_Cart {
 		foreach ( $print_files as $file ) {
 			$status_label = ucfirst( str_replace( '_', ' ', (string) $file->file_status ) );
 			$queue_info   = OC_Print_Queue::instance()->get_status( (int) $file->id );
+			$regen_url    = add_query_arg(
+				[
+					'oc_regenerate' => (int) $file->id,
+					'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . (int) $file->id ),
+				],
+				admin_url( 'post.php?post=' . ( $order instanceof WC_Order ? $order->get_id() : 0 ) . '&action=edit' )
+			);
 			echo '<div style="margin-top:3px;">';
 			echo esc_html( ucfirst( str_replace( '_', ' ', (string) $file->file_type ) ) . ': ' . $status_label );
 
@@ -708,8 +715,12 @@ class OC_Cart {
 				);
 				echo ' <a href="' . esc_url( $download_url ) . '" class="button button-small" style="margin-left:6px;">'
 					. esc_html__( 'Download Print File', 'overcustomise' ) . '</a>';
+				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			} elseif ( 'files_ready' === $file->file_status ) {
 				echo ' <em style="color:#888;">' . esc_html__( 'File missing on disk.', 'overcustomise' ) . '</em>';
+				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			} elseif ( $order instanceof WC_Order && ( ! empty( $queue_info['in_queue'] ) || ! empty( $queue_info['has_failed_job'] ) ) ) {
 				$process_url = add_query_arg(
 					[
@@ -721,14 +732,7 @@ class OC_Cart {
 				echo ' <a href="' . esc_url( $process_url ) . '" class="button button-small" style="margin-left:6px;">'
 					. esc_html__( 'Process Print Queue', 'overcustomise' ) . '</a>';
 			} elseif ( 'pending' === $file->file_status ) {
-				$generate_url = add_query_arg(
-					[
-						'oc_regenerate' => (int) $file->id,
-						'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . (int) $file->id ),
-					],
-					admin_url( 'post.php?post=' . ( $order instanceof WC_Order ? $order->get_id() : 0 ) . '&action=edit' )
-				);
-				echo ' <a href="' . esc_url( $generate_url ) . '" class="button button-small" style="margin-left:6px;">'
+				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
 					. esc_html__( 'Generate Now', 'overcustomise' ) . '</a>';
 			}
 

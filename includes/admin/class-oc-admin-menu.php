@@ -130,11 +130,16 @@ class OC_Admin_Menu {
 
 		// Font Manager — live preview script.
 		if ( 'overcustomise_page_overcustomise-fonts' === $hook ) {
+			$font_asset = OC_PATH . 'assets/build/admin/font-manager.asset.php';
+			$font_meta  = file_exists( $font_asset ) ? include $font_asset : [];
+			$font_deps  = is_array( $font_meta['dependencies'] ?? null ) ? $font_meta['dependencies'] : [];
+			$font_ver   = isset( $font_meta['version'] ) ? (string) $font_meta['version'] : OC_VERSION;
+
 			wp_enqueue_script(
 				'oc-font-manager',
 				OC_ASSETS_URL . 'admin/font-manager.js',
-				[],
-				OC_VERSION,
+				$font_deps,
+				$font_ver,
 				true
 			);
 		}

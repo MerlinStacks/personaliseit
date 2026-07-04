@@ -411,7 +411,7 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (!json.success) {
-        alert(json.data?.message || 'Font conversion failed.');
+        window.alert(json.data?.message || 'Font conversion failed.');
         return;
       }
       const updated = json.data;
@@ -420,8 +420,9 @@
       if (detailFontName === updated.name) {
         renderDetailVariants(updated.name);
       }
+      window.alert('Font converted for print. Existing designs will keep using this font.');
     } catch (err) {
-      alert(err?.message || 'Network error — please try again.');
+      window.alert(err?.message || 'Network error — please try again.');
     } finally {
       if (button) {
         button.disabled = false;
