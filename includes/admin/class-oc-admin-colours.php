@@ -370,12 +370,21 @@ class OC_Admin_Colours {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 		$name = sanitize_text_field( $_POST['name'] ?? '' );
+		$colour_ids = array_values( array_filter( array_map( 'intval', (array) ( $_POST['colour_ids'] ?? [] ) ) ) );
 		if ( ! $name ) wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
 
 		global $wpdb;
 		$wpdb->insert( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ '%s' ] );
+		$id = (int) $wpdb->insert_id;
+		foreach ( $colour_ids as $order => $colour_id ) {
+			$wpdb->insert(
+				"{$wpdb->prefix}oc_colour_group_items",
+				[ 'group_id' => $id, 'colour_id' => $colour_id, 'sort_order' => $order ],
+				[ '%d', '%d', '%d' ]
+			);
+		}
 		self::clear_colour_cache();
-		wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'name' => $name, 'colourIds' => [] ] );
+		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'colourIds' => $colour_ids ] );
 	}
 
 	// ── AJAX: colour group update ──────────────────────────────────────────────
