@@ -12,6 +12,13 @@ class OC_Admin_Fonts {
 
 	private const FONT_SUBDIR = 'overcustomise/fonts';
 
+	/** Clear cached font and font-group data after manager changes. */
+	private static function clear_font_cache(): void {
+		OC_Cache::delete( 'fonts_active' );
+		OC_Cache::delete( 'fonts_all' );
+		OC_Cache::delete( 'font_groups' );
+	}
+
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
@@ -458,7 +465,8 @@ class OC_Admin_Fonts {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$name = sanitize_text_field( $_POST['name'] ?? '' );
+		$name     = sanitize_text_field( $_POST['name'] ?? '' );
+		$font_ids = array_values( array_filter( array_map( 'intval', (array) ( $_POST['font_ids'] ?? [] ) ) ) );
 		if ( ! $name ) {
 			wp_send_json_error( [ 'message' => __( 'Group name is required.', 'overcustomise' ) ] );
 		}
@@ -466,8 +474,16 @@ class OC_Admin_Fonts {
 		global $wpdb;
 		$wpdb->insert( "{$wpdb->prefix}oc_font_groups", [ 'name' => $name ], [ '%s' ] );
 		$id = (int) $wpdb->insert_id;
+		foreach ( $font_ids as $order => $font_id ) {
+			$wpdb->insert(
+				"{$wpdb->prefix}oc_font_group_items",
+				[ 'group_id' => $id, 'font_id' => $font_id, 'sort_order' => $order ],
+				[ '%d', '%d', '%d' ]
+			);
+		}
+		self::clear_font_cache();
 
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'fontIds' => [] ] );
+		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'fontIds' => $font_ids ] );
 	}
 
 	// ── AJAX: group update (name + font members) ───────────────────────────────
@@ -503,6 +519,7 @@ class OC_Admin_Fonts {
 				[ '%d', '%d', '%d' ]
 			);
 		}
+		self::clear_font_cache();
 
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'fontIds' => array_values( $font_ids ) ] );
 	}
@@ -523,6 +540,7 @@ class OC_Admin_Fonts {
 		global $wpdb;
 		$wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'group_id' => $id ], [ '%d' ] );
 		$wpdb->delete( "{$wpdb->prefix}oc_font_groups", [ 'id' => $id ], [ '%d' ] );
+		self::clear_font_cache();
 
 		wp_send_json_success();
 	}
@@ -817,6 +835,7 @@ class OC_Admin_Fonts {
 
 		global $wpdb;
 		$wpdb->update( "{$wpdb->prefix}oc_fonts", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		self::clear_font_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-fonts' ) );
 		exit;
 	}
@@ -841,8 +860,10 @@ class OC_Admin_Fonts {
 			if ( $base && $real && 0 === strpos( $real, $base ) && file_exists( $real ) ) {
 				wp_delete_file( $real );
 			}
+			$wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'font_id' => $id ], [ '%d' ] );
 			$wpdb->delete( "{$wpdb->prefix}oc_fonts", [ 'id' => $id ], [ '%d' ] );
 		}
+		self::clear_font_cache();
 
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-fonts' ) );
 		exit;

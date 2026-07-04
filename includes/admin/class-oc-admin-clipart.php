@@ -11,6 +11,13 @@ class OC_Admin_Clipart {
 
 	private const CLIPART_SUBDIR = 'overcustomise/clipart';
 
+	/** Clear cached clipart and clipart-group data after manager changes. */
+	private static function clear_clipart_cache(): void {
+		OC_Cache::delete( 'clipart_active' );
+		OC_Cache::delete( 'clipart_all' );
+		OC_Cache::delete( 'clipart_groups' );
+	}
+
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
@@ -422,14 +429,24 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$name = sanitize_text_field( $_POST['name'] ?? '' );
+		$name        = sanitize_text_field( $_POST['name'] ?? '' );
+		$clipart_ids = array_values( array_filter( array_map( 'intval', (array) ( $_POST['clipart_ids'] ?? [] ) ) ) );
 		if ( ! $name ) {
 			wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
 		}
 
 		global $wpdb;
 		$wpdb->insert( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ '%s' ] );
-		wp_send_json_success( [ 'id' => (int) $wpdb->insert_id, 'name' => $name, 'clipartIds' => [] ] );
+		$id = (int) $wpdb->insert_id;
+		foreach ( $clipart_ids as $order => $clipart_id ) {
+			$wpdb->insert(
+				"{$wpdb->prefix}oc_clipart_group_items",
+				[ 'group_id' => $id, 'clipart_id' => $clipart_id, 'sort_order' => $order ],
+				[ '%d', '%d', '%d' ]
+			);
+		}
+		self::clear_clipart_cache();
+		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => $clipart_ids ] );
 	}
 
 	// ── AJAX: clipart group update ────────────────────────────────────────────
@@ -458,6 +475,7 @@ class OC_Admin_Clipart {
 				[ '%d', '%d', '%d' ]
 			);
 		}
+		self::clear_clipart_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => array_values( $clipart_ids ) ] );
 	}
 
@@ -477,6 +495,7 @@ class OC_Admin_Clipart {
 		global $wpdb;
 		$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
 		$wpdb->delete( "{$wpdb->prefix}oc_clipart_groups",      [ 'id'       => $id ], [ '%d' ] );
+		self::clear_clipart_cache();
 		wp_send_json_success();
 	}
 
@@ -494,6 +513,7 @@ class OC_Admin_Clipart {
 
 		global $wpdb;
 		$wpdb->update( "{$wpdb->prefix}oc_clipart", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		self::clear_clipart_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-clipart' ) );
 		exit;
 	}
@@ -524,7 +544,9 @@ class OC_Admin_Clipart {
 			}
 		}
 
+		$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'clipart_id' => $id ], [ '%d' ] );
 		$wpdb->delete( "{$wpdb->prefix}oc_clipart", [ 'id' => $id ], [ '%d' ] );
+		self::clear_clipart_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-clipart' ) );
 		exit;
 	}
