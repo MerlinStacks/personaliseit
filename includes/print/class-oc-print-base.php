@@ -508,7 +508,11 @@ abstract class OC_Print_Base {
 
 				case 'image':
 				case 'clipart':
-					self::render_layer_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+					self::render_layer_image( $pdf, $layer, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+					break;
+
+				case 'clipmask':
+					self::render_layer_clipped_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
 					break;
 
 				case 'lineart':
@@ -672,7 +676,7 @@ abstract class OC_Print_Base {
 		return $temp;
 	}
 
-	private static function render_layer_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {
+	private static function render_layer_image( \TCPDF $pdf, array $layer, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {
 		$path = self::resolve_artwork_path( $layer );
 		if ( ! $path ) {
 			return;
@@ -683,6 +687,14 @@ abstract class OC_Print_Base {
 			$temp_path = self::build_black_clipart( $path );
 			if ( is_string( $temp_path ) && '' !== $temp_path ) {
 				$path = $temp_path;
+			}
+		} elseif ( 'clipart' === (string) ( $layer['type'] ?? '' ) && ! empty( $input['clipartRecolourable'] ) ) {
+			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );
+			if ( $hex ) {
+				$temp_path = self::build_coloured_clipart( $path, $hex );
+				if ( is_string( $temp_path ) && '' !== $temp_path ) {
+					$path = $temp_path;
+				}
 			}
 		}
 
@@ -706,16 +718,53 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	private static function build_black_clipart( string $path ): ?string {
-		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-		if ( 'svg' === $ext ) {
-			return self::build_black_svg( $path );
+	private static function render_layer_clipped_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {
+		$path = self::resolve_artwork_path( $layer );
+		if ( ! $path ) {
+			return;
 		}
 
-		return self::build_black_raster( $path );
+		$draw_w = $w_mm;
+		$draw_h = $h_mm;
+		$draw_x = $x_mm;
+		$draw_y = $y_mm;
+		$size = @getimagesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( is_array( $size ) && ! empty( $size[0] ) && ! empty( $size[1] ) ) {
+			$scale  = max( $w_mm / (float) $size[0], $h_mm / (float) $size[1] );
+			$draw_w = (float) $size[0] * $scale;
+			$draw_h = (float) $size[1] * $scale;
+			$draw_x = $x_mm + ( $w_mm - $draw_w ) / 2;
+			$draw_y = $y_mm + ( $h_mm - $draw_h ) / 2;
+		}
+
+		$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+		$shape    = sanitize_key( (string) ( $settings['mask_shape'] ?? 'circle' ) );
+
+		$pdf->StartTransform();
+		if ( 'circle' === $shape ) {
+			$radius = min( $w_mm, $h_mm ) / 2;
+			$pdf->Circle( $x_mm + $w_mm / 2, $y_mm + $h_mm / 2, $radius, 0, 360, 'CNZ' );
+		} else {
+			$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
+		}
+		$pdf->Image( $path, $draw_x, $draw_y, $draw_w, $draw_h, '', '', '', false, 300 );
+		$pdf->StopTransform();
 	}
 
-	private static function build_black_svg( string $path ): ?string {
+	private static function build_black_clipart( string $path ): ?string {
+		return self::build_coloured_clipart( $path, '#000000' );
+	}
+
+	private static function build_coloured_clipart( string $path, string $hex ): ?string {
+		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( 'svg' === $ext ) {
+			return self::build_coloured_svg( $path, $hex );
+		}
+
+		return '#000000' === $hex ? self::build_black_raster( $path ) : null;
+	}
+
+	private static function build_coloured_svg( string $path, string $hex ): ?string {
 		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 		if ( ! is_string( $raw ) || '' === $raw ) {
 			return null;
@@ -730,11 +779,11 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$dom->documentElement->setAttribute( 'color', '#000000' );
-		$dom->documentElement->setAttribute( 'fill', '#000000' );
-		self::force_svg_node_black( $dom->documentElement );
+		$dom->documentElement->setAttribute( 'color', $hex );
+		$dom->documentElement->setAttribute( 'fill', $hex );
+		self::force_svg_node_colour( $dom->documentElement, $hex );
 
-		$temp = wp_tempnam( 'oc-black-clipart-' . wp_generate_uuid4() . '.svg' );
+		$temp = wp_tempnam( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -748,47 +797,47 @@ abstract class OC_Print_Base {
 		return $temp;
 	}
 
-	private static function force_svg_node_black( \DOMElement $element ): void {
+	private static function force_svg_node_colour( \DOMElement $element, string $hex ): void {
 		if ( 'style' === strtolower( $element->localName ) ) {
-			$element->nodeValue = self::force_svg_css_black( $element->nodeValue ?? '' );
+			$element->nodeValue = self::force_svg_css_colour( $element->nodeValue ?? '', $hex );
 			return;
 		}
 
 		if ( $element->hasAttribute( 'fill' ) && 'none' !== strtolower( trim( $element->getAttribute( 'fill' ) ) ) ) {
-			$element->setAttribute( 'fill', '#000000' );
+			$element->setAttribute( 'fill', $hex );
 		}
 		if ( $element->hasAttribute( 'stroke' ) && 'none' !== strtolower( trim( $element->getAttribute( 'stroke' ) ) ) ) {
-			$element->setAttribute( 'stroke', '#000000' );
+			$element->setAttribute( 'stroke', $hex );
 		}
 		if ( $element->hasAttribute( 'style' ) ) {
-			$element->setAttribute( 'style', self::force_svg_style_black( $element->getAttribute( 'style' ) ) );
+			$element->setAttribute( 'style', self::force_svg_style_colour( $element->getAttribute( 'style' ), $hex ) );
 		}
 
 		foreach ( $element->childNodes as $child ) {
 			if ( $child instanceof \DOMElement ) {
-				self::force_svg_node_black( $child );
+				self::force_svg_node_colour( $child, $hex );
 			}
 		}
 	}
 
-	private static function force_svg_style_black( string $style ): string {
+	private static function force_svg_style_colour( string $style, string $hex ): string {
 		$parts = array_filter( array_map( 'trim', explode( ';', $style ) ) );
 		foreach ( $parts as &$part ) {
 			if ( preg_match( '/^\s*(fill|stroke)\s*:/i', $part ) && ! preg_match( '/:\s*none\s*$/i', $part ) ) {
 				$property = trim( (string) strtok( $part, ':' ) );
-				$part = $property . ':#000000';
+				$part = $property . ':' . $hex;
 			}
 		}
 
 		return implode( ';', $parts );
 	}
 
-	private static function force_svg_css_black( string $css ): string {
+	private static function force_svg_css_colour( string $css, string $hex ): string {
 		return (string) preg_replace_callback(
 			'/\b(fill|stroke)\s*:\s*([^;}]+)/i',
-			static function ( array $matches ): string {
+			static function ( array $matches ) use ( $hex ): string {
 				$value = strtolower( trim( (string) $matches[2] ) );
-				return 'none' === $value ? $matches[0] : $matches[1] . ':#000000';
+				return 'none' === $value ? $matches[0] : $matches[1] . ':' . $hex;
 			},
 			$css
 		);

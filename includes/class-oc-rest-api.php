@@ -803,7 +803,7 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_design', __( 'Design has no layers.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$valid_layer_types = [ 'text', 'textarea', 'image', 'spotify', 'lineart', 'clipart' ];
+		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
 
 		$sanitised_layers = [];
 		$fallback_font_id = $this->first_active_font_id();
@@ -837,7 +837,7 @@ class OC_Rest_API {
 			}
 
 			$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
-			$should_restrict_colour = ! empty( $colour_group_ids ) && ( 'lineart' === $type || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
+			$should_restrict_colour = ! empty( $colour_group_ids ) && ( in_array( $type, [ 'lineart', 'clipart' ], true ) || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
 			if ( $should_restrict_colour ) {
 				$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
 				$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
@@ -857,6 +857,7 @@ class OC_Rest_API {
 				'attachmentId' => absint( $layer_data['attachmentId'] ?? 0 ),
 				'clipartId'    => absint( $layer_data['clipartId'] ?? 0 ),
 				'clipartUrl'   => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
+				'clipartRecolourable' => ! empty( $layer_data['clipartRecolourable'] ),
 			];
 		}
 

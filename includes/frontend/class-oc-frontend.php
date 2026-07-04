@@ -265,6 +265,7 @@ class OC_Frontend {
 					'attachmentUrl' => '',
 					'clipartId'     => 0,
 					'clipartUrl'    => '',
+					'clipartRecolourable' => false,
 				];
 			}
 
@@ -424,24 +425,24 @@ class OC_Frontend {
 				$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
 				$items = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT DISTINCT c.id, c.name, c.file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
+						"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
 						 FROM {$wpdb->prefix}oc_clipart c
 						 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 						 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 						 WHERE gi.group_id IN ($placeholders) AND c.active = 1
-						 GROUP BY c.id, c.name, c.file_path
+						 GROUP BY c.id, c.name, c.file_path, c.file_type
 						 ORDER BY c.name ASC",
 						...$group_ids
 					)
 				) ?: [];
 			} else {
 				$items = $wpdb->get_results(
-					"SELECT c.id, c.name, c.file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
+					"SELECT c.id, c.name, c.file_path, c.file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
 					 FROM {$wpdb->prefix}oc_clipart c
 					 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 					 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 					 WHERE c.active = 1
-					 GROUP BY c.id, c.name, c.file_path
+					 GROUP BY c.id, c.name, c.file_path, c.file_type
 					 ORDER BY c.name ASC"
 				) ?: [];
 			}
@@ -453,6 +454,8 @@ class OC_Frontend {
 					'id'         => (int) $item->id,
 					'name'       => $item->name,
 					'url'        => $url,
+					'fileType'   => (string) $item->file_type,
+					'recolourable' => 'svg' === strtolower( (string) $item->file_type ),
 					'groupNames' => $groupNames,
 				];
 			}, $items );
@@ -559,6 +562,7 @@ class OC_Frontend {
 					break;
 
 				case 'image':
+				case 'clipmask':
 					$filled = ! empty( $input['attachmentId'] );
 					break;
 

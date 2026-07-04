@@ -61,4 +61,29 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( [ 'x' => 50, 'y' => 60, 'w' => 300, 'h' => 120, 'rotation' => 0 ], $data['bounds'] );
 		$this->assertSame( $area, $data['renderSpecArea'] );
 	}
+
+	#[Test]
+	public function area_to_print_data_preserves_clipmask_attachment_and_mask_settings(): void {
+		$area = [
+			'layers' => [
+				[
+					'id'                  => 44,
+					'type'                => 'clipmask',
+					'x'                   => 10,
+					'y'                   => 20,
+					'w'                   => 100,
+					'h'                   => 100,
+					'settings'            => [ 'mask_shape' => 'circle' ],
+					'input'               => [ 'attachmentId' => 99 ],
+					'artworkAttachmentId' => 99,
+				],
+			],
+		];
+
+		$data = OC_Render_Spec::area_to_print_data( $area );
+
+		$this->assertSame( 99, $data['artworkAttachmentId'] );
+		$this->assertSame( 'clipmask', $data['layers'][0]['type'] );
+		$this->assertSame( 'circle', $data['layers'][0]['settings']['mask_shape'] );
+	}
 }

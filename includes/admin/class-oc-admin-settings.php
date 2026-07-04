@@ -275,7 +275,7 @@ class OC_Admin_Settings {
 													value="<?php echo esc_attr( $s['pyembroidery_cli_path'] ); ?>"
 													class="regular-text oc-input"
 													placeholder="/path/to/pyemb_convert.py" />
-												<p class="oc-form-help"><?php esc_html_e( 'Full path to the pyembroidery conversion script. Leave blank to disable Tier 1 auto-DST.', 'overcustomise' ); ?></p>
+												<p class="oc-form-help"><?php esc_html_e( 'Legacy setting retained for existing installs. Embroidery print files are now generated directly as EPS artwork files.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 										<div class="oc-form-row">
@@ -285,10 +285,10 @@ class OC_Admin_Settings {
 											<div class="oc-form-field">
 												<select id="oc_embroidery_fallback" name="oc_embroidery_fallback" class="oc-select">
 													<option value="auto" <?php selected( $s['embroidery_fallback'], 'auto' ); ?>>
-														<?php esc_html_e( 'Auto-detect (use Tier 1 if available, fall back to Tier 2)', 'overcustomise' ); ?>
+														<?php esc_html_e( 'Legacy auto-detect (not used for EPS output)', 'overcustomise' ); ?>
 													</option>
 													<option value="force_tier2" <?php selected( $s['embroidery_fallback'], 'force_tier2' ); ?>>
-														<?php esc_html_e( 'Always use Tier 2 (production brief + manual DST upload)', 'overcustomise' ); ?>
+														<?php esc_html_e( 'Legacy production brief fallback (not used for EPS output)', 'overcustomise' ); ?>
 													</option>
 												</select>
 											</div>

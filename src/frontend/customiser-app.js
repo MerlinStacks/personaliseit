@@ -7,7 +7,7 @@
  * @package OverCustomise
  */
 
-import { StaticCanvas, FabricImage, FabricText, Rect, Shadow, Pattern, filters as FabricFilters } from 'fabric';
+import { StaticCanvas, FabricImage, FabricText, Rect, Circle, Shadow, Pattern, filters as FabricFilters } from 'fabric';
 import Uppy      from '@uppy/core';
 import DragDrop  from '@uppy/drag-drop';
 import XHRUpload from '@uppy/xhr-upload';
@@ -566,7 +566,7 @@ class OCCustomiser {
 			return size;
 		};
 
-		switch ( layer.type ) {
+			switch ( layer.type ) {
 
 			case 'text':
 			case 'textarea': {
@@ -692,8 +692,15 @@ class OCCustomiser {
 				if ( input.attachmentUrl ) await this.renderFabricImg( canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip() );
 				break;
 
+			case 'clipmask':
+				if ( input.attachmentUrl ) await this.renderFabricImg( canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath( lx, ly, lw, lh, rotation, layer.settings ), 'cover' );
+				break;
+
 			case 'clipart':
-				if ( input.clipartUrl ) await this.renderFabricImg( canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip() );
+				if ( input.clipartUrl ) {
+					const clipartColor = input.clipartRecolourable && ! isEngraving ? String( input.colorHex || '' ).trim() : '';
+					await this.renderFabricImg( canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', clipartColor );
+				}
 				break;
 
 			case 'lineart': {
@@ -941,13 +948,43 @@ class OCCustomiser {
 		} );
 	}
 
+	layerClipPath( x, y, w, h, angle = 0, settings = {} ) {
+		if ( ! w || ! h ) return null;
+
+		const shape = String( settings?.mask_shape || 'circle' ).toLowerCase();
+		const left = x + w / 2;
+		const top = y + h / 2;
+
+		if ( shape === 'circle' ) {
+			return new Circle( {
+				left,
+				top,
+				originX: 'center',
+				originY: 'center',
+				radius: Math.min( w, h ) / 2,
+				absolutePositioned: true,
+			} );
+		}
+
+		return new Rect( {
+			left,
+			top,
+			originX: 'center',
+			originY: 'center',
+			angle,
+			width: w,
+			height: h,
+			absolutePositioned: true,
+		} );
+	}
+
 	applyContentClip( obj, clipPath ) {
 		if ( clipPath ) {
 			obj.set( { clipPath } );
 		}
 	}
 
-	async renderFabricImg( canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null ) {
+	async renderFabricImg( canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '' ) {
 		try {
 			const imgLoadOpts = crossOrigin ? { crossOrigin } : {};
 			const img = await FabricImage.fromURL( url, imgLoadOpts );
@@ -955,7 +992,7 @@ class OCCustomiser {
 				console.warn( '[OC] Image failed to load or has zero dimensions:', url );
 				return false;
 			}
-			const s = Math.min( w / img.width, h / img.height );
+			const s = fit === 'cover' ? Math.max( w / img.width, h / img.height ) : Math.min( w / img.width, h / img.height );
 			img.set( { left: x + w / 2, top: y + h / 2, originX: 'center', originY: 'center',
 				scaleX: s, scaleY: s, angle, selectable: false, evented: false } );
 
@@ -965,6 +1002,15 @@ class OCCustomiser {
 					new FabricFilters.RemoveColor( {
 						color: '#FFFFFF',
 						distance: 0.1,
+					} )
+				);
+			}
+			if ( tintColor && FabricFilters.BlendColor ) {
+				filters.push(
+					new FabricFilters.BlendColor( {
+						color: tintColor,
+						mode: 'tint',
+						alpha: 1,
 					} )
 				);
 			}
@@ -1058,6 +1104,7 @@ class OCCustomiser {
 				}
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].value = limit > 0 ? this.truncateText( el.value, limit ) : el.value;
+				this.syncLinkedLayerInput( lid, [ 'value' ] );
 				updateCounter();
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
@@ -1075,6 +1122,7 @@ class OCCustomiser {
 				this.inputs[ lid ].value = el.value;
 				this.inputs[ lid ].spotifyStatus = '';
 				this.inputs[ lid ].spotifyUri = '';
+				this.syncLinkedLayerInput( lid, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 				this.setSpotifyError( lid, '', el );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
@@ -1171,6 +1219,7 @@ class OCCustomiser {
 				const lid = parseInt( btn.dataset.ocLayerSwatch, 10 );
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].colorHex = btn.dataset.hex;
+				if ( this.getLayerById( lid )?.type === 'lineart' ) this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
 				btn.closest( '.oc-colour-swatches' )?.querySelectorAll( '.oc-colour-swatch' )
 					.forEach( s => {
 						const isSelected = s === btn;
@@ -1189,6 +1238,7 @@ class OCCustomiser {
 			el.addEventListener( 'input', () => {
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].colorHex = el.value;
+				if ( this.getLayerById( lid )?.type === 'lineart' ) this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -1202,6 +1252,8 @@ class OCCustomiser {
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].clipartId  = parseInt( btn.dataset.ocClipart, 10 );
 				this.inputs[ lid ].clipartUrl = btn.dataset.ocClipartUrl;
+				this.inputs[ lid ].clipartRecolourable = btn.dataset.ocClipartRecolourable === '1';
+				this.syncLinkedLayerInput( lid, [ 'clipartId', 'clipartUrl', 'clipartRecolourable' ] );
 				btn.closest( '.oc-clipart-grid' )?.querySelectorAll( '.oc-clipart-item' )
 					.forEach( i => {
 						const isSelected = i === btn;
@@ -1407,6 +1459,76 @@ class OCCustomiser {
 		}
 	}
 
+	linkedLayerIds( sourceLayerId ) {
+		const source = this.getLayerById( sourceLayerId );
+		const group = String( source?.settings?.link_group || '' ).trim();
+		if ( ! source || ! group ) return [];
+
+		const ids = [];
+		this.areas.forEach( area => {
+			( area.layers || [] ).forEach( layer => {
+				if ( layer.id === sourceLayerId || layer.type !== source.type ) return;
+				if ( String( layer.settings?.link_group || '' ).trim() === group ) ids.push( layer.id );
+			} );
+		} );
+		return ids;
+	}
+
+	syncLinkedLayerInput( sourceLayerId, keys ) {
+		const sourceInput = this.inputs[ sourceLayerId ];
+		if ( ! sourceInput ) return;
+
+		this.linkedLayerIds( sourceLayerId ).forEach( layerId => {
+			if ( ! this.inputs[ layerId ] ) this.inputs[ layerId ] = {};
+			keys.forEach( key => {
+				if ( sourceInput[ key ] === undefined ) {
+					delete this.inputs[ layerId ][ key ];
+				} else {
+					this.inputs[ layerId ][ key ] = sourceInput[ key ];
+				}
+			} );
+			this.clampLayerInputValue( layerId );
+			this.updateLinkedLayerControls( layerId, keys );
+		} );
+	}
+
+	updateLinkedLayerControls( layerId, keys ) {
+		const input = this.inputs[ layerId ] || {};
+		if ( keys.includes( 'value' ) ) {
+			document.querySelectorAll( `[data-oc-layer-text="${ layerId }"], [data-oc-layer-spotify="${ layerId }"]` ).forEach( el => {
+				el.value = input.value || '';
+			} );
+			const counter = document.querySelector( `.oc-char-counter[data-oc-char-counter="${ layerId }"]` );
+			if ( counter ) {
+				const limit = parseInt( counter.dataset.charLimit, 10 ) || this.charLimitForLayer( layerId );
+				const current = this.textLength( input.value || '' );
+				counter.textContent = `${ current } / ${ limit }`;
+				counter.style.display = limit > 0 && current > limit ? '' : 'none';
+			}
+		}
+		if ( keys.includes( 'colorHex' ) ) {
+			document.querySelectorAll( `[data-oc-layer-swatch="${ layerId }"]` ).forEach( swatch => {
+				const isSelected = swatch.dataset.hex === input.colorHex;
+				swatch.classList.toggle( 'oc-selected', isSelected );
+				swatch.setAttribute( 'aria-pressed', isSelected ? 'true' : 'false' );
+			} );
+			const colorEl = document.querySelector( `[data-oc-layer-color="${ layerId }"]` );
+			if ( colorEl && input.colorHex ) colorEl.value = input.colorHex;
+		}
+		if ( keys.includes( 'clipartId' ) ) {
+			document.querySelectorAll( `[data-oc-layer-clipart="${ layerId }"]` ).forEach( item => {
+				const isSelected = Number( item.dataset.ocClipart ) === Number( input.clipartId );
+				item.classList.toggle( 'oc-selected', isSelected );
+				item.setAttribute( 'aria-pressed', isSelected ? 'true' : 'false' );
+			} );
+		}
+		if ( keys.includes( 'attachmentId' ) || keys.includes( 'attachmentUrl' ) ) {
+			document.querySelectorAll( `[data-oc-upload-zone="${ layerId }"]` ).forEach( zone => {
+				this.setUploadZoneState( zone, input.attachmentUrl ? 'uploaded' : '' );
+			} );
+		}
+	}
+
 	getLayerInputEl( layer ) {
 		if ( ! layer?.id ) return null;
 		switch ( layer.type ) {
@@ -1416,6 +1538,7 @@ class OCCustomiser {
 			case 'spotify':
 				return document.querySelector( `[data-oc-layer-spotify="${ layer.id }"]` );
 			case 'image':
+			case 'clipmask':
 				return document.querySelector( `[data-oc-upload-zone="${ layer.id }"]` );
 			case 'clipart':
 				return document.querySelector( `[data-oc-layer-clipart="${ layer.id }"]` );
@@ -1521,6 +1644,7 @@ class OCCustomiser {
 						break;
 
 					case 'image':
+					case 'clipmask':
 						if ( required && ! input.attachmentId ) {
 							errors.push( `${ label } needs an uploaded image.` );
 							fieldEl?.classList.add( 'oc-preflight-field-error' );
@@ -1605,6 +1729,7 @@ class OCCustomiser {
 		if ( ! value ) {
 			this.inputs[ layerId ].spotifyStatus = '';
 			this.inputs[ layerId ].spotifyUri = '';
+			this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 			this.setSpotifyError( layerId, '', inputEl );
 			this.scheduleRedraw();
 			this.updateHiddenField();
@@ -1615,6 +1740,7 @@ class OCCustomiser {
 		if ( ! localUri ) {
 			this.inputs[ layerId ].spotifyStatus = 'invalid_format';
 			this.inputs[ layerId ].spotifyUri = '';
+			this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 			this.setSpotifyError( layerId, 'Invalid Spotify link format.', inputEl );
 			this.scheduleRedraw();
 			this.updateHiddenField();
@@ -1624,6 +1750,7 @@ class OCCustomiser {
 		if ( ! this.data.validateSpotifyUrl ) {
 			this.inputs[ layerId ].spotifyStatus = 'ok';
 			this.inputs[ layerId ].spotifyUri = localUri;
+			this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 			this.setSpotifyError( layerId, '', inputEl );
 			this.scheduleRedraw();
 			this.updateHiddenField();
@@ -1654,6 +1781,7 @@ class OCCustomiser {
 				const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
 				this.inputs[ layerId ].spotifyStatus = statusReason;
 				this.inputs[ layerId ].spotifyUri = '';
+				this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 				this.setSpotifyError( layerId, statusMessage, inputEl );
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -1663,6 +1791,7 @@ class OCCustomiser {
 			if ( ! json ) {
 				this.inputs[ layerId ].spotifyStatus = 'unreachable';
 				this.inputs[ layerId ].spotifyUri = '';
+				this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 				this.setSpotifyError( layerId, 'Could not validate Spotify right now. Please try again.', inputEl );
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -1687,6 +1816,7 @@ class OCCustomiser {
 			this.setSpotifyError( layerId, 'Could not validate Spotify right now. Please try again.', inputEl );
 		}
 
+		this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 		this.scheduleRedraw();
 		this.updateHiddenField();
 	}
@@ -2144,6 +2274,7 @@ class OCCustomiser {
 							this.inputs[ lid ].attachmentId = 0;
 							this.inputs[ lid ].attachmentUrl = '';
 							this.inputs[ lid ].imageMeta = null;
+							this.syncLinkedLayerInput( lid, [ 'attachmentId', 'attachmentUrl', 'imageMeta' ] );
 							this.setUploadZoneState( zoneEl, 'error' );
 							this.showUploadError( zoneEl, 'Image resolution too low. Please upload a higher resolution image.' );
 							this.scheduleRedraw();
@@ -2159,6 +2290,7 @@ class OCCustomiser {
 					}
 				}
 				this.setUploadZoneState( zoneEl, 'uploaded' );
+				this.syncLinkedLayerInput( lid, [ 'attachmentId', 'attachmentUrl', 'imageMeta' ] );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();

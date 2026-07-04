@@ -35,6 +35,11 @@
       icon: '\ud83d\uddbc',
       color: '#059669'
     },
+    clipmask: {
+      label: 'Clipping Mask',
+      icon: '◯',
+      color: '#0d9488'
+    },
     spotify: {
       label: 'Spotify Code',
       icon: '\u266b',
@@ -61,6 +66,10 @@
       h: 120
     },
     image: {
+      w: 200,
+      h: 200
+    },
+    clipmask: {
       w: 200,
       h: 200
     },
@@ -148,6 +157,23 @@
       id: 'file',
       label: 'File',
       icon: '\ud83d\uddbc'
+    }, {
+      id: 'validation',
+      label: 'Validation',
+      icon: '\u2713'
+    }],
+    clipmask: [{
+      id: 'general',
+      label: 'General',
+      icon: 'G'
+    }, {
+      id: 'file',
+      label: 'File',
+      icon: '\ud83d\uddbc'
+    }, {
+      id: 'mask',
+      label: 'Mask',
+      icon: '◯'
     }, {
       id: 'validation',
       label: 'Validation',
@@ -535,33 +561,48 @@
           allow_font_change: true,
           allow_colour_change: true,
           allow_size_change: false,
-          required: false
+          required: false,
+          link_group: ''
         };
       case 'image':
         return {
           formats: ['png', 'jpg', 'svg', 'webp'],
           max_size_mb: 10,
           remove_background: false,
-          required: false
+          required: false,
+          link_group: ''
+        };
+      case 'clipmask':
+        return {
+          formats: ['png', 'jpg', 'webp'],
+          max_size_mb: 10,
+          remove_background: false,
+          mask_shape: 'circle',
+          required: false,
+          link_group: ''
         };
       case 'spotify':
         return {
           colour_groups: [],
-          required: false
+          required: false,
+          link_group: ''
         };
       case 'lineart':
         return {
           colour_groups: [],
-          required: false
+          required: false,
+          link_group: ''
         };
       case 'clipart':
         return {
           clipart_groups: [],
-          required: false
+          required: false,
+          link_group: ''
         };
       default:
         return {
-          required: false
+          required: false,
+          link_group: ''
         };
     }
   }
@@ -589,6 +630,9 @@
   }
   function normaliseHex(value) {
     return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#000000';
+  }
+  function normaliseLinkGroup(value) {
+    return String(value || '').trim();
   }
   function clampFontSize(size, settings, scale) {
     const min = fontLimit(settings?.min_font_size) * scale;
@@ -653,11 +697,12 @@
       if (layer.type === 'textarea') d.style.alignItems = 'flex-start';
       d.textContent = text;
       el.appendChild(d);
-    } else if (layer.type === 'image') {
+    } else if (layer.type === 'image' || layer.type === 'clipmask') {
       const fs = Math.max(14, Math.min(renderedH * 0.35, 40));
       const d = document.createElement('div');
       d.className = 'oc-lp oc-lp-icon';
-      d.innerHTML = '<svg width="' + Math.round(fs) + '" height="' + Math.round(fs * 0.8) + '" viewBox="0 0 24 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + '<rect x="1" y="4" width="22" height="15" rx="2"/>' + '<circle cx="12" cy="11.5" r="3.5"/>' + '<path d="M8 4l2-3h4l2 3"/>' + '</svg>' + '<span>Upload Image</span>';
+      d.innerHTML = '<svg width="' + Math.round(fs) + '" height="' + Math.round(fs * 0.8) + '" viewBox="0 0 24 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + '<rect x="1" y="4" width="22" height="15" rx="2"/>' + '<circle cx="12" cy="11.5" r="3.5"/>' + '<path d="M8 4l2-3h4l2 3"/>' + '</svg>' + '<span>' + (layer.type === 'clipmask' ? 'Upload Clipped Photo' : 'Upload Image') + '</span>';
+      if (layer.type === 'clipmask') d.style.borderRadius = '999px';
       el.appendChild(d);
     } else {
       const icons = {
@@ -718,13 +763,15 @@
     const isEngraving = area && area.method === 'engraving';
     switch (tabId) {
       case 'general':
-        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
+        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', '<input type="text" id="oc-set-link-group" class="oc-input" style="width:100%;" placeholder="e.g. name" value="' + esc(s.link_group || '') + '" />') + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
         return field('Alignment', alignBtns(s.alignment || 'center')) + (fonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(fonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">No fonts uploaded yet.</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
         return field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
+      case 'mask':
+        return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
       case 'appearance':
       case 'colours':
         if (isEngraving) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
@@ -755,6 +802,11 @@
     document.getElementById('oc-set-default-text')?.addEventListener('input', e => {
       s.default_text = e.target.value;
       renderCanvas();
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-link-group')?.addEventListener('input', e => {
+      s.link_group = normaliseLinkGroup(e.target.value);
       renderHiddenFields();
       markDirty();
     });
@@ -837,6 +889,12 @@
     });
     document.getElementById('oc-set-remove-background')?.addEventListener('change', e => {
       s.remove_background = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-mask-shape')?.addEventListener('change', e => {
+      s.mask_shape = e.target.value || 'circle';
+      renderCanvas();
       renderHiddenFields();
       markDirty();
     });

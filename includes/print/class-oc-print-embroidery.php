@@ -2,14 +2,8 @@
 /**
  * Embroidery print file generator.
  *
- * Tier 1 — Automated: calls the configured pyembroidery Python CLI to
- *           produce a DST file directly.  Returns status 'files_ready'.
- *
- * Tier 2 — Manual fallback: generates a production brief PDF with all
- *           information the embroiderer needs.  Returns status 'awaiting_dst_upload'.
- *
- * Which tier is used is determined at runtime based on Python/pyembroidery
- * availability (configured in plugin settings).
+ * Embroidery uses an EPS artwork file so production receives the customer's
+ * colours, text, line art and clipart/image placement in one print file.
  *
  * @package OverCustomise
  */
@@ -19,7 +13,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_Print_Embroidery extends OC_Print_Base {
 
 	/**
-	 * Generate embroidery output — DST (Tier 1) or production brief PDF (Tier 2).
+	 * Generate embroidery artwork as an EPS print file.
 	 *
 	 * @param  \WC_Order $order
 	 * @param  int       $item_id
@@ -35,296 +29,288 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		array $area_data
 	): array {
 		$output_dir = self::ensure_output_dir( $order->get_id() );
+		$eps_path   = self::generate_eps( $output_dir, $order, $item_id, $area, $area_data );
 
-		if ( self::tier1_available() ) {
-			try {
-				$dst_path = self::generate_dst( $output_dir, $item_id, $area, $area_data );
-				return [ 'file_path' => $dst_path, 'status' => 'files_ready' ];
-			} catch ( \Throwable $e ) {
-				OC_Logger::warning( 'Embroidery Tier 1 failed, falling back to Tier 2: ' . $e->getMessage() );
-			}
-		}
-
-		// Tier 2: production brief.
-		$pdf_path = self::generate_brief( $output_dir, $order, $item_id, $area, $area_data );
-		return [ 'file_path' => $pdf_path, 'status' => 'awaiting_dst_upload' ];
+		return [ 'file_path' => $eps_path, 'status' => 'files_ready' ];
 	}
 
-	/** Whether Tier 1 (pyembroidery CLI) is configured and working. */
-	public static function tier1_available(): bool {
-		// Respect the admin's explicit preference to always use Tier 2.
-		if ( 'force_tier2' === OC_Admin_Settings::get( 'embroidery_fallback' ) ) {
-			return false;
-		}
-
-		$python = (string) OC_Admin_Settings::get( 'python_binary' ) ?: 'python3';
-		$script = (string) OC_Admin_Settings::get( 'pyembroidery_cli_path' );
-
-		if ( empty( $script ) || ! file_exists( $script ) ) {
-			return false;
-		}
-
-		// Quick sanity check — call script with --version.
-		try {
-			$result = OC_Command_Runner::run( [ $python, $script, '--version' ] );
-		} catch ( \InvalidArgumentException $e ) {
-			return false;
-		}
-		return 0 === (int) $result['code'];
-	}
-
-	// ── Tier 1: DST generation ─────────────────────────────────────────────
-
-	/**
-	 * Call pyembroidery CLI to produce a DST file.
-	 *
-	 * Expected CLI signature (shop operator configures the script):
-	 *   python3 <script> \
-	 *     --text     "<text>"   \
-	 *     --font     "<path>"   \
-	 *     --color    "<hex>"    \
-	 *     --width    <mm>       \
-	 *     --height   <mm>       \
-	 *     --output   "<path>"
-	 *
-	 * @throws \RuntimeException on CLI failure.
-	 */
-	private static function generate_dst(
-		string $output_dir,
-		int $item_id,
-		object $area,
-		array $area_data
-	): string {
-		$python  = (string) OC_Admin_Settings::get( 'python_binary' ) ?: 'python3';
-		$script  = (string) OC_Admin_Settings::get( 'pyembroidery_cli_path' );
-		$dst_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'dst' );
-
-		$text  = $area_data['text'] ?? '';
-		$color = $area_data['color'] ?? '#000000';
-		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
-
-		// Resolve font path.
-		$font_path = '';
-		if ( ! empty( $area_data['fontId'] ) ) {
-			$font = self::get_font( (int) $area_data['fontId'] );
-			if ( $font ) {
-				$font_path = self::get_font_path( $font ) ?? '';
-			}
-		}
-
-		$parts = [
-			$python,
-			$script,
-			'--text',
-			$text,
-			'--color',
-			$color,
-			'--width',
-			(string) $w_mm,
-			'--height',
-			(string) $h_mm,
-			'--output',
-			$dst_path,
-		];
-		if ( $font_path ) {
-			$parts[] = '--font';
-			$parts[] = $font_path;
-		}
-
-		try {
-			$result = OC_Command_Runner::run( $parts );
-		} catch ( \InvalidArgumentException $e ) {
-			throw new \RuntimeException( 'pyembroidery CLI rejected command: ' . $e->getMessage() );
-		}
-
-		if ( 0 !== (int) $result['code'] || ! file_exists( $dst_path ) ) {
-			throw new \RuntimeException(
-				'pyembroidery CLI failed (exit ' . (int) $result['code'] . '): ' . implode( "\n", (array) $result['output'] )
-			);
-		}
-
-		return $dst_path;
-	}
-
-	// ── Tier 2: Production brief PDF ──────────────────────────────────────
-
-	/**
-	 * Generate a production brief PDF for manual digitising.
-	 *
-	 * The brief includes:
-	 *  - Order number, item name, print area label
-	 *  - Text to embroider (large, in the specified font if loadable)
-	 *  - Font name, colour swatch, hex code
-	 *  - Approximate stitch count estimate
-	 *  - Physical print dimensions
-	 *  - Thread brand recommendation from settings
-	 */
-	private static function generate_brief(
+	/** Generate a colour EPS containing embroidery artwork and production metadata. */
+	private static function generate_eps(
 		string $output_dir,
 		\WC_Order $order,
 		int $item_id,
 		object $area,
 		array $area_data
 	): string {
-		self::require_tcpdf();
+		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
+		$w_pt            = max( 1, (int) ceil( self::mm_to_pt( $w_mm ) ) );
+		$h_pt            = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
+		$lines           = [
+			'%!PS-Adobe-3.0 EPSF-3.0',
+			'%%Creator: OverCustomise',
+			'%%Title: Embroidery Artwork - Order #' . self::eps_comment( (string) $order->get_order_number() ),
+			'%%BoundingBox: 0 0 ' . $w_pt . ' ' . $h_pt,
+			'%%LanguageLevel: 2',
+			'%%Pages: 1',
+			'%%DocumentProcessColors: Cyan Magenta Yellow Black',
+			'%%OCOrder: ' . self::eps_comment( (string) $order->get_order_number() ),
+			'%%OCItemId: ' . $item_id,
+			'%%OCArea: ' . self::eps_comment( (string) ( $area->label ?? $area->area_key ) ),
+			'%%OCThreadColor: ' . strtoupper( self::normalise_hex( (string) ( $area_data['color'] ?? '#000000' ) ) ),
+			'%%EndComments',
+			'gsave',
+		];
 
-		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
-		$w_mm = max( 100.0, $area_w_mm );
-		$h_mm = max( 60.0, $area_h_mm );
-
-		$pdf = self::make_pdf( 210, 297, 0 ); // A4
-		$pdf->SetTitle( sprintf( 'Embroidery Brief — Order #%d', $order->get_id() ) );
-		$pdf->AddPage();
-
-		// ── Header ─────────────────────────────────────────────────────────
-		$pdf->SetFillColor( 30, 30, 30 );
-		$pdf->Rect( 0, 0, 210, 20, 'F' );
-		$pdf->SetTextColor( 255, 255, 255 );
-		$pdf->SetFont( 'helveticaB', 'B', 14 );
-		$pdf->SetXY( 10, 4 );
-		$pdf->Cell( 190, 12, 'EMBROIDERY PRODUCTION BRIEF', 0, 0, 'C' );
-
-		// ── Order info ─────────────────────────────────────────────────────
-		$pdf->SetTextColor( 30, 30, 30 );
-		$pdf->SetFont( 'helvetica', '', 10 );
-		$pdf->SetXY( 10, 26 );
-		$pdf->Cell( 90, 7, 'Order #: ' . $order->get_order_number(), 0 );
-		$pdf->SetX( 110 );
-		$pdf->Cell( 90, 7, 'Area: ' . $area->label, 0 );
-		$pdf->SetXY( 10, 33 );
-		$pdf->Cell( 190, 7, 'Customer: ' . $order->get_formatted_billing_full_name(), 0 );
-
-		// ── Text preview ───────────────────────────────────────────────────
-		$text = trim( $area_data['text'] ?? '' );
-		$pdf->SetXY( 10, 46 );
-		$pdf->SetFont( 'helveticaB', 'B', 9 );
-		$pdf->Cell( 190, 6, 'TEXT TO EMBROIDER', 0, 2 );
-
-		if ( $text !== '' ) {
-			// Try to use the customer's chosen font.
-			$font_name = 'helvetica';
-			if ( ! empty( $area_data['fontId'] ) ) {
-				$font = self::get_font( (int) $area_data['fontId'] );
-				if ( $font ) {
-					$path = self::get_font_path( $font );
-					if ( $path ) {
-						$registered = self::register_tcpdf_font( $path );
-						if ( $registered ) {
-							$font_file = self::tcpdf_font_definition_path( $path, $registered );
-							if ( $font_file ) {
-								$pdf->AddFont( $registered, '', $font_file );
-							}
-							$font_name = $registered;
-						}
-					}
-				}
-			}
-
-			// Auto-size to fit width (max 36pt).
-			$preview_size = min( 36.0, max( 12.0, $w_mm * 0.6 ) );
-			while ( $preview_size > 6.0 ) {
-				$pdf->SetFont( $font_name, '', $preview_size );
-				if ( $pdf->GetStringWidth( $text ) <= 175 ) break;
-				$preview_size -= 1;
-			}
-
-			$preview_y = $pdf->GetY();
-			$pdf->SetFillColor( 245, 245, 245 );
-			$pdf->Rect( 10, $preview_y, 190, 20, 'F' );
-			$pdf->SetTextColor( 30, 30, 30 );
-			$pdf->SetXY( 10, $preview_y + ( 20 - $preview_size * 0.3528 * 1.2 ) / 2 );
-			$pdf->Cell( 190, $preview_size * 0.3528 * 1.2, $text, 0, 2, 'C' );
-			$pdf->SetY( $preview_y + 24 );
+		if ( self::has_layer_payload( $area_data ) ) {
+			self::append_eps_layers( $lines, $area, $area_data );
 		} else {
-			$pdf->SetFont( 'helvetica', 'I', 10 );
-			$pdf->SetTextColor( 150, 150, 150 );
-			$pdf->Cell( 190, 8, '(No text — artwork only)', 0, 2 );
+			self::append_eps_legacy_artwork( $lines, $area, $area_data );
 		}
 
-		// ── Specifications ─────────────────────────────────────────────────
-		$y = $pdf->GetY() + 4;
-		$pdf->SetXY( 10, $y );
-		$pdf->SetFont( 'helveticaB', 'B', 9 );
-		$pdf->SetTextColor( 30, 30, 30 );
-		$pdf->Cell( 190, 6, 'SPECIFICATIONS', 0, 2 );
+		$lines[] = 'grestore';
+		$lines[] = 'showpage';
+		$lines[] = '%%EOF';
 
-		$specs = self::build_specs( $area, $area_data, $text, $w_mm, $h_mm );
-
-		$pdf->SetFont( 'helvetica', '', 9 );
-		$col_w = 85;
-		$col2  = 105;
-		$row_h = 7;
-		$even  = false;
-
-		foreach ( $specs as $label => $value ) {
-			$sy = $pdf->GetY();
-			if ( $even ) {
-				$pdf->SetFillColor( 248, 248, 248 );
-				$pdf->Rect( 10, $sy, 190, $row_h, 'F' );
-			}
-			$pdf->SetXY( 12, $sy );
-			$pdf->SetFont( 'helveticaB', 'B', 9 );
-			$pdf->Cell( $col_w - 2, $row_h, $label . ':', 0 );
-			$pdf->SetFont( 'helvetica', '', 9 );
-			$pdf->SetX( $col2 );
-			$pdf->Cell( 95, $row_h, (string) $value, 0, 2 );
-			$even = ! $even;
+		$output_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'eps' );
+		if ( false === file_put_contents( $output_path, implode( "\n", $lines ) . "\n" ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
 		}
-
-		// ── Colour swatch ─────────────────────────────────────────────────
-		$color = $area_data['color'] ?? '#000000';
-		[ $r, $g, $b ] = self::hex_to_rgb( $color );
-
-		$sw_y = $pdf->GetY() + 6;
-		$pdf->SetXY( 10, $sw_y );
-		$pdf->SetFont( 'helveticaB', 'B', 9 );
-		$pdf->Cell( 190, 6, 'THREAD COLOUR', 0, 2 );
-
-		$pdf->SetFillColor( $r, $g, $b );
-		$pdf->Rect( 12, $pdf->GetY(), 20, 10, 'F' );
-		$pdf->SetDrawColor( 180, 180, 180 );
-		$pdf->Rect( 12, $pdf->GetY(), 20, 10, 'D' );
-		$pdf->SetFont( 'helvetica', '', 9 );
-		$pdf->SetXY( 36, $pdf->GetY() + 1 );
-		$pdf->SetTextColor( 30, 30, 30 );
-		$pdf->Cell( 160, 5, 'Hex: ' . strtoupper( $color ), 0, 2 );
-
-		// ── Footer ─────────────────────────────────────────────────────────
-		$pdf->SetXY( 10, 280 );
-		$pdf->SetFont( 'helvetica', 'I', 7 );
-		$pdf->SetTextColor( 130, 130, 130 );
-		$pdf->Cell( 190, 5, 'Generated by OverCustomise — customkings.com.au — Order #' . $order->get_order_number(), 0, 0, 'C' );
-
-		$output_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'pdf' );
-		$pdf->Output( $output_path, 'F' );
 
 		return $output_path;
 	}
 
-	/** Build the specs table data for the brief. */
-	private static function build_specs( object $area, array $area_data, string $text, float $w_mm, float $h_mm ): array {
-		$methods_settings = get_option( 'oc_print_methods', [] );
-		$thread_brand     = $methods_settings['embroidery']['thread_brand']  ?? 'Madeira';
-		$max_colours      = $methods_settings['embroidery']['max_colours']   ?? 15;
+	/** Append all v2 customiser layers to the EPS output. */
+	private static function append_eps_layers( array &$lines, object $area, array $area_data ): void {
+		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
+		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
+		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
+		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
 
-		// Rough stitch count estimate: ~500 stitches per character at normal density.
-		$stitch_estimate = $text !== '' ? max( 500, strlen( $text ) * 500 ) : 0;
+		foreach ( $area_data['layers'] as $layer ) {
+			if ( ! is_array( $layer ) ) {
+				continue;
+			}
 
-		$font_name = '';
-		if ( ! empty( $area_data['fontId'] ) ) {
-			$font = self::get_font( (int) $area_data['fontId'] );
-			if ( $font ) $font_name = $font->name;
+			$type     = (string) ( $layer['type'] ?? '' );
+			$input    = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+			$x_pt     = self::mm_to_pt( self::unit_to_mm( (float) ( $layer['x'] ?? 0 ) - $area_x, $unit ) );
+			$y_pt     = self::eps_y( self::unit_to_mm( (float) ( $layer['y'] ?? 0 ) - $area_y, $unit ), self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit ), $area );
+			$w_pt     = self::mm_to_pt( self::unit_to_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $unit ) );
+			$h_pt     = self::mm_to_pt( self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit ) );
+
+			switch ( $type ) {
+				case 'text':
+				case 'textarea':
+					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt );
+					break;
+
+				case 'lineart':
+					self::append_eps_rect( $lines, (string) ( $input['colorHex'] ?? '#000000' ), $x_pt, $y_pt, $w_pt, $h_pt );
+					break;
+
+				case 'clipart':
+				case 'image':
+				case 'clipmask':
+					self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt );
+					break;
+
+				case 'spotify':
+					self::append_eps_text( $lines, [ 'value' => (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'colorHex' => '#000000' ], [], $x_pt, $y_pt, $w_pt, $h_pt );
+					break;
+			}
+		}
+	}
+
+	/** Append legacy single-text/single-artwork payloads. */
+	private static function append_eps_legacy_artwork( array &$lines, object $area, array $area_data ): void {
+		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
+		$w_pt            = self::mm_to_pt( $w_mm );
+		$h_pt            = self::mm_to_pt( $h_mm );
+		$text            = trim( (string) ( $area_data['text'] ?? '' ) );
+
+		if ( '' !== $text ) {
+			self::append_eps_text( $lines, [ 'value' => $text, 'colorHex' => (string) ( $area_data['color'] ?? '#000000' ) ], [], 0, 0, $w_pt, $h_pt );
 		}
 
-		return array_filter( [
-			'Print Area'       => $area->label,
-			'Print Method'     => 'Embroidery',
-			'Width'            => number_format( $w_mm, 1 ) . ' mm',
-			'Height'           => number_format( $h_mm, 1 ) . ' mm',
-			'Font'             => $font_name ?: '—',
-			'Thread Brand'     => $thread_brand,
-			'Max Colours'      => $max_colours,
-			'Est. Stitch Count' => $stitch_estimate > 0 ? number_format( $stitch_estimate ) . ' (approx.)' : '—',
-		] );
+		$path = self::resolve_artwork_path( $area_data );
+		if ( $path ) {
+			self::append_eps_image_or_reference( $lines, $path, 0, 0, $w_pt, $h_pt );
+		}
 	}
+
+	/** Append customer text as editable PostScript text in the requested colour. */
+	private static function append_eps_text( array &$lines, array $input, array $settings, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$text = trim( (string) ( $input['value'] ?? $settings['default_text'] ?? '' ) );
+		if ( '' === $text ) {
+			return;
+		}
+
+		$hex       = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
+		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
+			? max( 5.0, self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) ) )
+			: max( 8.0, $h_pt * 0.38 );
+		$font_size = min( $font_size, max( 5.0, $h_pt * 0.8 ) );
+
+		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
+		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
+		$lines[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
+		$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
+		$lines[] = '(' . self::ps_escape( $text ) . ') show';
+		$lines[] = 'grestore';
+	}
+
+	/** Append a filled vector rectangle for simple line-art colour blocks. */
+	private static function append_eps_rect( array &$lines, string $hex, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
+		$lines[] = '%%OCLineartColor: ' . strtoupper( self::normalise_hex( $hex ) );
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
+		$lines[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath fill', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
+		$lines[] = 'grestore';
+	}
+
+	/** Append layer artwork, embedding raster files and preserving vector references. */
+	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$path = self::resolve_artwork_path( $layer );
+		if ( ! $path ) {
+			return;
+		}
+
+		self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt );
+	}
+
+	/** Embed supported raster artwork or include vector source as EPS comments. */
+	private static function append_eps_image_or_reference( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$lines[] = '%%OCArtworkFile: ' . self::eps_comment( basename( $path ) );
+		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+
+		if ( 'svg' === $ext ) {
+			$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+			$lines[] = '%%BeginOCEmbeddedSVG: ' . self::eps_comment( basename( $path ) );
+			if ( is_string( $raw ) ) {
+				foreach ( preg_split( '/\R/', $raw ) as $svg_line ) {
+					$lines[] = '%%OCSVG: ' . self::eps_comment( (string) $svg_line );
+				}
+			}
+			$lines[] = '%%EndOCEmbeddedSVG';
+			self::append_eps_artwork_box( $lines, $x_pt, $y_pt, $w_pt, $h_pt, basename( $path ) );
+			return;
+		}
+
+		$image = self::open_raster_resource( $path );
+		if ( ! $image ) {
+			self::append_eps_artwork_box( $lines, $x_pt, $y_pt, $w_pt, $h_pt, basename( $path ) );
+			return;
+		}
+
+		self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
+		imagedestroy( $image );
+	}
+
+	/** Append a full-colour raster image using PostScript colorimage. */
+	private static function append_eps_raster_image( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$src_w = imagesx( $image );
+		$src_h = imagesy( $image );
+		if ( $src_w < 1 || $src_h < 1 ) {
+			return;
+		}
+
+		$max_px = 900;
+		$scale  = min( 1.0, $max_px / max( $src_w, $src_h ) );
+		$out_w  = max( 1, (int) round( $src_w * $scale ) );
+		$out_h  = max( 1, (int) round( $src_h * $scale ) );
+		$draw   = $image;
+
+		if ( $out_w !== $src_w || $out_h !== $src_h ) {
+			$draw = imagecreatetruecolor( $out_w, $out_h );
+			imagealphablending( $draw, true );
+			$white = imagecolorallocate( $draw, 255, 255, 255 );
+			imagefilledrectangle( $draw, 0, 0, $out_w, $out_h, $white );
+			imagecopyresampled( $draw, $image, 0, 0, 0, 0, $out_w, $out_h, $src_w, $src_h );
+		}
+
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
+		$lines[] = sprintf( '%.4F %.4F scale', $w_pt, $h_pt );
+		$lines[] = '/picstr ' . ( $out_w * 3 ) . ' string def';
+		$lines[] = sprintf( '%d %d 8 [%d 0 0 -%d 0 %d]', $out_w, $out_h, $out_w, $out_h, $out_h );
+		$lines[] = '{ currentfile picstr readhexstring pop } false 3 colorimage';
+
+		for ( $y = 0; $y < $out_h; $y++ ) {
+			$row = '';
+			for ( $x = 0; $x < $out_w; $x++ ) {
+				$rgb = imagecolorat( $draw, $x, $y );
+				$row .= sprintf( '%02X%02X%02X', ( $rgb >> 16 ) & 0xFF, ( $rgb >> 8 ) & 0xFF, $rgb & 0xFF );
+			}
+			$lines[] = $row;
+		}
+
+		$lines[] = 'grestore';
+		if ( $draw !== $image ) {
+			imagedestroy( $draw );
+		}
+	}
+
+	/** Draw a visible placeholder when vector/raster conversion is not possible. */
+	private static function append_eps_artwork_box( array &$lines, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $label ): void {
+		$lines[] = 'gsave';
+		$lines[] = '0 0 0 setrgbcolor';
+		$lines[] = '0.5 setlinewidth';
+		$lines[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath stroke', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
+		$lines[] = '/Helvetica findfont 6 scalefont setfont';
+		$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( 8, $h_pt / 2 ) );
+		$lines[] = '(' . self::ps_escape( 'Clipart: ' . $label ) . ') show';
+		$lines[] = 'grestore';
+	}
+
+	private static function mm_to_pt( float $mm ): float {
+		return $mm * 72 / 25.4;
+	}
+
+	private static function eps_y( float $y_mm, float $h_mm, object $area ): float {
+		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
+		return self::mm_to_pt( max( 0.0, $area_h_mm - $y_mm - $h_mm ) );
+	}
+
+	private static function hex_to_unit_rgb( string $hex ): array {
+		[ $r, $g, $b ] = self::hex_to_rgb( self::normalise_hex( $hex ) );
+		return [ round( $r / 255, 4 ), round( $g / 255, 4 ), round( $b / 255, 4 ) ];
+	}
+
+	private static function normalise_hex( string $hex ): string {
+		$hex = ltrim( trim( $hex ), '#' );
+		if ( 3 === strlen( $hex ) ) {
+			$hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+		}
+		if ( ! preg_match( '/^[A-Fa-f0-9]{6}$/', $hex ) ) {
+			$hex = '000000';
+		}
+
+		return '#' . strtoupper( $hex );
+	}
+
+	private static function ps_escape( string $value ): string {
+		return str_replace( [ '\\', '(', ')', "\r", "\n" ], [ '\\\\', '\\(', '\\)', ' ', ' ' ], $value );
+	}
+
+	private static function eps_comment( string $value ): string {
+		return str_replace( [ "\r", "\n" ], ' ', $value );
+	}
+
+	/** Open a raster image resource for EPS embedding. */
+	private static function open_raster_resource( string $path ) {
+		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		return match ( $ext ) {
+			'jpg', 'jpeg' => function_exists( 'imagecreatefromjpeg' ) ? @imagecreatefromjpeg( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'png' => function_exists( 'imagecreatefrompng' ) ? @imagecreatefrompng( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'webp' => function_exists( 'imagecreatefromwebp' ) ? @imagecreatefromwebp( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'bmp' => function_exists( 'imagecreatefrombmp' ) ? @imagecreatefrombmp( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'gif' => function_exists( 'imagecreatefromgif' ) ? @imagecreatefromgif( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			default => false,
+		};
+	}
+
 }

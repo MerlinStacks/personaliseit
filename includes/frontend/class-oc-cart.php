@@ -105,7 +105,7 @@ class OC_Cart {
 			return $cart_item_data;
 		}
 
-		$valid_layer_types = [ 'text', 'textarea', 'image', 'spotify', 'lineart', 'clipart' ];
+		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
 
 		// ── v2 format: { v:2, designId, layers:{layerId:{type,...}} } ────────
 		if ( isset( $decoded['v'] ) && 2 === (int) $decoded['v'] ) {
@@ -174,7 +174,7 @@ class OC_Cart {
 				}
 
 				$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
-				$should_restrict_colour = ! empty( $colour_group_ids ) && ( 'lineart' === $type || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
+				$should_restrict_colour = ! empty( $colour_group_ids ) && ( in_array( $type, [ 'lineart', 'clipart' ], true ) || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
 				if ( $should_restrict_colour ) {
 					$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
 					$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
@@ -194,6 +194,7 @@ class OC_Cart {
 					'attachmentId'  => absint( $layer_data['attachmentId'] ?? 0 ),
 					'clipartId'     => absint( $layer_data['clipartId']    ?? 0 ),
 					'clipartUrl'    => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
+					'clipartRecolourable' => ! empty( $layer_data['clipartRecolourable'] ),
 				];
 			}
 
@@ -637,6 +638,7 @@ class OC_Cart {
 				return $val ? esc_html( $val ) : '';
 
 			case 'image':
+			case 'clipmask':
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
 					$thumb = wp_get_attachment_image( (int) $layer_data['attachmentId'], [ 48, 48 ], false,
 						[ 'style' => 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' ] );

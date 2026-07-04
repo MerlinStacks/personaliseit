@@ -1,3 +1,5 @@
+import ImageTracer from 'imagetracerjs';
+
 /**
  * Clipart Manager admin JS.
  *
@@ -21,6 +23,8 @@ let currentFile   = null;
 let editClipartId = null;
 let editGroupId   = null;
 
+const TRACE_MAX_SIZE = 1200;
+
 // ---------------------------------------------------------------------------
 // Normalisers
 // ---------------------------------------------------------------------------
@@ -30,6 +34,7 @@ function normaliseClipart( c ) {
 		id:        Number( c.id ),
 		name:      c.name     || '',
 		fileType:  c.fileType || '',
+		canConvert: !! c.canConvert,
 		active:    !! c.active,
 		url:       c.url       || '',
 		toggleUrl: c.toggleUrl || '',
@@ -108,6 +113,7 @@ function buildClipartCardEl( item ) {
 			'</div>' +
 			'<p class="oc-clipart-type-label">' + h( item.fileType.toUpperCase() ) + '</p>' +
 			'<div class="oc-clipart-card-actions">' +
+				( item.canConvert ? '<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="' + item.id + '">Convert to SVG</button>' : '' ) +
 				'<a href="' + h( item.toggleUrl ) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' +
 					( item.active ? 'Deactivate' : 'Activate' ) +
 				'</a>' +
@@ -116,14 +122,157 @@ function buildClipartCardEl( item ) {
 		'</div>';
 
 	card.addEventListener( 'click', e => {
-		if ( e.target.closest( 'a' ) ) return;
+		if ( e.target.closest( 'a,button' ) ) return;
 		openEditModal( item.id );
+	} );
+	card.querySelector( '[data-oc-convert-clipart]' )?.addEventListener( 'click', e => {
+		e.preventDefault();
+		convertClipartToSvg( item.id, e.currentTarget );
 	} );
 	card.addEventListener( 'keydown', e => {
 		if ( e.key === 'Enter' || e.key === ' ' ) openEditModal( item.id );
 	} );
 
 	return card;
+}
+
+async function convertClipartToSvg( id, button ) {
+	const item = clipart.find( c => c.id === Number( id ) );
+	if ( ! item ) return;
+
+	const originalText = button?.textContent || 'Convert to SVG';
+	if ( button ) {
+		button.disabled = true;
+		button.textContent = 'Converting...';
+	}
+
+	const body = new URLSearchParams( {
+		action: 'oc_clipart_convert_svg',
+		nonce:  window.ocClipartNonce,
+		id:     Number( id ),
+	} );
+
+	try {
+		let requestBody = body;
+		try {
+			const svg = await traceUrlToSvg( item.url );
+			const fd = new FormData();
+			fd.append( 'action', 'oc_clipart_convert_svg' );
+			fd.append( 'nonce', window.ocClipartNonce );
+			fd.append( 'id', Number( id ) );
+			fd.append( 'clipart_file', new Blob( [ svg ], { type: 'image/svg+xml' } ), `${ safeFilename( item.name ) || 'clipart' }.svg` );
+			requestBody = fd;
+		} catch ( traceErr ) {
+			console.warn( '[OC] Browser clipart tracing failed; using server fallback:', traceErr );
+		}
+
+		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body: requestBody } );
+		if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+		const json = await res.json();
+		if ( ! json.success ) throw new Error( json.data?.message || 'Conversion failed.' );
+
+		const converted = normaliseClipart( json.data );
+		const idx = clipart.findIndex( c => c.id === converted.id );
+		if ( idx !== -1 ) {
+			clipart[ idx ] = converted;
+			updateClipartGridUI();
+		}
+	} catch ( err ) {
+		alert( err?.message || 'Conversion failed. Please try again.' );
+		if ( button ) {
+			button.disabled = false;
+			button.textContent = originalText;
+		}
+	}
+}
+
+async function traceUrlToSvg( url ) {
+	const response = await fetch( url, { credentials: 'same-origin', cache: 'no-store' } );
+	if ( ! response.ok ) throw new Error( `Could not load clipart (${ response.status }).` );
+	return traceBlobToSvg( await response.blob() );
+}
+
+async function traceBlobToSvg( blob ) {
+	const image = await loadImageFromBlob( blob );
+	const scale = Math.min( 1, TRACE_MAX_SIZE / Math.max( image.naturalWidth || image.width, image.naturalHeight || image.height ) );
+	const width = Math.max( 1, Math.round( ( image.naturalWidth || image.width ) * scale ) );
+	const height = Math.max( 1, Math.round( ( image.naturalHeight || image.height ) * scale ) );
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = width;
+	canvas.height = height;
+	const ctx = canvas.getContext( '2d', { willReadFrequently: true } );
+	if ( ! ctx ) throw new Error( 'Canvas is unavailable for tracing.' );
+	ctx.clearRect( 0, 0, width, height );
+	ctx.drawImage( image, 0, 0, width, height );
+
+	const imgData = ctx.getImageData( 0, 0, width, height );
+	const data = imgData.data;
+	for ( let i = 0; i < data.length; i += 4 ) {
+		const r = data[ i ];
+		const g = data[ i + 1 ];
+		const b = data[ i + 2 ];
+		const a = data[ i + 3 ];
+		const nearWhite = r >= 245 && g >= 245 && b >= 245 && ( Math.max( r, g, b ) - Math.min( r, g, b ) ) <= 12;
+		if ( a < 16 || nearWhite ) {
+			data[ i ] = 255;
+			data[ i + 1 ] = 255;
+			data[ i + 2 ] = 255;
+			data[ i + 3 ] = 0;
+		} else {
+			data[ i ] = 0;
+			data[ i + 1 ] = 0;
+			data[ i + 2 ] = 0;
+			data[ i + 3 ] = 255;
+		}
+	}
+
+	let svg = ImageTracer.imagedataToSVG( imgData, {
+		colorsampling: 0,
+		pal: [
+			{ r: 0, g: 0, b: 0, a: 255 },
+			{ r: 255, g: 255, b: 255, a: 0 },
+		],
+		numberofcolors: 2,
+		pathomit: 4,
+		ltres: 1,
+		qtres: 1,
+		strokewidth: 0,
+		roundcoords: 1,
+		viewbox: true,
+		desc: false,
+	} );
+
+	svg = svg
+		.replace( /<path[^>]+fill="rgba\(255,255,255,0\)"[^>]*>\s*<\/path>/g, '' )
+		.replace( /fill="rgb\(0,0,0\)"/g, 'fill="currentColor"' )
+		.replace( /stroke="rgb\(0,0,0\)"/g, 'stroke="currentColor"' )
+		.replace( /<svg\b/, '<svg color="#000000" data-oc-traced="browser"' );
+
+	if ( ! /<path\b/.test( svg ) ) {
+		throw new Error( 'No traceable artwork found after background removal.' );
+	}
+
+	return svg;
+}
+
+function loadImageFromBlob( blob ) {
+	return new Promise( ( resolve, reject ) => {
+		const url = URL.createObjectURL( blob );
+		const image = new Image();
+		image.onload = () => {
+			URL.revokeObjectURL( url );
+			resolve( image );
+		};
+		image.onerror = () => {
+			URL.revokeObjectURL( url );
+			reject( new Error( 'Could not load image for tracing.' ) );
+		};
+		image.src = url;
+	} );
+}
+
+function safeFilename( value ) {
+	return String( value || '' ).toLowerCase().replace( /[^a-z0-9_-]+/g, '-' ).replace( /^-+|-+$/g, '' );
 }
 
 function updateClipartGridUI() {
@@ -260,11 +409,22 @@ function initUploadModal() {
 		submitBtn.disabled   = true;
 		submitBtn.textContent = 'Uploading\u2026';
 
+		let uploadFile = currentFile;
+		if ( ! /\.svg$/i.test( currentFile.name ) ) {
+			try {
+				const svg = await traceBlobToSvg( currentFile );
+				uploadFile = new File( [ svg ], `${ safeFilename( name ) || 'clipart' }.svg`, { type: 'image/svg+xml' } );
+				submitBtn.textContent = 'Uploading traced SVG...';
+			} catch ( traceErr ) {
+				console.warn( '[OC] Browser clipart tracing failed; uploading for server fallback:', traceErr );
+			}
+		}
+
 		const fd = new FormData();
 		fd.append( 'action',       'oc_clipart_upload' );
 		fd.append( 'nonce',        window.ocClipartNonce );
 		fd.append( 'name',         name );
-		fd.append( 'clipart_file', currentFile );
+		fd.append( 'clipart_file', uploadFile );
 
 		try {
 			const res  = await fetch( window.ocAjaxUrl, { method: 'POST', body: fd } );
@@ -393,8 +553,12 @@ function initEditModal() {
 	// Wire up server-rendered cards.
 	document.querySelectorAll( '.oc-clipart-card' ).forEach( card => {
 		card.addEventListener( 'click', e => {
-			if ( e.target.closest( 'a' ) ) return;
+			if ( e.target.closest( 'a,button' ) ) return;
 			openEditModal( Number( card.dataset.clipartId ) );
+		} );
+		card.querySelector( '[data-oc-convert-clipart]' )?.addEventListener( 'click', e => {
+			e.preventDefault();
+			convertClipartToSvg( Number( card.dataset.clipartId ), e.currentTarget );
 		} );
 		card.addEventListener( 'keydown', e => {
 			if ( e.key === 'Enter' || e.key === ' ' ) openEditModal( Number( card.dataset.clipartId ) );

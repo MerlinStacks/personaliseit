@@ -22,6 +22,7 @@ class OC_Admin_Clipart {
 
 	public static function register_ajax(): void {
 		add_action( 'wp_ajax_oc_clipart_upload',       [ self::class, 'ajax_upload' ] );
+		add_action( 'wp_ajax_oc_clipart_convert_svg',  [ self::class, 'ajax_convert_svg' ] );
 		add_action( 'wp_ajax_oc_clipart_rename',       [ self::class, 'ajax_rename' ] );
 		add_action( 'wp_ajax_oc_clipart_group_create', [ self::class, 'ajax_group_create' ] );
 		add_action( 'wp_ajax_oc_clipart_group_update', [ self::class, 'ajax_group_update' ] );
@@ -59,7 +60,8 @@ class OC_Admin_Clipart {
 			return [
 				'id'        => (int) $c->id,
 				'name'      => $c->name,
-				'fileType'  => $c->file_type,
+				'fileType'   => $c->file_type,
+				'canConvert' => 'svg' !== strtolower( (string) $c->file_type ),
 				'url'       => self::get_clipart_url( $c->file_path ),
 				'active'    => (bool) $c->active,
 				'toggleUrl' => wp_nonce_url(
@@ -161,6 +163,11 @@ class OC_Admin_Clipart {
 										</div>
 										<p class="oc-clipart-type-label"><?php echo esc_html( strtoupper( $item->file_type ) ); ?></p>
 										<div class="oc-clipart-card-actions">
+											<?php if ( 'svg' !== strtolower( (string) $item->file_type ) ) : ?>
+												<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="<?php echo (int) $item->id; ?>">
+													<?php esc_html_e( 'Convert to SVG', 'overcustomise' ); ?>
+												</button>
+											<?php endif; ?>
 											<a href="<?php echo esc_url( wp_nonce_url(
 												admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . (int) $item->id . '&state=' . ( $item->active ? '0' : '1' ) ),
 												'oc_clipart_toggle_' . $item->id
@@ -395,6 +402,65 @@ class OC_Admin_Clipart {
 		wp_send_json_success( $result );
 	}
 
+	// ── AJAX: convert existing clipart to SVG ──────────────────────────────────
+
+	public static function ajax_convert_svg(): void {
+		check_ajax_referer( 'oc_clipart_actions', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
+		}
+
+		$id = absint( $_POST['id'] ?? 0 );
+		if ( ! $id ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
+
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
+			$id
+		) );
+
+		if ( ! $row || empty( $row->file_path ) || ! file_exists( $row->file_path ) ) {
+			wp_send_json_error( [ 'message' => __( 'Clipart file was not found.', 'overcustomise' ) ] );
+		}
+
+		if ( 'svg' === strtolower( (string) $row->file_type ) ) {
+			wp_send_json_success( self::clipart_response( $id, (string) $row->name, (string) $row->file_path, 'svg', (bool) $row->active ) );
+		}
+
+		if ( ! empty( $_FILES['clipart_file'] ) && UPLOAD_ERR_OK === (int) $_FILES['clipart_file']['error'] ) {
+			$converted = self::save_uploaded_svg_replacement( $_FILES['clipart_file'], (string) $row->file_path );
+		} else {
+			$converted = self::convert_file_to_svg( (string) $row->file_path );
+		}
+
+		if ( is_wp_error( $converted ) ) {
+			wp_send_json_error( [ 'message' => $converted->get_error_message() ] );
+		}
+
+		$old_path = (string) $row->file_path;
+		$updated  = $wpdb->update(
+			"{$wpdb->prefix}oc_clipart",
+			[ 'file_path' => $converted, 'file_type' => 'svg' ],
+			[ 'id' => $id ],
+			[ '%s', '%s' ],
+			[ '%d' ]
+		);
+
+		if ( false === $updated ) {
+			@unlink( $converted );
+			wp_send_json_error( [ 'message' => __( 'Could not update clipart record.', 'overcustomise' ) ] );
+		}
+
+		if ( $old_path !== $converted && file_exists( $old_path ) ) {
+			wp_delete_file( $old_path );
+		}
+
+		self::clear_clipart_cache();
+		wp_send_json_success( self::clipart_response( $id, (string) $row->name, $converted, 'svg', (bool) $row->active ) );
+	}
+
 	// ── AJAX: rename clipart ──────────────────────────────────────────────────
 
 	public static function ajax_rename(): void {
@@ -584,14 +650,14 @@ class OC_Admin_Clipart {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create upload directory.', 'overcustomise' ) );
 		}
 
-		// Build unique filename.
-		$safe_name = sanitize_file_name( $original_name );
+		// Build unique SVG filename. Raster uploads are converted before storage.
+		$safe_name = sanitize_file_name( preg_replace( '/\.[^.]+$/', '.svg', $original_name ) );
 		$dest      = $target_dir . $safe_name;
 		if ( file_exists( $dest ) ) {
 			$dest = $target_dir . uniqid( '', true ) . '-' . $safe_name;
 		}
 
-		// Save file.
+		// Save as SVG.
 		if ( 'svg' === $ext ) {
 			if ( ! is_uploaded_file( $tmp ) ) {
 				return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
@@ -609,13 +675,12 @@ class OC_Admin_Clipart {
 				return new \WP_Error( 'write_failed', __( 'Could not save file.', 'overcustomise' ) );
 			}
 		} else {
-			// Raster: confirm real image before moving.
-			$image_info = @getimagesize( $tmp );
-			if ( ! $image_info ) {
-				return new \WP_Error( 'not_image', __( 'File is not a valid image.', 'overcustomise' ) );
+			if ( ! is_uploaded_file( $tmp ) ) {
+				return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
 			}
-			if ( ! move_uploaded_file( $tmp, $dest ) ) {
-				return new \WP_Error( 'move_failed', __( 'Could not move uploaded file.', 'overcustomise' ) );
+			$converted = self::raster_to_svg( $tmp, $dest, $ext );
+			if ( is_wp_error( $converted ) ) {
+				return $converted;
 			}
 		}
 
@@ -626,7 +691,7 @@ class OC_Admin_Clipart {
 			[
 				'name'      => $name,
 				'file_path' => $dest,
-				'file_type' => $ext,
+				'file_type' => 'svg',
 				'active'    => 1,
 			],
 			[ '%s', '%s', '%s', '%d' ]
@@ -640,7 +705,8 @@ class OC_Admin_Clipart {
 		return [
 			'id'        => $id,
 			'name'      => $name,
-			'fileType'  => $ext,
+				'fileType'   => 'svg',
+				'canConvert' => false,
 			'url'       => self::get_clipart_url( $dest ),
 			'active'    => true,
 			'toggleUrl' => wp_nonce_url(
@@ -652,5 +718,143 @@ class OC_Admin_Clipart {
 				'oc_clipart_delete_' . $id
 			),
 		];
+	}
+
+	private static function clipart_response( int $id, string $name, string $path, string $file_type, bool $active ): array {
+		return [
+			'id'        => $id,
+			'name'      => $name,
+			'fileType'   => $file_type,
+			'canConvert' => 'svg' !== strtolower( $file_type ),
+			'url'       => self::get_clipart_url( $path ),
+			'active'    => $active,
+			'toggleUrl' => wp_nonce_url(
+				admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $id . '&state=' . ( $active ? '0' : '1' ) ),
+				'oc_clipart_toggle_' . $id
+			),
+			'deleteUrl' => wp_nonce_url(
+				admin_url( 'admin.php?page=overcustomise-clipart&action=delete&id=' . $id ),
+				'oc_clipart_delete_' . $id
+			),
+		];
+	}
+
+	private static function convert_file_to_svg( string $source_path ): string|\WP_Error {
+		$ext = strtolower( pathinfo( $source_path, PATHINFO_EXTENSION ) );
+		if ( 'svg' === $ext ) {
+			return $source_path;
+		}
+
+		$dest = preg_replace( '/\.[^.]+$/', '.svg', $source_path );
+		if ( ! is_string( $dest ) || '' === $dest || $dest === $source_path ) {
+			$dest = $source_path . '.svg';
+		}
+		if ( file_exists( $dest ) ) {
+			$dest = dirname( $dest ) . '/' . uniqid( '', true ) . '-' . basename( $dest );
+		}
+
+		return self::raster_to_svg( $source_path, $dest, $ext );
+	}
+
+	private static function save_uploaded_svg_replacement( array $file, string $old_path ): string|\WP_Error {
+		if ( empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
+			return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
+		}
+
+		$raw = file_get_contents( $file['tmp_name'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( false === $raw ) {
+			return new \WP_Error( 'read_failed', __( 'Could not read converted SVG.', 'overcustomise' ) );
+		}
+
+		try {
+			$sanitised = OC_SVG_Sanitiser::sanitise( $raw );
+		} catch ( \InvalidArgumentException $e ) {
+			return new \WP_Error( 'unsafe_svg', $e->getMessage() );
+		}
+
+		$dest = preg_replace( '/\.[^.]+$/', '.svg', $old_path );
+		if ( ! is_string( $dest ) || '' === $dest ) {
+			$dest = $old_path . '.svg';
+		}
+		if ( file_exists( $dest ) && wp_normalize_path( $dest ) !== wp_normalize_path( $old_path ) ) {
+			$dest = dirname( $dest ) . '/' . uniqid( '', true ) . '-' . basename( $dest );
+		}
+
+		if ( false === file_put_contents( $dest, $sanitised ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			return new \WP_Error( 'write_failed', __( 'Could not save converted SVG.', 'overcustomise' ) );
+		}
+
+		return $dest;
+	}
+
+	private static function raster_to_svg( string $source_path, string $dest, string $ext ): string|\WP_Error {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			return new \WP_Error( 'gd_missing', __( 'Server image processing is not available.', 'overcustomise' ) );
+		}
+		if ( ! file_exists( $source_path ) ) {
+			return new \WP_Error( 'not_found', __( 'Source image was not found.', 'overcustomise' ) );
+		}
+
+		$image_info = @getimagesize( $source_path );
+		if ( ! $image_info || empty( $image_info[0] ) || empty( $image_info[1] ) ) {
+			return new \WP_Error( 'not_image', __( 'File is not a valid image.', 'overcustomise' ) );
+		}
+
+		$src = match ( $ext ) {
+			'png'  => function_exists( 'imagecreatefrompng' ) ? @imagecreatefrompng( $source_path ) : false,
+			'jpg', 'jpeg' => function_exists( 'imagecreatefromjpeg' ) ? @imagecreatefromjpeg( $source_path ) : false,
+			'webp' => function_exists( 'imagecreatefromwebp' ) ? @imagecreatefromwebp( $source_path ) : false,
+			'gif'  => function_exists( 'imagecreatefromgif' ) ? @imagecreatefromgif( $source_path ) : false,
+			default => false,
+		};
+
+		if ( ! $src ) {
+			return new \WP_Error( 'read_failed', __( 'Could not read image for conversion.', 'overcustomise' ) );
+		}
+
+		$width = (int) $image_info[0];
+		$height = (int) $image_info[1];
+		$canvas = imagecreatetruecolor( $width, $height );
+		imagealphablending( $canvas, false );
+		imagesavealpha( $canvas, true );
+		$transparent = imagecolorallocatealpha( $canvas, 255, 255, 255, 127 );
+		imagefilledrectangle( $canvas, 0, 0, $width, $height, $transparent );
+		imagecopy( $canvas, $src, 0, 0, 0, 0, $width, $height );
+
+		for ( $y = 0; $y < $height; $y++ ) {
+			for ( $x = 0; $x < $width; $x++ ) {
+				$rgba = imagecolorat( $canvas, $x, $y );
+				$a = ( $rgba & 0x7F000000 ) >> 24;
+				$r = ( $rgba >> 16 ) & 0xFF;
+				$g = ( $rgba >> 8 ) & 0xFF;
+				$b = $rgba & 0xFF;
+				if ( $a < 127 && $r >= 245 && $g >= 245 && $b >= 245 && ( max( $r, $g, $b ) - min( $r, $g, $b ) ) <= 12 ) {
+					imagesetpixel( $canvas, $x, $y, $transparent );
+				}
+			}
+		}
+
+		ob_start();
+		imagepng( $canvas );
+		$png = ob_get_clean();
+		imagedestroy( $src );
+		imagedestroy( $canvas );
+
+		if ( ! is_string( $png ) || '' === $png ) {
+			return new \WP_Error( 'convert_failed', __( 'Could not convert image to SVG.', 'overcustomise' ) );
+		}
+
+		$svg = sprintf(
+			'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="%1$d" height="%2$d" viewBox="0 0 %1$d %2$d" data-oc-converted="raster"><image width="%1$d" height="%2$d" href="data:image/png;base64,%3$s" xlink:href="data:image/png;base64,%3$s"/></svg>',
+			$width,
+			$height,
+			base64_encode( $png )
+		);
+
+		if ( false === file_put_contents( $dest, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			return new \WP_Error( 'write_failed', __( 'Could not save converted SVG.', 'overcustomise' ) );
+		}
+
+		return $dest;
 	}
 }

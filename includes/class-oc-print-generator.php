@@ -8,7 +8,7 @@
  *  2. Iterate order items — skip items without _oc_customisation meta.
  *  3. For each print area, insert a 'generating' record in oc_print_files.
  *  4. Call the appropriate type-specific generator.
- *  5. Update the record: file_path + status (files_ready / awaiting_dst_upload).
+ *  5. Update the record: file_path + status.
  *  6. On failure: set status back to 'pending', log the error.
  *
  * @package OverCustomise
@@ -634,6 +634,7 @@ class OC_Print_Generator {
 	private static function mime_for_extension( string $ext ): string {
 		return match ( strtolower( $ext ) ) {
 			'pdf'           => 'application/pdf',
+			'eps'           => 'application/postscript',
 			'dst', 'emb',
 			'jef', 'vp3',
 			'pes', 'xxx'    => 'application/octet-stream',

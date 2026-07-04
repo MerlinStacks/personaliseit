@@ -14,7 +14,8 @@
     "@uppy/drag-drop": "^4.0.0",
     "@uppy/xhr-upload": "^4.2.0",
     "fabric": "^6.5.0",
-    "fonteditor-core": "^2.6.3"
+    "fonteditor-core": "^2.6.3",
+    "imagetracerjs": "^1.2.6"
   },
   "devDependencies": {
     "@wordpress/scripts": "^30.0.0"

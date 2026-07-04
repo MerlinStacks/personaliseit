@@ -128,7 +128,7 @@ foreach ( $layers as $layer ) {
 					// For text/textarea layers, the layer name is shown inline with the input
 					// (matching the Font row), so we suppress it in the section header to avoid
 					// duplication — only the type badge remains.
-					$inline_label_types = [ 'text', 'textarea', 'image', 'spotify' ];
+					$inline_label_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify' ];
 					$show_header_label  = ! in_array( $layer->type, $inline_label_types, true );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					?>
@@ -177,9 +177,9 @@ foreach ( $layers as $layer ) {
 									</div>
 								</div>
 
-							<?php elseif ( $layer->type === 'image' ) : ?>
+							<?php elseif ( $layer->type === 'image' || $layer->type === 'clipmask' ) : ?>
 								<div class="oc-artwork-wrap">
-									<?php OC_Tooltips::render( 'upload-' . $layer->id, sprintf( __( 'Upload your design artwork. SVG, PNG, or JPG up to %d MB.', 'overcustomise' ), (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ) ); ?>
+									<?php OC_Tooltips::render( 'upload-' . $layer->id, sprintf( 'clipmask' === $layer->type ? __( 'Upload your photo. It will be clipped to the configured mask shape in previews and print files. PNG or JPG up to %d MB.', 'overcustomise' ) : __( 'Upload your design artwork. SVG, PNG, or JPG up to %d MB.', 'overcustomise' ), (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ) ); ?>
 									<div class="oc-upload-zone"
 										data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 								</div>
@@ -188,25 +188,25 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
 								<?php
-								$cg_ids = $s['clipart_groups'] ?? [];
-								if ( ! empty( $cg_ids ) ) {
+								$clipart_group_ids = $s['clipart_groups'] ?? [];
+								if ( ! empty( $clipart_group_ids ) ) {
 									global $wpdb;
-									$phs   = implode( ',', array_fill( 0, count( $cg_ids ), '%d' ) );
+									$phs   = implode( ',', array_fill( 0, count( $clipart_group_ids ), '%d' ) );
 									$items = $wpdb->get_results( $wpdb->prepare(
-										"SELECT DISTINCT c.id, c.name, c.file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
+										"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
 										 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 										 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 										 WHERE gi.group_id IN ($phs) AND c.active = 1
-										 GROUP BY c.id, c.name, c.file_path ORDER BY c.name ASC",
-										...$cg_ids
+										 GROUP BY c.id, c.name, c.file_path, c.file_type ORDER BY c.name ASC",
+										...$clipart_group_ids
 									) ) ?: [];
 								} else {
 									global $wpdb;
-									$items = $wpdb->get_results( "SELECT id, name, file_path, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
+									$items = $wpdb->get_results( "SELECT id, name, file_path, file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
 									 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 									 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 									 WHERE c.active = 1
-									 GROUP BY c.id, c.name, c.file_path ORDER BY c.name ASC" ) ?: [];
+									 GROUP BY c.id, c.name, c.file_path, c.file_type ORDER BY c.name ASC" ) ?: [];
 								}
 								$group_names = [];
 								foreach ( $items as $ci ) {
@@ -242,6 +242,7 @@ foreach ( $layers as $layer ) {
 											data-oc-clipart="<?php echo esc_attr( $ci->id ); ?>"
 											data-oc-layer-clipart="<?php echo esc_attr( $layer->id ); ?>"
 											data-oc-clipart-url="<?php echo esc_attr( $curl ); ?>"
+											data-oc-clipart-recolourable="<?php echo 'svg' === strtolower( (string) $ci->file_type ) ? '1' : '0'; ?>"
 											data-oc-clipart-groups="<?php echo esc_attr( $ci_groups_attr ); ?>"
 											aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart', 'overcustomise' ), $ci->name ) ); ?>"
 											aria-pressed="false"
@@ -253,6 +254,31 @@ foreach ( $layers as $layer ) {
 										<p class="oc-clipart-empty"><?php esc_html_e( 'No clipart available.', 'overcustomise' ); ?></p>
 									<?php endif; ?>
 								</div>
+
+								<?php if ( ! $is_engraving && $allow_colour_change ) : ?>
+									<div class="oc-control-group">
+										<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?><?php OC_Tooltips::render( 'clipart-color-' . $layer->id, __( 'Available for SVG clipart where recolouring is possible.', 'overcustomise' ) ); ?></label>
+										<?php if ( ! empty( $layer_colours ) ) : ?>
+											<div class="oc-colour-swatches">
+												<?php foreach ( $layer_colours as $colour ) : ?>
+												<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
+													style="background:<?php echo esc_attr( $colour->hex ); ?>;"
+													title="<?php echo esc_attr( $colour->name ); ?>"
+													aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart colour', 'overcustomise' ), $colour->name ) ); ?>"
+													aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
+													data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
+													data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+												</button>
+												<?php endforeach; ?>
+											</div>
+										<?php elseif ( empty( $cg_ids ) ) : ?>
+											<input type="color" value="<?php echo esc_attr( $default_colour ); ?>"
+												data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
+										<?php else : ?>
+											<p class="oc-settings-empty"><?php esc_html_e( 'No colours are available for this option.', 'overcustomise' ); ?></p>
+										<?php endif; ?>
+									</div>
+								<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'lineart' && ! $is_engraving ) : ?>
 								<?php OC_Tooltips::render( 'lineart-' . $layer->id, __( 'Choose a solid colour background for this area.', 'overcustomise' ) ); ?>

@@ -89,6 +89,7 @@ class OC_Blocks_Integration {
 			case 'spotify':
 				return trim( $layer_data['value'] ?? '' );
 			case 'image':
+			case 'clipmask':
 				return ! empty( $layer_data['attachmentId'] )
 					? __( 'Image uploaded', 'overcustomise' ) : '';
 			case 'clipart':

@@ -20,6 +20,7 @@
 		text:     { label: 'Text',         icon: 'Aa', color: '#0284c7' },
 		textarea: { label: 'Text Area',    icon: '\u00b6',  color: '#7c3aed' },
 		image:    { label: 'Image',        icon: '\ud83d\uddbc',  color: '#059669' },
+		clipmask: { label: 'Clipping Mask', icon: '◯',  color: '#0d9488' },
 		spotify:  { label: 'Spotify Code', icon: '\u266b',  color: '#1db954' },
 		lineart:  { label: 'Line Art',     icon: '\u270f',  color: '#d97706' },
 		clipart:  { label: 'Clipart',      icon: '\u2726',  color: '#dc2626' },
@@ -29,6 +30,7 @@
 		text:     { w: 300, h:  50 },
 		textarea: { w: 300, h: 120 },
 		image:    { w: 200, h: 200 },
+		clipmask: { w: 200, h: 200 },
 		spotify:  { w: 150, h: 150 },
 		lineart:  { w: 200, h: 200 },
 		clipart:  { w: 150, h: 150 },
@@ -52,6 +54,7 @@
 		text:     [ { id: 'general', label: 'General', icon: 'G' }, { id: 'content', label: 'Content', icon: 'T' }, { id: 'style', label: 'Style', icon: 'A' }, { id: 'properties', label: 'Properties', icon: '\u2699' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		textarea: [ { id: 'general', label: 'General', icon: 'G' }, { id: 'content', label: 'Content', icon: 'T' }, { id: 'style', label: 'Style', icon: 'A' }, { id: 'properties', label: 'Properties', icon: '\u2699' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		image:    [ { id: 'general', label: 'General', icon: 'G' }, { id: 'file',       label: 'File',       icon: '\ud83d\uddbc' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		clipmask: [ { id: 'general', label: 'General', icon: 'G' }, { id: 'file',       label: 'File',       icon: '\ud83d\uddbc' }, { id: 'mask',       label: 'Mask',       icon: '◯' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		spotify:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'appearance', label: 'Appearance', icon: '\u25d0' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		lineart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'colours',    label: 'Colours',    icon: '\u25cf' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		clipart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'library',    label: 'Library',    icon: '\u2726' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
@@ -378,12 +381,13 @@
 	function defaultSettings( type ) {
 		switch ( type ) {
 			case 'text':
-			case 'textarea': return { default_text: '', char_limit: 0, alignment: 'center', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false };
-			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, remove_background: false, required: false };
-			case 'spotify':  return { colour_groups: [], required: false };
-			case 'lineart':  return { colour_groups: [], required: false };
-			case 'clipart':  return { clipart_groups: [], required: false };
-			default:         return { required: false };
+			case 'textarea': return { default_text: '', char_limit: 0, alignment: 'center', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false, link_group: '' };
+			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, remove_background: false, required: false, link_group: '' };
+			case 'clipmask': return { formats: [ 'png', 'jpg', 'webp' ], max_size_mb: 10, remove_background: false, mask_shape: 'circle', required: false, link_group: '' };
+			case 'spotify':  return { colour_groups: [], required: false, link_group: '' };
+			case 'lineart':  return { colour_groups: [], required: false, link_group: '' };
+			case 'clipart':  return { clipart_groups: [], required: false, link_group: '' };
+			default:         return { required: false, link_group: '' };
 		}
 	}
 	function normaliseSettings( type, existing ) {
@@ -400,6 +404,7 @@
 	function clamp( v, lo, hi ) { return Math.min( Math.max( v, lo ), hi ); }
 	function fontLimit( value ) { return Math.max( 0, parseInt( value, 10 ) || 0 ); }
 	function normaliseHex( value ) { return /^#[0-9a-f]{6}$/i.test( String( value || '' ) ) ? value : '#000000'; }
+	function normaliseLinkGroup( value ) { return String( value || '' ).trim(); }
 	function clampFontSize( size, settings, scale ) {
 		const min = fontLimit( settings?.min_font_size ) * scale;
 		const max = fontLimit( settings?.max_font_size ) * scale;
@@ -462,7 +467,7 @@
 			d.textContent    = text;
 			el.appendChild( d );
 
-		} else if ( layer.type === 'image' ) {
+		} else if ( layer.type === 'image' || layer.type === 'clipmask' ) {
 			const fs = Math.max( 14, Math.min( renderedH * 0.35, 40 ) );
 			const d  = document.createElement( 'div' );
 			d.className = 'oc-lp oc-lp-icon';
@@ -472,7 +477,8 @@
 					'<circle cx="12" cy="11.5" r="3.5"/>' +
 					'<path d="M8 4l2-3h4l2 3"/>' +
 				'</svg>' +
-				'<span>Upload Image</span>';
+				'<span>' + ( layer.type === 'clipmask' ? 'Upload Clipped Photo' : 'Upload Image' ) + '</span>';
+			if ( layer.type === 'clipmask' ) d.style.borderRadius = '999px';
 			el.appendChild( d );
 
 		} else {
@@ -532,9 +538,10 @@
 		const area        = areas[ selectedIndex ];
 		const isEngraving = area && area.method === 'engraving';
 
-		switch ( tabId ) {
+			switch ( tabId ) {
 			case 'general':
 				return field( 'Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc( layer.label ) + '" />' ) +
+					field( 'Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', '<input type="text" id="oc-set-link-group" class="oc-input" style="width:100%;" placeholder="e.g. name" value="' + esc( s.link_group || '' ) + '" />' ) +
 					'<p class="oc-settings-section-hdr">Position</p>' +
 					'<div class="oc-bounds-grid">' +
 						'<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' +
@@ -564,6 +571,8 @@
 				return field( 'Accepted formats', formatChecks( s.formats || [ 'png', 'jpg', 'svg', 'webp' ] ) ) +
 					field( 'Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc( s.max_size_mb || 10 ) + '" />' ) +
 					toggleField( 'Automatically remove background', 'oc-set-remove-background', !! s.remove_background );
+			case 'mask':
+				return field( 'Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ( ( s.mask_shape || 'circle' ) === 'circle' ? ' selected' : '' ) + '>Circle</option></select>' );
 			case 'appearance':
 			case 'colours':
 				if ( isEngraving ) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
@@ -597,6 +606,7 @@
 			document.getElementById( id )?.addEventListener( 'input', syncBoundsFromInputs );
 		} );
 		document.getElementById( 'oc-set-default-text' )?.addEventListener( 'input', e => { s.default_text = e.target.value; renderCanvas(); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-link-group' )?.addEventListener( 'input', e => { s.link_group = normaliseLinkGroup( e.target.value ); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-char-limit'   )?.addEventListener( 'input', e => { s.char_limit   = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-font' )?.addEventListener( 'change', e => { s.default_font_id = parseInt( e.target.value, 10 ) || 0; renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-font-size' )?.addEventListener( 'input', e => { s.default_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
@@ -618,6 +628,7 @@
 		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); markDirty(); } ); } );
 		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-remove-background' )?.addEventListener( 'change', e => { s.remove_background = e.target.checked; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-mask-shape' )?.addEventListener( 'change', e => { s.mask_shape = e.target.value || 'circle'; renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-required'   )?.addEventListener( 'change', e => { s.required = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-font-change' )?.addEventListener( 'change', e => { s.allow_font_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-colour-change' )?.addEventListener( 'change', e => { s.allow_colour_change = e.target.checked; renderHiddenFields(); markDirty(); } );

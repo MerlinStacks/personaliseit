@@ -980,7 +980,7 @@ class OC_Admin_Products {
 		// Save layers — delete all and re-insert from POST.
 		$wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $design_id ], [ '%d' ] );
 
-		$valid_types = [ 'text', 'textarea', 'image', 'spotify', 'lineart', 'clipart' ];
+		$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
 		foreach ( (array) ( $_POST['oc_layers'] ?? [] ) as $sort => $layer_data ) {
 			$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 			$area_db_id = $area_id_map[ $area_index ] ?? 0;
