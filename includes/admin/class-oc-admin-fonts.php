@@ -1,7 +1,6 @@
 <?php
 /**
  * Font Manager page — upload/manage fonts and font groups.
- * TTF/OTF auto-converted to WOFF on upload.
  * Upload and rename are AJAX; toggle/delete via nonce-signed GET.
  *
  * @package OverCustomise
@@ -18,6 +17,7 @@ class OC_Admin_Fonts {
 	public static function register_ajax(): void {
 		add_action( 'wp_ajax_oc_font_upload',       [ self::class, 'ajax_upload' ] );
 		add_action( 'wp_ajax_oc_font_rename',       [ self::class, 'ajax_rename' ] );
+		add_action( 'wp_ajax_oc_font_convert',      [ self::class, 'ajax_convert' ] );
 		add_action( 'wp_ajax_oc_group_create',      [ self::class, 'ajax_group_create' ] );
 		add_action( 'wp_ajax_oc_group_update',      [ self::class, 'ajax_group_update' ] );
 		add_action( 'wp_ajax_oc_group_delete',      [ self::class, 'ajax_group_delete' ] );
@@ -38,26 +38,7 @@ class OC_Admin_Fonts {
 		$groups = OC_DB::get_font_groups();
 
 		// JS payload — fonts.
-		$fonts_js = array_map( function ( $f ) {
-			return [
-				'id'                  => (int) $f->id,
-				'name'                => $f->name,
-				'weight'              => $f->weight,
-				'style'               => $f->style,
-				'embroidery_suitable' => (bool) $f->embroidery_suitable,
-				'active'              => (bool) $f->active,
-				'url'                 => self::get_font_url( $f->file_path ),
-				'ext'                 => strtoupper( pathinfo( $f->file_path, PATHINFO_EXTENSION ) ),
-				'toggleUrl'           => wp_nonce_url(
-					admin_url( 'admin.php?page=overcustomise-fonts&action=toggle&id=' . $f->id . '&state=' . ( $f->active ? '0' : '1' ) ),
-					'oc_font_toggle_' . $f->id
-				),
-				'deleteUrl'           => wp_nonce_url(
-					admin_url( 'admin.php?page=overcustomise-fonts&action=delete&id=' . $f->id ),
-					'oc_font_delete_' . $f->id
-				),
-			];
-		}, $fonts );
+		$fonts_js = array_map( [ self::class, 'font_payload' ], $fonts );
 
 		// JS payload — groups.
 		$groups_js = array_map( function ( $g ) {
@@ -127,6 +108,7 @@ class OC_Admin_Fonts {
 							<?php foreach ( $fonts as $font ) :
 								$font_url   = self::get_font_url( $font->file_path );
 								$ext        = strtoupper( pathinfo( $font->file_path, PATHINFO_EXTENSION ) );
+								$can_convert = self::can_convert_for_print( (string) $font->file_path );
 								$preview_id = 'oc-preview-' . (int) $font->id;
 								?>
 								<style>
@@ -169,6 +151,11 @@ class OC_Admin_Fonts {
 											<?php endif; ?>
 										</div>
 										<div class="oc-font-card-actions">
+											<?php if ( $can_convert ) : ?>
+												<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm oc-font-convert-btn" data-font-id="<?php echo (int) $font->id; ?>">
+													<?php esc_html_e( 'Convert for print', 'overcustomise' ); ?>
+												</button>
+											<?php endif; ?>
 											<a href="<?php echo esc_url( wp_nonce_url(
 												admin_url( 'admin.php?page=overcustomise-fonts&action=toggle&id=' . (int) $font->id . '&state=' . ( $font->active ? '0' : '1' ) ),
 												'oc_font_toggle_' . $font->id
@@ -428,6 +415,23 @@ class OC_Admin_Fonts {
 		wp_send_json_success( [ 'newName' => $new_name, 'oldName' => $old_name ] );
 	}
 
+	// ── AJAX: convert WOFF font to print-compatible sfnt ────────────────────────
+
+	public static function ajax_convert(): void {
+		check_ajax_referer( 'oc_font_actions', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
+		}
+
+		$id = (int) ( $_POST['id'] ?? 0 );
+		if ( ! $id ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
+
+		$result = self::convert_font_for_print( $id );
+		is_wp_error( $result ) ? wp_send_json_error( [ 'message' => $result->get_error_message() ] ) : wp_send_json_success( $result );
+	}
+
 	// ── AJAX: group create ─────────────────────────────────────────────────────
 
 	public static function ajax_group_create(): void {
@@ -559,8 +563,7 @@ class OC_Admin_Fonts {
 		if ( ! move_uploaded_file( $file['tmp_name'], $dest ) ) {
 			return new \WP_Error( 'upload_failed', __( 'File upload failed.', 'overcustomise' ) );
 		}
-		$rel_path   = self::FONT_SUBDIR . '/' . $base . '.' . $ext;
-		$stored_ext = strtoupper( $ext );
+		$rel_path = self::FONT_SUBDIR . '/' . $base . '.' . $ext;
 
 		$name       = sanitize_text_field( $_POST['oc_font_name'] ?? '' );
 		$weight     = sanitize_text_field( $_POST['oc_font_weight'] ?? 'normal' );
@@ -581,26 +584,118 @@ class OC_Admin_Fonts {
 			wp_delete_file( $dest );
 			return new \WP_Error( 'db_error', __( 'Could not save font record.', 'overcustomise' ) );
 		}
-		$url = $upload['baseurl'] . '/' . $rel_path;
-
-		return [
+		$font = (object) [
 			'id'                  => $id,
 			'name'                => $name,
+			'file_path'           => $rel_path,
 			'weight'              => $weight,
 			'style'               => $style,
-			'embroidery_suitable' => (bool) $embroidery,
-			'active'              => true,
-			'url'                 => $url,
-			'ext'                 => $stored_ext,
+			'embroidery_suitable' => $embroidery,
+			'active'              => 1,
+		];
+
+		return self::font_payload( $font );
+	}
+
+	private static function convert_font_for_print( int $id ): array|\WP_Error {
+		global $wpdb;
+		$font = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_fonts WHERE id = %d", $id ) );
+		if ( ! $font ) {
+			return new \WP_Error( 'not_found', __( 'Font not found.', 'overcustomise' ) );
+		}
+
+		$ext = strtolower( pathinfo( (string) $font->file_path, PATHINFO_EXTENSION ) );
+		if ( 'woff2' === $ext ) {
+			return new \WP_Error( 'woff2_unsupported', __( 'WOFF2 cannot be converted automatically. Upload the original TTF or OTF and keep the same font name/style.', 'overcustomise' ) );
+		}
+		if ( 'woff' !== $ext ) {
+			return new \WP_Error( 'already_compatible', __( 'This font is already print-compatible.', 'overcustomise' ) );
+		}
+		if ( ! class_exists( 'OC_WOFF_Converter' ) ) {
+			return new \WP_Error( 'converter_missing', __( 'Font converter is unavailable.', 'overcustomise' ) );
+		}
+
+		$upload = wp_upload_dir();
+		if ( ! empty( $upload['error'] ) ) {
+			return new \WP_Error( 'upload_dir_error', (string) $upload['error'] );
+		}
+
+		$source = trailingslashit( $upload['basedir'] ) . ltrim( (string) $font->file_path, '/' );
+		$real   = realpath( $source );
+		$base   = realpath( $upload['basedir'] );
+		if ( ! $real || ! $base || 0 !== strpos( $real, $base ) || ! file_exists( $real ) ) {
+			return new \WP_Error( 'missing_file', __( 'Stored font file could not be found.', 'overcustomise' ) );
+		}
+
+		$font_dir = trailingslashit( $upload['basedir'] ) . self::FONT_SUBDIR;
+		if ( ! wp_mkdir_p( $font_dir ) ) {
+			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
+		}
+
+		$output_ext = self::woff_sfnt_extension( $real );
+		$filename   = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) . '-print.' . $output_ext;
+		$dest       = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $filename );
+		if ( ! OC_WOFF_Converter::extract_sfnt( $real, $dest ) ) {
+			return new \WP_Error( 'convert_failed', __( 'Could not convert this WOFF font. Upload the original TTF or OTF instead.', 'overcustomise' ) );
+		}
+
+		$rel_path = self::FONT_SUBDIR . '/' . basename( $dest );
+		$updated  = $wpdb->update(
+			"{$wpdb->prefix}oc_fonts",
+			[ 'file_path' => $rel_path ],
+			[ 'id' => $id ],
+			[ '%s' ],
+			[ '%d' ]
+		);
+
+		if ( false === $updated ) {
+			wp_delete_file( $dest );
+			return new \WP_Error( 'db_error', __( 'Could not update font record.', 'overcustomise' ) );
+		}
+
+		$font->file_path = $rel_path;
+		return self::font_payload( $font );
+	}
+
+	private static function font_payload( object $font ): array {
+		$ext = strtoupper( pathinfo( (string) $font->file_path, PATHINFO_EXTENSION ) );
+
+		return [
+			'id'                  => (int) $font->id,
+			'name'                => $font->name,
+			'weight'              => $font->weight,
+			'style'               => $font->style,
+			'embroidery_suitable' => (bool) $font->embroidery_suitable,
+			'active'              => (bool) $font->active,
+			'url'                 => self::get_font_url( (string) $font->file_path ),
+			'ext'                 => $ext,
+			'canPrintConvert'     => self::can_convert_for_print( (string) $font->file_path ),
+			'printNote'           => 'WOFF2' === $ext ? __( 'WOFF2 needs the original TTF or OTF for print output.', 'overcustomise' ) : '',
 			'toggleUrl'           => wp_nonce_url(
-				admin_url( 'admin.php?page=overcustomise-fonts&action=toggle&id=' . $id . '&state=0' ),
-				'oc_font_toggle_' . $id
+				admin_url( 'admin.php?page=overcustomise-fonts&action=toggle&id=' . (int) $font->id . '&state=' . ( $font->active ? '0' : '1' ) ),
+				'oc_font_toggle_' . (int) $font->id
 			),
 			'deleteUrl'           => wp_nonce_url(
-				admin_url( 'admin.php?page=overcustomise-fonts&action=delete&id=' . $id ),
-				'oc_font_delete_' . $id
+				admin_url( 'admin.php?page=overcustomise-fonts&action=delete&id=' . (int) $font->id ),
+				'oc_font_delete_' . (int) $font->id
 			),
 		];
+	}
+
+	private static function can_convert_for_print( string $file_path ): bool {
+		return 'woff' === strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
+	}
+
+	private static function woff_sfnt_extension( string $path ): string {
+		$handle = fopen( $path, 'rb' );
+		if ( ! $handle ) {
+			return 'ttf';
+		}
+		fseek( $handle, 4 );
+		$flavor = fread( $handle, 4 );
+		fclose( $handle );
+
+		return 'OTTO' === $flavor ? 'otf' : 'ttf';
 	}
 
 	// ── GET action handlers ────────────────────────────────────────────────────

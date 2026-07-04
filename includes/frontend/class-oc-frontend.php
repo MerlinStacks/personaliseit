@@ -572,10 +572,18 @@ class OC_Frontend {
 		/* Controls */
 		.oc-control-group { display:flex; flex-direction:column; gap:5px; }
 		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
+		.oc-control-group:has(> [data-oc-tooltip]) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:10px; row-gap:5px; }
+		.oc-control-group:has(> [data-oc-tooltip]) > label,
+		.oc-control-group:has(> [data-oc-tooltip]) > .oc-char-counter,
+		.oc-control-group:has(> [data-oc-tooltip]) > .oc-spotify-error { grid-column:1 / -1; }
+		.oc-control-group:has(> [data-oc-tooltip]) > input,
+		.oc-control-group:has(> [data-oc-tooltip]) > select { grid-column:1; min-width:0; }
+		.oc-control-group:has(> [data-oc-tooltip]) > [data-oc-tooltip] { grid-column:2; justify-self:end; }
 		.oc-control-group input[type="text"],
+		.oc-control-group input[type="url"],
 		.oc-control-group textarea,
-		.oc-control-group select { width:100%; padding:8px 10px; border:1px solid #ddd; border-radius:3px; font-size:14px; box-sizing:border-box; }
-		.oc-control-group textarea { resize:vertical; min-height:80px; }
+		.oc-control-group select { width:100%; min-height:40px; padding:8px 12px; border:1px solid #ddd; border-radius:3px; font-size:14px; box-sizing:border-box; }
+		.oc-control-group textarea { resize:vertical; min-height:78px; }
 		.oc-char-count { font-size:11px; color:#888; text-align:right; }
 
 		/* Font select */
@@ -591,6 +599,8 @@ class OC_Frontend {
 		.oc-color-freeform input[type="color"] { width:40px; height:32px; padding:2px; border:1px solid #ddd; border-radius:3px; cursor:pointer; }
 
 		/* Upload zone — wrapper + Uppy DragDrop overrides */
+		.oc-artwork-wrap { position:relative; display:flex; flex-direction:column; gap:10px; }
+		.oc-artwork-wrap > [data-oc-tooltip] { position:absolute; top:6px; right:6px; z-index:3; }
 		.oc-upload-zone { border-radius:6px; min-height:120px; cursor:pointer; overflow:hidden; background:#fafbfc; }
 		.oc-upload-zone .uppy-Root,
 		.oc-upload-zone .uppy-DragDrop-container { width:100% !important; height:100% !important; min-height:120px; }
@@ -686,10 +696,12 @@ class OC_Frontend {
 				align-items: stretch;
 			}
 			.oc-control-group input[type="text"],
+			.oc-control-group input[type="url"],
 			.oc-control-group textarea,
 			.oc-control-group select {
 				font-size: 16px;
-				min-height: 48px;
+				min-height: 44px;
+				padding: 9px 12px;
 				touch-action: manipulation;
 			}
 			.oc-colour-swatches {
@@ -716,9 +728,10 @@ class OC_Frontend {
 				text-align: center;
 				touch-action: manipulation;
 			}
+			.oc-help-toggle,
 			.oc-spotify-help-toggle {
-				min-width: 44px;
-				min-height: 44px;
+				min-width: 32px;
+				min-height: 32px;
 				touch-action: manipulation;
 			}
 		}

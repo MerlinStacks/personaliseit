@@ -347,6 +347,7 @@
 					${font.embroidery_suitable ? '<span class="oc-badge oc-badge-active">Embroidery</span>' : ''}
 				</div>
 				<div class="oc-font-card-actions">
+					${font.canPrintConvert ? `<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm oc-font-convert-btn" data-font-id="${font.id}">Convert for print</button>` : ''}
 					<a href="${font.toggleUrl}" class="oc-btn oc-btn-secondary oc-btn-sm">${font.active ? 'Deactivate' : 'Activate'}</a>
 					<a href="${font.deleteUrl}" onclick="return confirm('Delete this font?');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>
 				</div>
@@ -414,12 +415,63 @@
 						<span class="oc-badge ${f.active ? 'oc-badge-active' : 'oc-badge-inactive'}">${f.active ? 'Active' : 'Inactive'}</span>
 					</div>
 					<div class="oc-detail-variant-actions">
+						${f.canPrintConvert ? `<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm oc-font-convert-btn" data-font-id="${f.id}">Convert for print</button>` : ''}
 						<a href="${f.toggleUrl}" class="oc-btn oc-btn-secondary oc-btn-sm">${f.active ? 'Deactivate' : 'Activate'}</a>
 						<a href="${f.deleteUrl}" onclick="return confirm('Delete this font?');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>
 					</div>
 				</div>
 			`;
 		} ).join( '' );
+	}
+
+	async function convertFontForPrint( fontId, button ) {
+		const font = fonts.find( f => Number( f.id ) === Number( fontId ) );
+		if ( ! font ) return;
+
+		const label = button?.textContent || 'Convert for print';
+		if ( button ) {
+			button.disabled = true;
+			button.textContent = 'Converting...';
+		}
+
+		try {
+			const fd = new FormData();
+			fd.append( 'action', 'oc_font_convert' );
+			fd.append( 'nonce', nonce );
+			fd.append( 'id', fontId );
+
+			const res = await fetch( ajaxUrl, { method: 'POST', body: fd } );
+			if ( ! res.ok ) throw new Error( `HTTP ${ res.status }` );
+			const json = await res.json();
+
+			if ( ! json.success ) {
+				alert( json.data?.message || 'Font conversion failed.' );
+				return;
+			}
+
+			const updated = json.data;
+			fonts = fonts.map( f => Number( f.id ) === Number( updated.id ) ? updated : f );
+			replaceFontCard( updated );
+
+			if ( detailFontName === updated.name ) {
+				renderDetailVariants( updated.name );
+			}
+		} catch ( err ) {
+			alert( err?.message || 'Network error — please try again.' );
+		} finally {
+			if ( button ) {
+				button.disabled = false;
+				button.textContent = label;
+			}
+		}
+	}
+
+	function replaceFontCard( font ) {
+		const existing = document.querySelector( `.oc-font-card[data-font-id="${font.id}"]` );
+		if ( ! existing ) return;
+		const replacement = buildCardEl( font );
+		existing.replaceWith( replacement );
+		bindCardClick( replacement );
 	}
 
 	// ── AJAX rename ────────────────────────────────────────────────────────────
@@ -490,6 +542,14 @@
 	}
 
 	document.querySelectorAll( '.oc-font-card' ).forEach( bindCardClick );
+
+	document.addEventListener( 'click', function ( e ) {
+		const btn = e.target.closest( '.oc-font-convert-btn' );
+		if ( ! btn ) return;
+		e.preventDefault();
+		e.stopPropagation();
+		convertFontForPrint( btn.dataset.fontId, btn );
+	} );
 
 	// ── Event: upload button ───────────────────────────────────────────────────
 

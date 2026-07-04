@@ -18,8 +18,8 @@ abstract class OC_Print_Base {
 	/** Assumed DPI for canvas coordinates stored in the DB. */
 	protected const CANVAS_DPI = 300;
 
-	/** Silver engraving tone used instead of flat process black for etched output. */
-	protected const ENGRAVING_TONE_RGB = [ 218, 218, 214 ];
+	/** Engraving print files must output customer text and clipart as black. */
+	protected const ENGRAVING_TONE_RGB = [ 0, 0, 0 ];
 
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
@@ -417,9 +417,13 @@ abstract class OC_Print_Base {
 					self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
 					break;
 
+				case 'spotify':
+					self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+					break;
+
 				case 'image':
 				case 'clipart':
-					self::render_layer_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm );
+					self::render_layer_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
 					break;
 
 				case 'lineart':
@@ -481,10 +485,120 @@ abstract class OC_Print_Base {
 		$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
 	}
 
-	private static function render_layer_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
+		$spotify_url = self::build_spotify_code_url( (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'engraving' === $mode );
+		if ( '' === $spotify_url ) {
+			return;
+		}
+
+		$svg_path = self::download_spotify_code_svg( $spotify_url );
+		if ( ! $svg_path ) {
+			return;
+		}
+
+		try {
+			$pdf->ImageSVG( $svg_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+		} finally {
+			@unlink( $svg_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
+	protected static function build_spotify_code_url( string $input_value, bool $engraving = false ): string {
+		$spotify_uri = self::extract_spotify_uri( $input_value );
+		if ( '' === $spotify_uri ) {
+			return '';
+		}
+
+		$background_hex = $engraving ? 'ECEFF1' : 'FFFFFF';
+
+		return sprintf(
+			'https://scannables.scdn.co/uri/plain/svg/%s/black/640/%s',
+			$background_hex,
+			$spotify_uri
+		);
+	}
+
+	protected static function extract_spotify_uri( string $input_value ): string {
+		$raw = trim( $input_value );
+		if ( '' === $raw ) {
+			return '';
+		}
+
+		if ( preg_match( '/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]+)$/i', $raw, $matches ) ) {
+			return sprintf( 'spotify:%s:%s', strtolower( $matches[1] ), $matches[2] );
+		}
+
+		$parts = parse_url( $raw );
+		if ( ! is_array( $parts ) ) {
+			return '';
+		}
+
+		$host = strtolower( (string) ( $parts['host'] ?? '' ) );
+		if ( ! in_array( $host, [ 'open.spotify.com', 'play.spotify.com' ], true ) ) {
+			return '';
+		}
+
+		$path_parts  = array_values( array_filter( explode( '/', (string) ( $parts['path'] ?? '' ) ) ) );
+		$valid_types = [ 'track', 'album', 'artist', 'playlist', 'episode', 'show' ];
+
+		foreach ( $path_parts as $index => $part ) {
+			$part = strtolower( $part );
+			if ( str_starts_with( $part, 'intl-' ) ) {
+				continue;
+			}
+			if ( ! in_array( $part, $valid_types, true ) || empty( $path_parts[ $index + 1 ] ) ) {
+				continue;
+			}
+
+			$id = (string) $path_parts[ $index + 1 ];
+			if ( preg_match( '/^[A-Za-z0-9]+$/', $id ) ) {
+				return sprintf( 'spotify:%s:%s', $part, $id );
+			}
+		}
+
+		return '';
+	}
+
+	private static function download_spotify_code_svg( string $spotify_url ): ?string {
+		$response = wp_safe_remote_get( $spotify_url, [
+			'timeout'     => 15,
+			'redirection' => 2,
+		] );
+
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return null;
+		}
+
+		$body = wp_remote_retrieve_body( $response );
+		if ( ! is_string( $body ) || ! str_contains( $body, '<svg' ) ) {
+			return null;
+		}
+
+		$temp = wp_tempnam( 'oc-spotify-code-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		if ( false === file_put_contents( $temp, $body ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $temp;
+	}
+
+	private static function render_layer_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {
 		$path = self::resolve_artwork_path( $layer );
 		if ( ! $path ) {
 			return;
+		}
+
+		$temp_path = null;
+		if ( 'engraving' === $mode && 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
+			$temp_path = self::build_black_clipart( $path );
+			if ( is_string( $temp_path ) && '' !== $temp_path ) {
+				$path = $temp_path;
+			}
 		}
 
 		$draw_w = $w_mm;
@@ -501,6 +615,157 @@ abstract class OC_Print_Base {
 		}
 
 		$pdf->Image( $path, $draw_x, $draw_y, $draw_w, $draw_h, '', '', '', false, 300 );
+
+		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
+			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
+	private static function build_black_clipart( string $path ): ?string {
+		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( 'svg' === $ext ) {
+			return self::build_black_svg( $path );
+		}
+
+		return self::build_black_raster( $path );
+	}
+
+	private static function build_black_svg( string $path ): ?string {
+		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return null;
+		}
+
+		$dom = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded = $dom->loadXML( $raw, LIBXML_NONET | LIBXML_NOCDATA );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return null;
+		}
+
+		$dom->documentElement->setAttribute( 'color', '#000000' );
+		$dom->documentElement->setAttribute( 'fill', '#000000' );
+		self::force_svg_node_black( $dom->documentElement );
+
+		$temp = wp_tempnam( 'oc-black-clipart-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		$output = $dom->saveXML( $dom->documentElement );
+		if ( ! is_string( $output ) || false === file_put_contents( $temp, $output ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $temp;
+	}
+
+	private static function force_svg_node_black( \DOMElement $element ): void {
+		if ( 'style' === strtolower( $element->localName ) ) {
+			$element->nodeValue = self::force_svg_css_black( $element->nodeValue ?? '' );
+			return;
+		}
+
+		if ( $element->hasAttribute( 'fill' ) && 'none' !== strtolower( trim( $element->getAttribute( 'fill' ) ) ) ) {
+			$element->setAttribute( 'fill', '#000000' );
+		}
+		if ( $element->hasAttribute( 'stroke' ) && 'none' !== strtolower( trim( $element->getAttribute( 'stroke' ) ) ) ) {
+			$element->setAttribute( 'stroke', '#000000' );
+		}
+		if ( $element->hasAttribute( 'style' ) ) {
+			$element->setAttribute( 'style', self::force_svg_style_black( $element->getAttribute( 'style' ) ) );
+		}
+
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof \DOMElement ) {
+				self::force_svg_node_black( $child );
+			}
+		}
+	}
+
+	private static function force_svg_style_black( string $style ): string {
+		$parts = array_filter( array_map( 'trim', explode( ';', $style ) ) );
+		foreach ( $parts as &$part ) {
+			if ( preg_match( '/^\s*(fill|stroke)\s*:/i', $part ) && ! preg_match( '/:\s*none\s*$/i', $part ) ) {
+				$property = trim( (string) strtok( $part, ':' ) );
+				$part = $property . ':#000000';
+			}
+		}
+
+		return implode( ';', $parts );
+	}
+
+	private static function force_svg_css_black( string $css ): string {
+		return (string) preg_replace_callback(
+			'/\b(fill|stroke)\s*:\s*([^;}]+)/i',
+			static function ( array $matches ): string {
+				$value = strtolower( trim( (string) $matches[2] ) );
+				return 'none' === $value ? $matches[0] : $matches[1] . ':#000000';
+			},
+			$css
+		);
+	}
+
+	private static function build_black_raster( string $path ): ?string {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			return null;
+		}
+
+		$src = self::open_raster_resource( $path );
+		if ( ! $src ) {
+			return null;
+		}
+
+		$w = imagesx( $src );
+		$h = imagesy( $src );
+		if ( $w < 1 || $h < 1 ) {
+			imagedestroy( $src );
+			return null;
+		}
+
+		$dst = imagecreatetruecolor( $w, $h );
+		imagealphablending( $dst, false );
+		imagesavealpha( $dst, true );
+
+		for ( $y = 0; $y < $h; $y++ ) {
+			for ( $x = 0; $x < $w; $x++ ) {
+				$rgba  = imagecolorat( $src, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				$black = imagecolorallocatealpha( $dst, 0, 0, 0, $alpha );
+				imagesetpixel( $dst, $x, $y, $black );
+			}
+		}
+		imagedestroy( $src );
+
+		$temp = wp_tempnam( 'oc-black-clipart-' . wp_generate_uuid4() . '.png' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			imagedestroy( $dst );
+			return null;
+		}
+
+		$result = imagepng( $dst, $temp );
+		imagedestroy( $dst );
+		if ( ! $result ) {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $temp;
+	}
+
+	private static function open_raster_resource( string $path ) {
+		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		return match ( $ext ) {
+			'jpg', 'jpeg' => @imagecreatefromjpeg( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'png' => @imagecreatefrompng( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'webp' => function_exists( 'imagecreatefromwebp' ) ? @imagecreatefromwebp( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'bmp' => function_exists( 'imagecreatefrombmp' ) ? @imagecreatefrombmp( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			'gif' => @imagecreatefromgif( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			default => false,
+		};
 	}
 
 	// -------------------------------------------------------------------------

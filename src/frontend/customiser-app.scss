@@ -198,25 +198,29 @@
 			letter-spacing: .01em;
 		}
 
-		// Inline-left label for single-line text inputs and selects.
-		// Wraps on very narrow widths via flex-basis fallback.
-		&:has(> input[type="text"]),
-		&:has(> input[type="url"]),
-		&:has(> select) {
-			flex-direction: row;
+		&:has(> [data-oc-tooltip]) {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto;
 			align-items: center;
-			flex-wrap: wrap;
-			gap: var(--oc-gap-sm);
+			column-gap: var(--oc-gap-sm);
+			row-gap: var(--oc-gap-xs);
+		}
 
-			> label {
-				flex: 0 0 auto;
-				min-width: 64px;
-			}
-			> input,
-			> select {
-				flex: 1 1 200px;
-				min-width: 0;
-			}
+		&:has(> [data-oc-tooltip]) > label,
+		&:has(> [data-oc-tooltip]) > .oc-char-counter,
+		&:has(> [data-oc-tooltip]) > .oc-spotify-error {
+			grid-column: 1 / -1;
+		}
+
+		&:has(> [data-oc-tooltip]) > input,
+		&:has(> [data-oc-tooltip]) > select {
+			grid-column: 1;
+			min-width: 0;
+		}
+
+		&:has(> [data-oc-tooltip]) > [data-oc-tooltip] {
+			grid-column: 2;
+			justify-self: end;
 		}
 
 		input[type="text"],
@@ -224,8 +228,8 @@
 		textarea,
 		select {
 			width: 100%;
-			min-height: var(--oc-tap);
-			padding: 10px 14px;
+			min-height: 40px;
+			padding: 8px 12px;
 			font: inherit;
 			color: inherit;
 			background: var(--oc-accent-ink, #fff);
@@ -244,7 +248,7 @@
 		}
 
 		textarea {
-			min-height: 88px;
+			min-height: 78px;
 			resize: vertical;
 			line-height: 1.4;
 		}
@@ -426,9 +430,17 @@
 
 	// ── Artwork upload (Uppy) ─────────────────────────────────────────────
 	.oc-artwork-wrap {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		gap: var(--oc-gap-sm);
+
+		> [data-oc-tooltip] {
+			position: absolute;
+			top: var(--oc-gap-xs);
+			right: var(--oc-gap-xs);
+			z-index: 3;
+		}
 	}
 
 	.oc-upload-zone {
@@ -889,8 +901,8 @@
 			textarea,
 			select {
 				font-size: 16px;
-				min-height: 48px;
-				padding: 12px 14px;
+				min-height: 44px;
+				padding: 9px 12px;
 				touch-action: manipulation;
 			}
 
@@ -936,8 +948,8 @@
 
 		.oc-help-toggle,
 		.oc-spotify-help-toggle {
-			min-width: 44px;
-			min-height: 44px;
+			min-width: 32px;
+			min-height: 32px;
 			font-size: .9em;
 			touch-action: manipulation;
 		}

@@ -34,6 +34,14 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_build_filename( int $item_id, string $area_key, string $ext ): string {
 		return self::build_filename( $item_id, $area_key, $ext );
 	}
+
+	public static function test_extract_spotify_uri( string $input ): string {
+		return self::extract_spotify_uri( $input );
+	}
+
+	public static function test_build_spotify_code_url( string $input, bool $engraving = false ): string {
+		return self::build_spotify_code_url( $input, $engraving );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -161,5 +169,38 @@ class Test_Print_Base extends TestCase {
 		// Area keys with special characters should be sanitised.
 		$name = OC_Print_Base_Testable::test_build_filename( 1, 'front/back', 'pdf' );
 		$this->assertStringNotContainsString( '/', $name );
+	}
+
+	// ── Spotify scannable codes ────────────────────────────────────────────
+
+	#[Test]
+	public function extracts_spotify_uri_from_uri(): void {
+		$this->assertSame(
+			'spotify:track:6rqhFgbbKwnb9MLmUQDhG6',
+			OC_Print_Base_Testable::test_extract_spotify_uri( 'spotify:track:6rqhFgbbKwnb9MLmUQDhG6' )
+		);
+	}
+
+	#[Test]
+	public function extracts_spotify_uri_from_open_url(): void {
+		$this->assertSame(
+			'spotify:track:6rqhFgbbKwnb9MLmUQDhG6',
+			OC_Print_Base_Testable::test_extract_spotify_uri( 'https://open.spotify.com/intl-en/track/6rqhFgbbKwnb9MLmUQDhG6?si=abc' )
+		);
+	}
+
+	#[Test]
+	public function builds_spotify_scannable_svg_url(): void {
+		$url = OC_Print_Base_Testable::test_build_spotify_code_url( 'https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6' );
+
+		$this->assertSame(
+			'https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/spotify:track:6rqhFgbbKwnb9MLmUQDhG6',
+			$url
+		);
+	}
+
+	#[Test]
+	public function rejects_non_spotify_urls_for_scannable_codes(): void {
+		$this->assertSame( '', OC_Print_Base_Testable::test_build_spotify_code_url( 'https://example.com/track/6rqhFgbbKwnb9MLmUQDhG6' ) );
 	}
 }

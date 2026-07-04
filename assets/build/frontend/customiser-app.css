@@ -188,30 +188,32 @@
   color: var(--oc-fg-muted);
   letter-spacing: 0.01em;
 }
-.oc-customiser-panel .oc-control-group:has(> input[type=text]), .oc-customiser-panel .oc-control-group:has(> input[type=url]), .oc-customiser-panel .oc-control-group:has(> select) {
-  flex-direction: row;
+.oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  flex-wrap: wrap;
-  gap: var(--oc-gap-sm);
+  -moz-column-gap: var(--oc-gap-sm);
+       column-gap: var(--oc-gap-sm);
+  row-gap: var(--oc-gap-xs);
 }
-.oc-customiser-panel .oc-control-group:has(> input[type=text]) > label, .oc-customiser-panel .oc-control-group:has(> input[type=url]) > label, .oc-customiser-panel .oc-control-group:has(> select) > label {
-  flex: 0 0 auto;
-  min-width: 64px;
+.oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > label, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > .oc-char-counter, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > .oc-spotify-error {
+  grid-column: 1/-1;
 }
-.oc-customiser-panel .oc-control-group:has(> input[type=text]) > input,
-.oc-customiser-panel .oc-control-group:has(> input[type=text]) > select, .oc-customiser-panel .oc-control-group:has(> input[type=url]) > input,
-.oc-customiser-panel .oc-control-group:has(> input[type=url]) > select, .oc-customiser-panel .oc-control-group:has(> select) > input,
-.oc-customiser-panel .oc-control-group:has(> select) > select {
-  flex: 1 1 200px;
+.oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > input, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > select {
+  grid-column: 1;
   min-width: 0;
+}
+.oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > [data-oc-tooltip] {
+  grid-column: 2;
+  justify-self: end;
 }
 .oc-customiser-panel .oc-control-group input[type=text],
 .oc-customiser-panel .oc-control-group input[type=url],
 .oc-customiser-panel .oc-control-group textarea,
 .oc-customiser-panel .oc-control-group select {
   width: 100%;
-  min-height: var(--oc-tap);
-  padding: 10px 14px;
+  min-height: 40px;
+  padding: 8px 12px;
   font: inherit;
   color: inherit;
   background: var(--oc-accent-ink, #fff);
@@ -240,7 +242,7 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--oc-accent) 25%, transparent);
 }
 .oc-customiser-panel .oc-control-group textarea {
-  min-height: 88px;
+  min-height: 78px;
   resize: vertical;
   line-height: 1.4;
 }
@@ -403,9 +405,16 @@
   padding: var(--oc-gap);
 }
 .oc-customiser-panel .oc-artwork-wrap {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--oc-gap-sm);
+}
+.oc-customiser-panel .oc-artwork-wrap > [data-oc-tooltip] {
+  position: absolute;
+  top: var(--oc-gap-xs);
+  right: var(--oc-gap-xs);
+  z-index: 3;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container {
   border-radius: var(--oc-radius);
@@ -818,8 +827,8 @@
   .oc-customiser-panel .oc-control-group textarea,
   .oc-customiser-panel .oc-control-group select {
     font-size: 16px;
-    min-height: 48px;
-    padding: 12px 14px;
+    min-height: 44px;
+    padding: 9px 12px;
     touch-action: manipulation;
   }
   .oc-customiser-panel .oc-control-group select {
@@ -856,8 +865,8 @@
   }
   .oc-customiser-panel .oc-help-toggle,
   .oc-customiser-panel .oc-spotify-help-toggle {
-    min-width: 44px;
-    min-height: 44px;
+    min-width: 32px;
+    min-height: 32px;
     font-size: 0.9em;
     touch-action: manipulation;
   }
