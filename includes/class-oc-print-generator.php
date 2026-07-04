@@ -22,6 +22,9 @@ class OC_Print_Generator {
 		// Primary: order created at checkout.
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order' ], 20, 1 );
 
+		// Fallback: catches orders created through admin/API flows that do not fire checkout hooks.
+		add_action( 'woocommerce_new_order', [ $this, 'generate_for_order_id' ], 30, 2 );
+
 		// Admin handlers.
 		add_action( 'admin_init', [ $this, 'handle_admin_download' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_regenerate' ] );
@@ -320,6 +323,24 @@ class OC_Print_Generator {
 
 		if ( $created_count > 0 ) {
 			$order->add_order_note( sprintf( __( 'OverCustomise queued %d print file(s) for generation.', 'overcustomise' ), $created_count ) );
+			$this->schedule_queue_processing();
+		}
+	}
+
+	/** Generate print files from an order ID-based WooCommerce hook. */
+	public function generate_for_order_id( int $order_id, $order = null ): void {
+		if ( ! $order instanceof \WC_Order ) {
+			$order = wc_get_order( $order_id );
+		}
+
+		if ( $order instanceof \WC_Order ) {
+			$this->generate_for_order( $order );
+		}
+	}
+
+	private function schedule_queue_processing(): void {
+		if ( ! wp_next_scheduled( 'oc_process_print_queue' ) ) {
+			wp_schedule_single_event( time() + 1, 'oc_process_print_queue' );
 		}
 	}
 

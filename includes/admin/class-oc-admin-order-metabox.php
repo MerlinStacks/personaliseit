@@ -89,6 +89,11 @@ class OC_Admin_Order_Metabox {
 			$legacy_areas = $config_id ? OC_DB::get_print_areas( $config_id ) : [];
 			$design_areas = $design_id ? OC_DB::get_design_print_areas( $design_id ) : [];
 
+			if ( empty( $print_files ) && is_array( $customisation ) && ( ! empty( $legacy_areas ) || ! empty( $design_areas ) ) ) {
+				( new OC_Print_Generator() )->generate_for_order( $order );
+				$print_files = OC_DB::get_print_files_for_item( $item_id );
+			}
+
 			// Skip items that have no OverCustomise data at all.
 			if ( empty( $print_files ) && empty( $legacy_areas ) && empty( $design_areas ) && empty( $customisation ) ) {
 				continue;

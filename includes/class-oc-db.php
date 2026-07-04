@@ -529,6 +529,39 @@ class OC_DB {
 		return $groups;
 	}
 
+	/** Fetch active colours available to the supplied colour group IDs. Empty IDs mean all active colours. */
+	public static function get_colours_for_groups( array $group_ids ): array {
+		$group_ids = array_values( array_filter( array_map( 'absint', $group_ids ) ) );
+		$colours   = self::get_colours( true );
+
+		if ( empty( $group_ids ) ) {
+			return $colours;
+		}
+
+		$allowed_ids = [];
+		foreach ( self::get_colour_groups() as $group ) {
+			if ( ! in_array( (int) $group->id, $group_ids, true ) ) {
+				continue;
+			}
+
+			foreach ( (array) ( $group->colour_ids ?? [] ) as $colour_id ) {
+				$allowed_ids[] = (int) $colour_id;
+			}
+		}
+
+		$allowed_ids = array_values( array_unique( $allowed_ids ) );
+		if ( empty( $allowed_ids ) ) {
+			return [];
+		}
+
+		return array_values(
+			array_filter(
+				$colours,
+				fn( $colour ) => in_array( (int) ( $colour->id ?? 0 ), $allowed_ids, true )
+			)
+		);
+	}
+
 	/** Fetch all font groups with their associated font IDs. */
 	public static function get_font_groups(): array {
 		$cache_key = 'font_groups';
@@ -632,6 +665,9 @@ class OC_DB {
 	public static function insert_print_file( array $data ): int {
 		global $wpdb;
 		$wpdb->insert( $wpdb->prefix . 'oc_print_files', $data );
+		if ( ! empty( $data['order_item_id'] ) ) {
+			OC_Cache::delete( 'print_files_item_' . (int) $data['order_item_id'] );
+		}
 		return (int) $wpdb->insert_id;
 	}
 
@@ -642,7 +678,15 @@ class OC_DB {
 	 */
 	public static function update_print_file( int $id, array $data ): void {
 		global $wpdb;
+		$existing = self::get_print_file( $id );
 		$wpdb->update( $wpdb->prefix . 'oc_print_files', $data, [ 'id' => $id ] );
+		OC_Cache::delete( 'print_file_' . $id );
+		if ( $existing && ! empty( $existing->order_item_id ) ) {
+			OC_Cache::delete( 'print_files_item_' . (int) $existing->order_item_id );
+		}
+		if ( ! empty( $data['order_item_id'] ) ) {
+			OC_Cache::delete( 'print_files_item_' . (int) $data['order_item_id'] );
+		}
 	}
 
 	/** Fetch all layers for a design, ordered by area then sort_order. */

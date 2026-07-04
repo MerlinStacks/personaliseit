@@ -204,6 +204,7 @@ class OC_Frontend {
 		// Build areas with their layers.
 		$areas_js    = [];
 		$layer_inputs = []; // layerId → default input values
+		$restricted_layer_colours = [];
 
 		foreach ( $this->areas as $area ) {
 			$area_layers  = $layers_by_area[ (int) $area->id ] ?? [];
@@ -229,6 +230,18 @@ class OC_Frontend {
 				$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
 				if ( ! is_array( $settings ) ) $settings = [];
 
+				$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
+				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
+				if ( ! empty( $colour_group_ids ) ) {
+					$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
+					$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
+					$restricted_layer_colours[ (int) $layer->id ] = $allowed_hexes;
+
+					if ( ! empty( $allowed_hexes ) && ! in_array( strtolower( $default_colour ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
+						$default_colour = $allowed_hexes[0];
+					}
+				}
+
 				$layers_js[] = [
 					'id'       => (int) $layer->id,
 					'type'     => $layer->type,
@@ -247,7 +260,7 @@ class OC_Frontend {
 					'value'         => $settings['default_text'] ?? '',
 					'fontId'        => absint( $settings['default_font_id'] ?? 0 ),
 					'fontSize'      => absint( $settings['default_font_size'] ?? 0 ),
-					'colorHex'      => sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000',
+					'colorHex'      => $default_colour,
 					'attachmentId'  => 0,
 					'attachmentUrl' => '',
 					'clipartId'     => 0,
@@ -304,6 +317,13 @@ class OC_Frontend {
 				foreach ( $cs['layers'] as $lid => $ldata ) {
 					if ( ! is_array( $ldata ) || ! isset( $layer_inputs[ (int) $lid ] ) ) continue;
 					$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
+					if ( isset( $restricted_layer_colours[ (int) $lid ] ) ) {
+						$allowed_hexes = $restricted_layer_colours[ (int) $lid ];
+						$current_hex   = sanitize_hex_color( (string) ( $layer_inputs[ (int) $lid ]['colorHex'] ?? '' ) ) ?: '';
+						if ( ! empty( $allowed_hexes ) && ! in_array( strtolower( $current_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
+							$layer_inputs[ (int) $lid ]['colorHex'] = $allowed_hexes[0];
+						}
+					}
 				}
 			}
 		}
@@ -587,6 +607,26 @@ class OC_Frontend {
 				);
 				return false;
 			}
+
+			$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
+			$uses_colour_input = in_array( $layer->type, [ 'text', 'textarea', 'lineart' ], true );
+			if ( $uses_colour_input && ! empty( $colour_group_ids ) ) {
+				if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && array_key_exists( 'allow_colour_change', $settings ) && empty( $settings['allow_colour_change'] ) ) {
+					continue;
+				}
+
+				$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
+				$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
+				$input_hex       = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) ) ?: '';
+
+				if ( empty( $allowed_hexes ) || ! in_array( strtolower( $input_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
+					wc_add_notice(
+						sprintf( __( 'Please choose an available colour for "%s".', 'overcustomise' ), $label ),
+						'error'
+					);
+					return false;
+				}
+			}
 		}
 
 		return $passed;
@@ -626,6 +666,7 @@ class OC_Frontend {
 		/* Controls */
 		.oc-control-group { display:flex; flex-direction:column; gap:5px; }
 		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
+		.oc-range-value { float:right; color:#1d2327; font-weight:700; }
 		.oc-design-variants { margin-bottom:18px; }
 		.oc-design-variant-grid { display:flex; flex-wrap:wrap; gap:14px; }
 		.oc-design-variant-option { width:126px; min-height:126px; padding:8px; border:2px solid #ddd; background:#fff; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; transition:border-color .15s, box-shadow .15s; }
@@ -646,7 +687,11 @@ class OC_Frontend {
 		.oc-control-group textarea,
 		.oc-control-group select { width:100%; min-height:40px; padding:8px 12px; border:1px solid #ddd; border-radius:3px; font-size:14px; box-sizing:border-box; }
 		.oc-control-group textarea { resize:vertical; min-height:78px; }
-		.oc-char-count { font-size:11px; color:#888; text-align:right; }
+		.oc-control-group input[type="range"] { width:100%; min-height:32px; accent-color:#d88da0; cursor:pointer; }
+		.oc-input-wrap { position:relative; }
+		.oc-input-wrap > input,
+		.oc-input-wrap > textarea { padding-right:70px; }
+		.oc-char-counter { display:none; position:absolute; right:10px; bottom:9px; pointer-events:none; font-size:11px; font-weight:600; line-height:1; text-align:right; padding:3px 5px; border-radius:999px; background:rgba(255,255,255,.92); color:#d63638; }
 
 		/* Font select */
 		.oc-font-row { display:flex; gap:8px; align-items:center; }

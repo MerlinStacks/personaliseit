@@ -6148,6 +6148,7 @@ class OCCustomiser {
     const lcX = center.x * scale;
     const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
+    const isEmbroidery = area?.printMethod === 'embroidery';
     const engravingPalette = this.engravingPalette();
     const fontLimit = value => Math.max(0, parseInt(value, 10) || 0);
     const clampFontSize = (size, settings) => {
@@ -6178,6 +6179,7 @@ class OCCustomiser {
           const minFontSize = fontLimit(layer.settings?.min_font_size) * scale;
           const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
           let fontSize = configuredFontSize ? clampFontSize(Math.max(1, parseInt(configuredFontSize, 10)) * scale, layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
+          const textFill = isEmbroidery ? this.embroideryPattern(color) : color;
           const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
             left: lcX,
             top: lcY,
@@ -6187,7 +6189,7 @@ class OCCustomiser {
             angle: rotation,
             fontFamily: font?.name || 'sans-serif',
             fontSize,
-            fill: color,
+            fill: textFill,
             textAlign: align,
             selectable: false,
             evented: false
@@ -6203,6 +6205,17 @@ class OCCustomiser {
                 offsetX: 0,
                 offsetY: 1,
                 blur: 1
+              })
+            });
+          } else if (isEmbroidery) {
+            obj.set({
+              stroke: this.embroideryStrokeColor(color),
+              strokeWidth: Math.max(0.45, fontSize * 0.018),
+              shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+                color: 'rgba(0,0,0,0.32)',
+                offsetX: 0.8,
+                offsetY: 1.2,
+                blur: 0.5
               })
             });
           }
@@ -6345,6 +6358,57 @@ class OCCustomiser {
       opacity: 0.9
     };
   }
+  embroideryPattern(color) {
+    const source = document.createElement('canvas');
+    source.width = 14;
+    source.height = 14;
+    const ctx = source.getContext('2d');
+    if (!ctx) return color;
+    const rgb = this.hexToRgb(color) || {
+      r: 0,
+      g: 0,
+      b: 0
+    };
+    ctx.fillStyle = color;
+    ctx.fillRect(0, 0, source.width, source.height);
+    ctx.lineWidth = 2;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = `rgba(${Math.min(255, rgb.r + 95)},${Math.min(255, rgb.g + 95)},${Math.min(255, rgb.b + 95)},0.52)`;
+    for (let i = -source.height; i < source.width * 2; i += 7) {
+      ctx.beginPath();
+      ctx.moveTo(i, source.height + 1);
+      ctx.lineTo(i + source.height + 1, -1);
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = `rgba(${Math.max(0, rgb.r - 75)},${Math.max(0, rgb.g - 75)},${Math.max(0, rgb.b - 75)},0.38)`;
+    for (let i = -source.height + 3; i < source.width * 2; i += 7) {
+      ctx.beginPath();
+      ctx.moveTo(i, -1);
+      ctx.lineTo(i + source.height + 1, source.height + 1);
+      ctx.stroke();
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Pattern({
+      source,
+      repeat: 'repeat'
+    });
+  }
+  embroideryStrokeColor(color) {
+    const rgb = this.hexToRgb(color);
+    if (!rgb) return 'rgba(0,0,0,0.35)';
+    return `rgba(${Math.max(0, rgb.r - 55)},${Math.max(0, rgb.g - 55)},${Math.max(0, rgb.b - 55)},0.72)`;
+  }
+  hexToRgb(color) {
+    const value = String(color || '').trim();
+    const match = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!match) return null;
+    const hex = match[1].length === 3 ? match[1].split('').map(char => char + char).join('') : match[1];
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  }
   buildSpotifyCodeUrl(inputValue, isEngraving, engravingPalette = null) {
     const spotifyUri = this.extractSpotifyUri(inputValue);
     if (!spotifyUri) return '';
@@ -6463,15 +6527,12 @@ class OCCustomiser {
       const updateCounter = () => {
         if (!counter) return;
         const limit = parseInt(counter.dataset.charLimit, 10) || 0;
-        if (limit === 0) {
+        const current = el.value.length;
+        if (limit === 0 || current <= limit) {
           counter.style.display = 'none';
           return;
         }
-        const current = el.value.length;
         counter.textContent = `${current} / ${limit}`;
-        counter.classList.remove('--under', '--near', '--over');
-        const pct = current / limit;
-        if (pct > 0.95) counter.classList.add('--over');else if (pct >= 0.80) counter.classList.add('--near');else counter.classList.add('--under');
         counter.style.display = '';
       };
       updateCounter();
@@ -6566,9 +6627,15 @@ class OCCustomiser {
     // Font size
     document.querySelectorAll('[data-oc-layer-font-size]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerFontSize, 10);
+      const valueEl = document.querySelector(`.oc-range-value[data-oc-range-value="${lid}"]`);
+      const updateValue = () => {
+        if (valueEl) valueEl.textContent = el.value;
+      };
+      updateValue();
       el.addEventListener('input', () => {
         if (!this.inputs[lid]) this.inputs[lid] = {};
         this.inputs[lid].fontSize = Math.max(1, parseInt(el.value, 10) || 1);
+        updateValue();
         this.requestPreviewFocus();
         this.scheduleRedraw();
         this.updateHiddenField();
@@ -7054,6 +7121,7 @@ class OCCustomiser {
       const sizeEl = document.querySelector(`[data-oc-layer-font-size="${layerId}"]`);
       if (sizeEl && inp.fontSize) {
         sizeEl.value = inp.fontSize;
+        document.querySelector(`.oc-range-value[data-oc-range-value="${layerId}"]`)?.replaceChildren(document.createTextNode(sizeEl.value));
       }
       const clipartBtn = document.querySelector(`[data-oc-layer-clipart="${layerId}"][data-oc-clipart="${inp.clipartId}"]`);
       if (clipartBtn) {

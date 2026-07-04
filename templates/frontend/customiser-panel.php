@@ -16,7 +16,6 @@ foreach ( $layers as $layer ) {
 }
 
 $all_fonts          = OC_Font_Registry::get_fonts_for_js();
-$all_colours        = OC_DB::get_colours( true );
 $upload_dir         = wp_upload_dir();
 $has_multiple_areas = count( $areas ) > 1;
 $has_spotify_layer  = false;
@@ -102,6 +101,11 @@ foreach ( $layers as $layer ) {
 					$default   = $s['default_text'] ?? '';
 					$alignment = $s['alignment']    ?? 'center';
 					$default_font_size = absint( $s['default_font_size'] ?? 0 );
+					$min_font_size     = absint( $s['min_font_size'] ?? 0 );
+					$max_font_size     = absint( $s['max_font_size'] ?? 0 );
+					$font_size_min     = max( 1, $min_font_size ?: 1 );
+					$font_size_max     = max( $font_size_min, $max_font_size ?: 200 );
+					$font_size_value   = min( $font_size_max, max( $font_size_min, $default_font_size ?: 24 ) );
 					$default_colour    = sanitize_hex_color( (string) ( $s['default_color'] ?? '#000000' ) ) ?: '#000000';
 					$allow_font_change   = ! array_key_exists( 'allow_font_change', $s ) || ! empty( $s['allow_font_change'] );
 					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
@@ -110,25 +114,13 @@ foreach ( $layers as $layer ) {
 					$fg_ids    = $s['font_groups']   ?? [];
 
 					// Colour list for this layer.
-					$cg_ids = array_map( 'intval', is_array( $cg_ids ) ? $cg_ids : [] );
-					if ( ! empty( $cg_ids ) ) {
-						global $wpdb;
-						$placeholders = implode( ',', array_fill( 0, count( $cg_ids ), '%d' ) );
-						$allowed_colour_ids = $wpdb->get_col(
-							$wpdb->prepare(
-								"SELECT colour_id FROM {$wpdb->prefix}oc_colour_group_items WHERE group_id IN ($placeholders)",
-								...$cg_ids
-							)
-						);
-						$allowed_colour_ids = array_map( 'intval', is_array( $allowed_colour_ids ) ? $allowed_colour_ids : [] );
-						$layer_colours = array_values(
-							array_filter(
-								$all_colours,
-								fn( $c ) => in_array( (int) ( $c->id ?? 0 ), $allowed_colour_ids, true )
-							)
-						);
-					} else {
-						$layer_colours = $all_colours;
+					$cg_ids = array_values( array_filter( array_map( 'absint', is_array( $cg_ids ) ? $cg_ids : [] ) ) );
+					$layer_colours = OC_DB::get_colours_for_groups( $cg_ids );
+					if ( ! empty( $cg_ids ) && ! empty( $layer_colours ) ) {
+						$allowed_hexes = array_map( fn( $colour ) => strtolower( (string) ( $colour->hex ?? '' ) ), $layer_colours );
+						if ( ! in_array( strtolower( $default_colour ), $allowed_hexes, true ) ) {
+							$default_colour = sanitize_hex_color( (string) ( $layer_colours[0]->hex ?? '#000000' ) ) ?: '#000000';
+						}
 					}
 					$layer_fonts   = $all_fonts;
 					?>
@@ -157,28 +149,30 @@ foreach ( $layers as $layer ) {
 							<?php if ( $layer->type === 'text' ) : ?>
 								<div class="oc-control-group">
 									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php if ( $required ) echo ' *'; ?></label>
-									<input type="text"
-										id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
-										<?php if ( $char_lim ) echo 'maxlength="' . esc_attr( $char_lim ) . '"'; ?>
-										placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
-										autocomplete="off"
-										inputmode="text"
-										data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
-									/>
-									<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
+									<div class="oc-input-wrap">
+										<input type="text"
+											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
+											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
+											autocomplete="off"
+											inputmode="text"
+											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
+										/>
+										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
+									</div>
 								</div>
 
 							<?php elseif ( $layer->type === 'textarea' ) : ?>
 								<div class="oc-control-group">
 									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php if ( $required ) echo ' *'; ?></label>
-									<textarea
-										id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
-										<?php if ( $char_lim ) echo 'maxlength="' . esc_attr( $char_lim ) . '"'; ?>
-										placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
-										inputmode="text"
-										data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
-									><?php echo esc_textarea( $default ); ?></textarea>
-									<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
+									<div class="oc-input-wrap">
+										<textarea
+											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
+											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
+											inputmode="text"
+											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
+										><?php echo esc_textarea( $default ); ?></textarea>
+										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
+									</div>
 								</div>
 
 							<?php elseif ( $layer->type === 'image' ) : ?>
@@ -275,9 +269,11 @@ foreach ( $layers as $layer ) {
 											</button>
 											<?php endforeach; ?>
 										</div>
-									<?php else : ?>
+									<?php elseif ( empty( $cg_ids ) ) : ?>
 										<input type="color" value="#000000"
 											data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
+									<?php else : ?>
+										<p class="oc-settings-empty"><?php esc_html_e( 'No colours are available for this option.', 'overcustomise' ); ?></p>
 									<?php endif; ?>
 								</div>
 
@@ -316,8 +312,17 @@ foreach ( $layers as $layer ) {
 
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_size_change ) : ?>
 								<div class="oc-control-group">
-									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Text size', 'overcustomise' ); ?></label>
-									<input type="number" min="1" step="1" value="<?php echo esc_attr( $default_font_size ?: 24 ); ?>" id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>" data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
+									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>">
+										<?php esc_html_e( 'Text size', 'overcustomise' ); ?>
+										<span class="oc-range-value" data-oc-range-value="<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $font_size_value ); ?></span>
+									</label>
+									<input type="range"
+										min="<?php echo esc_attr( $font_size_min ); ?>"
+										max="<?php echo esc_attr( $font_size_max ); ?>"
+										step="1"
+										value="<?php echo esc_attr( $font_size_value ); ?>"
+										id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"
+										data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
 								</div>
 							<?php endif; ?>
 
@@ -338,9 +343,11 @@ foreach ( $layers as $layer ) {
 											</button>
 											<?php endforeach; ?>
 										</div>
-									<?php else : ?>
+									<?php elseif ( empty( $cg_ids ) ) : ?>
 										<input type="color" value="<?php echo esc_attr( $default_colour ); ?>"
 											data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
+									<?php else : ?>
+										<p class="oc-settings-empty"><?php esc_html_e( 'No colours are available for this option.', 'overcustomise' ); ?></p>
 									<?php endif; ?>
 								</div>
 							<?php endif; ?>

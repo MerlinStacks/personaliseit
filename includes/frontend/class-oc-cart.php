@@ -158,6 +158,18 @@ class OC_Cart {
 					}
 				}
 
+				$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
+				$should_restrict_colour = ! empty( $colour_group_ids ) && ( 'lineart' === $type || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
+				if ( $should_restrict_colour ) {
+					$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
+					$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
+					if ( empty( $allowed_hexes ) ) {
+						$color_hex = '#000000';
+					} elseif ( ! in_array( strtolower( $color_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
+						$color_hex = $allowed_hexes[0];
+					}
+				}
+
 				$sanitised_layers[ $layer_key ] = [
 					'type'          => $type,
 					'value'         => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',
@@ -727,23 +739,20 @@ class OC_Cart {
 
 		$print_files = null === $print_files ? OC_DB::get_print_files_for_item( $item_id ) : $print_files;
 		if ( empty( $print_files ) ) {
+			if ( $order instanceof WC_Order ) {
+				( new OC_Print_Generator() )->generate_for_order( $order );
+				$print_files = OC_DB::get_print_files_for_item( $item_id );
+			}
+
+			if ( ! empty( $print_files ) ) {
+				$this->render_admin_print_files( $item_id, $print_files, $show_empty, $order );
+				return;
+			}
+
 			if ( $show_empty ) {
 				echo '<div style="margin-top:6px;"><strong>' . esc_html__( 'Print Files:', 'overcustomise' ) . '</strong> '
-					. esc_html__( 'No print files generated yet.', 'overcustomise' );
-
-				if ( $order instanceof WC_Order ) {
-					$generate_url = add_query_arg(
-						[
-							'oc_generate_print_files' => $order->get_id(),
-							'_wpnonce'                => wp_create_nonce( 'oc_generate_print_files_' . $order->get_id() ),
-						],
-						admin_url()
-					);
-					echo ' <a href="' . esc_url( $generate_url ) . '" class="button button-small" style="margin-left:6px;">'
-						. esc_html__( 'Generate Print Files', 'overcustomise' ) . '</a>';
-				}
-
-				echo '</div>';
+					. esc_html__( 'No print files generated yet. They will be queued automatically when printable customisation data is available.', 'overcustomise' )
+					. '</div>';
 			}
 			return;
 		}
@@ -790,19 +799,8 @@ class OC_Cart {
 				echo ' <em style="color:#888;">' . esc_html__( 'File missing on disk.', 'overcustomise' ) . '</em>';
 				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
 					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
-			} elseif ( $order instanceof WC_Order && ( ! empty( $queue_info['in_queue'] ) || ! empty( $queue_info['has_failed_job'] ) ) ) {
-				$process_url = add_query_arg(
-					[
-						'oc_process_print_queue_order' => $order->get_id(),
-						'_wpnonce'                     => wp_create_nonce( 'oc_process_print_queue_order_' . $order->get_id() ),
-					],
-					admin_url()
-				);
-				echo ' <a href="' . esc_url( $process_url ) . '" class="button button-small" style="margin-left:6px;">'
-					. esc_html__( 'Process Print Queue', 'overcustomise' ) . '</a>';
 			} elseif ( 'pending' === $file->file_status ) {
-				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
-					. esc_html__( 'Generate Now', 'overcustomise' ) . '</a>';
+				echo ' <em style="color:#666;">' . esc_html__( 'Queued automatically.', 'overcustomise' ) . '</em>';
 			}
 
 			echo '</div>';

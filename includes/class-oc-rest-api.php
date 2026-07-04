@@ -835,6 +835,18 @@ class OC_Rest_API {
 				}
 			}
 
+			$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
+			$should_restrict_colour = ! empty( $colour_group_ids ) && ( 'lineart' === $type || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
+			if ( $should_restrict_colour ) {
+				$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
+				$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
+				if ( empty( $allowed_hexes ) ) {
+					$color_hex = '#000000';
+				} elseif ( ! in_array( strtolower( $color_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
+					$color_hex = $allowed_hexes[0];
+				}
+			}
+
 			$sanitised_layers[ $layer_key ] = [
 				'type'         => $type,
 				'value'        => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',

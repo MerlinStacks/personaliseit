@@ -182,6 +182,33 @@
   color: var(--oc-fg-muted);
   letter-spacing: 0.01em;
 }
+.oc-customiser-panel .oc-control-group > label .oc-range-value {
+  float: right;
+  color: var(--oc-fg);
+  font-weight: 700;
+}
+.oc-customiser-panel .oc-control-group .oc-input-wrap {
+  position: relative;
+}
+.oc-customiser-panel .oc-control-group .oc-input-wrap > input,
+.oc-customiser-panel .oc-control-group .oc-input-wrap > textarea {
+  padding-right: 70px;
+}
+.oc-customiser-panel .oc-control-group .oc-input-wrap > .oc-char-counter {
+  display: none;
+  position: absolute;
+  right: 10px;
+  bottom: 9px;
+  pointer-events: none;
+  font-size: 0.75em;
+  font-weight: 600;
+  line-height: 1;
+  text-align: right;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--oc-danger);
+}
 .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -190,7 +217,7 @@
        column-gap: var(--oc-gap-sm);
   row-gap: var(--oc-gap-xs);
 }
-.oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > label, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > .oc-char-counter, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > .oc-spotify-error {
+.oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > label, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > .oc-spotify-error {
   grid-column: 1/-1;
 }
 .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > input, .oc-customiser-panel .oc-control-group:has(> [data-oc-tooltip]) > select {
@@ -239,6 +266,12 @@
   min-height: 78px;
   resize: vertical;
   line-height: 1.4;
+}
+.oc-customiser-panel .oc-control-group input[type=range] {
+  width: 100%;
+  min-height: 32px;
+  accent-color: var(--oc-accent);
+  cursor: pointer;
 }
 .oc-customiser-panel .oc-control-group select {
   -moz-appearance: none;
@@ -847,24 +880,6 @@
 }
 .oc-customiser-panel .oc-upload-error:empty {
   display: none;
-}
-.oc-customiser-panel .oc-char-counter {
-  display: inline-block;
-  font-size: 0.75em;
-  font-weight: 500;
-  text-align: right;
-  width: 100%;
-  padding-top: 2px;
-  transition: color 0.2s ease;
-}
-.oc-customiser-panel .oc-char-counter.--under {
-  color: #27ae60;
-}
-.oc-customiser-panel .oc-char-counter.--near {
-  color: #e67e22;
-}
-.oc-customiser-panel .oc-char-counter.--over {
-  color: var(--oc-danger);
 }
 .oc-customiser-panel .oc-font-preview {
   height: 48px;
