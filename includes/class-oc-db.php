@@ -532,11 +532,14 @@ class OC_DB {
 	/** Fetch active colours available to the supplied colour group IDs. Empty IDs mean all active colours. */
 	public static function get_colours_for_groups( array $group_ids ): array {
 		$group_ids = array_values( array_filter( array_map( 'absint', $group_ids ) ) );
-		$colours   = self::get_colours( true );
 
 		if ( empty( $group_ids ) ) {
-			return $colours;
+			return self::get_colours( true );
 		}
+
+		// A group assignment is explicit, so honour its members even if a colour has
+		// since been marked inactive in the global colour list.
+		$colours = self::get_colours( false );
 
 		global $wpdb;
 		$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );

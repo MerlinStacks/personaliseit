@@ -5703,6 +5703,10 @@ class OCCustomiser {
     this.data = data;
     this.areas = data.areas || [];
     this.fonts = data.fonts || [];
+    this.layersById = {};
+    this.areas.forEach(area => (area.layers || []).forEach(layer => {
+      this.layersById[layer.id] = layer;
+    }));
     this.designVariants = data.designVariants || [];
     this.selectedDesignVariant = this.designVariants[0]?.id || '';
     this.activeArea = 0;
@@ -5710,9 +5714,11 @@ class OCCustomiser {
     // Deep-clone mutable per-layer inputs; keys are integer layer IDs.
     this.inputs = {};
     Object.entries(data.layerInputs || {}).forEach(([k, v]) => {
-      this.inputs[parseInt(k, 10)] = {
+      const layerId = parseInt(k, 10);
+      this.inputs[layerId] = {
         ...v
       };
+      this.clampLayerInputValue(layerId);
     });
     this.editMode = !!(data.editMode && data.cartKey);
     this.cartKey = this.editMode ? data.cartKey : '';
@@ -5735,6 +5741,7 @@ class OCCustomiser {
         const key = parseInt(k, 10);
         if (this.inputs[key] && typeof v === 'object' && v !== null) {
           Object.assign(this.inputs[key], v);
+          this.clampLayerInputValue(key);
         }
       });
     }
@@ -6524,10 +6531,11 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-layer-text]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerText, 10);
       const counter = el.parentElement?.querySelector(`.oc-char-counter[data-oc-char-counter="${lid}"]`);
+      const limit = parseInt(counter?.dataset.charLimit, 10) || this.charLimitForLayer(lid);
+      if (limit > 0) el.maxLength = limit;
       const updateCounter = () => {
         if (!counter) return;
-        const limit = parseInt(counter.dataset.charLimit, 10) || 0;
-        const current = el.value.length;
+        const current = this.textLength(el.value);
         if (limit === 0 || current <= limit) {
           counter.style.display = 'none';
           return;
@@ -6537,8 +6545,12 @@ class OCCustomiser {
       };
       updateCounter();
       el.addEventListener('input', () => {
+        if (limit > 0) {
+          const clipped = this.truncateText(el.value, limit);
+          if (clipped !== el.value) el.value = clipped;
+        }
         if (!this.inputs[lid]) this.inputs[lid] = {};
-        this.inputs[lid].value = el.value;
+        this.inputs[lid].value = limit > 0 ? this.truncateText(el.value, limit) : el.value;
         updateCounter();
         this.requestPreviewFocus();
         this.scheduleRedraw();
@@ -6835,6 +6847,25 @@ class OCCustomiser {
       inputEl.setAttribute('aria-invalid', msg ? 'true' : 'false');
     }
   }
+  getLayerById(layerId) {
+    return this.layersById[layerId] || null;
+  }
+  charLimitForLayer(layerId) {
+    return Math.max(0, parseInt(this.getLayerById(layerId)?.settings?.char_limit, 10) || 0);
+  }
+  textLength(value) {
+    return Array.from(String(value || '')).length;
+  }
+  truncateText(value, limit) {
+    const text = String(value || '');
+    return limit > 0 && this.textLength(text) > limit ? Array.from(text).slice(0, limit).join('') : text;
+  }
+  clampLayerInputValue(layerId) {
+    const limit = this.charLimitForLayer(layerId);
+    if (limit > 0 && this.inputs[layerId]?.value !== undefined) {
+      this.inputs[layerId].value = this.truncateText(this.inputs[layerId].value, limit);
+    }
+  }
   getLayerInputEl(layer) {
     if (!layer?.id) return null;
     switch (layer.type) {
@@ -6921,7 +6952,7 @@ class OCCustomiser {
             }
             if (value) {
               const charLimit = parseInt(settings.char_limit, 10) || 0;
-              if (charLimit > 0 && value.length > charLimit) {
+              if (charLimit > 0 && this.textLength(value) > charLimit) {
                 errors.push(`${label} exceeds the ${charLimit} character limit.`);
                 fieldEl?.classList.add('oc-preflight-field-error');
                 if (fieldEl) {
@@ -7104,6 +7135,7 @@ class OCCustomiser {
       if (!inp) continue;
       const textEl = document.querySelector(`[data-oc-layer-text="${layerId}"]`);
       if (textEl && inp.value !== undefined) {
+        this.clampLayerInputValue(layerId);
         textEl.value = inp.value;
       }
       const fontEl = document.querySelector(`[data-oc-layer-font="${layerId}"]`);
@@ -7594,10 +7626,13 @@ class OCCustomiser {
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
         const inp = this.inputs[layer.id];
-        if (inp) layers[layer.id] = {
-          type: layer.type,
-          ...inp
-        };
+        if (inp) {
+          this.clampLayerInputValue(layer.id);
+          layers[layer.id] = {
+            type: layer.type,
+            ...this.inputs[layer.id]
+          };
+        }
       });
     });
     const payload = {

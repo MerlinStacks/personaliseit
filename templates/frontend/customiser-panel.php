@@ -155,6 +155,7 @@ foreach ( $layers as $layer ) {
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											autocomplete="off"
 											inputmode="text"
+											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
 											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 										/>
 										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
@@ -169,6 +170,7 @@ foreach ( $layers as $layer ) {
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											inputmode="text"
+											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
 											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 										><?php echo esc_textarea( $default ); ?></textarea>
 										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
