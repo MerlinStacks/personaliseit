@@ -19,6 +19,14 @@ $all_fonts          = OC_Font_Registry::get_fonts_for_js();
 $all_colours        = OC_DB::get_colours( true );
 $upload_dir         = wp_upload_dir();
 $has_multiple_areas = count( $areas ) > 1;
+$has_spotify_layer  = false;
+
+foreach ( $layers as $layer ) {
+	if ( 'spotify' === (string) $layer->type && (bool) $layer->visible && empty( $layer->locked ) ) {
+		$has_spotify_layer = true;
+		break;
+	}
+}
 ?>
 
 <div id="oc-customiser-panel" class="oc-customiser-panel">
@@ -275,7 +283,9 @@ $has_multiple_areas = count( $areas ) > 1;
 										inputmode="url"
 										data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 										data-oc-layer-spotify="<?php echo esc_attr( $layer->id ); ?>" />
-									<?php OC_Tooltips::render( 'spotify-' . $layer->id, __( 'Use a public Spotify track, album, artist, playlist, episode, or show link.', 'overcustomise' ) ); ?>
+									<span class="oc-help-tooltip oc-spotify-modal-help" data-oc-tooltip="spotify-<?php echo esc_attr( $layer->id ); ?>">
+										<button type="button" class="oc-help-toggle oc-spotify-modal-trigger" aria-haspopup="dialog" aria-controls="oc-spotify-share-dialog" aria-label="<?php esc_attr_e( 'Where is my Spotify link?', 'overcustomise' ); ?>">?</button>
+									</span>
 									<div class="oc-spotify-error" data-oc-spotify-error="<?php echo esc_attr( $layer->id ); ?>" style="display:none;" aria-live="polite"></div>
 								</div>
 							<?php endif; ?>
@@ -343,5 +353,48 @@ $has_multiple_areas = count( $areas ) > 1;
 
 	<!-- Carries serialised customisation data to WooCommerce add-to-cart -->
 	<input type="hidden" name="_oc_customisation" id="oc-customisation-data" value="{}" />
+
+	<?php if ( $has_spotify_layer ) : ?>
+	<dialog id="oc-spotify-share-dialog" class="oc-spotify-share-dialog" aria-labelledby="oc-sp-title-text" aria-describedby="oc-sp-desc-text">
+		<div class="oc-sp-modal-card">
+			<div class="oc-sp-visual-section" aria-hidden="true">
+				<div class="oc-sp-gradient-overlay"></div>
+				<div class="oc-sp-album-art">
+					<div class="oc-sp-album-art-overlay">
+						<svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<circle cx="18" cy="5" r="3"></circle>
+							<circle cx="6" cy="12" r="3"></circle>
+							<circle cx="18" cy="19" r="3"></circle>
+							<line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+							<line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+						</svg>
+					</div>
+				</div>
+			</div>
+
+			<div class="oc-sp-content-section">
+				<button type="button" class="oc-sp-close-btn" data-oc-spotify-modal-close aria-label="<?php esc_attr_e( 'Close modal', 'overcustomise' ); ?>">
+					<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+						<line x1="18" y1="6" x2="6" y2="18"></line>
+						<line x1="6" y1="6" x2="18" y2="18"></line>
+					</svg>
+				</button>
+
+				<h2 id="oc-sp-title-text" class="oc-sp-title"><?php esc_html_e( 'Get your Share Link', 'overcustomise' ); ?></h2>
+				<p id="oc-sp-desc-text" class="oc-sp-subtitle"><?php esc_html_e( 'Follow these simple steps to find your unique shareable link.', 'overcustomise' ); ?></p>
+
+				<div class="oc-sp-steps">
+					<div class="oc-sp-step-item"><div class="oc-sp-step-number">1</div><div class="oc-sp-step-content"><h3><?php esc_html_e( 'Navigate', 'overcustomise' ); ?></h3><p><?php esc_html_e( 'Open Spotify and go to your song, album, artist, playlist, episode, or show.', 'overcustomise' ); ?></p></div></div>
+					<div class="oc-sp-step-item"><div class="oc-sp-step-number">2</div><div class="oc-sp-step-content"><h3><?php esc_html_e( 'Open Menu', 'overcustomise' ); ?></h3><p><?php esc_html_e( 'Click the three dots next to the title.', 'overcustomise' ); ?></p></div></div>
+					<div class="oc-sp-step-item"><div class="oc-sp-step-number">3</div><div class="oc-sp-step-content"><h3><?php esc_html_e( 'Copy Link', 'overcustomise' ); ?></h3><p><?php echo wp_kses_post( __( 'Select <span class="oc-sp-highlight">Share</span>, then <span class="oc-sp-highlight">Copy Link</span>.', 'overcustomise' ) ); ?></p></div></div>
+				</div>
+
+				<div class="oc-sp-footer">
+					<button type="button" class="oc-sp-action-btn" data-oc-spotify-modal-close><?php esc_html_e( 'Got it', 'overcustomise' ); ?></button>
+				</div>
+			</div>
+		</div>
+	</dialog>
+	<?php endif; ?>
 
 </div><!-- #oc-customiser-panel -->

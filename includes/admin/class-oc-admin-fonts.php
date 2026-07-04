@@ -633,6 +633,10 @@ class OC_Admin_Fonts {
 		}
 
 		$output_ext = self::woff_sfnt_extension( $real );
+		if ( 'otf' === $output_ext ) {
+			return new \WP_Error( 'unsupported_cff', __( 'This WOFF contains OpenType/CFF outlines, which TCPDF cannot embed. Upload a TrueType-outline TTF/OTF version of the font instead.', 'overcustomise' ) );
+		}
+
 		$filename   = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) . '-print.' . $output_ext;
 		$dest       = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $filename );
 		if ( ! OC_WOFF_Converter::extract_sfnt( $real, $dest ) ) {

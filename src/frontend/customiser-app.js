@@ -55,6 +55,7 @@ class OCCustomiser {
 		this.clipartSearchTimers = {};
 		this.clipartSearchTerms = {};
 		this.clipartCategoryFilters = {};
+		this.spotifyModalCloseTimer = null;
 
 		if ( this.editMode ) {
 			Object.entries( data.layerInputs || {} ).forEach( ( [ k, v ] ) => {
@@ -871,7 +872,7 @@ class OCCustomiser {
 				help.querySelector( '.oc-help-toggle, .oc-spotify-help-toggle' )?.setAttribute( 'aria-expanded', 'false' );
 			} );
 		};
-		document.querySelectorAll( '.oc-help-toggle, .oc-spotify-help-toggle' ).forEach( btn => {
+		document.querySelectorAll( '.oc-help-toggle:not(.oc-spotify-modal-trigger), .oc-spotify-help-toggle' ).forEach( btn => {
 			btn.addEventListener( 'click', e => {
 				e.preventDefault();
 				e.stopPropagation();
@@ -888,6 +889,8 @@ class OCCustomiser {
 		document.addEventListener( 'click', e => {
 			if ( ! e.target.closest( '.oc-help-tooltip, .oc-spotify-help' ) ) closeHelpTooltips();
 		} );
+
+		this.setupSpotifyModal();
 
 		// Font selects — also reflect the picked font in the closed select.
 		const reflectFontOnSelect = ( el ) => {
@@ -1019,6 +1022,62 @@ class OCCustomiser {
 				}
 			} );
 		} );
+	}
+
+	setupSpotifyModal() {
+		const dialog = document.getElementById( 'oc-spotify-share-dialog' );
+		if ( ! dialog ) return;
+
+		document.querySelectorAll( '.oc-spotify-modal-trigger' ).forEach( trigger => {
+			trigger.addEventListener( 'click', event => {
+				event.preventDefault();
+				event.stopPropagation();
+				this.openSpotifyModal();
+			} );
+		} );
+
+		dialog.querySelectorAll( '[data-oc-spotify-modal-close]' ).forEach( closeBtn => {
+			closeBtn.addEventListener( 'click', () => this.closeSpotifyModal() );
+		} );
+
+		dialog.addEventListener( 'click', event => {
+			const rect = dialog.getBoundingClientRect();
+			const inDialog = rect.top <= event.clientY && event.clientY <= rect.top + rect.height &&
+				rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
+
+			if ( ! inDialog ) this.closeSpotifyModal();
+		} );
+
+		dialog.addEventListener( 'close', () => {
+			dialog.classList.remove( 'is-visible' );
+			document.body.style.overflow = '';
+		} );
+	}
+
+	openSpotifyModal() {
+		const dialog = document.getElementById( 'oc-spotify-share-dialog' );
+		if ( ! dialog || dialog.open ) return;
+
+		clearTimeout( this.spotifyModalCloseTimer );
+		dialog.showModal();
+		requestAnimationFrame( () => {
+			requestAnimationFrame( () => {
+				dialog.classList.add( 'is-visible' );
+			} );
+		} );
+		document.body.style.overflow = 'hidden';
+	}
+
+	closeSpotifyModal() {
+		const dialog = document.getElementById( 'oc-spotify-share-dialog' );
+		if ( ! dialog || ! dialog.open ) return;
+
+		dialog.classList.remove( 'is-visible' );
+		clearTimeout( this.spotifyModalCloseTimer );
+		this.spotifyModalCloseTimer = setTimeout( () => {
+			if ( dialog.open ) dialog.close();
+			document.body.style.overflow = '';
+		}, 300 );
 	}
 
 	filterClipart( layerId ) {
@@ -1631,6 +1690,9 @@ class OCCustomiser {
 				autoProceed: true,
 				onBeforeFileAdded: () => {
 					uppy.getFiles().forEach( existingFile => uppy.removeFile( existingFile.id ) );
+					this.setUploadZoneState( zoneEl, '' );
+					const warnEl = document.querySelector( `.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]` );
+					if ( warnEl ) warnEl.style.display = 'none';
 					this.setUploadProgress( zoneEl, 0, 'Starting upload...' );
 					this.showUploadError( zoneEl, '' );
 					return true;
@@ -1666,8 +1728,9 @@ class OCCustomiser {
 
 			uppy.on( 'upload-success', async ( file, res ) => {
 				console.log( '[OC] Upload success — response body:', res?.body );
-				this.setUploadProgress( zoneEl, 100, 'Upload complete' );
+				this.setUploadProgress( zoneEl, 100, '' );
 				if ( ! res?.body ) {
+					this.setUploadZoneState( zoneEl, 'error' );
 					this.showUploadError( zoneEl, 'Upload succeeded but server returned no data.' );
 					return;
 				}
@@ -1676,6 +1739,7 @@ class OCCustomiser {
 				this.inputs[ lid ].attachmentUrl = res.body.preview_url   || '';
 				this.inputs[ lid ].imageMeta     = null;
 				if ( ! this.inputs[ lid ].attachmentUrl ) {
+					this.setUploadZoneState( zoneEl, 'error' );
 					this.showUploadError( zoneEl, 'Server did not return a preview URL.' );
 					return;
 				}
@@ -1698,6 +1762,7 @@ class OCCustomiser {
 							this.inputs[ lid ].attachmentUrl = '';
 							this.inputs[ lid ].imageMeta = null;
 							if ( actions ) actions.style.display = 'none';
+							this.setUploadZoneState( zoneEl, 'error' );
 							this.showUploadError( zoneEl, 'Image resolution too low. Please upload a higher resolution image.' );
 							this.scheduleRedraw();
 							this.updateHiddenField();
@@ -1711,6 +1776,7 @@ class OCCustomiser {
 						}
 					}
 				}
+				this.setUploadZoneState( zoneEl, 'uploaded' );
 				this.requestPreviewFocus();
 				this.scheduleRedraw();
 				this.updateHiddenField();
@@ -1728,10 +1794,12 @@ class OCCustomiser {
 				}
 				const msg = responseBody?.message || error?.message || 'Upload failed.';
 				console.warn( '[OC] Upload error:', msg, response );
+				this.setUploadZoneState( zoneEl, 'error' );
 				this.setUploadProgress( zoneEl, 0, '' );
 				this.showUploadError( zoneEl, msg );
 			} );
 			uppy.on( 'restriction-failed', ( file, error ) => {
+				this.setUploadZoneState( zoneEl, 'error' );
 				this.setUploadProgress( zoneEl, 0, '' );
 				this.showUploadError( zoneEl, error?.message || 'File not allowed.' );
 			} );
@@ -1748,10 +1816,30 @@ class OCCustomiser {
 		if ( actions ) actions.style.display = 'none';
 		const warnEl = document.querySelector( `.oc-resolution-warning[data-oc-resolution-warning="${ layerId }"]` );
 		if ( warnEl ) warnEl.style.display = 'none';
+		this.setUploadZoneState( zoneEl, '' );
 		this.requestPreviewFocus();
 		this.scheduleRedraw();
 		this.updateHiddenField();
 		this.showUploadError( zoneEl, '' );
+	}
+
+	setUploadZoneState( zoneEl, state ) {
+		zoneEl.classList.toggle( 'oc-upload-zone--uploaded', state === 'uploaded' );
+		zoneEl.classList.toggle( 'oc-upload-zone--error', state === 'error' );
+
+		const browse = zoneEl.querySelector( '.uppy-DragDrop-browse' );
+		const note = zoneEl.querySelector( '.uppy-DragDrop-note' );
+		if ( browse ) {
+			browse.textContent = state === 'uploaded'
+				? 'Image uploaded'
+				: 'Tap / click here to upload your image';
+		}
+		if ( note ) {
+			if ( ! note.dataset.ocOriginalText ) note.dataset.ocOriginalText = note.textContent;
+			note.textContent = state === 'uploaded'
+				? 'Click to replace image'
+				: note.dataset.ocOriginalText || note.textContent;
+		}
 	}
 
 	setUploadProgress( zoneEl, percent, label ) {

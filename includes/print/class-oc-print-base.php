@@ -138,7 +138,17 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
+		if ( 'otf' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && self::is_cff_opentype( $real ) ) {
+			OC_Logger::warning( 'Print font fallback: ' . basename( $real ) . ' is an OpenType/CFF font. TCPDF needs a TrueType-outline TTF/OTF file.' );
+			return null;
+		}
+
 		if ( 'woff' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && class_exists( 'OC_WOFF_Converter' ) ) {
+			if ( self::is_cff_woff( $real ) ) {
+				OC_Logger::warning( 'Print font fallback: ' . basename( $real ) . ' is a WOFF-wrapped OpenType/CFF font. TCPDF needs a TrueType-outline TTF/OTF file.' );
+				return null;
+			}
+
 			$upload_dir = wp_upload_dir();
 			$cache_dir  = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts';
 			wp_mkdir_p( $cache_dir );
@@ -149,6 +159,29 @@ abstract class OC_Print_Base {
 		}
 
 		return $real;
+	}
+
+	protected static function is_cff_opentype( string $path ): bool {
+		$handle = fopen( $path, 'rb' );
+		if ( ! $handle ) {
+			return false;
+		}
+		$signature = fread( $handle, 4 );
+		fclose( $handle );
+
+		return 'OTTO' === $signature;
+	}
+
+	protected static function is_cff_woff( string $path ): bool {
+		$handle = fopen( $path, 'rb' );
+		if ( ! $handle ) {
+			return false;
+		}
+		$signature = fread( $handle, 4 );
+		$flavor    = fread( $handle, 4 );
+		fclose( $handle );
+
+		return 'wOFF' === $signature && 'OTTO' === $flavor;
 	}
 
 	/**
