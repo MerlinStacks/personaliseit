@@ -209,7 +209,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					$path = self::get_font_path( $font );
 					if ( $path ) {
 						$registered = self::register_tcpdf_font( $path );
-						if ( $registered ) $font_name = $registered;
+						if ( $registered ) {
+							$font_file = self::tcpdf_font_definition_path( $path, $registered );
+							if ( $font_file ) {
+								$pdf->AddFont( $registered, '', $font_file );
+							}
+							$font_name = $registered;
+						}
 					}
 				}
 			}

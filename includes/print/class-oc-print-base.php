@@ -163,10 +163,14 @@ abstract class OC_Print_Base {
 			return '';
 		}
 		try {
-			$name = \TCPDF_FONTS::addTTFfont( $font_path, 'TrueTypeUnicode', '', 96 );
+			$upload_dir = wp_upload_dir();
+			$font_dir   = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts/';
+			wp_mkdir_p( $font_dir );
+
+			$name = \TCPDF_FONTS::addTTFfont( $font_path, 'TrueTypeUnicode', '', 96, $font_dir );
 			return is_string( $name ) ? $name : '';
 		} catch ( \Throwable $e ) {
-			OC_Logger::warning( 'TCPDF font registration failed: ' . $e->getMessage() );
+			OC_Logger::warning( 'TCPDF font registration failed for ' . basename( $font_path ) . ': ' . $e->getMessage() );
 			return '';
 		}
 	}
@@ -289,7 +293,7 @@ abstract class OC_Print_Base {
 	 * Resolve a TCPDF font name from a font DB ID.
 	 * Falls back to 'helvetica' if the font is missing or cannot be registered.
 	 */
-	protected static function resolve_font( int $font_id ): string {
+	protected static function resolve_font( int $font_id, ?\TCPDF $pdf = null ): string {
 		if ( $font_id ) {
 			$font = self::get_font( $font_id );
 			if ( $font ) {
@@ -297,12 +301,31 @@ abstract class OC_Print_Base {
 				if ( $path ) {
 					$name = self::register_tcpdf_font( $path );
 					if ( $name ) {
+						if ( $pdf ) {
+							$font_file = self::tcpdf_font_definition_path( $path, $name );
+							if ( $font_file ) {
+								$pdf->AddFont( $name, '', $font_file );
+							}
+						}
 						return $name;
 					}
+					OC_Logger::warning( 'Print font fallback: TCPDF could not register font #' . $font_id . ' from ' . basename( $path ) . '.' );
+				} else {
+					OC_Logger::warning( 'Print font fallback: font #' . $font_id . ' file was not accessible.' );
 				}
+			} else {
+				OC_Logger::warning( 'Print font fallback: font #' . $font_id . ' was not found or inactive.' );
 			}
 		}
 		return 'helvetica';
+	}
+
+	protected static function tcpdf_font_definition_path( string $font_path, string $font_name ): string {
+		$upload_dir = wp_upload_dir();
+		$font_dir   = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts/';
+		$font_file  = $font_dir . $font_name . '.php';
+
+		return file_exists( $font_file ) ? $font_file : '';
 	}
 
 	/**
@@ -447,7 +470,7 @@ abstract class OC_Print_Base {
 		}
 
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
-		$font_name = self::resolve_font( $font_id );
+		$font_name = self::resolve_font( $font_id, $pdf );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )
 			: max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );

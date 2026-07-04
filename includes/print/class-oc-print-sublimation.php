@@ -73,7 +73,7 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		// ── Text overlay ──────────────────────────────────────────────────
 		$text = trim( $area_data['text'] ?? '' );
 		if ( $text !== '' ) {
-			$font_name = self::resolve_font( (int) ( $area_data['fontId'] ?? 0 ) );
+			$font_name = self::resolve_font( (int) ( $area_data['fontId'] ?? 0 ), $pdf );
 			$color     = $area_data['color'] ?? '#000000';
 			[ $c, $m, $y, $k ] = self::hex_to_cmyk( $color );
 
