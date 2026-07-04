@@ -563,11 +563,6 @@
 		}
 	}
 
-	.oc-artwork-actions {
-		display: flex;
-		justify-content: flex-end;
-	}
-
 	.oc-upload-progress {
 		display: flex;
 		flex-direction: column;
@@ -596,45 +591,6 @@
 		border-radius: inherit;
 		background: var(--oc-accent);
 		transition: width .18s ease;
-	}
-
-	.oc-artwork-remove {
-		appearance: none;
-		margin-left: auto;
-		min-height: 36px;
-		padding: 8px 14px;
-		border: 1px solid var(--oc-border-strong);
-		border-radius: var(--oc-radius);
-		background: transparent;
-		color: var(--oc-danger);
-		font: inherit;
-		font-weight: 600;
-		font-size: .85em;
-		letter-spacing: .02em;
-		cursor: pointer;
-		transition: background .15s ease, border-color .15s ease;
-
-		&::before {
-			content: "";
-			display: inline-block;
-			width: 12px;
-			height: 12px;
-			margin-right: 6px;
-			vertical-align: -2px;
-			background: currentColor;
-			-webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6 7h12l-1 13H7L6 7zm3-3h6l1 2H8l1-2z' fill='black'/></svg>") center / contain no-repeat;
-			        mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M6 7h12l-1 13H7L6 7zm3-3h6l1 2H8l1-2z' fill='black'/></svg>") center / contain no-repeat;
-		}
-
-		&:hover {
-			background: color-mix(in srgb, var(--oc-danger) 10%, transparent);
-			border-color: var(--oc-danger);
-		}
-		&:focus-visible {
-			outline: none;
-			border-color: var(--oc-danger);
-			box-shadow: 0 0 0 3px color-mix(in srgb, var(--oc-danger) 25%, transparent);
-		}
 	}
 
 	// ── Generic help tooltip ──────────────────────────────────────────────────
@@ -1235,13 +1191,6 @@
 			min-height: 72px;
 			touch-action: manipulation;
 			-webkit-tap-highlight-color: transparent;
-		}
-
-		.oc-artwork-remove {
-			min-height: var(--oc-tap);
-			width: 100%;
-			text-align: center;
-			touch-action: manipulation;
 		}
 
 		.oc-help-toggle,

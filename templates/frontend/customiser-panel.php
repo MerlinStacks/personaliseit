@@ -174,12 +174,6 @@ foreach ( $layers as $layer ) {
 										data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 								</div>
 								<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
-								<div class="oc-artwork-actions" style="display:none;">
-										<button type="button" class="oc-artwork-remove"
-											data-oc-remove-image="<?php echo esc_attr( $layer->id ); ?>">
-											<?php esc_html_e( 'Remove', 'overcustomise' ); ?>
-										</button>
-									</div>
 								</div>
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>

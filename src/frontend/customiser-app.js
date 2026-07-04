@@ -1005,15 +1005,6 @@ class OCCustomiser {
 			} );
 		} );
 
-		// Remove uploaded image
-		document.querySelectorAll( '[data-oc-remove-image]' ).forEach( btn => {
-			btn.addEventListener( 'click', () => {
-				const lid = parseInt( btn.dataset.ocRemoveImage, 10 );
-				const zoneEl = btn.closest( '.oc-artwork-wrap' )?.querySelector( `[data-oc-upload-zone="${ lid }"]` );
-				if ( zoneEl ) this.clearUploadedImage( lid, zoneEl );
-			} );
-		} );
-
 		// Dismiss resolution warning
 		document.querySelectorAll( '.oc-resolution-warning' ).forEach( warnEl => {
 			warnEl.addEventListener( 'click', e => {
@@ -1743,8 +1734,6 @@ class OCCustomiser {
 					this.showUploadError( zoneEl, 'Server did not return a preview URL.' );
 					return;
 				}
-				const actions = zoneEl.closest( '.oc-artwork-wrap' )?.querySelector( '.oc-artwork-actions' );
-				if ( actions ) actions.style.display = '';
 				const meta = await this.getImageMeta( this.inputs[ lid ].attachmentUrl );
 				if ( meta && this.inputs[ lid ] ) {
 					this.inputs[ lid ].imageMeta = meta;
@@ -1761,7 +1750,6 @@ class OCCustomiser {
 							this.inputs[ lid ].attachmentId = 0;
 							this.inputs[ lid ].attachmentUrl = '';
 							this.inputs[ lid ].imageMeta = null;
-							if ( actions ) actions.style.display = 'none';
 							this.setUploadZoneState( zoneEl, 'error' );
 							this.showUploadError( zoneEl, 'Image resolution too low. Please upload a higher resolution image.' );
 							this.scheduleRedraw();
@@ -1804,23 +1792,6 @@ class OCCustomiser {
 				this.showUploadError( zoneEl, error?.message || 'File not allowed.' );
 			} );
 		} );
-	}
-
-	clearUploadedImage( layerId, zoneEl ) {
-		if ( this.inputs[ layerId ] ) {
-			this.inputs[ layerId ].attachmentId = 0;
-			this.inputs[ layerId ].attachmentUrl = '';
-			this.inputs[ layerId ].imageMeta = null;
-		}
-		const actions = zoneEl.closest( '.oc-artwork-wrap' )?.querySelector( '.oc-artwork-actions' );
-		if ( actions ) actions.style.display = 'none';
-		const warnEl = document.querySelector( `.oc-resolution-warning[data-oc-resolution-warning="${ layerId }"]` );
-		if ( warnEl ) warnEl.style.display = 'none';
-		this.setUploadZoneState( zoneEl, '' );
-		this.requestPreviewFocus();
-		this.scheduleRedraw();
-		this.updateHiddenField();
-		this.showUploadError( zoneEl, '' );
 	}
 
 	setUploadZoneState( zoneEl, state ) {

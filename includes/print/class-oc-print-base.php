@@ -503,6 +503,7 @@ abstract class OC_Print_Base {
 		}
 
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+		OC_Logger::debug( 'Print layer text font request: layer=' . (int) ( $layer['id'] ?? 0 ) . ' font_id=' . $font_id . ' text=' . substr( $text, 0, 40 ) );
 		$font_name = self::resolve_font( $font_id, $pdf );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )

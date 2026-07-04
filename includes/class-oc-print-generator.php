@@ -351,19 +351,36 @@ class OC_Print_Generator {
 	 * Output:   { text, fontId, color, artworkAttachmentId }
 	 */
 	private static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
-		$render_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
-		if ( ! empty( $render_spec ) ) {
-			$area_data = OC_Render_Spec::area_from_spec( $render_spec, $area_id );
-			if ( ! empty( $area_data ) ) {
-				return $area_data;
-			}
-		}
-
 		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+		$layer_inputs = self::normalise_v2_layer_font_inputs( $design_id, $layer_inputs );
 		$render_spec  = OC_Render_Spec::build( $design_id, $layer_inputs );
 		$area_data    = OC_Render_Spec::area_from_spec( $render_spec, $area_id );
 
 		return ! empty( $area_data ) ? $area_data : [];
+	}
+
+	private static function normalise_v2_layer_font_inputs( int $design_id, array $layer_inputs ): array {
+		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
+			$layer_id = (int) $layer->id;
+			if ( ! $layer_id || ! in_array( (string) $layer->type, [ 'text', 'textarea' ], true ) ) {
+				continue;
+			}
+
+			$settings = $layer->settings ? json_decode( (string) $layer->settings, true ) : [];
+			if ( ! is_array( $settings ) ) {
+				$settings = [];
+			}
+
+			if ( empty( $layer_inputs[ $layer_id ] ) || ! is_array( $layer_inputs[ $layer_id ] ) ) {
+				$layer_inputs[ $layer_id ] = [];
+			}
+
+			if ( empty( $layer_inputs[ $layer_id ]['fontId'] ) && ! empty( $settings['default_font_id'] ) ) {
+				$layer_inputs[ $layer_id ]['fontId'] = absint( $settings['default_font_id'] );
+			}
+		}
+
+		return $layer_inputs;
 	}
 
 	/**
