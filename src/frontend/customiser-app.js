@@ -546,6 +546,7 @@ class OCCustomiser {
 		const scale       = canvas._ocScaleX ?? 1;
 		const bounds      = area?.bounds || {};
 		const rotation    = Number( bounds.rotation ) || 0;
+		const contentClip = () => this.printAreaClipPath( bounds, scale );
 		const center      = this.rotatedLayerCenter( layer, bounds, rotation );
 		const lx          = ( center.x - layer.w / 2 ) * scale;
 		const ly          = ( center.y - layer.h / 2 ) * scale;
@@ -590,7 +591,7 @@ class OCCustomiser {
 				let fontSize = configuredFontSize
 					? clampFontSize( Math.max( 1, parseInt( configuredFontSize, 10 ) ) * scale, layer.settings )
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
-				const textFill = isEmbroidery ? this.embroideryPattern( color ) : color;
+				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
 				const obj    = new FabricText( raw, {
 					left: lcX, top: lcY,
 					originX: 'center', originY: 'center',
@@ -601,6 +602,8 @@ class OCCustomiser {
 					selectable: false, evented: false,
 				} );
 				obj._ocContent = true; // tag after creation
+				let stitchPad = null;
+				let stitchLift = null;
 
 				if ( isEngraving ) {
 					// Fake etched depth: subtle light highlight below + soft dark shadow above.
@@ -609,26 +612,91 @@ class OCCustomiser {
 						shadow: new Shadow( { color: engravingPalette.highlight, offsetX: 0, offsetY: 1, blur: 1 } ),
 					} );
 				} else if ( isEmbroidery ) {
+					const threadEdge = this.embroideryStrokeColor( color );
+					const threadLift = this.embroideryHighlightColor( color );
+					const threadShadow = this.embroideryShadowColor( color );
+
+					stitchPad = new FabricText( raw, {
+						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
+						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
+						originX: 'center', originY: 'center',
+						width: lw,
+						angle: rotation,
+						fontFamily: font?.name || 'sans-serif',
+						fontSize,
+						fill: threadShadow,
+						stroke: threadShadow,
+						strokeWidth: Math.max( 1.2, fontSize * 0.055 ),
+						opacity: 0.34,
+						textAlign: align,
+						selectable: false,
+						evented: false,
+					} );
+					stitchPad._ocContent = true;
+					canvas.add( stitchPad );
+
+					stitchLift = new FabricText( raw, {
+						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
+						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
+						originX: 'center', originY: 'center',
+						width: lw,
+						angle: rotation,
+						fontFamily: font?.name || 'sans-serif',
+						fontSize,
+						fill: 'rgba(255,255,255,0)',
+						stroke: threadLift,
+						strokeWidth: Math.max( 0.35, fontSize * 0.012 ),
+						opacity: 0.45,
+						textAlign: align,
+						selectable: false,
+						evented: false,
+					} );
+					stitchLift._ocContent = true;
+					canvas.add( stitchLift );
+
 					obj.set( {
-						stroke: this.embroideryStrokeColor( color ),
-						strokeWidth: Math.max( 0.45, fontSize * 0.018 ),
-						shadow: new Shadow( { color: 'rgba(0,0,0,0.32)', offsetX: 0.8, offsetY: 1.2, blur: 0.5 } ),
+						stroke: threadEdge,
+						strokeWidth: Math.max( 0.7, fontSize * 0.026 ),
+						shadow: new Shadow( { color: 'rgba(0,0,0,0.36)', offsetX: 1, offsetY: 1.35, blur: 0.75 } ),
 					} );
 				}
 
-				while ( obj.width > lw && fontSize > Math.max( 8, minFontSize ) ) {
-					fontSize -= 1; obj.set( { fontSize } );
+				while ( ( obj.width > lw || obj.height > lh ) && fontSize > Math.max( 8, minFontSize ) ) {
+					fontSize -= 1;
+					obj.set( { fontSize } );
 				}
+				if ( isEmbroidery ) {
+					obj.set( { fill: this.embroideryPattern( color, fontSize ) } );
+				}
+				if ( stitchPad ) {
+					stitchPad.set( {
+						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
+						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
+						fontSize,
+						strokeWidth: Math.max( 1.2, fontSize * 0.055 ),
+					} );
+					this.applyContentClip( stitchPad, contentClip() );
+				}
+				if ( stitchLift ) {
+					stitchLift.set( {
+						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
+						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
+						fontSize,
+						strokeWidth: Math.max( 0.35, fontSize * 0.012 ),
+					} );
+					this.applyContentClip( stitchLift, contentClip() );
+				}
+				this.applyContentClip( obj, contentClip() );
 				canvas.add( obj );
 				break;
 			}
 
 			case 'image':
-				if ( input.attachmentUrl ) await this.renderFabricImg( canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette );
+				if ( input.attachmentUrl ) await this.renderFabricImg( canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip() );
 				break;
 
 			case 'clipart':
-				if ( input.clipartUrl ) await this.renderFabricImg( canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette );
+				if ( input.clipartUrl ) await this.renderFabricImg( canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip() );
 				break;
 
 			case 'lineart': {
@@ -637,6 +705,7 @@ class OCCustomiser {
 				const r = new Rect( { left: lcX, top: lcY, originX: 'center', originY: 'center', angle: rotation, width: lw, height: lh,
 					fill: lineartColor, opacity: 0.6, selectable: false, evented: false } );
 				r._ocContent = true;
+				this.applyContentClip( r, contentClip() );
 				canvas.add( r );
 				break;
 			}
@@ -658,6 +727,7 @@ class OCCustomiser {
 						textAlign: 'center', selectable: false, evented: false,
 					} );
 					invalidObj._ocContent = true;
+					this.applyContentClip( invalidObj, contentClip() );
 					canvas.add( invalidObj );
 					break;
 				}
@@ -666,9 +736,9 @@ class OCCustomiser {
 				if ( spotifyCodeUrl ) {
 					// Try CORS-safe load first; if Spotify CDN blocks CORS for this origin,
 					// retry without crossOrigin so users still see the scannable in live preview.
-					let rendered = await this.renderFabricImg( canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette );
+					let rendered = await this.renderFabricImg( canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette, contentClip() );
 					if ( ! rendered ) {
-						rendered = await this.renderFabricImg( canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette );
+						rendered = await this.renderFabricImg( canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette, contentClip() );
 					}
 					if ( rendered ) break;
 				}
@@ -682,6 +752,7 @@ class OCCustomiser {
 					textAlign: 'center', selectable: false, evented: false,
 				} );
 				fallback._ocContent = true;
+				this.applyContentClip( fallback, contentClip() );
 				canvas.add( fallback );
 				break;
 			}
@@ -741,34 +812,59 @@ class OCCustomiser {
 		return { text: '#dadad6', bg: 'ECEFF1', highlight: 'rgba(255,255,255,0.42)', brightness: -0.28, contrast: 0.18, opacity: 0.9 };
 	}
 
-	embroideryPattern( color ) {
+	embroideryPattern( color, fontSize = 24 ) {
 		const source = document.createElement( 'canvas' );
-		source.width = 14;
-		source.height = 14;
+		const size = Math.max( 10, Math.min( 20, Math.round( fontSize * 0.18 ) ) );
+		source.width = size;
+		source.height = size;
 
 		const ctx = source.getContext( '2d' );
 		if ( ! ctx ) return color;
 
 		const rgb = this.hexToRgb( color ) || { r: 0, g: 0, b: 0 };
-		ctx.fillStyle = color;
+		const hi = {
+			r: Math.min( 255, rgb.r + 92 ),
+			g: Math.min( 255, rgb.g + 92 ),
+			b: Math.min( 255, rgb.b + 92 ),
+		};
+		const lo = {
+			r: Math.max( 0, rgb.r - 78 ),
+			g: Math.max( 0, rgb.g - 78 ),
+			b: Math.max( 0, rgb.b - 78 ),
+		};
+
+		const base = ctx.createLinearGradient( 0, 0, source.width, source.height );
+		base.addColorStop( 0, `rgb(${ hi.r },${ hi.g },${ hi.b })` );
+		base.addColorStop( 0.42, color );
+		base.addColorStop( 1, `rgb(${ lo.r },${ lo.g },${ lo.b })` );
+		ctx.fillStyle = base;
 		ctx.fillRect( 0, 0, source.width, source.height );
 
-		ctx.lineWidth = 2;
+		ctx.lineWidth = Math.max( 1.1, size * 0.15 );
 		ctx.lineCap = 'round';
-		ctx.strokeStyle = `rgba(${ Math.min( 255, rgb.r + 95 ) },${ Math.min( 255, rgb.g + 95 ) },${ Math.min( 255, rgb.b + 95 ) },0.52)`;
-		for ( let i = -source.height; i < source.width * 2; i += 7 ) {
+		ctx.strokeStyle = `rgba(${ hi.r },${ hi.g },${ hi.b },0.58)`;
+		for ( let i = -source.height; i < source.width * 2; i += Math.max( 4, size * 0.48 ) ) {
 			ctx.beginPath();
 			ctx.moveTo( i, source.height + 1 );
 			ctx.lineTo( i + source.height + 1, -1 );
 			ctx.stroke();
 		}
 
-		ctx.lineWidth = 1;
-		ctx.strokeStyle = `rgba(${ Math.max( 0, rgb.r - 75 ) },${ Math.max( 0, rgb.g - 75 ) },${ Math.max( 0, rgb.b - 75 ) },0.38)`;
-		for ( let i = -source.height + 3; i < source.width * 2; i += 7 ) {
+		ctx.lineWidth = Math.max( 0.7, size * 0.08 );
+		ctx.strokeStyle = `rgba(${ lo.r },${ lo.g },${ lo.b },0.48)`;
+		for ( let i = -source.height + Math.max( 2, size * 0.24 ); i < source.width * 2; i += Math.max( 4, size * 0.48 ) ) {
 			ctx.beginPath();
 			ctx.moveTo( i, -1 );
 			ctx.lineTo( i + source.height + 1, source.height + 1 );
+			ctx.stroke();
+		}
+
+		ctx.lineWidth = 0.7;
+		ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+		for ( let y = 1; y < source.height; y += 3 ) {
+			ctx.beginPath();
+			ctx.moveTo( 0, y + 0.5 );
+			ctx.lineTo( source.width, y + 0.5 );
 			ctx.stroke();
 		}
 
@@ -779,7 +875,21 @@ class OCCustomiser {
 		const rgb = this.hexToRgb( color );
 		if ( ! rgb ) return 'rgba(0,0,0,0.35)';
 
-		return `rgba(${ Math.max( 0, rgb.r - 55 ) },${ Math.max( 0, rgb.g - 55 ) },${ Math.max( 0, rgb.b - 55 ) },0.72)`;
+		return `rgba(${ Math.max( 0, rgb.r - 68 ) },${ Math.max( 0, rgb.g - 68 ) },${ Math.max( 0, rgb.b - 68 ) },0.82)`;
+	}
+
+	embroideryHighlightColor( color ) {
+		const rgb = this.hexToRgb( color );
+		if ( ! rgb ) return 'rgba(255,255,255,0.42)';
+
+		return `rgba(${ Math.min( 255, rgb.r + 88 ) },${ Math.min( 255, rgb.g + 88 ) },${ Math.min( 255, rgb.b + 88 ) },0.62)`;
+	}
+
+	embroideryShadowColor( color ) {
+		const rgb = this.hexToRgb( color );
+		if ( ! rgb ) return 'rgba(0,0,0,0.42)';
+
+		return `rgba(${ Math.max( 0, rgb.r - 96 ) },${ Math.max( 0, rgb.g - 96 ) },${ Math.max( 0, rgb.b - 96 ) },0.72)`;
 	}
 
 	hexToRgb( color ) {
@@ -814,7 +924,28 @@ class OCCustomiser {
 		return `https://scannables.scdn.co/uri/plain/${ format }/${ bgHex }/${ bar }/${ size }/${ spotifyUri }`;
 	}
 
-	async renderFabricImg( canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null ) {
+	printAreaClipPath( bounds, scale ) {
+		if ( ! bounds || ! bounds.w || ! bounds.h ) return null;
+
+		return new Rect( {
+			left: ( Number( bounds.x ) + Number( bounds.w ) / 2 ) * scale,
+			top: ( Number( bounds.y ) + Number( bounds.h ) / 2 ) * scale,
+			originX: 'center',
+			originY: 'center',
+			angle: Number( bounds.rotation ) || 0,
+			width: Number( bounds.w ) * scale,
+			height: Number( bounds.h ) * scale,
+			absolutePositioned: true,
+		} );
+	}
+
+	applyContentClip( obj, clipPath ) {
+		if ( clipPath ) {
+			obj.set( { clipPath } );
+		}
+	}
+
+	async renderFabricImg( canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null ) {
 		try {
 			const imgLoadOpts = crossOrigin ? { crossOrigin } : {};
 			const img = await FabricImage.fromURL( url, imgLoadOpts );
@@ -853,6 +984,7 @@ class OCCustomiser {
 			}
 
 			img._ocContent = true;
+			this.applyContentClip( img, clipPath );
 			canvas.add( img );
 			return true;
 		} catch ( e ) {
