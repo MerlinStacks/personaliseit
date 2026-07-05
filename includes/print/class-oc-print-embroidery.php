@@ -201,10 +201,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$font_size = min( $font_size, max( 5.0, $h_pt * 0.8 ) );
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 
-		if ( self::append_eps_raster_text( $lines, $text, $hex, $font_id, $settings, $x_pt, $y_pt, $w_pt, $h_pt, $font_size ) ) {
-			return;
-		}
-
 		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
 		$font_name     = self::eps_font_name( $font_id );
 		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
@@ -426,14 +422,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 
 		if ( 'svg' === $ext ) {
+			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt ) ) {
+				return;
+			}
+
 			$image = self::open_svg_resource( $path, $w_pt, $h_pt );
 			if ( $image ) {
 				self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
 				imagedestroy( $image );
-				return;
-			}
-
-			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt ) ) {
 				return;
 			}
 
@@ -1124,7 +1120,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$dom->documentElement->setAttribute( 'fill', $hex );
 		self::force_svg_node_colour( $dom->documentElement, $hex );
 
-		$temp = wp_tempnam( 'oc-eps-colour-clipart-' . wp_generate_uuid4() . '.svg' );
+		$temp = self::temp_svg_path( 'oc-eps-colour-clipart-' . wp_generate_uuid4() );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -1136,6 +1132,30 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $temp;
+	}
+
+	/** Return a writable temporary SVG path that keeps the .svg extension for file-type detection. */
+	private static function temp_svg_path( string $prefix ): ?string {
+		$temp = wp_tempnam( $prefix . '.svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		if ( 'svg' === strtolower( pathinfo( $temp, PATHINFO_EXTENSION ) ) ) {
+			return $temp;
+		}
+
+		$svg_temp = $temp . '.svg';
+		if ( file_exists( $svg_temp ) ) {
+			@unlink( $svg_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		if ( ! @rename( $temp, $svg_temp ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $svg_temp;
 	}
 
 	/** Force fill/stroke colours throughout an SVG DOM subtree. */

@@ -109,6 +109,12 @@ if ( ! function_exists( 'wp_tempnam' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_generate_uuid4' ) ) {
+	function wp_generate_uuid4(): string {
+		return '00000000-0000-4000-8000-000000000000';
+	}
+}
+
 if ( ! function_exists( 'sanitize_key' ) ) {
 	function sanitize_key( string $key ): string {
 		return strtolower( preg_replace( '/[^a-zA-Z0-9_-]/', '', $key ) );

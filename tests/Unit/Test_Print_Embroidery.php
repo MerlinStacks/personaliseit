@@ -54,6 +54,44 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function text_export_keeps_customer_text_editable(): void {
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' );
+		$method->invokeArgs( null, [ &$lines, [ 'value' => 'Editable Text', 'colorHex' => '#123456' ], [], 0.0, 0.0, 100.0, 20.0, true ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '(Editable Text)', $output );
+		$this->assertStringContainsString( ' show', $output );
+		$this->assertStringNotContainsString( 'imagemask', $output );
+	}
+
+	#[Test]
+	public function recoloured_svg_clipart_keeps_svg_extension_and_renders_vector(): void {
+		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
+		$source      = $source_base . '.svg';
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="2" width="3" height="4" fill="#000000"/></svg>' );
+
+		$build = new ReflectionMethod( OC_Print_Embroidery::class, 'build_coloured_svg' );
+		$path  = $build->invoke( null, $source, '#FF0000' );
+
+		$this->assertIsString( $path );
+		$this->assertSame( 'svg', strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) );
+
+		$lines  = [];
+		$append = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_image_or_reference' );
+		$append->invokeArgs( null, [ &$lines, $path, 0.0, 0.0, 20.0, 20.0 ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( 'setrgbcolor', $output );
+		$this->assertStringContainsString( 'fill', $output );
+		$this->assertStringNotContainsString( 'Clipart:', $output );
+
+		@unlink( $source_base );
+		@unlink( $source );
+		@unlink( $path );
+	}
+
+	#[Test]
 	public function mask_image_uses_imagemask_not_white_colorimage_card(): void {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 			$this->markTestSkipped( 'GD is required for EPS mask generation.' );
