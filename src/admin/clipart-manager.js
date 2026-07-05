@@ -122,18 +122,28 @@ function buildClipartCardEl( item ) {
 		'</div>';
 
 	card.addEventListener( 'click', e => {
-		if ( e.target.closest( 'a,button' ) ) return;
+		if ( isCardActionEvent( e ) ) return;
 		openEditModal( item.id );
 	} );
 	card.querySelector( '[data-oc-convert-clipart]' )?.addEventListener( 'click', e => {
 		e.preventDefault();
+		e.stopPropagation();
 		convertClipartToSvg( item.id, e.currentTarget );
 	} );
 	card.addEventListener( 'keydown', e => {
+		if ( isCardActionEvent( e ) ) return;
 		if ( e.key === 'Enter' || e.key === ' ' ) openEditModal( item.id );
 	} );
 
 	return card;
+}
+
+function isCardActionEvent( event ) {
+	const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+	if ( path.some( el => el instanceof Element && el.closest?.( 'a,button,[data-oc-convert-clipart]' ) ) ) {
+		return true;
+	}
+	return event.target instanceof Element && !! event.target.closest( 'a,button,[data-oc-convert-clipart]' );
 }
 
 async function convertClipartToSvg( id, button ) {
@@ -553,14 +563,16 @@ function initEditModal() {
 	// Wire up server-rendered cards.
 	document.querySelectorAll( '.oc-clipart-card' ).forEach( card => {
 		card.addEventListener( 'click', e => {
-			if ( e.target.closest( 'a,button' ) ) return;
+			if ( isCardActionEvent( e ) ) return;
 			openEditModal( Number( card.dataset.clipartId ) );
 		} );
 		card.querySelector( '[data-oc-convert-clipart]' )?.addEventListener( 'click', e => {
 			e.preventDefault();
+			e.stopPropagation();
 			convertClipartToSvg( Number( card.dataset.clipartId ), e.currentTarget );
 		} );
 		card.addEventListener( 'keydown', e => {
+			if ( isCardActionEvent( e ) ) return;
 			if ( e.key === 'Enter' || e.key === ' ' ) openEditModal( Number( card.dataset.clipartId ) );
 		} );
 	} );

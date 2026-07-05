@@ -1403,17 +1403,26 @@ function buildClipartCardEl(item) {
   card.setAttribute('tabindex', '0');
   card.innerHTML = '<div class="oc-clipart-preview">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" loading="lazy" />' + '</div>' + '<div class="oc-clipart-card-body">' + '<div class="oc-clipart-card-title-row">' + '<p class="oc-clipart-card-name" title="' + h(item.name) + '">' + h(item.name) + '</p>' + '<span class="oc-badge ' + (item.active ? 'oc-badge-active' : 'oc-badge-inactive') + '">' + (item.active ? 'Active' : 'Inactive') + '</span>' + '</div>' + '<p class="oc-clipart-type-label">' + h(item.fileType.toUpperCase()) + '</p>' + '<div class="oc-clipart-card-actions">' + (item.canConvert ? '<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="' + item.id + '">Convert to SVG</button>' : '') + '<a href="' + h(item.toggleUrl) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' + (item.active ? 'Deactivate' : 'Activate') + '</a>' + '<a href="' + h(item.deleteUrl) + '" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>' + '</div>' + '</div>';
   card.addEventListener('click', e => {
-    if (e.target.closest('a,button')) return;
+    if (isCardActionEvent(e)) return;
     openEditModal(item.id);
   });
   card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
     e.preventDefault();
+    e.stopPropagation();
     convertClipartToSvg(item.id, e.currentTarget);
   });
   card.addEventListener('keydown', e => {
+    if (isCardActionEvent(e)) return;
     if (e.key === 'Enter' || e.key === ' ') openEditModal(item.id);
   });
   return card;
+}
+function isCardActionEvent(event) {
+  const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+  if (path.some(el => el instanceof Element && el.closest?.('a,button,[data-oc-convert-clipart]'))) {
+    return true;
+  }
+  return event.target instanceof Element && !!event.target.closest('a,button,[data-oc-convert-clipart]');
 }
 async function convertClipartToSvg(id, button) {
   const item = clipart.find(c => c.id === Number(id));
@@ -1822,14 +1831,16 @@ function initEditModal() {
   // Wire up server-rendered cards.
   document.querySelectorAll('.oc-clipart-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('a,button')) return;
+      if (isCardActionEvent(e)) return;
       openEditModal(Number(card.dataset.clipartId));
     });
     card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
       e.preventDefault();
+      e.stopPropagation();
       convertClipartToSvg(Number(card.dataset.clipartId), e.currentTarget);
     });
     card.addEventListener('keydown', e => {
+      if (isCardActionEvent(e)) return;
       if (e.key === 'Enter' || e.key === ' ') openEditModal(Number(card.dataset.clipartId));
     });
   });
