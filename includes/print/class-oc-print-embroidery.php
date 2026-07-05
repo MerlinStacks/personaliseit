@@ -85,6 +85,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
+		$area_w = isset( $bounds['w'] ) ? (float) $bounds['w'] : (float) ( $area->canvas_w ?? 1 );
+		$area_h = isset( $bounds['h'] ) ? (float) $bounds['h'] : (float) ( $area->canvas_h ?? 1 );
+		$rotate = (float) ( $bounds['rotation'] ?? $area->canvas_rotation ?? 0 );
+		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -94,15 +98,42 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$type     = (string) ( $layer['type'] ?? '' );
 			$input    = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
-			$x_pt     = self::mm_to_pt( self::unit_to_mm( (float) ( $layer['x'] ?? 0 ) - $area_x, $unit ) );
-			$y_pt     = self::eps_y( self::unit_to_mm( (float) ( $layer['y'] ?? 0 ) - $area_y, $unit ), self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit ), $area );
+			$layer_x  = (float) ( $layer['x'] ?? 0 );
+			$layer_y  = (float) ( $layer['y'] ?? 0 );
+			$layer_w  = max( 1.0, (float) ( $layer['w'] ?? 1 ) );
+			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
+			$center_x = $layer_x + $layer_w / 2;
+			$center_y = $layer_y + $layer_h / 2;
+
+			if ( $rotate && $area_w > 0 && $area_h > 0 ) {
+				$area_cx  = $area_x + $area_w / 2;
+				$area_cy  = $area_y + $area_h / 2;
+				$radians  = deg2rad( $rotate );
+				$delta_x  = $center_x - $area_cx;
+				$delta_y  = $center_y - $area_cy;
+				$center_x = $area_cx + $delta_x * cos( $radians ) - $delta_y * sin( $radians );
+				$center_y = $area_cy + $delta_x * sin( $radians ) + $delta_y * cos( $radians );
+			}
+
+			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
+			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
+			$cx_pt       = self::mm_to_pt( $center_x_mm );
+			$cy_pt       = self::mm_to_pt( max( 0.0, $area_h_mm - $center_y_mm ) );
 			$w_pt     = self::mm_to_pt( self::unit_to_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $unit ) );
 			$h_pt     = self::mm_to_pt( self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit ) );
+			$x_pt     = -$w_pt / 2;
+			$y_pt     = -$h_pt / 2;
+
+			$lines[] = 'gsave';
+			$lines[] = sprintf( '%.4F %.4F translate', $cx_pt, $cy_pt );
+			if ( $rotate ) {
+				$lines[] = sprintf( '%.4F rotate', -$rotate );
+			}
 
 			switch ( $type ) {
 				case 'text':
 				case 'textarea':
-					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt );
+					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true );
 					break;
 
 				case 'lineart':
@@ -116,9 +147,20 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					break;
 
 				case 'spotify':
-					self::append_eps_text( $lines, [ 'value' => (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'colorHex' => '#000000' ], [], $x_pt, $y_pt, $w_pt, $h_pt );
+					self::append_eps_text(
+						$lines,
+						[ 'value' => (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'colorHex' => '#000000' ],
+						[],
+						$x_pt,
+						$y_pt,
+						$w_pt,
+						$h_pt,
+						true
+					);
 					break;
 			}
+
+			$lines[] = 'grestore';
 		}
 	}
 
@@ -140,7 +182,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Append customer text as editable PostScript text in the requested colour. */
-	private static function append_eps_text( array &$lines, array $input, array $settings, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+	private static function append_eps_text(
+		array &$lines,
+		array $input,
+		array $settings,
+		float $x_pt,
+		float $y_pt,
+		float $w_pt,
+		float $h_pt,
+		bool $centered = false
+	): void {
 		$text = trim( (string) ( $input['value'] ?? $settings['default_text'] ?? '' ) );
 		if ( '' === $text ) {
 			return;
@@ -157,9 +208,33 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
 		$lines[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
-		$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
-		$lines[] = '(' . self::ps_escape( $text ) . ') show';
+		if ( $centered ) {
+			$align = (string) ( $settings['alignment'] ?? 'center' );
+			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
+			$lines[] = '(' . self::ps_escape( $text ) . ')' . self::eps_text_show_command( $align );
+		} else {
+			$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
+			$lines[] = '(' . self::ps_escape( $text ) . ') show';
+		}
 		$lines[] = 'grestore';
+	}
+
+	/** Return x coordinate for aligned text inside a center-origin layer box. */
+	private static function eps_text_align_x( string $align, float $x_pt, float $w_pt ): float {
+		return match ( $align ) {
+			'left'  => $x_pt + 2,
+			'right' => $x_pt + $w_pt - 2,
+			default => 0.0,
+		};
+	}
+
+	/** Return the PostScript command needed to honour Fabric text alignment. */
+	private static function eps_text_show_command( string $align ): string {
+		return match ( $align ) {
+			'right' => ' dup stringwidth pop neg 0 rmoveto show',
+			'left'  => ' show',
+			default => ' dup stringwidth pop 2 div neg 0 rmoveto show',
+		};
 	}
 
 	/** Append a filled vector rectangle for simple line-art colour blocks. */
