@@ -85,9 +85,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
-		$area_w = isset( $bounds['w'] ) ? (float) $bounds['w'] : (float) ( $area->canvas_w ?? 1 );
-		$area_h = isset( $bounds['h'] ) ? (float) $bounds['h'] : (float) ( $area->canvas_h ?? 1 );
-		$rotate = (float) ( $bounds['rotation'] ?? $area->canvas_rotation ?? 0 );
 		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
 
 		foreach ( $area_data['layers'] as $layer ) {
@@ -105,16 +102,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
 
-			if ( $rotate && $area_w > 0 && $area_h > 0 ) {
-				$area_cx  = $area_x + $area_w / 2;
-				$area_cy  = $area_y + $area_h / 2;
-				$radians  = deg2rad( $rotate );
-				$delta_x  = $center_x - $area_cx;
-				$delta_y  = $center_y - $area_cy;
-				$center_x = $area_cx + $delta_x * cos( $radians ) - $delta_y * sin( $radians );
-				$center_y = $area_cy + $delta_x * sin( $radians ) + $delta_y * cos( $radians );
-			}
-
 			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
 			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
 			$cx_pt       = self::mm_to_pt( $center_x_mm );
@@ -126,9 +113,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$lines[] = 'gsave';
 			$lines[] = sprintf( '%.4F %.4F translate', $cx_pt, $cy_pt );
-			if ( $rotate ) {
-				$lines[] = sprintf( '%.4F rotate', -$rotate );
-			}
 
 			switch ( $type ) {
 				case 'text':
