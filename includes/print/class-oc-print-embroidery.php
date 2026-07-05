@@ -88,6 +88,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		$bounds_rotation = self::normalise_rotation( (float) ( $bounds['rotation'] ?? 0 ) );
+		$font_px_to_pt = self::mm_to_pt( $area_h_mm ) / $bounds_h;
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
 		$artwork_used   = false;
@@ -133,7 +134,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$input['value'] = $text_fallbacks[ $text_index ];
 					}
 					$text_index++;
-					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true );
+					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt );
 					break;
 
 				case 'lineart':
@@ -161,7 +162,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$y_pt,
 						$w_pt,
 						$h_pt,
-						true
+						true,
+						$font_px_to_pt
 					);
 					break;
 			}
@@ -196,7 +198,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		float $y_pt,
 		float $w_pt,
 		float $h_pt,
-		bool $centered = false
+		bool $centered = false,
+		?float $font_px_to_pt = null
 	): void {
 		$text = trim( (string) ( $input['value'] ?? '' ) );
 		if ( '' === $text ) {
@@ -205,7 +208,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$hex       = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
-			? max( 5.0, self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) ) )
+			? max( 5.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * ( $font_px_to_pt ?? 72 / self::CANVAS_DPI ) )
 			: max( 8.0, $h_pt * 0.38 );
 		$font_size = min( $font_size, max( 5.0, $h_pt * 0.8 ) );
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );

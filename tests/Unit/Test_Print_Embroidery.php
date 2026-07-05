@@ -87,7 +87,7 @@ class Test_Print_Embroidery extends TestCase {
 					'w'        => 500,
 					'h'        => 250,
 					'input'    => [ 'value' => 'Scaled', 'colorHex' => '#000000' ],
-					'settings' => [],
+					'settings' => [ 'default_font_size' => 200 ],
 				],
 			],
 		];
@@ -97,7 +97,7 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '141.7323 70.8661 translate', $output );
-		$this->assertStringContainsString( '/Helvetica findfont 26.9291 scalefont setfont', $output );
+		$this->assertStringContainsString( '/Helvetica findfont 56.6929 scalefont setfont', $output );
 	}
 
 	#[Test]

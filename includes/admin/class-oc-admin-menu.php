@@ -117,11 +117,12 @@ class OC_Admin_Menu {
 		}
 
 		// Shared admin styles (static file, not webpack-built).
+		$admin_css_path = OC_PATH . 'assets/css/admin.css';
 		wp_enqueue_style(
 			'oc-admin',
 			OC_URL . 'assets/css/admin.css',
 			[],
-			OC_VERSION
+			file_exists( $admin_css_path ) ? (string) filemtime( $admin_css_path ) : OC_VERSION
 		);
 
 		// WordPress media uploader (used on mockups and fonts pages).

@@ -198,13 +198,13 @@
 	font-weight: 700;
 	box-shadow: 0 8px 24px rgba(79,70,229,.08);
 }
-.oc-customer-upload-stats {
+.oc-page .oc-customer-upload-stats {
 	display: grid;
 	grid-template-columns: repeat(4, minmax(0, 1fr));
 	gap: 14px;
 	margin-bottom: 20px;
 }
-.oc-customer-upload-stat {
+.oc-page .oc-customer-upload-stat {
 	min-height: 86px;
 	padding: 16px;
 	border: 1px solid var(--oc-gray-200);
@@ -249,14 +249,14 @@
 	font-size: 12px;
 	color: var(--oc-gray-500);
 }
-.oc-customer-upload-grid {
+.oc-page .oc-customer-upload-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
 	gap: 18px;
 	padding: 22px;
 	background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
 }
-.oc-customer-upload-card {
+.oc-page .oc-customer-upload-card {
 	border: 1px solid var(--oc-gray-200);
 	border-radius: 16px;
 	background: var(--oc-white);
@@ -264,7 +264,7 @@
 	box-shadow: 0 1px 2px rgba(15,23,42,.05);
 	transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
 }
-.oc-customer-upload-card:hover {
+.oc-page .oc-customer-upload-card:hover {
 	transform: translateY(-2px);
 	border-color: var(--oc-primary-border);
 	box-shadow: 0 16px 36px rgba(15,23,42,.10);
@@ -1585,6 +1585,19 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	border-radius: var(--oc-radius);
 	overflow: hidden;
 	margin-top: 12px;
+}
+
+.oc-design-editor,
+.oc-design-editor * {
+	scrollbar-width: none !important;
+	-ms-overflow-style: none !important;
+}
+
+.oc-design-editor::-webkit-scrollbar,
+.oc-design-editor *::-webkit-scrollbar {
+	width: 0 !important;
+	height: 0 !important;
+	display: none !important;
 }
 
 /* Left and right panels */
