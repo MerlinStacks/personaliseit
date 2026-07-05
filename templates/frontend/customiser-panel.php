@@ -191,7 +191,6 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'image' || $layer->type === 'clipmask' ) : ?>
 								<div class="oc-artwork-wrap">
-									<?php OC_Tooltips::render( 'upload-' . $layer->id, sprintf( 'clipmask' === $layer->type ? __( 'Upload your photo. It will be clipped to the configured mask shape in previews and print files. PNG or JPG up to %d MB.', 'overcustomise' ) : __( 'Upload your design artwork. SVG, PNG, or JPG up to %d MB.', 'overcustomise' ), (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ) ); ?>
 									<div class="oc-upload-zone"
 										data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 								</div>
@@ -231,7 +230,6 @@ foreach ( $layers as $layer ) {
 								}
 								sort( $group_names );
 								?>
-								<?php OC_Tooltips::render( 'clipart-' . $layer->id, __( 'Select a pre-made design element to add to your product.', 'overcustomise' ) ); ?>
 								<?php if ( count( $clipart_group_ids ) !== 1 ) : ?>
 									<div class="oc-clipart-filters" data-oc-clipart-filters="<?php echo esc_attr( $layer->id ); ?>">
 										<input type="search" class="oc-clipart-search" placeholder="<?php esc_attr_e( 'Search clipart…', 'overcustomise' ); ?>" data-oc-clipart-search="<?php echo esc_attr( $layer->id ); ?>" />
@@ -258,8 +256,7 @@ foreach ( $layers as $layer ) {
 											data-oc-clipart-recolourable="<?php echo 'svg' === strtolower( (string) $ci->file_type ) ? '1' : '0'; ?>"
 											data-oc-clipart-groups="<?php echo esc_attr( $ci_groups_attr ); ?>"
 											aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart', 'overcustomise' ), $ci->name ) ); ?>"
-											aria-pressed="false"
-											title="<?php echo esc_attr( $ci->name ); ?>">
+											aria-pressed="false">
 											<img src="<?php echo esc_url( $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
 										</button>
 									<?php endforeach; ?>
@@ -270,13 +267,12 @@ foreach ( $layers as $layer ) {
 
 								<?php if ( ! $is_engraving && $allow_colour_change ) : ?>
 									<div class="oc-control-group">
-										<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?><?php OC_Tooltips::render( 'clipart-color-' . $layer->id, __( 'Available for SVG clipart where recolouring is possible.', 'overcustomise' ) ); ?></label>
+										<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?></label>
 										<?php if ( ! empty( $layer_colours ) ) : ?>
 											<div class="oc-colour-swatches">
 												<?php foreach ( $layer_colours as $colour ) : ?>
 												<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
 													style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-													title="<?php echo esc_attr( $colour->name ); ?>"
 													aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart colour', 'overcustomise' ), $colour->name ) ); ?>"
 													aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
 													data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
@@ -294,7 +290,6 @@ foreach ( $layers as $layer ) {
 								<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'lineart' && ! $is_engraving ) : ?>
-								<?php OC_Tooltips::render( 'lineart-' . $layer->id, __( 'Choose a solid colour background for this area.', 'overcustomise' ) ); ?>
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
@@ -302,7 +297,6 @@ foreach ( $layers as $layer ) {
 											<?php foreach ( $layer_colours as $colour ) : ?>
 											<button type="button" class="oc-colour-swatch"
 												style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-												title="<?php echo esc_attr( $colour->name ); ?>"
 												aria-label="<?php echo esc_attr( sprintf( __( 'Select %s', 'overcustomise' ), $colour->name ) ); ?>"
 												aria-pressed="false"
 												data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
@@ -369,13 +363,12 @@ foreach ( $layers as $layer ) {
 							<!-- Colour picker (text / textarea) — skipped for engraving. -->
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! $is_engraving && $allow_colour_change ) : ?>
 								<div class="oc-control-group">
-									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?><?php OC_Tooltips::render( 'color-' . $layer->id, __( 'Pick a colour from the options below.', 'overcustomise' ) ); ?></label>
+									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
 										<div class="oc-colour-swatches">
 											<?php foreach ( $layer_colours as $colour ) : ?>
 										<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
 											style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-											title="<?php echo esc_attr( $colour->name ); ?>"
 											aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
 											aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
 											data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
