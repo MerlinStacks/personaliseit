@@ -160,7 +160,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
+		$this->assertStringContainsString( '1.2000 2.4001 translate', $output );
 		$this->assertStringNotContainsString( ' rotate', $output );
 	}
 
@@ -195,7 +195,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
+		$this->assertStringContainsString( '1.2000 2.4001 translate', $output );
 		$this->assertStringContainsString( '15.0000 rotate', $output );
 	}
 

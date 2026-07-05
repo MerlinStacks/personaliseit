@@ -108,7 +108,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
 			if ( 0.0 !== $bounds_rotation ) {
-				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, $bounds_rotation );
+				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, -$bounds_rotation );
 			}
 			$rotation = self::layer_rotation( $layer, $input, $settings );
 
