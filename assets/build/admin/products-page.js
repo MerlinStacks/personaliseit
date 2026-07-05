@@ -123,10 +123,6 @@
       id: 'properties',
       label: 'Properties',
       icon: '\u2699'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
     }],
     textarea: [{
       id: 'general',
@@ -144,10 +140,6 @@
       id: 'properties',
       label: 'Properties',
       icon: '\u2699'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
     }],
     image: [{
       id: 'general',
@@ -742,6 +734,26 @@
     if (!groups.length) return '<span class="oc-settings-empty">No groups created yet.</span>';
     return '<div class="oc-group-checks">' + groups.map(g => '<label class="oc-group-check-item"><input type="checkbox" class="' + cls + '" value="' + esc(g.id) + '"' + (selected.indexOf(Number(g.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(g.name) + '</span></label>').join('') + '</div>';
   }
+  function linkGroupOptions(current) {
+    const groups = [];
+    areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        const group = normaliseLinkGroup(layer.settings?.link_group);
+        if (group && groups.indexOf(group) === -1) groups.push(group);
+      });
+    });
+    current = normaliseLinkGroup(current);
+    if (current && groups.indexOf(current) === -1) groups.push(current);
+    return groups.sort((a, b) => a.localeCompare(b));
+  }
+  function linkGroupField(current) {
+    const groups = linkGroupOptions(current);
+    current = normaliseLinkGroup(current);
+    if (!groups.length) {
+      return '<input type="text" id="oc-set-link-group" class="oc-input" style="width:100%;" placeholder="Create a link group, e.g. name" value="" />';
+    }
+    return '<select id="oc-set-link-group" class="oc-input" style="width:100%;">' + '<option value="">No link group</option>' + groups.map(group => '<option value="' + esc(group) + '"' + (group === current ? ' selected' : '') + '>' + esc(group) + '</option>').join('') + '<option value="__new">Create new link group...</option>' + '</select>' + '<input type="text" id="oc-set-link-group-new" class="oc-input" style="width:100%;margin-top:8px;display:none;" placeholder="New link group name" value="" />';
+  }
   function fontOptions(fonts, selected) {
     return '<option value="0">Auto / first available</option>' + fonts.map(f => '<option value="' + esc(f.id) + '"' + (Number(selected) === Number(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('');
   }
@@ -763,7 +775,7 @@
     const isEngraving = area && area.method === 'engraving';
     switch (tabId) {
       case 'general':
-        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', '<input type="text" id="oc-set-link-group" class="oc-input" style="width:100%;" placeholder="e.g. name" value="' + esc(s.link_group || '') + '" />') + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
+        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
@@ -781,7 +793,7 @@
       case 'validation':
         return toggleField('Required field', 'oc-set-required', s.required);
       case 'properties':
-        return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Font', 'oc-set-allow-font-change', s.allow_font_change !== false) + (isEngraving ? '' : toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false)) + toggleField('Size', 'oc-set-allow-size-change', !!s.allow_size_change);
+        return toggleField('Required field', 'oc-set-required', s.required) + '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Font', 'oc-set-allow-font-change', s.allow_font_change !== false) + (isEngraving ? '' : toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false)) + toggleField('Size', 'oc-set-allow-size-change', !!s.allow_size_change);
       default:
         return '';
     }
@@ -797,7 +809,7 @@
       markDirty();
     });
     ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', syncBoundsFromInputs);
+      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs('oc-layer'));
     });
     document.getElementById('oc-set-default-text')?.addEventListener('input', e => {
       s.default_text = e.target.value;
@@ -805,7 +817,25 @@
       renderHiddenFields();
       markDirty();
     });
-    document.getElementById('oc-set-link-group')?.addEventListener('input', e => {
+    const linkGroupControl = document.getElementById('oc-set-link-group');
+    const newLinkGroupControl = document.getElementById('oc-set-link-group-new');
+    linkGroupControl?.addEventListener(linkGroupControl.tagName === 'SELECT' ? 'change' : 'input', e => {
+      if (e.target.value === '__new') {
+        if (newLinkGroupControl) {
+          newLinkGroupControl.style.display = '';
+          newLinkGroupControl.focus();
+          s.link_group = normaliseLinkGroup(newLinkGroupControl.value);
+        }
+      } else {
+        if (newLinkGroupControl) {
+          newLinkGroupControl.style.display = 'none';
+        }
+        s.link_group = normaliseLinkGroup(e.target.value);
+      }
+      renderHiddenFields();
+      markDirty();
+    });
+    newLinkGroupControl?.addEventListener('input', e => {
       s.link_group = normaliseLinkGroup(e.target.value);
       renderHiddenFields();
       markDirty();
@@ -1444,12 +1474,12 @@
     });
     ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => {
-        syncBoundsFromInputs();
+        syncBoundsFromInputs('oc-prop');
         markDirty();
       });
     });
     ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', syncBoundsFromInputs);
+      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs('oc-layer'));
     });
 
     // Mockup
@@ -1835,17 +1865,21 @@
     if (drag) snapshot(); // snapshot after every move/resize
     drag = null;
   }
-  function syncBoundsFromInputs() {
+  function syncBoundsFromInputs(prefix = '') {
     const area = areas[selectedIndex];
     if (!area) return;
-    const layer = selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const layer = prefix === 'oc-layer' && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
     const entity = layer || area;
-    const prefix = layer ? 'oc-layer' : 'oc-prop';
-    entity.x = parseInt(document.getElementById(prefix + '-x')?.value || 0, 10);
-    entity.y = parseInt(document.getElementById(prefix + '-y')?.value || 0, 10);
-    entity.w = Math.max(1, parseInt(document.getElementById(prefix + '-w')?.value || 1, 10));
-    entity.h = Math.max(1, parseInt(document.getElementById(prefix + '-h')?.value || 1, 10));
-    if (!layer) entity.rotation = normaliseRotation(document.getElementById('oc-prop-rotation')?.value || 0);
+    const inputPrefix = layer ? 'oc-layer' : 'oc-prop';
+    const readInt = (id, fallback) => {
+      const value = parseInt(document.getElementById(id)?.value || fallback, 10);
+      return Number.isFinite(value) ? value : fallback;
+    };
+    entity.x = readInt(inputPrefix + '-x', entity.x || 0);
+    entity.y = readInt(inputPrefix + '-y', entity.y || 0);
+    entity.w = Math.max(1, readInt(inputPrefix + '-w', entity.w || 1));
+    entity.h = Math.max(1, readInt(inputPrefix + '-h', entity.h || 1));
+    if (!layer) entity.rotation = normaliseRotation(readInt('oc-prop-rotation', entity.rotation || 0));
     if (layer) clampLayerToArea(layer, area);
     updateBoundsBox();
     renderGhosts();

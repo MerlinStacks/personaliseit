@@ -131,6 +131,28 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function clipart_layers_are_lowered_to_match_embroidery_preview_overlap(): void {
+		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
+		$source      = $source_base . '.svg';
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="#000000"/></svg>' );
+
+		$lines = [];
+		$layer = [
+			'type'        => 'clipart',
+			'artworkPath' => $source,
+			'input'       => [],
+		];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_artwork' );
+		$method->invokeArgs( null, [ &$lines, $layer, -10.0, -10.0, 20.0, 20.0, 'contain' ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '-10.0000 7.2000 translate', $output );
+
+		@unlink( $source_base );
+		@unlink( $source );
+	}
+
+	#[Test]
 	public function layer_export_uses_print_area_rotation_for_position_only(): void {
 		$lines = [];
 		$area  = (object) [
