@@ -6,8 +6,21 @@ $vendorDir = dirname(__DIR__);
 $baseDir = dirname($vendorDir);
 
 return array(
-    'Symfony\\Polyfill\\Php80\\' => array($vendorDir . '/symfony/polyfill-php80'),
-    'Psr\\Http\\Message\\' => array($vendorDir . '/psr/http-factory/src', $vendorDir . '/psr/http-message/src'),
-    'Intervention\\Image\\' => array($vendorDir . '/intervention/image/src/Intervention/Image'),
-    'GuzzleHttp\\Psr7\\' => array($vendorDir . '/guzzlehttp/psr7/src'),
+    'PhpParser\\' => array($vendorDir . '/nikic/php-parser/lib/PhpParser'),
+    'Intervention\\Image\\' => array($vendorDir . '/intervention/image/src'),
+    'Intervention\\Gif\\' => array($vendorDir . '/intervention/gif/src'),
+    'DeepCopy\\' => array($vendorDir . '/myclabs/deep-copy/src/DeepCopy'),
+    'Com\\Tecnick\\Unicode\\Data\\' => array($vendorDir . '/tecnickcom/tc-lib-unicode-data/src'),
+    'Com\\Tecnick\\Unicode\\' => array($vendorDir . '/tecnickcom/tc-lib-unicode/src'),
+    'Com\\Tecnick\\Pdf\\Parser\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-parser/src'),
+    'Com\\Tecnick\\Pdf\\Page\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-page/src'),
+    'Com\\Tecnick\\Pdf\\Image\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-image/src'),
+    'Com\\Tecnick\\Pdf\\Graph\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-graph/src'),
+    'Com\\Tecnick\\Pdf\\Font\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-font/src'),
+    'Com\\Tecnick\\Pdf\\Filter\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-filter/src'),
+    'Com\\Tecnick\\Pdf\\Encrypt\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf-encrypt/src'),
+    'Com\\Tecnick\\Pdf\\' => array($vendorDir . '/tecnickcom/tc-lib-pdf/src'),
+    'Com\\Tecnick\\File\\' => array($vendorDir . '/tecnickcom/tc-lib-file/src'),
+    'Com\\Tecnick\\Color\\' => array($vendorDir . '/tecnickcom/tc-lib-color/src'),
+    'Com\\Tecnick\\Barcode\\' => array($vendorDir . '/tecnickcom/tc-lib-barcode/src'),
 );

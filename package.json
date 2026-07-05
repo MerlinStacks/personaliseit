@@ -10,15 +10,15 @@
     "lint:css": "wp-scripts lint-style"
   },
   "dependencies": {
-    "@uppy/core": "^4.3.0",
-    "@uppy/drag-drop": "^4.0.0",
-    "@uppy/xhr-upload": "^4.2.0",
-    "fabric": "^6.5.0",
+    "@uppy/core": "^5.2.0",
+    "@uppy/drag-drop": "^5.1.0",
+    "@uppy/xhr-upload": "^5.2.0",
+    "fabric": "^7.4.0",
     "fonteditor-core": "^2.6.3",
     "imagetracerjs": "^1.2.6"
   },
   "devDependencies": {
-    "@wordpress/scripts": "^30.0.0"
+    "@wordpress/scripts": "^32.6.0"
   },
   "wp-scripts": {
     "webpack-config": "./webpack.config.js"

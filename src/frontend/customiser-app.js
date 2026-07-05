@@ -12,8 +12,8 @@ import Uppy      from '@uppy/core';
 import DragDrop  from '@uppy/drag-drop';
 import XHRUpload from '@uppy/xhr-upload';
 
-import '@uppy/core/dist/style.min.css';
-import '@uppy/drag-drop/dist/style.min.css';
+import '@uppy/core/css/style.min.css';
+import '@uppy/drag-drop/css/style.min.css';
 import './customiser-app.scss';
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
