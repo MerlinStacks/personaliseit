@@ -94,7 +94,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function layer_export_rotates_positions_to_match_preview_bounds(): void {
+	public function layer_export_ignores_print_area_rotation_for_upright_print_file(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -123,8 +123,43 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '22.7991 21.6000 translate', $output );
-		$this->assertStringContainsString( '-90.0000 rotate', $output );
+		$this->assertStringContainsString( '2.4009 22.8019 translate', $output );
+		$this->assertStringNotContainsString( ' rotate', $output );
+	}
+
+	#[Test]
+	public function layer_export_applies_explicit_layer_rotation_only(): void {
+		$lines = [];
+		$area  = (object) [
+			'canvas_unit' => 'px',
+			'canvas_x'    => 0,
+			'canvas_y'    => 0,
+			'canvas_w'    => 100,
+			'canvas_h'    => 100,
+		];
+		$data  = [
+			'text'   => '',
+			'bounds' => [ 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 100, 'rotation' => 90 ],
+			'layers' => [
+				[
+					'type'     => 'text',
+					'x'        => 0,
+					'y'        => 0,
+					'w'        => 20,
+					'h'        => 10,
+					'rotation' => 15,
+					'input'    => [ 'value' => 'Rotated', 'colorHex' => '#000000' ],
+					'settings' => [],
+				],
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' );
+		$method->invokeArgs( null, [ &$lines, $area, $data ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '2.4009 22.8019 translate', $output );
+		$this->assertStringContainsString( '15.0000 rotate', $output );
 	}
 
 	#[Test]

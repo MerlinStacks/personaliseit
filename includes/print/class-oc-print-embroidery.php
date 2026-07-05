@@ -85,7 +85,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
-		$rotation = (float) ( $bounds['rotation'] ?? 0 );
 		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
@@ -105,9 +104,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
-			if ( ! empty( $bounds['w'] ) && 0.0 !== $rotation ) {
-				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, $rotation );
-			}
+			$rotation = self::layer_rotation( $layer, $input, $settings );
 
 			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
 			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
@@ -121,7 +118,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$lines[] = 'gsave';
 			$lines[] = sprintf( '%.4F %.4F translate', $cx_pt, $cy_pt );
 			if ( 0.0 !== $rotation ) {
-				$lines[] = sprintf( '%.4F rotate', -$rotation );
+				$lines[] = sprintf( '%.4F rotate', $rotation );
 			}
 
 			switch ( $type ) {
@@ -1234,17 +1231,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return in_array( $normalised, [ '#fff', '#ffffff', 'white', 'rgb(255,255,255)', 'rgba(255,255,255,1)' ], true );
 	}
 
-	private static function rotated_layer_center( float $x, float $y, array $bounds, float $rotation ): array {
-		$cx  = (float) ( $bounds['x'] ?? 0 ) + (float) ( $bounds['w'] ?? 0 ) / 2;
-		$cy  = (float) ( $bounds['y'] ?? 0 ) + (float) ( $bounds['h'] ?? 0 ) / 2;
-		$rad = deg2rad( $rotation );
-		$dx  = $x - $cx;
-		$dy  = $y - $cy;
+	private static function layer_rotation( array $layer, array $input, array $settings ): float {
+		foreach ( [ $layer['rotation'] ?? null, $input['rotation'] ?? null, $settings['rotation'] ?? null ] as $value ) {
+			if ( is_numeric( $value ) ) {
+				$rotation = fmod( (float) $value, 360.0 );
+				return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
+			}
+		}
 
-		return [
-			$cx + $dx * cos( $rad ) - $dy * sin( $rad ),
-			$cy + $dx * sin( $rad ) + $dy * cos( $rad ),
-		];
+		return 0.0;
 	}
 
 	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {

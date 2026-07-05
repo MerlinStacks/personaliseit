@@ -145,6 +145,9 @@ class OC_Render_Spec {
 				'settings' => $settings,
 				'input'    => $input,
 			];
+			if ( isset( $layer->rotation ) ) {
+				$spec_layer['rotation'] = (float) $layer->rotation;
+			}
 
 			if ( ! empty( $input['attachmentId'] ) ) {
 				$spec_layer['artworkAttachmentId'] = (int) $input['attachmentId'];
