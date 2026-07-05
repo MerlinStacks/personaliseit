@@ -2038,6 +2038,8 @@ class OCCustomiser {
 	// ── Form submit — upload preview then proceed ──────────────────────────────
 
 	updateInputsFromDOM() {
+		this.syncInputsFromDOM();
+
 		for ( const layerIdStr in this.inputs ) {
 			const layerId = parseInt( layerIdStr, 10 );
 			const inp = this.inputs[ layerId ];
@@ -2082,6 +2084,54 @@ class OCCustomiser {
 		this.areas.forEach( ( _, i ) => this.redraw( i ) );
 	}
 
+	syncInputsFromDOM() {
+		this.areas.forEach( area => {
+			( area.layers || [] ).forEach( layer => {
+				const layerId = layer.id;
+				if ( ! this.inputs[ layerId ] ) this.inputs[ layerId ] = {};
+				const input = this.inputs[ layerId ];
+
+				const textEl = document.querySelector( `[data-oc-layer-text="${ layerId }"]` );
+				if ( textEl ) {
+					const limit = this.charLimitForLayer( layerId );
+					input.value = limit > 0 ? this.truncateText( textEl.value, limit ) : textEl.value;
+				}
+
+				const spotifyEl = document.querySelector( `[data-oc-layer-spotify="${ layerId }"]` );
+				if ( spotifyEl ) {
+					input.value = spotifyEl.value;
+				}
+
+				const fontEl = document.querySelector( `[data-oc-layer-font="${ layerId }"]` );
+				if ( fontEl ) {
+					input.fontId = parseInt( fontEl.value, 10 ) || 0;
+				}
+
+				const sizeEl = document.querySelector( `[data-oc-layer-font-size="${ layerId }"]` );
+				if ( sizeEl ) {
+					input.fontSize = Math.max( 1, parseInt( sizeEl.value, 10 ) || 1 );
+				}
+
+				const colorEl = document.querySelector( `[data-oc-layer-color="${ layerId }"]` );
+				if ( colorEl ) {
+					input.colorHex = colorEl.value;
+				} else {
+					const selectedSwatch = document.querySelector( `[data-oc-layer-swatch="${ layerId }"].oc-selected` );
+					if ( selectedSwatch?.dataset.hex ) input.colorHex = selectedSwatch.dataset.hex;
+				}
+
+				const selectedClipart = document.querySelector( `[data-oc-layer-clipart="${ layerId }"].oc-selected` );
+				if ( selectedClipart ) {
+					input.clipartId = parseInt( selectedClipart.dataset.ocClipart, 10 ) || 0;
+					input.clipartUrl = selectedClipart.dataset.ocClipartUrl || '';
+					input.clipartRecolourable = selectedClipart.dataset.ocClipartRecolourable === '1';
+				}
+			} );
+		} );
+
+		this.updateHiddenField();
+	}
+
 	setupFormSubmit() {
 		const form = document.querySelector( 'form.cart' );
 		if ( ! form ) return;
@@ -2089,6 +2139,7 @@ class OCCustomiser {
 		if ( this.editMode ) {
 			form.addEventListener( 'submit', async e => {
 				e.preventDefault();
+				this.syncInputsFromDOM();
 
 				const preflight = await this.runPreflight();
 				this.renderPreflightMessages( preflight.errors, preflight.warnings );
@@ -2156,6 +2207,7 @@ class OCCustomiser {
 				return; // preview already saved — let submit through
 			}
 			e.preventDefault();
+			this.syncInputsFromDOM();
 
 			const preflight = await this.runPreflight();
 			this.renderPreflightMessages( preflight.errors, preflight.warnings );

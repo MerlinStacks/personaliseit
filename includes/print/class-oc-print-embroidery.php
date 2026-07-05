@@ -85,9 +85,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
-		$area_w = isset( $bounds['w'] ) ? (float) $bounds['w'] : (float) ( $area->canvas_w ?? 1 );
-		$area_h = isset( $bounds['h'] ) ? (float) $bounds['h'] : (float) ( $area->canvas_h ?? 1 );
-		$rotation = isset( $bounds['rotation'] ) ? (float) $bounds['rotation'] : (float) ( $area->canvas_rotation ?? 0 );
 		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
 
 		foreach ( $area_data['layers'] as $layer ) {
@@ -102,7 +99,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_y  = (float) ( $layer['y'] ?? 0 );
 			$layer_w  = max( 1.0, (float) ( $layer['w'] ?? 1 ) );
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
-			[ $center_x, $center_y ] = self::rotated_layer_center( $layer_x, $layer_y, $layer_w, $layer_h, $area_x, $area_y, $area_w, $area_h, $rotation );
+			$center_x = $layer_x + $layer_w / 2;
+			$center_y = $layer_y + $layer_h / 2;
 
 			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
 			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
@@ -115,9 +113,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$lines[] = 'gsave';
 			$lines[] = sprintf( '%.4F %.4F translate', $cx_pt, $cy_pt );
-			if ( 0.0 !== $rotation ) {
-				$lines[] = sprintf( '%.4F rotate', -$rotation );
-			}
 
 			switch ( $type ) {
 				case 'text':
@@ -151,26 +146,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$lines[] = 'grestore';
 		}
-	}
-
-	/** Match the browser preview's rotatedLayerCenter() calculation. */
-	private static function rotated_layer_center( float $layer_x, float $layer_y, float $layer_w, float $layer_h, float $area_x, float $area_y, float $area_w, float $area_h, float $rotation ): array {
-		$x = $layer_x + $layer_w / 2;
-		$y = $layer_y + $layer_h / 2;
-		if ( $area_w <= 0 || 0.0 === $rotation ) {
-			return [ $x, $y ];
-		}
-
-		$cx  = $area_x + $area_w / 2;
-		$cy  = $area_y + $area_h / 2;
-		$rad = deg2rad( $rotation );
-		$dx  = $x - $cx;
-		$dy  = $y - $cy;
-
-		return [
-			$cx + $dx * cos( $rad ) - $dy * sin( $rad ),
-			$cy + $dx * sin( $rad ) + $dy * cos( $rad ),
-		];
 	}
 
 	/** Append legacy single-text/single-artwork payloads. */
