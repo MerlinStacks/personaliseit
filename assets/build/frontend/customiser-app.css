@@ -1098,8 +1098,8 @@
     touch-action: manipulation;
   }
   .oc-customiser-panel .oc-clipart-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--oc-gap-sm);
+    grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+    gap: var(--oc-gap-xs);
   }
   .oc-customiser-panel .oc-clipart-item {
     min-height: 72px;
