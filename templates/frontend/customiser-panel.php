@@ -82,6 +82,7 @@ foreach ( $layers as $layer ) {
 	</div>
 
 	<!-- Controls (one block per area) -->
+	<?php $rendered_link_groups = []; ?>
 	<?php foreach ( $areas as $i => $area ) :
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
 		if ( empty( $area_layers ) ) continue;
@@ -96,6 +97,12 @@ foreach ( $layers as $layer ) {
 				foreach ( array_values( $area_layers ) as $layer ) :
 					if ( (bool) ( $layer->locked ?? false ) ) continue; // Locked layers: no customer input
 					$s         = json_decode( $layer->settings ?: '{}', true ) ?: [];
+					$link_group = trim( (string) ( $s['link_group'] ?? '' ) );
+					if ( '' !== $link_group ) {
+						$link_group_key = (string) $layer->type . '|' . $link_group;
+						if ( isset( $rendered_link_groups[ $link_group_key ] ) ) continue;
+						$rendered_link_groups[ $link_group_key ] = true;
+					}
 					$required  = ! empty( $s['required'] );
 					$char_lim  = (int) ( $s['char_limit'] ?? 0 );
 					$default   = $s['default_text'] ?? '';
@@ -112,6 +119,7 @@ foreach ( $layers as $layer ) {
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$cg_ids    = $s['colour_groups'] ?? [];
 					$fg_ids    = $s['font_groups']   ?? [];
+					$clipart_group_ids = array_values( array_filter( array_map( 'absint', is_array( $s['clipart_groups'] ?? [] ) ? $s['clipart_groups'] : [] ) ) );
 
 					// Colour list for this layer.
 					$cg_ids = array_values( array_filter( array_map( 'absint', is_array( $cg_ids ) ? $cg_ids : [] ) ) );
@@ -129,6 +137,9 @@ foreach ( $layers as $layer ) {
 					// (matching the Font row), so we suppress it in the section header to avoid
 					// duplication — only the type badge remains.
 					$inline_label_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify' ];
+					if ( 'clipart' === $layer->type && 1 === count( $clipart_group_ids ) ) {
+						$inline_label_types[] = 'clipart';
+					}
 					$show_header_label  = ! in_array( $layer->type, $inline_label_types, true );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					?>
@@ -188,7 +199,6 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
 								<?php
-								$clipart_group_ids = $s['clipart_groups'] ?? [];
 								if ( ! empty( $clipart_group_ids ) ) {
 									global $wpdb;
 									$phs   = implode( ',', array_fill( 0, count( $clipart_group_ids ), '%d' ) );
@@ -223,7 +233,7 @@ foreach ( $layers as $layer ) {
 								<?php OC_Tooltips::render( 'clipart-' . $layer->id, __( 'Select a pre-made design element to add to your product.', 'overcustomise' ) ); ?>
 								<div class="oc-clipart-filters" data-oc-clipart-filters="<?php echo esc_attr( $layer->id ); ?>">
 									<input type="search" class="oc-clipart-search" placeholder="<?php esc_attr_e( 'Search clipart…', 'overcustomise' ); ?>" data-oc-clipart-search="<?php echo esc_attr( $layer->id ); ?>" />
-									<?php if ( ! empty( $group_names ) ) : ?>
+									<?php if ( count( $clipart_group_ids ) !== 1 && ! empty( $group_names ) ) : ?>
 									<select class="oc-clipart-category" data-oc-clipart-category="<?php echo esc_attr( $layer->id ); ?>">
 										<option value=""><?php esc_html_e( 'All categories', 'overcustomise' ); ?></option>
 										<?php foreach ( $group_names as $gn ) : ?>
