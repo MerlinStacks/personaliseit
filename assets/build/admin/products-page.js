@@ -1054,7 +1054,11 @@
       if (noThumb) noThumb.style.display = '';
     }
     if (removeBtn) removeBtn.style.display = area.mockupUrl ? '' : 'none';
-    if (chooseBtn) chooseBtn.textContent = area.mockupUrl ? 'Change Mockup' : 'Choose Mockup';
+    if (chooseBtn) {
+      const chooseLabel = area.mockupUrl ? 'Change Mockup' : 'Choose Mockup';
+      chooseBtn.setAttribute('aria-label', chooseLabel);
+      chooseBtn.setAttribute('title', chooseLabel);
+    }
     if (dot) dot.style.background = areaColor(selectedIndex);
   }
 

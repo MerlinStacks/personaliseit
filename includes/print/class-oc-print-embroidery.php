@@ -225,8 +225,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		if ( $centered ) {
 			$align = (string) ( $settings['alignment'] ?? 'center' );
-			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
-			$lines[] = '(' . self::ps_escape( $text ) . ')' . self::eps_text_show_command( $align );
+			self::append_eps_fitted_text_line( $lines, $text, $align, self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2, $w_pt );
 		} else {
 			$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
 			$lines[] = '(' . self::ps_escape( $text ) . ') show';
@@ -250,6 +249,20 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'left'  => ' show',
 			default => ' dup stringwidth pop 2 div neg 0 rmoveto show',
 		};
+	}
+
+	/** Append editable text scaled to the layer width so fallback PostScript metrics match preview placement. */
+	private static function append_eps_fitted_text_line( array &$lines, string $text, string $align, float $x_pt, float $baseline_pt, float $w_pt ): void {
+		$target_w = max( 1.0, $w_pt * 0.96 );
+		$escaped  = self::ps_escape( $text );
+
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $baseline_pt );
+		$lines[] = '/ocText (' . $escaped . ') def';
+		$lines[] = sprintf( 'ocText stringwidth pop dup 0 gt { %.4F exch div 1 scale } { pop } ifelse', $target_w );
+		$lines[] = '0 0 moveto';
+		$lines[] = 'ocText' . self::eps_text_show_command( $align );
+		$lines[] = 'grestore';
 	}
 
 	/** Return the selected font family for EPS consumers that have production fonts installed. */

@@ -812,12 +812,48 @@
 	align-items: center;
 	justify-content: center;
 	border-bottom: 1px solid var(--oc-gray-100);
+	position: relative;
 }
 .oc-mockup-thumb img {
 	max-width: 100%;
 	max-height: 160px;
 	display: block;
 	border-radius: 4px;
+}
+.oc-mockup-thumb-actions {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: flex;
+	gap: 6px;
+	z-index: 2;
+}
+.oc-icon-btn {
+	width: 30px;
+	height: 30px;
+	border: 1px solid rgba(15, 23, 42, .12);
+	border-radius: 999px;
+	background: rgba(255, 255, 255, .92);
+	box-shadow: 0 4px 12px rgba(15, 23, 42, .14);
+	color: var(--oc-gray-700);
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 14px;
+	line-height: 1;
+	padding: 0;
+}
+.oc-icon-btn:hover,
+.oc-icon-btn:focus {
+	background: var(--oc-white);
+	border-color: var(--oc-primary);
+	color: var(--oc-primary);
+}
+.oc-icon-btn--danger:hover,
+.oc-icon-btn--danger:focus {
+	border-color: var(--oc-danger);
+	color: var(--oc-danger);
 }
 .oc-mockup-body { padding: 12px; }
 .oc-mockup-dims {
@@ -1851,6 +1887,11 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	display: grid;
 	grid-template-columns: 1fr 1fr;
 	gap: 8px;
+}
+
+.oc-bounds-grid--area {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px 6px;
 }
 
 .oc-bounds-size-row {

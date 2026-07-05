@@ -749,17 +749,18 @@ class OC_Admin_Products {
 								<div class="oc-mockup-thumb" id="oc-mockup-thumb">
 									<img id="oc-mockup-thumb-img" src="" alt="" style="display:none;" />
 									<span id="oc-mockup-thumb-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mockup set', 'overcustomise' ); ?></span>
-								</div>
-								<div style="display:flex;gap:8px;margin-top:8px;">
-									<button type="button" id="oc-choose-mockup-btn" class="oc-btn oc-btn-secondary oc-btn-sm" style="flex:1;"><?php esc_html_e( 'Choose Mockup', 'overcustomise' ); ?></button>
-									<button type="button" id="oc-remove-mockup-btn" class="oc-btn oc-btn-secondary oc-btn-sm" style="display:none;"><?php esc_html_e( 'Remove', 'overcustomise' ); ?></button>
+									<div class="oc-mockup-thumb-actions">
+										<button type="button" id="oc-choose-mockup-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>">&#9998;</button>
+										<button type="button" id="oc-remove-mockup-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
+									</div>
 								</div>
 								<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;margin-bottom:8px;">
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
 								</div>
-								<div class="oc-bounds-grid">
+								<div class="oc-bounds-grid oc-bounds-grid--area">
 									<div class="oc-editor-field"><label>X</label><input type="number" id="oc-prop-x" class="oc-input" min="0" style="width:100%;" /></div>
 									<div class="oc-editor-field"><label>Y</label><input type="number" id="oc-prop-y" class="oc-input" min="0" style="width:100%;" /></div>
+									<div class="oc-editor-field"><label><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" style="width:100%;" /></div>
 									<div class="oc-bounds-size-row" style="display:flex;grid-column:1 / -1;gap:8px;align-items:flex-end;flex-wrap:nowrap;">
 										<div class="oc-editor-field" style="flex:1 1 0;min-width:0;margin-bottom:0;"><label>W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" style="width:100%;" /></div>
 										<div class="oc-editor-field" style="flex:1 1 0;min-width:0;margin-bottom:0;"><label>H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" style="width:100%;" /></div>
@@ -773,7 +774,6 @@ class OC_Admin_Products {
 											</select>
 										</div>
 									</div>
-									<div class="oc-editor-field"><label><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" style="width:100%;" /></div>
 								</div>
 								</div>
 						</div>
