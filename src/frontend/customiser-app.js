@@ -2094,7 +2094,9 @@ class OCCustomiser {
 				const textEl = document.querySelector( `[data-oc-layer-text="${ layerId }"]` );
 				if ( textEl ) {
 					const limit = this.charLimitForLayer( layerId );
-					input.value = limit > 0 ? this.truncateText( textEl.value, limit ) : textEl.value;
+					if ( textEl.value !== '' || input.value === undefined ) {
+						input.value = limit > 0 ? this.truncateText( textEl.value, limit ) : textEl.value;
+					}
 				}
 
 				const spotifyEl = document.querySelector( `[data-oc-layer-spotify="${ layerId }"]` );

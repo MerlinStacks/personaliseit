@@ -164,6 +164,7 @@ foreach ( $layers as $layer ) {
 									<div class="oc-input-wrap">
 										<input type="text"
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
+											value="<?php echo esc_attr( $default ); ?>"
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											autocomplete="off"
 											inputmode="text"
