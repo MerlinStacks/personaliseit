@@ -351,7 +351,7 @@ class OCCustomiser {
 
 		let dataUrl;
 		try {
-			dataUrl = this.capturePreviewDataUrl( canvas );
+			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
 		} catch ( e ) {
 			console.warn( '[OC] toDataURL failed — image may be cross-origin:', e.message );
 			return;
@@ -413,11 +413,6 @@ class OCCustomiser {
 		this._focusPreviewSlide = true;
 	}
 
-	capturePreviewDataUrl( canvas ) {
-		// Preserve transparent mockup pixels; JPEG flattening can turn them black in newer Fabric/browser paths.
-		return canvas.toDataURL( { format: 'png' } );
-	}
-
 	// ── Canvas initialisation ──────────────────────────────────────────────────
 
 	async initAllCanvases() {
@@ -462,11 +457,25 @@ class OCCustomiser {
 			return;
 		}
 
-		const scaleX   = displayW / ( area.mockupW || mockupImg.width || 1 );
-		const displayH = Math.round( ( area.mockupH || mockupImg.height ) * scaleX );
+		const mockupEl = mockupImg.getElement?.();
+		const sourceW  = mockupEl?.naturalWidth || mockupImg.width || area.mockupW || 1;
+		const sourceH  = mockupEl?.naturalHeight || mockupImg.height || area.mockupH || 1;
+		const coordW   = area.mockupW || sourceW;
+		const coordH   = area.mockupH || sourceH;
+		const scaleX   = displayW / coordW;
+		const displayH = Math.round( coordH * scaleX );
 		const canvas   = new StaticCanvas( canvasEl, { width: displayW, height: displayH } );
 
-		mockupImg.set( { left: 0, top: 0, scaleX, scaleY: scaleX, selectable: false } );
+		mockupImg.set( {
+			left: 0,
+			top: 0,
+			originX: 'left',
+			originY: 'top',
+			scaleX: displayW / sourceW,
+			scaleY: displayH / sourceH,
+			selectable: false,
+			evented: false,
+		} );
 		canvas.add( mockupImg );
 
 		// Dashed print-bounds guide.
@@ -2204,7 +2213,7 @@ class OCCustomiser {
 		const canvas = this.canvases[ this.activeArea ];
 		if ( canvas ) {
 			try {
-				return this.capturePreviewDataUrl( canvas );
+				return canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
 			} catch ( e ) {
 				// Fall back to the already-rendered preview image below.
 			}
@@ -2307,7 +2316,7 @@ class OCCustomiser {
 
 		let dataUrl;
 		try {
-			dataUrl = this.capturePreviewDataUrl( canvas );
+			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.85 } );
 		} catch ( e ) {
 			this._previewUrl = '';
 			this.updateHiddenField();
