@@ -85,6 +85,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
+		$area_w = isset( $bounds['w'] ) ? (float) $bounds['w'] : (float) ( $area->canvas_w ?? 1 );
+		$area_h = isset( $bounds['h'] ) ? (float) $bounds['h'] : (float) ( $area->canvas_h ?? 1 );
+		$rotation = isset( $bounds['rotation'] ) ? (float) $bounds['rotation'] : (float) ( $area->canvas_rotation ?? 0 );
 		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
 
 		foreach ( $area_data['layers'] as $layer ) {
@@ -99,8 +102,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_y  = (float) ( $layer['y'] ?? 0 );
 			$layer_w  = max( 1.0, (float) ( $layer['w'] ?? 1 ) );
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
-			$center_x = $layer_x + $layer_w / 2;
-			$center_y = $layer_y + $layer_h / 2;
+			[ $center_x, $center_y ] = self::rotated_layer_center( $layer_x, $layer_y, $layer_w, $layer_h, $area_x, $area_y, $area_w, $area_h, $rotation );
 
 			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
 			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
@@ -113,6 +115,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$lines[] = 'gsave';
 			$lines[] = sprintf( '%.4F %.4F translate', $cx_pt, $cy_pt );
+			if ( 0.0 !== $rotation ) {
+				$lines[] = sprintf( '%.4F rotate', -$rotation );
+			}
 
 			switch ( $type ) {
 				case 'text':
@@ -146,6 +151,26 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$lines[] = 'grestore';
 		}
+	}
+
+	/** Match the browser preview's rotatedLayerCenter() calculation. */
+	private static function rotated_layer_center( float $layer_x, float $layer_y, float $layer_w, float $layer_h, float $area_x, float $area_y, float $area_w, float $area_h, float $rotation ): array {
+		$x = $layer_x + $layer_w / 2;
+		$y = $layer_y + $layer_h / 2;
+		if ( $area_w <= 0 || 0.0 === $rotation ) {
+			return [ $x, $y ];
+		}
+
+		$cx  = $area_x + $area_w / 2;
+		$cy  = $area_y + $area_h / 2;
+		$rad = deg2rad( $rotation );
+		$dx  = $x - $cx;
+		$dy  = $y - $cy;
+
+		return [
+			$cx + $dx * cos( $rad ) - $dy * sin( $rad ),
+			$cy + $dx * sin( $rad ) + $dy * cos( $rad ),
+		];
 	}
 
 	/** Append legacy single-text/single-artwork payloads. */
@@ -263,8 +288,22 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return false;
 		}
 
-		$img_w = max( 1, min( 1600, (int) round( $w_pt / 72 * 300 ) ) );
-		$img_h = max( 1, min( 1600, (int) round( $h_pt / 72 * 300 ) ) );
+		$font_size_px = max( 1, $font_size_pt / 72 * 300 );
+		$line_height  = $font_size_px * 1.18;
+		$text_lines   = preg_split( '/\R/', $text ) ?: [ $text ];
+		$text_width   = 1.0;
+		foreach ( $text_lines as $line ) {
+			$box = imagettfbbox( $font_size_px, 0, $font_path, (string) $line );
+			if ( is_array( $box ) ) {
+				$text_width = max( $text_width, abs( (float) $box[2] - (float) $box[0] ) );
+			}
+		}
+
+		$base_w  = max( 1, (int) round( $w_pt / 72 * 300 ) );
+		$base_h  = max( 1, (int) round( $h_pt / 72 * 300 ) );
+		$padding = max( 8, (int) ceil( $font_size_px * 0.4 ) );
+		$img_w   = max( $base_w, min( 2400, (int) ceil( $text_width + $padding * 2 ) ) );
+		$img_h   = max( $base_h, min( 1600, (int) ceil( count( $text_lines ) * $line_height + $padding * 2 ) ) );
 		$image = imagecreatetruecolor( $img_w, $img_h );
 		imagealphablending( $image, false );
 		imagesavealpha( $image, true );
@@ -274,9 +313,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		[ $r, $g, $b ] = self::hex_to_rgb( self::normalise_hex( $hex ) );
 		$colour        = imagecolorallocate( $image, $r, $g, $b );
-		$font_size_px  = max( 1, $font_size_pt / 72 * 300 );
-		$line_height   = $font_size_px * 1.18;
-		$text_lines    = preg_split( '/\R/', $text ) ?: [ $text ];
 		$total_height  = count( $text_lines ) * $line_height;
 		$baseline_y    = ( $img_h - $total_height ) / 2 + $font_size_px;
 		$align         = (string) ( $settings['alignment'] ?? 'center' );
@@ -291,8 +327,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$text_w = abs( (float) $box[2] - (float) $box[0] );
 			$x      = match ( $align ) {
-				'left'  => 0.0,
-				'right' => max( 0.0, $img_w - $text_w ),
+				'left'  => (float) $padding,
+				'right' => max( 0.0, $img_w - $text_w - $padding ),
 				default => max( 0.0, ( $img_w - $text_w ) / 2 ),
 			};
 			$y      = $baseline_y + $index * $line_height;
@@ -301,10 +337,61 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
 		$lines[] = '%%OCTextFont: ' . self::eps_comment( (string) ( $font->name ?? '' ) );
-		self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
+		$draw_w_pt = $img_w / 300 * 72;
+		$draw_h_pt = $img_h / 300 * 72;
+		$draw_x_pt = match ( $align ) {
+			'left'  => $x_pt,
+			'right' => $x_pt + $w_pt - $draw_w_pt,
+			default => $x_pt - ( $draw_w_pt - $w_pt ) / 2,
+		};
+		$draw_y_pt = $y_pt - ( $draw_h_pt - $h_pt ) / 2;
+		self::append_eps_mask_image( $lines, $image, $hex, $draw_x_pt, $draw_y_pt, $draw_w_pt, $draw_h_pt );
 		imagedestroy( $image );
 
 		return true;
+	}
+
+	/** Append a single-colour image mask, preserving transparent text backgrounds in EPS. */
+	private static function append_eps_mask_image( array &$lines, $image, string $hex, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$src_w = imagesx( $image );
+		$src_h = imagesy( $image );
+		if ( $src_w < 1 || $src_h < 1 ) {
+			return;
+		}
+
+		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
+		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
+		$lines[] = sprintf( '%.4F %.4F scale', $w_pt, $h_pt );
+		$lines[] = '/picstr ' . (int) ceil( $src_w / 8 ) . ' string def';
+		$lines[] = sprintf( '%d %d true [%d 0 0 -%d 0 %d]', $src_w, $src_h, $src_w, $src_h, $src_h );
+		$lines[] = '{ currentfile picstr readhexstring pop } imagemask';
+
+		for ( $y = 0; $y < $src_h; $y++ ) {
+			$row = '';
+			$byte = 0;
+			$bit  = 7;
+			for ( $x = 0; $x < $src_w; $x++ ) {
+				$rgba  = imagecolorat( $image, $x, $y );
+				$alpha = ( $rgba & 0x7F000000 ) >> 24;
+				if ( $alpha < 96 ) {
+					$byte |= 1 << $bit;
+				}
+				$bit--;
+				if ( $bit < 0 ) {
+					$row .= sprintf( '%02X', $byte );
+					$byte = 0;
+					$bit  = 7;
+				}
+			}
+			if ( $bit < 7 ) {
+				$row .= sprintf( '%02X', $byte );
+			}
+			$lines[] = $row;
+		}
+
+		$lines[] = 'grestore';
 	}
 
 	/** Append a filled vector rectangle for simple line-art colour blocks. */

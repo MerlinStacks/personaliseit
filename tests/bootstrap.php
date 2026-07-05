@@ -194,6 +194,7 @@ require_once OC_PATH . 'includes/class-oc-command-runner.php';
 require_once OC_PATH . 'includes/class-oc-upload-handler.php';
 require_once OC_PATH . 'includes/class-oc-render-spec.php';
 require_once OC_PATH . 'includes/print/class-oc-print-base.php';
+require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
 
 // ── Integration base-class stubs ─────────────────────────────────────────────
 // When WP is not loaded, integration test classes extend these stubs which
