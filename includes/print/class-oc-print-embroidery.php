@@ -176,7 +176,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		float $h_pt,
 		bool $centered = false
 	): void {
-		$text = trim( (string) ( $input['value'] ?? $settings['default_text'] ?? '' ) );
+		$text = trim( (string) ( $input['value'] ?? '' ) );
 		if ( '' === $text ) {
 			return;
 		}

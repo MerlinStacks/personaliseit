@@ -11,6 +11,15 @@ use PHPUnit\Framework\TestCase;
 class Test_Print_Embroidery extends TestCase {
 
 	#[Test]
+	public function text_export_does_not_fall_back_to_default_placeholder(): void {
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' );
+		$method->invokeArgs( null, [ &$lines, [ 'value' => '' ], [ 'default_text' => 'Your Name Here' ], 0.0, 0.0, 100.0, 20.0, true ] );
+
+		$this->assertSame( [], $lines );
+	}
+
+	#[Test]
 	public function mask_image_uses_imagemask_not_white_colorimage_card(): void {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 			$this->markTestSkipped( 'GD is required for EPS mask generation.' );
