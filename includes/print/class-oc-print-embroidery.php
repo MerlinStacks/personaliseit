@@ -87,6 +87,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
 		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
+		$bounds_rotation = self::normalise_rotation( (float) ( $bounds['rotation'] ?? 0 ) );
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
 		$artwork_used   = false;
@@ -105,6 +106,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
+			if ( 0.0 !== $bounds_rotation ) {
+				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, $bounds_rotation );
+			}
 			$rotation = self::layer_rotation( $layer, $input, $settings );
 
 			$center_x_mm = ( ( $center_x - $area_x ) / $bounds_w ) * $area_w_mm;
@@ -1382,6 +1386,19 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function normalise_rotation( float $rotation ): float {
 		$rotation = fmod( $rotation, 360.0 );
 		return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
+	}
+
+	private static function rotated_layer_center( float $x, float $y, array $bounds, float $rotation ): array {
+		$cx  = (float) ( $bounds['x'] ?? 0 ) + (float) ( $bounds['w'] ?? 0 ) / 2;
+		$cy  = (float) ( $bounds['y'] ?? 0 ) + (float) ( $bounds['h'] ?? 0 ) / 2;
+		$rad = deg2rad( $rotation );
+		$dx  = $x - $cx;
+		$dy  = $y - $cy;
+
+		return [
+			$cx + $dx * cos( $rad ) - $dy * sin( $rad ),
+			$cy + $dx * sin( $rad ) + $dy * cos( $rad ),
+		];
 	}
 
 	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {

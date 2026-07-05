@@ -174,58 +174,145 @@
 }
 
 /* ── Customer uploads ──────────────────────────────────────────────────── */
-.oc-customer-upload-summary {
-	display: flex;
-	gap: 22px;
+.oc-customer-upload-hero {
+	background:
+		radial-gradient(circle at top left, rgba(79, 70, 229, .16), transparent 32%),
+		linear-gradient(135deg, #ffffff 0%, #f8fafc 62%, #eef2ff 100%);
+	border: 1px solid var(--oc-gray-200);
+	border-radius: 18px;
+	padding: 22px 24px;
+	box-shadow: var(--oc-shadow);
+}
+.oc-customer-upload-hero .oc-page-title {
+	font-size: 26px !important;
+}
+.oc-customer-upload-pill {
+	display: inline-flex;
 	align-items: center;
-	flex-wrap: wrap;
-}
-.oc-customer-upload-summary > div {
-	display: flex;
-	align-items: baseline;
-	gap: 6px;
-	color: var(--oc-gray-500);
-	font-size: 13px;
-}
-.oc-customer-upload-summary strong {
-	color: var(--oc-gray-900);
-	font-size: 16px;
-}
-.oc-customer-upload-summary code {
+	padding: 7px 11px;
+	border: 1px solid var(--oc-primary-border);
+	border-radius: 999px;
+	background: rgba(255,255,255,.78);
+	color: var(--oc-primary);
 	font-size: 12px;
+	font-weight: 700;
+	box-shadow: 0 8px 24px rgba(79,70,229,.08);
+}
+.oc-customer-upload-stats {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 14px;
+	margin-bottom: 20px;
+}
+.oc-customer-upload-stat {
+	min-height: 86px;
+	padding: 16px;
+	border: 1px solid var(--oc-gray-200);
+	border-radius: 16px;
+	background: var(--oc-white);
+	box-shadow: var(--oc-shadow);
+	display: flex;
+	flex-direction: column;
+	justify-content: space-between;
+}
+.oc-customer-upload-stat--wide {
+	grid-column: span 2;
+}
+.oc-customer-upload-stat span {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: .05em;
+	text-transform: uppercase;
+	color: var(--oc-gray-400);
+}
+.oc-customer-upload-stat strong {
+	font-size: 28px;
+	line-height: 1;
+	color: var(--oc-gray-900);
+}
+.oc-customer-upload-stat code {
+	max-width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 12px;
+	background: var(--oc-gray-50);
+	border-radius: 8px;
+	padding: 8px 10px;
+	color: var(--oc-gray-600);
+}
+.oc-customer-upload-gallery-card {
+	border-radius: 18px;
+	overflow: hidden;
+}
+.oc-customer-upload-toolbar span {
+	font-size: 12px;
+	color: var(--oc-gray-500);
 }
 .oc-customer-upload-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-	gap: 16px;
-	padding: 20px;
+	grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
+	gap: 18px;
+	padding: 22px;
+	background: linear-gradient(180deg, #fff 0%, #fafafa 100%);
 }
 .oc-customer-upload-card {
 	border: 1px solid var(--oc-gray-200);
-	border-radius: var(--oc-radius);
+	border-radius: 16px;
 	background: var(--oc-white);
 	overflow: hidden;
+	box-shadow: 0 1px 2px rgba(15,23,42,.05);
+	transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+}
+.oc-customer-upload-card:hover {
+	transform: translateY(-2px);
+	border-color: var(--oc-primary-border);
+	box-shadow: 0 16px 36px rgba(15,23,42,.10);
 }
 .oc-customer-upload-preview {
-	height: 150px;
+	position: relative;
+	aspect-ratio: 4 / 3;
+	height: auto;
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: var(--oc-gray-50);
+	background:
+		linear-gradient(45deg, rgba(148,163,184,.10) 25%, transparent 25%),
+		linear-gradient(-45deg, rgba(148,163,184,.10) 25%, transparent 25%),
+		linear-gradient(45deg, transparent 75%, rgba(148,163,184,.10) 75%),
+		linear-gradient(-45deg, transparent 75%, rgba(148,163,184,.10) 75%),
+		#f8fafc;
+	background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+	background-size: 20px 20px;
 	border-bottom: 1px solid var(--oc-gray-100);
 }
 .oc-customer-upload-preview img {
-	max-width: 100%;
-	max-height: 150px;
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
 	display: block;
+	padding: 10px;
+	box-sizing: border-box;
 }
-.oc-customer-upload-preview span {
+.oc-customer-upload-preview > span:not(.oc-customer-upload-type) {
 	font-weight: 700;
 	color: var(--oc-gray-400);
 	letter-spacing: .08em;
 }
+.oc-customer-upload-type {
+	position: absolute;
+	top: 10px;
+	left: 10px;
+	padding: 5px 8px;
+	border-radius: 999px;
+	background: rgba(17,24,39,.78);
+	color: #fff !important;
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: .08em;
+}
 .oc-customer-upload-body {
-	padding: 12px;
+	padding: 13px;
 }
 .oc-customer-upload-body strong {
 	display: block;
@@ -236,7 +323,18 @@
 	color: var(--oc-gray-800);
 }
 .oc-customer-upload-body p {
-	margin: 4px 0 0;
+	margin: 8px 0 0;
+	font-size: 12px;
+	color: var(--oc-gray-500);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+.oc-customer-upload-meta {
+	display: flex;
+	justify-content: space-between;
+	gap: 8px;
+	margin-top: 8px;
 	font-size: 12px;
 	color: var(--oc-gray-500);
 }
@@ -244,7 +342,28 @@
 	display: flex;
 	gap: 6px;
 	flex-wrap: wrap;
-	margin-top: 10px;
+	margin-top: 12px;
+}
+
+@media (max-width: 900px) {
+	.oc-customer-upload-stats {
+		grid-template-columns: 1fr 1fr;
+	}
+	.oc-customer-upload-stat--wide {
+		grid-column: span 2;
+	}
+}
+@media (max-width: 600px) {
+	.oc-customer-upload-hero {
+		padding: 18px;
+	}
+	.oc-customer-upload-stats,
+	.oc-customer-upload-grid {
+		grid-template-columns: 1fr;
+	}
+	.oc-customer-upload-stat--wide {
+		grid-column: span 1;
+	}
 }
 
 /* ── Form grid ─────────────────────────────────────────────────────────── */
@@ -1388,8 +1507,33 @@
 
 /* ── Design editor (3-column app layout) ───────────────────────────────── */
 
+html:has(.oc-design-editor-page),
+body:has(.oc-design-editor-page) {
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+html:has(.oc-design-editor-page)::-webkit-scrollbar,
+body:has(.oc-design-editor-page)::-webkit-scrollbar {
+	display: none;
+}
+
 /* Remove max-width on the editor page so it fills the viewport */
-.oc-design-editor-page { max-width: none !important; }
+.oc-design-editor-page {
+	max-width: none !important;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.oc-design-editor-page::-webkit-scrollbar {
+	display: none;
+}
+
+#oc-design-form {
+	overflow-x: hidden;
+}
 
 .oc-design-editor-topbar {
 	display: flex;
@@ -1717,7 +1861,15 @@
 	border-top: 2px solid var(--oc-gray-200);
 	padding: 14px 16px;
 	flex-shrink: 0;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
 }
+
+.oc-left-area-props::-webkit-scrollbar {
+	display: none;
+}
+
 .oc-left-area-props .oc-mockup-thumb {
 	margin-bottom: 0;
 }

@@ -130,7 +130,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function layer_export_ignores_print_area_rotation_for_upright_print_file(): void {
+	public function layer_export_uses_print_area_rotation_for_position_only(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -159,7 +159,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
+		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
 		$this->assertStringNotContainsString( ' rotate', $output );
 	}
 
@@ -194,7 +194,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
+		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
 		$this->assertStringContainsString( '15.0000 rotate', $output );
 	}
 

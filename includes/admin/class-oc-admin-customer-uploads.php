@@ -64,28 +64,41 @@ class OC_Admin_Customer_Uploads {
 		$uploads   = wp_upload_dir();
 		$folder    = ! empty( $uploads['basedir'] ) ? trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/artwork' : '';
 		$total_size = self::get_total_size();
+		$page_start = $total > 0 ? ( ( $paged - 1 ) * $per_page ) + 1 : 0;
+		$page_end   = min( $total, $paged * $per_page );
 		?>
 		<div class="wrap oc-page">
-			<div class="oc-page-header">
+			<div class="oc-page-header oc-customer-upload-hero">
 				<div class="oc-page-header-left">
 					<h1 class="oc-page-title"><?php esc_html_e( 'Customer Uploads', 'overcustomise' ); ?></h1>
-					<p class="oc-page-subtitle"><?php esc_html_e( 'Manage customer artwork files separately from the WordPress Media Library.', 'overcustomise' ); ?></p>
+					<p class="oc-page-subtitle"><?php esc_html_e( 'A dedicated gallery for artwork uploaded through the product customiser.', 'overcustomise' ); ?></p>
+				</div>
+				<div class="oc-page-header-right">
+					<span class="oc-customer-upload-pill"><?php esc_html_e( 'Hidden from Media Library', 'overcustomise' ); ?></span>
 				</div>
 			</div>
 
-			<div class="oc-card">
-				<div class="oc-card-body oc-customer-upload-summary">
-					<div><strong><?php echo esc_html( number_format_i18n( $total ) ); ?></strong><span><?php esc_html_e( ' uploads', 'overcustomise' ); ?></span></div>
-					<div><strong><?php echo esc_html( size_format( $total_size ) ); ?></strong><span><?php esc_html_e( ' used', 'overcustomise' ); ?></span></div>
+			<div class="oc-customer-upload-stats">
+				<div class="oc-customer-upload-stat">
+					<span><?php esc_html_e( 'Total Uploads', 'overcustomise' ); ?></span>
+					<strong><?php echo esc_html( number_format_i18n( $total ) ); ?></strong>
+				</div>
+				<div class="oc-customer-upload-stat">
+					<span><?php esc_html_e( 'Storage Used', 'overcustomise' ); ?></span>
+					<strong><?php echo esc_html( size_format( $total_size ) ); ?></strong>
+				</div>
+				<div class="oc-customer-upload-stat oc-customer-upload-stat--wide">
+					<span><?php esc_html_e( 'Storage Folder', 'overcustomise' ); ?></span>
 					<?php if ( '' !== $folder ) : ?>
-						<div><strong><?php esc_html_e( 'Folder', 'overcustomise' ); ?></strong><code><?php echo esc_html( $folder ); ?></code></div>
+						<code><?php echo esc_html( $folder ); ?></code>
 					<?php endif; ?>
 				</div>
 			</div>
 
-			<div class="oc-card">
-				<div class="oc-card-header">
+			<div class="oc-card oc-customer-upload-gallery-card">
+				<div class="oc-card-header oc-customer-upload-toolbar">
 					<h2><?php esc_html_e( 'Uploaded Artwork', 'overcustomise' ); ?></h2>
+					<span><?php echo esc_html( sprintf( __( 'Showing %1$s-%2$s of %3$s', 'overcustomise' ), number_format_i18n( $page_start ), number_format_i18n( $page_end ), number_format_i18n( $total ) ) ); ?></span>
 				</div>
 				<?php if ( ! $query->have_posts() ) : ?>
 					<div class="oc-empty">
@@ -150,11 +163,15 @@ class OC_Admin_Customer_Uploads {
 		<div class="oc-customer-upload-card">
 			<div class="oc-customer-upload-preview">
 				<?php echo $thumb ?: '<span>' . esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) . '</span>'; ?>
+				<span class="oc-customer-upload-type"><?php echo esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ); ?></span>
 			</div>
 			<div class="oc-customer-upload-body">
 				<strong title="<?php echo esc_attr( $filename ); ?>"><?php echo esc_html( $filename ); ?></strong>
-				<p><?php echo esc_html( $mime ?: __( 'Unknown type', 'overcustomise' ) ); ?> &middot; <?php echo esc_html( $size ); ?></p>
-				<p><?php echo esc_html( get_the_date( '', $id ) ); ?></p>
+				<div class="oc-customer-upload-meta">
+					<span><?php echo esc_html( $size ); ?></span>
+					<span><?php echo esc_html( get_the_date( '', $id ) ); ?></span>
+				</div>
+				<p><?php echo esc_html( $mime ?: __( 'Unknown type', 'overcustomise' ) ); ?></p>
 				<div class="oc-customer-upload-actions">
 					<?php if ( $url ) : ?>
 						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View', 'overcustomise' ); ?></a>
