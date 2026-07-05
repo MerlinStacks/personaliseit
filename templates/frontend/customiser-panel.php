@@ -232,17 +232,19 @@ foreach ( $layers as $layer ) {
 								sort( $group_names );
 								?>
 								<?php OC_Tooltips::render( 'clipart-' . $layer->id, __( 'Select a pre-made design element to add to your product.', 'overcustomise' ) ); ?>
-								<div class="oc-clipart-filters" data-oc-clipart-filters="<?php echo esc_attr( $layer->id ); ?>">
-									<input type="search" class="oc-clipart-search" placeholder="<?php esc_attr_e( 'Search clipart…', 'overcustomise' ); ?>" data-oc-clipart-search="<?php echo esc_attr( $layer->id ); ?>" />
-									<?php if ( count( $clipart_group_ids ) !== 1 && ! empty( $group_names ) ) : ?>
-									<select class="oc-clipart-category" data-oc-clipart-category="<?php echo esc_attr( $layer->id ); ?>">
-										<option value=""><?php esc_html_e( 'All categories', 'overcustomise' ); ?></option>
-										<?php foreach ( $group_names as $gn ) : ?>
-											<option value="<?php echo esc_attr( $gn ); ?>"><?php echo esc_html( $gn ); ?></option>
-										<?php endforeach; ?>
-									</select>
-									<?php endif; ?>
-								</div>
+								<?php if ( count( $clipart_group_ids ) !== 1 ) : ?>
+									<div class="oc-clipart-filters" data-oc-clipart-filters="<?php echo esc_attr( $layer->id ); ?>">
+										<input type="search" class="oc-clipart-search" placeholder="<?php esc_attr_e( 'Search clipart…', 'overcustomise' ); ?>" data-oc-clipart-search="<?php echo esc_attr( $layer->id ); ?>" />
+										<?php if ( ! empty( $group_names ) ) : ?>
+										<select class="oc-clipart-category" data-oc-clipart-category="<?php echo esc_attr( $layer->id ); ?>">
+											<option value=""><?php esc_html_e( 'All categories', 'overcustomise' ); ?></option>
+											<?php foreach ( $group_names as $gn ) : ?>
+												<option value="<?php echo esc_attr( $gn ); ?>"><?php echo esc_html( $gn ); ?></option>
+											<?php endforeach; ?>
+										</select>
+										<?php endif; ?>
+									</div>
+								<?php endif; ?>
 								<div class="oc-clipart-grid" data-oc-clipart-grid="<?php echo esc_attr( $layer->id ); ?>">
 									<?php foreach ( $items as $ci ) :
 										$curl = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $ci->file_path );

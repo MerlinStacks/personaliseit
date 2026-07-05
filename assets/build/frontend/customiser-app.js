@@ -5724,6 +5724,7 @@ class OCCustomiser {
     this.cartKey = this.editMode ? data.cartKey : '';
     this.canvases = {}; // areaIndex → Fabric StaticCanvas
     this.fontCache = {}; // fontName  → load Promise
+    this.clipartSvgCache = {};
     this.galleryImg = null; // the main <img> in the product gallery
     this._previewUrl = null; // saved preview URL (set just before cart submit)
     this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
@@ -6313,7 +6314,9 @@ class OCCustomiser {
       case 'clipart':
         if (input.clipartUrl) {
           const clipartColor = input.clipartRecolourable && !isEngraving ? String(input.colorHex || '').trim() : '';
-          await this.renderFabricImg(canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', Boolean(clipartColor), rotation, engravingPalette, contentClip(), 'contain', clipartColor);
+          const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl(input.clipartUrl, clipartColor) : input.clipartUrl;
+          const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
+          await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain');
         }
         break;
       case 'lineart':
@@ -6589,6 +6592,86 @@ class OCCustomiser {
         clipPath
       });
     }
+  }
+  async recolourSvgClipartUrl(url, color) {
+    const key = `${url}|${color}`;
+    if (this.clipartSvgCache[key]) {
+      return this.clipartSvgCache[key];
+    }
+    try {
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        cache: 'force-cache'
+      });
+      if (!response.ok) {
+        throw new Error(`Could not load clipart SVG (${response.status}).`);
+      }
+      const raw = await response.text();
+      const doc = new DOMParser().parseFromString(raw, 'image/svg+xml');
+      const svg = doc.documentElement;
+      if (!svg || svg.localName.toLowerCase() !== 'svg') {
+        throw new Error('Clipart is not an SVG.');
+      }
+      svg.setAttribute('color', color);
+      this.forceSvgPreviewColour(svg, color);
+      const output = new XMLSerializer().serializeToString(svg);
+      this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
+      return this.clipartSvgCache[key];
+    } catch (e) {
+      console.warn('[OC] SVG clipart recolour failed:', e, 'URL:', url);
+      return url;
+    }
+  }
+  forceSvgPreviewColour(element, color) {
+    const tagName = element.localName.toLowerCase();
+    if (tagName === 'style') {
+      element.textContent = this.recolourSvgCss(element.textContent || '', color);
+      return;
+    }
+    if (tagName !== 'svg') {
+      this.recolourSvgAttribute(element, 'fill', color);
+      this.recolourSvgAttribute(element, 'stroke', color);
+      if (element.hasAttribute('style')) {
+        element.setAttribute('style', this.recolourSvgStyle(element.getAttribute('style'), color));
+      }
+      const shapeTags = ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'text'];
+      if (shapeTags.includes(tagName) && !element.hasAttribute('fill') && !element.hasAttribute('stroke') && !element.hasAttribute('style')) {
+        element.setAttribute('fill', color);
+      }
+    }
+    Array.from(element.children).forEach(child => this.forceSvgPreviewColour(child, color));
+  }
+  recolourSvgAttribute(element, attribute, color) {
+    if (!element.hasAttribute(attribute)) {
+      return;
+    }
+    const value = element.getAttribute(attribute).trim();
+    if (value.toLowerCase() === 'none') {
+      return;
+    }
+    element.setAttribute(attribute, this.isSvgWhite(value) ? 'none' : color);
+  }
+  recolourSvgStyle(style, color) {
+    return style.replace(/\b(fill|stroke)\s*:\s*([^;]+)/gi, (match, property, value) => {
+      const trimmed = String(value || '').trim();
+      if (trimmed.toLowerCase() === 'none') {
+        return match;
+      }
+      return `${property}:${this.isSvgWhite(trimmed) ? 'none' : color}`;
+    });
+  }
+  recolourSvgCss(css, color) {
+    return css.replace(/\b(fill|stroke)\s*:\s*([^;}]+)/gi, (match, property, value) => {
+      const trimmed = String(value || '').trim();
+      if (trimmed.toLowerCase() === 'none') {
+        return match;
+      }
+      return `${property}:${this.isSvgWhite(trimmed) ? 'none' : color}`;
+    });
+  }
+  isSvgWhite(value) {
+    const normalised = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
+    return ['#fff', '#ffffff', 'white', 'rgb(255,255,255)', 'rgba(255,255,255,1)'].includes(normalised);
   }
   async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '') {
     try {
