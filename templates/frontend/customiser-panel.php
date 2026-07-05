@@ -119,7 +119,8 @@ foreach ( $layers as $layer ) {
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$cg_ids    = $s['colour_groups'] ?? [];
 					$fg_ids    = $s['font_groups']   ?? [];
-					$clipart_group_ids = array_values( array_filter( array_map( 'absint', is_array( $s['clipart_groups'] ?? [] ) ? $s['clipart_groups'] : [] ) ) );
+					$clipart_groups = $s['clipart_groups'] ?? [];
+					$clipart_group_ids = array_values( array_filter( array_map( 'absint', is_array( $clipart_groups ) ? $clipart_groups : [] ) ) );
 
 					// Colour list for this layer.
 					$cg_ids = array_values( array_filter( array_map( 'absint', is_array( $cg_ids ) ? $cg_ids : [] ) ) );
