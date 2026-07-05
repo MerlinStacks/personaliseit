@@ -351,7 +351,7 @@ class OCCustomiser {
 
 		let dataUrl;
 		try {
-			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
+			dataUrl = this.capturePreviewDataUrl( canvas );
 		} catch ( e ) {
 			console.warn( '[OC] toDataURL failed — image may be cross-origin:', e.message );
 			return;
@@ -411,6 +411,11 @@ class OCCustomiser {
 
 	requestPreviewFocus() {
 		this._focusPreviewSlide = true;
+	}
+
+	capturePreviewDataUrl( canvas ) {
+		// Preserve transparent mockup pixels; JPEG flattening can turn them black in newer Fabric/browser paths.
+		return canvas.toDataURL( { format: 'png' } );
 	}
 
 	// ── Canvas initialisation ──────────────────────────────────────────────────
@@ -2199,7 +2204,7 @@ class OCCustomiser {
 		const canvas = this.canvases[ this.activeArea ];
 		if ( canvas ) {
 			try {
-				return canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
+				return this.capturePreviewDataUrl( canvas );
 			} catch ( e ) {
 				// Fall back to the already-rendered preview image below.
 			}
@@ -2302,7 +2307,7 @@ class OCCustomiser {
 
 		let dataUrl;
 		try {
-			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.85 } );
+			dataUrl = this.capturePreviewDataUrl( canvas );
 		} catch ( e ) {
 			this._previewUrl = '';
 			this.updateHiddenField();
