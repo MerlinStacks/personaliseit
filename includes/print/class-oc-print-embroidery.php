@@ -85,6 +85,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
+		$rotation = (float) ( $bounds['rotation'] ?? 0 );
 		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
@@ -104,6 +105,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
+			if ( ! empty( $bounds['w'] ) && 0.0 !== $rotation ) {
+				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, $rotation );
+			}
 
 			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
 			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
@@ -116,6 +120,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 			$lines[] = 'gsave';
 			$lines[] = sprintf( '%.4F %.4F translate', $cx_pt, $cy_pt );
+			if ( 0.0 !== $rotation ) {
+				$lines[] = sprintf( '%.4F rotate', -$rotation );
+			}
 
 			switch ( $type ) {
 				case 'text':
@@ -134,10 +141,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				case 'clipart':
 				case 'image':
 				case 'clipmask':
-					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt ) && ! $artwork_used ) {
+					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt, 'clipmask' === $type ? 'cover' : 'contain' ) && ! $artwork_used ) {
 						$fallback_path = self::resolve_artwork_path( $area_data );
 						if ( $fallback_path ) {
-							self::append_eps_image_or_reference( $lines, $fallback_path, $x_pt, $y_pt, $w_pt, $h_pt );
+							self::append_eps_image_or_reference( $lines, $fallback_path, $x_pt, $y_pt, $w_pt, $h_pt, 'contain' );
 							$artwork_used = true;
 						}
 					}
@@ -174,7 +181,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$path = self::resolve_artwork_path( $area_data );
 		if ( $path ) {
-			self::append_eps_image_or_reference( $lines, $path, 0, 0, $w_pt, $h_pt );
+			self::append_eps_image_or_reference( $lines, $path, 0, 0, $w_pt, $h_pt, 'contain' );
 		}
 	}
 
@@ -389,7 +396,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Append layer artwork, embedding raster files and preserving vector references. */
-	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): bool {
+	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): bool {
 		$path = self::resolve_eps_layer_artwork_path( $layer );
 		if ( ! $path ) {
 			return false;
@@ -407,7 +414,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
-		self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt );
+		self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
 
 		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
 			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -417,18 +424,18 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Embed supported raster artwork or include vector source as EPS comments. */
-	private static function append_eps_image_or_reference( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+	private static function append_eps_image_or_reference( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): void {
 		$lines[] = '%%OCArtworkFile: ' . self::eps_comment( basename( $path ) );
 		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 
 		if ( 'svg' === $ext ) {
-			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt ) ) {
+			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
 				return;
 			}
 
 			$image = self::open_svg_resource( $path, $w_pt, $h_pt );
 			if ( $image ) {
-				self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
+				self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
 				imagedestroy( $image );
 				return;
 			}
@@ -451,12 +458,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return;
 		}
 
-		self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
+		self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
 		imagedestroy( $image );
 	}
 
 	/** Append a full-colour raster image using PostScript colorimage. */
-	private static function append_eps_raster_image( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+	private static function append_eps_raster_image( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): void {
 		$src_w = imagesx( $image );
 		$src_h = imagesy( $image );
 		if ( $src_w < 1 || $src_h < 1 ) {
@@ -473,9 +480,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		imagefilledrectangle( $draw, 0, 0, $out_w, $out_h, $white );
 		imagecopyresampled( $draw, $image, 0, 0, 0, 0, $out_w, $out_h, $src_w, $src_h );
 
+		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( (float) $src_w, (float) $src_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+
 		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
-		$lines[] = sprintf( '%.4F %.4F scale', $w_pt, $h_pt );
+		$lines[] = sprintf( '%.4F %.4F translate', $draw_x, $draw_y );
+		$lines[] = sprintf( '%.4F %.4F scale', $draw_w, $draw_h );
 		$lines[] = '/picstr ' . ( $out_w * 3 ) . ' string def';
 		$lines[] = sprintf( '%d %d 8 [%d 0 0 -%d 0 %d]', $out_w, $out_h, $out_w, $out_h, $out_h );
 		$lines[] = '{ currentfile picstr readhexstring pop } false 3 colorimage';
@@ -526,7 +535,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Render common SVG clipart directly as EPS vectors when no SVG rasterizer is available. */
-	private static function append_eps_svg_vector( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): bool {
+	private static function append_eps_svg_vector( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): bool {
 		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 		if ( ! is_string( $raw ) || '' === $raw ) {
 			return false;
@@ -546,10 +555,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return false;
 		}
 
+		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( $vb_w, $vb_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+
 		$before  = count( $lines );
 		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt + $h_pt );
-		$lines[] = sprintf( '%.8F %.8F scale', $w_pt / $vb_w, -$h_pt / $vb_h );
+		$lines[] = sprintf( '%.4F %.4F translate', $draw_x, $draw_y + $draw_h );
+		$lines[] = sprintf( '%.8F %.8F scale', $draw_w / $vb_w, -$draw_h / $vb_h );
 		$lines[] = sprintf( '%.4F %.4F translate', -$vb_x, -$vb_y );
 		$context = [
 			'css' => self::svg_css_rules( $dom ),
@@ -1117,7 +1128,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		$dom->documentElement->setAttribute( 'color', $hex );
-		$dom->documentElement->setAttribute( 'fill', $hex );
 		self::force_svg_node_colour( $dom->documentElement, $hex );
 
 		$temp = self::temp_svg_path( 'oc-eps-colour-clipart-' . wp_generate_uuid4() );
@@ -1165,14 +1175,27 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return;
 		}
 
-		if ( $element->hasAttribute( 'fill' ) && 'none' !== strtolower( trim( $element->getAttribute( 'fill' ) ) ) ) {
-			$element->setAttribute( 'fill', $hex );
-		}
-		if ( $element->hasAttribute( 'stroke' ) && 'none' !== strtolower( trim( $element->getAttribute( 'stroke' ) ) ) ) {
-			$element->setAttribute( 'stroke', $hex );
-		}
-		if ( $element->hasAttribute( 'style' ) ) {
-			$element->setAttribute( 'style', self::force_svg_style_colour( $element->getAttribute( 'style' ), $hex ) );
+		$tag = strtolower( $element->localName );
+		if ( 'svg' !== $tag ) {
+			if ( $element->hasAttribute( 'fill' ) ) {
+				$fill = trim( $element->getAttribute( 'fill' ) );
+				if ( 'none' !== strtolower( $fill ) ) {
+					$element->setAttribute( 'fill', self::is_svg_white( $fill ) ? 'none' : $hex );
+				}
+			}
+			if ( $element->hasAttribute( 'stroke' ) ) {
+				$stroke = trim( $element->getAttribute( 'stroke' ) );
+				if ( 'none' !== strtolower( $stroke ) ) {
+					$element->setAttribute( 'stroke', self::is_svg_white( $stroke ) ? 'none' : $hex );
+				}
+			}
+			if ( $element->hasAttribute( 'style' ) ) {
+				$element->setAttribute( 'style', self::force_svg_style_colour( $element->getAttribute( 'style' ), $hex ) );
+			}
+
+			if ( in_array( $tag, [ 'path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'text' ], true ) && ! $element->hasAttribute( 'fill' ) && ! $element->hasAttribute( 'stroke' ) && ! $element->hasAttribute( 'style' ) ) {
+				$element->setAttribute( 'fill', $hex );
+			}
 		}
 
 		foreach ( $element->childNodes as $child ) {
@@ -1187,7 +1210,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		foreach ( $parts as &$part ) {
 			if ( preg_match( '/^\s*(fill|stroke)\s*:/i', $part ) && ! preg_match( '/:\s*none\s*$/i', $part ) ) {
 				$property = trim( (string) strtok( $part, ':' ) );
-				$part     = $property . ':' . $hex;
+				$value    = trim( substr( $part, (int) strpos( $part, ':' ) + 1 ) );
+				$part     = $property . ':' . ( self::is_svg_white( $value ) ? 'none' : $hex );
 			}
 		}
 
@@ -1199,10 +1223,45 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'/\b(fill|stroke)\s*:\s*([^;}]+)/i',
 			static function ( array $matches ) use ( $hex ): string {
 				$value = strtolower( trim( (string) $matches[2] ) );
-				return 'none' === $value ? $matches[0] : $matches[1] . ':' . $hex;
+				return 'none' === $value ? $matches[0] : $matches[1] . ':' . ( self::is_svg_white( $value ) ? 'none' : $hex );
 			},
 			$css
 		);
+	}
+
+	private static function is_svg_white( string $value ): bool {
+		$normalised = strtolower( preg_replace( '/\s+/', '', trim( $value ) ) ?? '' );
+		return in_array( $normalised, [ '#fff', '#ffffff', 'white', 'rgb(255,255,255)', 'rgba(255,255,255,1)' ], true );
+	}
+
+	private static function rotated_layer_center( float $x, float $y, array $bounds, float $rotation ): array {
+		$cx  = (float) ( $bounds['x'] ?? 0 ) + (float) ( $bounds['w'] ?? 0 ) / 2;
+		$cy  = (float) ( $bounds['y'] ?? 0 ) + (float) ( $bounds['h'] ?? 0 ) / 2;
+		$rad = deg2rad( $rotation );
+		$dx  = $x - $cx;
+		$dy  = $y - $cy;
+
+		return [
+			$cx + $dx * cos( $rad ) - $dy * sin( $rad ),
+			$cy + $dx * sin( $rad ) + $dy * cos( $rad ),
+		];
+	}
+
+	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {
+		if ( $src_w <= 0.0 || $src_h <= 0.0 || $w_pt <= 0.0 || $h_pt <= 0.0 ) {
+			return [ $x_pt, $y_pt, $w_pt, $h_pt ];
+		}
+
+		$scale  = 'cover' === $fit ? max( $w_pt / $src_w, $h_pt / $src_h ) : min( $w_pt / $src_w, $h_pt / $src_h );
+		$draw_w = $src_w * $scale;
+		$draw_h = $src_h * $scale;
+
+		return [
+			$x_pt + ( $w_pt - $draw_w ) / 2,
+			$y_pt + ( $h_pt - $draw_h ) / 2,
+			$draw_w,
+			$draw_h,
+		];
 	}
 
 	/** Draw a visible placeholder when vector/raster conversion is not possible. */

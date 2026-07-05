@@ -69,7 +69,7 @@ class Test_Print_Embroidery extends TestCase {
 	public function recoloured_svg_clipart_keeps_svg_extension_and_renders_vector(): void {
 		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
 		$source      = $source_base . '.svg';
-		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="2" width="3" height="4" fill="#000000"/></svg>' );
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20"><rect x="0" y="0" width="10" height="20" fill="#ffffff" stroke="#ffffff"/><rect x="1" y="2" width="3" height="4" fill="#000000"/></svg>' );
 
 		$build = new ReflectionMethod( OC_Print_Embroidery::class, 'build_coloured_svg' );
 		$path  = $build->invoke( null, $source, '#FF0000' );
@@ -82,13 +82,49 @@ class Test_Print_Embroidery extends TestCase {
 		$append->invokeArgs( null, [ &$lines, $path, 0.0, 0.0, 20.0, 20.0 ] );
 
 		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '5.0000 20.0000 translate', $output );
 		$this->assertStringContainsString( 'setrgbcolor', $output );
 		$this->assertStringContainsString( 'fill', $output );
+		$this->assertStringNotContainsString( '0.0000 0.0000 moveto', $output );
 		$this->assertStringNotContainsString( 'Clipart:', $output );
 
 		@unlink( $source_base );
 		@unlink( $source );
 		@unlink( $path );
+	}
+
+	#[Test]
+	public function layer_export_rotates_positions_to_match_preview_bounds(): void {
+		$lines = [];
+		$area  = (object) [
+			'canvas_unit' => 'px',
+			'canvas_x'    => 0,
+			'canvas_y'    => 0,
+			'canvas_w'    => 100,
+			'canvas_h'    => 100,
+		];
+		$data  = [
+			'text'   => '',
+			'bounds' => [ 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 100, 'rotation' => 90 ],
+			'layers' => [
+				[
+					'type'     => 'text',
+					'x'        => 0,
+					'y'        => 0,
+					'w'        => 20,
+					'h'        => 10,
+					'input'    => [ 'value' => 'Rotated', 'colorHex' => '#000000' ],
+					'settings' => [],
+				],
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' );
+		$method->invokeArgs( null, [ &$lines, $area, $data ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '22.7991 21.6000 translate', $output );
+		$this->assertStringContainsString( '-90.0000 rotate', $output );
 	}
 
 	#[Test]
