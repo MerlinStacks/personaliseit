@@ -414,7 +414,10 @@ class OC_Upload_Handler {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Save a file to the WordPress media library.
+	 * Save a file to the isolated OverCustomise artwork folder.
+	 *
+	 * The attachment record is retained for order/print compatibility, but tagged
+	 * so it can be hidden from the standard Media Library and managed separately.
 	 *
 	 * @param  string $file_path  Absolute path to the source file.
 	 * @param  string $filename   Target filename (sanitised).

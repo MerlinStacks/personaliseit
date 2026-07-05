@@ -61,7 +61,7 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '(Editable Text)', $output );
-		$this->assertStringContainsString( '0.0000 8.0000 moveto', $output );
+		$this->assertStringContainsString( '0.0000 14.0000 moveto', $output );
 		$this->assertStringContainsString( ' show', $output );
 		$this->assertStringNotContainsString( 'imagemask', $output );
 	}

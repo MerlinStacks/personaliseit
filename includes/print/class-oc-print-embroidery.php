@@ -218,7 +218,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		if ( $centered ) {
 			$align = (string) ( $settings['alignment'] ?? 'center' );
-			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), self::eps_text_baseline_y( $y_pt, $h_pt, $font_size, $font_id ) );
+			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
 			$lines[] = '(' . self::ps_escape( $text ) . ')' . self::eps_text_show_command( $align );
 		} else {
 			$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
@@ -243,28 +243,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'left'  => ' show',
 			default => ' dup stringwidth pop 2 div neg 0 rmoveto show',
 		};
-	}
-
-	/** Return a Fabric-like baseline for vertically centred editable EPS text. */
-	private static function eps_text_baseline_y( float $y_pt, float $h_pt, float $font_size_pt, int $font_id ): float {
-		$top = $font_size_pt * 0.72;
-		$bottom = -$font_size_pt * 0.22;
-
-		$font = self::get_font( $font_id );
-		if ( $font && function_exists( 'imagettfbbox' ) ) {
-			$font_path = self::get_font_path( $font );
-			if ( $font_path && file_exists( $font_path ) ) {
-				$font_size_px = max( 1, $font_size_pt / 72 * 300 );
-				$box = imagettfbbox( $font_size_px, 0, $font_path, 'Hg' );
-				if ( is_array( $box ) ) {
-					$ys = [ (float) $box[1], (float) $box[3], (float) $box[5], (float) $box[7] ];
-					$top = abs( min( $ys ) ) / 300 * 72;
-					$bottom = -max( $ys ) / 300 * 72;
-				}
-			}
-		}
-
-		return $y_pt + $h_pt / 2 - ( $top + $bottom ) / 2;
 	}
 
 	/** Return the selected font family for EPS consumers that have production fonts installed. */
@@ -1394,12 +1372,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function layer_rotation( array $layer, array $input, array $settings ): float {
 		foreach ( [ $layer['rotation'] ?? null, $input['rotation'] ?? null, $settings['rotation'] ?? null ] as $value ) {
 			if ( is_numeric( $value ) ) {
-				$rotation = fmod( (float) $value, 360.0 );
-				return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
+				return self::normalise_rotation( (float) $value );
 			}
 		}
 
 		return 0.0;
+	}
+
+	private static function normalise_rotation( float $rotation ): float {
+		$rotation = fmod( $rotation, 360.0 );
+		return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
 	}
 
 	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {

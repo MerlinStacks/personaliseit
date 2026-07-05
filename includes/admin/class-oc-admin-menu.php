@@ -69,6 +69,16 @@ class OC_Admin_Menu {
 			[ new OC_Admin_Clipart(), 'render' ]
 		);
 
+		// Customer Uploads.
+		add_submenu_page(
+			'overcustomise',
+			__( 'OC — Customer Uploads', 'overcustomise' ),
+			__( 'Customer Uploads', 'overcustomise' ),
+			'manage_woocommerce',
+			'overcustomise-customer-uploads',
+			[ new OC_Admin_Customer_Uploads(), 'render' ]
+		);
+
 		// Print Methods.
 		add_submenu_page(
 			'overcustomise',
@@ -97,6 +107,7 @@ class OC_Admin_Menu {
 			'overcustomise_page_overcustomise-fonts',
 			'overcustomise_page_overcustomise-colours',
 			'overcustomise_page_overcustomise-clipart',
+			'overcustomise_page_overcustomise-customer-uploads',
 			'overcustomise_page_overcustomise-print-methods',
 			'overcustomise_page_overcustomise-settings',
 		];

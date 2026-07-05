@@ -173,6 +173,80 @@
 	gap: 8px;
 }
 
+/* ── Customer uploads ──────────────────────────────────────────────────── */
+.oc-customer-upload-summary {
+	display: flex;
+	gap: 22px;
+	align-items: center;
+	flex-wrap: wrap;
+}
+.oc-customer-upload-summary > div {
+	display: flex;
+	align-items: baseline;
+	gap: 6px;
+	color: var(--oc-gray-500);
+	font-size: 13px;
+}
+.oc-customer-upload-summary strong {
+	color: var(--oc-gray-900);
+	font-size: 16px;
+}
+.oc-customer-upload-summary code {
+	font-size: 12px;
+}
+.oc-customer-upload-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+	gap: 16px;
+	padding: 20px;
+}
+.oc-customer-upload-card {
+	border: 1px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius);
+	background: var(--oc-white);
+	overflow: hidden;
+}
+.oc-customer-upload-preview {
+	height: 150px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: var(--oc-gray-50);
+	border-bottom: 1px solid var(--oc-gray-100);
+}
+.oc-customer-upload-preview img {
+	max-width: 100%;
+	max-height: 150px;
+	display: block;
+}
+.oc-customer-upload-preview span {
+	font-weight: 700;
+	color: var(--oc-gray-400);
+	letter-spacing: .08em;
+}
+.oc-customer-upload-body {
+	padding: 12px;
+}
+.oc-customer-upload-body strong {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	color: var(--oc-gray-800);
+}
+.oc-customer-upload-body p {
+	margin: 4px 0 0;
+	font-size: 12px;
+	color: var(--oc-gray-500);
+}
+.oc-customer-upload-actions {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+	margin-top: 10px;
+}
+
 /* ── Form grid ─────────────────────────────────────────────────────────── */
 .oc-form-grid {
 	display: grid;
@@ -1374,9 +1448,18 @@
 .oc-editor-right {
 	background: var(--oc-white);
 	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
 	display: flex;
 	flex-direction: column;
 }
+
+.oc-editor-left::-webkit-scrollbar,
+.oc-editor-right::-webkit-scrollbar {
+	display: none;
+}
+
 .oc-editor-left  { border-right: 1px solid var(--oc-gray-200); }
 .oc-editor-right { border-left:  1px solid var(--oc-gray-200); }
 
@@ -1661,13 +1744,28 @@
 .oc-right-layers-scroll #oc-layers-list {
 	flex: 1;
 	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
 	padding: 4px 0;
 }
+
+.oc-right-layers-scroll #oc-layers-list::-webkit-scrollbar {
+	display: none;
+}
+
 .oc-right-layer-props {
 	flex: 1;
 	min-height: 0;
 	padding: 12px 14px;
 	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.oc-right-layer-props::-webkit-scrollbar {
+	display: none;
 }
 
 /* Layer action buttons (vis / lock / delete) */
