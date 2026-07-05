@@ -1008,6 +1008,7 @@ class OCCustomiser {
 
 			svg.setAttribute( 'color', color );
 			this.forceSvgPreviewColour( svg, color );
+			this.cropSvgToVisibleBounds( svg );
 
 			const output = new XMLSerializer().serializeToString( svg );
 			this.clipartSvgCache[ key ] = `data:image/svg+xml;charset=utf-8,${ encodeURIComponent( output ) }`;
@@ -1040,6 +1041,56 @@ class OCCustomiser {
 		}
 
 		Array.from( element.children ).forEach( child => this.forceSvgPreviewColour( child, color ) );
+	}
+
+	cropSvgToVisibleBounds( svg ) {
+		if ( typeof document === 'undefined' || ! document.body || typeof svg.getAttribute !== 'function' ) {
+			return;
+		}
+
+		const wrapper = document.createElement( 'div' );
+		wrapper.style.cssText = 'position:absolute;left:-99999px;top:-99999px;visibility:hidden;pointer-events:none;';
+		const clone = document.importNode( svg, true );
+		clone.setAttribute( 'width', '1000' );
+		clone.setAttribute( 'height', '1000' );
+		this.removeInvisibleSvgShapes( clone );
+
+		try {
+			wrapper.appendChild( clone );
+			document.body.appendChild( wrapper );
+			const bounds = clone.getBBox();
+			if ( bounds.width > 0 && bounds.height > 0 ) {
+				svg.setAttribute( 'viewBox', `${ bounds.x } ${ bounds.y } ${ bounds.width } ${ bounds.height }` );
+				svg.setAttribute( 'width', String( bounds.width ) );
+				svg.setAttribute( 'height', String( bounds.height ) );
+			}
+		} catch ( e ) {
+			console.warn( '[OC] SVG clipart bounds crop failed:', e );
+		} finally {
+			wrapper.remove();
+		}
+	}
+
+	removeInvisibleSvgShapes( element ) {
+		Array.from( element.children ).forEach( child => {
+			this.removeInvisibleSvgShapes( child );
+
+			const tagName = child.localName.toLowerCase();
+			const shapeTags = [ 'path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line', 'text' ];
+			if ( ! shapeTags.includes( tagName ) ) {
+				return;
+			}
+
+			const fill = ( child.getAttribute( 'fill' ) || '' ).trim().toLowerCase();
+			const stroke = ( child.getAttribute( 'stroke' ) || '' ).trim().toLowerCase();
+			const style = ( child.getAttribute( 'style' ) || '' ).replace( /\s+/g, '' ).toLowerCase();
+			const hasVisibleFill = fill && fill !== 'none' || /fill:(?!none(?:;|$))/.test( style );
+			const hasVisibleStroke = stroke && stroke !== 'none' || /stroke:(?!none(?:;|$))/.test( style );
+
+			if ( ! hasVisibleFill && ! hasVisibleStroke ) {
+				child.remove();
+			}
+		} );
 	}
 
 	recolourSvgAttribute( element, attribute, color ) {
