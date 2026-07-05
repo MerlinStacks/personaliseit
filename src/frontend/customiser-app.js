@@ -699,7 +699,7 @@ class OCCustomiser {
 			case 'clipart':
 				if ( input.clipartUrl ) {
 					const clipartColor = input.clipartRecolourable && ! isEngraving ? String( input.colorHex || '' ).trim() : '';
-					await this.renderFabricImg( canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', clipartColor );
+					await this.renderFabricImg( canvas, input.clipartUrl, lx, ly, lw, lh, isEngraving, 'anonymous', Boolean( clipartColor ), rotation, engravingPalette, contentClip(), 'contain', clipartColor );
 				}
 				break;
 
