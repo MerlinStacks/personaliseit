@@ -478,7 +478,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt + $h_pt );
 		$lines[] = sprintf( '%.8F %.8F scale', $w_pt / $vb_w, -$h_pt / $vb_h );
 		$lines[] = sprintf( '%.4F %.4F translate', -$vb_x, -$vb_y );
-		self::append_svg_element_eps( $lines, $dom->documentElement, [] );
+		$context = [
+			'css' => self::svg_css_rules( $dom ),
+			'ids' => self::svg_id_map( $dom ),
+		];
+		self::append_svg_element_eps( $lines, $dom->documentElement, [], $context );
 		$lines[] = 'grestore';
 
 		if ( count( $lines ) <= $before + 4 ) {
@@ -503,9 +507,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return [ 0.0, 0.0, max( 1.0, $w ), max( 1.0, $h ) ];
 	}
 
-	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style ): void {
-		$style = self::svg_style_for_element( $element, $style );
+	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style, array $context = [] ): void {
+		$style = self::svg_style_for_element( $element, $style, $context['css'] ?? [] );
 		$name  = strtolower( $element->localName );
+		if ( in_array( $name, [ 'defs', 'style', 'metadata', 'title', 'desc' ], true ) || ( 'symbol' === $name && empty( $context['from_use'] ) ) ) {
+			return;
+		}
 		$has_transform = $element->hasAttribute( 'transform' ) && '' !== trim( $element->getAttribute( 'transform' ) );
 
 		if ( $has_transform ) {
@@ -513,7 +520,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			self::append_svg_transform_eps( $lines, $element->getAttribute( 'transform' ) );
 		}
 
-		switch ( $name ) {
+			switch ( $name ) {
+			case 'use':
+				self::append_svg_use_eps( $lines, $element, $style, $context );
+				break;
 			case 'path':
 				self::append_svg_path_eps( $lines, $element->getAttribute( 'd' ), $style );
 				break;
@@ -540,13 +550,40 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		foreach ( $element->childNodes as $child ) {
 			if ( $child instanceof \DOMElement ) {
-				self::append_svg_element_eps( $lines, $child, $style );
+				self::append_svg_element_eps( $lines, $child, $style, $context );
 			}
 		}
 
 		if ( $has_transform ) {
 			$lines[] = 'grestore';
 		}
+	}
+
+	private static function append_svg_use_eps( array &$lines, \DOMElement $element, array $style, array $context ): void {
+		$href = $element->getAttribute( 'href' );
+		if ( '' === $href ) {
+			$href = $element->getAttributeNS( 'http://www.w3.org/1999/xlink', 'href' );
+		}
+		if ( ! str_starts_with( $href, '#' ) ) {
+			return;
+		}
+
+		$id  = substr( $href, 1 );
+		$ids = is_array( $context['ids'] ?? null ) ? $context['ids'] : [];
+		if ( ! isset( $ids[ $id ] ) || ! $ids[ $id ] instanceof \DOMElement ) {
+			return;
+		}
+
+		$lines[] = 'gsave';
+		$x = self::svg_number( $element->getAttribute( 'x' ) );
+		$y = self::svg_number( $element->getAttribute( 'y' ) );
+		if ( 0.0 !== $x || 0.0 !== $y ) {
+			$lines[] = sprintf( '%.4F %.4F translate', $x, $y );
+		}
+		$use_context = $context;
+		$use_context['from_use'] = true;
+		self::append_svg_element_eps( $lines, $ids[ $id ], $style, $use_context );
+		$lines[] = 'grestore';
 	}
 
 	private static function append_svg_transform_eps( array &$lines, string $transform ): void {
@@ -582,8 +619,32 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 	}
 
-	private static function svg_style_for_element( \DOMElement $element, array $parent ): array {
+	private static function svg_style_for_element( \DOMElement $element, array $parent, array $css = [] ): array {
 		$style = $parent + [ 'fill' => '#000000', 'stroke' => 'none', 'stroke-width' => '1' ];
+		$tag   = strtolower( $element->localName );
+		foreach ( [ $tag, '*' ] as $selector ) {
+			if ( isset( $css[ $selector ] ) ) {
+				$style = array_merge( $style, $css[ $selector ] );
+			}
+		}
+		if ( $element->hasAttribute( 'class' ) ) {
+			foreach ( preg_split( '/\s+/', trim( $element->getAttribute( 'class' ) ) ) ?: [] as $class ) {
+				$selector = '.' . $class;
+				if ( isset( $css[ $selector ] ) ) {
+					$style = array_merge( $style, $css[ $selector ] );
+				}
+				$selector = $tag . '.' . $class;
+				if ( isset( $css[ $selector ] ) ) {
+					$style = array_merge( $style, $css[ $selector ] );
+				}
+			}
+		}
+		if ( $element->hasAttribute( 'id' ) ) {
+			$selector = '#' . $element->getAttribute( 'id' );
+			if ( isset( $css[ $selector ] ) ) {
+				$style = array_merge( $style, $css[ $selector ] );
+			}
+		}
 		if ( $element->hasAttribute( 'style' ) ) {
 			foreach ( explode( ';', $element->getAttribute( 'style' ) ) as $rule ) {
 				if ( str_contains( $rule, ':' ) ) {
@@ -600,6 +661,52 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $style;
+	}
+
+	private static function svg_css_rules( \DOMDocument $dom ): array {
+		$rules = [];
+		foreach ( $dom->getElementsByTagName( 'style' ) as $style_node ) {
+			$css = (string) $style_node->textContent;
+			$css = (string) preg_replace( '!/\*.*?\*/!s', '', $css );
+			preg_match_all( '/([^{}]+)\{([^{}]+)\}/', $css, $matches, PREG_SET_ORDER );
+			foreach ( $matches as $match ) {
+				$declarations = self::svg_css_declarations( (string) $match[2] );
+				if ( empty( $declarations ) ) {
+					continue;
+				}
+				foreach ( explode( ',', (string) $match[1] ) as $selector ) {
+					$selector = trim( $selector );
+					if ( preg_match( '/^[A-Za-z0-9_.#*-]+$/', $selector ) ) {
+						$rules[ $selector ] = array_merge( $rules[ $selector ] ?? [], $declarations );
+					}
+				}
+			}
+		}
+
+		return $rules;
+	}
+
+	private static function svg_css_declarations( string $css ): array {
+		$out = [];
+		foreach ( explode( ';', $css ) as $rule ) {
+			if ( str_contains( $rule, ':' ) ) {
+				[ $key, $value ] = array_map( 'trim', explode( ':', $rule, 2 ) );
+				$out[ strtolower( $key ) ] = $value;
+			}
+		}
+
+		return $out;
+	}
+
+	private static function svg_id_map( \DOMDocument $dom ): array {
+		$ids = [];
+		foreach ( $dom->getElementsByTagName( '*' ) as $element ) {
+			if ( $element instanceof \DOMElement && $element->hasAttribute( 'id' ) ) {
+				$ids[ $element->getAttribute( 'id' ) ] = $element;
+			}
+		}
+
+		return $ids;
 	}
 
 	private static function append_svg_path_eps( array &$lines, string $d, array $style ): void {
