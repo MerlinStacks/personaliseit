@@ -202,12 +202,22 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			? max( 5.0, self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) ) )
 			: max( 8.0, $h_pt * 0.38 );
 		$font_size = min( $font_size, max( 5.0, $h_pt * 0.8 ) );
+		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+
+		if ( self::append_eps_raster_text( $lines, $text, $hex, $font_id, $settings, $x_pt, $y_pt, $w_pt, $h_pt, $font_size ) ) {
+			return;
+		}
 
 		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
+		$font_name     = self::eps_font_name( $font_id );
 		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
+		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
 		$lines[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
+		if ( 'Helvetica' !== $font_name ) {
+			$lines[] = sprintf( '{ /%s findfont %.4F scalefont setfont } stopped { pop } if', self::ps_name_escape( $font_name ), $font_size );
+		}
 		if ( $centered ) {
 			$align = (string) ( $settings['alignment'] ?? 'center' );
 			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
@@ -237,6 +247,82 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		};
 	}
 
+	/** Return the selected font family for EPS consumers that have production fonts installed. */
+	private static function eps_font_name( int $font_id ): string {
+		$font = self::get_font( $font_id );
+		$name = is_object( $font ) ? trim( (string) ( $font->name ?? '' ) ) : '';
+
+		return '' !== $name ? $name : 'Helvetica';
+	}
+
+	/** Escape a PostScript name token. */
+	private static function ps_name_escape( string $value ): string {
+		$value = preg_replace( '/\s+/', '-', trim( $value ) );
+		$value = is_string( $value ) && '' !== $value ? $value : 'Helvetica';
+
+		return preg_replace( '/[^A-Za-z0-9_.-]/', '', $value ) ?: 'Helvetica';
+	}
+
+	/** Render selected-font text as artwork so the EPS visually matches the live preview. */
+	private static function append_eps_raster_text( array &$lines, string $text, string $hex, int $font_id, array $settings, float $x_pt, float $y_pt, float $w_pt, float $h_pt, float $font_size_pt ): bool {
+		if ( ! function_exists( 'imagettftext' ) || ! function_exists( 'imagecreatetruecolor' ) ) {
+			return false;
+		}
+
+		$font = self::get_font( $font_id );
+		if ( ! $font ) {
+			return false;
+		}
+
+		$font_path = self::get_font_path( $font );
+		if ( ! $font_path || ! file_exists( $font_path ) ) {
+			return false;
+		}
+
+		$img_w = max( 1, min( 1600, (int) round( $w_pt / 72 * 300 ) ) );
+		$img_h = max( 1, min( 1600, (int) round( $h_pt / 72 * 300 ) ) );
+		$image = imagecreatetruecolor( $img_w, $img_h );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$clear = imagecolorallocatealpha( $image, 255, 255, 255, 127 );
+		imagefilledrectangle( $image, 0, 0, $img_w, $img_h, $clear );
+		imagealphablending( $image, true );
+
+		[ $r, $g, $b ] = self::hex_to_rgb( self::normalise_hex( $hex ) );
+		$colour        = imagecolorallocate( $image, $r, $g, $b );
+		$font_size_px  = max( 1, $font_size_pt / 72 * 300 );
+		$line_height   = $font_size_px * 1.18;
+		$text_lines    = preg_split( '/\R/', $text ) ?: [ $text ];
+		$total_height  = count( $text_lines ) * $line_height;
+		$baseline_y    = ( $img_h - $total_height ) / 2 + $font_size_px;
+		$align         = (string) ( $settings['alignment'] ?? 'center' );
+
+		foreach ( $text_lines as $index => $line ) {
+			$line = (string) $line;
+			$box  = imagettfbbox( $font_size_px, 0, $font_path, $line );
+			if ( ! is_array( $box ) ) {
+				imagedestroy( $image );
+				return false;
+			}
+
+			$text_w = abs( (float) $box[2] - (float) $box[0] );
+			$x      = match ( $align ) {
+				'left'  => 0.0,
+				'right' => max( 0.0, $img_w - $text_w ),
+				default => max( 0.0, ( $img_w - $text_w ) / 2 ),
+			};
+			$y      = $baseline_y + $index * $line_height;
+			imagettftext( $image, $font_size_px, 0, (int) round( $x ), (int) round( $y ), $colour, $font_path, $line );
+		}
+
+		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
+		$lines[] = '%%OCTextFont: ' . self::eps_comment( (string) ( $font->name ?? '' ) );
+		self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
+		imagedestroy( $image );
+
+		return true;
+	}
+
 	/** Append a filled vector rectangle for simple line-art colour blocks. */
 	private static function append_eps_rect( array &$lines, string $hex, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
 		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
@@ -254,7 +340,23 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return;
 		}
 
+		$temp_path = null;
+		$input     = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+		if ( 'clipart' === (string) ( $layer['type'] ?? '' ) && ! empty( $input['clipartRecolourable'] ) && 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );
+			if ( $hex ) {
+				$temp_path = self::build_coloured_svg( $path, $hex );
+				if ( is_string( $temp_path ) && '' !== $temp_path ) {
+					$path = $temp_path;
+				}
+			}
+		}
+
 		self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt );
+
+		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
+			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
 	}
 
 	/** Embed supported raster artwork or include vector source as EPS comments. */
@@ -263,6 +365,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 
 		if ( 'svg' === $ext ) {
+			$image = self::open_svg_resource( $path, $w_pt, $h_pt );
+			if ( $image ) {
+				self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
+				imagedestroy( $image );
+				return;
+			}
+
 			$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 			$lines[] = '%%BeginOCEmbeddedSVG: ' . self::eps_comment( basename( $path ) );
 			if ( is_string( $raw ) ) {
@@ -297,15 +406,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$scale  = min( 1.0, $max_px / max( $src_w, $src_h ) );
 		$out_w  = max( 1, (int) round( $src_w * $scale ) );
 		$out_h  = max( 1, (int) round( $src_h * $scale ) );
-		$draw   = $image;
-
-		if ( $out_w !== $src_w || $out_h !== $src_h ) {
-			$draw = imagecreatetruecolor( $out_w, $out_h );
-			imagealphablending( $draw, true );
-			$white = imagecolorallocate( $draw, 255, 255, 255 );
-			imagefilledrectangle( $draw, 0, 0, $out_w, $out_h, $white );
-			imagecopyresampled( $draw, $image, 0, 0, 0, 0, $out_w, $out_h, $src_w, $src_h );
-		}
+		$draw   = imagecreatetruecolor( $out_w, $out_h );
+		imagealphablending( $draw, true );
+		$white = imagecolorallocate( $draw, 255, 255, 255 );
+		imagefilledrectangle( $draw, 0, 0, $out_w, $out_h, $white );
+		imagecopyresampled( $draw, $image, 0, 0, 0, 0, $out_w, $out_h, $src_w, $src_h );
 
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
@@ -324,9 +429,117 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		$lines[] = 'grestore';
-		if ( $draw !== $image ) {
-			imagedestroy( $draw );
+		imagedestroy( $draw );
+	}
+
+	/** Convert an SVG to a GD image so clipart appears in EPS output. */
+	private static function open_svg_resource( string $path, float $w_pt, float $h_pt ) {
+		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) ) {
+			return false;
 		}
+
+		$width_px  = max( 1, min( 1200, (int) round( $w_pt / 72 * 300 ) ) );
+		$height_px = max( 1, min( 1200, (int) round( $h_pt / 72 * 300 ) ) );
+
+		try {
+			$imagick = new \Imagick();
+			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
+			$imagick->setResolution( 300, 300 );
+			$imagick->readImage( $path );
+			$imagick->setImageFormat( 'png' );
+			$imagick->resizeImage( $width_px, $height_px, \Imagick::FILTER_LANCZOS, 1, true );
+			$blob = $imagick->getImagesBlob();
+			$imagick->clear();
+			$imagick->destroy();
+
+			return is_string( $blob ) && '' !== $blob ? @imagecreatefromstring( $blob ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		} catch ( \Throwable $e ) {
+			if ( class_exists( 'OC_Logger' ) ) {
+				OC_Logger::warning( 'Embroidery EPS SVG render failed for ' . basename( $path ) . ': ' . $e->getMessage() );
+			}
+			return false;
+		}
+	}
+
+	/** Build a temporary recoloured SVG for recolourable clipart. */
+	private static function build_coloured_svg( string $path, string $hex ): ?string {
+		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return null;
+		}
+
+		$dom      = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $dom->loadXML( $raw, LIBXML_NONET | LIBXML_NOCDATA );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return null;
+		}
+
+		$dom->documentElement->setAttribute( 'color', $hex );
+		$dom->documentElement->setAttribute( 'fill', $hex );
+		self::force_svg_node_colour( $dom->documentElement, $hex );
+
+		$temp = wp_tempnam( 'oc-eps-colour-clipart-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		$output = $dom->saveXML( $dom->documentElement );
+		if ( ! is_string( $output ) || false === file_put_contents( $temp, $output ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $temp;
+	}
+
+	/** Force fill/stroke colours throughout an SVG DOM subtree. */
+	private static function force_svg_node_colour( \DOMElement $element, string $hex ): void {
+		if ( 'style' === strtolower( $element->localName ) ) {
+			$element->nodeValue = self::force_svg_css_colour( $element->nodeValue ?? '', $hex );
+			return;
+		}
+
+		if ( $element->hasAttribute( 'fill' ) && 'none' !== strtolower( trim( $element->getAttribute( 'fill' ) ) ) ) {
+			$element->setAttribute( 'fill', $hex );
+		}
+		if ( $element->hasAttribute( 'stroke' ) && 'none' !== strtolower( trim( $element->getAttribute( 'stroke' ) ) ) ) {
+			$element->setAttribute( 'stroke', $hex );
+		}
+		if ( $element->hasAttribute( 'style' ) ) {
+			$element->setAttribute( 'style', self::force_svg_style_colour( $element->getAttribute( 'style' ), $hex ) );
+		}
+
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof \DOMElement ) {
+				self::force_svg_node_colour( $child, $hex );
+			}
+		}
+	}
+
+	private static function force_svg_style_colour( string $style, string $hex ): string {
+		$parts = array_filter( array_map( 'trim', explode( ';', $style ) ) );
+		foreach ( $parts as &$part ) {
+			if ( preg_match( '/^\s*(fill|stroke)\s*:/i', $part ) && ! preg_match( '/:\s*none\s*$/i', $part ) ) {
+				$property = trim( (string) strtok( $part, ':' ) );
+				$part     = $property . ':' . $hex;
+			}
+		}
+
+		return implode( ';', $parts );
+	}
+
+	private static function force_svg_css_colour( string $css, string $hex ): string {
+		return (string) preg_replace_callback(
+			'/\b(fill|stroke)\s*:\s*([^;}]+)/i',
+			static function ( array $matches ) use ( $hex ): string {
+				$value = strtolower( trim( (string) $matches[2] ) );
+				return 'none' === $value ? $matches[0] : $matches[1] . ':' . $hex;
+			},
+			$css
+		);
 	}
 
 	/** Draw a visible placeholder when vector/raster conversion is not possible. */
