@@ -699,10 +699,14 @@ class OCCustomiser {
 
 			case 'clipart':
 				if ( input.clipartUrl ) {
-					const clipartColor = input.clipartRecolourable && ! isEngraving ? String( input.colorHex || '' ).trim() : '';
-					const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl( input.clipartUrl, clipartColor ) : input.clipartUrl;
+					const selectedClipartColor = String( input.colorHex || '' ).trim();
+					const clipartColor = input.clipartRecolourable
+						? ( isEngraving ? engravingPalette.text : selectedClipartColor )
+						: '';
+					const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl( input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '' ) : input.clipartUrl;
 					const clipartCrossOrigin = clipartUrl.startsWith( 'data:' ) ? '' : 'anonymous';
-					await this.renderFabricImg( canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain' );
+					const clipartEffects = isEmbroidery ? { embroideryColor: clipartColor || selectedClipartColor || '#000000' } : {};
+					await this.renderFabricImg( canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects );
 				}
 				break;
 
@@ -987,8 +991,8 @@ class OCCustomiser {
 		}
 	}
 
-	async recolourSvgClipartUrl( url, color ) {
-		const key = `${ url }|${ color }`;
+	async recolourSvgClipartUrl( url, color, effect = '' ) {
+		const key = `${ url }|${ color }|${ effect }`;
 		if ( this.clipartSvgCache[ key ] ) {
 			return this.clipartSvgCache[ key ];
 		}
@@ -1006,8 +1010,12 @@ class OCCustomiser {
 				throw new Error( 'Clipart is not an SVG.' );
 			}
 
+			const paint = effect === 'embroidery' ? 'url(#oc-embroidery-stitch)' : color;
 			svg.setAttribute( 'color', color );
-			this.forceSvgPreviewColour( svg, color );
+			this.forceSvgPreviewColour( svg, paint );
+			if ( effect === 'embroidery' ) {
+				this.addEmbroiderySvgPattern( svg, color );
+			}
 			this.cropSvgToVisibleBounds( svg );
 
 			const output = new XMLSerializer().serializeToString( svg );
@@ -1017,6 +1025,42 @@ class OCCustomiser {
 			console.warn( '[OC] SVG clipart recolour failed:', e, 'URL:', url );
 			return url;
 		}
+	}
+
+	addEmbroiderySvgPattern( svg, color ) {
+		const rgb = this.hexToRgb( color ) || { r: 0, g: 0, b: 0 };
+		const hi = `rgb(${ Math.min( 255, rgb.r + 92 ) },${ Math.min( 255, rgb.g + 92 ) },${ Math.min( 255, rgb.b + 92 ) })`;
+		const lo = `rgb(${ Math.max( 0, rgb.r - 78 ) },${ Math.max( 0, rgb.g - 78 ) },${ Math.max( 0, rgb.b - 78 ) })`;
+		const ns = 'http://www.w3.org/2000/svg';
+		const defs = svg.querySelector( 'defs' ) || svg.insertBefore( document.createElementNS( ns, 'defs' ), svg.firstChild );
+		const pattern = document.createElementNS( ns, 'pattern' );
+
+		pattern.setAttribute( 'id', 'oc-embroidery-stitch' );
+		pattern.setAttribute( 'patternUnits', 'userSpaceOnUse' );
+		pattern.setAttribute( 'width', '12' );
+		pattern.setAttribute( 'height', '12' );
+
+		const bg = document.createElementNS( ns, 'rect' );
+		bg.setAttribute( 'width', '12' );
+		bg.setAttribute( 'height', '12' );
+		bg.setAttribute( 'fill', color );
+		pattern.appendChild( bg );
+
+		[ [ lo, '0.34', '-3' ], [ hi, '0.46', '3' ], [ lo, '0.2', '9' ] ].forEach( ( [ stroke, opacity, x ] ) => {
+			const line = document.createElementNS( ns, 'line' );
+			line.setAttribute( 'x1', x );
+			line.setAttribute( 'y1', '13' );
+			line.setAttribute( 'x2', String( Number( x ) + 13 ) );
+			line.setAttribute( 'y2', '-1' );
+			line.setAttribute( 'stroke', stroke );
+			line.setAttribute( 'stroke-width', '2' );
+			line.setAttribute( 'stroke-linecap', 'round' );
+			line.setAttribute( 'opacity', opacity );
+			pattern.appendChild( line );
+		} );
+
+		defs.appendChild( pattern );
+		return 'url(#oc-embroidery-stitch)';
 	}
 
 	forceSvgPreviewColour( element, color ) {
@@ -1133,7 +1177,7 @@ class OCCustomiser {
 		return [ '#fff', '#ffffff', 'white', 'rgb(255,255,255)', 'rgba(255,255,255,1)' ].includes( normalised );
 	}
 
-	async renderFabricImg( canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '' ) {
+	async renderFabricImg( canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '', effects = {} ) {
 		try {
 			const imgLoadOpts = crossOrigin ? { crossOrigin } : {};
 			const img = await FabricImage.fromURL( url, imgLoadOpts );
@@ -1177,7 +1221,14 @@ class OCCustomiser {
 			}
 			if ( isEngraving ) {
 				const palette = engravingPalette || this.engravingPalette();
-				img.set( { opacity: palette.opacity } );
+				img.set( {
+					opacity: palette.opacity,
+					shadow: new Shadow( { color: palette.highlight, offsetX: 0, offsetY: 1, blur: 1 } ),
+				} );
+			} else if ( effects.embroideryColor ) {
+				img.set( {
+					shadow: new Shadow( { color: 'rgba(0,0,0,0.24)', offsetX: 0.7, offsetY: 0.95, blur: 1.1 } ),
+				} );
 			}
 
 			img._ocContent = true;
