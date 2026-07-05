@@ -142,6 +142,10 @@ class OC_Cart {
 
 			$sanitised_layers = [];
 			$fallback_font_id = self::first_active_font_id();
+			$posted_layer_inputs = [];
+			if ( isset( $_POST['oc_layer_inputs'] ) && is_array( $_POST['oc_layer_inputs'] ) ) {
+				$posted_layer_inputs = wp_unslash( $_POST['oc_layer_inputs'] );
+			}
 			foreach ( $decoded['layers'] as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) continue;
 
@@ -153,6 +157,13 @@ class OC_Cart {
 				$settings = $design_layers[ $layer_key ]['settings'];
 				if ( ! in_array( $type, $valid_layer_types, true ) ) {
 					continue;
+				}
+
+				if ( isset( $posted_layer_inputs[ $layer_key ] ) && is_array( $posted_layer_inputs[ $layer_key ] ) ) {
+					$posted_value = $posted_layer_inputs[ $layer_key ]['value'] ?? null;
+					if ( is_scalar( $posted_value ) ) {
+						$layer_data['value'] = (string) $posted_value;
+					}
 				}
 
 				$font_id   = absint( $layer_data['fontId'] ?? 0 );

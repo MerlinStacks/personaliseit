@@ -372,6 +372,14 @@ class OC_Print_Generator {
 	 * Output:   { text, fontId, color, artworkAttachmentId }
 	 */
 	public static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
+		$stored_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		if ( ! empty( $stored_spec ) ) {
+			$stored_area_data = OC_Render_Spec::area_from_spec( $stored_spec, $area_id );
+			if ( ! empty( $stored_area_data ) && self::area_has_printable_data( $stored_area_data ) ) {
+				return $stored_area_data;
+			}
+		}
+
 		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
 		$layer_inputs = self::normalise_v2_layer_font_inputs( $design_id, $layer_inputs );
 		$render_spec  = OC_Render_Spec::build( $design_id, $layer_inputs );

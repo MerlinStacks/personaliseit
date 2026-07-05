@@ -164,6 +164,7 @@ foreach ( $layers as $layer ) {
 									<div class="oc-input-wrap">
 										<input type="text"
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
+											name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]"
 											value="<?php echo esc_attr( $default ); ?>"
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											autocomplete="off"
@@ -181,6 +182,7 @@ foreach ( $layers as $layer ) {
 									<div class="oc-input-wrap">
 										<textarea
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
+											name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]"
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											inputmode="text"
 											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
