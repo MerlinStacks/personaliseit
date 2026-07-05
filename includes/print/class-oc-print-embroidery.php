@@ -506,6 +506,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style ): void {
 		$style = self::svg_style_for_element( $element, $style );
 		$name  = strtolower( $element->localName );
+		$has_transform = $element->hasAttribute( 'transform' ) && '' !== trim( $element->getAttribute( 'transform' ) );
+
+		if ( $has_transform ) {
+			$lines[] = 'gsave';
+			self::append_svg_transform_eps( $lines, $element->getAttribute( 'transform' ) );
+		}
 
 		switch ( $name ) {
 			case 'path':
@@ -535,6 +541,43 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		foreach ( $element->childNodes as $child ) {
 			if ( $child instanceof \DOMElement ) {
 				self::append_svg_element_eps( $lines, $child, $style );
+			}
+		}
+
+		if ( $has_transform ) {
+			$lines[] = 'grestore';
+		}
+	}
+
+	private static function append_svg_transform_eps( array &$lines, string $transform ): void {
+		preg_match_all( '/(matrix|translate|scale|rotate)\s*\(([^)]*)\)/i', $transform, $matches, PREG_SET_ORDER );
+		foreach ( $matches as $match ) {
+			$name   = strtolower( (string) $match[1] );
+			$values = preg_split( '/[\s,]+/', trim( (string) $match[2] ) );
+			$values = array_values( array_filter( array_map( 'trim', is_array( $values ) ? $values : [] ), static fn ( string $value ): bool => '' !== $value ) );
+			$nums   = array_map( 'floatval', $values );
+
+			switch ( $name ) {
+				case 'matrix':
+					if ( count( $nums ) >= 6 ) {
+						$lines[] = sprintf( '[%.8F %.8F %.8F %.8F %.8F %.8F] concat', $nums[0], $nums[1], $nums[2], $nums[3], $nums[4], $nums[5] );
+					}
+					break;
+				case 'translate':
+					$lines[] = sprintf( '%.4F %.4F translate', $nums[0] ?? 0.0, $nums[1] ?? 0.0 );
+					break;
+				case 'scale':
+					$sx = $nums[0] ?? 1.0;
+					$sy = $nums[1] ?? $sx;
+					$lines[] = sprintf( '%.8F %.8F scale', $sx, $sy );
+					break;
+				case 'rotate':
+					if ( count( $nums ) >= 3 ) {
+						$lines[] = sprintf( '%.4F %.4F translate %.4F rotate %.4F %.4F translate', $nums[1], $nums[2], $nums[0], -$nums[1], -$nums[2] );
+					} else {
+						$lines[] = sprintf( '%.4F rotate', $nums[0] ?? 0.0 );
+					}
+					break;
 			}
 		}
 	}
@@ -578,6 +621,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$y = 0.0;
 		$start_x = 0.0;
 		$start_y = 0.0;
+		$prev_cx = null;
+		$prev_cy = null;
+		$prev_qx = null;
+		$prev_qy = null;
 
 		while ( $i < count( $tokens ) ) {
 			if ( preg_match( '/^[A-Za-z]$/', $tokens[ $i ] ) ) {
@@ -599,6 +646,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$start_x = $x;
 						$start_y = $y;
 						$cmd = $relative ? 'l' : 'L';
+						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'L':
@@ -608,6 +656,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$x = $relative ? $x + $nx : $nx;
 						$y = $relative ? $y + $ny : $ny;
 						$out[] = sprintf( '%.4F %.4F lineto', $x, $y );
+						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'H':
@@ -615,6 +664,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$nx = (float) $tokens[ $i++ ];
 						$x = $relative ? $x + $nx : $nx;
 						$out[] = sprintf( '%.4F %.4F lineto', $x, $y );
+						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'V':
@@ -622,6 +672,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$ny = (float) $tokens[ $i++ ];
 						$y = $relative ? $y + $ny : $ny;
 						$out[] = sprintf( '%.4F %.4F lineto', $x, $y );
+						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'C':
@@ -634,6 +685,22 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						}
 						$out[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $x1, $y1, $x2, $y2, $x3, $y3 );
 						$x = $x3; $y = $y3;
+						$prev_cx = $x2; $prev_cy = $y2; $prev_qx = $prev_qy = null;
+					}
+					break;
+				case 'S':
+					while ( self::svg_has_numbers( $tokens, $i, 4 ) ) {
+						$vals = array_map( 'floatval', array_slice( $tokens, $i, 4 ) );
+						$i += 4;
+						[ $x2, $y2, $x3, $y3 ] = $vals;
+						$x1 = null !== $prev_cx ? 2 * $x - $prev_cx : $x;
+						$y1 = null !== $prev_cy ? 2 * $y - $prev_cy : $y;
+						if ( $relative ) {
+							$x2 += $x; $y2 += $y; $x3 += $x; $y3 += $y;
+						}
+						$out[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $x1, $y1, $x2, $y2, $x3, $y3 );
+						$x = $x3; $y = $y3;
+						$prev_cx = $x2; $prev_cy = $y2; $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'Q':
@@ -650,12 +717,46 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$c2y = $ey + 2 / 3 * ( $qy - $ey );
 						$out[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $c1x, $c1y, $c2x, $c2y, $ex, $ey );
 						$x = $ex; $y = $ey;
+						$prev_qx = $qx; $prev_qy = $qy; $prev_cx = $prev_cy = null;
+					}
+					break;
+				case 'T':
+					while ( self::svg_has_numbers( $tokens, $i, 2 ) ) {
+						$ex = (float) $tokens[ $i++ ];
+						$ey = (float) $tokens[ $i++ ];
+						$qx = null !== $prev_qx ? 2 * $x - $prev_qx : $x;
+						$qy = null !== $prev_qy ? 2 * $y - $prev_qy : $y;
+						if ( $relative ) {
+							$ex += $x; $ey += $y;
+						}
+						$c1x = $x + 2 / 3 * ( $qx - $x );
+						$c1y = $y + 2 / 3 * ( $qy - $y );
+						$c2x = $ex + 2 / 3 * ( $qx - $ex );
+						$c2y = $ey + 2 / 3 * ( $qy - $ey );
+						$out[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $c1x, $c1y, $c2x, $c2y, $ex, $ey );
+						$x = $ex; $y = $ey;
+						$prev_qx = $qx; $prev_qy = $qy; $prev_cx = $prev_cy = null;
+					}
+					break;
+				case 'A':
+					while ( self::svg_has_numbers( $tokens, $i, 7 ) ) {
+						$vals = array_map( 'floatval', array_slice( $tokens, $i, 7 ) );
+						$i += 7;
+						$ex = $vals[5];
+						$ey = $vals[6];
+						if ( $relative ) {
+							$ex += $x; $ey += $y;
+						}
+						$out[] = sprintf( '%.4F %.4F lineto', $ex, $ey );
+						$x = $ex; $y = $ey;
+						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'Z':
 					$out[] = 'closepath';
 					$x = $start_x;
 					$y = $start_y;
+					$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					break;
 				default:
 					return $out;
