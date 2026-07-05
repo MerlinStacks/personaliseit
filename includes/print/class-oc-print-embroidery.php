@@ -335,7 +335,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Append layer artwork, embedding raster files and preserving vector references. */
 	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
-		$path = self::resolve_artwork_path( $layer );
+		$path = self::resolve_eps_layer_artwork_path( $layer );
 		if ( ! $path ) {
 			return;
 		}
@@ -369,6 +369,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			if ( $image ) {
 				self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt );
 				imagedestroy( $image );
+				return;
+			}
+
+			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt ) ) {
 				return;
 			}
 
@@ -430,6 +434,376 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$lines[] = 'grestore';
 		imagedestroy( $draw );
+	}
+
+	/** Resolve selected clipart paths from the trusted clipart DB row before falling back to upload artwork rules. */
+	private static function resolve_eps_layer_artwork_path( array $layer ): ?string {
+		$path = self::resolve_artwork_path( $layer );
+		if ( $path ) {
+			return $path;
+		}
+
+		if ( 'clipart' !== (string) ( $layer['type'] ?? '' ) ) {
+			return null;
+		}
+
+		$input      = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+		$clipart_id = absint( $input['clipartId'] ?? 0 );
+		if ( $clipart_id <= 0 ) {
+			return null;
+		}
+
+		global $wpdb;
+		$file_path = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
+				$clipart_id
+			)
+		);
+		if ( ! is_string( $file_path ) || '' === $file_path ) {
+			return null;
+		}
+
+		$real = realpath( $file_path );
+		return $real && file_exists( $real ) ? $real : null;
+	}
+
+	/** Render common SVG clipart directly as EPS vectors when no SVG rasterizer is available. */
+	private static function append_eps_svg_vector( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): bool {
+		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return false;
+		}
+
+		$dom      = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $dom->loadXML( $raw, LIBXML_NONET | LIBXML_NOCDATA );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return false;
+		}
+
+		[ $vb_x, $vb_y, $vb_w, $vb_h ] = self::svg_view_box( $dom->documentElement );
+		if ( $vb_w <= 0.0 || $vb_h <= 0.0 ) {
+			return false;
+		}
+
+		$before  = count( $lines );
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt + $h_pt );
+		$lines[] = sprintf( '%.8F %.8F scale', $w_pt / $vb_w, -$h_pt / $vb_h );
+		$lines[] = sprintf( '%.4F %.4F translate', -$vb_x, -$vb_y );
+		self::append_svg_element_eps( $lines, $dom->documentElement, [] );
+		$lines[] = 'grestore';
+
+		if ( count( $lines ) <= $before + 4 ) {
+			array_splice( $lines, $before );
+			return false;
+		}
+
+		return true;
+	}
+
+	private static function svg_view_box( \DOMElement $svg ): array {
+		$view_box = trim( $svg->getAttribute( 'viewBox' ) );
+		if ( '' !== $view_box ) {
+			$parts = preg_split( '/[\s,]+/', $view_box );
+			if ( is_array( $parts ) && count( $parts ) >= 4 ) {
+				return [ (float) $parts[0], (float) $parts[1], (float) $parts[2], (float) $parts[3] ];
+			}
+		}
+
+		$w = self::svg_number( $svg->getAttribute( 'width' ) );
+		$h = self::svg_number( $svg->getAttribute( 'height' ) );
+		return [ 0.0, 0.0, max( 1.0, $w ), max( 1.0, $h ) ];
+	}
+
+	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style ): void {
+		$style = self::svg_style_for_element( $element, $style );
+		$name  = strtolower( $element->localName );
+
+		switch ( $name ) {
+			case 'path':
+				self::append_svg_path_eps( $lines, $element->getAttribute( 'd' ), $style );
+				break;
+			case 'rect':
+				self::append_svg_rect_eps( $lines, $element, $style );
+				break;
+			case 'circle':
+				self::append_svg_circle_eps( $lines, $element, $style );
+				break;
+			case 'ellipse':
+				self::append_svg_ellipse_eps( $lines, $element, $style );
+				break;
+			case 'line':
+				self::append_svg_polyline_eps( $lines, [
+					[ self::svg_number( $element->getAttribute( 'x1' ) ), self::svg_number( $element->getAttribute( 'y1' ) ) ],
+					[ self::svg_number( $element->getAttribute( 'x2' ) ), self::svg_number( $element->getAttribute( 'y2' ) ) ],
+				], $style, false );
+				break;
+			case 'polyline':
+			case 'polygon':
+				self::append_svg_polyline_eps( $lines, self::svg_points( $element->getAttribute( 'points' ) ), $style, 'polygon' === $name );
+				break;
+		}
+
+		foreach ( $element->childNodes as $child ) {
+			if ( $child instanceof \DOMElement ) {
+				self::append_svg_element_eps( $lines, $child, $style );
+			}
+		}
+	}
+
+	private static function svg_style_for_element( \DOMElement $element, array $parent ): array {
+		$style = $parent + [ 'fill' => '#000000', 'stroke' => 'none', 'stroke-width' => '1' ];
+		if ( $element->hasAttribute( 'style' ) ) {
+			foreach ( explode( ';', $element->getAttribute( 'style' ) ) as $rule ) {
+				if ( str_contains( $rule, ':' ) ) {
+					[ $key, $value ] = array_map( 'trim', explode( ':', $rule, 2 ) );
+					$style[ strtolower( $key ) ] = $value;
+				}
+			}
+		}
+
+		foreach ( [ 'fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity' ] as $attr ) {
+			if ( $element->hasAttribute( $attr ) ) {
+				$style[ $attr ] = $element->getAttribute( $attr );
+			}
+		}
+
+		return $style;
+	}
+
+	private static function append_svg_path_eps( array &$lines, string $d, array $style ): void {
+		$commands = self::svg_path_to_eps( $d );
+		if ( empty( $commands ) ) {
+			return;
+		}
+
+		self::append_svg_paint_eps( $lines, $commands, $style );
+	}
+
+	private static function svg_path_to_eps( string $d ): array {
+		preg_match_all( '/[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $d, $matches );
+		$tokens = $matches[0] ?? [];
+		$out = [];
+		$i = 0;
+		$cmd = '';
+		$x = 0.0;
+		$y = 0.0;
+		$start_x = 0.0;
+		$start_y = 0.0;
+
+		while ( $i < count( $tokens ) ) {
+			if ( preg_match( '/^[A-Za-z]$/', $tokens[ $i ] ) ) {
+				$cmd = $tokens[ $i++ ];
+			}
+			if ( '' === $cmd ) {
+				break;
+			}
+
+			$relative = ctype_lower( $cmd );
+			switch ( strtoupper( $cmd ) ) {
+				case 'M':
+					while ( self::svg_has_numbers( $tokens, $i, 2 ) ) {
+						$nx = (float) $tokens[ $i++ ];
+						$ny = (float) $tokens[ $i++ ];
+						$x = $relative ? $x + $nx : $nx;
+						$y = $relative ? $y + $ny : $ny;
+						$out[] = sprintf( '%.4F %.4F moveto', $x, $y );
+						$start_x = $x;
+						$start_y = $y;
+						$cmd = $relative ? 'l' : 'L';
+					}
+					break;
+				case 'L':
+					while ( self::svg_has_numbers( $tokens, $i, 2 ) ) {
+						$nx = (float) $tokens[ $i++ ];
+						$ny = (float) $tokens[ $i++ ];
+						$x = $relative ? $x + $nx : $nx;
+						$y = $relative ? $y + $ny : $ny;
+						$out[] = sprintf( '%.4F %.4F lineto', $x, $y );
+					}
+					break;
+				case 'H':
+					while ( self::svg_has_numbers( $tokens, $i, 1 ) ) {
+						$nx = (float) $tokens[ $i++ ];
+						$x = $relative ? $x + $nx : $nx;
+						$out[] = sprintf( '%.4F %.4F lineto', $x, $y );
+					}
+					break;
+				case 'V':
+					while ( self::svg_has_numbers( $tokens, $i, 1 ) ) {
+						$ny = (float) $tokens[ $i++ ];
+						$y = $relative ? $y + $ny : $ny;
+						$out[] = sprintf( '%.4F %.4F lineto', $x, $y );
+					}
+					break;
+				case 'C':
+					while ( self::svg_has_numbers( $tokens, $i, 6 ) ) {
+						$vals = array_map( 'floatval', array_slice( $tokens, $i, 6 ) );
+						$i += 6;
+						[ $x1, $y1, $x2, $y2, $x3, $y3 ] = $vals;
+						if ( $relative ) {
+							$x1 += $x; $y1 += $y; $x2 += $x; $y2 += $y; $x3 += $x; $y3 += $y;
+						}
+						$out[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $x1, $y1, $x2, $y2, $x3, $y3 );
+						$x = $x3; $y = $y3;
+					}
+					break;
+				case 'Q':
+					while ( self::svg_has_numbers( $tokens, $i, 4 ) ) {
+						$vals = array_map( 'floatval', array_slice( $tokens, $i, 4 ) );
+						$i += 4;
+						[ $qx, $qy, $ex, $ey ] = $vals;
+						if ( $relative ) {
+							$qx += $x; $qy += $y; $ex += $x; $ey += $y;
+						}
+						$c1x = $x + 2 / 3 * ( $qx - $x );
+						$c1y = $y + 2 / 3 * ( $qy - $y );
+						$c2x = $ex + 2 / 3 * ( $qx - $ex );
+						$c2y = $ey + 2 / 3 * ( $qy - $ey );
+						$out[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $c1x, $c1y, $c2x, $c2y, $ex, $ey );
+						$x = $ex; $y = $ey;
+					}
+					break;
+				case 'Z':
+					$out[] = 'closepath';
+					$x = $start_x;
+					$y = $start_y;
+					break;
+				default:
+					return $out;
+			}
+		}
+
+		return $out;
+	}
+
+	private static function svg_has_numbers( array $tokens, int $offset, int $count ): bool {
+		if ( $offset + $count > count( $tokens ) ) {
+			return false;
+		}
+		for ( $i = 0; $i < $count; $i++ ) {
+			if ( preg_match( '/^[A-Za-z]$/', (string) $tokens[ $offset + $i ] ) ) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	private static function append_svg_rect_eps( array &$lines, \DOMElement $element, array $style ): void {
+		$x = self::svg_number( $element->getAttribute( 'x' ) );
+		$y = self::svg_number( $element->getAttribute( 'y' ) );
+		$w = self::svg_number( $element->getAttribute( 'width' ) );
+		$h = self::svg_number( $element->getAttribute( 'height' ) );
+		if ( $w <= 0.0 || $h <= 0.0 ) {
+			return;
+		}
+		self::append_svg_paint_eps( $lines, [
+			sprintf( '%.4F %.4F moveto', $x, $y ),
+			sprintf( '%.4F %.4F lineto', $x + $w, $y ),
+			sprintf( '%.4F %.4F lineto', $x + $w, $y + $h ),
+			sprintf( '%.4F %.4F lineto', $x, $y + $h ),
+			'closepath',
+		], $style );
+	}
+
+	private static function append_svg_circle_eps( array &$lines, \DOMElement $element, array $style ): void {
+		$cx = self::svg_number( $element->getAttribute( 'cx' ) );
+		$cy = self::svg_number( $element->getAttribute( 'cy' ) );
+		$r  = self::svg_number( $element->getAttribute( 'r' ) );
+		if ( $r <= 0.0 ) {
+			return;
+		}
+		self::append_svg_paint_eps( $lines, [ sprintf( '%.4F %.4F %.4F 0 360 arc', $cx, $cy, $r ) ], $style );
+	}
+
+	private static function append_svg_ellipse_eps( array &$lines, \DOMElement $element, array $style ): void {
+		$cx = self::svg_number( $element->getAttribute( 'cx' ) );
+		$cy = self::svg_number( $element->getAttribute( 'cy' ) );
+		$rx = self::svg_number( $element->getAttribute( 'rx' ) );
+		$ry = self::svg_number( $element->getAttribute( 'ry' ) );
+		if ( $rx <= 0.0 || $ry <= 0.0 ) {
+			return;
+		}
+		self::append_svg_paint_eps( $lines, [
+			'gsave',
+			sprintf( '%.4F %.4F translate', $cx, $cy ),
+			sprintf( '%.8F %.8F scale', $rx, $ry ),
+			'0 0 1 0 360 arc',
+			'grestore',
+		], $style );
+	}
+
+	private static function append_svg_polyline_eps( array &$lines, array $points, array $style, bool $closed ): void {
+		if ( count( $points ) < 2 ) {
+			return;
+		}
+		$commands = [];
+		foreach ( $points as $index => $point ) {
+			$commands[] = sprintf( '%.4F %.4F %s', (float) $point[0], (float) $point[1], 0 === $index ? 'moveto' : 'lineto' );
+		}
+		if ( $closed ) {
+			$commands[] = 'closepath';
+		}
+		self::append_svg_paint_eps( $lines, $commands, $style );
+	}
+
+	private static function append_svg_paint_eps( array &$lines, array $commands, array $style ): void {
+		$fill   = self::svg_colour( (string) ( $style['fill'] ?? '#000000' ) );
+		$stroke = self::svg_colour( (string) ( $style['stroke'] ?? 'none' ) );
+
+		if ( $fill ) {
+			$lines[] = 'gsave';
+			$lines[] = 'newpath';
+			array_push( $lines, ...$commands );
+			$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $fill[0], $fill[1], $fill[2] );
+			$lines[] = 'fill';
+			$lines[] = 'grestore';
+		}
+
+		if ( $stroke ) {
+			$lines[] = 'gsave';
+			$lines[] = 'newpath';
+			array_push( $lines, ...$commands );
+			$lines[] = sprintf( '%.4F setlinewidth', max( 0.1, self::svg_number( (string) ( $style['stroke-width'] ?? '1' ) ) ) );
+			$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $stroke[0], $stroke[1], $stroke[2] );
+			$lines[] = 'stroke';
+			$lines[] = 'grestore';
+		}
+	}
+
+	private static function svg_colour( string $value ): ?array {
+		$value = trim( strtolower( $value ) );
+		if ( '' === $value || 'none' === $value || str_starts_with( $value, 'url(' ) ) {
+			return null;
+		}
+		if ( 'currentcolor' === $value || 'currentColor' === $value ) {
+			$value = '#000000';
+		}
+		if ( preg_match( '/^#([0-9a-f]{3}|[0-9a-f]{6})$/i', $value ) ) {
+			return self::hex_to_unit_rgb( $value );
+		}
+		if ( preg_match( '/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/', $value, $matches ) ) {
+			return [ min( 255, (int) $matches[1] ) / 255, min( 255, (int) $matches[2] ) / 255, min( 255, (int) $matches[3] ) / 255 ];
+		}
+		return [ 0.0, 0.0, 0.0 ];
+	}
+
+	private static function svg_points( string $points ): array {
+		preg_match_all( '/[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $points, $matches );
+		$values = array_map( 'floatval', $matches[0] ?? [] );
+		$out    = [];
+		for ( $i = 0; $i + 1 < count( $values ); $i += 2 ) {
+			$out[] = [ $values[ $i ], $values[ $i + 1 ] ];
+		}
+		return $out;
+	}
+
+	private static function svg_number( string $value ): float {
+		return preg_match( '/[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $value, $matches ) ? (float) $matches[0] : 0.0;
 	}
 
 	/** Convert an SVG to a GD image so clipart appears in EPS output. */
