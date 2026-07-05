@@ -82,10 +82,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	/** Append all v2 customiser layers to the EPS output. */
 	private static function append_eps_layers( array &$lines, object $area, array $area_data ): void {
 		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
-		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
-		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
+		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
+		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
+		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
 		$artwork_used   = false;
@@ -106,12 +107,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$center_y = $layer_y + $layer_h / 2;
 			$rotation = self::layer_rotation( $layer, $input, $settings );
 
-			$center_x_mm = self::unit_to_mm( $center_x - $area_x, $unit );
-			$center_y_mm = self::unit_to_mm( $center_y - $area_y, $unit );
+			$center_x_mm = ( ( $center_x - $area_x ) / $bounds_w ) * $area_w_mm;
+			$center_y_mm = ( ( $center_y - $area_y ) / $bounds_h ) * $area_h_mm;
 			$cx_pt       = self::mm_to_pt( $center_x_mm );
 			$cy_pt       = self::mm_to_pt( max( 0.0, $area_h_mm - $center_y_mm ) );
-			$w_pt     = self::mm_to_pt( self::unit_to_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $unit ) );
-			$h_pt     = self::mm_to_pt( self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit ) );
+			$w_pt     = self::mm_to_pt( ( $layer_w / $bounds_w ) * $area_w_mm );
+			$h_pt     = self::mm_to_pt( ( $layer_h / $bounds_h ) * $area_h_mm );
 			$x_pt     = -$w_pt / 2;
 			$y_pt     = -$h_pt / 2;
 
@@ -217,7 +218,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		if ( $centered ) {
 			$align = (string) ( $settings['alignment'] ?? 'center' );
-			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
+			$lines[] = sprintf( '%.4F %.4F moveto', self::eps_text_align_x( $align, $x_pt, $w_pt ), self::eps_text_baseline_y( $y_pt, $h_pt, $font_size, $font_id ) );
 			$lines[] = '(' . self::ps_escape( $text ) . ')' . self::eps_text_show_command( $align );
 		} else {
 			$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
@@ -242,6 +243,28 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'left'  => ' show',
 			default => ' dup stringwidth pop 2 div neg 0 rmoveto show',
 		};
+	}
+
+	/** Return a Fabric-like baseline for vertically centred editable EPS text. */
+	private static function eps_text_baseline_y( float $y_pt, float $h_pt, float $font_size_pt, int $font_id ): float {
+		$top = $font_size_pt * 0.72;
+		$bottom = -$font_size_pt * 0.22;
+
+		$font = self::get_font( $font_id );
+		if ( $font && function_exists( 'imagettfbbox' ) ) {
+			$font_path = self::get_font_path( $font );
+			if ( $font_path && file_exists( $font_path ) ) {
+				$font_size_px = max( 1, $font_size_pt / 72 * 300 );
+				$box = imagettfbbox( $font_size_px, 0, $font_path, 'Hg' );
+				if ( is_array( $box ) ) {
+					$ys = [ (float) $box[1], (float) $box[3], (float) $box[5], (float) $box[7] ];
+					$top = abs( min( $ys ) ) / 300 * 72;
+					$bottom = -max( $ys ) / 300 * 72;
+				}
+			}
+		}
+
+		return $y_pt + $h_pt / 2 - ( $top + $bottom ) / 2;
 	}
 
 	/** Return the selected font family for EPS consumers that have production fonts installed. */
@@ -1027,6 +1050,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_svg_paint_eps( array &$lines, array $commands, array $style ): void {
 		$fill   = self::svg_colour( (string) ( $style['fill'] ?? '#000000' ) );
 		$stroke = self::svg_colour( (string) ( $style['stroke'] ?? 'none' ) );
+		if ( $fill && $stroke && self::same_rgb( $fill, $stroke ) ) {
+			$stroke = null;
+		}
 
 		if ( $fill ) {
 			$lines[] = 'gsave';
@@ -1063,6 +1089,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return [ min( 255, (int) $matches[1] ) / 255, min( 255, (int) $matches[2] ) / 255, min( 255, (int) $matches[3] ) / 255 ];
 		}
 		return [ 0.0, 0.0, 0.0 ];
+	}
+
+	private static function same_rgb( array $a, array $b ): bool {
+		return abs( (float) $a[0] - (float) $b[0] ) < 0.0001
+			&& abs( (float) $a[1] - (float) $b[1] ) < 0.0001
+			&& abs( (float) $a[2] - (float) $b[2] ) < 0.0001;
 	}
 
 	private static function svg_points( string $points ): array {
@@ -1126,6 +1158,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$dom->documentElement->setAttribute( 'color', $hex );
 		self::force_svg_node_colour( $dom->documentElement, $hex );
+		self::crop_svg_to_visible_bounds( $dom->documentElement );
 
 		$temp = self::temp_svg_path( 'oc-eps-colour-clipart-' . wp_generate_uuid4() );
 		if ( ! is_string( $temp ) || '' === $temp ) {
@@ -1163,6 +1196,133 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $svg_temp;
+	}
+
+	/** Match the preview by fitting recoloured SVG clipart to visible artwork, not its original canvas. */
+	private static function crop_svg_to_visible_bounds( \DOMElement $svg ): void {
+		$bounds = self::svg_visible_bounds( $svg );
+		if ( ! $bounds ) {
+			return;
+		}
+
+		[ $x1, $y1, $x2, $y2 ] = $bounds;
+		$x = $x1;
+		$y = $y1;
+		$w = $x2 - $x1;
+		$h = $y2 - $y1;
+		if ( $w <= 0.0 || $h <= 0.0 ) {
+			return;
+		}
+
+		$svg->setAttribute( 'viewBox', sprintf( '%.4F %.4F %.4F %.4F', $x, $y, $w, $h ) );
+		$svg->setAttribute( 'width', sprintf( '%.4F', $w ) );
+		$svg->setAttribute( 'height', sprintf( '%.4F', $h ) );
+	}
+
+	private static function svg_visible_bounds( \DOMElement $root ): ?array {
+		$bounds = null;
+		foreach ( $root->getElementsByTagName( '*' ) as $element ) {
+			if ( ! $element instanceof \DOMElement ) {
+				continue;
+			}
+
+			$box = self::svg_element_bounds( $element );
+			if ( ! $box || ! self::svg_element_visible( $element ) ) {
+				continue;
+			}
+
+			$bounds = self::merge_bounds( $bounds, $box );
+		}
+
+		return $bounds;
+	}
+
+	private static function svg_element_visible( \DOMElement $element ): bool {
+		$style = $element->hasAttribute( 'style' ) ? self::svg_css_declarations( $element->getAttribute( 'style' ) ) : [];
+		$fill  = strtolower( trim( (string) ( $style['fill'] ?? $element->getAttribute( 'fill' ) ) ) );
+		$stroke = strtolower( trim( (string) ( $style['stroke'] ?? $element->getAttribute( 'stroke' ) ) ) );
+
+		return 'none' !== $fill || ( '' !== $stroke && 'none' !== $stroke );
+	}
+
+	private static function svg_element_bounds( \DOMElement $element ): ?array {
+		$name = strtolower( $element->localName );
+		switch ( $name ) {
+			case 'rect':
+				$x = self::svg_number( $element->getAttribute( 'x' ) );
+				$y = self::svg_number( $element->getAttribute( 'y' ) );
+				$w = self::svg_number( $element->getAttribute( 'width' ) );
+				$h = self::svg_number( $element->getAttribute( 'height' ) );
+				return $w > 0.0 && $h > 0.0 ? [ $x, $y, $x + $w, $y + $h ] : null;
+
+			case 'circle':
+				$cx = self::svg_number( $element->getAttribute( 'cx' ) );
+				$cy = self::svg_number( $element->getAttribute( 'cy' ) );
+				$r  = self::svg_number( $element->getAttribute( 'r' ) );
+				return $r > 0.0 ? [ $cx - $r, $cy - $r, $cx + $r, $cy + $r ] : null;
+
+			case 'ellipse':
+				$cx = self::svg_number( $element->getAttribute( 'cx' ) );
+				$cy = self::svg_number( $element->getAttribute( 'cy' ) );
+				$rx = self::svg_number( $element->getAttribute( 'rx' ) );
+				$ry = self::svg_number( $element->getAttribute( 'ry' ) );
+				return $rx > 0.0 && $ry > 0.0 ? [ $cx - $rx, $cy - $ry, $cx + $rx, $cy + $ry ] : null;
+
+			case 'line':
+				$x1 = self::svg_number( $element->getAttribute( 'x1' ) );
+				$y1 = self::svg_number( $element->getAttribute( 'y1' ) );
+				$x2 = self::svg_number( $element->getAttribute( 'x2' ) );
+				$y2 = self::svg_number( $element->getAttribute( 'y2' ) );
+				return [ min( $x1, $x2 ), min( $y1, $y2 ), max( $x1, $x2 ), max( $y1, $y2 ) ];
+
+			case 'polyline':
+			case 'polygon':
+				return self::svg_points_bounds( self::svg_points( $element->getAttribute( 'points' ) ) );
+
+			case 'path':
+				return self::svg_path_bounds( $element->getAttribute( 'd' ) );
+		}
+
+		return null;
+	}
+
+	private static function svg_points_bounds( array $points ): ?array {
+		if ( empty( $points ) ) {
+			return null;
+		}
+
+		$xs = array_map( static fn ( array $point ): float => (float) $point[0], $points );
+		$ys = array_map( static fn ( array $point ): float => (float) $point[1], $points );
+
+		return [ min( $xs ), min( $ys ), max( $xs ), max( $ys ) ];
+	}
+
+	private static function svg_path_bounds( string $d ): ?array {
+		preg_match_all( '/[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $d, $matches );
+		$values = array_map( 'floatval', $matches[0] ?? [] );
+		if ( count( $values ) < 2 ) {
+			return null;
+		}
+
+		$points = [];
+		for ( $i = 0; $i + 1 < count( $values ); $i += 2 ) {
+			$points[] = [ $values[ $i ], $values[ $i + 1 ] ];
+		}
+
+		return self::svg_points_bounds( $points );
+	}
+
+	private static function merge_bounds( ?array $a, array $b ): array {
+		if ( ! $a ) {
+			return $b;
+		}
+
+		return [
+			min( (float) $a[0], (float) $b[0] ),
+			min( (float) $a[1], (float) $b[1] ),
+			max( (float) $a[2], (float) $b[2] ),
+			max( (float) $a[3], (float) $b[3] ),
+		];
 	}
 
 	/** Force fill/stroke colours throughout an SVG DOM subtree. */

@@ -61,8 +61,43 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '(Editable Text)', $output );
+		$this->assertStringContainsString( '0.0000 8.0000 moveto', $output );
 		$this->assertStringContainsString( ' show', $output );
 		$this->assertStringNotContainsString( 'imagemask', $output );
+	}
+
+	#[Test]
+	public function layer_export_scales_mockup_layer_coordinates_into_physical_area_units(): void {
+		$lines = [];
+		$area  = (object) [
+			'canvas_unit' => 'mm',
+			'canvas_x'    => 100,
+			'canvas_y'    => 200,
+			'canvas_w'    => 100,
+			'canvas_h'    => 50,
+		];
+		$data  = [
+			'text'   => '',
+			'bounds' => [ 'x' => 100, 'y' => 200, 'w' => 1000, 'h' => 500, 'rotation' => 0 ],
+			'layers' => [
+				[
+					'type'     => 'text',
+					'x'        => 350,
+					'y'        => 325,
+					'w'        => 500,
+					'h'        => 250,
+					'input'    => [ 'value' => 'Scaled', 'colorHex' => '#000000' ],
+					'settings' => [],
+				],
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' );
+		$method->invokeArgs( null, [ &$lines, $area, $data ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '141.7323 70.8661 translate', $output );
+		$this->assertStringContainsString( '/Helvetica findfont 26.9291 scalefont setfont', $output );
 	}
 
 	#[Test]
@@ -82,7 +117,8 @@ class Test_Print_Embroidery extends TestCase {
 		$append->invokeArgs( null, [ &$lines, $path, 0.0, 0.0, 20.0, 20.0 ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '5.0000 20.0000 translate', $output );
+		$this->assertStringContainsString( '2.5000 20.0000 translate', $output );
+		$this->assertStringContainsString( '-1.0000 -2.0000 translate', $output );
 		$this->assertStringContainsString( 'setrgbcolor', $output );
 		$this->assertStringContainsString( 'fill', $output );
 		$this->assertStringNotContainsString( '0.0000 0.0000 moveto', $output );
@@ -123,7 +159,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '2.4009 22.8019 translate', $output );
+		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
 		$this->assertStringNotContainsString( ' rotate', $output );
 	}
 
@@ -158,7 +194,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '2.4009 22.8019 translate', $output );
+		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
 		$this->assertStringContainsString( '15.0000 rotate', $output );
 	}
 
