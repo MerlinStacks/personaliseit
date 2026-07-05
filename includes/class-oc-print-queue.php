@@ -106,6 +106,13 @@ class OC_Print_Queue {
 				throw new \RuntimeException( "Print area #{$job->print_area_id} not found." );
 			}
 
+			if ( $is_v2_area ) {
+				$customisation = $target_item->get_meta( '_oc_customisation', true );
+				if ( is_array( $customisation ) && isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
+					$area_data = OC_Print_Generator::build_v2_area_data( (int) $area->design_id, (int) $area->id, $customisation );
+				}
+			}
+
 			$print_file = $wpdb->get_row( $wpdb->prepare(
 				"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d ORDER BY id DESC LIMIT 1",
 				$job->order_id,

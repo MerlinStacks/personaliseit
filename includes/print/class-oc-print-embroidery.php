@@ -86,6 +86,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
 		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
+		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
+		$text_index     = 0;
+		$artwork_used   = false;
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -117,6 +120,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			switch ( $type ) {
 				case 'text':
 				case 'textarea':
+					if ( '' === trim( (string) ( $input['value'] ?? '' ) ) && isset( $text_fallbacks[ $text_index ] ) ) {
+						$input['value'] = $text_fallbacks[ $text_index ];
+					}
+					$text_index++;
 					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true );
 					break;
 
@@ -127,7 +134,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				case 'clipart':
 				case 'image':
 				case 'clipmask':
-					self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt );
+					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt ) && ! $artwork_used ) {
+						$fallback_path = self::resolve_artwork_path( $area_data );
+						if ( $fallback_path ) {
+							self::append_eps_image_or_reference( $lines, $fallback_path, $x_pt, $y_pt, $w_pt, $h_pt );
+							$artwork_used = true;
+						}
+					}
 					break;
 
 				case 'spotify':
@@ -380,10 +393,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Append layer artwork, embedding raster files and preserving vector references. */
-	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): bool {
 		$path = self::resolve_eps_layer_artwork_path( $layer );
 		if ( ! $path ) {
-			return;
+			return false;
 		}
 
 		$temp_path = null;
@@ -403,6 +416,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
 			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+
+		return true;
 	}
 
 	/** Embed supported raster artwork or include vector source as EPS comments. */

@@ -20,6 +20,40 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function layer_export_uses_area_text_when_layer_input_is_empty(): void {
+		$lines = [];
+		$area  = (object) [
+			'canvas_unit' => 'px',
+			'canvas_x'    => 0,
+			'canvas_y'    => 0,
+			'canvas_w'    => 300,
+			'canvas_h'    => 120,
+		];
+		$data  = [
+			'text'   => 'Customer Name',
+			'bounds' => [ 'x' => 0, 'y' => 0, 'w' => 300, 'h' => 120, 'rotation' => 0 ],
+			'layers' => [
+				[
+					'type'     => 'text',
+					'x'        => 20,
+					'y'        => 20,
+					'w'        => 200,
+					'h'        => 40,
+					'input'    => [ 'value' => '', 'colorHex' => '#000000' ],
+					'settings' => [ 'default_text' => 'Your Name Here' ],
+				],
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' );
+		$method->invokeArgs( null, [ &$lines, $area, $data ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( 'Customer Name', $output );
+		$this->assertStringNotContainsString( 'Your Name Here', $output );
+	}
+
+	#[Test]
 	public function mask_image_uses_imagemask_not_white_colorimage_card(): void {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 			$this->markTestSkipped( 'GD is required for EPS mask generation.' );

@@ -371,7 +371,7 @@ class OC_Print_Generator {
 	 * v2 shape: { layers: { layerId: {type, value, fontId, colorHex, attachmentId, ...} } }
 	 * Output:   { text, fontId, color, artworkAttachmentId }
 	 */
-	private static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
+	public static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
 		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
 		$layer_inputs = self::normalise_v2_layer_font_inputs( $design_id, $layer_inputs );
 		$render_spec  = OC_Render_Spec::build( $design_id, $layer_inputs );
