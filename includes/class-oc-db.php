@@ -920,6 +920,69 @@ class OC_DB {
 		) ?: [];
 	}
 
+	/** Fetch queue jobs for admin management. */
+	public static function get_queue_jobs( string $status = '', int $limit = 50, int $offset = 0 ): array {
+		global $wpdb;
+
+		$allowed_statuses = [ 'pending', 'processing', 'done', 'failed' ];
+		if ( in_array( $status, $allowed_statuses, true ) ) {
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_print_queue WHERE status = %s ORDER BY id DESC LIMIT %d OFFSET %d",
+					$status,
+					$limit,
+					$offset
+				)
+			) ?: [];
+		}
+
+		return $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_print_queue ORDER BY id DESC LIMIT %d OFFSET %d",
+				$limit,
+				$offset
+			)
+		) ?: [];
+	}
+
+	/** Count queue jobs for admin management. */
+	public static function count_queue_jobs( string $status = '' ): int {
+		global $wpdb;
+
+		$allowed_statuses = [ 'pending', 'processing', 'done', 'failed' ];
+		if ( in_array( $status, $allowed_statuses, true ) ) {
+			return (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_queue WHERE status = %s",
+				$status
+			) );
+		}
+
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_queue" );
+	}
+
+	/** Count queue jobs by status for admin summary cards. */
+	public static function get_queue_counts(): array {
+		global $wpdb;
+
+		$counts = [
+			'all'        => self::count_queue_jobs(),
+			'pending'    => 0,
+			'processing' => 0,
+			'done'       => 0,
+			'failed'     => 0,
+		];
+
+		$rows = $wpdb->get_results( "SELECT status, COUNT(*) AS total FROM {$wpdb->prefix}oc_print_queue GROUP BY status" ) ?: [];
+		foreach ( $rows as $row ) {
+			$status = (string) $row->status;
+			if ( array_key_exists( $status, $counts ) ) {
+				$counts[ $status ] = (int) $row->total;
+			}
+		}
+
+		return $counts;
+	}
+
 	/** Fetch a single queue job by ID. */
 	public static function get_queue_job( int $id ): ?object {
 		global $wpdb;

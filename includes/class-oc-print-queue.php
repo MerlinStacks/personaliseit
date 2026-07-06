@@ -6,6 +6,7 @@ class OC_Print_Queue {
 	private const MAX_ATTEMPTS = 3;
 	private const RETRY_BACKOFF_SECONDS = 300;
 	private const BATCH_SIZE = 5;
+	private const STALE_PROCESSING_SECONDS = 900;
 
 	private static ?OC_Print_Queue $instance = null;
 
@@ -40,6 +41,8 @@ class OC_Print_Queue {
 	}
 
 	public function process(): void {
+		$this->reset_stale_processing_jobs();
+
 		$jobs = OC_DB::get_pending_queue_jobs( self::BATCH_SIZE );
 
 		foreach ( $jobs as $job ) {
@@ -66,7 +69,7 @@ class OC_Print_Queue {
 		OC_DB::update_queue_job( $job_id, [
 			'status'       => 'processing',
 			'attempts'     => (int) $job->attempts + 1,
-			'processed_at' => null,
+			'processed_at' => current_time( 'mysql', true ),
 		] );
 
 		try {
@@ -204,6 +207,23 @@ class OC_Print_Queue {
 				}
 			}
 		}
+	}
+
+	/** Return timed-out processing jobs to the queue so cron can recover after fatal errors. */
+	public function reset_stale_processing_jobs(): int {
+		global $wpdb;
+
+		$cutoff = gmdate( 'Y-m-d H:i:s', time() - self::STALE_PROCESSING_SECONDS );
+		$result = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->prefix}oc_print_queue
+			 SET status = 'pending', error_message = %s, processed_at = NULL
+			 WHERE status = 'processing'
+			 AND (processed_at IS NULL OR processed_at <= %s)",
+			__( 'Job was reset after being stuck in processing.', 'overcustomise' ),
+			$cutoff
+		) );
+
+		return false === $result ? 0 : (int) $result;
 	}
 
 	public function get_status( int $file_id ): array {

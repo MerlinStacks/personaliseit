@@ -70,6 +70,7 @@ class OC_Plugin {
 			require_once OC_PATH . 'includes/admin/class-oc-admin-colours.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-clipart.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-customer-uploads.php';
+			require_once OC_PATH . 'includes/admin/class-oc-admin-print-queue.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-print-methods.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-order-metabox.php';
 		}

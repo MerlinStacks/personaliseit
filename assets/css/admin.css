@@ -172,6 +172,78 @@
 	align-items: center;
 	gap: 8px;
 }
+.oc-card-body-flush { padding: 0; }
+
+/* Print queue */
+.oc-queue-stats {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 14px;
+	margin-bottom: 20px;
+}
+.oc-queue-stat {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+	padding: 16px;
+	background: var(--oc-white);
+	border: 1px solid var(--oc-gray-200);
+	border-radius: 14px;
+	box-shadow: var(--oc-shadow);
+	text-decoration: none;
+}
+.oc-queue-stat:hover,
+.oc-queue-stat.is-active {
+	border-color: var(--oc-primary-border);
+	background: var(--oc-primary-light);
+}
+.oc-queue-stat span {
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: .05em;
+	text-transform: uppercase;
+	color: var(--oc-gray-500);
+}
+.oc-queue-stat strong {
+	font-size: 28px;
+	line-height: 1;
+	color: var(--oc-gray-900);
+}
+.oc-queue-table td,
+.oc-queue-table th {
+	vertical-align: middle;
+}
+.oc-queue-status {
+	display: inline-flex;
+	padding: 3px 8px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 700;
+	background: var(--oc-gray-100);
+	color: var(--oc-gray-700);
+}
+.oc-queue-status-pending { background: var(--oc-info-bg); color: var(--oc-info); }
+.oc-queue-status-processing { background: var(--oc-warning-bg); color: var(--oc-warning); }
+.oc-queue-status-done { background: var(--oc-success-bg); color: var(--oc-success); }
+.oc-queue-status-failed { background: var(--oc-danger-bg); color: var(--oc-danger); }
+.oc-queue-error {
+	max-width: 260px;
+}
+.oc-queue-actions {
+	display: flex;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+@media (max-width: 900px) {
+	.oc-queue-stats {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+@media (max-width: 600px) {
+	.oc-queue-stats {
+		grid-template-columns: 1fr;
+	}
+}
 
 /* ── Customer uploads ──────────────────────────────────────────────────── */
 .oc-customer-upload-hero {
