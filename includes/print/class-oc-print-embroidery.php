@@ -1118,7 +1118,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Return a writable temporary SVG path that keeps the .svg extension for file-type detection. */
 	private static function temp_svg_path( string $prefix ): ?string {
-		$temp = wp_tempnam( $prefix . '.svg' );
+		$temp = self::temp_path( $prefix . '.svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}

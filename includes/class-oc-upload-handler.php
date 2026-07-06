@@ -191,6 +191,22 @@ class OC_Upload_Handler {
 		return self::EXT_TO_TYPE[ $normalised ] ?? null;
 	}
 
+	/** Create a temporary file, loading WP's file API when the current request has not done so. */
+	private static function temp_path( string $filename ): string|false {
+		if ( ! function_exists( 'wp_tempnam' ) && defined( 'ABSPATH' ) ) {
+			$file_api = ABSPATH . 'wp-admin/includes/file.php';
+			if ( file_exists( $file_api ) ) {
+				require_once $file_api;
+			}
+		}
+
+		if ( function_exists( 'wp_tempnam' ) ) {
+			return wp_tempnam( $filename );
+		}
+
+		return tempnam( sys_get_temp_dir(), $filename ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_tempnam
+	}
+
 	// -------------------------------------------------------------------------
 	// Type-specific processors
 	// -------------------------------------------------------------------------
@@ -209,7 +225,7 @@ class OC_Upload_Handler {
 		}
 
 		// Write sanitised content to a temp file so WP can handle the upload.
-		$tmp = wp_tempnam( 'oc-svg-' );
+		$tmp = self::temp_path( 'oc-svg-' );
 		if ( false === $tmp ) {
 			throw new \RuntimeException( __( 'Could not stage sanitised SVG for upload.', 'overcustomise' ) );
 		}

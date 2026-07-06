@@ -199,7 +199,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 			self::apply_floyd_steinberg_dither( $dst );
 		}
 
-		$tmp = wp_tempnam( 'oc-engraving-' . wp_generate_uuid4() . '.png' );
+		$tmp = self::temp_path( 'oc-engraving-' . wp_generate_uuid4() . '.png' );
 		if ( ! is_string( $tmp ) || '' === $tmp ) {
 			imagedestroy( $dst );
 			return null;

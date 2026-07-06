@@ -8,6 +8,7 @@
  */
 
 import { StaticCanvas, FabricImage, FabricText, Rect, Circle, Shadow, Pattern, filters as FabricFilters } from 'fabric';
+import { createFont } from 'fonteditor-core';
 import Uppy      from '@uppy/core';
 import DragDrop  from '@uppy/drag-drop';
 import XHRUpload from '@uppy/xhr-upload';
@@ -52,6 +53,7 @@ class OCCustomiser {
 		this.cartKey       = this.editMode ? data.cartKey : '';
 		this.canvases      = {};   // areaIndex → Fabric StaticCanvas
 		this.fontCache     = {};   // fontName  → load Promise
+		this.outlineFontCache = {}; // fontName  → parsed font Promise
 		this.clipartSvgCache = {};
 		this.galleryImg        = null; // the main <img> in the product gallery
 		this._previewUrl       = null; // saved preview URL (set just before cart submit)
@@ -2164,7 +2166,7 @@ class OCCustomiser {
 						if ( inp ) layers[ layer.id ] = { type: layer.type, ...inp };
 					} );
 				} );
-				const snapshots = this.captureAreaSnapshots();
+				const snapshots = await this.captureAreaSnapshots();
 
 				try {
 					const res = await fetch( this.data.updateCartItemUrl, {
@@ -2237,7 +2239,7 @@ class OCCustomiser {
 			}
 
 			await this.uploadPreview();
-			this.updateHiddenField( true );
+			await this.updateHiddenField( true );
 			form._ocSubmitReady = true;
 			// requestSubmit() re-triggers HTML5 validation before submitting.
 			if ( form.requestSubmit ) {
@@ -2648,14 +2650,14 @@ class OCCustomiser {
 
 	// ── Cart serialisation ────────────────────────────────────────────────────────
 
-	captureAreaSnapshots() {
+	async captureAreaSnapshots() {
 		const snapshots = {};
-		this.areas.forEach( ( area, areaIndex ) => {
+		for ( const [ areaIndex, area ] of this.areas.entries() ) {
 			const canvas = this.canvases[ areaIndex ];
 			const bounds = area?.bounds || {};
 			const scale  = canvas?._ocScaleX || 1;
 			if ( ! canvas || ! bounds.w || ! bounds.h || typeof canvas.toSVG !== 'function' ) {
-				return;
+				continue;
 			}
 
 			const objects = canvas.getObjects ? canvas.getObjects() : [];
@@ -2665,7 +2667,7 @@ class OCCustomiser {
 			} );
 
 			try {
-				const svg = canvas.toSVG( {
+				let svg = canvas.toSVG( {
 					width: Math.max( 1, Math.round( Number( bounds.w ) * scale ) ),
 					height: Math.max( 1, Math.round( Number( bounds.h ) * scale ) ),
 					viewBox: {
@@ -2675,6 +2677,7 @@ class OCCustomiser {
 						height: Math.max( 1, Number( bounds.h ) * scale ),
 					},
 				} );
+				svg = await this.outlineSnapshotText( svg );
 				if ( svg && svg.includes( '<svg' ) ) {
 					snapshots[ area.id || area.areaId || areaIndex ] = {
 						format: 'fabric-svg-v1',
@@ -2690,12 +2693,205 @@ class OCCustomiser {
 					obj.excludeFromExport = flag;
 				} );
 			}
-		} );
+		}
 
 		return snapshots;
 	}
 
-	updateHiddenField( includeSnapshots = false ) {
+	async outlineSnapshotText( svg ) {
+		if ( ! svg || ! svg.includes( '<text' ) ) return svg;
+
+		const doc = new DOMParser().parseFromString( svg, 'image/svg+xml' );
+		const svgEl = doc.documentElement;
+		if ( ! svgEl || svgEl.nodeName.toLowerCase() !== 'svg' ) return svg;
+
+		const textNodes = Array.from( svgEl.querySelectorAll( 'text' ) );
+		for ( const textNode of textNodes ) {
+			const fontFamily = this.cleanSvgFontFamily(
+				textNode.getAttribute( 'font-family' ) || textNode.style?.fontFamily || ''
+			);
+			const font = this.fonts.find( item => item.name === fontFamily );
+			if ( ! font ) continue;
+
+			let outlineFont = null;
+			try {
+				outlineFont = await this.loadOutlineFont( font );
+			} catch {
+				continue;
+			}
+
+			const pathData = this.svgTextNodeToPathData( textNode, outlineFont );
+			if ( ! pathData ) continue;
+
+			const path = doc.createElementNS( 'http://www.w3.org/2000/svg', 'path' );
+			path.setAttribute( 'd', pathData );
+			[ 'fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'transform' ].forEach( attr => {
+				if ( textNode.hasAttribute( attr ) ) path.setAttribute( attr, textNode.getAttribute( attr ) );
+			} );
+			if ( ! path.hasAttribute( 'fill' ) ) path.setAttribute( 'fill', '#000000' );
+			textNode.replaceWith( path );
+		}
+
+		return new XMLSerializer().serializeToString( svgEl );
+	}
+
+	cleanSvgFontFamily( value ) {
+		return String( value || '' )
+			.split( ',' )[0]
+			.trim()
+			.replace( /^['"]|['"]$/g, '' );
+	}
+
+	async loadOutlineFont( font ) {
+		if ( ! font?.name || ! font?.url ) throw new Error( 'Missing font.' );
+		if ( this.outlineFontCache[ font.name ] ) return this.outlineFontCache[ font.name ];
+
+		this.outlineFontCache[ font.name ] = fetch( font.url, { credentials: 'same-origin', cache: 'force-cache' } )
+			.then( response => {
+				if ( ! response.ok ) throw new Error( 'Font download failed.' );
+				return response.arrayBuffer();
+			} )
+			.then( buffer => {
+				const parsed = createFont( buffer, {
+					type: this.fontTypeFromUrl( font.url ),
+					compound2simple: true,
+				} ).get();
+				return {
+					font,
+					ttf: parsed,
+					unitsPerEm: Number( parsed?.head?.unitsPerEm ) || 1000,
+					glyphs: this.glyphMapForFont( parsed ),
+				};
+			} )
+			.catch( err => {
+				delete this.outlineFontCache[ font.name ];
+				throw err;
+			} );
+
+		return this.outlineFontCache[ font.name ];
+	}
+
+	fontTypeFromUrl( url ) {
+		const cleanUrl = String( url || '' ).split( '?' )[0].toLowerCase();
+		const ext = cleanUrl.split( '.' ).pop();
+		return [ 'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg' ].includes( ext ) ? ext : 'ttf';
+	}
+
+	glyphMapForFont( parsed ) {
+		const glyphs = {};
+		( parsed?.glyf || [] ).forEach( glyph => {
+			( glyph.unicode || [] ).forEach( code => {
+				glyphs[ code ] = glyph;
+			} );
+		} );
+		return glyphs;
+	}
+
+	svgTextNodeToPathData( textNode, outlineFont ) {
+		const chunks = this.svgTextChunks( textNode );
+		if ( ! chunks.length ) return '';
+
+		return chunks.map( chunk => this.textChunkToPathData( chunk, textNode, outlineFont ) ).filter( Boolean ).join( ' ' );
+	}
+
+	svgTextChunks( textNode ) {
+		const tspans = Array.from( textNode.querySelectorAll( 'tspan' ) );
+		if ( tspans.length ) {
+			return tspans.map( tspan => ( {
+				text: tspan.textContent || '',
+				x: this.svgNumber( tspan.getAttribute( 'x' ), this.svgNumber( textNode.getAttribute( 'x' ), 0 ) ),
+				y: this.svgNumber( tspan.getAttribute( 'y' ), this.svgNumber( textNode.getAttribute( 'y' ), 0 ) ),
+				fontSize: this.svgNumber( tspan.getAttribute( 'font-size' ), this.svgNumber( textNode.getAttribute( 'font-size' ), 16 ) ),
+				anchor: tspan.getAttribute( 'text-anchor' ) || textNode.getAttribute( 'text-anchor' ) || 'start',
+			} ) ).filter( chunk => chunk.text );
+		}
+
+		return [ {
+			text: textNode.textContent || '',
+			x: this.svgNumber( textNode.getAttribute( 'x' ), 0 ),
+			y: this.svgNumber( textNode.getAttribute( 'y' ), 0 ),
+			fontSize: this.svgNumber( textNode.getAttribute( 'font-size' ), 16 ),
+			anchor: textNode.getAttribute( 'text-anchor' ) || 'start',
+		} ].filter( chunk => chunk.text );
+	}
+
+	textChunkToPathData( chunk, textNode, outlineFont ) {
+		const scale = chunk.fontSize / outlineFont.unitsPerEm;
+		const advance = this.textAdvanceWidth( chunk.text, outlineFont ) * scale;
+		let cursor = chunk.x;
+		const anchor = String( chunk.anchor || '' ).toLowerCase();
+		if ( anchor === 'middle' ) cursor -= advance / 2;
+		if ( anchor === 'end' ) cursor -= advance;
+
+		const parts = [];
+		for ( const char of Array.from( chunk.text ) ) {
+			const glyph = outlineFont.glyphs[ char.codePointAt( 0 ) ];
+			if ( glyph?.contours?.length ) {
+				parts.push( this.glyphToSvgPath( glyph, cursor, chunk.y, scale ) );
+			}
+			cursor += ( Number( glyph?.advanceWidth ) || outlineFont.unitsPerEm * 0.5 ) * scale;
+		}
+
+		return parts.filter( Boolean ).join( ' ' );
+	}
+
+	textAdvanceWidth( text, outlineFont ) {
+		return Array.from( text ).reduce( ( width, char ) => {
+			const glyph = outlineFont.glyphs[ char.codePointAt( 0 ) ];
+			return width + ( Number( glyph?.advanceWidth ) || outlineFont.unitsPerEm * 0.5 );
+		}, 0 );
+	}
+
+	glyphToSvgPath( glyph, x, baseline, scale ) {
+		return glyph.contours.map( contour => this.contourToSvgPath( contour, x, baseline, scale ) ).filter( Boolean ).join( ' ' );
+	}
+
+	contourToSvgPath( contour, x, baseline, scale ) {
+		if ( ! contour?.length ) return '';
+		const pointAt = index => contour[ ( index + contour.length ) % contour.length ];
+		const mid = ( a, b ) => ( { x: ( a.x + b.x ) / 2, y: ( a.y + b.y ) / 2, onCurve: true } );
+		const tx = point => Number( ( x + point.x * scale ).toFixed( 3 ) );
+		const ty = point => Number( ( baseline - point.y * scale ).toFixed( 3 ) );
+
+		let startIndex = 0;
+		let start = contour[0];
+		const last = contour[ contour.length - 1 ];
+		if ( ! start.onCurve ) {
+			if ( last.onCurve ) {
+				start = last;
+				startIndex = contour.length - 1;
+			} else {
+				start = mid( last, start );
+			}
+		}
+
+		const commands = [ `M${ tx( start ) } ${ ty( start ) }` ];
+		let i = startIndex + 1;
+		let processed = 0;
+		while ( processed < contour.length ) {
+			const p = pointAt( i );
+			if ( p.onCurve ) {
+				commands.push( `L${ tx( p ) } ${ ty( p ) }` );
+				i += 1;
+			} else {
+				const next = pointAt( i + 1 );
+				const end = next.onCurve ? next : mid( p, next );
+				commands.push( `Q${ tx( p ) } ${ ty( p ) } ${ tx( end ) } ${ ty( end ) }` );
+				i += next.onCurve ? 2 : 1;
+			}
+			processed = i - startIndex - 1;
+		}
+
+		commands.push( 'Z' );
+		return commands.join( ' ' );
+	}
+
+	svgNumber( value, fallback = 0 ) {
+		const num = parseFloat( String( value || '' ).replace( /px$/i, '' ) );
+		return Number.isFinite( num ) ? num : fallback;
+	}
+
+	async updateHiddenField( includeSnapshots = false ) {
 		const el = document.getElementById( 'oc-customisation-data' );
 		if ( ! el ) return;
 		const layers = {};
@@ -2715,7 +2911,7 @@ class OCCustomiser {
 			if ( variant?.label ) payload.designVariantLabel = variant.label;
 		}
 		if ( includeSnapshots ) {
-			const snapshots = this.captureAreaSnapshots();
+			const snapshots = await this.captureAreaSnapshots();
 			if ( Object.keys( snapshots ).length ) payload.snapshots = snapshots;
 		}
 		if ( this._previewUrl ) payload.previewUrl = this._previewUrl;

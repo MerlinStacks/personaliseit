@@ -101,6 +101,22 @@ abstract class OC_Print_Base {
 		return sprintf( '%d-%s.%s', $item_id, sanitize_file_name( $area_key ), $extension );
 	}
 
+	/** Create a temporary file, loading WP's file API when queue runners have not done so. */
+	protected static function temp_path( string $filename ): string|false {
+		if ( ! function_exists( 'wp_tempnam' ) && defined( 'ABSPATH' ) ) {
+			$file_api = ABSPATH . 'wp-admin/includes/file.php';
+			if ( file_exists( $file_api ) ) {
+				require_once $file_api;
+			}
+		}
+
+		if ( function_exists( 'wp_tempnam' ) ) {
+			return wp_tempnam( $filename );
+		}
+
+		return tempnam( sys_get_temp_dir(), $filename ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_tempnam
+	}
+
 	// -------------------------------------------------------------------------
 	// Font helpers
 	// -------------------------------------------------------------------------
@@ -663,7 +679,7 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$temp = wp_tempnam( 'oc-spotify-code-' . wp_generate_uuid4() . '.svg' );
+		$temp = self::temp_path( 'oc-spotify-code-' . wp_generate_uuid4() . '.svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -783,7 +799,7 @@ abstract class OC_Print_Base {
 		$dom->documentElement->setAttribute( 'fill', $hex );
 		self::force_svg_node_colour( $dom->documentElement, $hex );
 
-		$temp = wp_tempnam( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg' );
+		$temp = self::temp_path( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -874,7 +890,7 @@ abstract class OC_Print_Base {
 		}
 		imagedestroy( $src );
 
-		$temp = wp_tempnam( 'oc-black-clipart-' . wp_generate_uuid4() . '.png' );
+		$temp = self::temp_path( 'oc-black-clipart-' . wp_generate_uuid4() . '.png' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			imagedestroy( $dst );
 			return null;
