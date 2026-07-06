@@ -132,9 +132,7 @@ class OC_Font_Registry {
 		return $result;
 	}
 
-	/**
-	 * Return fonts suitable for Tier 1 embroidery auto-DST only.
-	 */
+	/** Return fonts flagged as suitable for embroidery artwork. */
 	public static function get_embroidery_fonts(): array {
 		global $wpdb;
 		return $wpdb->get_results(

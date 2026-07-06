@@ -20,6 +20,9 @@
     "vendor-dir": "vendor"
   },
   "scripts": {
+    "post-install-cmd": "@php scripts/init-tcpdf-fonts.php",
+    "post-update-cmd": "@php scripts/init-tcpdf-fonts.php",
+    "tcpdf:fonts": "@php scripts/init-tcpdf-fonts.php",
     "test":      "phpunit --testsuite Unit",
     "test:unit": "phpunit --testsuite Unit",
     "test:all":  "phpunit"

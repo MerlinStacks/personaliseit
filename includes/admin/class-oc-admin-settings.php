@@ -22,11 +22,6 @@ class OC_Admin_Settings {
 			'max_upload_size_mb'     => 10,
 			'allowed_upload_formats' => [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ],
 
-			// Embroidery.
-			'python_binary'          => 'python3',
-			'pyembroidery_cli_path'  => '',
-			'embroidery_fallback'    => 'auto', // 'auto' | 'force_tier2'
-
 			// Print defaults.
 			'bleed_mm'               => 3,
 			'crop_mark_style'        => 'standard', // 'standard' | 'none'
@@ -246,54 +241,8 @@ class OC_Admin_Settings {
 									<h2><?php esc_html_e( 'Embroidery', 'overcustomise' ); ?></h2>
 								</div>
 								<div class="oc-card-body">
-									<?php $this->render_python_status(); ?>
-									<div class="oc-form-grid">
-										<div class="oc-form-row">
-											<div class="oc-form-label">
-												<label for="oc_python_binary"><?php esc_html_e( 'Python binary', 'overcustomise' ); ?></label>
-											</div>
-											<div class="oc-form-field">
-												<input
-													type="text"
-													id="oc_python_binary"
-													name="oc_python_binary"
-													value="<?php echo esc_attr( $s['python_binary'] ); ?>"
-													class="regular-text oc-input"
-													placeholder="python3" />
-												<p class="oc-form-help"><?php esc_html_e( 'Full path or command name (e.g. python3 or /usr/bin/python3).', 'overcustomise' ); ?></p>
-											</div>
-										</div>
-										<div class="oc-form-row">
-											<div class="oc-form-label">
-												<label for="oc_pyembroidery_cli_path"><?php esc_html_e( 'pyembroidery-CLI path', 'overcustomise' ); ?></label>
-											</div>
-											<div class="oc-form-field">
-												<input
-													type="text"
-													id="oc_pyembroidery_cli_path"
-													name="oc_pyembroidery_cli_path"
-													value="<?php echo esc_attr( $s['pyembroidery_cli_path'] ); ?>"
-													class="regular-text oc-input"
-													placeholder="/path/to/pyemb_convert.py" />
-												<p class="oc-form-help"><?php esc_html_e( 'Legacy setting retained for existing installs. Embroidery print files are now generated directly as EPS artwork files.', 'overcustomise' ); ?></p>
-											</div>
-										</div>
-										<div class="oc-form-row">
-											<div class="oc-form-label">
-												<label for="oc_embroidery_fallback"><?php esc_html_e( 'Digitising fallback', 'overcustomise' ); ?></label>
-											</div>
-											<div class="oc-form-field">
-												<select id="oc_embroidery_fallback" name="oc_embroidery_fallback" class="oc-select">
-													<option value="auto" <?php selected( $s['embroidery_fallback'], 'auto' ); ?>>
-														<?php esc_html_e( 'Legacy auto-detect (not used for EPS output)', 'overcustomise' ); ?>
-													</option>
-													<option value="force_tier2" <?php selected( $s['embroidery_fallback'], 'force_tier2' ); ?>>
-														<?php esc_html_e( 'Legacy production brief fallback (not used for EPS output)', 'overcustomise' ); ?>
-													</option>
-												</select>
-											</div>
-										</div>
-									</div>
+									<div class="notice notice-info inline"><p><?php esc_html_e( 'Embroidery print files are generated directly as EPS artwork files. No stitch-file tooling setup is required.', 'overcustomise' ); ?></p></div>
+									<p class="oc-form-help"><?php esc_html_e( 'Set the print area to the real embroidery size and keep artwork/text inside the configured bounds so the imported EPS matches production scale.', 'overcustomise' ); ?></p>
 								</div>
 							</div>
 						</div>
@@ -532,41 +481,6 @@ class OC_Admin_Settings {
 		<?php
 	}
 
-	/** Show Python availability status notice. */
-	private function render_python_status(): void {
-		$python = OC_Admin_Settings::get( 'python_binary' ) ?: 'python3';
-		$cli    = OC_Admin_Settings::get( 'pyembroidery_cli_path' );
-		$py_ok  = $this->check_python( $python );
-		$cli_ok = $cli && file_exists( $cli );
-
-		if ( $py_ok && $cli_ok ) {
-			$msg   = __( 'Tier 1 auto-DST is available (Python found, pyembroidery-CLI path set).', 'overcustomise' );
-			$class = 'notice-success';
-		} elseif ( $py_ok ) {
-			$msg   = __( 'Python found but pyembroidery-CLI path is not set - Tier 2 (production brief) will be used.', 'overcustomise' );
-			$class = 'notice-warning';
-		} else {
-			$msg   = __( 'Python not found - Tier 2 (production brief + manual DST upload) will be used for embroidery.', 'overcustomise' );
-			$class = 'notice-info';
-		}
-
-		printf(
-			'<div class="notice %s inline"><p>%s</p></div>',
-			esc_attr( $class ),
-			esc_html( $msg )
-		);
-	}
-
-	/** Check if a given python binary is callable. */
-	private function check_python( string $binary ): bool {
-		try {
-			$result = OC_Command_Runner::run( [ $binary, '--version' ] );
-			return 0 === (int) $result['code'];
-		} catch ( \InvalidArgumentException $e ) {
-			return false;
-		}
-	}
-
 	/** Sanitise and persist settings. */
 	private function save(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -590,11 +504,6 @@ class OC_Admin_Settings {
 			'file_retention_days'    => max( 1, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ),
 			'max_upload_size_mb'     => max( 1, (int) ( $_POST['oc_max_upload_size_mb'] ?? 10 ) ),
 			'allowed_upload_formats' => array_values( $posted_formats ),
-			'python_binary'          => sanitize_text_field( $_POST['oc_python_binary'] ?? 'python3' ),
-			'pyembroidery_cli_path'  => sanitize_text_field( $_POST['oc_pyembroidery_cli_path'] ?? '' ),
-			'embroidery_fallback'    => in_array( $_POST['oc_embroidery_fallback'] ?? '', [ 'auto', 'force_tier2' ], true )
-				? sanitize_key( $_POST['oc_embroidery_fallback'] )
-				: 'auto',
 			'bleed_mm'               => max( 0, (float) ( $_POST['oc_bleed_mm'] ?? 3 ) ),
 			'crop_mark_style'        => in_array( $_POST['oc_crop_mark_style'] ?? '', [ 'standard', 'none' ], true )
 				? sanitize_key( $_POST['oc_crop_mark_style'] )

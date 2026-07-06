@@ -85,9 +85,6 @@ if ( ! class_exists( 'OC_Admin_Settings' ) ) {
 				'max_upload_size_mb'    => 10,
 				'bleed_mm'              => 3,
 				'crop_mark_style'       => 'standard',
-				'embroidery_fallback'   => 'auto',
-				'python_binary'         => 'python3',
-				'pyembroidery_cli_path' => '',
 			];
 			return $key ? ( $defaults[ $key ] ?? null ) : $defaults;
 		}

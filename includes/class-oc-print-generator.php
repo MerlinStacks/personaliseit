@@ -622,7 +622,8 @@ class OC_Print_Generator {
 
 		$record = OC_DB::get_print_file( $file_id );
 
-		if ( ! $record || 'files_ready' !== $record->file_status ) {
+		$downloadable_statuses = [ 'files_ready', 'brief_ready', 'awaiting_dst_upload' ];
+		if ( ! $record || ! in_array( (string) $record->file_status, $downloadable_statuses, true ) ) {
 			wp_die( esc_html__( 'File not available.', 'overcustomise' ), 404 );
 		}
 

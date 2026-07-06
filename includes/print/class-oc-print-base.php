@@ -302,6 +302,14 @@ abstract class OC_Print_Base {
 			define( 'K_PATH_CACHE', $cache_dir );
 		}
 
+		if ( ! defined( 'K_PATH_FONTS' ) ) {
+			define( 'K_PATH_FONTS', OC_PATH . 'vendor/tecnickcom/tc-lib-pdf-font/target/fonts' );
+		}
+
+		if ( ! file_exists( K_PATH_FONTS . '/core/helvetica.json' ) ) {
+			throw new \RuntimeException( 'TCPDF font assets are missing. Run `composer run tcpdf:fonts` in the plugin directory.' );
+		}
+
 		require_once $autoloader;
 
 		if ( ! class_exists( '\\TCPDF' ) ) {

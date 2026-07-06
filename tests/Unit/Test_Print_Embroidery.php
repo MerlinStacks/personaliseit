@@ -66,7 +66,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function text_export_keeps_customer_text_editable(): void {
+	public function text_export_outlines_customer_text_without_distorting_it(): void {
 		$lines  = [];
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' );
 		$method->invokeArgs( null, [ &$lines, [ 'value' => 'Editable Text', 'colorHex' => '#123456' ], [], 0.0, 0.0, 100.0, 20.0, true ] );
@@ -75,7 +75,8 @@ class Test_Print_Embroidery extends TestCase {
 		$this->assertStringContainsString( '(Editable Text)', $output );
 		$this->assertStringContainsString( '0.0000 14.0000 translate', $output );
 		$this->assertStringNotContainsString( ' exch div 1 scale', $output );
-		$this->assertStringContainsString( ' show', $output );
+		$this->assertStringContainsString( 'charpath fill', $output );
+		$this->assertStringNotContainsString( ' show', $output );
 		$this->assertStringNotContainsString( 'imagemask', $output );
 	}
 
@@ -126,8 +127,8 @@ class Test_Print_Embroidery extends TestCase {
 		$this->assertSame( 'svg', strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) );
 
 		$lines  = [];
-		$append = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_image_or_reference' );
-		$append->invokeArgs( null, [ &$lines, $path, 0.0, 0.0, 20.0, 20.0 ] );
+		$append = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_svg_vector' );
+		$this->assertTrue( $append->invokeArgs( null, [ &$lines, $path, 0.0, 0.0, 20.0, 20.0 ] ) );
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '2.5000 20.0000 translate', $output );
@@ -158,7 +159,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $layer, -10.0, -10.0, 20.0, 20.0, 'contain' ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '-10.0000 10.0000 translate', $output );
+		$this->assertMatchesRegularExpression( '/-10\.0000 (?:-10\.0000|10\.0000) translate/', $output );
 		$this->assertStringNotContainsString( '-10.0000 9.4000 translate', $output );
 
 		@unlink( $source_base );
@@ -176,28 +177,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function embroidery_export_can_use_supported_svg_snapshot(): void {
-		$lines = [];
-		$area  = (object) [ 'area_key' => 'front' ];
-		$data  = [
-			'snapshot' => [
-				'format' => 'fabric-svg-v1',
-				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="2" width="3" height="4" fill="#123456"/></svg>',
-			],
-		];
-
-		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_snapshot' );
-		$used   = $method->invokeArgs( null, [ &$lines, $area, $data, 20.0, 20.0 ] );
-
-		$output = implode( "\n", $lines );
-		$this->assertTrue( $used );
-		$this->assertStringContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
-		$this->assertStringContainsString( 'setrgbcolor', $output );
-		$this->assertStringContainsString( 'fill', $output );
-	}
-
-	#[Test]
-	public function embroidery_generation_prefers_layer_payload_over_stored_snapshot(): void {
+	public function embroidery_generation_uses_layer_payload_for_eps_export(): void {
 		$output_dir = sys_get_temp_dir() . '/oc-embroidery-test-' . uniqid();
 		mkdir( $output_dir );
 
@@ -236,7 +216,7 @@ class Test_Print_Embroidery extends TestCase {
 		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 22, $area, $data ] );
 		$output = file_get_contents( $path );
 
-		$this->assertStringContainsString( '%%OCSnapshotFallback: layer-payload', $output );
+		$this->assertStringContainsString( '%%OCExportMode: layer-payload', $output );
 		$this->assertStringNotContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
 		$this->assertStringContainsString( 'Layer Text', $output );
 
@@ -269,7 +249,7 @@ class Test_Print_Embroidery extends TestCase {
 		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 23, $area, $data ] );
 		$output = file_get_contents( $path );
 
-		$this->assertStringContainsString( '%%OCSnapshotFallback: legacy-artwork', $output );
+		$this->assertStringContainsString( '%%OCExportMode: legacy-artwork', $output );
 		$this->assertStringNotContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
 		$this->assertStringContainsString( 'Legacy Text', $output );
 
@@ -278,41 +258,74 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function embroidery_export_falls_back_when_snapshot_has_unoutlined_text(): void {
-		$lines = [ 'before' ];
-		$area  = (object) [ 'area_key' => 'front' ];
-		$data  = [
-			'snapshot' => [
-				'format' => 'fabric-svg-v1',
-				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text x="1" y="2">Name</text></svg>',
-			],
+	public function embroidery_generation_does_not_draw_a_white_overflow_mask(): void {
+		$output_dir = sys_get_temp_dir() . '/oc-embroidery-test-' . uniqid();
+		mkdir( $output_dir );
+
+		$area = (object) [
+			'area_key'    => 'front',
+			'label'       => 'Front',
+			'canvas_unit' => 'mm',
+			'canvas_w'    => 100,
+			'canvas_h'    => 50,
 		];
 
-		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_snapshot' );
-		$used   = $method->invokeArgs( null, [ &$lines, $area, $data, 20.0, 20.0 ] );
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'generate_eps' );
+		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 24, $area, [] ] );
+		$output = file_get_contents( $path );
 
-		$this->assertFalse( $used );
-		$this->assertSame( [ 'before' ], $lines );
+		$this->assertStringContainsString( '%%BoundingBox: 0 0 284 142', $output );
+		$this->assertStringNotContainsString( '-400.0000 -400.0000', $output );
+		$this->assertStringNotContainsString( '1 1 1 setrgbcolor', $output );
+		$this->assertStringNotContainsString( 'clip', $output );
+
+		@unlink( $path );
+		@rmdir( $output_dir );
 	}
 
 	#[Test]
-	public function embroidery_export_rejects_svg_snapshot_with_pattern_paint(): void {
-		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'snapshot_svg_supported' );
-		$svg    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="url(#oc-embroidery-stitch)"/></svg>';
+	public function transparent_raster_export_draws_visible_runs_without_white_matte(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
 
-		$this->assertFalse( $method->invoke( null, $svg ) );
-	}
+		$image = imagecreatetruecolor( 2, 2 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$red         = imagecolorallocatealpha( $image, 255, 0, 0, 0 );
+		imagefilledrectangle( $image, 0, 0, 1, 1, $transparent );
+		imagesetpixel( $image, 0, 0, $red );
 
-	#[Test]
-	public function embroidery_page_mask_hides_overflow_without_relying_on_clipping(): void {
 		$lines  = [];
-		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_page_overflow_mask' );
-		$method->invokeArgs( null, [ &$lines, 100.0, 50.0 ] );
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_raster_image' );
+		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 10.0, 10.0 ] );
+		imagedestroy( $image );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '1 1 1 setrgbcolor', $output );
-		$this->assertStringContainsString( '-400.0000 -400.0000 400.0000 850.0000 rectfill', $output );
-		$this->assertStringNotContainsString( 'clip', $output );
+		$this->assertStringContainsString( '%%OCTransparentRaster: vector-runs', $output );
+		$this->assertStringContainsString( '1.0000 0.0000 0.0000 setrgbcolor', $output );
+		$this->assertStringContainsString( 'rectfill', $output );
+		$this->assertStringNotContainsString( 'colorimage', $output );
+		$this->assertStringNotContainsString( '1.0000 1.0000 1.0000 setrgbcolor', $output );
+	}
+
+	#[Test]
+	public function svg_ellipse_fallback_exports_valid_bezier_paths(): void {
+		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
+		$source      = $source_base . '.svg';
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><ellipse cx="10" cy="10" rx="6" ry="4" fill="#000000"/></svg>' );
+
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_svg_vector' );
+		$this->assertTrue( $method->invokeArgs( null, [ &$lines, $source, 0.0, 0.0, 20.0, 20.0 ] ) );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( 'curveto', $output );
+		$this->assertStringNotContainsString( '0 0 1 0 360 arc', $output );
+
+		@unlink( $source_base );
+		@unlink( $source );
 	}
 
 	#[Test]

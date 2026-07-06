@@ -61,16 +61,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'gsave',
 		];
 
-		$lines[] = '%%OCSnapshotUsed: no';
 		if ( self::has_layer_payload( $area_data ) ) {
-			$lines[] = '%%OCSnapshotFallback: layer-payload';
+			$lines[] = '%%OCExportMode: layer-payload';
 			self::append_eps_layers( $lines, $area, $area_data );
 		} else {
-			$lines[] = '%%OCSnapshotFallback: legacy-artwork';
+			$lines[] = '%%OCExportMode: legacy-artwork';
 			self::append_eps_legacy_artwork( $lines, $area, $area_data );
 		}
-
-		self::append_eps_page_overflow_mask( $lines, (float) $w_pt, (float) $h_pt );
 
 		$lines[] = 'grestore';
 		$lines[] = 'showpage';
@@ -82,95 +79,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $output_path;
-	}
-
-	/** Paint outside the EPS page bounds white so overflow remains hidden in tools that ignore PS clipping. */
-	private static function append_eps_page_overflow_mask( array &$lines, float $w_pt, float $h_pt ): void {
-		$pad = max( $w_pt, $h_pt ) * 4;
-		$lines[] = 'gsave';
-		$lines[] = '1 1 1 setrgbcolor';
-		$lines[] = sprintf( '%.4F %.4F %.4F %.4F rectfill', -$pad, -$pad, $pad, $h_pt + 2 * $pad );
-		$lines[] = sprintf( '%.4F %.4F %.4F %.4F rectfill', $w_pt, -$pad, $pad, $h_pt + 2 * $pad );
-		$lines[] = sprintf( '0 %.4F %.4F %.4F rectfill', -$pad, $w_pt, $pad );
-		$lines[] = sprintf( '0 %.4F %.4F %.4F rectfill', $h_pt, $w_pt, $pad );
-		$lines[] = 'grestore';
-	}
-
-	/** Append a stored order-time SVG snapshot when it only uses elements this EPS exporter supports. */
-	private static function append_eps_snapshot( array &$lines, object $area, array $area_data, float $w_pt, float $h_pt ): bool {
-		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
-		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( $snapshot['svg'] ) : '';
-
-		if ( '' !== $svg && self::snapshot_svg_supported( $svg ) ) {
-			$temp = self::temp_svg_path( 'oc-eps-area-snapshot-' . wp_generate_uuid4() );
-			if ( is_string( $temp ) && '' !== $temp && false !== file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-				$before = count( $lines );
-				$lines[] = '%%OCSnapshotFormat: ' . self::eps_comment( (string) ( $snapshot['format'] ?? 'fabric-svg-v1' ) );
-				$ok = self::append_eps_svg_vector( $lines, $temp, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
-				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-
-				if ( $ok ) {
-					return true;
-				}
-
-				array_splice( $lines, $before );
-			} elseif ( is_string( $temp ) && '' !== $temp ) {
-				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			}
-		}
-
-		return false;
-	}
-
-	/** The built-in SVG parser is vector-only; unsupported snapshot nodes fall back to legacy layer EPS. */
-	private static function snapshot_svg_supported( string $svg ): bool {
-		$dom      = new \DOMDocument();
-		$previous = libxml_use_internal_errors( true );
-		$loaded   = $dom->loadXML( $svg, LIBXML_NONET | LIBXML_NOCDATA );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
-			return false;
-		}
-
-		$unsupported = [ 'text', 'image', 'foreignobject', 'script' ];
-		foreach ( $unsupported as $tag ) {
-			if ( $dom->getElementsByTagName( $tag )->length > 0 ) {
-				return false;
-			}
-		}
-
-		$painted = false;
-		foreach ( [ 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use' ] as $tag ) {
-			foreach ( $dom->getElementsByTagName( $tag ) as $node ) {
-				if ( ! $node instanceof \DOMElement ) {
-					continue;
-				}
-				$painted = true;
-				if ( ! self::svg_element_has_supported_paint( $node ) ) {
-					return false;
-				}
-			}
-		}
-
-		return $painted;
-	}
-
-	/** Return whether a snapshot element uses paint the EPS vector path can reproduce. */
-	private static function svg_element_has_supported_paint( \DOMElement $element ): bool {
-		foreach ( [ 'fill', 'stroke' ] as $attr ) {
-			$value = trim( (string) $element->getAttribute( $attr ) );
-			if ( '' !== $value && str_starts_with( strtolower( $value ), 'url(' ) ) {
-				return false;
-			}
-		}
-
-		$style = (string) $element->getAttribute( 'style' );
-		if ( preg_match( '/\b(?:fill|stroke)\s*:\s*url\(/i', $style ) ) {
-			return false;
-		}
-
-		return true;
 	}
 
 	/** Append all v2 customiser layers to the EPS output. */
@@ -283,7 +191,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 	}
 
-	/** Append customer text as editable PostScript text in the requested colour. */
+	/** Append customer text as filled PostScript outlines in the requested colour. */
 	private static function append_eps_text(
 		array &$lines,
 		array $input,
@@ -311,6 +219,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$font_name     = self::eps_font_name( $font_id );
 		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
 		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
+		$lines[] = '%%OCTextOutline: charpath';
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
 		$lines[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
@@ -321,8 +230,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$align = (string) ( $settings['alignment'] ?? 'center' );
 			self::append_eps_text_line( $lines, $text, $align, self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
 		} else {
-			$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
-			$lines[] = '(' . self::ps_escape( $text ) . ') show';
+			self::append_eps_text_line( $lines, $text, 'left', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
 		}
 		$lines[] = 'grestore';
 	}
@@ -336,16 +244,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		};
 	}
 
-	/** Return the PostScript command needed to honour Fabric text alignment. */
-	private static function eps_text_show_command( string $align ): string {
+	/** Return the PostScript command needed to align and outline text. */
+	private static function eps_text_path_command( string $align ): string {
 		return match ( $align ) {
-			'right' => ' dup stringwidth pop neg 0 rmoveto show',
-			'left'  => ' show',
-			default => ' dup stringwidth pop 2 div neg 0 rmoveto show',
+			'right' => ' stringwidth pop neg 0 rmoveto ocText false charpath fill',
+			'left'  => ' false charpath fill',
+			default => ' stringwidth pop 2 div neg 0 rmoveto ocText false charpath fill',
 		};
 	}
 
-	/** Append editable text without non-uniform scaling. */
+	/** Append text as filled outlines without non-uniform scaling. */
 	private static function append_eps_text_line( array &$lines, string $text, string $align, float $x_pt, float $baseline_pt ): void {
 		$escaped = self::ps_escape( $text );
 
@@ -353,7 +261,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $baseline_pt );
 		$lines[] = '/ocText (' . $escaped . ') def';
 		$lines[] = '0 0 moveto';
-		$lines[] = 'ocText' . self::eps_text_show_command( $align );
+		$lines[] = 'ocText' . self::eps_text_path_command( $align );
 		$lines[] = 'grestore';
 	}
 
@@ -417,6 +325,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 
 		if ( 'svg' === $ext ) {
+			if ( self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
+				return;
+			}
+
 			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
 				return;
 			}
@@ -463,12 +375,31 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$out_w  = max( 1, (int) round( $src_w * $scale ) );
 		$out_h  = max( 1, (int) round( $src_h * $scale ) );
 		$draw   = imagecreatetruecolor( $out_w, $out_h );
-		imagealphablending( $draw, true );
-		$white = imagecolorallocate( $draw, 255, 255, 255 );
-		imagefilledrectangle( $draw, 0, 0, $out_w, $out_h, $white );
+		imagealphablending( $draw, false );
+		imagesavealpha( $draw, true );
+		$transparent = imagecolorallocatealpha( $draw, 0, 0, 0, 127 );
+		imagefilledrectangle( $draw, 0, 0, $out_w, $out_h, $transparent );
 		imagecopyresampled( $draw, $image, 0, 0, 0, 0, $out_w, $out_h, $src_w, $src_h );
 
 		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( (float) $src_w, (float) $src_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+		if ( self::gd_image_has_transparency( $draw ) ) {
+			if ( max( $out_w, $out_h ) > 260 ) {
+				$alpha_scale = 260 / max( $out_w, $out_h );
+				$small_w     = max( 1, (int) round( $out_w * $alpha_scale ) );
+				$small_h     = max( 1, (int) round( $out_h * $alpha_scale ) );
+				$small       = imagecreatetruecolor( $small_w, $small_h );
+				imagealphablending( $small, false );
+				imagesavealpha( $small, true );
+				$transparent = imagecolorallocatealpha( $small, 0, 0, 0, 127 );
+				imagefilledrectangle( $small, 0, 0, $small_w, $small_h, $transparent );
+				imagecopyresampled( $small, $draw, 0, 0, 0, 0, $small_w, $small_h, $out_w, $out_h );
+				imagedestroy( $draw );
+				$draw = $small;
+			}
+			self::append_eps_alpha_raster_rects( $lines, $draw, $draw_x, $draw_y, $draw_w, $draw_h );
+			imagedestroy( $draw );
+			return;
+		}
 
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F translate', $draw_x, $draw_y );
@@ -488,6 +419,248 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$lines[] = 'grestore';
 		imagedestroy( $draw );
+	}
+
+	/** Return true if a GD image contains any transparent pixels. */
+	private static function gd_image_has_transparency( $image ): bool {
+		$transparent_index = imagecolortransparent( $image );
+		if ( $transparent_index >= 0 ) {
+			return true;
+		}
+
+		$w = imagesx( $image );
+		$h = imagesy( $image );
+		for ( $y = 0; $y < $h; $y++ ) {
+			for ( $x = 0; $x < $w; $x++ ) {
+				$rgba  = imagecolorat( $image, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				if ( $alpha > 0 ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/** Preserve transparent raster shapes by drawing visible pixel runs instead of white-matting them. */
+	private static function append_eps_alpha_raster_rects( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$img_w = imagesx( $image );
+		$img_h = imagesy( $image );
+		if ( $img_w < 1 || $img_h < 1 ) {
+			return;
+		}
+
+		$lines[] = '%%OCTransparentRaster: vector-runs';
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
+		$lines[] = sprintf( '%.8F %.8F scale', $w_pt / $img_w, $h_pt / $img_h );
+
+		for ( $y = 0; $y < $img_h; $y++ ) {
+			$x = 0;
+			while ( $x < $img_w ) {
+				$rgba  = imagecolorat( $image, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				if ( $alpha >= 120 ) {
+					$x++;
+					continue;
+				}
+
+				$rgb = $rgba & 0xFFFFFF;
+				$run = 1;
+				while ( $x + $run < $img_w ) {
+					$next       = imagecolorat( $image, $x + $run, $y );
+					$next_alpha = ( $next >> 24 ) & 0x7F;
+					if ( $next_alpha >= 120 || ( $next & 0xFFFFFF ) !== $rgb ) {
+						break;
+					}
+					$run++;
+				}
+
+				$r = ( $rgb >> 16 ) & 0xFF;
+				$g = ( $rgb >> 8 ) & 0xFF;
+				$b = $rgb & 0xFF;
+				$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 );
+				$lines[] = sprintf( '%d %d %d 1 rectfill', $x, $img_h - $y - 1, $run );
+				$x += $run;
+			}
+		}
+
+		$lines[] = 'grestore';
+	}
+
+	/** Convert SVG with an external vector renderer when available, then place the resulting EPS into this EPS. */
+	private static function append_eps_external_svg_vector( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): bool {
+		$converted = self::convert_svg_to_eps( $path );
+		if ( ! $converted ) {
+			return false;
+		}
+
+		$raw = file_get_contents( $converted ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		@unlink( $converted ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( ! is_string( $raw ) || '' === trim( $raw ) ) {
+			return false;
+		}
+
+		$bbox = self::eps_bounding_box( $raw );
+		if ( ! $bbox ) {
+			return false;
+		}
+
+		[ $bb_left, $bb_bottom, $bb_right, $bb_top ] = $bbox;
+		$src_w = $bb_right - $bb_left;
+		$src_h = $bb_top - $bb_bottom;
+		if ( $src_w <= 0.0 || $src_h <= 0.0 ) {
+			return false;
+		}
+
+		$body = self::eps_embedded_body( $raw );
+		if ( empty( $body ) ) {
+			return false;
+		}
+
+		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( $src_w, $src_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+		$lines[] = '%%OCSVGVectorizer: external-eps';
+		$lines[] = '%%BeginDocument: ' . self::eps_comment( basename( $path ) );
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F translate', $draw_x, $draw_y );
+		$lines[] = sprintf( '%.8F %.8F scale', $draw_w / $src_w, $draw_h / $src_h );
+		$lines[] = sprintf( '%.4F %.4F translate', -$bb_left, -$bb_bottom );
+		array_push( $lines, ...$body );
+		$lines[] = 'grestore';
+		$lines[] = '%%EndDocument';
+
+		return true;
+	}
+
+	/** Convert an SVG to an EPS temp file with installed vector tooling. */
+	private static function convert_svg_to_eps( string $path ): ?string {
+		$commands = [];
+		$inkscape = self::find_executable( 'inkscape' );
+		if ( $inkscape ) {
+			$commands[] = static fn ( string $out ): array => [ $inkscape, $path, '--export-type=eps', '--export-filename=' . $out ];
+			$commands[] = static fn ( string $out ): array => [ $inkscape, '--export-type=eps', '--export-filename=' . $out, $path ];
+			$commands[] = static fn ( string $out ): array => [ $inkscape, '-z', '-E', $out, $path ];
+		}
+
+		$rsvg_convert = self::find_executable( 'rsvg-convert' );
+		if ( $rsvg_convert ) {
+			$commands[] = static fn ( string $out ): array => [ $rsvg_convert, '-f', 'eps', '-o', $out, $path ];
+			$commands[] = static fn ( string $out ): array => [ $rsvg_convert, '-f', 'ps', '-o', $out, $path ];
+		}
+
+		foreach ( $commands as $build_command ) {
+			$out = self::temp_eps_path( 'oc-eps-svg-' . wp_generate_uuid4() );
+			if ( ! $out ) {
+				continue;
+			}
+
+			if ( self::run_process( $build_command( $out ) ) && file_exists( $out ) && filesize( $out ) > 0 ) {
+				return $out;
+			}
+
+			@unlink( $out ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		return null;
+	}
+
+	/** Return a writable temporary EPS path that keeps the .eps extension for converter output. */
+	private static function temp_eps_path( string $prefix ): ?string {
+		$temp = self::temp_path( $prefix . '.eps' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		if ( 'eps' === strtolower( pathinfo( $temp, PATHINFO_EXTENSION ) ) ) {
+			return $temp;
+		}
+
+		$eps_temp = $temp . '.eps';
+		if ( file_exists( $eps_temp ) ) {
+			@unlink( $eps_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		if ( ! @rename( $temp, $eps_temp ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $eps_temp;
+	}
+
+	/** Locate an executable without invoking a shell. */
+	private static function find_executable( string $name ): ?string {
+		if ( ! preg_match( '/^[A-Za-z0-9._+-]+$/', $name ) ) {
+			return null;
+		}
+
+		$path = getenv( 'PATH' );
+		$dirs = explode( PATH_SEPARATOR, is_string( $path ) && '' !== $path ? $path : '/usr/local/bin:/usr/bin:/bin' );
+		foreach ( $dirs as $dir ) {
+			$candidate = rtrim( $dir, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR . $name;
+			if ( is_file( $candidate ) && is_executable( $candidate ) ) {
+				return $candidate;
+			}
+		}
+
+		return null;
+	}
+
+	/** Run a converter command without shell expansion. */
+	private static function run_process( array $command ): bool {
+		$disabled = array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) );
+		if ( ! function_exists( 'proc_open' ) || in_array( 'proc_open', $disabled, true ) ) {
+			return false;
+		}
+
+		$pipes   = [];
+		$process = @proc_open( // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open
+			$command,
+			[
+				0 => [ 'file', '/dev/null', 'r' ],
+				1 => [ 'file', '/dev/null', 'w' ],
+				2 => [ 'file', '/dev/null', 'w' ],
+			],
+			$pipes
+		);
+		if ( ! is_resource( $process ) ) {
+			return false;
+		}
+
+		return 0 === proc_close( $process ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_close
+	}
+
+	/** Parse an EPS BoundingBox comment. */
+	private static function eps_bounding_box( string $eps ): ?array {
+		if ( preg_match( '/^%%BoundingBox:\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)/mi', $eps, $matches ) ) {
+			return [ (float) $matches[1], (float) $matches[2], (float) $matches[3], (float) $matches[4] ];
+		}
+
+		if ( preg_match( '/^%%HiResBoundingBox:\s*([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)\s+([-+\d.]+)/mi', $eps, $matches ) ) {
+			return [ (float) $matches[1], (float) $matches[2], (float) $matches[3], (float) $matches[4] ];
+		}
+
+		return null;
+	}
+
+	/** Strip wrapper comments and page commands before embedding converter output inside another EPS. */
+	private static function eps_embedded_body( string $eps ): array {
+		$body = [];
+		foreach ( preg_split( '/\R/', $eps ) ?: [] as $line ) {
+			$trimmed = trim( (string) $line );
+			if ( '' === $trimmed || str_starts_with( $trimmed, '%!' ) || str_starts_with( $trimmed, '%%' ) ) {
+				continue;
+			}
+
+			if ( preg_match( '/^(showpage|grestoreall|quit)\b/i', $trimmed ) ) {
+				continue;
+			}
+
+			$body[] = $line;
+		}
+
+		return $body;
 	}
 
 	/** Resolve selected clipart paths from the trusted clipart DB row before falling back to upload artwork rules. */
@@ -992,12 +1165,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( $rx <= 0.0 || $ry <= 0.0 ) {
 			return;
 		}
+		$k = 0.5522847498;
 		self::append_svg_paint_eps( $lines, [
-			'gsave',
-			sprintf( '%.4F %.4F translate', $cx, $cy ),
-			sprintf( '%.8F %.8F scale', $rx, $ry ),
-			'0 0 1 0 360 arc',
-			'grestore',
+			sprintf( '%.4F %.4F moveto', $cx + $rx, $cy ),
+			sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx + $rx, $cy + $k * $ry, $cx + $k * $rx, $cy + $ry, $cx, $cy + $ry ),
+			sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx - $k * $rx, $cy + $ry, $cx - $rx, $cy + $k * $ry, $cx - $rx, $cy ),
+			sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx - $rx, $cy - $k * $ry, $cx - $k * $rx, $cy - $ry, $cx, $cy - $ry ),
+			sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx + $k * $rx, $cy - $ry, $cx + $rx, $cy - $k * $ry, $cx + $rx, $cy ),
+			'closepath',
 		], $style );
 	}
 

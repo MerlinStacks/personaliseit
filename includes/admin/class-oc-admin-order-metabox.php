@@ -2,7 +2,7 @@
 /**
  * Print files meta box on the WooCommerce order edit page.
  * HPOS-compatible — uses wc_get_order(), never get_post().
- * Shows generated print files with download links, brief downloads, and DST upload.
+ * Shows generated print files with download and regeneration links.
  *
  * @package OverCustomise
  */
@@ -15,9 +15,6 @@ class OC_Admin_Order_Metabox {
 		// Works for both legacy orders (shop_order CPT) and HPOS orders.
 		add_action( 'add_meta_boxes', [ $this, 'add_meta_box' ] );
 
-		// DST file upload handler (fires on save_post / HPOS order save).
-		add_action( 'save_post',            [ $this, 'handle_dst_upload' ], 10, 1 );
-		add_action( 'woocommerce_process_shop_order_meta', [ $this, 'handle_dst_upload' ], 10, 1 );
 	}
 
 	public function add_meta_box(): void {
@@ -184,8 +181,9 @@ class OC_Admin_Order_Metabox {
 							. '</span>';
 					}
 
-					// Download button for ready files.
-					if ( 'files_ready' === $file->file_status && $file->file_path && file_exists( $file->file_path ) ) {
+					// Download button for ready files and legacy embroidery files that still exist.
+					$downloadable_statuses = [ 'files_ready', 'brief_ready', 'awaiting_dst_upload' ];
+					if ( in_array( (string) $file->file_status, $downloadable_statuses, true ) && $file->file_path && file_exists( $file->file_path ) ) {
 						$download_url = add_query_arg( [
 							'oc_download_file' => $file->id,
 							'_wpnonce'         => wp_create_nonce( 'oc_download_' . $file->id ),
@@ -199,7 +197,7 @@ class OC_Admin_Order_Metabox {
 						echo ' &nbsp;<em style="color:#888;">' . esc_html__( '(File missing on disk)', 'overcustomise' ) . '</em>';
 					}
 
-					if ( 'files_ready' === $file->file_status ) {
+					if ( in_array( (string) $file->file_status, [ 'files_ready', 'expired', 'brief_ready', 'awaiting_dst_upload' ], true ) ) {
 						$regen_url = add_query_arg( [
 							'oc_regenerate' => $file->id,
 							'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . $file->id ),
@@ -207,56 +205,13 @@ class OC_Admin_Order_Metabox {
 						printf(
 							' &nbsp;<a href="%s" class="button button-small">%s</a>',
 							esc_url( $regen_url ),
-							esc_html__( 'Regenerate', 'overcustomise' )
+							esc_html__( 'Regenerate EPS', 'overcustomise' )
 						);
 					}
 
 					// Inline thumbnail preview for files_ready.
 					if ( 'files_ready' === $file->file_status ) {
 						$this->render_thumbnail( $file, $order );
-					}
-
-					// Download brief + DST upload for embroidery awaiting manual digitising.
-					if ( 'awaiting_dst_upload' === $file->file_status ) {
-						if ( $file->file_path && file_exists( $file->file_path ) ) {
-							$brief_url = add_query_arg( [
-								'oc_download_file' => $file->id,
-								'_wpnonce'         => wp_create_nonce( 'oc_download_' . $file->id ),
-							], admin_url() );
-							printf(
-								' &nbsp;<a href="%s" class="button button-small">%s</a>',
-								esc_url( $brief_url ),
-								esc_html__( 'Download Brief', 'overcustomise' )
-							);
-						}
-
-						// DST upload form.
-						$upload_url = add_query_arg( [
-							'post'        => $order->get_id(),
-							'action'      => 'edit',
-						], admin_url( 'post.php' ) );
-
-						echo '<br><form method="post" enctype="multipart/form-data" style="display:inline;margin-left:8px;">';
-						wp_nonce_field( 'oc_dst_upload_' . $file->id, '_oc_dst_nonce' );
-						printf( '<input type="hidden" name="oc_dst_file_id" value="%d">', (int) $file->id );
-						echo '<input type="file" name="oc_dst_file" accept=".dst,.emb,.jef,.vp3,.pes" style="font-size:11px;">';
-						printf(
-							'<input type="submit" class="button button-small" value="%s" style="margin-left:4px;">',
-							esc_attr__( 'Upload DST', 'overcustomise' )
-						);
-						echo '</form>';
-					}
-
-					if ( 'expired' === $file->file_status ) {
-						$regen_url = add_query_arg( [
-							'oc_regenerate' => $file->id,
-							'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . $file->id ),
-						], admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' ) );
-						printf(
-							' &nbsp;<a href="%s" class="button button-small">%s</a>',
-							esc_url( $regen_url ),
-							esc_html__( 'Regenerate', 'overcustomise' )
-						);
 					}
 
 					echo '</div>';
@@ -377,88 +332,6 @@ class OC_Admin_Order_Metabox {
 		return '';
 	}
 
-	/** Handle DST/EMB file upload submitted from the order metabox. */
-	public function handle_dst_upload( int $post_id ): void {
-		// Bail on autosaves / cron / ajax without the expected POST.
-		if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
-			return;
-		}
-
-		// Capability check first — cheapest guard and scoped to admins.
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			return;
-		}
-
-		// Require the nonce and file id together before touching any POST data.
-		if ( empty( $_POST['_oc_dst_nonce'] ) || empty( $_POST['oc_dst_file_id'] ) ) {
-			return;
-		}
-
-		$file_id = absint( $_POST['oc_dst_file_id'] );
-		if ( ! $file_id ) {
-			return;
-		}
-
-		if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_POST['_oc_dst_nonce'] ) ), 'oc_dst_upload_' . $file_id ) ) {
-			return;
-		}
-
-		if ( empty( $_FILES['oc_dst_file']['tmp_name'] ) ) {
-			return;
-		}
-
-		$record = OC_DB::get_print_file( $file_id );
-		if ( ! $record || 'awaiting_dst_upload' !== $record->file_status ) {
-			return;
-		}
-
-		$file = $_FILES['oc_dst_file'];
-
-		if ( ! empty( $file['error'] ) && UPLOAD_ERR_OK !== (int) $file['error'] ) {
-			OC_Logger::warning( "DST upload error code {$file['error']} for print file #{$file_id}." );
-			return;
-		}
-
-		if ( ! is_uploaded_file( $file['tmp_name'] ) ) {
-			return;
-		}
-
-		$original_name = isset( $file['name'] ) ? basename( (string) $file['name'] ) : '';
-		if ( '' === $original_name ) {
-			return;
-		}
-
-		$allowed = [ 'dst', 'emb', 'jef', 'vp3', 'pes', 'xxx' ];
-		$ext     = strtolower( pathinfo( $original_name, PATHINFO_EXTENSION ) );
-
-		if ( ! in_array( $ext, $allowed, true ) ) {
-			return;
-		}
-
-		// Size sanity cap — embroidery stitch files are tiny; 10 MB is generous.
-		$max_bytes = 10 * 1024 * 1024;
-		if ( (int) ( $file['size'] ?? 0 ) <= 0 || (int) $file['size'] > $max_bytes ) {
-			return;
-		}
-
-		// Store the DST in the same order directory as the brief.
-		$upload_dir = wp_upload_dir();
-		$dir        = $upload_dir['basedir'] . '/overcustomise/print-files/' . (int) $record->order_id;
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return;
-		}
-
-		$dest = $dir . '/' . (int) $record->order_item_id . '-' . (int) $record->print_area_id . '-dst.' . $ext;
-
-		if ( move_uploaded_file( $file['tmp_name'], $dest ) ) {
-			OC_DB::update_print_file( $file_id, [
-				'file_path'   => $dest,
-				'file_status' => 'files_ready',
-			] );
-			OC_Logger::info( "DST uploaded for print file #{$file_id}: {$dest}" );
-		}
-	}
-
 	private function render_thumbnail( object $file, \WC_Order $order ): void {
 		$thumb_url = null;
 
@@ -502,8 +375,8 @@ class OC_Admin_Order_Metabox {
 		$labels = [
 			'pending'               => __( 'Pending', 'overcustomise' ),
 			'generating'            => __( 'Generating…', 'overcustomise' ),
-			'brief_ready'           => __( 'Production Brief Ready', 'overcustomise' ),
-			'awaiting_dst_upload'   => __( 'Awaiting DST Upload', 'overcustomise' ),
+			'brief_ready'           => __( 'Legacy Brief Ready', 'overcustomise' ),
+			'awaiting_dst_upload'   => __( 'Legacy DST Pending', 'overcustomise' ),
 			'files_ready'           => __( 'Files Ready', 'overcustomise' ),
 			'expired'               => __( 'Expired', 'overcustomise' ),
 		];
