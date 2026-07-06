@@ -71,7 +71,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = 'showpage';
 		$lines[] = '%%EOF';
 
-		$output_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'eps' );
+		$output_path = $output_dir . '/' . self::build_versioned_filename( $item_id, (string) $area->area_key, 'eps' );
 		if ( false === file_put_contents( $output_path, implode( "\n", $lines ) . "\n" ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 			throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
 		}
@@ -1451,6 +1451,17 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	private static function mm_to_pt( float $mm ): float {
 		return $mm * 72 / 25.4;
+	}
+
+	/** Build a cache-busting embroidery filename so regenerated EPS files cannot be confused with older downloads. */
+	private static function build_versioned_filename( int $item_id, string $area_key, string $extension ): string {
+		return sprintf(
+			'%d-%s-%s.%s',
+			$item_id,
+			sanitize_file_name( $area_key ),
+			gmdate( 'YmdHis' ) . '-' . substr( wp_generate_uuid4(), 0, 8 ),
+			$extension
+		);
 	}
 
 	private static function eps_y( float $y_mm, float $h_mm, object $area ): float {

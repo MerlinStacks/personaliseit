@@ -153,6 +153,16 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function embroidery_eps_filenames_are_versioned_for_regeneration(): void {
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'build_versioned_filename' );
+
+		$filename = $method->invoke( null, 123, 'front area', 'eps' );
+
+		$this->assertMatchesRegularExpression( '/^123-front-area-\d{14}-[a-f0-9-]{8}\.eps$/', $filename );
+		$this->assertNotSame( '123-front-area.eps', $filename );
+	}
+
+	#[Test]
 	public function layer_export_uses_print_area_rotation_for_position_only(): void {
 		$lines = [];
 		$area  = (object) [
