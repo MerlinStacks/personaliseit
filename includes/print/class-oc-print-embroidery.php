@@ -105,7 +105,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$before = count( $lines );
 		$lines[] = '%%OCSnapshotFormat: ' . self::eps_comment( (string) ( $snapshot['format'] ?? 'fabric-svg-v1' ) );
+		$lines[] = 'gsave';
+		$lines[] = 'newpath';
+		$lines[] = '0 0 moveto';
+		$lines[] = sprintf( '%.4F 0 lineto', $w_pt );
+		$lines[] = sprintf( '%.4F %.4F lineto', $w_pt, $h_pt );
+		$lines[] = sprintf( '0 %.4F lineto', $h_pt );
+		$lines[] = 'closepath clip newpath';
 		$ok = self::append_eps_svg_vector( $lines, $temp, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
+		$lines[] = 'grestore';
 		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 
 		if ( ! $ok ) {

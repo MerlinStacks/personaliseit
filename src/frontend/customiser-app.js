@@ -1248,6 +1248,8 @@ class OCCustomiser {
 			}
 
 			img._ocContent = true;
+			img._ocSourceUrl = url;
+			img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
 			this.applyContentClip( img, clipPath );
 			canvas.add( img );
 			return true;
@@ -2661,6 +2663,12 @@ class OCCustomiser {
 			}
 
 			const objects = canvas.getObjects ? canvas.getObjects() : [];
+			const imageSources = objects
+				.filter( ( obj ) => obj._ocContent === true && obj._ocSourceUrl )
+				.map( ( obj ) => ( {
+					url: obj._ocSourceUrl,
+					color: obj._ocSnapshotColor || '',
+				} ) );
 			const previousExportFlags = objects.map( ( obj ) => [ obj, obj.excludeFromExport ] );
 			objects.forEach( ( obj ) => {
 				obj.excludeFromExport = obj._ocContent !== true;
@@ -2678,6 +2686,7 @@ class OCCustomiser {
 					},
 				} );
 				svg = await this.outlineSnapshotText( svg );
+				svg = await this.inlineSnapshotSvgImages( svg, imageSources );
 				if ( svg && svg.includes( '<svg' ) ) {
 					snapshots[ area.id || area.areaId || areaIndex ] = {
 						format: 'fabric-svg-v1',
@@ -2696,6 +2705,114 @@ class OCCustomiser {
 		}
 
 		return snapshots;
+	}
+
+	async inlineSnapshotSvgImages( svg, imageSources = [] ) {
+		if ( ! svg || ! svg.includes( '<image' ) || ! imageSources.length ) return svg;
+
+		const doc = new DOMParser().parseFromString( svg, 'image/svg+xml' );
+		const svgEl = doc.documentElement;
+		if ( ! svgEl || svgEl.nodeName.toLowerCase() !== 'svg' ) return svg;
+
+		const imageNodes = Array.from( svgEl.querySelectorAll( 'image' ) );
+		for ( let index = 0; index < imageNodes.length; index++ ) {
+			const source = imageSources[ index ];
+			if ( ! source?.url ) continue;
+
+			let sourceSvg = '';
+			try {
+				sourceSvg = await this.svgSourceForSnapshotImage( source.url );
+			} catch {
+				continue;
+			}
+			if ( ! sourceSvg ) continue;
+
+			const sourceDoc = new DOMParser().parseFromString( sourceSvg, 'image/svg+xml' );
+			const sourceEl = sourceDoc.documentElement;
+			if ( ! sourceEl || sourceEl.nodeName.toLowerCase() !== 'svg' ) continue;
+
+			if ( source.color ) {
+				this.flattenSnapshotPatternPaint( sourceEl, source.color );
+			}
+
+			const replacement = this.snapshotImageReplacementGroup( doc, imageNodes[ index ], sourceEl );
+			if ( replacement ) imageNodes[ index ].replaceWith( replacement );
+		}
+
+		return new XMLSerializer().serializeToString( svgEl );
+	}
+
+	async svgSourceForSnapshotImage( url ) {
+		const value = String( url || '' );
+		if ( value.startsWith( 'data:image/svg+xml' ) ) {
+			const payload = value.slice( value.indexOf( ',' ) + 1 );
+			return decodeURIComponent( payload );
+		}
+
+		const cleanUrl = value.split( '?' )[0].toLowerCase();
+		if ( ! cleanUrl.endsWith( '.svg' ) ) return '';
+
+		const response = await fetch( value, { credentials: 'same-origin', cache: 'force-cache' } );
+		if ( ! response.ok ) return '';
+		return response.text();
+	}
+
+	flattenSnapshotPatternPaint( element, color ) {
+		Array.from( element.querySelectorAll( '[fill], [stroke]' ) ).forEach( node => {
+			[ 'fill', 'stroke' ].forEach( attr => {
+				const value = String( node.getAttribute( attr ) || '' ).trim();
+				if ( /^url\(/i.test( value ) ) node.setAttribute( attr, color );
+			} );
+		} );
+		Array.from( element.querySelectorAll( '[style]' ) ).forEach( node => {
+			node.setAttribute(
+				'style',
+				String( node.getAttribute( 'style' ) || '' ).replace( /\b(fill|stroke)\s*:\s*url\([^;)]+\)/gi, `$1:${ color }` )
+			);
+		} );
+	}
+
+	snapshotImageReplacementGroup( doc, imageNode, sourceEl ) {
+		const viewBox = this.svgViewBoxValues( sourceEl );
+		if ( ! viewBox ) return null;
+
+		const [ vbX, vbY, vbW, vbH ] = viewBox;
+		const imageX = this.svgNumber( imageNode.getAttribute( 'x' ), 0 );
+		const imageY = this.svgNumber( imageNode.getAttribute( 'y' ), 0 );
+		const imageW = this.svgNumber( imageNode.getAttribute( 'width' ), vbW );
+		const imageH = this.svgNumber( imageNode.getAttribute( 'height' ), vbH );
+		if ( vbW <= 0 || vbH <= 0 || imageW <= 0 || imageH <= 0 ) return null;
+
+		const ns = 'http://www.w3.org/2000/svg';
+		const outer = doc.createElementNS( ns, 'g' );
+		[ 'transform', 'opacity', 'clip-path' ].forEach( attr => {
+			if ( imageNode.hasAttribute( attr ) ) outer.setAttribute( attr, imageNode.getAttribute( attr ) );
+		} );
+
+		const inner = doc.createElementNS( ns, 'g' );
+		inner.setAttribute(
+			'transform',
+			`translate(${ imageX } ${ imageY }) scale(${ imageW / vbW } ${ imageH / vbH }) translate(${ -vbX } ${ -vbY })`
+		);
+
+		Array.from( sourceEl.childNodes ).forEach( child => {
+			inner.appendChild( doc.importNode( child, true ) );
+		} );
+		outer.appendChild( inner );
+
+		return outer;
+	}
+
+	svgViewBoxValues( svgEl ) {
+		const viewBox = String( svgEl.getAttribute( 'viewBox' ) || '' ).trim();
+		if ( viewBox ) {
+			const parts = viewBox.split( /[\s,]+/ ).map( Number );
+			if ( parts.length >= 4 && parts.every( Number.isFinite ) ) return parts.slice( 0, 4 );
+		}
+
+		const width = this.svgNumber( svgEl.getAttribute( 'width' ), 0 );
+		const height = this.svgNumber( svgEl.getAttribute( 'height' ), 0 );
+		return width > 0 && height > 0 ? [ 0, 0, width, height ] : null;
 	}
 
 	async outlineSnapshotText( svg ) {
