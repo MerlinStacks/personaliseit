@@ -66,7 +66,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function text_export_outlines_customer_text_without_distorting_it(): void {
+	public function text_export_marks_font_dependent_fallback_when_no_font_file_is_available(): void {
 		$lines  = [];
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' );
 		$method->invokeArgs( null, [ &$lines, [ 'value' => 'Editable Text', 'colorHex' => '#123456' ], [], 0.0, 0.0, 100.0, 20.0, true ] );
@@ -75,9 +75,32 @@ class Test_Print_Embroidery extends TestCase {
 		$this->assertStringContainsString( '(Editable Text)', $output );
 		$this->assertStringContainsString( '0.0000 14.0000 translate', $output );
 		$this->assertStringNotContainsString( ' exch div 1 scale', $output );
+		$this->assertStringContainsString( '%%OCTextOutlineFallback: font-dependent', $output );
 		$this->assertStringContainsString( 'charpath fill', $output );
 		$this->assertStringNotContainsString( ' show', $output );
 		$this->assertStringNotContainsString( 'imagemask', $output );
+	}
+
+	#[Test]
+	public function text_export_can_embed_real_ttf_glyph_paths(): void {
+		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! file_exists( $font_path ) ) {
+			$this->markTestSkipped( 'DejaVuSans.ttf is not available.' );
+		}
+
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_ttf_text_outline' );
+		$ok     = $method->invokeArgs( null, [ &$lines, 'Tellaasd', 'left', 0.0, 0.0, 72.0, $font_path ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertTrue( $ok );
+		$this->assertStringContainsString( '%%OCTextOutline: glyph-paths', $output );
+		$this->assertStringContainsString( '%%OCTextFontFile: DejaVuSans.ttf', $output );
+		$this->assertStringContainsString( 'curveto', $output );
+		$this->assertStringContainsString( 'fill', $output );
+		$this->assertStringNotContainsString( '(Tellaasd)', $output );
+		$this->assertStringNotContainsString( 'charpath', $output );
+		$this->assertStringNotContainsString( 'findfont', $output );
 	}
 
 	#[Test]

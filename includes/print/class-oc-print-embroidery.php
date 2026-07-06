@@ -12,6 +12,9 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Print_Embroidery extends OC_Print_Base {
 
+	/** Parsed TrueType font cache for font-independent EPS text outlines. */
+	private static array $ttf_outline_cache = [];
+
 	/**
 	 * Generate embroidery artwork as an EPS print file.
 	 *
@@ -216,22 +219,29 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 
 		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
-		$font_name     = self::eps_font_name( $font_id );
+		$font          = $font_id ? self::get_font( $font_id ) : null;
+		$font_name     = self::eps_font_name_from_row( $font );
+		$font_path     = is_object( $font ) ? self::get_font_path( $font ) : null;
+		$align         = $centered ? (string) ( $settings['alignment'] ?? 'center' ) : 'left';
+		$anchor_x      = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt + 2;
+		$baseline_y    = $centered ? $y_pt + ( $h_pt + $font_size ) / 2 : $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 );
+
 		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
 		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
-		$lines[] = '%%OCTextOutline: charpath';
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
+		if ( is_string( $font_path ) && '' !== $font_path && self::append_eps_ttf_text_outline( $lines, $text, $align, $anchor_x, $baseline_y, $font_size, $font_path ) ) {
+			$lines[] = 'grestore';
+			return;
+		}
+
+		$lines[] = '%%OCTextOutline: charpath';
+		$lines[] = '%%OCTextOutlineFallback: font-dependent';
 		$lines[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
 		if ( 'Helvetica' !== $font_name ) {
 			$lines[] = sprintf( '{ /%s findfont %.4F scalefont setfont } stopped { pop } if', self::ps_name_escape( $font_name ), $font_size );
 		}
-		if ( $centered ) {
-			$align = (string) ( $settings['alignment'] ?? 'center' );
-			self::append_eps_text_line( $lines, $text, $align, self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
-		} else {
-			self::append_eps_text_line( $lines, $text, 'left', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
-		}
+		self::append_eps_text_line( $lines, $text, $align, $anchor_x, $baseline_y );
 		$lines[] = 'grestore';
 	}
 
@@ -265,9 +275,598 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = 'grestore';
 	}
 
-	/** Return the selected font family for EPS consumers that have production fonts installed. */
-	private static function eps_font_name( int $font_id ): string {
-		$font = self::get_font( $font_id );
+	/** Append font-independent text outlines from a TrueType font file. */
+	private static function append_eps_ttf_text_outline( array &$lines, string $text, string $align, float $anchor_x, float $baseline_pt, float $font_size, string $font_path ): bool {
+		$outline = self::ttf_text_outline( $font_path, $text, $font_size );
+		if ( ! is_array( $outline ) || empty( $outline['commands'] ) ) {
+			return false;
+		}
+
+		$width    = (float) ( $outline['width'] ?? 0.0 );
+		$origin_x = match ( $align ) {
+			'right' => $anchor_x - $width,
+			'left'  => $anchor_x,
+			default => $anchor_x - $width / 2,
+		};
+
+		$lines[] = '%%OCTextOutline: glyph-paths';
+		$lines[] = '%%OCTextFontFile: ' . self::eps_comment( basename( $font_path ) );
+		$lines[] = sprintf( '%%OCTextAdvance: %.4F', $width );
+		$lines[] = 'gsave';
+		$lines[] = sprintf( '%.4F %.4F translate', $origin_x, $baseline_pt );
+		$lines[] = 'newpath';
+		array_push( $lines, ...$outline['commands'] );
+		$lines[] = 'fill';
+		$lines[] = 'grestore';
+
+		return true;
+	}
+
+	/** Build EPS path commands for a UTF-8 string using a TrueType font file. */
+	private static function ttf_text_outline( string $font_path, string $text, float $font_size ): ?array {
+		$font = self::load_ttf_outline_font( $font_path );
+		if ( ! $font || empty( $font['units_per_em'] ) ) {
+			return null;
+		}
+
+		$scale     = $font_size / (float) $font['units_per_em'];
+		$x_offset  = 0.0;
+		$commands  = [];
+		$codepoints = self::utf8_codepoints( $text );
+		if ( empty( $codepoints ) ) {
+			return null;
+		}
+
+		foreach ( $codepoints as $codepoint ) {
+			$gid      = self::ttf_glyph_id( $font, $codepoint );
+			$contours = self::ttf_glyph_contours( $font, $gid );
+			foreach ( $contours as $contour ) {
+				self::append_ttf_contour_eps_commands( $commands, $contour, $x_offset, $scale );
+			}
+
+			$x_offset += self::ttf_glyph_advance( $font, $gid ) * $scale;
+		}
+
+		return [
+			'width'    => $x_offset,
+			'commands' => $commands,
+		];
+	}
+
+	/** Append one TrueType contour as EPS cubic path commands. */
+	private static function append_ttf_contour_eps_commands( array &$commands, array $contour, float $x_offset, float $scale ): void {
+		$count = count( $contour );
+		if ( $count < 1 ) {
+			return;
+		}
+
+		$normalised = [];
+		for ( $i = 0; $i < $count; $i++ ) {
+			$point       = $contour[ $i ];
+			$next        = $contour[ ( $i + 1 ) % $count ];
+			$normalised[] = $point;
+			if ( empty( $point['on'] ) && empty( $next['on'] ) ) {
+				$normalised[] = [
+					'x'  => ( (float) $point['x'] + (float) $next['x'] ) / 2,
+					'y'  => ( (float) $point['y'] + (float) $next['y'] ) / 2,
+					'on' => true,
+				];
+			}
+		}
+
+		$start_index = null;
+		foreach ( $normalised as $index => $point ) {
+			if ( ! empty( $point['on'] ) ) {
+				$start_index = $index;
+				break;
+			}
+		}
+		if ( null === $start_index ) {
+			return;
+		}
+
+		$ordered = array_merge( array_slice( $normalised, $start_index ), array_slice( $normalised, 0, $start_index ) );
+		$start   = $ordered[0];
+		$current = $start;
+		[ $sx, $sy ] = self::ttf_point_to_eps( $start, $x_offset, $scale );
+		$commands[] = sprintf( '%.4F %.4F moveto', $sx, $sy );
+
+		$ordered_count = count( $ordered );
+		for ( $i = 1; $i < $ordered_count; $i++ ) {
+			$point = $ordered[ $i ];
+			if ( ! empty( $point['on'] ) ) {
+				[ $x, $y ] = self::ttf_point_to_eps( $point, $x_offset, $scale );
+				$commands[] = sprintf( '%.4F %.4F lineto', $x, $y );
+				$current = $point;
+				continue;
+			}
+
+			$next = $ordered[ $i + 1 ] ?? $start;
+			if ( empty( $next['on'] ) ) {
+				continue;
+			}
+
+			self::append_ttf_quadratic_eps_command( $commands, $current, $point, $next, $x_offset, $scale );
+			$current = $next;
+			if ( $i + 1 < $ordered_count ) {
+				$i++;
+			}
+		}
+
+		$commands[] = 'closepath';
+	}
+
+	/** Append a quadratic TrueType curve as a cubic EPS curve. */
+	private static function append_ttf_quadratic_eps_command( array &$commands, array $from, array $control, array $to, float $x_offset, float $scale ): void {
+		[ $x0, $y0 ] = self::ttf_point_to_eps( $from, $x_offset, $scale );
+		[ $qx, $qy ] = self::ttf_point_to_eps( $control, $x_offset, $scale );
+		[ $x1, $y1 ] = self::ttf_point_to_eps( $to, $x_offset, $scale );
+
+		$c1x = $x0 + ( 2 / 3 ) * ( $qx - $x0 );
+		$c1y = $y0 + ( 2 / 3 ) * ( $qy - $y0 );
+		$c2x = $x1 + ( 2 / 3 ) * ( $qx - $x1 );
+		$c2y = $y1 + ( 2 / 3 ) * ( $qy - $y1 );
+
+		$commands[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $c1x, $c1y, $c2x, $c2y, $x1, $y1 );
+	}
+
+	/** Convert a TrueType font-unit point to local EPS points. */
+	private static function ttf_point_to_eps( array $point, float $x_offset, float $scale ): array {
+		return [
+			$x_offset + (float) $point['x'] * $scale,
+			(float) $point['y'] * $scale,
+		];
+	}
+
+	/** Load the TrueType tables needed to turn text into glyph outlines. */
+	private static function load_ttf_outline_font( string $font_path ): ?array {
+		$real = realpath( $font_path );
+		if ( ! $real || ! file_exists( $real ) ) {
+			return null;
+		}
+
+		$cache_key = $real . '|' . (string) filemtime( $real ) . '|' . (string) filesize( $real );
+		if ( array_key_exists( $cache_key, self::$ttf_outline_cache ) ) {
+			return self::$ttf_outline_cache[ $cache_key ];
+		}
+
+		$data = file_get_contents( $real ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( ! is_string( $data ) || strlen( $data ) < 12 ) {
+			self::$ttf_outline_cache[ $cache_key ] = null;
+			return null;
+		}
+
+		$base      = 0;
+		$signature = substr( $data, 0, 4 );
+		if ( 'ttcf' === $signature ) {
+			$base      = self::ttf_u32( $data, 12 );
+			$signature = substr( $data, $base, 4 );
+		}
+
+		if ( ! in_array( $signature, [ "\x00\x01\x00\x00", 'true' ], true ) ) {
+			self::$ttf_outline_cache[ $cache_key ] = null;
+			return null;
+		}
+
+		$num_tables = self::ttf_u16( $data, $base + 4 );
+		$tables     = [];
+		for ( $i = 0; $i < $num_tables; $i++ ) {
+			$record_offset = $base + 12 + $i * 16;
+			$tag           = substr( $data, $record_offset, 4 );
+			$tables[ $tag ] = [
+				'offset' => self::ttf_u32( $data, $record_offset + 8 ),
+				'length' => self::ttf_u32( $data, $record_offset + 12 ),
+			];
+		}
+
+		foreach ( [ 'head', 'hhea', 'hmtx', 'maxp', 'cmap', 'loca', 'glyf' ] as $required ) {
+			if ( empty( $tables[ $required ] ) ) {
+				self::$ttf_outline_cache[ $cache_key ] = null;
+				return null;
+			}
+		}
+
+		$head_offset        = (int) $tables['head']['offset'];
+		$units_per_em       = self::ttf_u16( $data, $head_offset + 18 );
+		$index_to_loc_format = self::ttf_i16( $data, $head_offset + 50 );
+		$num_glyphs         = self::ttf_u16( $data, (int) $tables['maxp']['offset'] + 4 );
+		$num_h_metrics      = self::ttf_u16( $data, (int) $tables['hhea']['offset'] + 34 );
+		if ( $units_per_em <= 0 || $num_glyphs <= 0 ) {
+			self::$ttf_outline_cache[ $cache_key ] = null;
+			return null;
+		}
+
+		$glyph_offsets = [];
+		$loca_offset   = (int) $tables['loca']['offset'];
+		for ( $i = 0; $i <= $num_glyphs; $i++ ) {
+			$glyph_offsets[] = 0 === $index_to_loc_format
+				? self::ttf_u16( $data, $loca_offset + $i * 2 ) * 2
+				: self::ttf_u32( $data, $loca_offset + $i * 4 );
+		}
+
+		$cmap = self::ttf_parse_cmap( $data, (int) $tables['cmap']['offset'] );
+		if ( ! $cmap ) {
+			self::$ttf_outline_cache[ $cache_key ] = null;
+			return null;
+		}
+
+		$font = [
+			'data'           => $data,
+			'tables'         => $tables,
+			'units_per_em'   => $units_per_em,
+			'num_glyphs'     => $num_glyphs,
+			'num_h_metrics'  => max( 1, $num_h_metrics ),
+			'glyph_offsets'  => $glyph_offsets,
+			'cmap'           => $cmap,
+		];
+
+		self::$ttf_outline_cache[ $cache_key ] = $font;
+		return $font;
+	}
+
+	/** Parse the best Unicode cmap available in a TrueType font. */
+	private static function ttf_parse_cmap( string $data, int $cmap_offset ): ?array {
+		$num_tables = self::ttf_u16( $data, $cmap_offset + 2 );
+		$format12   = null;
+		$format4    = null;
+
+		for ( $i = 0; $i < $num_tables; $i++ ) {
+			$record_offset  = $cmap_offset + 4 + $i * 8;
+			$platform_id    = self::ttf_u16( $data, $record_offset );
+			$encoding_id    = self::ttf_u16( $data, $record_offset + 2 );
+			$subtable_offset = $cmap_offset + self::ttf_u32( $data, $record_offset + 4 );
+			$format         = self::ttf_u16( $data, $subtable_offset );
+
+			if ( 12 === $format && ( 0 === $platform_id || 3 === $platform_id ) ) {
+				$format12 = self::ttf_parse_cmap_format12( $data, $subtable_offset );
+				if ( 3 === $platform_id && 10 === $encoding_id ) {
+					return $format12;
+				}
+			}
+
+			if ( 4 === $format && ( 0 === $platform_id || 3 === $platform_id ) ) {
+				$format4 = self::ttf_parse_cmap_format4( $data, $subtable_offset );
+			}
+		}
+
+		return $format12 ?: $format4;
+	}
+
+	/** Parse a cmap format 12 subtable. */
+	private static function ttf_parse_cmap_format12( string $data, int $offset ): ?array {
+		$num_groups = self::ttf_u32( $data, $offset + 12 );
+		$groups     = [];
+		for ( $i = 0; $i < $num_groups; $i++ ) {
+			$group_offset = $offset + 16 + $i * 12;
+			$groups[] = [
+				'start' => self::ttf_u32( $data, $group_offset ),
+				'end'   => self::ttf_u32( $data, $group_offset + 4 ),
+				'gid'   => self::ttf_u32( $data, $group_offset + 8 ),
+			];
+		}
+
+		return [ 'format' => 12, 'groups' => $groups ];
+	}
+
+	/** Parse a cmap format 4 subtable. */
+	private static function ttf_parse_cmap_format4( string $data, int $offset ): ?array {
+		$seg_count = (int) ( self::ttf_u16( $data, $offset + 6 ) / 2 );
+		if ( $seg_count <= 0 ) {
+			return null;
+		}
+
+		$end_codes_offset        = $offset + 14;
+		$start_codes_offset      = $end_codes_offset + $seg_count * 2 + 2;
+		$id_deltas_offset        = $start_codes_offset + $seg_count * 2;
+		$id_range_offsets_offset = $id_deltas_offset + $seg_count * 2;
+		$cmap = [
+			'format'                    => 4,
+			'seg_count'                 => $seg_count,
+			'end_codes'                 => [],
+			'start_codes'               => [],
+			'id_deltas'                 => [],
+			'id_range_offsets'          => [],
+			'id_range_offset_positions' => [],
+		];
+
+		for ( $i = 0; $i < $seg_count; $i++ ) {
+			$cmap['end_codes'][]                 = self::ttf_u16( $data, $end_codes_offset + $i * 2 );
+			$cmap['start_codes'][]               = self::ttf_u16( $data, $start_codes_offset + $i * 2 );
+			$cmap['id_deltas'][]                 = self::ttf_i16( $data, $id_deltas_offset + $i * 2 );
+			$cmap['id_range_offsets'][]          = self::ttf_u16( $data, $id_range_offsets_offset + $i * 2 );
+			$cmap['id_range_offset_positions'][] = $id_range_offsets_offset + $i * 2;
+		}
+
+		return $cmap;
+	}
+
+	/** Return the glyph id for a Unicode codepoint. */
+	private static function ttf_glyph_id( array $font, int $codepoint ): int {
+		$cmap = $font['cmap'] ?? [];
+		if ( 12 === (int) ( $cmap['format'] ?? 0 ) ) {
+			foreach ( $cmap['groups'] ?? [] as $group ) {
+				if ( $codepoint >= (int) $group['start'] && $codepoint <= (int) $group['end'] ) {
+					$gid = (int) $group['gid'] + $codepoint - (int) $group['start'];
+					return $gid < (int) $font['num_glyphs'] ? $gid : 0;
+				}
+			}
+			return 0;
+		}
+
+		if ( $codepoint > 0xFFFF || 4 !== (int) ( $cmap['format'] ?? 0 ) ) {
+			return 0;
+		}
+
+		$data = (string) $font['data'];
+		for ( $i = 0; $i < (int) $cmap['seg_count']; $i++ ) {
+			if ( $codepoint < (int) $cmap['start_codes'][ $i ] || $codepoint > (int) $cmap['end_codes'][ $i ] ) {
+				continue;
+			}
+
+			$delta        = (int) $cmap['id_deltas'][ $i ];
+			$range_offset = (int) $cmap['id_range_offsets'][ $i ];
+			if ( 0 === $range_offset ) {
+				$gid = ( $codepoint + $delta ) & 0xFFFF;
+				return $gid < (int) $font['num_glyphs'] ? $gid : 0;
+			}
+
+			$glyph_offset = (int) $cmap['id_range_offset_positions'][ $i ] + $range_offset + 2 * ( $codepoint - (int) $cmap['start_codes'][ $i ] );
+			$gid          = self::ttf_u16( $data, $glyph_offset );
+			if ( 0 !== $gid ) {
+				$gid = ( $gid + $delta ) & 0xFFFF;
+			}
+
+			return $gid < (int) $font['num_glyphs'] ? $gid : 0;
+		}
+
+		return 0;
+	}
+
+	/** Return a glyph advance width in font units. */
+	private static function ttf_glyph_advance( array $font, int $gid ): int {
+		$data          = (string) $font['data'];
+		$hmtx_offset   = (int) $font['tables']['hmtx']['offset'];
+		$num_h_metrics = (int) $font['num_h_metrics'];
+		$metric_index  = min( max( 0, $gid ), $num_h_metrics - 1 );
+
+		return self::ttf_u16( $data, $hmtx_offset + $metric_index * 4 );
+	}
+
+	/** Return glyph contours in font units, resolving simple composite glyphs. */
+	private static function ttf_glyph_contours( array $font, int $gid, int $depth = 0 ): array {
+		if ( $depth > 8 || $gid < 0 || $gid >= (int) $font['num_glyphs'] ) {
+			return [];
+		}
+
+		$offsets      = $font['glyph_offsets'];
+		$glyph_start  = (int) $offsets[ $gid ];
+		$glyph_end    = (int) $offsets[ $gid + 1 ];
+		$glyph_length = $glyph_end - $glyph_start;
+		if ( $glyph_length <= 0 ) {
+			return [];
+		}
+
+		$data        = (string) $font['data'];
+		$glyph_base  = (int) $font['tables']['glyf']['offset'] + $glyph_start;
+		$num_contours = self::ttf_i16( $data, $glyph_base );
+		if ( $num_contours >= 0 ) {
+			return self::ttf_simple_glyph_contours( $data, $glyph_base, $num_contours );
+		}
+
+		return self::ttf_composite_glyph_contours( $font, $glyph_base, $depth );
+	}
+
+	/** Decode a simple glyf table outline into contours. */
+	private static function ttf_simple_glyph_contours( string $data, int $glyph_base, int $num_contours ): array {
+		if ( $num_contours <= 0 ) {
+			return [];
+		}
+
+		$end_points = [];
+		$pos        = $glyph_base + 10;
+		for ( $i = 0; $i < $num_contours; $i++ ) {
+			$end_points[] = self::ttf_u16( $data, $pos );
+			$pos += 2;
+		}
+
+		$num_points = (int) end( $end_points ) + 1;
+		if ( $num_points <= 0 ) {
+			return [];
+		}
+
+		$instruction_length = self::ttf_u16( $data, $pos );
+		$pos += 2 + $instruction_length;
+
+		$flags = [];
+		while ( count( $flags ) < $num_points ) {
+			$flag    = self::ttf_u8( $data, $pos );
+			$pos++;
+			$flags[] = $flag;
+			if ( 0 !== ( $flag & 0x08 ) ) {
+				$repeat = self::ttf_u8( $data, $pos );
+				$pos++;
+				for ( $r = 0; $r < $repeat; $r++ ) {
+					$flags[] = $flag;
+				}
+			}
+		}
+
+		$points = [];
+		$x      = 0;
+		for ( $i = 0; $i < $num_points; $i++ ) {
+			$flag = $flags[ $i ];
+			if ( 0 !== ( $flag & 0x02 ) ) {
+				$delta = self::ttf_u8( $data, $pos );
+				$pos++;
+				$x += 0 !== ( $flag & 0x10 ) ? $delta : -$delta;
+			} elseif ( 0 === ( $flag & 0x10 ) ) {
+				$x += self::ttf_i16( $data, $pos );
+				$pos += 2;
+			}
+			$points[ $i ] = [ 'x' => $x, 'y' => 0, 'on' => 0 !== ( $flag & 0x01 ) ];
+		}
+
+		$y = 0;
+		for ( $i = 0; $i < $num_points; $i++ ) {
+			$flag = $flags[ $i ];
+			if ( 0 !== ( $flag & 0x04 ) ) {
+				$delta = self::ttf_u8( $data, $pos );
+				$pos++;
+				$y += 0 !== ( $flag & 0x20 ) ? $delta : -$delta;
+			} elseif ( 0 === ( $flag & 0x20 ) ) {
+				$y += self::ttf_i16( $data, $pos );
+				$pos += 2;
+			}
+			$points[ $i ]['y'] = $y;
+		}
+
+		$contours = [];
+		$start    = 0;
+		foreach ( $end_points as $end ) {
+			$length = (int) $end - $start + 1;
+			if ( $length > 0 ) {
+				$contours[] = array_slice( $points, $start, $length );
+			}
+			$start = (int) $end + 1;
+		}
+
+		return $contours;
+	}
+
+	/** Decode a composite glyf outline by applying component transforms. */
+	private static function ttf_composite_glyph_contours( array $font, int $glyph_base, int $depth ): array {
+		$data     = (string) $font['data'];
+		$pos      = $glyph_base + 10;
+		$contours = [];
+
+		do {
+			$flags = self::ttf_u16( $data, $pos );
+			$pos += 2;
+			$component_gid = self::ttf_u16( $data, $pos );
+			$pos += 2;
+
+			$dx = 0.0;
+			$dy = 0.0;
+			if ( 0 !== ( $flags & 0x0001 ) ) {
+				$arg1 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i16( $data, $pos ) : self::ttf_u16( $data, $pos );
+				$arg2 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i16( $data, $pos + 2 ) : self::ttf_u16( $data, $pos + 2 );
+				$pos += 4;
+			} else {
+				$arg1 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i8( $data, $pos ) : self::ttf_u8( $data, $pos );
+				$arg2 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i8( $data, $pos + 1 ) : self::ttf_u8( $data, $pos + 1 );
+				$pos += 2;
+			}
+
+			if ( 0 !== ( $flags & 0x0002 ) ) {
+				$dx = (float) $arg1;
+				$dy = (float) $arg2;
+			}
+
+			$a = 1.0;
+			$b = 0.0;
+			$c = 0.0;
+			$d = 1.0;
+			if ( 0 !== ( $flags & 0x0008 ) ) {
+				$a = $d = self::ttf_f2dot14( $data, $pos );
+				$pos += 2;
+			} elseif ( 0 !== ( $flags & 0x0040 ) ) {
+				$a = self::ttf_f2dot14( $data, $pos );
+				$d = self::ttf_f2dot14( $data, $pos + 2 );
+				$pos += 4;
+			} elseif ( 0 !== ( $flags & 0x0080 ) ) {
+				$a = self::ttf_f2dot14( $data, $pos );
+				$b = self::ttf_f2dot14( $data, $pos + 2 );
+				$c = self::ttf_f2dot14( $data, $pos + 4 );
+				$d = self::ttf_f2dot14( $data, $pos + 6 );
+				$pos += 8;
+			}
+
+			foreach ( self::ttf_glyph_contours( $font, $component_gid, $depth + 1 ) as $component_contour ) {
+				$transformed = [];
+				foreach ( $component_contour as $point ) {
+					$x = (float) $point['x'];
+					$y = (float) $point['y'];
+					$transformed[] = [
+						'x'  => $a * $x + $b * $y + $dx,
+						'y'  => $c * $x + $d * $y + $dy,
+						'on' => ! empty( $point['on'] ),
+					];
+				}
+				$contours[] = $transformed;
+			}
+		} while ( 0 !== ( $flags & 0x0020 ) );
+
+		return $contours;
+	}
+
+	/** Decode UTF-8 text into Unicode codepoints without requiring mbstring/intl. */
+	private static function utf8_codepoints( string $text ): array {
+		$bytes      = array_values( unpack( 'C*', $text ) ?: [] );
+		$codepoints = [];
+		$count      = count( $bytes );
+		for ( $i = 0; $i < $count; $i++ ) {
+			$b = $bytes[ $i ];
+			if ( $b < 0x80 ) {
+				$codepoints[] = $b;
+				continue;
+			}
+
+			if ( ( $b & 0xE0 ) === 0xC0 && $i + 1 < $count ) {
+				$codepoints[] = ( ( $b & 0x1F ) << 6 ) | ( $bytes[ ++$i ] & 0x3F );
+				continue;
+			}
+
+			if ( ( $b & 0xF0 ) === 0xE0 && $i + 2 < $count ) {
+				$codepoints[] = ( ( $b & 0x0F ) << 12 ) | ( ( $bytes[ ++$i ] & 0x3F ) << 6 ) | ( $bytes[ ++$i ] & 0x3F );
+				continue;
+			}
+
+			if ( ( $b & 0xF8 ) === 0xF0 && $i + 3 < $count ) {
+				$codepoints[] = ( ( $b & 0x07 ) << 18 ) | ( ( $bytes[ ++$i ] & 0x3F ) << 12 ) | ( ( $bytes[ ++$i ] & 0x3F ) << 6 ) | ( $bytes[ ++$i ] & 0x3F );
+			}
+		}
+
+		return $codepoints;
+	}
+
+	private static function ttf_u8( string $data, int $offset ): int {
+		return isset( $data[ $offset ] ) ? ord( $data[ $offset ] ) : 0;
+	}
+
+	private static function ttf_i8( string $data, int $offset ): int {
+		$value = self::ttf_u8( $data, $offset );
+		return $value >= 0x80 ? $value - 0x100 : $value;
+	}
+
+	private static function ttf_u16( string $data, int $offset ): int {
+		if ( $offset < 0 || $offset + 2 > strlen( $data ) ) {
+			return 0;
+		}
+
+		$value = unpack( 'n', substr( $data, $offset, 2 ) );
+		return is_array( $value ) ? (int) $value[1] : 0;
+	}
+
+	private static function ttf_i16( string $data, int $offset ): int {
+		$value = self::ttf_u16( $data, $offset );
+		return $value >= 0x8000 ? $value - 0x10000 : $value;
+	}
+
+	private static function ttf_u32( string $data, int $offset ): int {
+		if ( $offset < 0 || $offset + 4 > strlen( $data ) ) {
+			return 0;
+		}
+
+		$value = unpack( 'N', substr( $data, $offset, 4 ) );
+		return is_array( $value ) ? (int) $value[1] : 0;
+	}
+
+	private static function ttf_f2dot14( string $data, int $offset ): float {
+		return self::ttf_i16( $data, $offset ) / 16384;
+	}
+
+	/** Return the selected font family name from a font DB row. */
+	private static function eps_font_name_from_row( ?object $font ): string {
 		$name = is_object( $font ) ? trim( (string) ( $font->name ?? '' ) ) : '';
 
 		return '' !== $name ? $name : 'Helvetica';
