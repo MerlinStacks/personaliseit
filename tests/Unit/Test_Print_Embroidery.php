@@ -245,6 +245,39 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function embroidery_generation_ignores_snapshot_for_legacy_payload(): void {
+		$output_dir = sys_get_temp_dir() . '/oc-embroidery-test-' . uniqid();
+		mkdir( $output_dir );
+
+		$area = (object) [
+			'area_key'    => 'front',
+			'label'       => 'Front',
+			'canvas_unit' => 'px',
+			'canvas_w'    => 100,
+			'canvas_h'    => 100,
+		];
+		$data = [
+			'text'     => 'Legacy Text',
+			'color'    => '#000000',
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="#ff0000"/></svg>',
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'generate_eps' );
+		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 23, $area, $data ] );
+		$output = file_get_contents( $path );
+
+		$this->assertStringContainsString( '%%OCSnapshotFallback: legacy-artwork', $output );
+		$this->assertStringNotContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
+		$this->assertStringContainsString( 'Legacy Text', $output );
+
+		@unlink( $path );
+		@rmdir( $output_dir );
+	}
+
+	#[Test]
 	public function embroidery_export_falls_back_when_snapshot_has_unoutlined_text(): void {
 		$lines = [ 'before' ];
 		$area  = (object) [ 'area_key' => 'front' ];
