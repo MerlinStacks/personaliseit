@@ -92,7 +92,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
 		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
-		$bounds_rotation = self::normalise_rotation( (float) ( $bounds['rotation'] ?? 0 ) );
 		$font_px_to_pt = self::mm_to_pt( $area_h_mm ) / $bounds_h;
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
@@ -112,10 +111,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
-			if ( 0.0 !== $bounds_rotation ) {
-				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, $bounds_rotation );
-			}
-			$rotation = self::normalise_rotation( $bounds_rotation + self::layer_rotation( $layer, $input, $settings ) );
+			$rotation = self::layer_rotation( $layer, $input, $settings );
 
 			$center_x_mm = ( ( $center_x - $area_x ) / $bounds_w ) * $area_w_mm;
 			$center_y_mm = ( ( $center_y - $area_y ) / $bounds_h ) * $area_h_mm;
@@ -230,7 +226,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
-		if ( is_string( $font_path ) && '' !== $font_path && self::append_eps_ttf_text_outline( $lines, $text, $align, $anchor_x, $baseline_y, $font_size, $font_path ) ) {
+		if ( is_string( $font_path ) && '' !== $font_path && self::append_eps_ttf_text_outline( $lines, $text, $align, $anchor_x, $baseline_y, $font_size, $font_path, $centered ? $y_pt : null, $centered ? $h_pt : null ) ) {
 			$lines[] = 'grestore';
 			return;
 		}
@@ -276,13 +272,21 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Append font-independent text outlines from a TrueType font file. */
-	private static function append_eps_ttf_text_outline( array &$lines, string $text, string $align, float $anchor_x, float $baseline_pt, float $font_size, string $font_path ): bool {
+	private static function append_eps_ttf_text_outline( array &$lines, string $text, string $align, float $anchor_x, float $baseline_pt, float $font_size, string $font_path, ?float $box_y_pt = null, ?float $box_h_pt = null ): bool {
 		$outline = self::ttf_text_outline( $font_path, $text, $font_size );
 		if ( ! is_array( $outline ) || empty( $outline['commands'] ) ) {
 			return false;
 		}
 
 		$width    = (float) ( $outline['width'] ?? 0.0 );
+		$origin_y = $baseline_pt;
+		$bbox     = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : null;
+		if ( null !== $box_y_pt && null !== $box_h_pt && $bbox ) {
+			$glyph_h = (float) $bbox[3] - (float) $bbox[1];
+			if ( $glyph_h > 0.0 ) {
+				$origin_y = $box_y_pt + ( $box_h_pt - $glyph_h ) / 2 - (float) $bbox[1];
+			}
+		}
 		$origin_x = match ( $align ) {
 			'right' => $anchor_x - $width,
 			'left'  => $anchor_x,
@@ -293,7 +297,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = '%%OCTextFontFile: ' . self::eps_comment( basename( $font_path ) );
 		$lines[] = sprintf( '%%OCTextAdvance: %.4F', $width );
 		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F translate', $origin_x, $baseline_pt );
+		$lines[] = sprintf( '%.4F %.4F translate', $origin_x, $origin_y );
 		$lines[] = 'newpath';
 		array_push( $lines, ...$outline['commands'] );
 		$lines[] = 'fill';
@@ -312,6 +316,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$scale     = $font_size / (float) $font['units_per_em'];
 		$x_offset  = 0.0;
 		$commands  = [];
+		$bbox      = null;
 		$codepoints = self::utf8_codepoints( $text );
 		if ( empty( $codepoints ) ) {
 			return null;
@@ -321,6 +326,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$gid      = self::ttf_glyph_id( $font, $codepoint );
 			$contours = self::ttf_glyph_contours( $font, $gid );
 			foreach ( $contours as $contour ) {
+				foreach ( $contour as $point ) {
+					[ $px, $py ] = self::ttf_point_to_eps( $point, $x_offset, $scale );
+					$bbox = self::merge_bounds( $bbox, [ $px, $py, $px, $py ] );
+				}
 				self::append_ttf_contour_eps_commands( $commands, $contour, $x_offset, $scale );
 			}
 
@@ -330,6 +339,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return [
 			'width'    => $x_offset,
 			'commands' => $commands,
+			'bbox'     => $bbox,
 		];
 	}
 
@@ -2146,19 +2156,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function normalise_rotation( float $rotation ): float {
 		$rotation = fmod( $rotation, 360.0 );
 		return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
-	}
-
-	private static function rotated_layer_center( float $x, float $y, array $bounds, float $rotation ): array {
-		$cx  = (float) ( $bounds['x'] ?? 0 ) + (float) ( $bounds['w'] ?? 0 ) / 2;
-		$cy  = (float) ( $bounds['y'] ?? 0 ) + (float) ( $bounds['h'] ?? 0 ) / 2;
-		$rad = deg2rad( $rotation );
-		$dx  = $x - $cx;
-		$dy  = $y - $cy;
-
-		return [
-			$cx + $dx * cos( $rad ) - $dy * sin( $rad ),
-			$cy + $dx * sin( $rad ) + $dy * cos( $rad ),
-		];
 	}
 
 	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {
