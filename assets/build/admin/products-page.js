@@ -809,7 +809,7 @@
       markDirty();
     });
     ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs('oc-layer'));
+      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
     });
     document.getElementById('oc-set-default-text')?.addEventListener('input', e => {
       s.default_text = e.target.value;
@@ -1474,12 +1474,12 @@
     });
     ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => {
-        syncBoundsFromInputs('oc-prop');
+        syncBoundsFromInputs(id);
         markDirty();
       });
     });
     ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs('oc-layer'));
+      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
     });
 
     // Mockup
@@ -1865,21 +1865,21 @@
     if (drag) snapshot(); // snapshot after every move/resize
     drag = null;
   }
-  function syncBoundsFromInputs(prefix = '') {
+  function syncBoundsFromInputs(changedId = '') {
     const area = areas[selectedIndex];
     if (!area) return;
-    const layer = prefix === 'oc-layer' && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const layer = changedId.startsWith('oc-layer-') && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
     const entity = layer || area;
     const inputPrefix = layer ? 'oc-layer' : 'oc-prop';
     const readInt = (id, fallback) => {
       const value = parseInt(document.getElementById(id)?.value || fallback, 10);
       return Number.isFinite(value) ? value : fallback;
     };
-    entity.x = readInt(inputPrefix + '-x', entity.x || 0);
-    entity.y = readInt(inputPrefix + '-y', entity.y || 0);
-    entity.w = Math.max(1, readInt(inputPrefix + '-w', entity.w || 1));
-    entity.h = Math.max(1, readInt(inputPrefix + '-h', entity.h || 1));
-    if (!layer) entity.rotation = normaliseRotation(readInt('oc-prop-rotation', entity.rotation || 0));
+    if (changedId === inputPrefix + '-x') entity.x = readInt(changedId, entity.x || 0);
+    if (changedId === inputPrefix + '-y') entity.y = readInt(changedId, entity.y || 0);
+    if (changedId === inputPrefix + '-w') entity.w = Math.max(1, readInt(changedId, entity.w || 1));
+    if (changedId === inputPrefix + '-h') entity.h = Math.max(1, readInt(changedId, entity.h || 1));
+    if (!layer && changedId === 'oc-prop-rotation') entity.rotation = normaliseRotation(readInt(changedId, entity.rotation || 0));
     if (layer) clampLayerToArea(layer, area);
     updateBoundsBox();
     renderGhosts();
