@@ -413,7 +413,7 @@
 
 	.oc-clipart-carousel {
 		display: grid;
-		grid-template-columns: var(--oc-tap) minmax(0, 1fr) var(--oc-tap);
+		grid-template-columns: 32px minmax(0, 1fr) 32px;
 		grid-template-areas:
 			"prev track next"
 			"dots dots dots";
@@ -441,26 +441,31 @@
 	}
 
 	.oc-clipart-carousel-arrow {
-		width: var(--oc-tap);
-		height: var(--oc-tap);
+		width: 32px;
+		height: 32px;
 		border: 1px solid var(--oc-border-strong);
 		border-radius: 999px;
-		background: var(--oc-accent-ink, #fff);
-		color: inherit;
+		background: color-mix(in srgb, var(--oc-accent-ink, #fff) 90%, transparent);
+		color: var(--oc-fg-muted);
 		font: inherit;
-		font-size: 1.6em;
+		font-size: 1.05em;
+		font-weight: 700;
 		line-height: 1;
 		cursor: pointer;
-		transition: border-color .15s ease, opacity .15s ease, transform .1s ease;
+		box-shadow: var(--oc-shadow-sm);
+		transition: border-color .15s ease, color .15s ease, opacity .15s ease, transform .1s ease, box-shadow .15s ease;
 
 		&:hover:not(:disabled) {
 			border-color: var(--oc-accent);
+			color: var(--oc-accent);
 			transform: translateY(-1px);
+			box-shadow: 0 3px 10px rgb(0 0 0 / 0.08);
 		}
 
 		&:disabled {
-			opacity: .35;
+			opacity: .28;
 			cursor: default;
+			box-shadow: none;
 		}
 	}
 
@@ -471,20 +476,22 @@
 		grid-area: dots;
 		display: flex;
 		justify-content: center;
-		gap: 7px;
-		min-height: 14px;
+		gap: 5px;
+		min-height: 8px;
 	}
 
 	.oc-clipart-carousel-dot {
-		width: 7px;
-		height: 7px;
+		width: 6px;
+		height: 6px;
 		padding: 0;
 		border: 0;
 		border-radius: 999px;
-		background: var(--oc-border-strong);
+		background: color-mix(in srgb, currentColor 26%, transparent);
 		cursor: pointer;
+		transition: width .15s ease, background .15s ease;
 
 		&.oc-active {
+			width: 14px;
 			background: var(--oc-accent);
 		}
 	}

@@ -285,10 +285,6 @@ abstract class OC_Print_Base {
 
 	/** Ensure TCPDF is available via Composer autoloader and cache dir is writable. */
 	protected static function require_tcpdf(): void {
-		if ( class_exists( '\\TCPDF' ) ) {
-			return;
-		}
-
 		$autoloader = OC_PATH . 'vendor/autoload.php';
 		if ( ! file_exists( $autoloader ) ) {
 			throw new \RuntimeException( sprintf( 'TCPDF not available — Composer autoload file missing at %s. Run `composer install` in that plugin directory.', $autoloader ) );
@@ -307,10 +303,12 @@ abstract class OC_Print_Base {
 		}
 
 		if ( ! file_exists( K_PATH_FONTS . '/core/helvetica.json' ) ) {
-			throw new \RuntimeException( 'TCPDF font assets are missing. Run `composer run tcpdf:fonts` in the plugin directory.' );
+			throw new \RuntimeException( sprintf( 'TCPDF font assets are missing at %s. Run `composer run tcpdf:fonts` in the plugin directory and deploy the generated vendor/tecnickcom/tc-lib-pdf-font/target/fonts directory.', K_PATH_FONTS . '/core/helvetica.json' ) );
 		}
 
-		require_once $autoloader;
+		if ( ! class_exists( '\\TCPDF' ) ) {
+			require_once $autoloader;
+		}
 
 		if ( ! class_exists( '\\TCPDF' ) ) {
 			throw new \RuntimeException( sprintf( 'TCPDF not available — Composer autoload loaded from %s but TCPDF class was not registered.', $autoloader ) );
