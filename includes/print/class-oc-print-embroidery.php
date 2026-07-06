@@ -61,12 +61,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'gsave',
 		];
 
-		if ( self::append_eps_snapshot( $lines, $area, $area_data, $w_pt, $h_pt ) ) {
-			$lines[] = '%%OCSnapshotUsed: yes';
-		} elseif ( self::has_layer_payload( $area_data ) ) {
+		if ( self::has_layer_payload( $area_data ) ) {
 			$lines[] = '%%OCSnapshotUsed: no';
 			$lines[] = '%%OCSnapshotFallback: layer-payload';
 			self::append_eps_layers( $lines, $area, $area_data );
+		} elseif ( self::append_eps_snapshot( $lines, $area, $area_data, $w_pt, $h_pt ) ) {
+			$lines[] = '%%OCSnapshotUsed: yes';
 		} else {
 			$lines[] = '%%OCSnapshotUsed: no';
 			$lines[] = '%%OCSnapshotFallback: legacy-artwork';

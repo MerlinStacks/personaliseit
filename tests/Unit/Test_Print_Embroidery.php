@@ -8,6 +8,18 @@
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+if ( ! class_exists( 'WC_Order' ) ) {
+	class WC_Order {
+		public function get_id(): int {
+			return 1001;
+		}
+
+		public function get_order_number(): string {
+			return '1001';
+		}
+	}
+}
+
 class Test_Print_Embroidery extends TestCase {
 
 	#[Test]
@@ -182,6 +194,54 @@ class Test_Print_Embroidery extends TestCase {
 		$this->assertStringContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
 		$this->assertStringContainsString( 'setrgbcolor', $output );
 		$this->assertStringContainsString( 'fill', $output );
+	}
+
+	#[Test]
+	public function embroidery_generation_prefers_layer_payload_over_stored_snapshot(): void {
+		$output_dir = sys_get_temp_dir() . '/oc-embroidery-test-' . uniqid();
+		mkdir( $output_dir );
+
+		$area = (object) [
+			'id'          => 12,
+			'area_key'    => 'front',
+			'label'       => 'Front',
+			'canvas_unit' => 'px',
+			'canvas_x'    => 0,
+			'canvas_y'    => 0,
+			'canvas_w'    => 100,
+			'canvas_h'    => 100,
+		];
+		$data = [
+			'text'     => '',
+			'color'    => '#000000',
+			'bounds'   => [ 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 100, 'rotation' => 0 ],
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="#ff0000"/></svg>',
+			],
+			'layers'   => [
+				[
+					'type'     => 'text',
+					'x'        => 10,
+					'y'        => 10,
+					'w'        => 80,
+					'h'        => 30,
+					'input'    => [ 'value' => 'Layer Text', 'colorHex' => '#000000' ],
+					'settings' => [],
+				],
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'generate_eps' );
+		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 22, $area, $data ] );
+		$output = file_get_contents( $path );
+
+		$this->assertStringContainsString( '%%OCSnapshotFallback: layer-payload', $output );
+		$this->assertStringNotContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
+		$this->assertStringContainsString( 'Layer Text', $output );
+
+		@unlink( $path );
+		@rmdir( $output_dir );
 	}
 
 	#[Test]
