@@ -61,7 +61,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'gsave',
 		];
 
-		if ( self::has_layer_payload( $area_data ) ) {
+		if ( self::append_eps_snapshot( $lines, $area, $area_data, $w_pt, $h_pt ) ) {
+			$lines[] = '%%OCSnapshotUsed: yes';
+		} elseif ( self::has_layer_payload( $area_data ) ) {
 			self::append_eps_layers( $lines, $area, $area_data );
 		} else {
 			self::append_eps_legacy_artwork( $lines, $area, $area_data );
@@ -77,6 +79,67 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $output_path;
+	}
+
+	/** Append a stored order-time SVG snapshot when it only uses elements this EPS exporter supports. */
+	private static function append_eps_snapshot( array &$lines, object $area, array $area_data, float $w_pt, float $h_pt ): bool {
+		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
+		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( $snapshot['svg'] ) : '';
+		if ( '' === $svg ) {
+			return false;
+		}
+
+		if ( ! self::snapshot_svg_supported( $svg ) ) {
+			return false;
+		}
+
+		$temp = self::temp_svg_path( 'oc-eps-area-snapshot-' . wp_generate_uuid4() );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return false;
+		}
+
+		if ( false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		$before = count( $lines );
+		$lines[] = '%%OCSnapshotFormat: ' . self::eps_comment( (string) ( $snapshot['format'] ?? 'fabric-svg-v1' ) );
+		$ok = self::append_eps_svg_vector( $lines, $temp, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
+		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+		if ( ! $ok ) {
+			array_splice( $lines, $before );
+		}
+
+		return $ok;
+	}
+
+	/** The built-in SVG parser is vector-only; unsupported snapshot nodes fall back to legacy layer EPS. */
+	private static function snapshot_svg_supported( string $svg ): bool {
+		$dom      = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $dom->loadXML( $svg, LIBXML_NONET | LIBXML_NOCDATA );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return false;
+		}
+
+		$unsupported = [ 'text', 'image', 'foreignobject', 'script' ];
+		foreach ( $unsupported as $tag ) {
+			if ( $dom->getElementsByTagName( $tag )->length > 0 ) {
+				return false;
+			}
+		}
+
+		foreach ( [ 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use' ] as $tag ) {
+			if ( $dom->getElementsByTagName( $tag )->length > 0 ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** Append all v2 customiser layers to the EPS output. */
@@ -279,128 +342,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$value = is_string( $value ) && '' !== $value ? $value : 'Helvetica';
 
 		return preg_replace( '/[^A-Za-z0-9_.-]/', '', $value ) ?: 'Helvetica';
-	}
-
-	/** Render selected-font text as artwork so the EPS visually matches the live preview. */
-	private static function append_eps_raster_text( array &$lines, string $text, string $hex, int $font_id, array $settings, float $x_pt, float $y_pt, float $w_pt, float $h_pt, float $font_size_pt ): bool {
-		if ( ! function_exists( 'imagettftext' ) || ! function_exists( 'imagecreatetruecolor' ) ) {
-			return false;
-		}
-
-		$font = self::get_font( $font_id );
-		if ( ! $font ) {
-			return false;
-		}
-
-		$font_path = self::get_font_path( $font );
-		if ( ! $font_path || ! file_exists( $font_path ) ) {
-			return false;
-		}
-
-		$font_size_px = max( 1, $font_size_pt / 72 * 300 );
-		$line_height  = $font_size_px * 1.18;
-		$text_lines   = preg_split( '/\R/', $text ) ?: [ $text ];
-		$text_width   = 1.0;
-		foreach ( $text_lines as $line ) {
-			$box = imagettfbbox( $font_size_px, 0, $font_path, (string) $line );
-			if ( is_array( $box ) ) {
-				$text_width = max( $text_width, abs( (float) $box[2] - (float) $box[0] ) );
-			}
-		}
-
-		$base_w  = max( 1, (int) round( $w_pt / 72 * 300 ) );
-		$base_h  = max( 1, (int) round( $h_pt / 72 * 300 ) );
-		$padding = max( 8, (int) ceil( $font_size_px * 0.4 ) );
-		$img_w   = max( $base_w, min( 2400, (int) ceil( $text_width + $padding * 2 ) ) );
-		$img_h   = max( $base_h, min( 1600, (int) ceil( count( $text_lines ) * $line_height + $padding * 2 ) ) );
-		$image = imagecreatetruecolor( $img_w, $img_h );
-		imagealphablending( $image, false );
-		imagesavealpha( $image, true );
-		$clear = imagecolorallocatealpha( $image, 255, 255, 255, 127 );
-		imagefilledrectangle( $image, 0, 0, $img_w, $img_h, $clear );
-		imagealphablending( $image, true );
-
-		[ $r, $g, $b ] = self::hex_to_rgb( self::normalise_hex( $hex ) );
-		$colour        = imagecolorallocate( $image, $r, $g, $b );
-		$total_height  = count( $text_lines ) * $line_height;
-		$baseline_y    = ( $img_h - $total_height ) / 2 + $font_size_px;
-		$align         = (string) ( $settings['alignment'] ?? 'center' );
-
-		foreach ( $text_lines as $index => $line ) {
-			$line = (string) $line;
-			$box  = imagettfbbox( $font_size_px, 0, $font_path, $line );
-			if ( ! is_array( $box ) ) {
-				imagedestroy( $image );
-				return false;
-			}
-
-			$text_w = abs( (float) $box[2] - (float) $box[0] );
-			$x      = match ( $align ) {
-				'left'  => (float) $padding,
-				'right' => max( 0.0, $img_w - $text_w - $padding ),
-				default => max( 0.0, ( $img_w - $text_w ) / 2 ),
-			};
-			$y      = $baseline_y + $index * $line_height;
-			imagettftext( $image, $font_size_px, 0, (int) round( $x ), (int) round( $y ), $colour, $font_path, $line );
-		}
-
-		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
-		$lines[] = '%%OCTextFont: ' . self::eps_comment( (string) ( $font->name ?? '' ) );
-		$draw_w_pt = $img_w / 300 * 72;
-		$draw_h_pt = $img_h / 300 * 72;
-		$draw_x_pt = match ( $align ) {
-			'left'  => $x_pt,
-			'right' => $x_pt + $w_pt - $draw_w_pt,
-			default => $x_pt - ( $draw_w_pt - $w_pt ) / 2,
-		};
-		$draw_y_pt = $y_pt - ( $draw_h_pt - $h_pt ) / 2;
-		self::append_eps_mask_image( $lines, $image, $hex, $draw_x_pt, $draw_y_pt, $draw_w_pt, $draw_h_pt );
-		imagedestroy( $image );
-
-		return true;
-	}
-
-	/** Append a single-colour image mask, preserving transparent text backgrounds in EPS. */
-	private static function append_eps_mask_image( array &$lines, $image, string $hex, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
-		$src_w = imagesx( $image );
-		$src_h = imagesy( $image );
-		if ( $src_w < 1 || $src_h < 1 ) {
-			return;
-		}
-
-		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
-		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
-		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
-		$lines[] = sprintf( '%.4F %.4F scale', $w_pt, $h_pt );
-		$lines[] = '/picstr ' . (int) ceil( $src_w / 8 ) . ' string def';
-		$lines[] = sprintf( '%d %d true [%d 0 0 -%d 0 %d]', $src_w, $src_h, $src_w, $src_h, $src_h );
-		$lines[] = '{ currentfile picstr readhexstring pop } imagemask';
-
-		for ( $y = 0; $y < $src_h; $y++ ) {
-			$row = '';
-			$byte = 0;
-			$bit  = 7;
-			for ( $x = 0; $x < $src_w; $x++ ) {
-				$rgba  = imagecolorat( $image, $x, $y );
-				$alpha = ( $rgba & 0x7F000000 ) >> 24;
-				if ( $alpha < 96 ) {
-					$byte |= 1 << $bit;
-				}
-				$bit--;
-				if ( $bit < 0 ) {
-					$row .= sprintf( '%02X', $byte );
-					$byte = 0;
-					$bit  = 7;
-				}
-			}
-			if ( $bit < 7 ) {
-				$row .= sprintf( '%02X', $byte );
-			}
-			$lines[] = $row;
-		}
-
-		$lines[] = 'grestore';
 	}
 
 	/** Append a filled vector rectangle for simple line-art colour blocks. */
@@ -1462,11 +1403,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			gmdate( 'YmdHis' ) . '-' . substr( wp_generate_uuid4(), 0, 8 ),
 			$extension
 		);
-	}
-
-	private static function eps_y( float $y_mm, float $h_mm, object $area ): float {
-		[ , $area_h_mm ] = self::area_dimensions_mm( $area );
-		return self::mm_to_pt( max( 0.0, $area_h_mm - $y_mm - $h_mm ) );
 	}
 
 	private static function hex_to_unit_rgb( string $hex ): array {

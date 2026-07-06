@@ -96,7 +96,7 @@ class OC_Cart {
 		}
 
 		// Hard cap on payload size to prevent memory abuse via oversized JSON.
-		if ( strlen( $raw ) > 256 * 1024 ) {
+		if ( strlen( $raw ) > 1024 * 1024 ) {
 			return $cart_item_data;
 		}
 
@@ -211,11 +211,13 @@ class OC_Cart {
 
 			if ( empty( $sanitised_layers ) ) return $cart_item_data;
 
+			$snapshots = $this->sanitise_area_snapshots( is_array( $decoded['snapshots'] ?? null ) ? $decoded['snapshots'] : [] );
+
 			$cart_item_data['_oc_customisation'] = [
 				'v'          => 2,
 				'designId'   => $design_id,
 				'layers'     => $sanitised_layers,
-				'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
+				'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers, $snapshots ),
 			];
 			if ( is_string( $decoded['designVariant'] ?? null ) && '' !== $decoded['designVariant'] ) {
 				$cart_item_data['_oc_customisation']['designVariant'] = sanitize_key( $decoded['designVariant'] );
@@ -295,6 +297,40 @@ class OC_Cart {
 		}
 
 		return $sanitised_url;
+	}
+
+	/** Sanitise browser-captured per-area SVG snapshots before storing in cart/order meta. */
+	private function sanitise_area_snapshots( array $snapshots ): array {
+		$clean = [];
+		foreach ( $snapshots as $area_key => $snapshot ) {
+			if ( ! is_array( $snapshot ) || ! is_string( $snapshot['svg'] ?? null ) ) {
+				continue;
+			}
+
+			$key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
+			if ( '' === $key || strlen( $snapshot['svg'] ) > 512 * 1024 ) {
+				continue;
+			}
+
+			try {
+				$svg = OC_SVG_Sanitiser::sanitise( $snapshot['svg'] );
+			} catch ( \InvalidArgumentException $e ) {
+				continue;
+			}
+
+			if ( '' === $svg ) {
+				continue;
+			}
+
+			$clean[ $key ] = [
+				'format' => sanitize_key( is_string( $snapshot['format'] ?? null ) ? $snapshot['format'] : 'fabric-svg-v1' ),
+				'unit'   => sanitize_key( is_string( $snapshot['unit'] ?? null ) ? $snapshot['unit'] : 'mockup_px' ),
+				'scale'  => isset( $snapshot['scale'] ) ? (float) $snapshot['scale'] : 1.0,
+				'svg'    => $svg,
+			];
+		}
+
+		return $clean;
 	}
 
 	// -------------------------------------------------------------------------

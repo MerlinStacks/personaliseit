@@ -2164,6 +2164,7 @@ class OCCustomiser {
 						if ( inp ) layers[ layer.id ] = { type: layer.type, ...inp };
 					} );
 				} );
+				const snapshots = this.captureAreaSnapshots();
 
 				try {
 					const res = await fetch( this.data.updateCartItemUrl, {
@@ -2173,6 +2174,7 @@ class OCCustomiser {
 							cart_key:   this.cartKey,
 							designId:   this.data.designId,
 							layers,
+							snapshots,
 							previewUrl: this._previewUrl || '',
 						} ),
 					} );
@@ -2235,6 +2237,7 @@ class OCCustomiser {
 			}
 
 			await this.uploadPreview();
+			this.updateHiddenField( true );
 			form._ocSubmitReady = true;
 			// requestSubmit() re-triggers HTML5 validation before submitting.
 			if ( form.requestSubmit ) {
@@ -2645,7 +2648,54 @@ class OCCustomiser {
 
 	// ── Cart serialisation ────────────────────────────────────────────────────────
 
-	updateHiddenField() {
+	captureAreaSnapshots() {
+		const snapshots = {};
+		this.areas.forEach( ( area, areaIndex ) => {
+			const canvas = this.canvases[ areaIndex ];
+			const bounds = area?.bounds || {};
+			const scale  = canvas?._ocScaleX || 1;
+			if ( ! canvas || ! bounds.w || ! bounds.h || typeof canvas.toSVG !== 'function' ) {
+				return;
+			}
+
+			const objects = canvas.getObjects ? canvas.getObjects() : [];
+			const previousExportFlags = objects.map( ( obj ) => [ obj, obj.excludeFromExport ] );
+			objects.forEach( ( obj ) => {
+				obj.excludeFromExport = obj._ocContent !== true;
+			} );
+
+			try {
+				const svg = canvas.toSVG( {
+					width: Math.max( 1, Math.round( Number( bounds.w ) * scale ) ),
+					height: Math.max( 1, Math.round( Number( bounds.h ) * scale ) ),
+					viewBox: {
+						x: Number( bounds.x || 0 ) * scale,
+						y: Number( bounds.y || 0 ) * scale,
+						width: Math.max( 1, Number( bounds.w ) * scale ),
+						height: Math.max( 1, Number( bounds.h ) * scale ),
+					},
+				} );
+				if ( svg && svg.includes( '<svg' ) ) {
+					snapshots[ area.id || area.areaId || areaIndex ] = {
+						format: 'fabric-svg-v1',
+						unit: 'mockup_px',
+						scale,
+						svg,
+					};
+				}
+			} catch {
+				// Snapshot export is best-effort; PHP generation keeps the layer fallback.
+			} finally {
+				previousExportFlags.forEach( ( [ obj, flag ] ) => {
+					obj.excludeFromExport = flag;
+				} );
+			}
+		} );
+
+		return snapshots;
+	}
+
+	updateHiddenField( includeSnapshots = false ) {
 		const el = document.getElementById( 'oc-customisation-data' );
 		if ( ! el ) return;
 		const layers = {};
@@ -2663,6 +2713,10 @@ class OCCustomiser {
 			const variant = this.designVariants.find( item => item.id === this.selectedDesignVariant );
 			payload.designVariant = this.selectedDesignVariant;
 			if ( variant?.label ) payload.designVariantLabel = variant.label;
+		}
+		if ( includeSnapshots ) {
+			const snapshots = this.captureAreaSnapshots();
+			if ( Object.keys( snapshots ).length ) payload.snapshots = snapshots;
 		}
 		if ( this._previewUrl ) payload.previewUrl = this._previewUrl;
 		el.value = JSON.stringify( payload );

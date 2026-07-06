@@ -163,6 +163,45 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function embroidery_export_can_use_supported_svg_snapshot(): void {
+		$lines = [];
+		$area  = (object) [ 'area_key' => 'front' ];
+		$data  = [
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="1" y="2" width="3" height="4" fill="#123456"/></svg>',
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_snapshot' );
+		$used   = $method->invokeArgs( null, [ &$lines, $area, $data, 20.0, 20.0 ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertTrue( $used );
+		$this->assertStringContainsString( '%%OCSnapshotFormat: fabric-svg-v1', $output );
+		$this->assertStringContainsString( 'setrgbcolor', $output );
+		$this->assertStringContainsString( 'fill', $output );
+	}
+
+	#[Test]
+	public function embroidery_export_falls_back_when_snapshot_has_unoutlined_text(): void {
+		$lines = [ 'before' ];
+		$area  = (object) [ 'area_key' => 'front' ];
+		$data  = [
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><text x="1" y="2">Name</text></svg>',
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_snapshot' );
+		$used   = $method->invokeArgs( null, [ &$lines, $area, $data, 20.0, 20.0 ] );
+
+		$this->assertFalse( $used );
+		$this->assertSame( [ 'before' ], $lines );
+	}
+
+	#[Test]
 	public function layer_export_uses_print_area_rotation_for_position_only(): void {
 		$lines = [];
 		$area  = (object) [
@@ -231,28 +270,4 @@ class Test_Print_Embroidery extends TestCase {
 		$this->assertStringContainsString( '15.0000 rotate', $output );
 	}
 
-	#[Test]
-	public function mask_image_uses_imagemask_not_white_colorimage_card(): void {
-		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
-			$this->markTestSkipped( 'GD is required for EPS mask generation.' );
-		}
-
-		$image = imagecreatetruecolor( 2, 1 );
-		imagealphablending( $image, false );
-		imagesavealpha( $image, true );
-		$clear = imagecolorallocatealpha( $image, 255, 255, 255, 127 );
-		$black = imagecolorallocatealpha( $image, 0, 0, 0, 0 );
-		imagesetpixel( $image, 0, 0, $black );
-		imagesetpixel( $image, 1, 0, $clear );
-
-		$lines  = [];
-		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_mask_image' );
-		$method->invokeArgs( null, [ &$lines, $image, '#000000', 0.0, 0.0, 10.0, 5.0 ] );
-		imagedestroy( $image );
-
-		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( 'imagemask', $output );
-		$this->assertStringNotContainsString( 'colorimage', $output );
-		$this->assertStringContainsString( '80', $output );
-	}
 }

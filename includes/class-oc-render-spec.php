@@ -15,7 +15,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_Render_Spec {
 
 	/** Build a full render spec for a v2 design. */
-	public static function build( int $design_id, array $layer_inputs ): array {
+	public static function build( int $design_id, array $layer_inputs, array $snapshots = [] ): array {
 		$areas  = OC_DB::get_design_print_areas( $design_id );
 		$layers = OC_DB::get_design_layers( $design_id );
 
@@ -27,7 +27,7 @@ class OC_Render_Spec {
 		$spec_areas = [];
 		foreach ( $areas as $area ) {
 			$area_id = (int) $area->id;
-			$spec_areas[ $area_id ] = self::build_area( $area, $layers_by_area[ $area_id ] ?? [], $layer_inputs );
+			$spec_areas[ $area_id ] = self::build_area( $area, $layers_by_area[ $area_id ] ?? [], $layer_inputs, $snapshots );
 		}
 
 		return [
@@ -120,11 +120,12 @@ class OC_Render_Spec {
 			'artworkPath'         => $artwork_path,
 			'layers'              => $layers,
 			'bounds'              => is_array( $area['bounds'] ?? null ) ? $area['bounds'] : [],
+			'snapshot'            => is_array( $area['snapshot'] ?? null ) ? $area['snapshot'] : [],
 			'renderSpecArea'      => $area,
 		];
 	}
 
-	private static function build_area( object $area, array $layers, array $layer_inputs ): array {
+	private static function build_area( object $area, array $layers, array $layer_inputs, array $snapshots = [] ): array {
 		$spec_layers = [];
 		foreach ( $layers as $layer ) {
 			$layer_id = (int) $layer->id;
@@ -162,9 +163,13 @@ class OC_Render_Spec {
 			$spec_layers[] = $spec_layer;
 		}
 
-		return [
+		$area_id = (int) $area->id;
+		$area_key = (string) $area->area_key;
+		$snapshot = $snapshots[ $area_id ] ?? $snapshots[ (string) $area_id ] ?? $snapshots[ $area_key ] ?? null;
+
+		$spec_area = [
 			'id'          => (int) $area->id,
-			'areaKey'     => (string) $area->area_key,
+			'areaKey'     => $area_key,
 			'label'       => (string) $area->label,
 			'printMethod' => (string) $area->print_method,
 			'unit'        => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
@@ -177,6 +182,11 @@ class OC_Render_Spec {
 			],
 			'layers'      => $spec_layers,
 		];
+		if ( is_array( $snapshot ) && ! empty( $snapshot['svg'] ) ) {
+			$spec_area['snapshot'] = $snapshot;
+		}
+
+		return $spec_area;
 	}
 
 	private static function resolve_clipart_path( int $clipart_id, string $clipart_url ): string {

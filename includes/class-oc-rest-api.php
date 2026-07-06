@@ -867,11 +867,13 @@ class OC_Rest_API {
 
 		$old_preview = (string) ( $cart_item['_oc_preview_url'] ?? '' );
 
+		$snapshots = $this->sanitise_area_snapshots( is_array( $body['snapshots'] ?? null ) ? $body['snapshots'] : [] );
+
 		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [
 			'v'          => 2,
 			'designId'   => $design_id,
 			'layers'     => $sanitised_layers,
-			'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
+			'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers, $snapshots ),
 		];
 		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
 		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
@@ -923,5 +925,39 @@ class OC_Rest_API {
 		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
 
 		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
+	}
+
+	/** Sanitise browser-captured per-area SVG snapshots before storing in cart meta. */
+	private function sanitise_area_snapshots( array $snapshots ): array {
+		$clean = [];
+		foreach ( $snapshots as $area_key => $snapshot ) {
+			if ( ! is_array( $snapshot ) || ! is_string( $snapshot['svg'] ?? null ) ) {
+				continue;
+			}
+
+			$key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
+			if ( '' === $key || strlen( $snapshot['svg'] ) > 512 * 1024 ) {
+				continue;
+			}
+
+			try {
+				$svg = OC_SVG_Sanitiser::sanitise( $snapshot['svg'] );
+			} catch ( \InvalidArgumentException $e ) {
+				continue;
+			}
+
+			if ( '' === $svg ) {
+				continue;
+			}
+
+			$clean[ $key ] = [
+				'format' => sanitize_key( is_string( $snapshot['format'] ?? null ) ? $snapshot['format'] : 'fabric-svg-v1' ),
+				'unit'   => sanitize_key( is_string( $snapshot['unit'] ?? null ) ? $snapshot['unit'] : 'mockup_px' ),
+				'scale'  => isset( $snapshot['scale'] ) ? (float) $snapshot['scale'] : 1.0,
+				'svg'    => $svg,
+			];
+		}
+
+		return $clean;
 	}
 }

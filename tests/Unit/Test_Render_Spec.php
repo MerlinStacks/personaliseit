@@ -50,6 +50,12 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 					'artworkAttachmentId' => 88,
 				],
 			],
+			'snapshot'    => [
+				'format' => 'fabric-svg-v1',
+				'unit'   => 'mockup_px',
+				'scale'  => 1.5,
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0L1 1"/></svg>',
+			],
 		];
 
 		$data = OC_Render_Spec::area_to_print_data( $area );
@@ -63,6 +69,7 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( 80, $data['layers'][0]['x'] );
 		$this->assertSame( 160, $data['layers'][0]['w'] );
 		$this->assertSame( [ 'x' => 50, 'y' => 60, 'w' => 300, 'h' => 120, 'rotation' => 0 ], $data['bounds'] );
+		$this->assertSame( 'fabric-svg-v1', $data['snapshot']['format'] );
 		$this->assertSame( $area, $data['renderSpecArea'] );
 	}
 
