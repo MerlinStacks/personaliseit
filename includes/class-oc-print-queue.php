@@ -107,10 +107,7 @@ class OC_Print_Queue {
 			}
 
 			if ( $is_v2_area ) {
-				$customisation = $target_item->get_meta( '_oc_customisation', true );
-				if ( is_array( $customisation ) && isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
-					$area_data = OC_Print_Generator::build_v2_area_data( (int) $area->design_id, (int) $area->id, $customisation );
-				}
+				$area = OC_Print_Generator::area_object_for_generation( $area, $area_data );
 			}
 
 			$print_file = $wpdb->get_row( $wpdb->prepare(

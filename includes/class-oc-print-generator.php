@@ -89,6 +89,7 @@ class OC_Print_Generator {
 
 		if ( $is_v2_area ) {
 			$area_data = self::build_v2_area_data( (int) $area->design_id, (int) $area->id, $customisation );
+			$area      = self::area_object_for_generation( $area, $area_data );
 		} else {
 			$area_data = $customisation[ $area->area_key ] ?? null;
 		}
@@ -191,6 +192,7 @@ class OC_Print_Generator {
 							foreach ( $rows as $row ) {
 								foreach ( $areas as $area ) {
 									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
+									$area      = self::area_object_for_generation( $area, $area_data );
 
 									// Merge VDP field values into text layers.
 									$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
@@ -213,6 +215,7 @@ class OC_Print_Generator {
 									$merged_customisation['layers'] = $layer_inputs;
 									$merged_customisation['renderSpec'] = OC_Render_Spec::build( $design_id, $layer_inputs );
 									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $merged_customisation );
+									$area      = self::area_object_for_generation( $area, $area_data );
 
 									if ( ! self::area_has_printable_data( $area_data ) ) {
 										$order->add_order_note( sprintf( __( 'OverCustomise skipped print area "%s": no printable customer data was found.', 'overcustomise' ), $area->label ?: $area->area_key ) );
@@ -250,6 +253,7 @@ class OC_Print_Generator {
 				$areas = OC_DB::get_design_print_areas( $design_id );
 				foreach ( $areas as $area ) {
 					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
+					$area      = self::area_object_for_generation( $area, $area_data );
 					if ( ! self::area_has_printable_data( $area_data ) ) {
 						$order->add_order_note( sprintf( __( 'OverCustomise skipped print area "%s": no printable customer data was found.', 'overcustomise' ), $area->label ?: $area->area_key ) );
 						continue;
@@ -386,6 +390,30 @@ class OC_Print_Generator {
 		$area_data    = OC_Render_Spec::area_from_spec( $render_spec, $area_id );
 
 		return ! empty( $area_data ) ? $area_data : [];
+	}
+
+	/** Use the order-time renderSpec area snapshot for generation, falling back to the current DB row. */
+	public static function area_object_for_generation( object $current_area, array $area_data ): object {
+		$snapshot = is_array( $area_data['renderSpecArea'] ?? null ) ? $area_data['renderSpecArea'] : [];
+		$bounds   = is_array( $snapshot['bounds'] ?? null ) ? $snapshot['bounds'] : [];
+
+		if ( empty( $snapshot ) || empty( $bounds ) ) {
+			return $current_area;
+		}
+
+		$area = clone $current_area;
+		$area->id              = (int) ( $snapshot['id'] ?? $current_area->id ?? 0 );
+		$area->area_key        = (string) ( $snapshot['areaKey'] ?? $current_area->area_key ?? '' );
+		$area->label           = (string) ( $snapshot['label'] ?? $current_area->label ?? '' );
+		$area->print_method    = (string) ( $snapshot['printMethod'] ?? $current_area->print_method ?? '' );
+		$area->canvas_unit     = (string) ( $snapshot['unit'] ?? $current_area->canvas_unit ?? 'px' );
+		$area->canvas_x        = (float) ( $bounds['x'] ?? $current_area->canvas_x ?? 0 );
+		$area->canvas_y        = (float) ( $bounds['y'] ?? $current_area->canvas_y ?? 0 );
+		$area->canvas_w        = (float) ( $bounds['w'] ?? $current_area->canvas_w ?? 1 );
+		$area->canvas_h        = (float) ( $bounds['h'] ?? $current_area->canvas_h ?? 1 );
+		$area->canvas_rotation = (float) ( $bounds['rotation'] ?? $current_area->canvas_rotation ?? 0 );
+
+		return $area;
 	}
 
 	private static function normalise_v2_layer_font_inputs( int $design_id, array $layer_inputs ): array {
