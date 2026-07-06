@@ -455,11 +455,18 @@
 .oc-customiser-panel .oc-clipart-carousel-dot {
   width: 5px;
   height: 5px;
+  min-width: 5px;
+  min-height: 5px;
+  max-width: 5px;
+  max-height: 5px;
+  flex: 0 0 5px;
   padding: 0;
   border: 0;
   border-radius: 999px;
   background: color-mix(in srgb, currentColor 26%, transparent);
   cursor: pointer;
+  appearance: none;
+  line-height: 0;
   transition: background 0.15s ease, transform 0.15s ease;
 }
 .oc-customiser-panel .oc-clipart-carousel-dot.oc-active {
@@ -480,7 +487,7 @@
 }
 .oc-customiser-panel .oc-clipart-item {
   appearance: none;
-  border: 1px solid var(--oc-border);
+  border: 0;
   border-radius: var(--oc-radius);
   background: var(--oc-accent-ink, #fff);
   padding: 6px;
@@ -497,18 +504,17 @@
   object-fit: contain;
 }
 .oc-customiser-panel .oc-clipart-item:hover {
-  border-color: var(--oc-border-strong);
+  background: var(--oc-surface);
   transform: translateY(-1px);
-  box-shadow: var(--oc-shadow-sm);
+  box-shadow: none;
 }
 .oc-customiser-panel .oc-clipart-item:focus-visible {
   outline: none;
-  border-color: var(--oc-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--oc-accent) 25%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oc-accent) 35%, transparent);
 }
 .oc-customiser-panel .oc-clipart-item.oc-active, .oc-customiser-panel .oc-clipart-item.oc-selected, .oc-customiser-panel .oc-clipart-item[aria-pressed=true] {
-  border-color: var(--oc-accent);
-  box-shadow: 0 0 0 2px var(--oc-accent) inset;
+  background: color-mix(in srgb, var(--oc-accent) 10%, var(--oc-accent-ink, #fff));
+  box-shadow: none;
 }
 .oc-customiser-panel .oc-clipart-empty {
   grid-column: 1/-1;

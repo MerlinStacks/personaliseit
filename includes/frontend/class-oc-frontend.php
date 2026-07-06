@@ -761,16 +761,16 @@ class OC_Frontend {
 		.oc-clipart-carousel-arrow--prev { grid-area:prev; }
 		.oc-clipart-carousel-arrow--next { grid-area:next; }
 		.oc-clipart-carousel-dots { grid-area:dots; display:flex; justify-content:center; gap:6px; min-height:6px; }
-		.oc-clipart-carousel-dot { width:5px; height:5px; padding:0; border:0; border-radius:50%; background:#bbb; cursor:pointer; transition:background .15s ease,transform .15s ease; }
+		.oc-clipart-carousel-dot { width:5px; height:5px; min-width:5px; min-height:5px; max-width:5px; max-height:5px; flex:0 0 5px; padding:0; border:0; border-radius:50%; background:#bbb; cursor:pointer; appearance:none; line-height:0; transition:background .15s ease,transform .15s ease; }
 		.oc-clipart-carousel-dot.oc-active { transform:scale(1.25); }
 		.oc-clipart-carousel-dot.oc-active { background:#0073aa; }
 		@media (max-width:639px) { .oc-clipart-grid--carousel .oc-clipart-item { flex-basis:calc((100% - 17.5px) / 4.5); } }
 		.oc-clipart-carousel--single-page .oc-clipart-carousel-arrow,
 		.oc-clipart-carousel--single-page .oc-clipart-carousel-dots { display:none; }
 		.oc-clipart-carousel--single-page .oc-clipart-grid--carousel { grid-column:1 / -1; }
-		.oc-clipart-item { border:2px solid transparent; border-radius:4px; padding:4px; cursor:pointer; background:#fff; transition:border-color .1s,background .1s; }
-		.oc-clipart-item:hover { border-color:#0073aa; background:#f0f8ff; }
-		.oc-clipart-item.oc-selected { border-color:#0073aa; background:#ddefff; }
+		.oc-clipart-item { border:0; border-radius:4px; padding:4px; cursor:pointer; background:#fff; transition:background .1s,transform .1s; }
+		.oc-clipart-item:hover { background:#f0f8ff; transform:translateY(-1px); }
+		.oc-clipart-item.oc-selected { background:#eef6ff; box-shadow:none; }
 		.oc-clipart-item img { width:100%; aspect-ratio:1; object-fit:contain; display:block; }
 		.oc-clipart-empty { font-size:13px; color:#888; text-align:center; padding:16px; }
 
