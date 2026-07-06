@@ -423,7 +423,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$temp_path = null;
 		$input     = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 		if ( 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
-			$y_pt -= $h_pt * 0.08;
+			$y_pt -= $h_pt * 0.11;
 		}
 		if ( 'clipart' === (string) ( $layer['type'] ?? '' ) && ! empty( $input['clipartRecolourable'] ) && 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
 			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );

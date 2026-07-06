@@ -146,7 +146,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $layer, -10.0, -10.0, 20.0, 20.0, 'contain' ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '-10.0000 8.4000 translate', $output );
+		$this->assertStringContainsString( '-10.0000 7.8000 translate', $output );
 
 		@unlink( $source_base );
 		@unlink( $source );
