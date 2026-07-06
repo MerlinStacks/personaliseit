@@ -59,12 +59,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'%%OCThreadColor: ' . strtoupper( self::normalise_hex( (string) ( $area_data['color'] ?? '#000000' ) ) ),
 			'%%EndComments',
 			'gsave',
-			'newpath',
-			'0 0 moveto',
-			sprintf( '%.4F 0 lineto', (float) $w_pt ),
-			sprintf( '%.4F %.4F lineto', (float) $w_pt, (float) $h_pt ),
-			sprintf( '0 %.4F lineto', (float) $h_pt ),
-			'closepath clip newpath',
 		];
 
 		if ( self::append_eps_snapshot( $lines, $area, $area_data, $w_pt, $h_pt ) ) {
@@ -79,6 +73,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			self::append_eps_legacy_artwork( $lines, $area, $area_data );
 		}
 
+		self::append_eps_page_overflow_mask( $lines, (float) $w_pt, (float) $h_pt );
+
 		$lines[] = 'grestore';
 		$lines[] = 'showpage';
 		$lines[] = '%%EOF';
@@ -89,6 +85,18 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $output_path;
+	}
+
+	/** Paint outside the EPS page bounds white so overflow remains hidden in tools that ignore PS clipping. */
+	private static function append_eps_page_overflow_mask( array &$lines, float $w_pt, float $h_pt ): void {
+		$pad = max( $w_pt, $h_pt ) * 4;
+		$lines[] = 'gsave';
+		$lines[] = '1 1 1 setrgbcolor';
+		$lines[] = sprintf( '%.4F %.4F %.4F %.4F rectfill', -$pad, -$pad, $pad, $h_pt + 2 * $pad );
+		$lines[] = sprintf( '%.4F %.4F %.4F %.4F rectfill', $w_pt, -$pad, $pad, $h_pt + 2 * $pad );
+		$lines[] = sprintf( '0 %.4F %.4F %.4F rectfill', -$pad, $w_pt, $pad );
+		$lines[] = sprintf( '0 %.4F %.4F %.4F rectfill', $h_pt, $w_pt, $pad );
+		$lines[] = 'grestore';
 	}
 
 	/** Append a stored order-time SVG snapshot when it only uses elements this EPS exporter supports. */

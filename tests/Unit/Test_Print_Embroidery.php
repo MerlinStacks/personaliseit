@@ -202,6 +202,18 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function embroidery_page_mask_hides_overflow_without_relying_on_clipping(): void {
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_page_overflow_mask' );
+		$method->invokeArgs( null, [ &$lines, 100.0, 50.0 ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '1 1 1 setrgbcolor', $output );
+		$this->assertStringContainsString( '-400.0000 -400.0000 400.0000 850.0000 rectfill', $output );
+		$this->assertStringNotContainsString( 'clip', $output );
+	}
+
+	#[Test]
 	public function layer_export_uses_print_area_rotation_for_position_only(): void {
 		$lines = [];
 		$area  = (object) [
