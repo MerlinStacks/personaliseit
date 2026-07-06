@@ -3,7 +3,7 @@
  * Plugin Name: OverCustomise
  * Plugin URI:  https://customkings.com.au
  * Description: WooCommerce product customiser — text, artwork and print file generation for Custom Kings.
- * Version:     1.0.0
+ * Version:     1.12.0
  * Requires at least: 6.8
  * Requires PHP: 8.0
  * Author:      Custom Kings
@@ -18,7 +18,7 @@
 defined( 'ABSPATH' ) || exit;
 
 // Plugin constants.
-define( 'OC_VERSION',     '1.0.0' );
+define( 'OC_VERSION',     '1.12.0' );
 define( 'OC_FILE',        __FILE__ );
 define( 'OC_PATH',        plugin_dir_path( __FILE__ ) );
 define( 'OC_URL',         plugin_dir_url( __FILE__ ) );
