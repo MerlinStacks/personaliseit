@@ -62,7 +62,7 @@ class Test_Print_Embroidery extends TestCase {
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '(Editable Text)', $output );
 		$this->assertStringContainsString( '0.0000 14.0000 translate', $output );
-		$this->assertStringContainsString( '96.0000 exch div 1 scale', $output );
+		$this->assertStringNotContainsString( ' exch div 1 scale', $output );
 		$this->assertStringContainsString( ' show', $output );
 		$this->assertStringNotContainsString( 'imagemask', $output );
 	}
@@ -208,39 +208,6 @@ class Test_Print_Embroidery extends TestCase {
 		$svg    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="url(#oc-embroidery-stitch)"/></svg>';
 
 		$this->assertFalse( $method->invoke( null, $svg ) );
-	}
-
-	#[Test]
-	public function embroidery_export_uses_png_snapshot_when_svg_has_pattern_paint(): void {
-		if ( ! function_exists( 'imagecreatetruecolor' ) || ! function_exists( 'imagepng' ) ) {
-			$this->markTestSkipped( 'GD PNG support is unavailable.' );
-		}
-
-		$image = imagecreatetruecolor( 2, 2 );
-		$red   = imagecolorallocate( $image, 255, 0, 0 );
-		imagefilledrectangle( $image, 0, 0, 1, 1, $red );
-		ob_start();
-		imagepng( $image );
-		$png = ob_get_clean();
-		imagedestroy( $image );
-
-		$lines = [];
-		$area  = (object) [ 'area_key' => 'front' ];
-		$data  = [
-			'snapshot' => [
-				'format' => 'fabric-svg-v1',
-				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="url(#oc-embroidery-stitch)"/></svg>',
-				'png'    => 'data:image/png;base64,' . base64_encode( (string) $png ),
-			],
-		];
-
-		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_snapshot' );
-		$used   = $method->invokeArgs( null, [ &$lines, $area, $data, 20.0, 20.0 ] );
-
-		$output = implode( "\n", $lines );
-		$this->assertTrue( $used );
-		$this->assertStringContainsString( '%%OCSnapshotFormat: fabric-png-v1', $output );
-		$this->assertStringContainsString( 'colorimage', $output );
 	}
 
 	#[Test]

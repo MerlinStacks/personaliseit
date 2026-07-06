@@ -2670,29 +2670,11 @@ class OCCustomiser {
 					color: obj._ocSnapshotColor || '',
 				} ) );
 			const previousExportFlags = objects.map( ( obj ) => [ obj, obj.excludeFromExport ] );
-			const previousVisibility = objects.map( ( obj ) => [ obj, obj.visible ] );
 			objects.forEach( ( obj ) => {
 				obj.excludeFromExport = obj._ocContent !== true;
-				obj.visible = obj._ocContent === true;
 			} );
 
 			try {
-				canvas.renderAll();
-				let png = '';
-				if ( area?.printMethod === 'embroidery' ) {
-					try {
-						png = canvas.toDataURL( {
-							format: 'png',
-							left: Number( bounds.x || 0 ) * scale,
-							top: Number( bounds.y || 0 ) * scale,
-							width: Math.max( 1, Number( bounds.w ) * scale ),
-							height: Math.max( 1, Number( bounds.h ) * scale ),
-						} );
-					} catch {
-						png = '';
-					}
-				}
-
 				let svg = canvas.toSVG( {
 					width: Math.max( 1, Math.round( Number( bounds.w ) * scale ) ),
 					height: Math.max( 1, Math.round( Number( bounds.h ) * scale ) ),
@@ -2706,14 +2688,12 @@ class OCCustomiser {
 				svg = await this.outlineSnapshotText( svg );
 				svg = await this.inlineSnapshotSvgImages( svg, imageSources );
 				if ( svg && svg.includes( '<svg' ) ) {
-					const snapshot = {
+					snapshots[ area.id || area.areaId || areaIndex ] = {
 						format: 'fabric-svg-v1',
 						unit: 'mockup_px',
 						scale,
 						svg,
 					};
-					if ( png ) snapshot.png = png;
-					snapshots[ area.id || area.areaId || areaIndex ] = snapshot;
 				}
 			} catch {
 				// Snapshot export is best-effort; PHP generation keeps the layer fallback.
@@ -2721,10 +2701,6 @@ class OCCustomiser {
 				previousExportFlags.forEach( ( [ obj, flag ] ) => {
 					obj.excludeFromExport = flag;
 				} );
-				previousVisibility.forEach( ( [ obj, visible ] ) => {
-					obj.visible = visible;
-				} );
-				canvas.renderAll();
 			}
 		}
 

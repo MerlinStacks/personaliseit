@@ -122,7 +122,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
-		return self::append_eps_raster_snapshot( $lines, $snapshot, $w_pt, $h_pt );
+		return false;
 	}
 
 	/** The built-in SVG parser is vector-only; unsupported snapshot nodes fall back to legacy layer EPS. */
@@ -172,34 +172,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( preg_match( '/\b(?:fill|stroke)\s*:\s*url\(/i', $style ) ) {
 			return false;
 		}
-
-		return true;
-	}
-
-	/** Append the browser-rendered PNG snapshot when SVG cannot be represented as EPS vectors. */
-	private static function append_eps_raster_snapshot( array &$lines, array $snapshot, float $w_pt, float $h_pt ): bool {
-		$png = is_string( $snapshot['png'] ?? null ) ? trim( $snapshot['png'] ) : '';
-		if ( '' === $png || ! preg_match( '/^data:image\/png;base64,([A-Za-z0-9+\/]+=*)$/', $png, $matches ) ) {
-			return false;
-		}
-
-		$binary = base64_decode( $matches[1], true );
-		if ( ! is_string( $binary ) || '' === $binary ) {
-			return false;
-		}
-
-		if ( ! function_exists( 'imagecreatefromstring' ) ) {
-			return false;
-		}
-
-		$image = @imagecreatefromstring( $binary ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		if ( ! $image ) {
-			return false;
-		}
-
-		$lines[] = '%%OCSnapshotFormat: fabric-png-v1';
-		self::append_eps_raster_image( $lines, $image, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
-		imagedestroy( $image );
 
 		return true;
 	}
@@ -350,7 +322,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		if ( $centered ) {
 			$align = (string) ( $settings['alignment'] ?? 'center' );
-			self::append_eps_fitted_text_line( $lines, $text, $align, self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2, $w_pt );
+			self::append_eps_text_line( $lines, $text, $align, self::eps_text_align_x( $align, $x_pt, $w_pt ), $y_pt + ( $h_pt + $font_size ) / 2 );
 		} else {
 			$lines[] = sprintf( '%.4F %.4F moveto', $x_pt + 2, $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
 			$lines[] = '(' . self::ps_escape( $text ) . ') show';
@@ -376,15 +348,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		};
 	}
 
-	/** Append editable text scaled to the layer width so fallback PostScript metrics match preview placement. */
-	private static function append_eps_fitted_text_line( array &$lines, string $text, string $align, float $x_pt, float $baseline_pt, float $w_pt ): void {
-		$target_w = max( 1.0, $w_pt * 0.96 );
-		$escaped  = self::ps_escape( $text );
+	/** Append editable text without non-uniform scaling. */
+	private static function append_eps_text_line( array &$lines, string $text, string $align, float $x_pt, float $baseline_pt ): void {
+		$escaped = self::ps_escape( $text );
 
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $baseline_pt );
 		$lines[] = '/ocText (' . $escaped . ') def';
-		$lines[] = sprintf( 'ocText stringwidth pop dup 0 gt { %.4F exch div 1 scale } { pop } ifelse', $target_w );
 		$lines[] = '0 0 moveto';
 		$lines[] = 'ocText' . self::eps_text_show_command( $align );
 		$lines[] = 'grestore';
