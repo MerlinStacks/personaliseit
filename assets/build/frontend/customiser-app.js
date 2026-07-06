@@ -25161,6 +25161,7 @@ class OCCustomiser {
     // Wire up controls IMMEDIATELY — don't block on canvas.
     this.setupInputListeners();
     this.setupDesignVariantOptions();
+    this.setupClipartCarousels();
     this.setupUploadZones();
     if (this.editMode) this.updateInputsFromDOM();
     this.setupFormSubmit();
@@ -25529,7 +25530,7 @@ class OCCustomiser {
     const isEngraving = area?.printMethod === 'engraving';
     const isEmbroidery = area?.printMethod === 'embroidery';
     const engravingPalette = this.engravingPalette();
-    const fontLimit = value => Math.max(0, parseInt(value, 10) || 0);
+    const fontLimit = value => this.fontLimit(value);
     const clampFontSize = (size, settings) => {
       const min = fontLimit(settings?.min_font_size) * scale;
       const max = fontLimit(settings?.max_font_size) * scale;
@@ -25768,6 +25769,81 @@ class OCCustomiser {
           break;
         }
     }
+  }
+  fontLimit(value) {
+    return Math.max(0, parseInt(value, 10) || 0);
+  }
+  textLayerFitsAtSize(layer, raw, font, fontSize) {
+    if (!layer || !raw) {
+      return true;
+    }
+    const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
+      left: 0,
+      top: 0,
+      originX: 'center',
+      originY: 'center',
+      width: Math.max(layer.w, 10),
+      fontFamily: font?.name || 'sans-serif',
+      fontSize,
+      textAlign: layer.settings?.alignment || 'center',
+      selectable: false,
+      evented: false
+    });
+    return obj.width <= Math.max(layer.w, 10) && obj.height <= Math.max(layer.h, 10);
+  }
+  async maxFittingFontSize(layerId, upperLimit) {
+    const layer = this.getLayerById(layerId);
+    if (!layer || !['text', 'textarea'].includes(layer.type)) {
+      return upperLimit;
+    }
+    const input = this.inputs[layerId] || {};
+    const raw = (input.value || '').trim() || (layer.settings?.default_text || '').trim();
+    if (!raw) {
+      return upperLimit;
+    }
+    let font = this.fonts.find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
+    if (font) {
+      try {
+        await this.loadFont(font);
+      } catch {
+        font = null;
+      }
+    }
+    const min = this.fontLimit(layer.settings?.min_font_size) || 1;
+    let low = min;
+    let high = Math.max(min, upperLimit);
+    let best = min;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (this.textLayerFitsAtSize(layer, raw, font, mid)) {
+        best = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+    return Math.max(min, Math.min(upperLimit, best));
+  }
+  async updateTextSizeSliderCap(layerId, clampValue = true) {
+    const sizeEl = document.querySelector(`[data-oc-layer-font-size="${layerId}"]`);
+    if (!sizeEl) {
+      return;
+    }
+    if (!sizeEl.dataset.ocOriginalMax) {
+      sizeEl.dataset.ocOriginalMax = sizeEl.max || '200';
+    }
+    const originalMax = Math.max(parseInt(sizeEl.dataset.ocOriginalMax, 10) || 200, parseInt(sizeEl.min, 10) || 1);
+    const max = await this.maxFittingFontSize(layerId, originalMax);
+    const cappedMax = Math.max(parseInt(sizeEl.min, 10) || 1, max);
+    sizeEl.max = String(cappedMax);
+    if (clampValue && parseInt(sizeEl.value, 10) > cappedMax) {
+      sizeEl.value = String(cappedMax);
+      if (!this.inputs[layerId]) {
+        this.inputs[layerId] = {};
+      }
+      this.inputs[layerId].fontSize = cappedMax;
+    }
+    document.querySelector(`.oc-range-value[data-oc-range-value="${layerId}"]`)?.replaceChildren(document.createTextNode(sizeEl.value));
   }
   rotatedLayerCenter(layer, bounds, rotation) {
     let x = layer.x + layer.w / 2;
@@ -26269,7 +26345,7 @@ class OCCustomiser {
         counter.style.display = '';
       };
       updateCounter();
-      el.addEventListener('input', () => {
+      el.addEventListener('input', async () => {
         if (limit > 0) {
           const clipped = this.truncateText(el.value, limit);
           if (clipped !== el.value) el.value = clipped;
@@ -26278,6 +26354,7 @@ class OCCustomiser {
         this.inputs[lid].value = limit > 0 ? this.truncateText(el.value, limit) : el.value;
         this.syncLinkedLayerInput(lid, ['value']);
         updateCounter();
+        await this.updateTextSizeSliderCap(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw();
         this.updateHiddenField();
@@ -26357,6 +26434,7 @@ class OCCustomiser {
         reflectFontOnSelect(el);
         const preview = document.querySelector(`.oc-font-preview[data-oc-font-preview="${lid}"]`);
         if (preview && font) preview.style.fontFamily = font.name;
+        await this.updateTextSizeSliderCap(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw();
         this.updateHiddenField();
@@ -26367,10 +26445,12 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-layer-font-size]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerFontSize, 10);
       const valueEl = document.querySelector(`.oc-range-value[data-oc-range-value="${lid}"]`);
+      if (!el.dataset.ocOriginalMax) el.dataset.ocOriginalMax = el.max || '200';
       const updateValue = () => {
         if (valueEl) valueEl.textContent = el.value;
       };
       updateValue();
+      this.updateTextSizeSliderCap(lid);
       el.addEventListener('input', () => {
         if (!this.inputs[lid]) this.inputs[lid] = {};
         this.inputs[lid].fontSize = Math.max(1, parseInt(el.value, 10) || 1);
@@ -26429,6 +26509,11 @@ class OCCustomiser {
         this.requestPreviewFocus();
         this.scheduleRedraw();
         this.updateHiddenField();
+      });
+    });
+    window.addEventListener('resize', () => {
+      document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
+        this.refreshClipartCarousel(parseInt(carousel.dataset.ocClipartCarousel, 10));
       });
     });
 
@@ -26565,6 +26650,74 @@ class OCCustomiser {
     } else if (noResults) {
       noResults.style.display = 'none';
     }
+    this.refreshClipartCarousel(layerId);
+  }
+  setupClipartCarousels() {
+    document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
+      const layerId = parseInt(carousel.dataset.ocClipartCarousel, 10);
+      const grid = carousel.querySelector('.oc-clipart-grid--carousel');
+      if (!layerId || !grid) return;
+      carousel.querySelector('[data-oc-clipart-prev]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, -1));
+      carousel.querySelector('[data-oc-clipart-next]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, 1));
+      grid.addEventListener('scroll', () => this.updateClipartCarouselDots(layerId), {
+        passive: true
+      });
+      this.refreshClipartCarousel(layerId);
+    });
+  }
+  visibleClipartItems(grid) {
+    return Array.from(grid.querySelectorAll('.oc-clipart-item')).filter(item => item.style.display !== 'none');
+  }
+  clipartCarouselPageCount(grid) {
+    const visibleItems = this.visibleClipartItems(grid);
+    if (!visibleItems.length || !grid.clientWidth) return 1;
+    return Math.max(1, Math.ceil(grid.scrollWidth / grid.clientWidth));
+  }
+  scrollClipartCarousel(layerId, direction) {
+    const grid = document.querySelector(`.oc-clipart-grid--carousel[data-oc-clipart-grid="${layerId}"]`);
+    if (!grid) return;
+    const page = Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth)) + direction;
+    const maxPage = this.clipartCarouselPageCount(grid) - 1;
+    grid.scrollTo({
+      left: Math.max(0, Math.min(maxPage, page)) * grid.clientWidth,
+      behavior: 'smooth'
+    });
+  }
+  refreshClipartCarousel(layerId) {
+    const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
+    const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
+    const dots = carousel?.querySelector('[data-oc-clipart-dots]');
+    if (!carousel || !grid || !dots) return;
+    const pageCount = this.clipartCarouselPageCount(grid);
+    const maxLeft = Math.max(0, (pageCount - 1) * grid.clientWidth);
+    if (grid.scrollLeft > maxLeft) grid.scrollLeft = maxLeft;
+    dots.innerHTML = '';
+    for (let i = 0; i < pageCount; i++) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'oc-clipart-carousel-dot';
+      dot.setAttribute('aria-label', `Go to clipart page ${i + 1}`);
+      dot.addEventListener('click', () => grid.scrollTo({
+        left: i * grid.clientWidth,
+        behavior: 'smooth'
+      }));
+      dots.appendChild(dot);
+    }
+    carousel.classList.toggle('oc-clipart-carousel--single-page', pageCount <= 1);
+    this.updateClipartCarouselDots(layerId);
+  }
+  updateClipartCarouselDots(layerId) {
+    const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
+    const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
+    if (!carousel || !grid) return;
+    const pageCount = this.clipartCarouselPageCount(grid);
+    const page = Math.max(0, Math.min(pageCount - 1, Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth))));
+    carousel.querySelectorAll('.oc-clipart-carousel-dot').forEach((dot, i) => {
+      dot.classList.toggle('oc-active', i === page);
+      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
+    });
+    carousel.querySelector('[data-oc-clipart-prev]')?.toggleAttribute('disabled', page <= 0);
+    carousel.querySelector('[data-oc-clipart-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
   }
   setSpotifyError(layerId, message, inputEl = null) {
     const msg = String(message || '');
@@ -26632,6 +26785,7 @@ class OCCustomiser {
       document.querySelectorAll(`[data-oc-layer-text="${layerId}"], [data-oc-layer-spotify="${layerId}"]`).forEach(el => {
         el.value = input.value || '';
       });
+      this.updateTextSizeSliderCap(layerId);
       const counter = document.querySelector(`.oc-char-counter[data-oc-char-counter="${layerId}"]`);
       if (counter) {
         const limit = parseInt(counter.dataset.charLimit, 10) || this.charLimitForLayer(layerId);
@@ -27268,6 +27422,9 @@ class OCCustomiser {
       el.style.display = parseInt(el.dataset.areaIndex, 10) === index ? '' : 'none';
     });
     this.redraw(index);
+    document.querySelectorAll('.oc-area-controls[data-area-index="' + index + '"] [data-oc-clipart-carousel]').forEach(carousel => {
+      this.refreshClipartCarousel(parseInt(carousel.dataset.ocClipartCarousel, 10));
+    });
     if (window.innerWidth < 640) {
       const activeTab = document.querySelector(`.oc-area-tab[aria-selected="true"]`);
       if (activeTab) {

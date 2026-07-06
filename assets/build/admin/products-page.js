@@ -589,6 +589,7 @@
         return {
           clipart_groups: [],
           required: false,
+          clipart_display: 'grid',
           link_group: ''
         };
       default:
@@ -599,7 +600,11 @@
     }
   }
   function normaliseSettings(type, existing) {
-    return Object.assign(defaultSettings(type), existing || {});
+    const settings = Object.assign(defaultSettings(type), existing || {});
+    if (type === 'clipart') {
+      settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
+    }
+    return settings;
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────
@@ -727,6 +732,10 @@
   function toggleField(label, id, checked) {
     return '<label class="oc-toggle-label oc-settings-toggle"><span class="oc-toggle"><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /><span class="oc-toggle-slider"></span></span> ' + label + '</label>';
   }
+  function clipartDisplayField(current) {
+    const value = current === 'carousel' ? 'carousel' : 'grid';
+    return '<select id="oc-set-clipart-display" class="oc-input" style="width:100%;">' + '<option value="grid"' + (value === 'grid' ? ' selected' : '') + '>Grid</option>' + '<option value="carousel"' + (value === 'carousel' ? ' selected' : '') + '>One-row scroll with arrows and dots</option>' + '</select>';
+  }
   function alignBtns(current) {
     return '<div class="oc-align-btns">' + [['left', '\u2190', 'Left'], ['center', '\u2261', 'Center'], ['right', '\u2192', 'Right']].map(([a, icon, lbl]) => '<button type="button" class="oc-align-btn' + (a === current ? ' oc-align-btn--active' : '') + '" data-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
   }
@@ -791,7 +800,7 @@
       case 'library':
         return aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>';
       case 'validation':
-        return toggleField('Required field', 'oc-set-required', s.required);
+        return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
       case 'properties':
         return toggleField('Required field', 'oc-set-required', s.required) + '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Font', 'oc-set-allow-font-change', s.allow_font_change !== false) + (isEngraving ? '' : toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false)) + toggleField('Size', 'oc-set-allow-size-change', !!s.allow_size_change);
       default:
@@ -930,6 +939,11 @@
     });
     document.getElementById('oc-set-required')?.addEventListener('change', e => {
       s.required = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-clipart-display')?.addEventListener('change', e => {
+      s.clipart_display = e.target.value === 'carousel' ? 'carousel' : 'grid';
       renderHiddenFields();
       markDirty();
     });

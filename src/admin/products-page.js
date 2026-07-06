@@ -386,12 +386,16 @@
 			case 'clipmask': return { formats: [ 'png', 'jpg', 'webp' ], max_size_mb: 10, remove_background: false, mask_shape: 'circle', required: false, link_group: '' };
 			case 'spotify':  return { colour_groups: [], required: false, link_group: '' };
 			case 'lineart':  return { colour_groups: [], required: false, link_group: '' };
-			case 'clipart':  return { clipart_groups: [], required: false, link_group: '' };
+			case 'clipart':  return { clipart_groups: [], required: false, clipart_display: 'grid', link_group: '' };
 			default:         return { required: false, link_group: '' };
 		}
 	}
 	function normaliseSettings( type, existing ) {
-		return Object.assign( defaultSettings( type ), existing || {} );
+		const settings = Object.assign( defaultSettings( type ), existing || {} );
+		if ( type === 'clipart' ) {
+			settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
+		}
+		return settings;
 	}
 
 	// ── Utilities ──────────────────────────────────────────────────────────────
@@ -502,6 +506,13 @@
 	function toggleField( label, id, checked ) {
 		return '<label class="oc-toggle-label oc-settings-toggle"><span class="oc-toggle"><input type="checkbox" id="' + id + '"' + ( checked ? ' checked' : '' ) + ' /><span class="oc-toggle-slider"></span></span> ' + label + '</label>';
 	}
+	function clipartDisplayField( current ) {
+		const value = current === 'carousel' ? 'carousel' : 'grid';
+		return '<select id="oc-set-clipart-display" class="oc-input" style="width:100%;">' +
+			'<option value="grid"' + ( value === 'grid' ? ' selected' : '' ) + '>Grid</option>' +
+			'<option value="carousel"' + ( value === 'carousel' ? ' selected' : '' ) + '>One-row scroll with arrows and dots</option>' +
+			'</select>';
+	}
 	function alignBtns( current ) {
 		return '<div class="oc-align-btns">' +
 			[ [ 'left', '\u2190', 'Left' ], [ 'center', '\u2261', 'Center' ], [ 'right', '\u2192', 'Right' ] ]
@@ -605,7 +616,8 @@
 			case 'library':
 				return aGroups.length ? field( 'Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-ag-check', aGroups, s.clipart_groups || [] ) ) : '<span class="oc-settings-empty">No clipart groups created yet.</span>';
 			case 'validation':
-				return toggleField( 'Required field', 'oc-set-required', s.required );
+				return toggleField( 'Required field', 'oc-set-required', s.required ) +
+					( layer.type === 'clipart' ? field( 'Frontend display', clipartDisplayField( s.clipart_display || 'grid' ) ) : '' );
 			case 'properties':
 				return toggleField( 'Required field', 'oc-set-required', s.required ) +
 					'<p class="oc-settings-section-hdr">Customer can change</p>' +
@@ -680,6 +692,7 @@
 		document.getElementById( 'oc-set-remove-background' )?.addEventListener( 'change', e => { s.remove_background = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-mask-shape' )?.addEventListener( 'change', e => { s.mask_shape = e.target.value || 'circle'; renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-required'   )?.addEventListener( 'change', e => { s.required = e.target.checked; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-clipart-display' )?.addEventListener( 'change', e => { s.clipart_display = e.target.value === 'carousel' ? 'carousel' : 'grid'; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-font-change' )?.addEventListener( 'change', e => { s.allow_font_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-colour-change' )?.addEventListener( 'change', e => { s.allow_colour_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-size-change' )?.addEventListener( 'change', e => { s.allow_size_change = e.target.checked; renderHiddenFields(); markDirty(); } );

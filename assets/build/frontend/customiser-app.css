@@ -378,6 +378,93 @@
   grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
   gap: var(--oc-gap-xs);
 }
+.oc-customiser-panel .oc-clipart-carousel {
+  display: grid;
+  grid-template-columns: var(--oc-tap) minmax(0, 1fr) var(--oc-tap);
+  grid-template-areas: "prev track next" "dots dots dots";
+  align-items: center;
+  gap: var(--oc-gap-xs);
+}
+.oc-customiser-panel .oc-clipart-grid--carousel {
+  -ms-grid-row: 1;
+  -ms-grid-column: 3;
+  grid-area: track;
+  display: flex;
+  grid-template-columns: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.oc-customiser-panel .oc-clipart-grid--carousel::-webkit-scrollbar {
+  display: none;
+}
+.oc-customiser-panel .oc-clipart-grid--carousel .oc-clipart-item {
+  flex: 0 0 72px;
+  scroll-snap-align: start;
+}
+.oc-customiser-panel .oc-clipart-carousel-arrow {
+  width: var(--oc-tap);
+  height: var(--oc-tap);
+  border: 1px solid var(--oc-border-strong);
+  border-radius: 999px;
+  background: var(--oc-accent-ink, #fff);
+  color: inherit;
+  font: inherit;
+  font-size: 1.6em;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+}
+.oc-customiser-panel .oc-clipart-carousel-arrow:hover:not(:disabled) {
+  border-color: var(--oc-accent);
+  transform: translateY(-1px);
+}
+.oc-customiser-panel .oc-clipart-carousel-arrow:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.oc-customiser-panel .oc-clipart-carousel-arrow--prev {
+  -ms-grid-row: 1;
+  -ms-grid-column: 1;
+  grid-area: prev;
+}
+.oc-customiser-panel .oc-clipart-carousel-arrow--next {
+  -ms-grid-row: 1;
+  -ms-grid-column: 5;
+  grid-area: next;
+}
+.oc-customiser-panel .oc-clipart-carousel-dots {
+  -ms-grid-row: 3;
+  -ms-grid-column: 1;
+  -ms-grid-column-span: 5;
+  grid-area: dots;
+  display: flex;
+  justify-content: center;
+  gap: 7px;
+  min-height: 14px;
+}
+.oc-customiser-panel .oc-clipart-carousel-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--oc-border-strong);
+  cursor: pointer;
+}
+.oc-customiser-panel .oc-clipart-carousel-dot.oc-active {
+  background: var(--oc-accent);
+}
+.oc-customiser-panel .oc-clipart-carousel--single-page .oc-clipart-carousel-arrow,
+.oc-customiser-panel .oc-clipart-carousel--single-page .oc-clipart-carousel-dots {
+  display: none;
+}
+.oc-customiser-panel .oc-clipart-carousel--single-page .oc-clipart-grid--carousel {
+  grid-column: 1/-1;
+}
 .oc-customiser-panel .oc-clipart-item {
   appearance: none;
   border: 1px solid var(--oc-border);
