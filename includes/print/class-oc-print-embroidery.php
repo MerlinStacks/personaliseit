@@ -59,13 +59,23 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'%%OCThreadColor: ' . strtoupper( self::normalise_hex( (string) ( $area_data['color'] ?? '#000000' ) ) ),
 			'%%EndComments',
 			'gsave',
+			'newpath',
+			'0 0 moveto',
+			sprintf( '%.4F 0 lineto', (float) $w_pt ),
+			sprintf( '%.4F %.4F lineto', (float) $w_pt, (float) $h_pt ),
+			sprintf( '0 %.4F lineto', (float) $h_pt ),
+			'closepath clip newpath',
 		];
 
 		if ( self::append_eps_snapshot( $lines, $area, $area_data, $w_pt, $h_pt ) ) {
 			$lines[] = '%%OCSnapshotUsed: yes';
 		} elseif ( self::has_layer_payload( $area_data ) ) {
+			$lines[] = '%%OCSnapshotUsed: no';
+			$lines[] = '%%OCSnapshotFallback: layer-payload';
 			self::append_eps_layers( $lines, $area, $area_data );
 		} else {
+			$lines[] = '%%OCSnapshotUsed: no';
+			$lines[] = '%%OCSnapshotFallback: legacy-artwork';
 			self::append_eps_legacy_artwork( $lines, $area, $area_data );
 		}
 
@@ -105,15 +115,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$before = count( $lines );
 		$lines[] = '%%OCSnapshotFormat: ' . self::eps_comment( (string) ( $snapshot['format'] ?? 'fabric-svg-v1' ) );
-		$lines[] = 'gsave';
-		$lines[] = 'newpath';
-		$lines[] = '0 0 moveto';
-		$lines[] = sprintf( '%.4F 0 lineto', $w_pt );
-		$lines[] = sprintf( '%.4F %.4F lineto', $w_pt, $h_pt );
-		$lines[] = sprintf( '0 %.4F lineto', $h_pt );
-		$lines[] = 'closepath clip newpath';
 		$ok = self::append_eps_svg_vector( $lines, $temp, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
-		$lines[] = 'grestore';
 		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 
 		if ( ! $ok ) {
