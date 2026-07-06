@@ -103,34 +103,26 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_eps_snapshot( array &$lines, object $area, array $area_data, float $w_pt, float $h_pt ): bool {
 		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
 		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( $snapshot['svg'] ) : '';
-		if ( '' === $svg ) {
-			return false;
+
+		if ( '' !== $svg && self::snapshot_svg_supported( $svg ) ) {
+			$temp = self::temp_svg_path( 'oc-eps-area-snapshot-' . wp_generate_uuid4() );
+			if ( is_string( $temp ) && '' !== $temp && false !== file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+				$before = count( $lines );
+				$lines[] = '%%OCSnapshotFormat: ' . self::eps_comment( (string) ( $snapshot['format'] ?? 'fabric-svg-v1' ) );
+				$ok = self::append_eps_svg_vector( $lines, $temp, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
+				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+				if ( $ok ) {
+					return true;
+				}
+
+				array_splice( $lines, $before );
+			} elseif ( is_string( $temp ) && '' !== $temp ) {
+				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
 		}
 
-		if ( ! self::snapshot_svg_supported( $svg ) ) {
-			return false;
-		}
-
-		$temp = self::temp_svg_path( 'oc-eps-area-snapshot-' . wp_generate_uuid4() );
-		if ( ! is_string( $temp ) || '' === $temp ) {
-			return false;
-		}
-
-		if ( false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			return false;
-		}
-
-		$before = count( $lines );
-		$lines[] = '%%OCSnapshotFormat: ' . self::eps_comment( (string) ( $snapshot['format'] ?? 'fabric-svg-v1' ) );
-		$ok = self::append_eps_svg_vector( $lines, $temp, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
-		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-
-		if ( ! $ok ) {
-			array_splice( $lines, $before );
-		}
-
-		return $ok;
+		return self::append_eps_raster_snapshot( $lines, $snapshot, $w_pt, $h_pt );
 	}
 
 	/** The built-in SVG parser is vector-only; unsupported snapshot nodes fall back to legacy layer EPS. */
@@ -151,13 +143,65 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
+		$painted = false;
 		foreach ( [ 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'use' ] as $tag ) {
-			if ( $dom->getElementsByTagName( $tag )->length > 0 ) {
-				return true;
+			foreach ( $dom->getElementsByTagName( $tag ) as $node ) {
+				if ( ! $node instanceof \DOMElement ) {
+					continue;
+				}
+				$painted = true;
+				if ( ! self::svg_element_has_supported_paint( $node ) ) {
+					return false;
+				}
 			}
 		}
 
-		return false;
+		return $painted;
+	}
+
+	/** Return whether a snapshot element uses paint the EPS vector path can reproduce. */
+	private static function svg_element_has_supported_paint( \DOMElement $element ): bool {
+		foreach ( [ 'fill', 'stroke' ] as $attr ) {
+			$value = trim( (string) $element->getAttribute( $attr ) );
+			if ( '' !== $value && str_starts_with( strtolower( $value ), 'url(' ) ) {
+				return false;
+			}
+		}
+
+		$style = (string) $element->getAttribute( 'style' );
+		if ( preg_match( '/\b(?:fill|stroke)\s*:\s*url\(/i', $style ) ) {
+			return false;
+		}
+
+		return true;
+	}
+
+	/** Append the browser-rendered PNG snapshot when SVG cannot be represented as EPS vectors. */
+	private static function append_eps_raster_snapshot( array &$lines, array $snapshot, float $w_pt, float $h_pt ): bool {
+		$png = is_string( $snapshot['png'] ?? null ) ? trim( $snapshot['png'] ) : '';
+		if ( '' === $png || ! preg_match( '/^data:image\/png;base64,([A-Za-z0-9+\/]+=*)$/', $png, $matches ) ) {
+			return false;
+		}
+
+		$binary = base64_decode( $matches[1], true );
+		if ( ! is_string( $binary ) || '' === $binary ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'imagecreatefromstring' ) ) {
+			return false;
+		}
+
+		$image = @imagecreatefromstring( $binary ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( ! $image ) {
+			return false;
+		}
+
+		$lines[] = '%%OCSnapshotFormat: fabric-png-v1';
+		self::append_eps_raster_image( $lines, $image, 0.0, 0.0, $w_pt, $h_pt, 'contain' );
+		imagedestroy( $image );
+
+		return true;
 	}
 
 	/** Append all v2 customiser layers to the EPS output. */
@@ -189,9 +233,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
 			if ( 0.0 !== $bounds_rotation ) {
-				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, -$bounds_rotation );
+				[ $center_x, $center_y ] = self::rotated_layer_center( $center_x, $center_y, $bounds, $bounds_rotation );
 			}
-			$rotation = self::layer_rotation( $layer, $input, $settings );
+			$rotation = self::normalise_rotation( $bounds_rotation + self::layer_rotation( $layer, $input, $settings ) );
 
 			$center_x_mm = ( ( $center_x - $area_x ) / $bounds_w ) * $area_w_mm;
 			$center_y_mm = ( ( $center_y - $area_y ) / $bounds_h ) * $area_h_mm;
@@ -381,9 +425,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$temp_path = null;
 		$input     = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
-		if ( 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
-			$y_pt -= $h_pt * 0.03;
-		}
 		if ( 'clipart' === (string) ( $layer['type'] ?? '' ) && ! empty( $input['clipartRecolourable'] ) && 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
 			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );
 			if ( $hex ) {

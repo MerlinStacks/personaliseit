@@ -131,7 +131,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function clipart_layers_are_lowered_to_match_embroidery_preview_overlap(): void {
+	public function clipart_layers_are_not_manually_offset_from_text_layers(): void {
 		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
 		$source      = $source_base . '.svg';
 		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="#000000"/></svg>' );
@@ -146,7 +146,8 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $layer, -10.0, -10.0, 20.0, 20.0, 'contain' ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '-10.0000 9.4000 translate', $output );
+		$this->assertStringContainsString( '-10.0000 10.0000 translate', $output );
+		$this->assertStringNotContainsString( '-10.0000 9.4000 translate', $output );
 
 		@unlink( $source_base );
 		@unlink( $source );
@@ -202,6 +203,47 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function embroidery_export_rejects_svg_snapshot_with_pattern_paint(): void {
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'snapshot_svg_supported' );
+		$svg    = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="url(#oc-embroidery-stitch)"/></svg>';
+
+		$this->assertFalse( $method->invoke( null, $svg ) );
+	}
+
+	#[Test]
+	public function embroidery_export_uses_png_snapshot_when_svg_has_pattern_paint(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) || ! function_exists( 'imagepng' ) ) {
+			$this->markTestSkipped( 'GD PNG support is unavailable.' );
+		}
+
+		$image = imagecreatetruecolor( 2, 2 );
+		$red   = imagecolorallocate( $image, 255, 0, 0 );
+		imagefilledrectangle( $image, 0, 0, 1, 1, $red );
+		ob_start();
+		imagepng( $image );
+		$png = ob_get_clean();
+		imagedestroy( $image );
+
+		$lines = [];
+		$area  = (object) [ 'area_key' => 'front' ];
+		$data  = [
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><path d="M0 0H10V10H0Z" fill="url(#oc-embroidery-stitch)"/></svg>',
+				'png'    => 'data:image/png;base64,' . base64_encode( (string) $png ),
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_snapshot' );
+		$used   = $method->invokeArgs( null, [ &$lines, $area, $data, 20.0, 20.0 ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertTrue( $used );
+		$this->assertStringContainsString( '%%OCSnapshotFormat: fabric-png-v1', $output );
+		$this->assertStringContainsString( 'colorimage', $output );
+	}
+
+	#[Test]
 	public function embroidery_page_mask_hides_overflow_without_relying_on_clipping(): void {
 		$lines  = [];
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_page_overflow_mask' );
@@ -214,7 +256,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function layer_export_uses_print_area_rotation_for_position_only(): void {
+	public function layer_export_applies_print_area_rotation_to_position_and_layer_angle(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -243,12 +285,12 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '1.2000 2.4001 translate', $output );
-		$this->assertStringNotContainsString( ' rotate', $output );
+		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
+		$this->assertStringContainsString( '90.0000 rotate', $output );
 	}
 
 	#[Test]
-	public function layer_export_applies_explicit_layer_rotation_only(): void {
+	public function layer_export_combines_print_area_and_explicit_layer_rotation(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -278,8 +320,8 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '1.2000 2.4001 translate', $output );
-		$this->assertStringContainsString( '15.0000 rotate', $output );
+		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
+		$this->assertStringContainsString( '105.0000 rotate', $output );
 	}
 
 }
