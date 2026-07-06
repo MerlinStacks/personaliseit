@@ -29,6 +29,8 @@ class OC_Admin_Print_Queue {
 		$jobs     = OC_DB::get_queue_jobs( $status, $per_page, $offset );
 		$total    = OC_DB::count_queue_jobs( $status );
 		$counts   = OC_DB::get_queue_counts();
+		$orphans  = OC_DB::get_orphaned_generating_print_files();
+		$orphan_count = OC_DB::count_orphaned_generating_print_files();
 		?>
 		<div class="wrap oc-page oc-print-queue-page">
 			<div class="oc-page-header">
@@ -52,6 +54,33 @@ class OC_Admin_Print_Queue {
 					</a>
 				<?php endforeach; ?>
 			</div>
+
+			<?php if ( $orphan_count > 0 ) : ?>
+				<div class="oc-card oc-queue-orphans">
+					<div class="oc-card-header">
+						<h2><?php esc_html_e( 'Generating Files Without Queue Jobs', 'overcustomise' ); ?></h2>
+						<span><?php echo esc_html( sprintf( __( '%d found', 'overcustomise' ), $orphan_count ) ); ?></span>
+					</div>
+					<div class="oc-card-body oc-card-body-flush">
+						<table class="widefat striped oc-queue-table">
+							<thead>
+								<tr>
+									<th><?php esc_html_e( 'File', 'overcustomise' ); ?></th>
+									<th><?php esc_html_e( 'Order', 'overcustomise' ); ?></th>
+									<th><?php esc_html_e( 'Method', 'overcustomise' ); ?></th>
+									<th><?php esc_html_e( 'Generated', 'overcustomise' ); ?></th>
+									<th><?php esc_html_e( 'Actions', 'overcustomise' ); ?></th>
+								</tr>
+							</thead>
+							<tbody>
+								<?php foreach ( $orphans as $file ) : ?>
+									<?php $this->render_orphan_row( $file ); ?>
+								<?php endforeach; ?>
+							</tbody>
+						</table>
+					</div>
+				</div>
+			<?php endif; ?>
 
 			<div class="oc-card">
 				<div class="oc-card-header">
@@ -143,6 +172,13 @@ class OC_Admin_Print_Queue {
 					$this->redirect_with_notice( 'deleted', $job_id );
 				}
 				break;
+
+			case 'reset_file':
+				if ( $job_id ) {
+					OC_DB::update_print_file( $job_id, [ 'file_status' => 'pending' ] );
+					$this->redirect_with_notice( 'reset_file', $job_id );
+				}
+				break;
 		}
 	}
 
@@ -171,6 +207,10 @@ class OC_Admin_Print_Queue {
 			case 'deleted':
 				add_settings_error( 'oc_print_queue', 'deleted', sprintf( __( 'Deleted job #%d.', 'overcustomise' ), $value ), 'success' );
 				break;
+
+			case 'reset_file':
+				add_settings_error( 'oc_print_queue', 'reset_file', sprintf( __( 'Reset print file #%d to pending.', 'overcustomise' ), $value ), 'success' );
+				break;
 		}
 	}
 
@@ -192,6 +232,27 @@ class OC_Admin_Print_Queue {
 
 		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	/** Render an orphaned generating print file row. */
+	private function render_orphan_row( object $file ): void {
+		$order_url = $this->order_url( (int) $file->order_id );
+		$regen_url = wp_nonce_url(
+			add_query_arg( [ 'oc_regenerate' => (int) $file->id ], admin_url( 'post.php?post=' . (int) $file->order_id . '&action=edit' ) ),
+			'oc_regenerate_' . (int) $file->id
+		);
+		?>
+		<tr>
+			<td><strong>#<?php echo esc_html( (string) $file->id ); ?></strong><br><span class="description"><?php echo esc_html( sprintf( __( 'Item %1$d, area %2$d', 'overcustomise' ), (int) $file->order_item_id, (int) $file->print_area_id ) ); ?></span></td>
+			<td><?php if ( $order_url ) : ?><a href="<?php echo esc_url( $order_url ); ?>">#<?php echo esc_html( (string) $file->order_id ); ?></a><?php else : ?>#<?php echo esc_html( (string) $file->order_id ); ?><?php endif; ?></td>
+			<td><?php echo esc_html( ucwords( str_replace( '_', ' ', (string) $file->file_type ) ) ); ?></td>
+			<td><?php echo esc_html( $this->format_date( $file->generated_at ) ); ?></td>
+			<td class="oc-queue-actions">
+				<a class="button button-small" href="<?php echo esc_url( $regen_url ); ?>"><?php esc_html_e( 'Regenerate', 'overcustomise' ); ?></a>
+				<?php $this->render_action_button( 'reset_file', (int) $file->id, __( 'Mark Pending', 'overcustomise' ), 'button button-small' ); ?>
+			</td>
+		</tr>
+		<?php
 	}
 
 	/** Render a queue job table row. */

@@ -512,6 +512,7 @@ class OC_Print_Generator {
 		try {
 			$this->regenerate( $file_id );
 		} catch ( \Throwable $e ) {
+			OC_DB::update_print_file( $file_id, [ 'file_status' => 'pending' ] );
 			OC_Logger::error( 'Admin regenerate failed for file #' . $file_id . ': ' . $e->getMessage() );
 		}
 

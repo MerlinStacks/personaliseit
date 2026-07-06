@@ -983,6 +983,41 @@ class OC_DB {
 		return $counts;
 	}
 
+	/** Fetch generating print files that no longer have an active queue job. */
+	public static function get_orphaned_generating_print_files( int $limit = 20 ): array {
+		global $wpdb;
+
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT pf.* FROM {$wpdb->prefix}oc_print_files pf
+			 LEFT JOIN {$wpdb->prefix}oc_print_queue pq
+			 ON pq.order_id = pf.order_id
+			 AND pq.order_item_id = pf.order_item_id
+			 AND pq.print_area_id = pf.print_area_id
+			 AND pq.status IN ('pending','processing')
+			 WHERE pf.file_status = 'generating'
+			 AND pq.id IS NULL
+			 ORDER BY pf.generated_at ASC, pf.id ASC
+			 LIMIT %d",
+			$limit
+		) ) ?: [];
+	}
+
+	/** Count generating print files that no longer have an active queue job. */
+	public static function count_orphaned_generating_print_files(): int {
+		global $wpdb;
+
+		return (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files pf
+			 LEFT JOIN {$wpdb->prefix}oc_print_queue pq
+			 ON pq.order_id = pf.order_id
+			 AND pq.order_item_id = pf.order_item_id
+			 AND pq.print_area_id = pf.print_area_id
+			 AND pq.status IN ('pending','processing')
+			 WHERE pf.file_status = 'generating'
+			 AND pq.id IS NULL"
+		);
+	}
+
 	/** Fetch a single queue job by ID. */
 	public static function get_queue_job( int $id ): ?object {
 		global $wpdb;

@@ -197,7 +197,7 @@ class OC_Admin_Order_Metabox {
 						echo ' &nbsp;<em style="color:#888;">' . esc_html__( '(File missing on disk)', 'overcustomise' ) . '</em>';
 					}
 
-					if ( in_array( (string) $file->file_status, [ 'files_ready', 'expired', 'brief_ready', 'awaiting_dst_upload' ], true ) ) {
+					if ( in_array( (string) $file->file_status, [ 'files_ready', 'expired', 'brief_ready', 'awaiting_dst_upload', 'generating', 'pending' ], true ) ) {
 						$regen_url = add_query_arg( [
 							'oc_regenerate' => $file->id,
 							'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . $file->id ),
@@ -205,7 +205,7 @@ class OC_Admin_Order_Metabox {
 						printf(
 							' &nbsp;<a href="%s" class="button button-small">%s</a>',
 							esc_url( $regen_url ),
-							esc_html__( 'Regenerate EPS', 'overcustomise' )
+							esc_html__( 'Regenerate Print File', 'overcustomise' )
 						);
 					}
 

@@ -774,6 +774,12 @@ class OC_Cart {
 					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			} elseif ( 'pending' === $file->file_status ) {
 				echo ' <em style="color:#666;">' . esc_html__( 'Queued automatically.', 'overcustomise' ) . '</em>';
+				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
+			} elseif ( 'generating' === $file->file_status && empty( $queue_info['is_processing'] ) && empty( $queue_info['in_queue'] ) ) {
+				echo ' <em style="color:#b32d2e;">' . esc_html__( 'No active queue job.', 'overcustomise' ) . '</em>';
+				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			}
 
 			echo '</div>';
