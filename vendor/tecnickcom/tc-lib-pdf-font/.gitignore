@@ -21,4 +21,10 @@ resources/util/vendor
 src/fonts
 target
 target/fonts
+!target/
+!target/fonts/
+!target/fonts/core/
+!target/fonts/core/*.json
+!target/fonts/core/LICENSE
+!target/fonts/core/README
 vendor

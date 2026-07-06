@@ -751,19 +751,20 @@ class OC_Frontend {
 
 		/* Clipart grid */
 		.oc-clipart-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); gap:8px; max-height:240px; overflow-y:auto; padding:4px; }
-		.oc-clipart-carousel { display:grid; grid-template-columns:32px minmax(0,1fr) 32px; grid-template-areas:"prev track next" "dots dots dots"; align-items:center; gap:8px; }
-		.oc-clipart-grid--carousel { grid-area:track; display:flex; grid-template-columns:none; max-height:none; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
+		.oc-clipart-carousel { display:grid; grid-template-columns:12px minmax(0,1fr) 12px; grid-template-areas:"prev track next" "dots dots dots"; align-items:center; column-gap:3px; row-gap:5px; }
+		.oc-clipart-grid--carousel { grid-area:track; display:flex; grid-template-columns:none; gap:5px; max-height:none; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth; -webkit-overflow-scrolling:touch; scrollbar-width:none; }
 		.oc-clipart-grid--carousel::-webkit-scrollbar { display:none; }
-		.oc-clipart-grid--carousel .oc-clipart-item { flex:0 0 72px; scroll-snap-align:start; }
-		.oc-clipart-carousel-arrow { width:32px; height:32px; border:1px solid #ddd; border-radius:50%; background:#fff; color:#777; font-size:16px; font-weight:700; line-height:1; cursor:pointer; box-shadow:0 1px 2px rgba(0,0,0,.06); }
-		.oc-clipart-carousel-arrow:not(:disabled):hover { border-color:#0073aa; color:#0073aa; }
+		.oc-clipart-grid--carousel .oc-clipart-item { flex:0 0 calc((100% - 12.5px) / 3.5); scroll-snap-align:start; }
+		.oc-clipart-carousel-arrow { width:12px; height:24px; border:0; border-radius:0; background:transparent; color:#777; font-size:20px; font-weight:700; line-height:1; cursor:pointer; box-shadow:none; padding:0; }
+		.oc-clipart-carousel-arrow:not(:disabled):hover { color:#0073aa; transform:scale(1.08); }
 		.oc-clipart-carousel-arrow:disabled { opacity:.28; cursor:default; box-shadow:none; }
 		.oc-clipart-carousel-arrow--prev { grid-area:prev; }
 		.oc-clipart-carousel-arrow--next { grid-area:next; }
-		.oc-clipart-carousel-dots { grid-area:dots; display:flex; justify-content:center; gap:5px; min-height:8px; }
-		.oc-clipart-carousel-dot { width:6px; height:6px; padding:0; border:0; border-radius:50%; background:#bbb; cursor:pointer; transition:width .15s ease,background .15s ease; }
-		.oc-clipart-carousel-dot.oc-active { width:14px; }
+		.oc-clipart-carousel-dots { grid-area:dots; display:flex; justify-content:center; gap:6px; min-height:6px; }
+		.oc-clipart-carousel-dot { width:5px; height:5px; padding:0; border:0; border-radius:50%; background:#bbb; cursor:pointer; transition:background .15s ease,transform .15s ease; }
+		.oc-clipart-carousel-dot.oc-active { transform:scale(1.25); }
 		.oc-clipart-carousel-dot.oc-active { background:#0073aa; }
+		@media (max-width:639px) { .oc-clipart-grid--carousel .oc-clipart-item { flex-basis:calc((100% - 17.5px) / 4.5); } }
 		.oc-clipart-carousel--single-page .oc-clipart-carousel-arrow,
 		.oc-clipart-carousel--single-page .oc-clipart-carousel-dots { display:none; }
 		.oc-clipart-carousel--single-page .oc-clipart-grid--carousel { grid-column:1 / -1; }

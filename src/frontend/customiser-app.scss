@@ -413,18 +413,20 @@
 
 	.oc-clipart-carousel {
 		display: grid;
-		grid-template-columns: 32px minmax(0, 1fr) 32px;
+		grid-template-columns: 12px minmax(0, 1fr) 12px;
 		grid-template-areas:
 			"prev track next"
 			"dots dots dots";
 		align-items: center;
-		gap: var(--oc-gap-xs);
+		column-gap: 3px;
+		row-gap: 5px;
 	}
 
 	.oc-clipart-grid--carousel {
 		grid-area: track;
 		display: flex;
 		grid-template-columns: none;
+		gap: 5px;
 		overflow-x: auto;
 		overflow-y: hidden;
 		scroll-snap-type: x mandatory;
@@ -435,31 +437,30 @@
 		&::-webkit-scrollbar { display: none; }
 
 		.oc-clipart-item {
-			flex: 0 0 72px;
+			flex: 0 0 calc((100% - 12.5px) / 3.5);
 			scroll-snap-align: start;
 		}
 	}
 
 	.oc-clipart-carousel-arrow {
-		width: 32px;
-		height: 32px;
-		border: 1px solid var(--oc-border-strong);
-		border-radius: 999px;
-		background: color-mix(in srgb, var(--oc-accent-ink, #fff) 90%, transparent);
+		width: 12px;
+		height: 24px;
+		border: 0;
+		border-radius: 0;
+		background: transparent;
 		color: var(--oc-fg-muted);
 		font: inherit;
-		font-size: 1.05em;
+		font-size: 1.35em;
 		font-weight: 700;
 		line-height: 1;
 		cursor: pointer;
-		box-shadow: var(--oc-shadow-sm);
-		transition: border-color .15s ease, color .15s ease, opacity .15s ease, transform .1s ease, box-shadow .15s ease;
+		box-shadow: none;
+		padding: 0;
+		transition: color .15s ease, opacity .15s ease, transform .1s ease;
 
 		&:hover:not(:disabled) {
-			border-color: var(--oc-accent);
 			color: var(--oc-accent);
-			transform: translateY(-1px);
-			box-shadow: 0 3px 10px rgb(0 0 0 / 0.08);
+			transform: scale(1.08);
 		}
 
 		&:disabled {
@@ -476,23 +477,29 @@
 		grid-area: dots;
 		display: flex;
 		justify-content: center;
-		gap: 5px;
-		min-height: 8px;
+		gap: 6px;
+		min-height: 6px;
 	}
 
 	.oc-clipart-carousel-dot {
-		width: 6px;
-		height: 6px;
+		width: 5px;
+		height: 5px;
 		padding: 0;
 		border: 0;
 		border-radius: 999px;
 		background: color-mix(in srgb, currentColor 26%, transparent);
 		cursor: pointer;
-		transition: width .15s ease, background .15s ease;
+		transition: background .15s ease, transform .15s ease;
 
 		&.oc-active {
-			width: 14px;
 			background: var(--oc-accent);
+			transform: scale(1.25);
+		}
+	}
+
+	@media (max-width: 639px) {
+		.oc-clipart-grid--carousel .oc-clipart-item {
+			flex-basis: calc((100% - 17.5px) / 4.5);
 		}
 	}
 
