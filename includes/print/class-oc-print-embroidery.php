@@ -97,7 +97,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$text_index     = 0;
 		$artwork_used   = false;
 
-		foreach ( $area_data['layers'] as $layer ) {
+		foreach ( self::eps_layer_paint_order( $area_data['layers'] ) as $layer ) {
 			if ( ! is_array( $layer ) ) {
 				continue;
 			}
@@ -173,6 +173,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 	}
 
+	/** Return layers in PostScript paint order: bottom layers first, top layers last. */
+	private static function eps_layer_paint_order( array $layers ): array {
+		return array_reverse( array_values( $layers ) );
+	}
+
 	/** Append legacy single-text/single-artwork payloads. */
 	private static function append_eps_legacy_artwork( array &$lines, object $area, array $area_data ): void {
 		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
@@ -226,7 +231,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
-		if ( is_string( $font_path ) && '' !== $font_path && self::append_eps_ttf_text_outline( $lines, $text, $align, $anchor_x, $baseline_y, $font_size, $font_path, $centered ? $y_pt : null, $centered ? $h_pt : null ) ) {
+		if ( is_string( $font_path ) && '' !== $font_path && self::append_eps_ttf_text_outline( $lines, $text, $align, $anchor_x, $baseline_y, $font_size, $font_path, $centered ? $x_pt : null, $centered ? $y_pt : null, $centered ? $w_pt : null, $centered ? $h_pt : null ) ) {
 			$lines[] = 'grestore';
 			return;
 		}
@@ -272,7 +277,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Append font-independent text outlines from a TrueType font file. */
-	private static function append_eps_ttf_text_outline( array &$lines, string $text, string $align, float $anchor_x, float $baseline_pt, float $font_size, string $font_path, ?float $box_y_pt = null, ?float $box_h_pt = null ): bool {
+	private static function append_eps_ttf_text_outline( array &$lines, string $text, string $align, float $anchor_x, float $baseline_pt, float $font_size, string $font_path, ?float $box_x_pt = null, ?float $box_y_pt = null, ?float $box_w_pt = null, ?float $box_h_pt = null ): bool {
 		$outline = self::ttf_text_outline( $font_path, $text, $font_size );
 		if ( ! is_array( $outline ) || empty( $outline['commands'] ) ) {
 			return false;
@@ -281,23 +286,42 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$width    = (float) ( $outline['width'] ?? 0.0 );
 		$origin_y = $baseline_pt;
 		$bbox     = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : null;
+		$fit_scale = 1.0;
+		$glyph_h   = $bbox ? (float) $bbox[3] - (float) $bbox[1] : 0.0;
+		if ( null !== $box_w_pt && $box_w_pt > 0.0 && $width > $box_w_pt ) {
+			$fit_scale = min( $fit_scale, $box_w_pt / $width );
+		}
+		if ( null !== $box_h_pt && $box_h_pt > 0.0 && $glyph_h > $box_h_pt ) {
+			$fit_scale = min( $fit_scale, $box_h_pt / $glyph_h );
+		}
+		$fit_scale = max( 0.01, min( 1.0, $fit_scale ) );
+
 		if ( null !== $box_y_pt && null !== $box_h_pt && $bbox ) {
-			$glyph_h = (float) $bbox[3] - (float) $bbox[1];
 			if ( $glyph_h > 0.0 ) {
-				$origin_y = $box_y_pt + ( $box_h_pt - $glyph_h ) / 2 - (float) $bbox[1];
+				$origin_y = $box_y_pt + ( $box_h_pt - $glyph_h * $fit_scale ) / 2 - (float) $bbox[1] * $fit_scale;
 			}
 		}
+		$fitted_width = $width * $fit_scale;
 		$origin_x = match ( $align ) {
-			'right' => $anchor_x - $width,
+			'right' => $anchor_x - $fitted_width,
 			'left'  => $anchor_x,
-			default => $anchor_x - $width / 2,
+			default => $anchor_x - $fitted_width / 2,
 		};
+		if ( null !== $box_x_pt && null !== $box_w_pt && 'center' === $align ) {
+			$origin_x = $box_x_pt + ( $box_w_pt - $fitted_width ) / 2;
+		}
 
 		$lines[] = '%%OCTextOutline: glyph-paths';
 		$lines[] = '%%OCTextFontFile: ' . self::eps_comment( basename( $font_path ) );
-		$lines[] = sprintf( '%%OCTextAdvance: %.4F', $width );
+		$lines[] = sprintf( '%%%%OCTextAdvance: %.4F', $fitted_width );
+		if ( $fit_scale < 0.9999 ) {
+			$lines[] = sprintf( '%%%%OCTextFitScale: %.6F', $fit_scale );
+		}
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F translate', $origin_x, $origin_y );
+		if ( $fit_scale < 0.9999 ) {
+			$lines[] = sprintf( '%.8F %.8F scale', $fit_scale, $fit_scale );
+		}
 		$lines[] = 'newpath';
 		array_push( $lines, ...$outline['commands'] );
 		$lines[] = 'fill';

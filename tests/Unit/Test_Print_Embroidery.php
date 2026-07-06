@@ -90,12 +90,14 @@ class Test_Print_Embroidery extends TestCase {
 
 		$lines  = [];
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_ttf_text_outline' );
-		$ok     = $method->invokeArgs( null, [ &$lines, 'Tellaasd', 'left', 0.0, 439.0, 72.0, $font_path, -50.0, 100.0 ] );
+		$ok     = $method->invokeArgs( null, [ &$lines, 'Tellaasd', 'left', 0.0, 439.0, 72.0, $font_path, -50.0, -50.0, 100.0, 100.0 ] );
 
 		$output = implode( "\n", $lines );
 		$this->assertTrue( $ok );
 		$this->assertStringContainsString( '%%OCTextOutline: glyph-paths', $output );
 		$this->assertStringContainsString( '%%OCTextFontFile: DejaVuSans.ttf', $output );
+		$this->assertStringContainsString( '%%OCTextFitScale:', $output );
+		$this->assertMatchesRegularExpression( '/0\.[0-9]+ 0\.[0-9]+ scale/', $output );
 		$this->assertStringContainsString( 'curveto', $output );
 		$this->assertStringContainsString( 'fill', $output );
 		$this->assertStringNotContainsString( '0.0000 439.0000 translate', $output );
@@ -136,6 +138,46 @@ class Test_Print_Embroidery extends TestCase {
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '141.7323 70.8661 translate', $output );
 		$this->assertStringContainsString( '/Helvetica findfont 56.6929 scalefont setfont', $output );
+	}
+
+	#[Test]
+	public function layer_export_paints_top_layers_last(): void {
+		$lines = [];
+		$area  = (object) [
+			'canvas_unit' => 'px',
+			'canvas_x'    => 0,
+			'canvas_y'    => 0,
+			'canvas_w'    => 100,
+			'canvas_h'    => 100,
+		];
+		$data  = [
+			'text'   => '',
+			'bounds' => [ 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 100, 'rotation' => 0 ],
+			'layers' => [
+				[
+					'type'  => 'lineart',
+					'x'     => 0,
+					'y'     => 0,
+					'w'     => 50,
+					'h'     => 50,
+					'input' => [ 'colorHex' => '#111111' ],
+				],
+				[
+					'type'  => 'lineart',
+					'x'     => 50,
+					'y'     => 50,
+					'w'     => 50,
+					'h'     => 50,
+					'input' => [ 'colorHex' => '#222222' ],
+				],
+			],
+		];
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' );
+		$method->invokeArgs( null, [ &$lines, $area, $data ] );
+
+		$output = implode( "\n", $lines );
+		$this->assertLessThan( strpos( $output, '%%OCLineartColor: #111111' ), strpos( $output, '%%OCLineartColor: #222222' ) );
 	}
 
 	#[Test]
