@@ -1362,11 +1362,11 @@ class OCCustomiser {
 				scaleX: s, scaleY: s, angle, selectable: false, evented: false } );
 
 			const filters = [];
-			if ( makeWhiteTransparent ) {
+			if ( makeWhiteTransparent || isEngraving ) {
 				filters.push(
 					new FabricFilters.RemoveColor( {
 						color: '#FFFFFF',
-						distance: 0.1,
+						distance: isEngraving ? 0.18 : 0.1,
 					} )
 				);
 			}

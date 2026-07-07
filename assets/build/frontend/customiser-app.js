@@ -26313,10 +26313,10 @@ class OCCustomiser {
         evented: false
       });
       const filters = [];
-      if (makeWhiteTransparent) {
+      if (makeWhiteTransparent || isEngraving) {
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.RemoveColor({
           color: '#FFFFFF',
-          distance: 0.1
+          distance: isEngraving ? 0.18 : 0.1
         }));
       }
       if (tintColor && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor) {
