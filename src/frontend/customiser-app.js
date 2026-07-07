@@ -506,14 +506,20 @@ class OCCustomiser {
 		if ( ! form || form._ocVariationGalleryHandoffBound ) return;
 
 		form._ocVariationGalleryHandoffBound = true;
+		const getSelectedVariationId = () => parseInt( form.querySelector( 'input.variation_id' )?.value || '0', 10 ) || 0;
 		const releasePreviewLock = () => {
 			this._focusPreviewSlide = false;
 			this._tvpgPreviewLocked = false;
+		};
+		const handleVariationChange = variation => {
+			releasePreviewLock();
+			this.switchProductVariation( parseInt( variation?.variation_id || getSelectedVariationId(), 10 ) || 0 );
 		};
 
 		form.addEventListener( 'change', event => {
 			if ( event.target.closest( '.variations, [name^="attribute_"]' ) ) {
 				releasePreviewLock();
+				setTimeout( () => this.switchProductVariation( getSelectedVariationId() ), 0 );
 			}
 		} );
 
@@ -522,21 +528,24 @@ class OCCustomiser {
 			releasePreviewLock();
 			this.switchProductVariation( 0 );
 		} );
-		window.jQuery?.( form ).on?.( 'found_variation', ( event, variation ) => {
-			releasePreviewLock();
-			this.switchProductVariation( parseInt( variation?.variation_id || form.querySelector( 'input.variation_id' )?.value || '0', 10 ) );
-		} );
+		window.jQuery?.( form ).on?.( 'found_variation show_variation', ( event, variation ) => handleVariationChange( variation ) );
+
+		const initialVariationId = getSelectedVariationId();
+		if ( initialVariationId ) {
+			this.switchProductVariation( initialVariationId );
+		}
 	}
 
 	async switchProductVariation( variationId ) {
-		if ( this.editMode || ! this.data.productDesignUrl ) return;
+		if ( this.editMode ) return;
 
 		const key = String( Math.max( 0, parseInt( variationId, 10 ) || 0 ) );
 		const requestSeq = ++this._variationRequestSeq;
 		let state = this.productVariationStates[ key ];
 
 		if ( ! state ) {
-			const url = new URL( this.data.productDesignUrl, window.location.origin );
+			const designUrl = this.data.productDesignUrl || `${ window.location.origin }/wp-json/overcustomise/v1/product-design/${ this.data.productId || 0 }`;
+			const url = new URL( designUrl, window.location.origin );
 			url.searchParams.set( 'variant_id', key );
 
 			try {
@@ -624,26 +633,6 @@ class OCCustomiser {
 			evented: false,
 		} );
 		canvas.add( mockupImg );
-
-		// Keep the bounds object in the canvas stack for stable Fabric clipping/export,
-		// but do not render the guide in the customer-facing preview.
-		const b = displayBounds( bounds );
-		if ( b && b.w > 0 ) {
-			canvas.add( new Rect( {
-				left: ( b.x + b.w / 2 ) * scaleX,
-				top: ( b.y + b.h / 2 ) * scaleX,
-				originX: 'center',
-				originY: 'center',
-				angle: Number( b.rotation ) || 0,
-				width: b.w * scaleX,
-				height: b.h * scaleX,
-				fill: 'rgba(255,255,255,0)',
-				stroke: 'rgba(255,255,255,0)',
-				strokeWidth: 1.5,
-				selectable: false,
-				evented: false,
-			} ) );
-		}
 
 		canvas._ocScaleX = scaleX;
 		canvas._ocArea   = area;
