@@ -37,11 +37,14 @@ foreach ( $layers as $layer ) {
 			<div class="oc-control-group">
 				<label><?php esc_html_e( 'Artwork Option', 'overcustomise' ); ?></label>
 				<div class="oc-design-variant-grid">
-					<?php foreach ( $design_variants as $i => $variant ) : ?>
+					<?php $has_selected_design_variant = ! empty( array_filter( $design_variants, fn( $item ) => ! empty( $item['selected'] ) ) ); ?>
+					<?php foreach ( $design_variants as $i => $variant ) :
+						$is_selected = ! empty( $variant['selected'] ) || ( 0 === $i && ! $has_selected_design_variant );
+						?>
 						<button type="button"
-							class="oc-design-variant-option<?php echo 0 === $i ? ' oc-selected' : ''; ?>"
+							class="oc-design-variant-option<?php echo $is_selected ? ' oc-selected' : ''; ?>"
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
-							aria-pressed="<?php echo 0 === $i ? 'true' : 'false'; ?>"
+							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
 							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
 							<img src="<?php echo esc_url( $variant['thumbUrl'] ); ?>" alt="" loading="lazy" />
 							<span><?php echo esc_html( $variant['label'] ); ?></span>

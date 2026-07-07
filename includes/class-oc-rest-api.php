@@ -887,12 +887,9 @@ class OC_Rest_API {
 			$baseurl = isset( $uploads['baseurl'] ) ? rtrim( (string) $uploads['baseurl'], '/' ) : '';
 			$sanitized_url = esc_url_raw( $preview_url );
 			if ( '' !== $sanitized_url && '' !== $baseurl ) {
-				$expected_prefix = $baseurl . '/overcustomise/previews/preview-';
-				if ( 0 === strpos( $sanitized_url, $expected_prefix ) ) {
-					$path = wp_parse_url( $sanitized_url, PHP_URL_PATH );
-					if ( is_string( $path ) && preg_match( '#/overcustomise/previews/preview-[a-f0-9]{32}\.(?:png|jpe?g)$#i', $path ) ) {
-						$cart->cart_contents[ $cart_key ]['_oc_preview_url'] = $sanitized_url;
-					}
+				$path = wp_parse_url( $sanitized_url, PHP_URL_PATH );
+				if ( is_string( $path ) && preg_match( '#/overcustomise/previews/(preview-[a-f0-9]{32}\.(?:png|jpe?g))$#i', $path, $matches ) ) {
+					$cart->cart_contents[ $cart_key ]['_oc_preview_url'] = $baseurl . '/overcustomise/previews/' . $matches[1];
 				}
 			}
 		}

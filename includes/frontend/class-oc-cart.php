@@ -286,17 +286,12 @@ class OC_Cart {
 			return '';
 		}
 
-		$expected_prefix = $baseurl . '/overcustomise/previews/preview-';
-		if ( 0 !== strpos( $sanitised_url, $expected_prefix ) ) {
-			return '';
-		}
-
 		$path = wp_parse_url( $sanitised_url, PHP_URL_PATH );
-		if ( ! is_string( $path ) || ! preg_match( '#/overcustomise/previews/preview-[a-f0-9]{32}\.(?:png|jpe?g)$#i', $path ) ) {
+		if ( ! is_string( $path ) || ! preg_match( '#/overcustomise/previews/(preview-[a-f0-9]{32}\.(?:png|jpe?g))$#i', $path, $matches ) ) {
 			return '';
 		}
 
-		return $sanitised_url;
+		return $baseurl . '/overcustomise/previews/' . $matches[1];
 	}
 
 	/** Sanitise browser-captured per-area SVG snapshots before storing in cart/order meta. */

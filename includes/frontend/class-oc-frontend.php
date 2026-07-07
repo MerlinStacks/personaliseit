@@ -15,6 +15,7 @@ class OC_Frontend {
 	private array   $areas  = [];
 	private array   $layers = [];
 	private array   $design_variants = [];
+	private string  $selected_design_variant = '';
 	private ?array  $edit_cart_item = null;
 
 	public function register(): void {
@@ -80,9 +81,24 @@ class OC_Frontend {
 			return;
 		}
 
-		$design = OC_DB::get_design( (int) $assignment->design_id );
+		$selected_design_id = (int) $assignment->design_id;
+		$requested_variant  = isset( $_GET['oc_design_variant'] ) ? sanitize_key( wp_unslash( $_GET['oc_design_variant'] ) ) : '';
+		if ( '' !== $requested_variant ) {
+			$decoded = json_decode( (string) ( $assignment->design_variants ?? '' ), true );
+			if ( is_array( $decoded ) ) {
+				foreach ( $decoded as $item ) {
+					$variant_design_id = absint( $item['designId'] ?? 0 );
+					if ( $variant_design_id && 'design-' . $variant_design_id === $requested_variant ) {
+						$selected_design_id = $variant_design_id;
+						break;
+					}
+				}
+			}
+		}
+
+		$design = OC_DB::get_design( $selected_design_id );
 		if ( ! $design ) {
-			OC_Logger::warning( "OC Frontend: design {$assignment->design_id} not found." );
+			OC_Logger::warning( "OC Frontend: design {$selected_design_id} not found." );
 			return;
 		}
 		if ( ! (bool) $design->active ) {
@@ -99,7 +115,8 @@ class OC_Frontend {
 		$this->design = $design;
 		$this->areas  = $areas;
 		$this->layers = OC_DB::get_design_layers( (int) $design->id );
-		$this->design_variants = $this->build_design_variants( $assignment->design_variants ?? '' );
+		$this->design_variants = $this->build_design_variants( (string) ( $assignment->design_variants ?? '' ), (int) $assignment->design_id, (int) $design->id );
+		$this->selected_design_variant = 'design-' . (int) $design->id;
 	}
 
 	/**
@@ -333,6 +350,7 @@ class OC_Frontend {
 			'designId'        => (int) $this->design->id,
 			'designName'      => $this->design->name,
 			'designVariants'  => $this->design_variants,
+			'selectedDesignVariant' => $this->selected_design_variant,
 			'flatRate'        => (float) $this->design->flat_rate,
 			'areas'           => $areas_js,
 			'fonts'           => $all_fonts,
@@ -355,56 +373,56 @@ class OC_Frontend {
 		];
 	}
 
-	/** Build frontend-safe design variant options from assignment JSON. */
-	private function build_design_variants( string $variants_json ): array {
-		$first_area = $this->areas[0] ?? null;
-		if ( ! $first_area || empty( $first_area->mockup_attachment_id ) ) {
-			return [];
+	/** Build frontend-safe alternate design options from assignment JSON. */
+	private function build_design_variants( string $variants_json, int $default_design_id, int $selected_design_id ): array {
+		$options = [];
+		$default_option = $this->build_design_variant_option( $default_design_id, '', $selected_design_id );
+		if ( $default_option ) {
+			$options[] = $default_option;
 		}
-
-		$default_src = wp_get_attachment_image_src( (int) $first_area->mockup_attachment_id, 'large' );
-		if ( ! $default_src ) {
-			return [];
-		}
-
-		$options = [
-			[
-				'id'           => 'default',
-				'label'        => $this->design->name ?: __( 'Option 1', 'overcustomise' ),
-				'attachmentId' => (int) $first_area->mockup_attachment_id,
-				'mockupUrl'    => $default_src[0],
-				'mockupW'      => (int) $default_src[1],
-				'mockupH'      => (int) $default_src[2],
-				'thumbUrl'     => wp_get_attachment_image_url( (int) $first_area->mockup_attachment_id, 'thumbnail' ) ?: $default_src[0],
-			],
-		];
 
 		$decoded = json_decode( $variants_json, true );
 		if ( ! is_array( $decoded ) ) {
-			return [];
+			return count( $options ) > 1 ? $options : [];
 		}
 
-		foreach ( $decoded as $index => $item ) {
-			$attachment_id = absint( $item['attachmentId'] ?? 0 );
-			if ( ! $attachment_id ) {
+		foreach ( $decoded as $item ) {
+			$design_id = absint( $item['designId'] ?? 0 );
+			if ( ! $design_id || $design_id === $default_design_id ) {
 				continue;
 			}
-			$src = wp_get_attachment_image_src( $attachment_id, 'large' );
-			if ( ! $src ) {
-				continue;
+			$option = $this->build_design_variant_option( $design_id, (string) ( $item['label'] ?? '' ), $selected_design_id );
+			if ( $option ) {
+				$options[] = $option;
 			}
-			$options[] = [
-				'id'           => 'variant-' . $attachment_id,
-				'label'        => sanitize_text_field( (string) ( $item['label'] ?? '' ) ) ?: sprintf( __( 'Option %d', 'overcustomise' ), count( $options ) + 1 ),
-				'attachmentId' => $attachment_id,
-				'mockupUrl'    => $src[0],
-				'mockupW'      => (int) $src[1],
-				'mockupH'      => (int) $src[2],
-				'thumbUrl'     => wp_get_attachment_image_url( $attachment_id, 'thumbnail' ) ?: $src[0],
-			];
 		}
 
 		return count( $options ) > 1 ? $options : [];
+	}
+
+	/** Build one selectable design option from a design's first mockup image. */
+	private function build_design_variant_option( int $design_id, string $label, int $selected_design_id ): ?array {
+		$design = OC_DB::get_design( $design_id );
+		if ( ! $design || ! (bool) $design->active ) {
+			return null;
+		}
+		$areas = OC_DB::get_design_print_areas( $design_id );
+		$area  = $areas[0] ?? null;
+		if ( ! $area || empty( $area->mockup_attachment_id ) ) {
+			return null;
+		}
+		$src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
+		if ( ! $src ) {
+			return null;
+		}
+
+		return [
+			'id'       => 'design-' . $design_id,
+			'designId' => $design_id,
+			'label'    => sanitize_text_field( $label ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
+			'thumbUrl' => wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: $src[0],
+			'selected' => $design_id === $selected_design_id,
+		];
 	}
 
 	/** Load clipart items for all clipart layers. */

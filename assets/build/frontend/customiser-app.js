@@ -25069,7 +25069,7 @@ class OCCustomiser {
       this.layersById[layer.id] = layer;
     }));
     this.designVariants = data.designVariants || [];
-    this.selectedDesignVariant = this.designVariants[0]?.id || '';
+    this.selectedDesignVariant = data.selectedDesignVariant || this.designVariants[0]?.id || '';
     this.activeArea = 0;
 
     // Deep-clone mutable per-layer inputs; keys are integer layer IDs.
@@ -26552,28 +26552,12 @@ class OCCustomiser {
   setupDesignVariantOptions() {
     if (!this.designVariants.length) return;
     document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', () => {
         const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
         if (!variant || variant.id === this.selectedDesignVariant) return;
-        this.selectedDesignVariant = variant.id;
-        document.querySelectorAll('[data-oc-design-variant]').forEach(option => {
-          const isSelected = option === btn;
-          option.classList.toggle('oc-selected', isSelected);
-          option.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-        });
-        if (this.areas[0]) {
-          this.areas[0].mockupUrl = variant.mockupUrl;
-          this.areas[0].mockupW = variant.mockupW;
-          this.areas[0].mockupH = variant.mockupH;
-          const previewImg = document.getElementById('oc-canvas-preview');
-          if (previewImg) {
-            previewImg.src = variant.mockupUrl;
-            previewImg.srcset = '';
-          }
-          this.requestPreviewFocus();
-          await this.rebuildCanvas(0);
-        }
-        this.updateHiddenField();
+        const url = new URL(window.location.href);
+        url.searchParams.set('oc_design_variant', variant.id);
+        window.location.href = url.toString();
       });
     });
   }

@@ -278,6 +278,28 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 		WC()->cart->empty_cart();
 
+		$mismatched_scheme_url = set_url_scheme( $allowed_url, 'https' );
+		if ( $mismatched_scheme_url === $allowed_url ) {
+			$mismatched_scheme_url = set_url_scheme( $allowed_url, 'http' );
+		}
+
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'v'          => 2,
+			'designId'   => $design_id,
+			'previewUrl' => $mismatched_scheme_url,
+			'layers'     => [
+				$layer_id => [
+					'type'  => 'text',
+					'value' => 'Alex',
+				],
+			],
+		] );
+		$key_normalised  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$item_normalised = WC()->cart->get_cart_item( $key_normalised );
+		$this->assertSame( $allowed_url, $item_normalised['_oc_preview_url'] ?? '' );
+
+		WC()->cart->empty_cart();
+
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'v'          => 2,
 			'designId'   => $design_id,

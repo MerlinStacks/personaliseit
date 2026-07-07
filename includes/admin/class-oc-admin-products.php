@@ -60,13 +60,14 @@ class OC_Admin_Products {
 
 		$variants = [];
 		foreach ( $decoded as $item ) {
-			$attachment_id = absint( $item['attachmentId'] ?? 0 );
-			if ( ! $attachment_id ) {
+			$design_id = absint( $item['designId'] ?? 0 );
+			$design    = $design_id ? OC_DB::get_design( $design_id ) : null;
+			if ( ! $design || ! (bool) $design->active ) {
 				continue;
 			}
 			$variants[] = [
-				'label'        => sanitize_text_field( (string) ( $item['label'] ?? '' ) ),
-				'attachmentId' => $attachment_id,
+				'designId' => $design_id,
+				'label'    => sanitize_text_field( (string) ( $item['label'] ?? '' ) ),
 			];
 		}
 
@@ -269,7 +270,7 @@ class OC_Admin_Products {
 											<?php $this->render_design_select( $designs, $pid, 0, (int) $parent_assignment['design_id'] ); ?>
 											<small style="color:var(--oc-gray-500);display:block;margin-top:3px;font-size:11px;"><?php esc_html_e( 'All variants (default)', 'overcustomise' ); ?></small>
 										</td>
-										<td><?php $this->render_design_variants_control( $pid, 0, $parent_assignment['design_variants'] ?? '' ); ?></td>
+										<td><?php $this->render_design_variants_control( $designs, $pid, 0, $parent_assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 									<!-- One row per variant -->
@@ -288,7 +289,7 @@ class OC_Admin_Products {
 											<td>
 												<?php $this->render_design_select( $designs, $pid, $vid, (int) $vassignment['design_id'] ); ?>
 											</td>
-											<td><?php $this->render_design_variants_control( $pid, $vid, $vassignment['design_variants'] ?? '' ); ?></td>
+											<td><?php $this->render_design_variants_control( $designs, $pid, $vid, $vassignment['design_variants'] ?? '' ); ?></td>
 											<td><span class="oc-assign-status" aria-live="polite"></span></td>
 										</tr>
 									<?php endforeach; ?>
@@ -303,7 +304,7 @@ class OC_Admin_Products {
 										<td>
 											<?php $this->render_design_select( $designs, $pid, 0, (int) $assignment['design_id'] ); ?>
 										</td>
-										<td><?php $this->render_design_variants_control( $pid, 0, $assignment['design_variants'] ?? '' ); ?></td>
+										<td><?php $this->render_design_variants_control( $designs, $pid, 0, $assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 								<?php endif; ?>
@@ -378,8 +379,9 @@ class OC_Admin_Products {
 				var data = parseVariants( box );
 				list.innerHTML = data.map( function ( item, i ) {
 					return '<div class="oc-design-variant-admin-item" data-index="' + i + '" style="display:flex;gap:6px;align-items:center;margin-bottom:6px;">' +
-						'<img src="' + escHtml( item.url ) + '" alt="" style="width:44px;height:44px;object-fit:contain;border:1px solid #ddd;background:#fff;" />' +
+						( item.thumbUrl ? '<img src="' + escHtml( item.thumbUrl ) + '" alt="" style="width:44px;height:44px;object-fit:contain;border:1px solid #ddd;background:#fff;" />' : '' ) +
 						'<input type="text" class="oc-input oc-design-variant-label" value="' + escHtml( item.label ) + '" placeholder="Option label" style="width:120px;" />' +
+						'<span class="oc-code">#' + escHtml( item.designId ) + '</span>' +
 						'<button type="button" class="button oc-design-variant-remove">Remove</button>' +
 					'</div>';
 				} ).join( '' );
@@ -418,18 +420,16 @@ class OC_Admin_Products {
 						saveVariants( box );
 					}
 					if ( e.target.classList.contains( 'oc-design-variant-add' ) ) {
-						var frame = wp.media( { title: 'Choose design variant image', button: { text: 'Use image' }, multiple: true } );
-						frame.on( 'select', function () {
-							var data = parseVariants( box );
-							frame.state().get( 'selection' ).each( function ( attachment ) {
-								var a = attachment.toJSON();
-								data.push( { label: a.title || '', attachmentId: a.id, url: ( a.sizes && a.sizes.thumbnail ? a.sizes.thumbnail.url : a.url ) } );
-							} );
-							box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
-							renderVariants( box );
-							saveVariants( box );
-						} );
-						frame.open();
+						var select = box.querySelector( '.oc-design-variant-design-select' );
+						var designId = parseInt( select.value || '0', 10 );
+						if ( ! designId ) return;
+						var selected = select.options[ select.selectedIndex ];
+						var data = parseVariants( box );
+						if ( data.some( function ( item ) { return parseInt( item.designId, 10 ) === designId; } ) ) return;
+						data.push( { designId: designId, label: selected.text, thumbUrl: selected.dataset.thumbUrl || '' } );
+						box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
+						renderVariants( box );
+						saveVariants( box );
 					}
 				} );
 				box.addEventListener( 'change', function ( e ) {
@@ -466,28 +466,44 @@ class OC_Admin_Products {
 		<?php
 	}
 
-	/** Render per-assignment design variant image controls. */
-	private function render_design_variants_control( int $product_id, int $variant_id, string $variants_json ): void {
+	/** Render per-assignment alternate design controls. */
+	private function render_design_variants_control( array $designs, int $product_id, int $variant_id, string $variants_json ): void {
 		$variants = json_decode( $variants_json, true );
 		if ( ! is_array( $variants ) ) {
 			$variants = [];
 		}
 
 		$variants = array_values( array_filter( array_map( function ( $item ) {
-			$attachment_id = absint( $item['attachmentId'] ?? 0 );
-			if ( ! $attachment_id ) {
+			$design_id = absint( $item['designId'] ?? 0 );
+			$design    = $design_id ? OC_DB::get_design( $design_id ) : null;
+			if ( ! $design || ! (bool) $design->active ) {
 				return null;
 			}
+			$areas = OC_DB::get_design_print_areas( $design_id );
+			$area  = $areas[0] ?? null;
+			$thumb = $area && ! empty( $area->mockup_attachment_id ) ? wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) : '';
 			return [
-				'label'        => sanitize_text_field( (string) ( $item['label'] ?? '' ) ),
-				'attachmentId' => $attachment_id,
-				'url'          => wp_get_attachment_image_url( $attachment_id, 'thumbnail' ) ?: '',
+				'designId' => $design_id,
+				'label'    => sanitize_text_field( (string) ( $item['label'] ?? '' ) ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
+				'thumbUrl' => $thumb ?: '',
 			];
 		}, $variants ) ) );
 		?>
 		<div class="oc-design-variants-admin" data-product-id="<?php echo esc_attr( $product_id ); ?>" data-variant-id="<?php echo esc_attr( $variant_id ); ?>">
 			<input type="hidden" class="oc-design-variants-data" value="<?php echo esc_attr( wp_json_encode( $variants ) ); ?>" />
 			<div class="oc-design-variants-list"></div>
+			<select class="oc-select oc-design-variant-design-select" style="max-width:180px;">
+				<option value="0"><?php esc_html_e( 'Choose design…', 'overcustomise' ); ?></option>
+				<?php foreach ( $designs as $design ) :
+					$areas = OC_DB::get_design_print_areas( (int) $design->id );
+					$area  = $areas[0] ?? null;
+					$thumb = $area && ! empty( $area->mockup_attachment_id ) ? wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) : '';
+					?>
+					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ?: '' ); ?>">
+						<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
+					</option>
+				<?php endforeach; ?>
+			</select>
 			<button type="button" class="button oc-design-variant-add"><?php esc_html_e( 'Add variant', 'overcustomise' ); ?></button>
 			<span class="oc-design-variants-status" style="margin-left:6px;color:var(--oc-gray-500);font-size:11px;" aria-live="polite"></span>
 		</div>
