@@ -411,6 +411,7 @@ class OC_Print_Generator {
 		$area->canvas_y        = (float) ( $bounds['y'] ?? $current_area->canvas_y ?? 0 );
 		$area->canvas_w        = (float) ( $bounds['w'] ?? $current_area->canvas_w ?? 1 );
 		$area->canvas_h        = (float) ( $bounds['h'] ?? $current_area->canvas_h ?? 1 );
+		$area->canvas_dpi      = (int) ( $bounds['dpi'] ?? $current_area->canvas_dpi ?? 300 );
 		$area->canvas_rotation = (float) ( $bounds['rotation'] ?? $current_area->canvas_rotation ?? 0 );
 
 		return $area;

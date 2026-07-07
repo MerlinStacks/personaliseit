@@ -26055,14 +26055,13 @@ class OCCustomiser {
     });
   }
   unitPxScale(bounds) {
-    const dpi = Math.min(1200, Math.max(1, Math.round(Number(bounds?.dpi) || 300)));
     switch (bounds?.unit) {
       case 'mm':
-        return dpi / 25.4;
+        return 300 / 25.4;
       case 'cm':
-        return dpi / 2.54;
+        return 300 / 2.54;
       case 'in':
-        return dpi;
+        return 300;
       default:
         return 1;
     }

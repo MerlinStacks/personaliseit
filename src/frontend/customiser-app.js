@@ -1098,11 +1098,10 @@ class OCCustomiser {
 	}
 
 	unitPxScale( bounds ) {
-		const dpi = Math.min( 1200, Math.max( 1, Math.round( Number( bounds?.dpi ) || 300 ) ) );
 		switch ( bounds?.unit ) {
-			case 'mm': return dpi / 25.4;
-			case 'cm': return dpi / 2.54;
-			case 'in': return dpi;
+			case 'mm': return 300 / 25.4;
+			case 'cm': return 300 / 2.54;
+			case 'in': return 300;
 			default: return 1;
 		}
 	}
