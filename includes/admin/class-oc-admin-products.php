@@ -581,6 +581,13 @@ class OC_Admin_Products {
 												<?php esc_html_e( 'Edit', 'overcustomise' ); ?>
 											</a>
 											<a href="<?php echo esc_url( wp_nonce_url(
+												admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=duplicate&id=' . (int) $design->id ),
+												'oc_duplicate_design_' . $design->id
+											) ); ?>"
+											   class="oc-btn oc-btn-secondary oc-btn-sm">
+												<?php esc_html_e( 'Clone', 'overcustomise' ); ?>
+											</a>
+											<a href="<?php echo esc_url( wp_nonce_url(
 												admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=delete&id=' . (int) $design->id ),
 												'oc_delete_design_' . $design->id
 											) ); ?>"
@@ -1134,17 +1141,20 @@ class OC_Admin_Products {
 					'area_key'             => $area->area_key,
 					'label'                => $area->label,
 					'print_method'         => $area->print_method,
+					'engraving_material'   => $area->engraving_material ?? 'silver_metal',
+					'canvas_unit'          => $area->canvas_unit ?? 'px',
 					'mockup_attachment_id' => $area->mockup_attachment_id,
 					'canvas_x'             => $area->canvas_x,
 					'canvas_y'             => $area->canvas_y,
 					'canvas_w'             => $area->canvas_w,
 					'canvas_h'             => $area->canvas_h,
+					'canvas_dpi'           => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
 					'canvas_rotation'      => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
 					'sort_order'           => $area->sort_order,
 					'visible'              => $area->visible,
 					'locked'               => $area->locked,
 				],
-				[ '%d', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ]
+				[ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ]
 			);
 			$area_id_map[ (int) $area->id ] = (int) $wpdb->insert_id;
 		}
@@ -1173,6 +1183,8 @@ class OC_Admin_Products {
 				[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
 			);
 		}
+
+		$this->clear_design_cache( $new_id );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&duplicated=1' ) );
 		exit;
