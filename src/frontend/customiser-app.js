@@ -7,7 +7,7 @@
  * @package OverCustomise
  */
 
-import { StaticCanvas, FabricImage, FabricText, Rect, Circle, Shadow, Pattern, filters as FabricFilters } from 'fabric';
+import { StaticCanvas, FabricImage, FabricText, Textbox, Rect, Circle, Shadow, Pattern, filters as FabricFilters } from 'fabric';
 import { createFont } from 'fonteditor-core';
 import Uppy      from '@uppy/core';
 import DragDrop  from '@uppy/drag-drop';
@@ -657,8 +657,6 @@ class OCCustomiser {
 				// Engraving uses a fixed silver tone instead of a customer-selected colour.
 				const color = isEngraving ? engravingPalette.text : ( input.colorHex || layer.settings?.default_color || '#000000' );
 				const align = layer.settings?.alignment || 'center';
-				const alignOriginX = align === 'left' ? 'left' : ( align === 'right' ? 'right' : 'center' );
-				const alignLeft = align === 'left' ? lx : ( align === 'right' ? lx + lw : lcX );
 				if ( font ) {
 					try {
 						await this.loadFont( font );
@@ -675,10 +673,11 @@ class OCCustomiser {
 					? clampFontSize( displayFontSize( parseInt( configuredFontSize, 10 ), areaBounds, scale ), layer.settings )
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
-				const obj    = new FabricText( raw, {
-					left: alignLeft, top: lcY,
-					originX: alignOriginX, originY: 'center',
+				const obj    = new Textbox( raw, {
+					left: lcX, top: lcY,
+					originX: 'center', originY: 'center',
 					width: lw,
+					height: lh,
 					angle: rotation,
 					fontFamily: font?.name || 'sans-serif',
 					fontSize, fill: textFill, textAlign: align,
@@ -698,11 +697,12 @@ class OCCustomiser {
 					const threadLift = this.embroideryHighlightColor( color );
 					const threadShadow = this.embroideryShadowColor( color );
 
-					stitchPad = new FabricText( raw, {
-						left: alignLeft + Math.max( 0.45, fontSize * 0.015 ),
+					stitchPad = new Textbox( raw, {
+						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
-						originX: alignOriginX, originY: 'center',
+						originX: 'center', originY: 'center',
 						width: lw,
+						height: lh,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
 						fontSize,
@@ -716,11 +716,12 @@ class OCCustomiser {
 					stitchPad._ocContent = true;
 					canvas.add( stitchPad );
 
-					stitchLift = new FabricText( raw, {
-						left: alignLeft - Math.max( 0.25, fontSize * 0.006 ),
+					stitchLift = new Textbox( raw, {
+						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
-						originX: alignOriginX, originY: 'center',
+						originX: 'center', originY: 'center',
 						width: lw,
+						height: lh,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
 						fontSize,
@@ -754,7 +755,7 @@ class OCCustomiser {
 				}
 				if ( stitchPad ) {
 					stitchPad.set( {
-						left: alignLeft + Math.max( 0.45, fontSize * 0.015 ),
+						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
 						fontSize,
 					} );
@@ -762,7 +763,7 @@ class OCCustomiser {
 				}
 				if ( stitchLift ) {
 					stitchLift.set( {
-						left: alignLeft - Math.max( 0.25, fontSize * 0.006 ),
+						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
 						fontSize,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
