@@ -25398,6 +25398,7 @@ class OCCustomiser {
     const displayW = area.mockupW ? Math.min(area.mockupW, 1200) : Math.max(canvasEl.parentElement?.offsetWidth || 0, 600);
     if (!area.mockupUrl) {
       this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'No mockup set. Add one in the Design Editor.');
+      this.canvases[areaIndex]._ocMissingMockup = true;
       return;
     }
     let mockupImg;
@@ -25513,7 +25514,7 @@ class OCCustomiser {
       await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area);
     }
     canvas.renderAll();
-    if (areaIndex === this.activeArea) this.pushToGallery(canvas);
+    if (areaIndex === this.activeArea && !canvas._ocMissingMockup) this.pushToGallery(canvas);
   }
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
