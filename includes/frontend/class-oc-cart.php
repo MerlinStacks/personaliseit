@@ -127,6 +127,11 @@ class OC_Cart {
 			$design_id = absint( $decoded['designId'] ?? 0 );
 			if ( ! $design_id ) return $cart_item_data;
 
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+			if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
+				return $cart_item_data;
+			}
+
 			$design = OC_DB::get_design( $design_id );
 			if ( ! $design || ! (bool) $design->active ) return $cart_item_data;
 
@@ -156,7 +161,7 @@ class OC_Cart {
 			}
 
 			$sanitised_layers = [];
-			$fallback_font_id = self::first_active_font_id();
+			$fallback_font_id = OC_DB::get_first_active_font_id();
 			$posted_layer_inputs = [];
 			if ( isset( $_POST['oc_layer_inputs'] ) && is_array( $_POST['oc_layer_inputs'] ) ) {
 				$posted_layer_inputs = wp_unslash( $_POST['oc_layer_inputs'] );
@@ -226,7 +231,7 @@ class OC_Cart {
 
 			if ( empty( $sanitised_layers ) ) return $cart_item_data;
 
-			$snapshots = $this->sanitise_area_snapshots( is_array( $decoded['snapshots'] ?? null ) ? $decoded['snapshots'] : [] );
+			$snapshots = OC_DB::sanitise_area_snapshots( is_array( $decoded['snapshots'] ?? null ) ? $decoded['snapshots'] : [] );
 
 			$cart_item_data['_oc_customisation'] = [
 				'v'          => 2,
@@ -281,13 +286,6 @@ class OC_Cart {
 		return $cart_item_data;
 	}
 
-	private static function first_active_font_id(): int {
-		$fonts = OC_DB::get_fonts( true );
-		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
-
-		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
-	}
-
 	/** Ensure preview URLs point to plugin-generated preview files only. */
 	private function validate_preview_url( string $preview_url ): string {
 		$sanitised_url = esc_url_raw( $preview_url );
@@ -307,40 +305,6 @@ class OC_Cart {
 		}
 
 		return $baseurl . '/overcustomise/previews/' . $matches[1];
-	}
-
-	/** Sanitise browser-captured per-area SVG snapshots before storing in cart/order meta. */
-	private function sanitise_area_snapshots( array $snapshots ): array {
-		$clean = [];
-		foreach ( $snapshots as $area_key => $snapshot ) {
-			if ( ! is_array( $snapshot ) || ! is_string( $snapshot['svg'] ?? null ) ) {
-				continue;
-			}
-
-			$key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
-			if ( '' === $key || strlen( $snapshot['svg'] ) > 512 * 1024 ) {
-				continue;
-			}
-
-			try {
-				$svg = OC_SVG_Sanitiser::sanitise( $snapshot['svg'] );
-			} catch ( \InvalidArgumentException $e ) {
-				continue;
-			}
-
-			if ( '' === $svg ) {
-				continue;
-			}
-
-			$clean[ $key ] = [
-				'format' => sanitize_key( is_string( $snapshot['format'] ?? null ) ? $snapshot['format'] : 'fabric-svg-v1' ),
-				'unit'   => sanitize_key( is_string( $snapshot['unit'] ?? null ) ? $snapshot['unit'] : 'mockup_px' ),
-				'scale'  => isset( $snapshot['scale'] ) ? (float) $snapshot['scale'] : 1.0,
-				'svg'    => $svg,
-			];
-		}
-
-		return $clean;
 	}
 
 	// -------------------------------------------------------------------------

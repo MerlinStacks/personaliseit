@@ -16,6 +16,10 @@ class OC_Blocks_Integration {
 	public function register(): void {
 		add_action( 'woocommerce_blocks_loaded',  [ $this, 'register_store_api_extension' ] );
 		add_action( 'wp_enqueue_scripts',         [ $this, 'enqueue_blocks_script' ] );
+
+		if ( did_action( 'woocommerce_blocks_loaded' ) ) {
+			$this->register_store_api_extension();
+		}
 	}
 
 	// ── Store API extension ───────────────────────────────────────────────────

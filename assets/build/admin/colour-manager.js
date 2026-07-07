@@ -480,4 +480,3 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 /******/ })()
 ;
-//# sourceMappingURL=colour-manager.js.map

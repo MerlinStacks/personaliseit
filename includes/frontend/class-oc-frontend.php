@@ -75,7 +75,7 @@ class OC_Frontend {
 
 		$product_id = (int) get_queried_object_id();
 
-		$assignment = $this->get_assignment( $product_id );
+		$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
 		if ( ! $assignment ) {
 			OC_Logger::info( "OC Frontend: no design assignment for product {$product_id}." );
 			return;
@@ -117,65 +117,6 @@ class OC_Frontend {
 		$this->layers = OC_DB::get_design_layers( (int) $design->id );
 		$this->design_variants = $this->build_design_variants( (string) ( $assignment->design_variants ?? '' ), (int) $assignment->design_id, (int) $design->id );
 		$this->selected_design_variant = 'design-' . (int) $design->id;
-	}
-
-	/**
-	 * Look up a product → design assignment.
-	 * Priority: variant-specific → parent-level → first variant with any assignment.
-	 *
-	 * @param int $product_id  Parent or variation product ID.
-	 * @param int $variant_id  0 = unknown / page load; >0 = specific variant chosen via JS.
-	 */
-	private function get_assignment( int $product_id, int $variant_id = 0 ): ?object {
-		global $wpdb;
-
-		$product = wc_get_product( $product_id );
-		if ( ! $product ) return null;
-
-		// Resolve parent + variant IDs regardless of which was passed.
-		if ( $product->is_type( 'variation' ) ) {
-			$variant_id = $product_id;
-			$product_id = $product->get_parent_id();
-		}
-
-		// 1. Variant-specific assignment (exact match).
-		if ( $variant_id > 0 ) {
-			$row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_product_assignments
-				 WHERE product_id = %d AND variant_id = %d LIMIT 1",
-				$product_id, $variant_id
-			) );
-			if ( $row ) return $row;
-		}
-
-		// 2. Parent-level assignment (covers all variants).
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_product_assignments
-			 WHERE product_id = %d AND variant_id = 0 LIMIT 1",
-			$product_id
-		) );
-		if ( $row ) return $row;
-
-		// 3. For a variable product with no parent-level assignment, fall back to
-		//    any variant's assignment so the customiser still appears on page load.
-		if ( $product->is_type( 'variable' ) || ( $product_id !== (int) get_queried_object_id() ) ) {
-			$variation_ids = wc_get_product( $product_id )?->get_children() ?? [];
-			if ( ! empty( $variation_ids ) ) {
-				$phs = implode( ',', array_fill( 0, count( $variation_ids ), '%d' ) );
-				$row = $wpdb->get_row(
-					$wpdb->prepare(
-						"SELECT * FROM {$wpdb->prefix}oc_product_assignments
-						 WHERE product_id = %d AND variant_id IN ($phs)
-						 ORDER BY variant_id ASC LIMIT 1",
-						$product_id,
-						...$variation_ids
-					)
-				);
-				if ( $row ) return $row;
-			}
-		}
-
-		return null;
 	}
 
 	// ── Assets ────────────────────────────────────────────────────────────────
@@ -234,6 +175,7 @@ class OC_Frontend {
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
 		$state['updateCartItemUrl']     = rest_url( 'overcustomise/v1/update-cart-item' );
+		$state['productId']             = (int) get_queried_object_id();
 		$state['uploadNonce']           = wp_create_nonce( 'wp_rest' );
 		$state['requestToken']          = OC_Rest_API::issue_public_token();
 		$state['maxUploadSizeMb']       = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;

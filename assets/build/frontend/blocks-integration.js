@@ -100,6 +100,9 @@ const getPreviewUrl = extensions => {
   const previewUrl = extensions?.overcustomise?.preview_url || '';
   return typeof previewUrl === 'string' && previewUrl ? previewUrl : '';
 };
+const escapeAttribute = value => {
+  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+};
 (0,_woocommerce_blocks_checkout__WEBPACK_IMPORTED_MODULE_0__.registerCheckoutFilters)('overcustomise', {
   cartItemClass: (defaultValue, extensions) => {
     return getPreviewUrl(extensions) ? `${defaultValue} oc-has-personalised-preview`.trim() : defaultValue;
@@ -109,11 +112,10 @@ const getPreviewUrl = extensions => {
     if (!previewUrl) {
       return defaultValue;
     }
-    return `<span class="oc-blocks-line-preview"><img src="${previewUrl}" alt="Personalised preview" loading="lazy" /></span>${defaultValue}`;
+    return `<span class="oc-blocks-line-preview"><img src="${escapeAttribute(previewUrl)}" alt="Personalised preview" loading="lazy" /></span>${defaultValue}`;
   }
 });
 })();
 
 /******/ })()
 ;
-//# sourceMappingURL=blocks-integration.js.map

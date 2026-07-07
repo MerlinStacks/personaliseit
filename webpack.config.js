@@ -12,8 +12,35 @@ const WC_HANDLES = {
 	'@woocommerce/block-data':      'wc-block-data',
 };
 
+class RemoveSourceMapCommentsPlugin {
+	apply( compiler ) {
+		compiler.hooks.thisCompilation.tap( 'RemoveSourceMapCommentsPlugin', compilation => {
+			const { RawSource } = compiler.webpack.sources;
+			compilation.hooks.processAssets.tap(
+				{
+					name:  'RemoveSourceMapCommentsPlugin',
+					stage: compiler.webpack.Compilation.PROCESS_ASSETS_STAGE_OPTIMIZE,
+				},
+				assets => {
+					Object.keys( assets ).forEach( filename => {
+						if ( ! /\.(?:js|css)$/.test( filename ) ) {
+							return;
+						}
+
+						const source = assets[ filename ].source().toString()
+							.replace( /^\/\/# sourceMappingURL=.*(?:\r?\n)?/gm, '' )
+							.replace( /\/\*# sourceMappingURL=[\s\S]*?\*\//g, '' );
+						compilation.updateAsset( filename, new RawSource( source ) );
+					} );
+				}
+			);
+		} );
+	}
+}
+
 module.exports = {
 	...defaultConfig,
+	devtool: false,
 	entry: {
 		// Admin pages
 		'admin/products-page':          './src/admin/products-page.js',
@@ -45,5 +72,6 @@ module.exports = {
 				if ( WC_HANDLES[ request ] ) return WC_HANDLES[ request ];
 			},
 		} ),
+		new RemoveSourceMapCommentsPlugin(),
 	],
 };

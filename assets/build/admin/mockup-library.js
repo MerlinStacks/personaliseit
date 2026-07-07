@@ -37,4 +37,3 @@ jQuery(function ($) {
 });
 /******/ })()
 ;
-//# sourceMappingURL=mockup-library.js.map

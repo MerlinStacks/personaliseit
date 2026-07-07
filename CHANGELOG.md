@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.12.0 - 2026-07-06
+## 1.13.0 - 2026-07-07
 
 ### Added
 - Added customer upload management, including a refreshed customer uploads gallery.
@@ -22,6 +22,9 @@
 - Stored canonical render specs for print generation and preserved order-time print snapshots for later regeneration.
 
 ### Fixed
+- Fixed launch-readiness validation so cart and edit-cart submissions can only use designs assigned to the product being purchased.
+- Fixed frontend preflight and Blocks cart preview rendering to avoid unsafe HTML interpolation.
+- Fixed SVG CSS sanitisation to strip external resource references.
 - Fixed design saving reliability and restored customer artwork upload flows.
 - Fixed print queue retry handling, missing print file generation, and Composer dependency loading during print generation.
 - Fixed custom fonts being lost in generated and regenerated print files.

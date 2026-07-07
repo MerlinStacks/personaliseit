@@ -2047,4 +2047,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
 /******/ })()
 ;
-//# sourceMappingURL=clipart-manager.js.map

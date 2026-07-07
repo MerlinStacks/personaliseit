@@ -151,6 +151,7 @@ class OC_Plugin {
 	public static function activate(): void {
 		require_once OC_PATH . 'includes/class-oc-db.php';
 		require_once OC_PATH . 'includes/admin/class-oc-admin-mockups.php';
+		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
 		OC_DB::create_tables();
 
 		// Register mockup taxonomy before flushing rules.

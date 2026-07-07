@@ -104,7 +104,11 @@ class OCCustomiser {
 	}
 
 	uploadEndpoint( uploadUrl, layerId ) {
-		const params = new URLSearchParams( { layer_id: String( layerId ) } );
+		const params = new URLSearchParams( {
+			layer_id:   String( layerId ),
+			design_id:  String( this.data.designId || '' ),
+			product_id: String( this.data.productId || '' ),
+		} );
 		if ( this.data.uploadNonce ) params.set( '_wpnonce', this.data.uploadNonce );
 		if ( this.data.requestToken ) params.set( 'oc_token', this.data.requestToken );
 		return uploadUrl + ( uploadUrl.includes( '?' ) ? '&' : '?' ) + params.toString();
@@ -501,8 +505,6 @@ class OCCustomiser {
 		canvas._ocArea   = area;
 		canvas.renderAll();
 		this.canvases[ areaIndex ] = canvas;
-
-		console.log( `[OC] Canvas ${ areaIndex } ready — ${ displayW }x${ displayH }, scale=${ scaleX.toFixed( 3 ) }` );
 	}
 
 	async rebuildCanvas( areaIndex ) {
@@ -2070,19 +2072,40 @@ class OCCustomiser {
 			return;
 		}
 
-		const asList = ( items, cls ) => {
-			return items.length
-				? `<ul class="${ cls }">${ items.map( msg => `<li>${ msg }</li>` ).join( '' ) }</ul>`
-				: '';
+		const box = document.createElement( 'div' );
+		box.className = 'oc-preflight-box';
+		box.setAttribute( 'role', 'alert' );
+		box.setAttribute( 'aria-live', 'assertive' );
+
+		const appendTitle = ( text ) => {
+			const title = document.createElement( 'p' );
+			title.className = 'oc-preflight-title';
+			title.textContent = text;
+			box.appendChild( title );
 		};
 
-		this.preflightRoot.innerHTML =
-			'<div class="oc-preflight-box" role="alert" aria-live="assertive">' +
-				( errors.length ? '<p class="oc-preflight-title">Please fix these issues before checkout:</p>' : '' ) +
-				asList( errors, 'oc-preflight-errors' ) +
-				( warnings.length ? '<p class="oc-preflight-title">Quality warnings:</p>' : '' ) +
-				asList( warnings, 'oc-preflight-warnings' ) +
-			'</div>';
+		const appendList = ( items, cls ) => {
+			if ( ! items.length ) return;
+			const list = document.createElement( 'ul' );
+			list.className = cls;
+			items.forEach( msg => {
+				const item = document.createElement( 'li' );
+				item.textContent = String( msg );
+				list.appendChild( item );
+			} );
+			box.appendChild( list );
+		};
+
+		this.preflightRoot.innerHTML = '';
+		if ( errors.length ) {
+			appendTitle( 'Please fix these issues before checkout:' );
+			appendList( errors, 'oc-preflight-errors' );
+		}
+		if ( warnings.length ) {
+			appendTitle( 'Quality warnings:' );
+			appendList( warnings, 'oc-preflight-warnings' );
+		}
+		this.preflightRoot.appendChild( box );
 
 		this.preflightRoot.hidden = false;
 		this.preflightRoot.scrollIntoView( { behavior: 'smooth', block: 'start' } );
@@ -2485,7 +2508,7 @@ class OCCustomiser {
 					}
 
 					if ( json?.success ) {
-						window.location.href = wc_cart_params?.cart_url || '/cart/';
+						window.location.href = window.wc_cart_params?.cart_url || '/cart/';
 					} else {
 						this.renderPreflightMessages( [ json?.message || 'Failed to update customisation.' ], [] );
 					}
@@ -2808,7 +2831,6 @@ class OCCustomiser {
 			} );
 
 			uppy.on( 'upload-success', async ( file, res ) => {
-				console.log( '[OC] Upload success — response body:', res?.body );
 				this.setUploadProgress( zoneEl, 100, '' );
 				if ( ! res?.body ) {
 					this.setUploadZoneState( zoneEl, 'error' );

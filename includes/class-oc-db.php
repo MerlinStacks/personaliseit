@@ -587,6 +587,48 @@ class OC_DB {
 		);
 	}
 
+	/** Return the first active font ID, or 0 when no active font exists. */
+	public static function get_first_active_font_id(): int {
+		$fonts = self::get_fonts( true );
+		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
+
+		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
+	}
+
+	/** Sanitise browser-captured per-area SVG snapshots before storing in cart/order meta. */
+	public static function sanitise_area_snapshots( array $snapshots ): array {
+		$clean = [];
+		foreach ( $snapshots as $area_key => $snapshot ) {
+			if ( ! is_array( $snapshot ) || ! is_string( $snapshot['svg'] ?? null ) ) {
+				continue;
+			}
+
+			$key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
+			if ( '' === $key || strlen( $snapshot['svg'] ) > 512 * 1024 ) {
+				continue;
+			}
+
+			try {
+				$svg = OC_SVG_Sanitiser::sanitise( $snapshot['svg'] );
+			} catch ( \InvalidArgumentException $e ) {
+				continue;
+			}
+
+			if ( '' === $svg ) {
+				continue;
+			}
+
+			$clean[ $key ] = [
+				'format' => sanitize_key( is_string( $snapshot['format'] ?? null ) ? $snapshot['format'] : 'fabric-svg-v1' ),
+				'unit'   => sanitize_key( is_string( $snapshot['unit'] ?? null ) ? $snapshot['unit'] : 'mockup_px' ),
+				'scale'  => isset( $snapshot['scale'] ) ? (float) $snapshot['scale'] : 1.0,
+				'svg'    => $svg,
+			];
+		}
+
+		return $clean;
+	}
+
 	/** Fetch all font groups with their associated font IDs. */
 	public static function get_font_groups(): array {
 		$cache_key = 'font_groups';
@@ -890,6 +932,92 @@ class OC_DB {
 		}
 		OC_Cache::set( $cache_key, $map );
 		return $map;
+	}
+
+	/**
+	 * Resolve the design assignment for a product/variation.
+	 *
+	 * Priority: exact variant assignment, parent assignment, then optionally the
+	 * first variant assignment for initial variable-product page rendering.
+	 */
+	public static function get_assignment_for_product( int $product_id, int $variant_id = 0, bool $allow_variant_fallback = false ): ?object {
+		global $wpdb;
+
+		$product = wc_get_product( $product_id );
+		if ( ! $product ) {
+			return null;
+		}
+
+		if ( $product->is_type( 'variation' ) ) {
+			$variant_id = $product_id;
+			$product_id = $product->get_parent_id();
+		}
+
+		if ( $variant_id > 0 ) {
+			$row = $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+				 WHERE product_id = %d AND variant_id = %d LIMIT 1",
+				$product_id,
+				$variant_id
+			) );
+			if ( $row ) {
+				return $row;
+			}
+		}
+
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+			 WHERE product_id = %d AND variant_id = 0 LIMIT 1",
+			$product_id
+		) );
+		if ( $row ) {
+			return $row;
+		}
+
+		if ( $allow_variant_fallback && $product->is_type( 'variable' ) ) {
+			$variation_ids = $product->get_children();
+			if ( ! empty( $variation_ids ) ) {
+				$placeholders = implode( ',', array_fill( 0, count( $variation_ids ), '%d' ) );
+				$row = $wpdb->get_row(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+						 WHERE product_id = %d AND variant_id IN ($placeholders)
+						 ORDER BY variant_id ASC LIMIT 1",
+						$product_id,
+						...$variation_ids
+					)
+				);
+				if ( $row ) {
+					return $row;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	/** Check whether an assignment allows the supplied design, including enabled design variants. */
+	public static function assignment_allows_design( object $assignment, int $design_id ): bool {
+		if ( $design_id <= 0 ) {
+			return false;
+		}
+
+		if ( $design_id === (int) ( $assignment->design_id ?? 0 ) ) {
+			return true;
+		}
+
+		$variants = json_decode( (string) ( $assignment->design_variants ?? '' ), true );
+		if ( ! is_array( $variants ) ) {
+			return false;
+		}
+
+		foreach ( $variants as $variant ) {
+			if ( $design_id === absint( $variant['designId'] ?? 0 ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** Insert or update a product/variant → design assignment. */

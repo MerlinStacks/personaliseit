@@ -209,8 +209,6 @@ class OC_Rest_API {
 	 * Used by the frontend JS to detect design changes on variation switch.
 	 */
 	public function get_product_design( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
-		global $wpdb;
-
 		$product_id = $request->get_param( 'product_id' );
 		$variant_id = (int) $request->get_param( 'variant_id' );
 
@@ -220,27 +218,7 @@ class OC_Rest_API {
 			return new \WP_Error( 'not_found', 'Product not found.', [ 'status' => 404 ] );
 		}
 
-		$parent_id = $product->is_type( 'variation' ) ? $product->get_parent_id() : $product_id;
-		$v_id      = $product->is_type( 'variation' ) ? $product_id : $variant_id;
-
-		// 1. Variant-specific.
-		$row = null;
-		if ( $v_id > 0 ) {
-			$row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT design_id FROM {$wpdb->prefix}oc_product_assignments
-				 WHERE product_id = %d AND variant_id = %d LIMIT 1",
-				$parent_id, $v_id
-			) );
-		}
-
-		// 2. Parent-level.
-		if ( ! $row ) {
-			$row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT design_id FROM {$wpdb->prefix}oc_product_assignments
-				 WHERE product_id = %d AND variant_id = 0 LIMIT 1",
-				$parent_id
-			) );
-		}
+		$row = OC_DB::get_assignment_for_product( (int) $product_id, $variant_id );
 
 		if ( ! $row ) {
 			return rest_ensure_response( [ 'design_id' => 0, 'active' => false ] );
@@ -334,10 +312,25 @@ class OC_Rest_API {
 		$layer_id        = absint( $request->get_param( 'layer_id' ) );
 		if ( $layer_id ) {
 			global $wpdb;
+			$design_id = absint( $request->get_param( 'design_id' ) );
+			$product_id = absint( $request->get_param( 'product_id' ) );
+			if ( ! $design_id || ! $product_id ) {
+				return new \WP_Error( 'invalid_layer', __( 'Invalid upload layer.', 'overcustomise' ), [ 'status' => 400 ] );
+			}
+
+			$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
+			if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
+				return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ), [ 'status' => 400 ] );
+			}
+
 			$row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT settings FROM {$wpdb->prefix}oc_design_layers WHERE id = %d LIMIT 1",
-				$layer_id
+				"SELECT settings FROM {$wpdb->prefix}oc_design_layers WHERE id = %d AND design_id = %d LIMIT 1",
+				$layer_id,
+				$design_id
 			) );
+			if ( ! $row ) {
+				return new \WP_Error( 'invalid_layer', __( 'Invalid upload layer.', 'overcustomise' ), [ 'status' => 400 ] );
+			}
 			if ( $row && $row->settings ) {
 				$s = json_decode( $row->settings, true );
 				if ( is_array( $s ) ) {
@@ -787,6 +780,13 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
+		$product_id   = absint( $cart_item['variation_id'] ?? 0 ) ?: absint( $cart_item['product_id'] ?? 0 );
+		$variation_id = absint( $cart_item['variation_id'] ?? 0 );
+		$assignment   = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+		if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
+			return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
 		$design_layers = [];
 		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
 			$layer_id = isset( $layer->id ) ? absint( $layer->id ) : 0;
@@ -807,7 +807,7 @@ class OC_Rest_API {
 		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
 
 		$sanitised_layers = [];
-		$fallback_font_id = $this->first_active_font_id();
+		$fallback_font_id = OC_DB::get_first_active_font_id();
 		foreach ( $raw_layers as $layer_id => $layer_data ) {
 			if ( ! is_array( $layer_data ) ) continue;
 
@@ -868,7 +868,7 @@ class OC_Rest_API {
 
 		$old_preview = (string) ( $cart_item['_oc_preview_url'] ?? '' );
 
-		$snapshots = $this->sanitise_area_snapshots( is_array( $body['snapshots'] ?? null ) ? $body['snapshots'] : [] );
+		$snapshots = OC_DB::sanitise_area_snapshots( is_array( $body['snapshots'] ?? null ) ? $body['snapshots'] : [] );
 
 		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [
 			'v'          => 2,
@@ -918,44 +918,4 @@ class OC_Rest_API {
 		return rest_ensure_response( [ 'success' => true ] );
 	}
 
-	private function first_active_font_id(): int {
-		$fonts = OC_DB::get_fonts( true );
-		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
-
-		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
-	}
-
-	/** Sanitise browser-captured per-area SVG snapshots before storing in cart meta. */
-	private function sanitise_area_snapshots( array $snapshots ): array {
-		$clean = [];
-		foreach ( $snapshots as $area_key => $snapshot ) {
-			if ( ! is_array( $snapshot ) || ! is_string( $snapshot['svg'] ?? null ) ) {
-				continue;
-			}
-
-			$key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
-			if ( '' === $key || strlen( $snapshot['svg'] ) > 512 * 1024 ) {
-				continue;
-			}
-
-			try {
-				$svg = OC_SVG_Sanitiser::sanitise( $snapshot['svg'] );
-			} catch ( \InvalidArgumentException $e ) {
-				continue;
-			}
-
-			if ( '' === $svg ) {
-				continue;
-			}
-
-			$clean[ $key ] = [
-				'format' => sanitize_key( is_string( $snapshot['format'] ?? null ) ? $snapshot['format'] : 'fabric-svg-v1' ),
-				'unit'   => sanitize_key( is_string( $snapshot['unit'] ?? null ) ? $snapshot['unit'] : 'mockup_px' ),
-				'scale'  => isset( $snapshot['scale'] ) ? (float) $snapshot['scale'] : 1.0,
-				'svg'    => $svg,
-			];
-		}
-
-		return $clean;
-	}
 }

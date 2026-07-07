@@ -5,6 +5,14 @@ const getPreviewUrl = ( extensions ) => {
 	return typeof previewUrl === 'string' && previewUrl ? previewUrl : '';
 };
 
+const escapeAttribute = ( value ) => {
+	return String( value )
+		.replace( /&/g, '&amp;' )
+		.replace( /"/g, '&quot;' )
+		.replace( /</g, '&lt;' )
+		.replace( />/g, '&gt;' );
+};
+
 registerCheckoutFilters( 'overcustomise', {
 	cartItemClass: ( defaultValue, extensions ) => {
 		return getPreviewUrl( extensions )
@@ -17,6 +25,6 @@ registerCheckoutFilters( 'overcustomise', {
 			return defaultValue;
 		}
 
-		return `<span class="oc-blocks-line-preview"><img src="${ previewUrl }" alt="Personalised preview" loading="lazy" /></span>${ defaultValue }`;
+		return `<span class="oc-blocks-line-preview"><img src="${ escapeAttribute( previewUrl ) }" alt="Personalised preview" loading="lazy" /></span>${ defaultValue }`;
 	},
 } );

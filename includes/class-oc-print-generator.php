@@ -417,7 +417,7 @@ class OC_Print_Generator {
 	}
 
 	private static function normalise_v2_layer_font_inputs( int $design_id, array $layer_inputs ): array {
-		$fallback_font_id = self::first_active_font_id();
+		$fallback_font_id = OC_DB::get_first_active_font_id();
 
 		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
 			$layer_id = (int) $layer->id;
@@ -440,13 +440,6 @@ class OC_Print_Generator {
 		}
 
 		return $layer_inputs;
-	}
-
-	private static function first_active_font_id(): int {
-		$fonts = OC_DB::get_fonts( true );
-		$first = is_array( $fonts ) && ! empty( $fonts ) ? reset( $fonts ) : null;
-
-		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
 	}
 
 	/**

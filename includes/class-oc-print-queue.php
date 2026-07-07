@@ -72,6 +72,8 @@ class OC_Print_Queue {
 			'processed_at' => current_time( 'mysql', true ),
 		] );
 
+		$area = null;
+
 		try {
 			$area_data = json_decode( (string) $job->area_data, true );
 
@@ -161,6 +163,10 @@ class OC_Print_Queue {
 
 			OC_Logger::info( "Print file generated via queue: job #{$job_id}, file #{$print_file->id}" );
 
+			if ( $this->order_print_queue_complete( (int) $job->order_id ) ) {
+				do_action( 'oc_print_files_generated', $order );
+			}
+
 		} catch ( \Throwable $e ) {
 			$error_msg = $e->getMessage();
 
@@ -188,6 +194,17 @@ class OC_Print_Queue {
 				if ( $print_file ) {
 					OC_DB::update_print_file( (int) $print_file->id, [ 'file_status' => 'pending' ] );
 				}
+
+				$order = wc_get_order( (int) $job->order_id );
+				if ( $order instanceof \WC_Order ) {
+					if ( ! is_object( $area ) ) {
+						$area = (object) [
+							'area_key'     => '',
+							'print_method' => (string) $job->print_method,
+						];
+					}
+					do_action( 'oc_print_file_failed', $order, (int) $job->order_item_id, $area, $e );
+				}
 			} else {
 				$retry_at = gmdate( 'Y-m-d H:i:s', time() + self::RETRY_BACKOFF_SECONDS );
 				OC_DB::update_queue_job( $job_id, [
@@ -207,6 +224,16 @@ class OC_Print_Queue {
 				}
 			}
 		}
+	}
+
+	/** Return true when an order has no pending or processing print jobs left. */
+	private function order_print_queue_complete( int $order_id ): bool {
+		global $wpdb;
+
+		return 0 === (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_queue WHERE order_id = %d AND status IN ('pending', 'processing')",
+			$order_id
+		) );
 	}
 
 	/** Return timed-out processing jobs to the queue so cron can recover after fatal errors. */

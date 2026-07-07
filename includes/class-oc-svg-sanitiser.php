@@ -159,6 +159,8 @@ class OC_SVG_Sanitiser {
 
 				// Recurse — clean_attributes() is called at the top of each recursive call.
 				self::clean_node( $child );
+			} elseif ( XML_TEXT_NODE === $child->nodeType && $node instanceof \DOMElement && 'style' === strtolower( $node->localName ) ) {
+				$child->nodeValue = self::clean_css( (string) $child->nodeValue );
 			}
 		}
 
@@ -201,14 +203,14 @@ class OC_SVG_Sanitiser {
 				}
 			}
 
-			// style attribute — strip any javascript: or expression().
+			// style attribute — strip active CSS and external resource fetches.
 			if ( 'style' === $name ) {
-				if ( preg_match( '/javascript\s*:/i', $value )
-				     || preg_match( '/expression\s*\(/i', $value )
-				) {
+				$clean_css = self::clean_css( $value );
+				if ( '' === trim( $clean_css ) ) {
 					$to_remove[] = $attr;
 					continue;
 				}
+				$el->setAttribute( $attr->name, $clean_css );
 			}
 		}
 
@@ -231,5 +233,16 @@ class OC_SVG_Sanitiser {
 		if ( str_starts_with( $value, '//' ) )           return true;
 
 		return false;
+	}
+
+	/** Strip CSS constructs that can execute script or fetch external resources. */
+	private static function clean_css( string $css ): string {
+		$css = preg_replace( '/@import\b[^;]*(?:;|$)/i', '', $css ) ?? '';
+		$css = preg_replace( '/url\s*\([^)]*\)/i', 'none', $css ) ?? '';
+		$css = preg_replace( '/expression\s*\([^)]*\)/i', '', $css ) ?? '';
+		$css = preg_replace( '/javascript\s*:/i', '', $css ) ?? '';
+		$css = preg_replace( '/vbscript\s*:/i', '', $css ) ?? '';
+
+		return trim( $css );
 	}
 }
