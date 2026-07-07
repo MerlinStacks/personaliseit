@@ -25683,6 +25683,7 @@ class OCCustomiser {
           const minFontSize = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(minLimit, areaBounds, scale) : 0;
           const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
           let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
+          let textPadding = this.textRenderPadding(fontSize);
           const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : color;
           const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
             left: lcX,
@@ -25691,13 +25692,15 @@ class OCCustomiser {
             originY: 'center',
             width: lw,
             height: lh,
+            padding: textPadding,
             angle: rotation,
             fontFamily: font?.name || 'sans-serif',
             fontSize,
             fill: textFill,
             textAlign: align,
             selectable: false,
-            evented: false
+            evented: false,
+            objectCaching: false
           });
           obj._ocContent = true; // tag after creation
           let stitchPad = null;
@@ -25723,6 +25726,7 @@ class OCCustomiser {
               originY: 'center',
               width: lw,
               height: lh,
+              padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
               fontSize,
@@ -25736,7 +25740,8 @@ class OCCustomiser {
               }),
               textAlign: align,
               selectable: false,
-              evented: false
+              evented: false,
+              objectCaching: false
             });
             stitchPad._ocContent = true;
             canvas.add(stitchPad);
@@ -25747,6 +25752,7 @@ class OCCustomiser {
               originY: 'center',
               width: lw,
               height: lh,
+              padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
               fontSize,
@@ -25756,7 +25762,8 @@ class OCCustomiser {
               opacity: 0.22,
               textAlign: align,
               selectable: false,
-              evented: false
+              evented: false,
+              objectCaching: false
             });
             stitchLift._ocContent = true;
             canvas.add(stitchLift);
@@ -25774,8 +25781,10 @@ class OCCustomiser {
           const fittingFloor = minFontSize && this.textFitsBox(raw, font, minFontSize, layer.settings, lw, lh) ? minFontSize : 4;
           while (!this.textFitsBox(raw, font, fontSize, layer.settings, lw, lh) && fontSize > fittingFloor) {
             fontSize -= 1;
+            textPadding = this.textRenderPadding(fontSize);
             obj.set({
-              fontSize
+              fontSize,
+              padding: textPadding
             });
           }
           if (isEmbroidery) {
@@ -25787,7 +25796,8 @@ class OCCustomiser {
             stitchPad.set({
               left: lcX + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
-              fontSize
+              fontSize,
+              padding: textPadding
             });
             this.applyContentClip(stitchPad, contentClip());
           }
@@ -25796,6 +25806,7 @@ class OCCustomiser {
               left: lcX - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
               fontSize,
+              padding: textPadding,
               strokeWidth: Math.max(0.2, fontSize * 0.006)
             });
             this.applyContentClip(stitchLift, contentClip());
@@ -25900,6 +25911,9 @@ class OCCustomiser {
   }
   fontLimit(value) {
     return Math.max(0, parseInt(value, 10) || 0);
+  }
+  textRenderPadding(fontSize) {
+    return Math.max(4, Math.ceil((Number(fontSize) || 0) * 0.18));
   }
   textFitsBox(raw, font, fontSize, settings, maxW, maxH) {
     if (!raw) {
