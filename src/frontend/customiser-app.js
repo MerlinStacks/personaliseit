@@ -852,6 +852,12 @@ class OCCustomiser {
 					textPadding = this.textRenderPadding( fontSize );
 					obj.set( { fontSize, padding: textPadding } );
 				}
+				const measuredText = this.measureSingleLineText( raw, font, fontSize, layer.settings );
+				const textNaturalWidth = Math.max( lw, Math.ceil( measuredText.width + textPadding * 2 ) );
+				const textFitScale = textNaturalWidth > lw ? Math.max( 0.05, lw / textNaturalWidth ) : 1;
+				if ( textFitScale < 1 ) {
+					obj.set( { width: textNaturalWidth, scaleX: textFitScale, padding: textPadding } );
+				}
 				if ( isEmbroidery ) {
 					obj.set( { fill: this.embroideryPattern( color, fontSize ) } );
 				}
@@ -862,6 +868,9 @@ class OCCustomiser {
 						fontSize,
 						padding: textPadding,
 					} );
+					if ( textFitScale < 1 ) {
+						stitchPad.set( { width: textNaturalWidth, scaleX: textFitScale } );
+					}
 					this.applyContentClip( stitchPad, contentClip() );
 				}
 				if ( stitchLift ) {
@@ -872,6 +881,9 @@ class OCCustomiser {
 						padding: textPadding,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
+					if ( textFitScale < 1 ) {
+						stitchLift.set( { width: textNaturalWidth, scaleX: textFitScale } );
+					}
 					this.applyContentClip( stitchLift, contentClip() );
 				}
 				this.applyContentClip( obj, contentClip() );
@@ -991,6 +1003,27 @@ class OCCustomiser {
 			Number( measured.width || 0 ) <= Math.max( maxW, 10 ) &&
 			Number( measured.height || 0 ) <= Math.max( maxH, 10 )
 		);
+	}
+
+	measureSingleLineText( raw, font, fontSize, settings = {} ) {
+		const obj = new FabricText( raw || '', {
+			left: 0,
+			top: 0,
+			originX: 'left',
+			originY: 'top',
+			fontFamily: font?.name || 'sans-serif',
+			fontSize,
+			textAlign: settings?.alignment || 'center',
+			selectable: false,
+			evented: false,
+		} );
+		obj.setCoords?.();
+		const measured = obj.getBoundingRect?.( true, true ) || obj;
+
+		return {
+			width: Number( measured.width || 0 ),
+			height: Number( measured.height || 0 ),
+		};
 	}
 
 	textLayerFitsAtSize( layer, raw, font, fontSize ) {
