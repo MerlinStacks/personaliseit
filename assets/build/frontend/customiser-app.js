@@ -25697,7 +25697,11 @@ class OCCustomiser {
     const area = this.areas[areaIndex];
     for (const layer of area?.layers ?? []) {
       // PHP already filters to visible-only layers — no client-side check needed.
-      await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area);
+      try {
+        await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area);
+      } catch (err) {
+        console.warn('[OC] Layer render failed:', layer?.id, err);
+      }
     }
     canvas.renderAll();
     if (areaIndex === this.activeArea && !canvas._ocMissingMockup) this.pushToGallery(canvas);
@@ -25708,7 +25712,7 @@ class OCCustomiser {
     const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(areaBounds);
     const layerBox = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayLayer)(layer, areaBounds);
     const rotation = Number(bounds.rotation) || 0;
-    const contentClip = () => this.printAreaClipPath(bounds, scale);
+    const contentClip = () => this.printAreaClipPath(bounds, scale, layerBox);
     const center = this.rotatedLayerCenter(layerBox, bounds, rotation);
     const lx = (center.x - layerBox.w / 2) * scale;
     const ly = (center.y - layerBox.h / 2) * scale;
@@ -25739,9 +25743,6 @@ class OCCustomiser {
           // Engraving uses a fixed silver tone instead of a customer-selected colour.
           const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
           const align = layer.settings?.alignment || 'center';
-          const anchorPad = Math.max(2, Math.min(10, lw * 0.01));
-          const alignOriginX = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
-          const alignLeft = align === 'left' ? lx + anchorPad : align === 'right' ? lx + lw - anchorPad : lcX;
           if (font) {
             try {
               await this.loadFont(font);
@@ -25756,11 +25757,13 @@ class OCCustomiser {
           let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           let textPadding = this.textRenderPadding(fontSize);
           const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : color;
-          const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-            left: alignLeft,
+          const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
+            left: lcX,
             top: lcY,
-            originX: alignOriginX,
+            originX: 'center',
             originY: 'center',
+            width: lw,
+            height: lh,
             padding: textPadding,
             angle: rotation,
             fontFamily: font?.name || 'sans-serif',
@@ -25788,11 +25791,13 @@ class OCCustomiser {
           } else if (isEmbroidery) {
             const threadLift = this.embroideryHighlightColor(color);
             const threadShadow = this.embroideryShadowColor(color);
-            stitchPad = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-              left: alignLeft + Math.max(0.45, fontSize * 0.015),
+            stitchPad = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
+              left: lcX + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
-              originX: alignOriginX,
+              originX: 'center',
               originY: 'center',
+              width: lw,
+              height: lh,
               padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
@@ -25812,11 +25817,13 @@ class OCCustomiser {
             });
             stitchPad._ocContent = true;
             canvas.add(stitchPad);
-            stitchLift = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-              left: alignLeft - Math.max(0.25, fontSize * 0.006),
+            stitchLift = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
+              left: lcX - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
-              originX: alignOriginX,
+              originX: 'center',
               originY: 'center',
+              width: lw,
+              height: lh,
               padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
@@ -25859,7 +25866,7 @@ class OCCustomiser {
           }
           if (stitchPad) {
             stitchPad.set({
-              left: alignLeft + Math.max(0.45, fontSize * 0.015),
+              left: lcX + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
               fontSize,
               padding: textPadding
@@ -25868,7 +25875,7 @@ class OCCustomiser {
           }
           if (stitchLift) {
             stitchLift.set({
-              left: alignLeft - Math.max(0.25, fontSize * 0.006),
+              left: lcX - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
               fontSize,
               padding: textPadding,
@@ -26248,8 +26255,11 @@ class OCCustomiser {
     const size = 640;
     return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
   }
-  printAreaClipPath(bounds, scale) {
+  printAreaClipPath(bounds, scale, layerBox = null) {
     if (!bounds || !bounds.w || !bounds.h) return null;
+    if (layerBox && !this.boxesIntersect(bounds, layerBox)) {
+      return null;
+    }
     return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
       left: (Number(bounds.x) + Number(bounds.w) / 2) * scale,
       top: (Number(bounds.y) + Number(bounds.h) / 2) * scale,
@@ -26260,6 +26270,17 @@ class OCCustomiser {
       height: Number(bounds.h) * scale,
       absolutePositioned: true
     });
+  }
+  boxesIntersect(a, b) {
+    const ax = Number(a?.x) || 0;
+    const ay = Number(a?.y) || 0;
+    const aw = Number(a?.w) || 0;
+    const ah = Number(a?.h) || 0;
+    const bx = Number(b?.x) || 0;
+    const by = Number(b?.y) || 0;
+    const bw = Number(b?.w) || 0;
+    const bh = Number(b?.h) || 0;
+    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
   }
   layerClipPath(x, y, w, h, angle = 0, settings = {}) {
     if (!w || !h) return null;
