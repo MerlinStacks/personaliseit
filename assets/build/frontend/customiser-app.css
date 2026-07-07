@@ -1300,3 +1300,7 @@
   display: block !important;
   margin: 0 0 16px;
 }
+img.oc-live-preview-applied {
+  height: auto !important;
+  object-fit: contain !important;
+}

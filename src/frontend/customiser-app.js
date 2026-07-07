@@ -184,11 +184,20 @@ class OCCustomiser {
 		this.galleryImg = null;
 	}
 
-	applyPreviewToImage( img, dataUrl ) {
+	applyPreviewToImage( img, dataUrl, dimensions = null ) {
 		if ( ! img ) return;
 		img.src    = dataUrl;
 		img.srcset = '';
 		img.sizes  = '';
+		img.classList.add( 'oc-live-preview-applied' );
+
+		if ( dimensions?.width && dimensions?.height ) {
+			img.width = dimensions.width;
+			img.height = dimensions.height;
+			img.style.aspectRatio = `${ dimensions.width } / ${ dimensions.height }`;
+		}
+		img.style.objectFit = 'contain';
+		img.style.height = 'auto';
 
 		// Update zoom / lightbox href if wrapped in <a>.
 		const a = img.closest( 'a' );
@@ -211,6 +220,10 @@ class OCCustomiser {
 		const galleryItem = img.closest( '.woocommerce-product-gallery__image, .product-gallery-slider .slide' );
 		if ( galleryItem ) {
 			galleryItem.setAttribute( 'data-thumb', dataUrl );
+			if ( dimensions?.width && dimensions?.height && ! img.closest( '.product-thumbnails, .tvpg-thumb-slider' ) ) {
+				galleryItem.style.aspectRatio = `${ dimensions.width } / ${ dimensions.height }`;
+				galleryItem.style.height = 'auto';
+			}
 		}
 	}
 
@@ -228,7 +241,7 @@ class OCCustomiser {
 		return slider.flickity || window.jQuery?.( slider ).data( 'flickity' ) || null;
 	}
 
-	applyFlatsomeOverlayPreview( dataUrl ) {
+	applyFlatsomeOverlayPreview( dataUrl, dimensions = null ) {
 		const slider = document.querySelector( '.product-gallery-slider' );
 		if ( ! slider ) return false;
 
@@ -252,7 +265,7 @@ class OCCustomiser {
 
 		const previewImg = previewSlide.querySelector( 'img.oc-live-preview-image' );
 		if ( previewImg ) {
-			this.applyPreviewToImage( previewImg, dataUrl );
+			this.applyPreviewToImage( previewImg, dataUrl, dimensions );
 		}
 
 		previewSlide.setAttribute( 'data-thumb', dataUrl );
@@ -300,7 +313,7 @@ class OCCustomiser {
 		return true;
 	}
 
-	applyTVPGOverlayPreview( dataUrl ) {
+	applyTVPGOverlayPreview( dataUrl, dimensions = null ) {
 		const mainSliderEl = document.querySelector( '.tvpg-main-slider' );
 		const mainWrapper  = mainSliderEl?.querySelector( '.swiper-wrapper' );
 		if ( ! mainSliderEl || ! mainWrapper ) return false;
@@ -318,7 +331,7 @@ class OCCustomiser {
 
 		const mainImg = mainPreviewSlide.querySelector( 'img.oc-live-preview-image' );
 		if ( mainImg ) {
-			this.applyPreviewToImage( mainImg, dataUrl );
+			this.applyPreviewToImage( mainImg, dataUrl, dimensions );
 		}
 
 		const thumbSliderEl = document.querySelector( '.tvpg-thumb-slider' );
@@ -334,7 +347,7 @@ class OCCustomiser {
 
 			const thumbImg = thumbPreviewSlide.querySelector( 'img.oc-live-preview-thumb-image' );
 			if ( thumbImg ) {
-				this.applyPreviewToImage( thumbImg, dataUrl );
+				this.applyPreviewToImage( thumbImg, dataUrl, dimensions );
 			}
 		}
 
@@ -365,20 +378,28 @@ class OCCustomiser {
 			console.warn( '[OC] toDataURL failed — image may be cross-origin:', e.message );
 			return;
 		}
+		const dimensions = {
+			width: Math.round( canvas.getWidth?.() || canvas.width || 0 ),
+			height: Math.round( canvas.getHeight?.() || canvas.height || 0 ),
+		};
 
 		const previewImg = document.getElementById( 'oc-canvas-preview' );
 		if ( previewImg ) {
 			previewImg.src = dataUrl;
 			previewImg.srcset = '';
+			if ( dimensions.width && dimensions.height ) {
+				previewImg.width = dimensions.width;
+				previewImg.height = dimensions.height;
+			}
 		}
 
-		if ( this.applyTVPGOverlayPreview( dataUrl ) ) {
+		if ( this.applyTVPGOverlayPreview( dataUrl, dimensions ) ) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
 			return;
 		}
 
-		if ( this.applyFlatsomeOverlayPreview( dataUrl ) ) {
+		if ( this.applyFlatsomeOverlayPreview( dataUrl, dimensions ) ) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
 			return;
@@ -404,7 +425,7 @@ class OCCustomiser {
 			document.querySelectorAll( selector ).forEach( img => targets.add( img ) );
 		} );
 
-		const applyTargets = () => targets.forEach( img => this.applyPreviewToImage( img, dataUrl ) );
+		const applyTargets = () => targets.forEach( img => this.applyPreviewToImage( img, dataUrl, dimensions ) );
 		applyTargets();
 
 		if ( document.querySelector( '.product-gallery-slider' ) ) {
