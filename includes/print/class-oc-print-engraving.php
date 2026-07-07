@@ -110,7 +110,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
 		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( $snapshot['svg'] ) : '';
 
-		if ( '' === $svg || ! str_contains( $svg, '<svg' ) ) {
+		if ( '' === $svg || ! str_contains( $svg, '<svg' ) || preg_match( '/<text[\s>]/i', $svg ) ) {
 			return false;
 		}
 

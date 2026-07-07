@@ -651,6 +651,7 @@ abstract class OC_Print_Base {
 
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 		OC_Logger::debug( 'Print layer text font request: layer=' . (int) ( $layer['id'] ?? 0 ) . ' font_id=' . $font_id . ' text=' . substr( $text, 0, 40 ) );
+		$font      = $font_id ? self::get_font( $font_id ) : null;
 		$font_name = self::resolve_font( $font_id, $pdf );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )
@@ -672,6 +673,18 @@ abstract class OC_Print_Base {
 			$font_size -= 0.5;
 		}
 
+		$align = strtoupper( substr( (string) ( $settings['alignment'] ?? 'center' ), 0, 1 ) );
+		if ( ! in_array( $align, [ 'L', 'C', 'R' ], true ) ) {
+			$align = 'C';
+		}
+
+		if ( 'engraving' === $mode && is_object( $font ) ) {
+			$font_path = self::get_font_path( $font );
+			if ( is_string( $font_path ) && '' !== $font_path && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align ) ) {
+				return;
+			}
+		}
+
 		$pdf->SetFont( $font_name, '', $font_size );
 		if ( 'engraving' === $mode ) {
 			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
@@ -680,12 +693,103 @@ abstract class OC_Print_Base {
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 		}
 
-		$align = strtoupper( substr( (string) ( $settings['alignment'] ?? 'center' ), 0, 1 ) );
-		if ( ! in_array( $align, [ 'L', 'C', 'R' ], true ) ) {
-			$align = 'C';
-		}
 		$cell_h = self::cell_h( $font_size );
 		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align );
+	}
+
+	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
+		if ( ! class_exists( 'OC_Print_Embroidery' ) || ! method_exists( 'OC_Print_Embroidery', 'ttf_text_outline' ) ) {
+			return false;
+		}
+
+		try {
+			$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
+			$outline = $method->invoke( null, $font_path, $text, $font_size );
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Engraving text outline failed: ' . $e->getMessage() );
+			return false;
+		}
+
+		if ( ! is_array( $outline ) || empty( $outline['commands'] ) ) {
+			return false;
+		}
+
+		$d = self::eps_outline_commands_to_svg_path( $outline['commands'] );
+		if ( '' === $d ) {
+			return false;
+		}
+
+		$width     = max( 0.01, (float) ( $outline['width'] ?? 0.0 ) );
+		$bbox      = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : [ 0.0, 0.0, $width, $font_size ];
+		$glyph_h   = max( 0.01, (float) $bbox[3] - (float) $bbox[1] );
+		$box_w_pt  = self::mm_to_pt_value( $w_mm );
+		$box_h_pt  = self::mm_to_pt_value( $h_mm );
+		$fit_scale = min( 1.0, $box_w_pt / $width, $box_h_pt / $glyph_h );
+		$fit_scale = max( 0.01, $fit_scale );
+		$draw_w    = $width * $fit_scale;
+		$origin_x  = match ( $align ) {
+			'R' => $box_w_pt - $draw_w,
+			'L' => 0.0,
+			default => ( $box_w_pt - $draw_w ) / 2,
+		};
+		$baseline_y = ( $box_h_pt - $glyph_h * $fit_scale ) / 2 + (float) $bbox[3] * $fit_scale;
+
+		$svg = sprintf(
+			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000"/></g></svg>',
+			$box_w_pt,
+			$box_h_pt,
+			$origin_x,
+			$baseline_y,
+			$fit_scale,
+			$fit_scale,
+			htmlspecialchars( $d, ENT_QUOTES | ENT_XML1, 'UTF-8' )
+		);
+
+		$temp_base = self::temp_path( 'oc-engraving-text-outline-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $temp_base ) || '' === $temp_base ) {
+			return false;
+		}
+		$temp = 'svg' === strtolower( pathinfo( $temp_base, PATHINFO_EXTENSION ) ) ? $temp_base : $temp_base . '.svg';
+
+		if ( false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		try {
+			$pdf->ImageSVG( $temp, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+			return true;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Engraving text outline SVG render failed: ' . $e->getMessage() );
+			return false;
+		} finally {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( $temp !== $temp_base ) {
+				@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+	}
+
+	private static function eps_outline_commands_to_svg_path( array $commands ): string {
+		$parts = [];
+		foreach ( $commands as $command ) {
+			$command = trim( (string) $command );
+			if ( preg_match( '/^([-0-9.]+)\s+([-0-9.]+)\s+moveto$/', $command, $m ) ) {
+				$parts[] = sprintf( 'M%.4F %.4F', (float) $m[1], -1 * (float) $m[2] );
+			} elseif ( preg_match( '/^([-0-9.]+)\s+([-0-9.]+)\s+lineto$/', $command, $m ) ) {
+				$parts[] = sprintf( 'L%.4F %.4F', (float) $m[1], -1 * (float) $m[2] );
+			} elseif ( preg_match( '/^([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\s+([-0-9.]+)\s+curveto$/', $command, $m ) ) {
+				$parts[] = sprintf( 'C%.4F %.4F %.4F %.4F %.4F %.4F', (float) $m[1], -1 * (float) $m[2], (float) $m[3], -1 * (float) $m[4], (float) $m[5], -1 * (float) $m[6] );
+			} elseif ( 'closepath' === $command ) {
+				$parts[] = 'Z';
+			}
+		}
+
+		return implode( ' ', $parts );
+	}
+
+	private static function mm_to_pt_value( float $mm ): float {
+		return $mm * 72 / 25.4;
 	}
 
 	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
