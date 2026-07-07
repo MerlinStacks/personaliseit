@@ -213,6 +213,7 @@ if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
 require_once OC_PATH . 'includes/class-oc-command-runner.php';
 require_once OC_PATH . 'includes/class-oc-upload-handler.php';
+require_once OC_PATH . 'includes/class-oc-render-math.php';
 require_once OC_PATH . 'includes/class-oc-render-spec.php';
 require_once OC_PATH . 'includes/print/class-oc-print-base.php';
 require_once OC_PATH . 'includes/print/class-oc-print-engraving.php';
@@ -269,6 +270,7 @@ if ( $_oc_wp_tests_dir && is_dir( $_oc_wp_tests_dir ) ) {
 	require_once OC_PATH . 'includes/class-oc-logger.php';
 	require_once OC_PATH . 'includes/class-oc-command-runner.php';
 	require_once OC_PATH . 'includes/class-oc-font-registry.php';
+	require_once OC_PATH . 'includes/class-oc-render-math.php';
 	require_once OC_PATH . 'includes/class-oc-render-spec.php';
 	require_once OC_PATH . 'includes/admin/class-oc-admin-settings.php';
 	require_once OC_PATH . 'includes/admin/class-oc-admin-mockups.php';

@@ -1,7 +1,145 @@
 /******/ (() => { // webpackBootstrap
+/******/ 	"use strict";
+/******/ 	var __webpack_modules__ = ({
+
+/***/ "./src/shared/render-math.js"
+/*!***********************************!*\
+  !*** ./src/shared/render-math.js ***!
+  \***********************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   VALID_UNITS: () => (/* binding */ VALID_UNITS),
+/* harmony export */   displayBounds: () => (/* binding */ displayBounds),
+/* harmony export */   displayEntity: () => (/* binding */ displayEntity),
+/* harmony export */   displayFontSize: () => (/* binding */ displayFontSize),
+/* harmony export */   displayLayer: () => (/* binding */ displayLayer),
+/* harmony export */   normaliseDpi: () => (/* binding */ normaliseDpi),
+/* harmony export */   normaliseUnit: () => (/* binding */ normaliseUnit),
+/* harmony export */   unitPxScale: () => (/* binding */ unitPxScale)
+/* harmony export */ });
+const VALID_UNITS = ['px', 'mm', 'cm', 'in'];
+function normaliseUnit(value) {
+  return VALID_UNITS.includes(value) ? value : 'px';
+}
+function normaliseDpi(value) {
+  return Math.min(1200, Math.max(1, Math.round(Number(value) || 300)));
+}
+function unitPxScale(areaOrBounds) {
+  const dpi = normaliseDpi(areaOrBounds?.dpi);
+  switch (normaliseUnit(areaOrBounds?.unit)) {
+    case 'mm':
+      return dpi / 25.4;
+    case 'cm':
+      return dpi / 2.54;
+    case 'in':
+      return dpi;
+    default:
+      return 1;
+  }
+}
+function displayEntity(entity, area = null) {
+  if (!entity) {
+    return entity;
+  }
+  const sourceArea = area || entity;
+  const px = unitPxScale(sourceArea);
+  if (px === 1) {
+    return entity;
+  }
+  const originX = Number(sourceArea.x) || 0;
+  const originY = Number(sourceArea.y) || 0;
+  return {
+    ...entity,
+    x: originX + (Number(entity.x) - originX) * px,
+    y: originY + (Number(entity.y) - originY) * px,
+    w: Number(entity.w || 0) * px,
+    h: Number(entity.h || 0) * px
+  };
+}
+function displayBounds(bounds) {
+  return displayEntity(bounds);
+}
+function displayLayer(layer, bounds) {
+  return displayEntity(layer, bounds);
+}
+function displayFontSize(fontSize, areaOrBounds, canvasScale = 1) {
+  return Math.max(1, Number(fontSize) || 0) * unitPxScale(areaOrBounds) * canvasScale;
+}
+
+/***/ }
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		if (!(moduleId in __webpack_modules__)) {
+/******/ 			delete __webpack_module_cache__[moduleId];
+/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
+/******/ 			e.code = 'MODULE_NOT_FOUND';
+/******/ 			throw e;
+/******/ 		}
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__webpack_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/make namespace object */
+/******/ 	(() => {
+/******/ 		// define __esModule on exports
+/******/ 		__webpack_require__.r = (exports) => {
+/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 			}
+/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+var __webpack_exports__ = {};
+// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
+(() => {
 /*!************************************!*\
   !*** ./src/admin/products-page.js ***!
   \************************************/
+__webpack_require__.r(__webpack_exports__);
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
 /**
  * Admin — Design Editor JS
  *
@@ -14,6 +152,7 @@
  */
 
 /* global ocProductsData, wp */
+
 
 (function () {
   'use strict';
@@ -518,7 +657,7 @@
       y: Number(a.y) || 0,
       w: Number(a.w) || 300,
       h: Number(a.h) || 300,
-      dpi: normaliseDpi(a.dpi),
+      dpi: (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(a.dpi),
       ratioLocked: !!a.ratioLocked,
       aspectRatio: normaliseAspectRatio(a.aspectRatio, Number(a.w) || 300, Number(a.h) || 300),
       rotation: normaliseRotation(a.rotation),
@@ -655,12 +794,6 @@
     const angle = Number(value) || 0;
     return Math.round((angle % 360 + 360) % 360);
   }
-  function normaliseUnit(value) {
-    return ['px', 'mm', 'cm', 'in'].includes(value) ? value : 'px';
-  }
-  function normaliseDpi(value) {
-    return clamp(Math.round(Number(value) || 300), 1, 1200);
-  }
   function normaliseAspectRatio(value, w, h) {
     const ratio = Number(value) || (Number(w) && Number(h) ? Number(w) / Number(h) : 1);
     return ratio > 0 ? ratio : 1;
@@ -670,34 +803,6 @@
   }
   function updateAspectRatio(entity) {
     if (entity?.w && entity?.h) entity.aspectRatio = normaliseAspectRatio(0, entity.w, entity.h);
-  }
-  function unitPxScale(area) {
-    const dpi = normaliseDpi(area?.dpi);
-    switch (normaliseUnit(area?.unit)) {
-      case 'mm':
-        return dpi / 25.4;
-      case 'cm':
-        return dpi / 2.54;
-      case 'in':
-        return dpi;
-      default:
-        return 1;
-    }
-  }
-  function displayEntity(entity, area = null) {
-    if (!entity) return entity;
-    const sourceArea = area || entity;
-    const px = unitPxScale(sourceArea);
-    if (px === 1) return entity;
-    const originX = Number(sourceArea.x) || 0;
-    const originY = Number(sourceArea.y) || 0;
-    return {
-      ...entity,
-      x: originX + (Number(entity.x) - originX) * px,
-      y: originY + (Number(entity.y) - originY) * px,
-      w: Number(entity.w) * px,
-      h: Number(entity.h) * px
-    };
   }
   function clampLayerToArea(layer, area) {
     if (!layer || !area) return;
@@ -1358,7 +1463,7 @@
     if (!scale) return;
     const layer = selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
     const entity = layer || area;
-    const display = displayEntity(entity, layer ? area : null);
+    const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(entity, layer ? area : null);
     const color = layer ? layerColor(layer.type) : areaColor(selectedIndex);
     const isHidden = layer ? !layer.visible : !area.visible;
     const isLocked = layer ? layer.locked : area.locked;
@@ -1368,7 +1473,7 @@
     const hideForLocked = !layer && area.locked;
     box.style.display = isHidden || hideForLocked ? 'none' : '';
     box.style.opacity = '';
-    pos(box, display, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? displayEntity(area) : null);
+    pos(box, display, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area) : null);
     box.style.borderColor = color;
     box.style.background = hexRgba(color, 0.12);
     box.classList.toggle('oc-bounds-box--locked', isLocked);
@@ -1407,24 +1512,24 @@
       if (i === selectedIndex || a.mockupUrl !== activeMockup || !activeMockup || !a.visible) return;
       const g = ghost(a, areaColor(i), 0.06);
       g.appendChild(ghostLabel(a.label || 'Area ' + (i + 1), areaColor(i)));
-      pos(g, displayEntity(a), scale, normaliseRotation(a.rotation));
+      pos(g, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(a), scale, normaliseRotation(a.rotation));
       ghosts.appendChild(g);
     });
     if (!area) return;
     if (selectedLayerIndex >= 0) {
       const outline = document.createElement('div');
       outline.className = 'oc-canvas-area-outline';
-      pos(outline, displayEntity(area), scale, normaliseRotation(area.rotation));
+      pos(outline, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area), scale, normaliseRotation(area.rotation));
       ghosts.appendChild(outline);
     }
     (area.layers || []).forEach((layer, li) => {
       if (li === selectedLayerIndex || !layer.visible) return;
-      const displayLayer = displayEntity(layer, area);
+      const displayLayer = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layer, area);
       const g = ghost(layer, layerColor(layer.type), 0.1);
       g.classList.add('oc-canvas-layer-ghost');
       g.appendChild(ghostLabel(layerIcon(layer.type) + ' ' + (layer.label || layerLabel(layer.type)), layerColor(layer.type)));
       applyLayerPreview(layer, g, Math.round(displayLayer.h * scale), true, area.method === 'engraving');
-      pos(g, displayLayer, scale, normaliseRotation(area.rotation), displayEntity(area));
+      pos(g, displayLayer, scale, normaliseRotation(area.rotation), (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area));
       if (layer.locked) {
         g.style.cursor = 'not-allowed';
         g.style.opacity = '0.5';
@@ -1556,7 +1661,7 @@
     document.getElementById('oc-prop-unit')?.addEventListener('change', () => {
       const area = areas[selectedIndex];
       if (area) {
-        area.unit = normaliseUnit(document.getElementById('oc-prop-unit').value);
+        area.unit = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit)(document.getElementById('oc-prop-unit').value);
         updateBoundsBox();
         renderGhosts();
         renderHiddenFields();
@@ -1566,7 +1671,7 @@
     document.getElementById('oc-prop-dpi')?.addEventListener('input', () => {
       const area = areas[selectedIndex];
       if (area) {
-        area.dpi = normaliseDpi(document.getElementById('oc-prop-dpi').value);
+        area.dpi = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(document.getElementById('oc-prop-dpi').value);
         updateBoundsBox();
         renderGhosts();
         renderHiddenFields();
@@ -1656,7 +1761,7 @@
       w: 200,
       h: 100
     };
-    const px = unitPxScale(area);
+    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
     const lw = Math.max(1, Math.round(def.w / px));
     const lh = Math.max(1, Math.round(def.h / px));
     const lx = area.x + Math.max(0, Math.round((area.w - lw) / 2));
@@ -1864,7 +1969,7 @@
   function addLayerAt(type, x, y, w, h) {
     const area = areas[selectedIndex];
     if (!area) return;
-    const px = unitPxScale(area);
+    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
     const layer = {
       _uid: ++uidCounter,
       id: 0,
@@ -1923,7 +2028,7 @@
     if (!scale) return;
     if (drag.type === 'rotate') {
       const rect = img.getBoundingClientRect();
-      const displayArea = displayEntity(area);
+      const displayArea = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area);
       const cx = rect.left + (displayArea.x + displayArea.w / 2) * scale;
       const cy = rect.top + (displayArea.y + displayArea.h / 2) * scale;
       entity.rotation = normaliseRotation(Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90);
@@ -1934,7 +2039,7 @@
       renderHiddenFields();
       return;
     }
-    const unitScale = layer || drag.type !== 'move' ? unitPxScale(area) : 1;
+    const unitScale = layer || drag.type !== 'move' ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area) : 1;
     const dx = Math.round((e.clientX - drag.startClientX) / scale / unitScale);
     const dy = Math.round((e.clientY - drag.startClientY) / scale / unitScale);
     const natW = img.naturalWidth || 2000;
@@ -2023,7 +2128,7 @@
       if (!layer && area.ratioLocked) entity.w = Math.max(1, Math.round(entity.h * currentAspectRatio(area)));
     }
     if (!layer && !area.ratioLocked && (changedId === 'oc-prop-w' || changedId === 'oc-prop-h')) updateAspectRatio(area);
-    if (!layer && changedId === 'oc-prop-dpi') entity.dpi = normaliseDpi(readInt(changedId, entity.dpi || 300));
+    if (!layer && changedId === 'oc-prop-dpi') entity.dpi = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(readInt(changedId, entity.dpi || 300));
     if (!layer && changedId === 'oc-prop-rotation') entity.rotation = normaliseRotation(readInt(changedId, entity.rotation || 0));
     if (layer) clampLayerToArea(layer, area);
     updateBoundsBox();
@@ -2080,5 +2185,7 @@
 
   document.addEventListener('DOMContentLoaded', init);
 })();
+})();
+
 /******/ })()
 ;

@@ -110,6 +110,7 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 			'canvas_y'        => 999,
 			'canvas_w'        => 999,
 			'canvas_h'        => 999,
+			'canvas_dpi'      => 300,
 			'canvas_rotation' => 45,
 		];
 		$area_data = [
@@ -119,7 +120,7 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 				'label'       => 'Front At Order',
 				'printMethod' => 'embroidery',
 				'unit'        => 'mm',
-				'bounds'      => [ 'x' => 10, 'y' => 20, 'w' => 300, 'h' => 120, 'rotation' => 0 ],
+				'bounds'      => [ 'x' => 10, 'y' => 20, 'w' => 300, 'h' => 120, 'dpi' => 600, 'rotation' => 0 ],
 			],
 		];
 
@@ -133,6 +134,7 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( 20.0, $area->canvas_y );
 		$this->assertSame( 300.0, $area->canvas_w );
 		$this->assertSame( 120.0, $area->canvas_h );
+		$this->assertSame( 600, $area->canvas_dpi );
 		$this->assertSame( 0.0, $area->canvas_rotation );
 	}
 

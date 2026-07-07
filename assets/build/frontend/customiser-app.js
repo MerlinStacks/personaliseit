@@ -5592,6 +5592,75 @@ exports.ParseError = ParseError;
 
 /***/ },
 
+/***/ "./src/shared/render-math.js"
+/*!***********************************!*\
+  !*** ./src/shared/render-math.js ***!
+  \***********************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   VALID_UNITS: () => (/* binding */ VALID_UNITS),
+/* harmony export */   displayBounds: () => (/* binding */ displayBounds),
+/* harmony export */   displayEntity: () => (/* binding */ displayEntity),
+/* harmony export */   displayFontSize: () => (/* binding */ displayFontSize),
+/* harmony export */   displayLayer: () => (/* binding */ displayLayer),
+/* harmony export */   normaliseDpi: () => (/* binding */ normaliseDpi),
+/* harmony export */   normaliseUnit: () => (/* binding */ normaliseUnit),
+/* harmony export */   unitPxScale: () => (/* binding */ unitPxScale)
+/* harmony export */ });
+const VALID_UNITS = ['px', 'mm', 'cm', 'in'];
+function normaliseUnit(value) {
+  return VALID_UNITS.includes(value) ? value : 'px';
+}
+function normaliseDpi(value) {
+  return Math.min(1200, Math.max(1, Math.round(Number(value) || 300)));
+}
+function unitPxScale(areaOrBounds) {
+  const dpi = normaliseDpi(areaOrBounds?.dpi);
+  switch (normaliseUnit(areaOrBounds?.unit)) {
+    case 'mm':
+      return dpi / 25.4;
+    case 'cm':
+      return dpi / 2.54;
+    case 'in':
+      return dpi;
+    default:
+      return 1;
+  }
+}
+function displayEntity(entity, area = null) {
+  if (!entity) {
+    return entity;
+  }
+  const sourceArea = area || entity;
+  const px = unitPxScale(sourceArea);
+  if (px === 1) {
+    return entity;
+  }
+  const originX = Number(sourceArea.x) || 0;
+  const originY = Number(sourceArea.y) || 0;
+  return {
+    ...entity,
+    x: originX + (Number(entity.x) - originX) * px,
+    y: originY + (Number(entity.y) - originY) * px,
+    w: Number(entity.w || 0) * px,
+    h: Number(entity.h || 0) * px
+  };
+}
+function displayBounds(bounds) {
+  return displayEntity(bounds);
+}
+function displayLayer(layer, bounds) {
+  return displayEntity(layer, bounds);
+}
+function displayFontSize(fontSize, areaOrBounds, canvasScale = 1) {
+  return Math.max(1, Number(fontSize) || 0) * unitPxScale(areaOrBounds) * canvasScale;
+}
+
+/***/ },
+
 /***/ "./node_modules/fonteditor-core/woff2 sync recursive"
 /*!**************************************************!*\
   !*** ./node_modules/fonteditor-core/woff2/ sync ***!
@@ -25027,6 +25096,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _uppy_core_css_style_min_css__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! @uppy/core/css/style.min.css */ "./node_modules/@uppy/core/dist/style.min.css");
 /* harmony import */ var _uppy_drag_drop_css_style_min_css__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! @uppy/drag-drop/css/style.min.css */ "./node_modules/@uppy/drag-drop/dist/style.min.css");
 /* harmony import */ var _customiser_app_scss__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./customiser-app.scss */ "./src/frontend/customiser-app.scss");
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
 /**
  * Frontend Customiser — vanilla JS, no framework dependency.
  *
@@ -25035,6 +25105,7 @@ __webpack_require__.r(__webpack_exports__);
  *
  * @package OverCustomise
  */
+
 
 
 
@@ -25434,7 +25505,7 @@ class OCCustomiser {
     canvas.add(mockupImg);
 
     // Dashed print-bounds guide.
-    const b = this.displayBounds(area.bounds);
+    const b = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(area.bounds);
     if (b && b.w > 0) {
       canvas.add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
         left: (b.x + b.w / 2) * scaleX,
@@ -25520,8 +25591,8 @@ class OCCustomiser {
   }
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
-    const bounds = this.displayBounds(area?.bounds || {});
-    const displayLayer = this.displayLayer(layer, area?.bounds || {});
+    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(area?.bounds || {});
+    const displayLayer = displayLayer(layer, area?.bounds || {});
     const rotation = Number(bounds.rotation) || 0;
     const contentClip = () => this.printAreaClipPath(bounds, scale);
     const center = this.rotatedLayerCenter(displayLayer, bounds, rotation);
@@ -25536,8 +25607,10 @@ class OCCustomiser {
     const engravingPalette = this.engravingPalette(area?.engravingMaterial);
     const fontLimit = value => this.fontLimit(value);
     const clampFontSize = (size, settings) => {
-      const min = fontLimit(settings?.min_font_size) * scale;
-      const max = fontLimit(settings?.max_font_size) * scale;
+      const minLimit = fontLimit(settings?.min_font_size);
+      const maxLimit = fontLimit(settings?.max_font_size);
+      const min = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(minLimit, area?.bounds || {}, scale) : 0;
+      const max = maxLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(maxLimit, area?.bounds || {}, scale) : 0;
       if (max && (!min || min <= max)) size = Math.min(size, max);
       if (min) size = Math.max(size, min);
       return size;
@@ -25560,9 +25633,10 @@ class OCCustomiser {
               font = null;
             }
           }
-          const minFontSize = fontLimit(layer.settings?.min_font_size) * scale;
+          const minLimit = fontLimit(layer.settings?.min_font_size);
+          const minFontSize = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(minLimit, area?.bounds || {}, scale) : 0;
           const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
-          let fontSize = configuredFontSize ? clampFontSize(Math.max(1, parseInt(configuredFontSize, 10)) * scale, layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
+          let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), area?.bounds || {}, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : color;
           const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
             left: lcX,
@@ -26053,42 +26127,6 @@ class OCCustomiser {
       height: Number(bounds.h) * scale,
       absolutePositioned: true
     });
-  }
-  unitPxScale(bounds) {
-    switch (bounds?.unit) {
-      case 'mm':
-        return 300 / 25.4;
-      case 'cm':
-        return 300 / 2.54;
-      case 'in':
-        return 300;
-      default:
-        return 1;
-    }
-  }
-  displayBounds(bounds) {
-    if (!bounds) return bounds;
-    const px = this.unitPxScale(bounds);
-    if (px === 1) return bounds;
-    return {
-      ...bounds,
-      w: Number(bounds.w || 0) * px,
-      h: Number(bounds.h || 0) * px
-    };
-  }
-  displayLayer(layer, bounds) {
-    if (!layer) return layer;
-    const px = this.unitPxScale(bounds);
-    if (px === 1) return layer;
-    const originX = Number(bounds?.x) || 0;
-    const originY = Number(bounds?.y) || 0;
-    return {
-      ...layer,
-      x: originX + (Number(layer.x) - originX) * px,
-      y: originY + (Number(layer.y) - originY) * px,
-      w: Number(layer.w || 0) * px,
-      h: Number(layer.h || 0) * px
-    };
   }
   layerClipPath(x, y, w, h, angle = 0, settings = {}) {
     if (!w || !h) return null;
@@ -27783,8 +27821,9 @@ class OCCustomiser {
     for (const [areaIndex, area] of this.areas.entries()) {
       const canvas = this.canvases[areaIndex];
       const bounds = area?.bounds || {};
+      const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(bounds);
       const scale = canvas?._ocScaleX || 1;
-      if (!canvas || !bounds.w || !bounds.h || typeof canvas.toSVG !== 'function') {
+      if (!canvas || !display?.w || !display?.h || typeof canvas.toSVG !== 'function') {
         continue;
       }
       const objects = canvas.getObjects ? canvas.getObjects() : [];
@@ -27798,13 +27837,13 @@ class OCCustomiser {
       });
       try {
         let svg = canvas.toSVG({
-          width: Math.max(1, Math.round(Number(bounds.w) * scale)),
-          height: Math.max(1, Math.round(Number(bounds.h) * scale)),
+          width: Math.max(1, Math.round(Number(display.w) * scale)),
+          height: Math.max(1, Math.round(Number(display.h) * scale)),
           viewBox: {
-            x: Number(bounds.x || 0) * scale,
-            y: Number(bounds.y || 0) * scale,
-            width: Math.max(1, Number(bounds.w) * scale),
-            height: Math.max(1, Number(bounds.h) * scale)
+            x: Number(display.x || 0) * scale,
+            y: Number(display.y || 0) * scale,
+            width: Math.max(1, Number(display.w) * scale),
+            height: Math.max(1, Number(display.h) * scale)
           }
         });
         svg = await this.outlineSnapshotText(svg);

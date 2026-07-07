@@ -16,6 +16,7 @@ import XHRUpload from '@uppy/xhr-upload';
 import '@uppy/core/css/style.min.css';
 import '@uppy/drag-drop/css/style.min.css';
 import './customiser-app.scss';
+import { displayBounds, displayFontSize, displayLayer } from '../shared/render-math';
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
@@ -488,7 +489,7 @@ class OCCustomiser {
 		canvas.add( mockupImg );
 
 		// Dashed print-bounds guide.
-		const b = this.displayBounds( area.bounds );
+		const b = displayBounds( area.bounds );
 		if ( b && b.w > 0 ) {
 			canvas.add( new Rect( {
 				left: ( b.x + b.w / 2 ) * scaleX, top: ( b.y + b.h / 2 ) * scaleX,
@@ -571,8 +572,8 @@ class OCCustomiser {
 
 	async renderLayer( canvas, layer, input, area ) {
 		const scale       = canvas._ocScaleX ?? 1;
-		const bounds      = this.displayBounds( area?.bounds || {} );
-		const displayLayer = this.displayLayer( layer, area?.bounds || {} );
+		const bounds      = displayBounds( area?.bounds || {} );
+		const displayLayer = displayLayer( layer, area?.bounds || {} );
 		const rotation    = Number( bounds.rotation ) || 0;
 		const contentClip = () => this.printAreaClipPath( bounds, scale );
 		const center      = this.rotatedLayerCenter( displayLayer, bounds, rotation );
@@ -587,8 +588,10 @@ class OCCustomiser {
 		const engravingPalette = this.engravingPalette( area?.engravingMaterial );
 		const fontLimit = value => this.fontLimit( value );
 		const clampFontSize = ( size, settings ) => {
-			const min = fontLimit( settings?.min_font_size ) * scale;
-			const max = fontLimit( settings?.max_font_size ) * scale;
+			const minLimit = fontLimit( settings?.min_font_size );
+			const maxLimit = fontLimit( settings?.max_font_size );
+			const min = minLimit ? displayFontSize( minLimit, area?.bounds || {}, scale ) : 0;
+			const max = maxLimit ? displayFontSize( maxLimit, area?.bounds || {}, scale ) : 0;
 			if ( max && ( ! min || min <= max ) ) size = Math.min( size, max );
 			if ( min ) size = Math.max( size, min );
 			return size;
@@ -614,10 +617,11 @@ class OCCustomiser {
 					}
 				}
 
-				const minFontSize = fontLimit( layer.settings?.min_font_size ) * scale;
+				const minLimit = fontLimit( layer.settings?.min_font_size );
+				const minFontSize = minLimit ? displayFontSize( minLimit, area?.bounds || {}, scale ) : 0;
 				const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
 				let fontSize = configuredFontSize
-					? clampFontSize( Math.max( 1, parseInt( configuredFontSize, 10 ) ) * scale, layer.settings )
+					? clampFontSize( displayFontSize( parseInt( configuredFontSize, 10 ), area?.bounds || {}, scale ), layer.settings )
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
 				const obj    = new FabricText( raw, {
@@ -1095,37 +1099,6 @@ class OCCustomiser {
 			height: Number( bounds.h ) * scale,
 			absolutePositioned: true,
 		} );
-	}
-
-	unitPxScale( bounds ) {
-		switch ( bounds?.unit ) {
-			case 'mm': return 300 / 25.4;
-			case 'cm': return 300 / 2.54;
-			case 'in': return 300;
-			default: return 1;
-		}
-	}
-
-	displayBounds( bounds ) {
-		if ( ! bounds ) return bounds;
-		const px = this.unitPxScale( bounds );
-		if ( px === 1 ) return bounds;
-		return { ...bounds, w: Number( bounds.w || 0 ) * px, h: Number( bounds.h || 0 ) * px };
-	}
-
-	displayLayer( layer, bounds ) {
-		if ( ! layer ) return layer;
-		const px = this.unitPxScale( bounds );
-		if ( px === 1 ) return layer;
-		const originX = Number( bounds?.x ) || 0;
-		const originY = Number( bounds?.y ) || 0;
-		return {
-			...layer,
-			x: originX + ( Number( layer.x ) - originX ) * px,
-			y: originY + ( Number( layer.y ) - originY ) * px,
-			w: Number( layer.w || 0 ) * px,
-			h: Number( layer.h || 0 ) * px,
-		};
 	}
 
 	layerClipPath( x, y, w, h, angle = 0, settings = {} ) {
@@ -2969,8 +2942,9 @@ class OCCustomiser {
 		for ( const [ areaIndex, area ] of this.areas.entries() ) {
 			const canvas = this.canvases[ areaIndex ];
 			const bounds = area?.bounds || {};
+			const display = displayBounds( bounds );
 			const scale  = canvas?._ocScaleX || 1;
-			if ( ! canvas || ! bounds.w || ! bounds.h || typeof canvas.toSVG !== 'function' ) {
+			if ( ! canvas || ! display?.w || ! display?.h || typeof canvas.toSVG !== 'function' ) {
 				continue;
 			}
 
@@ -2988,13 +2962,13 @@ class OCCustomiser {
 
 			try {
 				let svg = canvas.toSVG( {
-					width: Math.max( 1, Math.round( Number( bounds.w ) * scale ) ),
-					height: Math.max( 1, Math.round( Number( bounds.h ) * scale ) ),
+					width: Math.max( 1, Math.round( Number( display.w ) * scale ) ),
+					height: Math.max( 1, Math.round( Number( display.h ) * scale ) ),
 					viewBox: {
-						x: Number( bounds.x || 0 ) * scale,
-						y: Number( bounds.y || 0 ) * scale,
-						width: Math.max( 1, Number( bounds.w ) * scale ),
-						height: Math.max( 1, Number( bounds.h ) * scale ),
+						x: Number( display.x || 0 ) * scale,
+						y: Number( display.y || 0 ) * scale,
+						width: Math.max( 1, Number( display.w ) * scale ),
+						height: Math.max( 1, Number( display.h ) * scale ),
 					},
 				} );
 				svg = await this.outlineSnapshotText( svg );

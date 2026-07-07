@@ -11,6 +11,8 @@
 
 /* global ocProductsData, wp */
 
+import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shared/render-math';
+
 ( function () {
 	'use strict';
 
@@ -429,8 +431,6 @@
 		const angle = Number( value ) || 0;
 		return Math.round( ( ( angle % 360 ) + 360 ) % 360 );
 	}
-	function normaliseUnit( value ) { return [ 'px', 'mm', 'cm', 'in' ].includes( value ) ? value : 'px'; }
-	function normaliseDpi( value ) { return clamp( Math.round( Number( value ) || 300 ), 1, 1200 ); }
 	function normaliseAspectRatio( value, w, h ) {
 		const ratio = Number( value ) || ( Number( w ) && Number( h ) ? Number( w ) / Number( h ) : 1 );
 		return ratio > 0 ? ratio : 1;
@@ -439,31 +439,6 @@
 	function updateAspectRatio( entity ) {
 		if ( entity?.w && entity?.h ) entity.aspectRatio = normaliseAspectRatio( 0, entity.w, entity.h );
 	}
-	function unitPxScale( area ) {
-		const dpi = normaliseDpi( area?.dpi );
-		switch ( normaliseUnit( area?.unit ) ) {
-			case 'mm': return dpi / 25.4;
-			case 'cm': return dpi / 2.54;
-			case 'in': return dpi;
-			default: return 1;
-		}
-	}
-	function displayEntity( entity, area = null ) {
-		if ( ! entity ) return entity;
-		const sourceArea = area || entity;
-		const px = unitPxScale( sourceArea );
-		if ( px === 1 ) return entity;
-		const originX = Number( sourceArea.x ) || 0;
-		const originY = Number( sourceArea.y ) || 0;
-		return {
-			...entity,
-			x: originX + ( Number( entity.x ) - originX ) * px,
-			y: originY + ( Number( entity.y ) - originY ) * px,
-			w: Number( entity.w ) * px,
-			h: Number( entity.h ) * px,
-		};
-	}
-
 	function clampLayerToArea( layer, area ) {
 		if ( ! layer || ! area ) return;
 		const maxW = Math.max( 1, area.w );
