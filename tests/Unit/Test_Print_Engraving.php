@@ -39,5 +39,6 @@ class Test_Print_Engraving extends TestCase {
 		$this->assertStringNotContainsString( '<text', $pdf->image_svg );
 		$this->assertMatchesRegularExpression( '/<svg[^>]+width="[0-9.]+pt"[^>]+height="[0-9.]+pt"/', $pdf->image_svg );
 		$this->assertStringContainsString( '<path d=', $pdf->image_svg );
+		$this->assertStringContainsString( 'fill-rule="evenodd"', $pdf->image_svg );
 	}
 }

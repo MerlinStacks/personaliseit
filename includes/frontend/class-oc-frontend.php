@@ -301,6 +301,8 @@ class OC_Frontend {
 					'y' => (int) $area->canvas_y,
 					'w' => (int) $area->canvas_w,
 					'h' => (int) $area->canvas_h,
+					'unit' => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
+					'dpi' => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
 					'rotation' => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
 				],
 				'layers'      => $layers_js,

@@ -630,6 +630,7 @@ class OC_Admin_Products {
 				'y'          => (int) $area->canvas_y,
 				'w'          => (int) $area->canvas_w,
 				'h'          => (int) $area->canvas_h,
+				'dpi'        => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
 				'rotation'   => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
 				'sortOrder'  => (int) $area->sort_order,
 				'visible'    => (bool) $area->visible,
@@ -779,6 +780,7 @@ class OC_Admin_Products {
 									<div class="oc-editor-field"><label><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" style="width:100%;" /></div>
 									<div class="oc-bounds-size-row" style="display:flex;grid-column:1 / -1;gap:8px;align-items:flex-end;flex-wrap:nowrap;">
 										<div class="oc-editor-field" style="flex:1 1 0;min-width:0;margin-bottom:0;"><label>W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" style="width:100%;" /></div>
+										<button type="button" id="oc-prop-ratio-lock" class="oc-layer-action-btn" aria-label="<?php esc_attr_e( 'Lock aspect ratio', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Lock aspect ratio', 'overcustomise' ); ?>" style="flex:0 0 32px;height:36px;margin-bottom:0;align-self:flex-end;"></button>
 										<div class="oc-editor-field" style="flex:1 1 0;min-width:0;margin-bottom:0;"><label>H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" style="width:100%;" /></div>
 										<div class="oc-editor-field oc-bounds-unit-field" style="flex:0 0 64px;margin-bottom:0;">
 											<label for="oc-prop-unit"><?php esc_html_e( 'Unit', 'overcustomise' ); ?></label>
@@ -789,6 +791,11 @@ class OC_Admin_Products {
 												<option value="in">in</option>
 											</select>
 										</div>
+									</div>
+									<div class="oc-editor-field" style="grid-column:1 / -1;margin-bottom:0;">
+										<label for="oc-prop-dpi"><?php esc_html_e( 'Canvas DPI', 'overcustomise' ); ?></label>
+										<input type="number" id="oc-prop-dpi" class="oc-input" min="1" max="1200" step="1" style="width:100%;" />
+										<p class="description" style="margin:4px 0 0;font-size:11px;line-height:1.3;"><?php esc_html_e( 'Controls how mm, cm and inch sizes appear on the mockup preview. Print/export dimensions stay unchanged.', 'overcustomise' ); ?></p>
 									</div>
 								</div>
 								</div>
@@ -954,6 +961,7 @@ class OC_Admin_Products {
 			$canvas_y   = max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) );
 			$canvas_w   = max( 1, (int) ( $area_data['canvas_w'] ?? 300 ) );
 			$canvas_h   = max( 1, (int) ( $area_data['canvas_h'] ?? 300 ) );
+			$canvas_dpi = min( 1200, max( 1, (int) ( $area_data['canvas_dpi'] ?? 300 ) ) );
 			$rotation   = (int) ( $area_data['canvas_rotation'] ?? 0 );
 			$rotation   = ( ( $rotation % 360 ) + 360 ) % 360;
 			$sort_order = (int) ( $area_data['sort_order'] ?? 0 );
@@ -969,12 +977,13 @@ class OC_Admin_Products {
 				'canvas_y'             => $canvas_y,
 				'canvas_w'             => $canvas_w,
 				'canvas_h'             => $canvas_h,
+				'canvas_dpi'           => $canvas_dpi,
 				'canvas_rotation'      => $rotation,
 				'sort_order'           => $sort_order,
 				'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
 				'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
 			];
-			$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
+			$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
 
 			if ( $area_id > 0 ) {
 				$wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id ], $row_fmt, [ '%d' ] );

@@ -186,7 +186,7 @@
 				return {
 					id: a.id, label: a.label, method: a.method,
 					mockupId: a.mockupId, mockupUrl: a.mockupUrl,
-					x: a.x, y: a.y, w: a.w, h: a.h, rotation: a.rotation,
+					x: a.x, y: a.y, w: a.w, h: a.h, dpi: a.dpi, ratioLocked: a.ratioLocked, aspectRatio: a.aspectRatio, rotation: a.rotation,
 					sortOrder: a.sortOrder, visible: a.visible, locked: a.locked,
 					layers: ( a.layers || [] ).map( function ( l ) {
 						return {
@@ -353,6 +353,9 @@
 			y:         Number( a.y )        || 0,
 			w:         Number( a.w )        || 300,
 			h:         Number( a.h )        || 300,
+			dpi:       normaliseDpi( a.dpi ),
+			ratioLocked: !! a.ratioLocked,
+			aspectRatio: normaliseAspectRatio( a.aspectRatio, Number( a.w ) || 300, Number( a.h ) || 300 ),
 			rotation:  normaliseRotation( a.rotation ),
 			sortOrder: i,
 			visible:   a.visible !== false && a.visible !== 0,
@@ -425,6 +428,39 @@
 		return Math.round( ( ( angle % 360 ) + 360 ) % 360 );
 	}
 	function normaliseUnit( value ) { return [ 'px', 'mm', 'cm', 'in' ].includes( value ) ? value : 'px'; }
+	function normaliseDpi( value ) { return clamp( Math.round( Number( value ) || 300 ), 1, 1200 ); }
+	function normaliseAspectRatio( value, w, h ) {
+		const ratio = Number( value ) || ( Number( w ) && Number( h ) ? Number( w ) / Number( h ) : 1 );
+		return ratio > 0 ? ratio : 1;
+	}
+	function currentAspectRatio( entity ) { return normaliseAspectRatio( entity?.aspectRatio, entity?.w, entity?.h ); }
+	function updateAspectRatio( entity ) {
+		if ( entity?.w && entity?.h ) entity.aspectRatio = normaliseAspectRatio( 0, entity.w, entity.h );
+	}
+	function unitPxScale( area ) {
+		const dpi = normaliseDpi( area?.dpi );
+		switch ( normaliseUnit( area?.unit ) ) {
+			case 'mm': return dpi / 25.4;
+			case 'cm': return dpi / 2.54;
+			case 'in': return dpi;
+			default: return 1;
+		}
+	}
+	function displayEntity( entity, area = null ) {
+		if ( ! entity ) return entity;
+		const sourceArea = area || entity;
+		const px = unitPxScale( sourceArea );
+		if ( px === 1 ) return entity;
+		const originX = Number( sourceArea.x ) || 0;
+		const originY = Number( sourceArea.y ) || 0;
+		return {
+			...entity,
+			x: originX + ( Number( entity.x ) - originX ) * px,
+			y: originY + ( Number( entity.y ) - originY ) * px,
+			w: Number( entity.w ) * px,
+			h: Number( entity.h ) * px,
+		};
+	}
 
 	function clampLayerToArea( layer, area ) {
 		if ( ! layer || ! area ) return;
@@ -818,7 +854,9 @@
 		setVal( 'oc-prop-y', area.y );
 		setVal( 'oc-prop-w', area.w );
 		setVal( 'oc-prop-h', area.h );
+		setVal( 'oc-prop-dpi', area.dpi || 300 );
 		setVal( 'oc-prop-rotation', area.rotation );
+		renderRatioLockButton( area );
 
 		const thumb     = document.getElementById( 'oc-mockup-thumb-img' );
 		const noThumb   = document.getElementById( 'oc-mockup-thumb-empty' );
@@ -840,6 +878,16 @@
 			chooseBtn.setAttribute( 'title', chooseLabel );
 		}
 		if ( dot       ) dot.style.background    = areaColor( selectedIndex );
+	}
+
+	function renderRatioLockButton( area ) {
+		const btn = document.getElementById( 'oc-prop-ratio-lock' );
+		if ( ! btn || ! area ) return;
+		btn.innerHTML = area.ratioLocked ? ICO_LOCK : ICO_UNLOCK;
+		btn.classList.toggle( 'is-on', !! area.ratioLocked );
+		btn.setAttribute( 'aria-pressed', area.ratioLocked ? 'true' : 'false' );
+		btn.setAttribute( 'aria-label', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio' );
+		btn.setAttribute( 'title', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio' );
 	}
 
 	// ── Right column ───────────────────────────────────────────────────────────
@@ -1043,6 +1091,7 @@
 
 		const layer  = selectedLayerIndex >= 0 ? area.layers[ selectedLayerIndex ] : null;
 		const entity = layer || area;
+		const display = displayEntity( entity, layer ? area : null );
 		const color  = layer ? layerColor( layer.type ) : areaColor( selectedIndex );
 
 		const isHidden = layer ? ! layer.visible : ! area.visible;
@@ -1053,7 +1102,7 @@
 		const hideForLocked = ! layer && area.locked;
 		box.style.display = ( isHidden || hideForLocked ) ? 'none' : '';
 		box.style.opacity = '';
-		pos( box, entity, scale, layer ? normaliseRotation( area.rotation ) : normaliseRotation( entity.rotation ), layer ? area : null );
+		pos( box, display, scale, layer ? normaliseRotation( area.rotation ) : normaliseRotation( entity.rotation ), layer ? displayEntity( area ) : null );
 		box.style.borderColor = color;
 		box.style.background  = hexRgba( color, 0.12 );
 		box.classList.toggle( 'oc-bounds-box--locked', isLocked );
@@ -1067,7 +1116,7 @@
 
 		// Layer content preview inside bounds box
 		box.querySelectorAll( '.oc-bounds-box-pill' ).forEach( el => el.remove() );
-		const renderedH = Math.round( entity.h * scale );
+		const renderedH = Math.round( display.h * scale );
 		applyLayerPreview( layer, box, renderedH, false, area.method === 'engraving' );
 
 		if ( layer ) {
@@ -1095,7 +1144,7 @@
 			if ( i === selectedIndex || a.mockupUrl !== activeMockup || ! activeMockup || ! a.visible ) return;
 			const g = ghost( a, areaColor( i ), 0.06 );
 			g.appendChild( ghostLabel( a.label || ( 'Area ' + ( i + 1 ) ), areaColor( i ) ) );
-			pos( g, a, scale, normaliseRotation( a.rotation ) );
+			pos( g, displayEntity( a ), scale, normaliseRotation( a.rotation ) );
 			ghosts.appendChild( g );
 		} );
 
@@ -1104,18 +1153,19 @@
 		if ( selectedLayerIndex >= 0 ) {
 			const outline = document.createElement( 'div' );
 			outline.className = 'oc-canvas-area-outline';
-			pos( outline, area, scale, normaliseRotation( area.rotation ) );
+			pos( outline, displayEntity( area ), scale, normaliseRotation( area.rotation ) );
 			ghosts.appendChild( outline );
 		}
 
 		( area.layers || [] ).forEach( ( layer, li ) => {
 			if ( li === selectedLayerIndex || ! layer.visible ) return;
+			const displayLayer = displayEntity( layer, area );
 			const g = ghost( layer, layerColor( layer.type ), 0.1 );
 			g.classList.add( 'oc-canvas-layer-ghost' );
 			g.appendChild( ghostLabel( layerIcon( layer.type ) + ' ' + ( layer.label || layerLabel( layer.type ) ), layerColor( layer.type ) ) );
-			applyLayerPreview( layer, g, Math.round( layer.h * scale ), true, area.method === 'engraving' );
+			applyLayerPreview( layer, g, Math.round( displayLayer.h * scale ), true, area.method === 'engraving' );
 
-			pos( g, layer, scale, normaliseRotation( area.rotation ), area );
+			pos( g, displayLayer, scale, normaliseRotation( area.rotation ), displayEntity( area ) );
 
 			if ( layer.locked ) {
 				g.style.cursor  = 'not-allowed';
@@ -1186,6 +1236,7 @@
 				'<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc( area.y        ) + '">' +
 				'<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc( area.w        ) + '">' +
 				'<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc( area.h        ) + '">' +
+				'<input type="hidden" name="' + p + '[canvas_dpi]"           value="' + esc( area.dpi || 300 ) + '">' +
 				'<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc( area.rotation ) + '">' +
 				'<input type="hidden" name="' + p + '[sort_order]"           value="' + esc( i                        ) + '">' +
 				'<input type="hidden" name="' + p + '[visible]"              value="' + esc( area.visible ? '1' : '0' ) + '">' +
@@ -1249,7 +1300,23 @@
 			const area = areas[ selectedIndex ];
 			if ( area ) {
 				area.unit = normaliseUnit( document.getElementById( 'oc-prop-unit' ).value );
-				renderHiddenFields();
+				updateBoundsBox(); renderGhosts(); renderHiddenFields();
+				markDirty();
+			}
+		} );
+		document.getElementById( 'oc-prop-dpi' )?.addEventListener( 'input', () => {
+			const area = areas[ selectedIndex ];
+			if ( area ) {
+				area.dpi = normaliseDpi( document.getElementById( 'oc-prop-dpi' ).value );
+				updateBoundsBox(); renderGhosts(); renderHiddenFields(); markDirty();
+			}
+		} );
+		document.getElementById( 'oc-prop-ratio-lock' )?.addEventListener( 'click', () => {
+			const area = areas[ selectedIndex ];
+			if ( area ) {
+				area.ratioLocked = ! area.ratioLocked;
+				updateAspectRatio( area );
+				renderRatioLockButton( area );
 				markDirty();
 			}
 		} );
@@ -1301,9 +1368,12 @@
 		const area = areas[ selectedIndex ];
 		if ( ! area ) return;
 		const def = LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
-		const lx  = area.x + Math.max( 0, Math.round( ( area.w - def.w ) / 2 ) );
-		const ly  = area.y + Math.max( 0, Math.round( ( area.h - def.h ) / 2 ) );
-		const layer = { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x: lx, y: ly, w: def.w, h: def.h, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length };
+		const px  = unitPxScale( area );
+		const lw  = Math.max( 1, Math.round( def.w / px ) );
+		const lh  = Math.max( 1, Math.round( def.h / px ) );
+		const lx  = area.x + Math.max( 0, Math.round( ( area.w - lw ) / 2 ) );
+		const ly  = area.y + Math.max( 0, Math.round( ( area.h - lh ) / 2 ) );
+		const layer = { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x: lx, y: ly, w: lw, h: lh, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length };
 		clampLayerToArea( layer, area );
 		area.layers.push( layer );
 		selectedLayerIndex = area.layers.length - 1;
@@ -1477,7 +1547,21 @@
 	function addLayerAt( type, x, y, w, h ) {
 		const area = areas[ selectedIndex ];
 		if ( ! area ) return;
-		const layer = { _uid: ++uidCounter, id: 0, type, label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ), x, y, w, h, visible: true, locked: false, settings: defaultSettings( type ), sortOrder: area.layers.length };
+		const px = unitPxScale( area );
+		const layer = {
+			_uid: ++uidCounter,
+			id: 0,
+			type,
+			label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ),
+			x: area.x + Math.round( ( x - area.x ) / px ),
+			y: area.y + Math.round( ( y - area.y ) / px ),
+			w: Math.max( 1, Math.round( w / px ) ),
+			h: Math.max( 1, Math.round( h / px ) ),
+			visible: true,
+			locked: false,
+			settings: defaultSettings( type ),
+			sortOrder: area.layers.length,
+		};
 		clampLayerToArea( layer, area );
 		area.layers.push( layer );
 		selectedLayerIndex = area.layers.length - 1;
@@ -1516,8 +1600,9 @@
 
 		if ( drag.type === 'rotate' ) {
 			const rect = img.getBoundingClientRect();
-			const cx   = rect.left + ( area.x + area.w / 2 ) * scale;
-			const cy   = rect.top + ( area.y + area.h / 2 ) * scale;
+			const displayArea = displayEntity( area );
+			const cx   = rect.left + ( displayArea.x + displayArea.w / 2 ) * scale;
+			const cy   = rect.top + ( displayArea.y + displayArea.h / 2 ) * scale;
 			entity.rotation = normaliseRotation( Math.atan2( e.clientY - cy, e.clientX - cx ) * 180 / Math.PI + 90 );
 			updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity );
 			syncRightBounds( entity );
@@ -1525,8 +1610,9 @@
 			return;
 		}
 
-		const dx   = Math.round( ( e.clientX - drag.startClientX ) / scale );
-		const dy   = Math.round( ( e.clientY - drag.startClientY ) / scale );
+		const unitScale = layer || drag.type !== 'move' ? unitPxScale( area ) : 1;
+		const dx   = Math.round( ( ( e.clientX - drag.startClientX ) / scale ) / unitScale );
+		const dy   = Math.round( ( ( e.clientY - drag.startClientY ) / scale ) / unitScale );
 		const natW = img.naturalWidth  || 2000;
 		const natH = img.naturalHeight || 2000;
 		const d    = drag.dir;
@@ -1535,20 +1621,41 @@
 		const minY = layer ? area.y : 0;
 		const maxX = layer ? area.x + area.w : natW;
 		const maxY = layer ? area.y + area.h : natH;
+		const maxW = layer ? maxX - entity.x : ( maxX - entity.x ) / unitScale;
+		const maxH = layer ? maxY - entity.y : ( maxY - entity.y ) / unitScale;
 
 		if ( drag.type === 'move' ) {
 			entity.x = clamp( drag.startX + dx, minX, maxX - entity.w );
 			entity.y = clamp( drag.startY + dy, minY, maxY - entity.h );
 		} else {
 			let nx = drag.startX, ny = drag.startY, nw = drag.startW, nh = drag.startH;
-			if ( d.includes( 'e' ) ) { nw = Math.max( 10, drag.startW + dx ); }
-			if ( d.includes( 's' ) ) { nh = Math.max( 10, drag.startH + dy ); }
-			if ( d.includes( 'w' ) ) { nw = Math.max( 10, drag.startW - dx ); nx = drag.startX + drag.startW - nw; }
-			if ( d.includes( 'n' ) ) { nh = Math.max( 10, drag.startH - dy ); ny = drag.startY + drag.startH - nh; }
+			if ( d.includes( 'e' ) ) { nw = Math.max( 1, drag.startW + dx ); }
+			if ( d.includes( 's' ) ) { nh = Math.max( 1, drag.startH + dy ); }
+			if ( d.includes( 'w' ) ) { nw = Math.max( 1, drag.startW - dx ); nx = drag.startX + drag.startW - nw; }
+			if ( d.includes( 'n' ) ) { nh = Math.max( 1, drag.startH - dy ); ny = drag.startY + drag.startH - nh; }
+			if ( ! layer && area.ratioLocked ) {
+				const ratio = currentAspectRatio( area );
+				if ( d === 'n' || d === 's' ) {
+					nw = Math.max( 1, nh * ratio );
+				} else {
+					nh = Math.max( 1, nw / ratio );
+				}
+				if ( d.includes( 'w' ) ) nx = drag.startX + drag.startW - nw;
+				if ( d.includes( 'n' ) ) ny = drag.startY + drag.startH - nh;
+			}
 			entity.x = clamp( nx, minX, maxX );
 			entity.y = clamp( ny, minY, maxY );
-			entity.w = Math.min( nw, maxX - entity.x );
-			entity.h = Math.min( nh, maxY - entity.y );
+			entity.w = Math.min( nw, maxW );
+			entity.h = Math.min( nh, maxH );
+			if ( ! layer && area.ratioLocked ) {
+				const ratio = currentAspectRatio( area );
+				if ( d === 'n' || d === 's' ) {
+					entity.w = Math.min( maxW, Math.max( 1, Math.round( entity.h * ratio ) ) );
+				} else {
+					entity.h = Math.min( maxH, Math.max( 1, Math.round( entity.w / ratio ) ) );
+				}
+			}
+			if ( ! layer && ! area.ratioLocked ) updateAspectRatio( area );
 		}
 
 		updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity );
@@ -1574,8 +1681,16 @@
 
 		if ( changedId === inputPrefix + '-x' ) entity.x = readInt( changedId, entity.x || 0 );
 		if ( changedId === inputPrefix + '-y' ) entity.y = readInt( changedId, entity.y || 0 );
-		if ( changedId === inputPrefix + '-w' ) entity.w = Math.max( 1, readInt( changedId, entity.w || 1 ) );
-		if ( changedId === inputPrefix + '-h' ) entity.h = Math.max( 1, readInt( changedId, entity.h || 1 ) );
+		if ( changedId === inputPrefix + '-w' ) {
+			entity.w = Math.max( 1, readInt( changedId, entity.w || 1 ) );
+			if ( ! layer && area.ratioLocked ) entity.h = Math.max( 1, Math.round( entity.w / currentAspectRatio( area ) ) );
+		}
+		if ( changedId === inputPrefix + '-h' ) {
+			entity.h = Math.max( 1, readInt( changedId, entity.h || 1 ) );
+			if ( ! layer && area.ratioLocked ) entity.w = Math.max( 1, Math.round( entity.h * currentAspectRatio( area ) ) );
+		}
+		if ( ! layer && ! area.ratioLocked && ( changedId === 'oc-prop-w' || changedId === 'oc-prop-h' ) ) updateAspectRatio( area );
+		if ( ! layer && changedId === 'oc-prop-dpi' ) entity.dpi = normaliseDpi( readInt( changedId, entity.dpi || 300 ) );
 		if ( ! layer && changedId === 'oc-prop-rotation' ) entity.rotation = normaliseRotation( readInt( changedId, entity.rotation || 0 ) );
 		if ( layer ) clampLayerToArea( layer, area );
 		updateBoundsBox(); renderGhosts(); updateCoordsReadout( entity ); renderHiddenFields(); markDirty();
@@ -1589,6 +1704,8 @@
 		setVal( prefix + '-y', entity.y );
 		setVal( prefix + '-w', entity.w );
 		setVal( prefix + '-h', entity.h );
+		if ( entity === area ) setVal( 'oc-prop-dpi', entity.dpi || 300 );
+		if ( entity === area ) renderRatioLockButton( entity );
 		if ( entity === area ) setVal( 'oc-prop-rotation', normaliseRotation( entity.rotation ) );
 	}
 

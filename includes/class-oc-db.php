@@ -194,6 +194,7 @@ class OC_DB {
 			canvas_y             INT NOT NULL DEFAULT 0,
 			canvas_w             INT NOT NULL DEFAULT 300,
 			canvas_h             INT NOT NULL DEFAULT 300,
+			canvas_dpi           INT NOT NULL DEFAULT 300,
 			canvas_rotation      INT NOT NULL DEFAULT 0,
 			sort_order           INT NOT NULL DEFAULT 0,
 			visible              TINYINT(1) NOT NULL DEFAULT 1,
@@ -410,6 +411,16 @@ class OC_DB {
 					$wpdb->query(
 						"ALTER TABLE {$table_name}
 						 ADD COLUMN design_variants LONGTEXT DEFAULT NULL AFTER design_id"
+					);
+				}
+			}
+
+			if ( version_compare( $installed, '1.12.1', '<' ) ) {
+				$table_name = $wpdb->prefix . 'oc_design_print_areas';
+				if ( ! self::column_exists( $table_name, 'canvas_dpi' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN canvas_dpi INT NOT NULL DEFAULT 300 AFTER canvas_h"
 					);
 				}
 			}

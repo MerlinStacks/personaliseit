@@ -25435,7 +25435,7 @@ class OCCustomiser {
     canvas.add(mockupImg);
 
     // Dashed print-bounds guide.
-    const b = area.bounds;
+    const b = this.displayBounds(area.bounds);
     if (b && b.w > 0) {
       canvas.add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
         left: (b.x + b.w / 2) * scaleX,
@@ -25522,14 +25522,15 @@ class OCCustomiser {
   }
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
-    const bounds = area?.bounds || {};
+    const bounds = this.displayBounds(area?.bounds || {});
+    const displayLayer = this.displayLayer(layer, area?.bounds || {});
     const rotation = Number(bounds.rotation) || 0;
     const contentClip = () => this.printAreaClipPath(bounds, scale);
-    const center = this.rotatedLayerCenter(layer, bounds, rotation);
-    const lx = (center.x - layer.w / 2) * scale;
-    const ly = (center.y - layer.h / 2) * scale;
-    const lw = Math.max(layer.w * scale, 10);
-    const lh = Math.max(layer.h * scale, 10);
+    const center = this.rotatedLayerCenter(displayLayer, bounds, rotation);
+    const lx = (center.x - displayLayer.w / 2) * scale;
+    const ly = (center.y - displayLayer.h / 2) * scale;
+    const lw = Math.max(displayLayer.w * scale, 10);
+    const lh = Math.max(displayLayer.h * scale, 10);
     const lcX = center.x * scale;
     const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
@@ -26014,6 +26015,43 @@ class OCCustomiser {
       height: Number(bounds.h) * scale,
       absolutePositioned: true
     });
+  }
+  unitPxScale(bounds) {
+    const dpi = Math.min(1200, Math.max(1, Math.round(Number(bounds?.dpi) || 300)));
+    switch (bounds?.unit) {
+      case 'mm':
+        return dpi / 25.4;
+      case 'cm':
+        return dpi / 2.54;
+      case 'in':
+        return dpi;
+      default:
+        return 1;
+    }
+  }
+  displayBounds(bounds) {
+    if (!bounds) return bounds;
+    const px = this.unitPxScale(bounds);
+    if (px === 1) return bounds;
+    return {
+      ...bounds,
+      w: Number(bounds.w || 0) * px,
+      h: Number(bounds.h || 0) * px
+    };
+  }
+  displayLayer(layer, bounds) {
+    if (!layer) return layer;
+    const px = this.unitPxScale(bounds);
+    if (px === 1) return layer;
+    const originX = Number(bounds?.x) || 0;
+    const originY = Number(bounds?.y) || 0;
+    return {
+      ...layer,
+      x: originX + (Number(layer.x) - originX) * px,
+      y: originY + (Number(layer.y) - originY) * px,
+      w: Number(layer.w || 0) * px,
+      h: Number(layer.h || 0) * px
+    };
   }
   layerClipPath(x, y, w, h, angle = 0, settings = {}) {
     if (!w || !h) return null;

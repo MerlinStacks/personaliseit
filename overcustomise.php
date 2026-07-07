@@ -18,12 +18,12 @@
 defined( 'ABSPATH' ) || exit;
 
 // Plugin constants.
-define( 'OC_VERSION',     '1.12.0' );
+define( 'OC_VERSION',     '1.12.1' );
 define( 'OC_FILE',        __FILE__ );
 define( 'OC_PATH',        plugin_dir_path( __FILE__ ) );
 define( 'OC_URL',         plugin_dir_url( __FILE__ ) );
 define( 'OC_ASSETS_URL',  OC_URL . 'assets/build/' );
-define( 'OC_DB_VERSION',  '1.12.0' );
+define( 'OC_DB_VERSION',  '1.12.1' );
 
 /** Return the bundled Composer autoloader path. */
 function oc_composer_autoload_path(): string {

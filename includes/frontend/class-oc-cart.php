@@ -67,6 +67,21 @@ class OC_Cart {
 				width: 64px;
 				height: 64px;
 			}
+			.widget_shopping_cart .woocommerce-mini-cart-item,
+			.woocommerce.widget_shopping_cart .woocommerce-mini-cart-item {
+				position: relative;
+				min-height: 92px;
+				padding-left: 92px !important;
+			}
+			.widget_shopping_cart .woocommerce-mini-cart-item img.oc-cart-preview-thumb,
+			.woocommerce.widget_shopping_cart .woocommerce-mini-cart-item img.oc-cart-preview-thumb {
+				position: absolute;
+				left: 0;
+				top: 0;
+				width: 80px !important;
+				height: 80px !important;
+				margin: 0 !important;
+			}
 		' );
 	}
 

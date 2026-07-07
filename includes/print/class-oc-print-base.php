@@ -727,21 +727,24 @@ abstract class OC_Print_Base {
 		$fit_scale = min( 1.0, $box_w_pt / $width, $box_h_pt / $glyph_h );
 		$fit_scale = max( 0.01, $fit_scale );
 		$draw_w    = $width * $fit_scale;
+		$draw_h    = $glyph_h * $fit_scale;
 		$origin_x  = match ( $align ) {
 			'R' => $box_w_pt - $draw_w,
 			'L' => 0.0,
 			default => ( $box_w_pt - $draw_w ) / 2,
 		};
-		$baseline_y = ( $box_h_pt - $glyph_h * $fit_scale ) / 2 + (float) $bbox[3] * $fit_scale;
+		$origin_y  = ( $box_h_pt - $draw_h ) / 2;
+		$path_x    = -1 * (float) $bbox[0] * $fit_scale;
+		$path_y    = (float) $bbox[3] * $fit_scale;
 
 		$svg = sprintf(
-			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000"/></g></svg>',
-			$box_w_pt,
-			$box_h_pt,
-			$box_w_pt,
-			$box_h_pt,
-			$origin_x,
-			$baseline_y,
+			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000" fill-rule="evenodd" clip-rule="evenodd"/></g></svg>',
+			$draw_w,
+			$draw_h,
+			$draw_w,
+			$draw_h,
+			$path_x,
+			$path_y,
 			$fit_scale,
 			$fit_scale,
 			htmlspecialchars( $d, ENT_QUOTES | ENT_XML1, 'UTF-8' )
@@ -759,7 +762,7 @@ abstract class OC_Print_Base {
 		}
 
 		try {
-			$pdf->ImageSVG( $temp, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+			$pdf->ImageSVG( $temp, $x_mm + self::pt_to_mm_value( $origin_x ), $y_mm + self::pt_to_mm_value( $origin_y ), self::pt_to_mm_value( $draw_w ), self::pt_to_mm_value( $draw_h ), '', '', '', 0, false );
 			return true;
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'Engraving text outline SVG render failed: ' . $e->getMessage() );
@@ -792,6 +795,10 @@ abstract class OC_Print_Base {
 
 	private static function mm_to_pt_value( float $mm ): float {
 		return $mm * 72 / 25.4;
+	}
+
+	private static function pt_to_mm_value( float $pt ): float {
+		return $pt * 25.4 / 72;
 	}
 
 	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
