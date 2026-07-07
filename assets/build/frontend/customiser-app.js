@@ -25897,14 +25897,16 @@ class OCCustomiser {
     const palettes = {
       glass: {
         text: '#eef4f4',
+        imageTint: '#eef4f4',
         bg: 'F7FAFA',
         highlight: 'rgba(255,255,255,0.7)',
-        brightness: 0.08,
-        contrast: 0.06,
-        opacity: 0.72
+        brightness: 0.16,
+        contrast: -0.04,
+        opacity: 0.62
       },
       gold_metal: {
         text: '#6f5227',
+        imageTint: '#6f5227',
         bg: 'D9A72E',
         highlight: 'rgba(255,238,176,0.34)',
         brightness: -0.18,
@@ -25913,6 +25915,7 @@ class OCCustomiser {
       },
       silver_metal: {
         text: '#c9c9c3',
+        imageTint: '#c9c9c3',
         bg: 'ECEFF1',
         highlight: 'rgba(255,255,255,0.42)',
         brightness: -0.28,
@@ -25921,6 +25924,7 @@ class OCCustomiser {
       },
       black_metal: {
         text: '#d8d8d8',
+        imageTint: '#d8d8d8',
         bg: '1F2328',
         highlight: 'rgba(255,255,255,0.24)',
         brightness: -0.34,
@@ -25929,6 +25933,7 @@ class OCCustomiser {
       },
       wood: {
         text: '#5d3922',
+        imageTint: '#5d3922',
         bg: '8A5A34',
         highlight: 'rgba(255,225,180,0.24)',
         brightness: -0.16,
@@ -26328,6 +26333,13 @@ class OCCustomiser {
         }), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
           contrast: palette.contrast
         }));
+        if (palette.imageTint && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
+            color: palette.imageTint,
+            mode: 'tint',
+            alpha: 1
+          }));
+        }
       }
       if (filters.length) {
         img.filters = filters;
