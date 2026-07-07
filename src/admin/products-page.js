@@ -184,7 +184,7 @@
 		return {
 			areas: areas.map( function ( a ) {
 				return {
-					id: a.id, label: a.label, method: a.method,
+					id: a.id, label: a.label, method: a.method, material: a.material,
 					mockupId: a.mockupId, mockupUrl: a.mockupUrl,
 					x: a.x, y: a.y, w: a.w, h: a.h, dpi: a.dpi, ratioLocked: a.ratioLocked, aspectRatio: a.aspectRatio, rotation: a.rotation,
 					sortOrder: a.sortOrder, visible: a.visible, locked: a.locked,
@@ -341,11 +341,13 @@
 
 	function normaliseArea( a, i ) {
 		const unit = [ 'px', 'mm', 'cm', 'in' ].includes( a.unit ) ? a.unit : 'px';
+		const material = [ 'glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood' ].includes( a.material ) ? a.material : 'silver_metal';
 		return {
 			_uid:      ++uidCounter,
 			id:        Number( a.id )       || 0,
 			label:     a.label              || '',
 			method:    a.method             || 'uv',
+			material,
 			unit,
 			mockupId:  Number( a.mockupId ) || 0,
 			mockupUrl: a.mockupUrl          || '',
@@ -849,6 +851,7 @@
 
 		setVal( 'oc-prop-label',  area.label  );
 		setVal( 'oc-prop-method', area.method );
+		setVal( 'oc-prop-engraving-material', area.material || 'silver_metal' );
 		setVal( 'oc-prop-unit', area.unit || 'px' );
 		setVal( 'oc-prop-x', area.x );
 		setVal( 'oc-prop-y', area.y );
@@ -878,6 +881,9 @@
 			chooseBtn.setAttribute( 'title', chooseLabel );
 		}
 		if ( dot       ) dot.style.background    = areaColor( selectedIndex );
+
+		const materialWrap = document.getElementById( 'oc-prop-engraving-material-wrap' );
+		if ( materialWrap ) materialWrap.style.display = area.method === 'engraving' ? '' : 'none';
 	}
 
 	function renderRatioLockButton( area ) {
@@ -1230,6 +1236,7 @@
 				'<input type="hidden" name="' + p + '[id]"                   value="' + esc( area.id      ) + '">' +
 				'<input type="hidden" name="' + p + '[label]"                value="' + esc( area.label    ) + '">' +
 				'<input type="hidden" name="' + p + '[print_method]"         value="' + esc( area.method   ) + '">' +
+				'<input type="hidden" name="' + p + '[engraving_material]"   value="' + esc( area.material || 'silver_metal' ) + '">' +
 				'<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc( area.unit || 'px' ) + '">' +
 				'<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc( area.mockupId ) + '">' +
 				'<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc( area.x        ) + '">' +
@@ -1291,8 +1298,17 @@
 			const area = areas[ selectedIndex ];
 			if ( area ) {
 				area.method = document.getElementById( 'oc-prop-method' ).value;
+				if ( area.method === 'engraving' && ! area.material ) area.material = 'silver_metal';
 				// Re-render everything so layer panels reflect method-dependent UI (e.g. hide colour picks under engraving).
 				renderAll();
+				markDirty();
+			}
+		} );
+		document.getElementById( 'oc-prop-engraving-material' )?.addEventListener( 'change', () => {
+			const area = areas[ selectedIndex ];
+			if ( area ) {
+				area.material = document.getElementById( 'oc-prop-engraving-material' ).value;
+				renderHiddenFields();
 				markDirty();
 			}
 		} );

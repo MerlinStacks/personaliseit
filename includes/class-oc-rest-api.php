@@ -275,6 +275,7 @@ class OC_Rest_API {
 				'area_key'     => $area->area_key,
 				'label'        => $area->label,
 				'print_method' => $area->print_method,
+				'engraving_material' => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
 				'mockup_url'   => $mockup_url,
 				'canvas'       => [
 					'x' => (int) $area->canvas_x,

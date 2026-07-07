@@ -621,6 +621,7 @@ class OC_Admin_Products {
 				'id'        => (int) $area->id,
 				'label'     => $area->label,
 				'method'    => $area->print_method,
+				'material'  => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
 				'unit'      => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
 				'mockupId'  => (int) $area->mockup_attachment_id,
 				'mockupUrl' => $area->mockup_attachment_id
@@ -761,6 +762,16 @@ class OC_Admin_Products {
 										<option value="engraving"><?php esc_html_e( 'Engraving', 'overcustomise' ); ?></option>
 										<option value="embroidery"><?php esc_html_e( 'Embroidery', 'overcustomise' ); ?></option>
 										<option value="sublimation"><?php esc_html_e( 'Sublimation', 'overcustomise' ); ?></option>
+									</select>
+								</div>
+								<div class="oc-editor-field" id="oc-prop-engraving-material-wrap" style="display:none;">
+									<label for="oc-prop-engraving-material"><?php esc_html_e( 'Engraving Material', 'overcustomise' ); ?></label>
+									<select id="oc-prop-engraving-material" class="oc-select" style="width:100%;">
+										<option value="glass"><?php esc_html_e( 'Glass', 'overcustomise' ); ?></option>
+										<option value="gold_metal"><?php esc_html_e( 'Gold Metal', 'overcustomise' ); ?></option>
+										<option value="silver_metal"><?php esc_html_e( 'Silver Metal', 'overcustomise' ); ?></option>
+										<option value="black_metal"><?php esc_html_e( 'Black Metal', 'overcustomise' ); ?></option>
+										<option value="wood"><?php esc_html_e( 'Wood', 'overcustomise' ); ?></option>
 									</select>
 								</div>
 								<div class="oc-mockup-thumb" id="oc-mockup-thumb">
@@ -953,6 +964,9 @@ class OC_Admin_Products {
 			$method     = in_array( $area_data['print_method'] ?? '', [ 'engraving', 'uv', 'embroidery', 'sublimation' ], true )
 				? sanitize_key( $area_data['print_method'] )
 				: 'uv';
+			$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood' ], true )
+				? sanitize_key( $area_data['engraving_material'] )
+				: 'silver_metal';
 			$unit       = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
 				? sanitize_key( $area_data['canvas_unit'] )
 				: 'px';
@@ -971,6 +985,7 @@ class OC_Admin_Products {
 				'area_key'             => $area_key,
 				'label'                => $label,
 				'print_method'         => $method,
+				'engraving_material'   => $material,
 				'canvas_unit'          => $unit,
 				'mockup_attachment_id' => $mockup_id ?: null,
 				'canvas_x'             => $canvas_x,
@@ -983,7 +998,7 @@ class OC_Admin_Products {
 				'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
 				'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
 			];
-			$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
+			$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
 
 			if ( $area_id > 0 ) {
 				$wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id ], $row_fmt, [ '%d' ] );

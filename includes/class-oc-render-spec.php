@@ -172,6 +172,7 @@ class OC_Render_Spec {
 			'areaKey'     => $area_key,
 			'label'       => (string) $area->label,
 			'printMethod' => (string) $area->print_method,
+			'engravingMaterial' => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
 			'unit'        => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
 			'bounds'      => [
 				'x'        => (int) $area->canvas_x,

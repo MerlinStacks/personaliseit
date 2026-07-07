@@ -212,12 +212,46 @@ class OC_Frontend {
 
 	/** Build the complete initial state for the Interactivity API store. */
 	private function build_state(): array {
+		$state = $this->build_design_state( $this->design, $this->areas, $this->layers );
+
+		$edit_mode = false;
+		$cart_key  = '';
+		if ( null !== $this->edit_cart_item ) {
+			$edit_mode = true;
+			$cart_key  = $this->edit_cart_item['key'];
+			$cs = $this->edit_cart_item['customisation'];
+			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] && isset( $cs['layers'] ) && is_array( $cs['layers'] ) ) {
+				$state['layerInputs'] = $this->merge_saved_layer_inputs( $state['layerInputs'], $cs['layers'] );
+			}
+		}
+
+		$state['designVariants']        = $this->design_variants;
+		$state['selectedDesignVariant'] = $this->selected_design_variant;
+		$state['designVariantStates']   = $this->build_design_variant_states();
+		$state['activeAreaIndex']       = 0;
+		$state['isLoading']             = false;
+		$state['uploadUrl']             = rest_url( 'overcustomise/v1/upload-artwork' );
+		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
+		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
+		$state['updateCartItemUrl']     = rest_url( 'overcustomise/v1/update-cart-item' );
+		$state['uploadNonce']           = wp_create_nonce( 'wp_rest' );
+		$state['requestToken']          = OC_Rest_API::issue_public_token();
+		$state['maxUploadSizeMb']       = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
+		$state['allowedFormats']        = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
+		$state['editMode']              = $edit_mode;
+		$state['cartKey']               = $cart_key;
+
+		return $state;
+	}
+
+	/** Build reusable frontend state for one design. */
+	private function build_design_state( object $design, array $areas, array $layers ): array {
 		$all_fonts   = OC_Font_Registry::get_fonts_for_js();
 		$all_colours = OC_DB::get_colours( true );
 
 		// Group layers by area ID.
 		$layers_by_area = [];
-		foreach ( $this->layers as $layer ) {
+		foreach ( $layers as $layer ) {
 			$layers_by_area[ (int) $layer->area_id ][] = $layer;
 		}
 
@@ -226,7 +260,7 @@ class OC_Frontend {
 		$layer_inputs = []; // layerId → default input values
 		$restricted_layer_colours = [];
 
-		foreach ( $this->areas as $area ) {
+		foreach ( $areas as $area ) {
 			$area_layers  = $layers_by_area[ (int) $area->id ] ?? [];
 			$layers_js    = [];
 
@@ -293,6 +327,7 @@ class OC_Frontend {
 				'id'          => (int) $area->id,
 				'label'       => $area->label,
 				'printMethod' => $area->print_method,
+				'engravingMaterial' => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
 				'mockupUrl'   => $mockup_url,
 				'mockupW'     => $mockup_w,
 				'mockupH'     => $mockup_h,
@@ -315,7 +350,7 @@ class OC_Frontend {
 		}, $all_colours );
 
 		// Clipart items grouped per clipart layer.
-		$clipart_by_layer = $this->build_clipart_by_layer();
+		$clipart_by_layer = $this->build_clipart_by_layer( $layers );
 
 		// Flatten all clipart groups across layers into a unique list.
 		$clipart_groups = [];
@@ -330,52 +365,27 @@ class OC_Frontend {
 		}
 		sort( $clipart_groups );
 
-		$edit_mode = false;
-		$cart_key  = '';
-		if ( null !== $this->edit_cart_item ) {
-			$edit_mode = true;
-			$cart_key  = $this->edit_cart_item['key'];
-			$cs = $this->edit_cart_item['customisation'];
-			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] && isset( $cs['layers'] ) && is_array( $cs['layers'] ) ) {
-				foreach ( $cs['layers'] as $lid => $ldata ) {
-					if ( ! is_array( $ldata ) || ! isset( $layer_inputs[ (int) $lid ] ) ) continue;
-					$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
-					if ( isset( $restricted_layer_colours[ (int) $lid ] ) ) {
-						$allowed_hexes = $restricted_layer_colours[ (int) $lid ];
-						$current_hex   = sanitize_hex_color( (string) ( $layer_inputs[ (int) $lid ]['colorHex'] ?? '' ) ) ?: '';
-						if ( ! empty( $allowed_hexes ) && ! in_array( strtolower( $current_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
-							$layer_inputs[ (int) $lid ]['colorHex'] = $allowed_hexes[0];
-						}
-					}
-				}
-			}
-		}
-
 		return [
-			'designId'        => (int) $this->design->id,
-			'designName'      => $this->design->name,
-			'designVariants'  => $this->design_variants,
-			'selectedDesignVariant' => $this->selected_design_variant,
-			'flatRate'        => (float) $this->design->flat_rate,
+			'designId'        => (int) $design->id,
+			'designName'      => $design->name,
+			'flatRate'        => (float) $design->flat_rate,
 			'areas'           => $areas_js,
 			'fonts'           => $all_fonts,
 			'colours'         => $colours_js,
 			'clipartByLayer'  => $clipart_by_layer,
 			'clipartGroups'   => $clipart_groups,
 			'layerInputs'     => $layer_inputs,
-			'activeAreaIndex' => 0,
-			'isLoading'       => false,
-			'uploadUrl'       => rest_url( 'overcustomise/v1/upload-artwork' ),
-			'savePreviewUrl'  => rest_url( 'overcustomise/v1/save-preview' ),
-			'validateSpotifyUrl' => rest_url( 'overcustomise/v1/validate-spotify' ),
-			'updateCartItemUrl' => rest_url( 'overcustomise/v1/update-cart-item' ),
-			'uploadNonce'     => wp_create_nonce( 'wp_rest' ),
-			'requestToken'    => OC_Rest_API::issue_public_token(),
-			'maxUploadSizeMb' => (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10,
-			'allowedFormats'  => (array) OC_Admin_Settings::get( 'allowed_upload_formats' ),
-			'editMode'        => $edit_mode,
-			'cartKey'         => $cart_key,
+			'restrictedLayerColours' => $restricted_layer_colours,
 		];
+	}
+
+	/** Merge saved cart values into default layer inputs. */
+	private function merge_saved_layer_inputs( array $layer_inputs, array $saved_inputs ): array {
+		foreach ( $saved_inputs as $lid => $ldata ) {
+			if ( ! is_array( $ldata ) || ! isset( $layer_inputs[ (int) $lid ] ) ) continue;
+			$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
+		}
+		return $layer_inputs;
 	}
 
 	/** Build frontend-safe alternate design options from assignment JSON. */
@@ -430,14 +440,67 @@ class OC_Frontend {
 		];
 	}
 
+	/** Build preloaded state and HTML for every selectable design option. */
+	private function build_design_variant_states(): array {
+		$states = [];
+		foreach ( $this->design_variants as $variant ) {
+			$design_id = absint( $variant['designId'] ?? 0 );
+			$variant_id = (string) ( $variant['id'] ?? '' );
+			if ( ! $design_id || '' === $variant_id ) {
+				continue;
+			}
+
+			$design = OC_DB::get_design( $design_id );
+			if ( ! $design || ! (bool) $design->active ) {
+				continue;
+			}
+
+			$areas = OC_DB::get_design_print_areas( $design_id );
+			if ( empty( $areas ) ) {
+				continue;
+			}
+
+			$layers = OC_DB::get_design_layers( $design_id );
+			$design_variants = $this->mark_design_variants_selected( $variant_id );
+			$state = $this->build_design_state( $design, $areas, $layers );
+			$state['designVariants']        = $design_variants;
+			$state['selectedDesignVariant'] = $variant_id;
+			$state['panelHtml']             = $this->render_panel_html( $design, $areas, $layers, $design_variants );
+			$states[ $variant_id ] = $state;
+		}
+
+		return $states;
+	}
+
+	/** Mark the selected design option for server-rendered variant panels. */
+	private function mark_design_variants_selected( string $selected_variant_id ): array {
+		return array_map(
+			fn( $variant ) => array_merge( $variant, [ 'selected' => (string) ( $variant['id'] ?? '' ) === $selected_variant_id ] ),
+			$this->design_variants
+		);
+	}
+
+	/** Render the frontend panel for a specific design into a string. */
+	private function render_panel_html( object $design, array $areas, array $layers, array $design_variants ): string {
+		$template = OC_PATH . 'templates/frontend/customiser-panel.php';
+		if ( ! file_exists( $template ) ) {
+			return '';
+		}
+
+		ob_start();
+		include $template;
+		return (string) ob_get_clean();
+	}
+
 	/** Load clipart items for all clipart layers. */
-	private function build_clipart_by_layer(): array {
+	private function build_clipart_by_layer( ?array $layers = null ): array {
 		global $wpdb;
 
 		$by_layer   = [];
 		$upload_dir = wp_upload_dir();
+		$layers     = $layers ?? $this->layers;
 
-		foreach ( $this->layers as $layer ) {
+		foreach ( $layers as $layer ) {
 			if ( $layer->type !== 'clipart' ) continue;
 
 			$settings   = $layer->settings ? json_decode( $layer->settings, true ) : [];
@@ -540,9 +603,20 @@ class OC_Frontend {
 			return false;
 		}
 
+		$posted_design_id = absint( $data['designId'] ?? 0 );
+		$validation_layers = $this->layers;
+		if ( $posted_design_id && $posted_design_id !== (int) $this->design->id ) {
+			$allowed_design_ids = array_map( fn( $variant ) => absint( $variant['designId'] ?? 0 ), $this->design_variants );
+			if ( ! in_array( $posted_design_id, $allowed_design_ids, true ) ) {
+				wc_add_notice( __( 'Invalid design option selected. Please refresh and try again.', 'overcustomise' ), 'error' );
+				return false;
+			}
+			$validation_layers = OC_DB::get_design_layers( $posted_design_id );
+		}
+
 		// Check layer requirements and hard validation rules before cart insert.
 		$layer_inputs = is_array( $data['layers'] ?? null ) ? $data['layers'] : [];
-		foreach ( $this->layers as $layer ) {
+		foreach ( $validation_layers as $layer ) {
 			// Ignore hidden layers: they are not user-editable in the frontend panel.
 			if ( ! (bool) ( $layer->visible ?? true ) ) {
 				continue;

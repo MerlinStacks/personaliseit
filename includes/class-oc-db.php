@@ -41,6 +41,7 @@ class OC_DB {
 			area_key             VARCHAR(50)  NOT NULL DEFAULT 'front',
 			label                VARCHAR(100) NOT NULL DEFAULT 'Front',
 			print_method         ENUM('engraving','uv','embroidery','sublimation') NOT NULL DEFAULT 'uv',
+			engraving_material   VARCHAR(30) NOT NULL DEFAULT 'silver_metal',
 			mockup_attachment_id BIGINT UNSIGNED DEFAULT NULL,
 			canvas_x             INT NOT NULL DEFAULT 0,
 			canvas_y             INT NOT NULL DEFAULT 0,
@@ -188,6 +189,7 @@ class OC_DB {
 			area_key             VARCHAR(50)  NOT NULL DEFAULT 'front',
 			label                VARCHAR(100) NOT NULL DEFAULT 'Front',
 			print_method         ENUM('engraving','uv','embroidery','sublimation') NOT NULL DEFAULT 'uv',
+			engraving_material   VARCHAR(30) NOT NULL DEFAULT 'silver_metal',
 			canvas_unit          VARCHAR(10) NOT NULL DEFAULT 'px',
 			mockup_attachment_id BIGINT UNSIGNED DEFAULT NULL,
 			canvas_x             INT NOT NULL DEFAULT 0,
@@ -422,6 +424,18 @@ class OC_DB {
 						"ALTER TABLE {$table_name}
 						 ADD COLUMN canvas_dpi INT NOT NULL DEFAULT 300 AFTER canvas_h"
 					);
+				}
+			}
+
+			if ( version_compare( $installed, '1.13.0', '<' ) ) {
+				foreach ( [ 'oc_print_areas', 'oc_design_print_areas' ] as $table ) {
+					$table_name = $wpdb->prefix . $table;
+					if ( ! self::column_exists( $table_name, 'engraving_material' ) ) {
+						$wpdb->query(
+							"ALTER TABLE {$table_name}
+							 ADD COLUMN engraving_material VARCHAR(30) NOT NULL DEFAULT 'silver_metal' AFTER print_method"
+						);
+					}
 				}
 			}
 

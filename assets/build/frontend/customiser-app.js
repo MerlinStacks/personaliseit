@@ -25099,6 +25099,7 @@ class OCCustomiser {
     this.clipartCategoryFilters = {};
     this.spotifyModalCloseTimer = null;
     this.mobileCartPreviewDialog = null;
+    this.formSubmitBound = false;
     if (this.editMode) {
       Object.entries(data.layerInputs || {}).forEach(([k, v]) => {
         const key = parseInt(k, 10);
@@ -25535,7 +25536,7 @@ class OCCustomiser {
     const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
     const isEmbroidery = area?.printMethod === 'embroidery';
-    const engravingPalette = this.engravingPalette();
+    const engravingPalette = this.engravingPalette(area?.engravingMaterial);
     const fontLimit = value => this.fontLimit(value);
     const clampFontSize = (size, settings) => {
       const min = fontLimit(settings?.min_font_size) * scale;
@@ -25892,15 +25893,50 @@ class OCCustomiser {
     if (!/^[A-Za-z0-9]+$/.test(id)) return '';
     return `spotify:${type}:${id}`;
   }
-  engravingPalette() {
-    return {
-      text: '#dadad6',
-      bg: 'ECEFF1',
-      highlight: 'rgba(255,255,255,0.42)',
-      brightness: -0.28,
-      contrast: 0.18,
-      opacity: 0.9
+  engravingPalette(material = 'silver_metal') {
+    const palettes = {
+      glass: {
+        text: '#eef4f4',
+        bg: 'F7FAFA',
+        highlight: 'rgba(255,255,255,0.7)',
+        brightness: 0.08,
+        contrast: 0.06,
+        opacity: 0.72
+      },
+      gold_metal: {
+        text: '#6f5227',
+        bg: 'D9A72E',
+        highlight: 'rgba(255,238,176,0.34)',
+        brightness: -0.18,
+        contrast: 0.22,
+        opacity: 0.88
+      },
+      silver_metal: {
+        text: '#c9c9c3',
+        bg: 'ECEFF1',
+        highlight: 'rgba(255,255,255,0.42)',
+        brightness: -0.28,
+        contrast: 0.18,
+        opacity: 0.9
+      },
+      black_metal: {
+        text: '#d8d8d8',
+        bg: '1F2328',
+        highlight: 'rgba(255,255,255,0.24)',
+        brightness: -0.34,
+        contrast: 0.28,
+        opacity: 0.95
+      },
+      wood: {
+        text: '#5d3922',
+        bg: '8A5A34',
+        highlight: 'rgba(255,225,180,0.24)',
+        brightness: -0.16,
+        contrast: 0.2,
+        opacity: 0.9
+      }
     };
+    return palettes[material] || palettes.silver_metal;
   }
   embroideryPattern(color, fontSize = 24) {
     const source = document.createElement('canvas');
@@ -26598,11 +26634,57 @@ class OCCustomiser {
       btn.addEventListener('click', () => {
         const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
         if (!variant || variant.id === this.selectedDesignVariant) return;
-        const url = new URL(window.location.href);
-        url.searchParams.set('oc_design_variant', variant.id);
-        window.location.href = url.toString();
+        this.switchDesignVariant(variant.id);
       });
     });
+  }
+  async switchDesignVariant(variantId) {
+    const state = this.data.designVariantStates?.[variantId];
+    if (!state?.panelHtml) return;
+    this.syncInputsFromDOM();
+    const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
+    if (currentState) {
+      currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+    }
+    Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
+    this.canvases = {};
+    this._previewUrl = null;
+    this.activeArea = 0;
+    this.selectedDesignVariant = variantId;
+    const currentPanel = document.getElementById('oc-customiser-panel');
+    if (currentPanel) {
+      currentPanel.outerHTML = state.panelHtml;
+    }
+    this.data.designId = state.designId;
+    this.data.designName = state.designName;
+    this.data.flatRate = state.flatRate;
+    this.data.areas = state.areas || [];
+    this.data.layerInputs = state.layerInputs || {};
+    this.data.clipartByLayer = state.clipartByLayer || {};
+    this.data.clipartGroups = state.clipartGroups || [];
+    this.data.designVariants = state.designVariants || this.designVariants;
+    this.data.selectedDesignVariant = variantId;
+    this.areas = this.data.areas || [];
+    this.designVariants = this.data.designVariants || [];
+    this.layersById = {};
+    this.areas.forEach(area => (area.layers || []).forEach(layer => {
+      this.layersById[layer.id] = layer;
+    }));
+    this.inputs = {};
+    Object.entries(this.data.layerInputs || {}).forEach(([k, v]) => {
+      const layerId = parseInt(k, 10);
+      this.inputs[layerId] = {
+        ...v
+      };
+      this.clampLayerInputValue(layerId);
+    });
+    this.preflightRoot = document.getElementById('oc-preflight-messages');
+    this.mobileCartPreviewDialog = null;
+    this.setupInputListeners();
+    this.setupUploadZones();
+    this.applyInputsToDOM();
+    this.updateHiddenField();
+    await this.initAllCanvases();
   }
   setupSpotifyModal() {
     const dialog = document.getElementById('oc-spotify-share-dialog');
@@ -27115,6 +27197,9 @@ class OCCustomiser {
 
   updateInputsFromDOM() {
     this.syncInputsFromDOM();
+    this.applyInputsToDOM();
+  }
+  applyInputsToDOM() {
     for (const layerIdStr in this.inputs) {
       const layerId = parseInt(layerIdStr, 10);
       const inp = this.inputs[layerId];
@@ -27192,8 +27277,10 @@ class OCCustomiser {
     this.updateHiddenField();
   }
   setupFormSubmit() {
+    if (this.formSubmitBound) return;
     const form = document.querySelector('form.cart');
     if (!form) return;
+    this.formSubmitBound = true;
     if (this.editMode) {
       form.addEventListener('submit', async e => {
         e.preventDefault();
