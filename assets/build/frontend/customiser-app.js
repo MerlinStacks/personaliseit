@@ -25158,6 +25158,8 @@ class OCCustomiser {
     this._previewUrl = null; // saved preview URL (set just before cart submit)
     this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
     this._tvpgPreviewLocked = false;
+    this.productVariationStates = {};
+    this._variationRequestSeq = 0;
     this.spotifyValidateTimers = {};
     this.spotifyValidateTokens = {};
     this.preflightRoot = null;
@@ -25526,7 +25528,41 @@ class OCCustomiser {
         releasePreviewLock();
       }
     });
-    window.jQuery?.(form).on?.('woocommerce_variation_select_change found_variation reset_data', releasePreviewLock);
+    window.jQuery?.(form).on?.('woocommerce_variation_select_change', releasePreviewLock);
+    window.jQuery?.(form).on?.('reset_data', () => {
+      releasePreviewLock();
+      this.switchProductVariation(0);
+    });
+    window.jQuery?.(form).on?.('found_variation', (event, variation) => {
+      releasePreviewLock();
+      this.switchProductVariation(parseInt(variation?.variation_id || form.querySelector('input.variation_id')?.value || '0', 10));
+    });
+  }
+  async switchProductVariation(variationId) {
+    if (this.editMode || !this.data.productDesignUrl) return;
+    const key = String(Math.max(0, parseInt(variationId, 10) || 0));
+    const requestSeq = ++this._variationRequestSeq;
+    let state = this.productVariationStates[key];
+    if (!state) {
+      const url = new URL(this.data.productDesignUrl, window.location.origin);
+      url.searchParams.set('variant_id', key);
+      try {
+        const response = await fetch(url.toString(), {
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json'
+          }
+        });
+        if (!response.ok) throw new Error(`Variation design request failed (${response.status})`);
+        state = await response.json();
+        this.productVariationStates[key] = state;
+      } catch (err) {
+        console.warn('[OC] Variation design load failed:', err);
+        return;
+      }
+    }
+    if (requestSeq !== this._variationRequestSeq || !state?.active || !state?.panelHtml) return;
+    await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
   }
 
   // ── Canvas initialisation ──────────────────────────────────────────────────
@@ -25586,6 +25622,26 @@ class OCCustomiser {
       evented: false
     });
     canvas.add(mockupImg);
+
+    // Keep the bounds object in the canvas stack for stable Fabric clipping/export,
+    // but do not render the guide in the customer-facing preview.
+    const b = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(bounds);
+    if (b && b.w > 0) {
+      canvas.add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
+        left: (b.x + b.w / 2) * scaleX,
+        top: (b.y + b.h / 2) * scaleX,
+        originX: 'center',
+        originY: 'center',
+        angle: Number(b.rotation) || 0,
+        width: b.w * scaleX,
+        height: b.h * scaleX,
+        fill: 'rgba(255,255,255,0)',
+        stroke: 'rgba(255,255,255,0)',
+        strokeWidth: 1.5,
+        selectable: false,
+        evented: false
+      }));
+    }
     canvas._ocScaleX = scaleX;
     canvas._ocArea = area;
     canvas.renderAll();
@@ -26776,10 +26832,16 @@ class OCCustomiser {
   async switchDesignVariant(variantId) {
     const state = this.data.designVariantStates?.[variantId];
     if (!state?.panelHtml) return;
-    this.syncInputsFromDOM();
-    const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
-    if (currentState) {
-      currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+    await this.applyDesignState(state, variantId, true);
+  }
+  async applyDesignState(state, variantId, preserveCurrentState = true) {
+    if (!state?.panelHtml) return;
+    if (preserveCurrentState) {
+      this.syncInputsFromDOM();
+      const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
+      if (currentState) {
+        currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+      }
     }
     Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
     this.canvases = {};
@@ -26798,6 +26860,7 @@ class OCCustomiser {
     this.data.clipartByLayer = state.clipartByLayer || {};
     this.data.clipartGroups = state.clipartGroups || [];
     this.data.designVariants = state.designVariants || this.designVariants;
+    this.data.designVariantStates = state.designVariantStates || this.data.designVariantStates || {};
     this.data.selectedDesignVariant = variantId;
     this.areas = this.data.areas || [];
     this.designVariants = this.data.designVariants || [];
@@ -26818,6 +26881,7 @@ class OCCustomiser {
     this.setupInputListeners();
     this.setupDesignVariantOptions();
     this.setupUploadZones();
+    this.setupVariationGalleryHandoff();
     this.applyInputsToDOM();
     this.updateHiddenField();
     await this.initAllCanvases();

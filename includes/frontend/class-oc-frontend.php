@@ -175,6 +175,7 @@ class OC_Frontend {
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
 		$state['updateCartItemUrl']     = rest_url( 'overcustomise/v1/update-cart-item' );
+		$state['productDesignUrl']      = rest_url( 'overcustomise/v1/product-design/' . (int) get_queried_object_id() );
 		$state['productId']             = (int) get_queried_object_id();
 		$state['uploadNonce']           = wp_create_nonce( 'wp_rest' );
 		$state['requestToken']          = OC_Rest_API::issue_public_token();
@@ -182,6 +183,51 @@ class OC_Frontend {
 		$state['allowedFormats']        = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
 		$state['editMode']              = $edit_mode;
 		$state['cartKey']               = $cart_key;
+
+		return $state;
+	}
+
+	/** Build the frontend state needed when WooCommerce switches product variations. */
+	public static function build_assignment_state( int $product_id, int $variation_id = 0 ): array|\WP_Error {
+		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+		if ( ! $assignment ) {
+			return [
+				'design_id' => 0,
+				'active'    => false,
+			];
+		}
+
+		$design = OC_DB::get_design( (int) $assignment->design_id );
+		if ( ! $design || ! (bool) $design->active ) {
+			return [
+				'design_id' => (int) $assignment->design_id,
+				'active'    => false,
+			];
+		}
+
+		$areas = OC_DB::get_design_print_areas( (int) $design->id );
+		if ( empty( $areas ) ) {
+			return new \WP_Error( 'no_areas', __( 'Assigned design has no print areas.', 'overcustomise' ), [ 'status' => 404 ] );
+		}
+
+		$self = new self();
+		$layers = OC_DB::get_design_layers( (int) $design->id );
+		$design_variants = $self->build_design_variants( (string) ( $assignment->design_variants ?? '' ), (int) $assignment->design_id, (int) $design->id );
+		$selected_design_variant = 'design-' . (int) $design->id;
+
+		$self->design = $design;
+		$self->areas = $areas;
+		$self->layers = $layers;
+		$self->design_variants = $design_variants;
+		$self->selected_design_variant = $selected_design_variant;
+
+		$state = $self->build_design_state( $design, $areas, $layers );
+		$state['design_id']             = (int) $design->id;
+		$state['active']                = true;
+		$state['designVariants']        = $design_variants;
+		$state['selectedDesignVariant'] = $selected_design_variant;
+		$state['designVariantStates']   = $self->build_design_variant_states();
+		$state['panelHtml']             = $self->render_panel_html( $design, $areas, $layers, $design_variants );
 
 		return $state;
 	}
@@ -548,8 +594,13 @@ class OC_Frontend {
 		$posted_design_id = absint( $data['designId'] ?? 0 );
 		$validation_layers = $this->layers;
 		if ( $posted_design_id && $posted_design_id !== (int) $this->design->id ) {
+			$variation_id = isset( $_POST['variation_id'] ) ? absint( wp_unslash( $_POST['variation_id'] ) ) : 0;
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 			$allowed_design_ids = array_map( fn( $variant ) => absint( $variant['designId'] ?? 0 ), $this->design_variants );
-			if ( ! in_array( $posted_design_id, $allowed_design_ids, true ) ) {
+			$is_allowed_design = in_array( $posted_design_id, $allowed_design_ids, true )
+				|| ( $assignment && OC_DB::assignment_allows_design( $assignment, $posted_design_id ) );
+
+			if ( ! $is_allowed_design ) {
 				wc_add_notice( __( 'Invalid design option selected. Please refresh and try again.', 'overcustomise' ), 'error' );
 				return false;
 			}

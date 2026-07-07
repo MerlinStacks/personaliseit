@@ -218,18 +218,12 @@ class OC_Rest_API {
 			return new \WP_Error( 'not_found', 'Product not found.', [ 'status' => 404 ] );
 		}
 
-		$row = OC_DB::get_assignment_for_product( (int) $product_id, $variant_id );
-
-		if ( ! $row ) {
-			return rest_ensure_response( [ 'design_id' => 0, 'active' => false ] );
+		$state = OC_Frontend::build_assignment_state( (int) $product_id, $variant_id );
+		if ( is_wp_error( $state ) ) {
+			return $state;
 		}
 
-		$design = OC_DB::get_design( (int) $row->design_id );
-
-		return rest_ensure_response( [
-			'design_id' => (int) $row->design_id,
-			'active'    => $design ? (bool) $design->active : false,
-		] );
+		return rest_ensure_response( $state );
 	}
 
 	/** Return the active product config, print areas, and font list for the customiser. */
