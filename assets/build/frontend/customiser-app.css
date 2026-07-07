@@ -1301,6 +1301,21 @@
   margin: 0 0 16px;
 }
 img.oc-live-preview-applied {
+  display: block !important;
+  position: static !important;
+  width: 100% !important;
   height: auto !important;
+  max-height: none !important;
   object-fit: contain !important;
+}
+.oc-live-preview-frame {
+  position: relative !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+.oc-live-preview-frame > img.oc-live-preview-applied,
+.oc-live-preview-frame > a > img.oc-live-preview-applied {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
 }

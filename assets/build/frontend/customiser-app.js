@@ -25266,17 +25266,24 @@ class OCCustomiser {
   }
   applyPreviewToImage(img, dataUrl, dimensions = null) {
     if (!img) return;
+    const hasDimensions = dimensions?.width && dimensions?.height;
+    const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
+    const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
     img.src = dataUrl;
     img.srcset = '';
     img.sizes = '';
     img.classList.add('oc-live-preview-applied');
-    if (dimensions?.width && dimensions?.height) {
+    if (hasDimensions) {
       img.width = dimensions.width;
       img.height = dimensions.height;
-      img.style.aspectRatio = `${dimensions.width} / ${dimensions.height}`;
+      img.style.aspectRatio = aspectRatio;
     }
+    img.style.display = 'block';
+    img.style.width = '100%';
     img.style.objectFit = 'contain';
     img.style.height = 'auto';
+    img.style.maxHeight = 'none';
+    img.style.position = 'static';
 
     // Update zoom / lightbox href if wrapped in <a>.
     const a = img.closest('a');
@@ -25298,9 +25305,20 @@ class OCCustomiser {
     const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
     if (galleryItem) {
       galleryItem.setAttribute('data-thumb', dataUrl);
-      if (dimensions?.width && dimensions?.height && !img.closest('.product-thumbnails, .tvpg-thumb-slider')) {
-        galleryItem.style.aspectRatio = `${dimensions.width} / ${dimensions.height}`;
+      if (hasDimensions && !img.closest('.product-thumbnails, .tvpg-thumb-slider')) {
+        galleryItem.classList.add('oc-live-preview-frame');
+        galleryItem.style.aspectRatio = aspectRatio;
         galleryItem.style.height = 'auto';
+        galleryItem.style.paddingTop = '0';
+        galleryItem.style.paddingBottom = ratioPadding;
+        const link = img.closest('a');
+        if (link && galleryItem.contains(link)) {
+          link.classList.add('oc-live-preview-frame');
+          link.style.aspectRatio = aspectRatio;
+          link.style.height = 'auto';
+          link.style.paddingTop = '0';
+          link.style.paddingBottom = ratioPadding;
+        }
       }
     }
   }
