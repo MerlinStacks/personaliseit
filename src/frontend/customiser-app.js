@@ -7,7 +7,7 @@
  * @package OverCustomise
  */
 
-import { StaticCanvas, FabricImage, FabricText, Textbox, Rect, Circle, Shadow, Pattern, filters as FabricFilters } from 'fabric';
+import { StaticCanvas, FabricImage, FabricText, Rect, Circle, Shadow, Pattern, filters as FabricFilters } from 'fabric';
 import { createFont } from 'fonteditor-core';
 import Uppy      from '@uppy/core';
 import DragDrop  from '@uppy/drag-drop';
@@ -59,6 +59,7 @@ class OCCustomiser {
 		this.galleryImg        = null; // the main <img> in the product gallery
 		this._previewUrl       = null; // saved preview URL (set just before cart submit)
 		this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
+		this._tvpgPreviewLocked = false;
 		this.spotifyValidateTimers = {};
 		this.spotifyValidateTokens = {};
 		this.preflightRoot = null;
@@ -136,6 +137,7 @@ class OCCustomiser {
 
 		// Wire up controls IMMEDIATELY — don't block on canvas.
 		this.setupInputListeners();
+		this.setupVariationGalleryHandoff();
 		this.setupDesignVariantOptions();
 		this.setupClipartCarousels();
 		this.setupUploadZones();
@@ -333,19 +335,32 @@ class OCCustomiser {
 	}
 
 	stopTVPGAutoScroll( ...swipers ) {
-		swipers.forEach( swiper => {
-			if ( ! swiper || swiper._ocAutoScrollStopped ) return;
+		swipers.forEach( swiper => swiper?.autoplay?.stop?.() );
+	}
 
-			swiper.autoplay?.stop?.();
-			if ( swiper.params ) {
-				swiper.params.autoplay = false;
-			}
-			if ( swiper.originalParams ) {
-				swiper.originalParams.autoplay = false;
-			}
+	lockTVPGPreviewSlide( swiper, slide ) {
+		if ( ! swiper || ! slide ) return;
+		const previewIndex = Array.from( swiper.slides || [] ).indexOf( slide );
+		if ( previewIndex < 0 ) return;
 
-			swiper._ocAutoScrollStopped = true;
-		} );
+		swiper._ocPreviewSlideIndex = previewIndex;
+		if ( swiper._ocPreviewLockBound ) return;
+
+		const keepPreviewActive = () => {
+			if ( ! this._tvpgPreviewLocked || swiper._ocPreviewLocking ) return;
+			const targetIndex = swiper._ocPreviewSlideIndex;
+			if ( targetIndex === undefined || swiper.activeIndex === targetIndex ) return;
+
+			swiper._ocPreviewLocking = true;
+			requestAnimationFrame( () => {
+					swiper.slideTo?.( targetIndex, 0, false );
+				swiper._ocPreviewLocking = false;
+			} );
+		};
+
+		swiper.on?.( 'activeIndexChange slideChange transitionStart', keepPreviewActive );
+
+		swiper._ocPreviewLockBound = true;
 	}
 
 	applyTVPGOverlayPreview( dataUrl, dimensions = null ) {
@@ -394,10 +409,15 @@ class OCCustomiser {
 		mainSwiper?.update?.();
 		thumbSwiper?.update?.();
 
+		this.lockTVPGPreviewSlide( mainSwiper, mainPreviewSlide );
+		this.lockTVPGPreviewSlide( thumbSwiper, thumbWrapper?.querySelector( '.swiper-slide.oc-live-preview-thumb-slide' ) );
+
 		if ( this._focusPreviewSlide && mainSwiper?.slides?.length ) {
-			const lastIndex = mainSwiper.slides.length - 1;
-			mainSwiper.slideTo( lastIndex );
-			thumbSwiper?.slideTo?.( lastIndex );
+			this._tvpgPreviewLocked = true;
+			const previewIndex = mainSwiper._ocPreviewSlideIndex ?? mainSwiper.slides.length - 1;
+			const thumbIndex = thumbSwiper?._ocPreviewSlideIndex ?? previewIndex;
+			mainSwiper.slideTo( previewIndex );
+			thumbSwiper?.slideTo?.( thumbIndex );
 		}
 
 		this._focusPreviewSlide = false;
@@ -479,6 +499,25 @@ class OCCustomiser {
 		this._focusPreviewSlide = true;
 	}
 
+	setupVariationGalleryHandoff() {
+		const form = document.querySelector( 'form.variations_form, form.cart' );
+		if ( ! form || form._ocVariationGalleryHandoffBound ) return;
+
+		form._ocVariationGalleryHandoffBound = true;
+		const releasePreviewLock = () => {
+			this._focusPreviewSlide = false;
+			this._tvpgPreviewLocked = false;
+		};
+
+		form.addEventListener( 'change', event => {
+			if ( event.target.closest( '.variations, [name^="attribute_"]' ) ) {
+				releasePreviewLock();
+			}
+		} );
+
+		window.jQuery?.( form ).on?.( 'woocommerce_variation_select_change found_variation reset_data', releasePreviewLock );
+	}
+
 	// ── Canvas initialisation ──────────────────────────────────────────────────
 
 	async initAllCanvases() {
@@ -545,20 +584,6 @@ class OCCustomiser {
 			evented: false,
 		} );
 		canvas.add( mockupImg );
-
-		// Dashed print-bounds guide.
-		const b = displayBounds( bounds );
-		if ( b && b.w > 0 ) {
-			canvas.add( new Rect( {
-				left: ( b.x + b.w / 2 ) * scaleX, top: ( b.y + b.h / 2 ) * scaleX,
-				originX: 'center', originY: 'center', angle: Number( b.rotation ) || 0,
-				width: b.w * scaleX, height: b.h * scaleX,
-				fill: 'rgba(255,255,255,0.05)',
-				stroke: 'rgba(255,255,255,0.7)',
-				strokeWidth: 1.5, strokeDashArray: [ 5, 4 ],
-				selectable: false, evented: false,
-			} ) );
-		}
 
 		canvas._ocScaleX = scaleX;
 		canvas._ocArea   = area;
@@ -674,6 +699,9 @@ class OCCustomiser {
 				// Engraving uses a fixed silver tone instead of a customer-selected colour.
 				const color = isEngraving ? engravingPalette.text : ( input.colorHex || layer.settings?.default_color || '#000000' );
 				const align = layer.settings?.alignment || 'center';
+				const anchorPad = Math.max( 2, Math.min( 10, lw * 0.01 ) );
+				const alignOriginX = align === 'left' ? 'left' : ( align === 'right' ? 'right' : 'center' );
+				const alignLeft = align === 'left' ? lx + anchorPad : ( align === 'right' ? lx + lw - anchorPad : lcX );
 				if ( font ) {
 					try {
 						await this.loadFont( font );
@@ -691,11 +719,9 @@ class OCCustomiser {
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				let textPadding = this.textRenderPadding( fontSize );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
-				const obj    = new Textbox( raw, {
-					left: lcX, top: lcY,
-					originX: 'center', originY: 'center',
-					width: lw,
-					height: lh,
+				const obj    = new FabricText( raw, {
+					left: alignLeft, top: lcY,
+					originX: alignOriginX, originY: 'center',
 					padding: textPadding,
 					angle: rotation,
 					fontFamily: font?.name || 'sans-serif',
@@ -716,12 +742,10 @@ class OCCustomiser {
 					const threadLift = this.embroideryHighlightColor( color );
 					const threadShadow = this.embroideryShadowColor( color );
 
-					stitchPad = new Textbox( raw, {
-						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
+					stitchPad = new FabricText( raw, {
+						left: alignLeft + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
-						originX: 'center', originY: 'center',
-						width: lw,
-						height: lh,
+						originX: alignOriginX, originY: 'center',
 						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
@@ -737,12 +761,10 @@ class OCCustomiser {
 					stitchPad._ocContent = true;
 					canvas.add( stitchPad );
 
-					stitchLift = new Textbox( raw, {
-						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
+					stitchLift = new FabricText( raw, {
+						left: alignLeft - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
-						originX: 'center', originY: 'center',
-						width: lw,
-						height: lh,
+						originX: alignOriginX, originY: 'center',
 						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
@@ -779,7 +801,7 @@ class OCCustomiser {
 				}
 				if ( stitchPad ) {
 					stitchPad.set( {
-						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
+						left: alignLeft + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
 						fontSize,
 						padding: textPadding,
@@ -788,7 +810,7 @@ class OCCustomiser {
 				}
 				if ( stitchLift ) {
 					stitchLift.set( {
-						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
+						left: alignLeft - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
 						fontSize,
 						padding: textPadding,
