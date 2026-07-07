@@ -1,6 +1,22 @@
-/**
- * WooCommerce Blocks integration placeholder.
- *
- * Cart/checkout line-item preview replacement is handled server-side via
- * `woocommerce_store_api_cart_item_images` in `OC_Cart`.
- */
+import { registerCheckoutFilters } from '@woocommerce/blocks-checkout';
+
+const getPreviewUrl = ( extensions ) => {
+	const previewUrl = extensions?.overcustomise?.preview_url || '';
+	return typeof previewUrl === 'string' && previewUrl ? previewUrl : '';
+};
+
+registerCheckoutFilters( 'overcustomise', {
+	cartItemClass: ( defaultValue, extensions ) => {
+		return getPreviewUrl( extensions )
+			? `${ defaultValue } oc-has-personalised-preview`.trim()
+			: defaultValue;
+	},
+	itemName: ( defaultValue, extensions ) => {
+		const previewUrl = getPreviewUrl( extensions );
+		if ( ! previewUrl ) {
+			return defaultValue;
+		}
+
+		return `<span class="oc-blocks-line-preview"><img src="${ previewUrl }" alt="Personalised preview" loading="lazy" /></span>${ defaultValue }`;
+	},
+} );

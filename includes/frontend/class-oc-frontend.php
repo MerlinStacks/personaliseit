@@ -681,18 +681,18 @@ class OC_Frontend {
 		.oc-canvas-wrap img { width:100%; height:auto; display:block; border-radius:6px; border:1px solid #ddd; }
 
 		/* Layer controls */
-		.oc-layer-controls { display:flex; flex-direction:column; gap:18px; }
-		.oc-layer-section { border:1px solid #e8e8e8; border-radius:6px; overflow:hidden; }
-		.oc-layer-header { padding:10px 14px; background:#f8f8f8; border-bottom:1px solid #e8e8e8; font-size:13px; font-weight:600; color:#3c434a; display:flex; align-items:center; gap:8px; }
+		.oc-layer-controls { display:flex; flex-direction:column; gap:14px; }
+		.oc-layer-section { border:0; border-radius:0; overflow:visible; padding:0; margin:0; }
+		.oc-layer-header { padding:0 0 6px; background:transparent; border-bottom:0; font-size:13px; font-weight:600; color:#3c434a; display:flex; align-items:center; gap:8px; }
 		.oc-layer-type-badge { font-size:10px; font-weight:500; padding:2px 7px; border-radius:3px; background:#e0e0e0; color:#555; text-transform:uppercase; letter-spacing:.03em; }
 		.oc-layer-required { color:#b32d2e; font-size:11px; margin-left:auto; }
-		.oc-layer-body { padding:14px; display:flex; flex-direction:column; gap:10px; }
+		.oc-layer-body { padding:0; display:flex; flex-direction:column; gap:8px; }
 
 		/* Controls */
 		.oc-control-group { display:flex; flex-direction:column; gap:5px; }
 		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
 		.oc-range-value { float:right; color:#1d2327; font-weight:700; }
-		.oc-design-variants { margin-bottom:20px; }
+		.oc-design-variants { margin-bottom:16px; }
 		.oc-design-variant-grid { display:grid !important; grid-template-columns:repeat(auto-fit, minmax(132px, 1fr)); gap:12px; max-width:560px; }
 		.oc-design-variant-option { width:100% !important; min-width:0; min-height:0; padding:8px !important; border:1px solid #dcdcde; border-radius:10px; background:#fff; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:stretch !important; gap:8px; text-align:left; transition:border-color .15s, box-shadow .15s, transform .15s; box-sizing:border-box; }
 		.oc-design-variant-option:hover { border-color:#d88da0; box-shadow:0 8px 20px rgba(0,0,0,.08); transform:translateY(-1px); }
@@ -710,8 +710,8 @@ class OC_Frontend {
 		.oc-control-group input[type="text"],
 		.oc-control-group input[type="url"],
 		.oc-control-group textarea,
-		.oc-control-group select { width:100%; min-height:40px; padding:8px 12px; border:1px solid #ddd; border-radius:3px; font-size:14px; box-sizing:border-box; }
-		.oc-control-group textarea { resize:vertical; min-height:78px; }
+		.oc-control-group select { width:100%; min-height:38px; padding:7px 11px; border:1px solid #ddd; border-radius:6px; font-size:14px; box-sizing:border-box; }
+		.oc-control-group textarea { resize:vertical; min-height:64px; }
 		.oc-control-group input[type="range"] { width:100%; min-height:32px; accent-color:#d88da0; cursor:pointer; }
 		.oc-input-wrap { position:relative; }
 		.oc-input-wrap > input,
@@ -731,15 +731,15 @@ class OC_Frontend {
 		.oc-color-freeform input[type="color"] { width:40px; height:32px; padding:2px; border:1px solid #ddd; border-radius:3px; cursor:pointer; }
 
 		/* Upload zone — wrapper + Uppy DragDrop overrides */
-		.oc-artwork-wrap { position:relative; display:flex; flex-direction:column; gap:10px; }
+		.oc-artwork-wrap { position:relative; display:flex; flex-direction:column; gap:8px; }
 		.oc-artwork-wrap > [data-oc-tooltip] { position:absolute; top:6px; right:6px; z-index:3; }
-		.oc-upload-zone { border-radius:6px; min-height:120px; cursor:pointer; overflow:hidden; background:#fafbfc; }
+		.oc-upload-zone { border-radius:8px; min-height:86px; cursor:pointer; overflow:hidden; background:#fafbfc; }
 		.oc-upload-zone .uppy-Root,
-		.oc-upload-zone .uppy-DragDrop-container { width:100% !important; height:100% !important; min-height:120px; }
+		.oc-upload-zone .uppy-DragDrop-container { width:100% !important; height:100% !important; min-height:86px; }
 		.oc-upload-zone .uppy-DragDrop-inner {
 			display:flex; flex-direction:column; align-items:center; justify-content:center;
-			gap:8px; padding:18px 14px; min-height:120px;
-			border:2px dashed #cbd5e1; border-radius:6px;
+			gap:6px; padding:12px 14px; min-height:86px;
+			border:1px dashed #cbd5e1; border-radius:8px;
 			background:transparent; transition:border-color .15s, background .15s;
 		}
 		.oc-upload-zone .uppy-DragDrop--isDragDropSupported { border:none; }
@@ -747,9 +747,9 @@ class OC_Frontend {
 		.oc-upload-zone .uppy-DragDrop--isDraggingOver .uppy-DragDrop-inner {
 			border-color:#0073aa; background:#eef7ff;
 		}
-		.oc-upload-zone .uppy-DragDrop-arrow { width:32px; height:32px; fill:#94a3b8; }
+		.oc-upload-zone .uppy-DragDrop-arrow { width:28px; height:28px; fill:#94a3b8; }
 		.oc-upload-zone .uppy-DragDrop-label {
-			font-size:13px; color:#334155; margin:0; font-weight:500;
+			font-size:12px; color:#334155; margin:0; font-weight:600;
 		}
 		.oc-upload-zone .uppy-DragDrop-browse {
 			color:#0073aa; font-weight:600; text-decoration:underline;

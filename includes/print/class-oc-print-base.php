@@ -652,7 +652,7 @@ abstract class OC_Print_Base {
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 		OC_Logger::debug( 'Print layer text font request: layer=' . (int) ( $layer['id'] ?? 0 ) . ' font_id=' . $font_id . ' text=' . substr( $text, 0, 40 ) );
 		$font      = $font_id ? self::get_font( $font_id ) : null;
-		$font_name = self::resolve_font( $font_id, $pdf );
+		$font_name = 'engraving' === $mode ? 'helvetica' : self::resolve_font( $font_id, $pdf );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )
 			: max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );
@@ -735,7 +735,9 @@ abstract class OC_Print_Base {
 		$baseline_y = ( $box_h_pt - $glyph_h * $fit_scale ) / 2 + (float) $bbox[3] * $fit_scale;
 
 		$svg = sprintf(
-			'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000"/></g></svg>',
+			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000"/></g></svg>',
+			$box_w_pt,
+			$box_h_pt,
 			$box_w_pt,
 			$box_h_pt,
 			$origin_x,

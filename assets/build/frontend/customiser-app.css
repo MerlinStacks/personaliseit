@@ -134,12 +134,15 @@
 .oc-customiser-panel .oc-layer-controls {
   display: flex;
   flex-direction: column;
+  gap: 14px;
 }
 .oc-customiser-panel .oc-layer-section {
   display: flex;
   flex-direction: column;
-  gap: var(--oc-gap-xs);
-  padding: var(--oc-gap-sm) var(--oc-gap);
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
 }
 .oc-customiser-panel .oc-layer-header {
   display: flex;
@@ -169,7 +172,7 @@
 .oc-customiser-panel .oc-layer-body {
   display: flex;
   flex-direction: column;
-  gap: var(--oc-gap-sm);
+  gap: 8px;
 }
 .oc-customiser-panel .oc-control-group {
   display: flex;
@@ -527,7 +530,7 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: var(--oc-gap-sm);
+  gap: 8px;
 }
 .oc-customiser-panel .oc-artwork-wrap > [data-oc-tooltip] {
   position: absolute;
@@ -536,12 +539,12 @@
   z-index: 3;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container {
-  border-radius: var(--oc-radius);
-  border: 1.5px dashed var(--oc-border-strong);
+  border-radius: 8px;
+  border: 1px dashed var(--oc-border-strong);
   background: transparent;
   min-height: 0;
   height: auto;
-  padding: var(--oc-gap);
+  padding: 12px 14px;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container:hover, .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container.uppy-DragDrop--isDraggingOver {
@@ -554,14 +557,14 @@
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   text-align: left;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-arrow {
   grid-row: 1/span 2;
-  width: 44px;
-  height: 44px;
-  padding: 10px;
+  width: 34px;
+  height: 34px;
+  padding: 8px;
   border-radius: 50%;
   background: color-mix(in srgb, var(--oc-accent) 15%, transparent);
   fill: var(--oc-accent);
@@ -573,7 +576,7 @@
   grid-column: 2;
   color: inherit;
   font: inherit;
-  font-size: 0.95em;
+  font-size: 0.86em;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.03em;
@@ -589,7 +592,7 @@
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-note {
   grid-column: 2;
   color: var(--oc-fg-muted);
-  font-size: 0.72em;
+  font-size: 0.68em;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;

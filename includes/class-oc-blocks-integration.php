@@ -182,6 +182,11 @@ class OC_Blocks_Integration {
 			width: 64px;
 			height: 64px;
 		}
+		.oc-has-personalised-preview .wc-block-components-product-image,
+		.oc-has-personalised-preview .wc-block-cart-item__image,
+		.oc-has-personalised-preview .wc-block-components-order-summary-item__image {
+			display: none !important;
+		}
 		';
 	}
 }
