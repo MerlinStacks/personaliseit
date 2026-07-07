@@ -573,14 +573,14 @@ class OCCustomiser {
 	async renderLayer( canvas, layer, input, area ) {
 		const scale       = canvas._ocScaleX ?? 1;
 		const bounds      = displayBounds( area?.bounds || {} );
-		const displayLayer = displayLayer( layer, area?.bounds || {} );
+		const layerBox    = displayLayer( layer, area?.bounds || {} );
 		const rotation    = Number( bounds.rotation ) || 0;
 		const contentClip = () => this.printAreaClipPath( bounds, scale );
-		const center      = this.rotatedLayerCenter( displayLayer, bounds, rotation );
-		const lx          = ( center.x - displayLayer.w / 2 ) * scale;
-		const ly          = ( center.y - displayLayer.h / 2 ) * scale;
-		const lw          = Math.max( displayLayer.w * scale, 10 );
-		const lh          = Math.max( displayLayer.h * scale, 10 );
+		const center      = this.rotatedLayerCenter( layerBox, bounds, rotation );
+		const lx          = ( center.x - layerBox.w / 2 ) * scale;
+		const ly          = ( center.y - layerBox.h / 2 ) * scale;
+		const lw          = Math.max( layerBox.w * scale, 10 );
+		const lh          = Math.max( layerBox.h * scale, 10 );
 		const lcX         = center.x * scale;
 		const lcY         = center.y * scale;
 		const isEngraving = area?.printMethod === 'engraving';
