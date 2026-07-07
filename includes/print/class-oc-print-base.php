@@ -247,16 +247,30 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	/** Embed an image in TCPDF, converting WEBP artwork to PNG when needed. */
+	/** Embed an image in TCPDF, converting artwork to a safe PNG when needed. */
 	protected static function draw_pdf_image( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
-		$temp_path  = null;
-		$image_path = self::tcpdf_compatible_image_path( $path, $temp_path );
+		$temp_path      = null;
+		$fallback_path  = null;
+		$image_path     = self::tcpdf_compatible_image_path( $path, $temp_path );
 
 		try {
-			$pdf->Image( $image_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 300 );
+			try {
+				$pdf->Image( $image_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 300 );
+			} catch ( \Throwable $e ) {
+				$fallback_path = self::normalise_raster_image_for_tcpdf( $path );
+				if ( ! is_string( $fallback_path ) || '' === $fallback_path || $fallback_path === $image_path ) {
+					throw $e;
+				}
+
+				OC_Logger::warning( 'TCPDF could not read print artwork directly, retrying normalised PNG: ' . basename( $path ) . ' (' . $e->getMessage() . ')' );
+				$pdf->Image( $fallback_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 300 );
+			}
 		} finally {
 			if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
 				@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			if ( is_string( $fallback_path ) && '' !== $fallback_path && file_exists( $fallback_path ) ) {
+				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
 		}
 	}
@@ -296,6 +310,42 @@ abstract class OC_Print_Base {
 		return $temp;
 	}
 
+	/** Re-encode raster artwork to a PNG that TCPDF can import. */
+	private static function normalise_raster_image_for_tcpdf( string $path ): ?string {
+		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( ! in_array( $ext, [ 'jpg', 'jpeg', 'png', 'webp', 'bmp', 'gif' ], true ) ) {
+			return null;
+		}
+
+		$temp = self::temp_path( 'oc-tcpdf-raster-' . wp_generate_uuid4() . '.png' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		$src = self::open_raster_resource( $path );
+		if ( $src ) {
+			if ( function_exists( 'imagepalettetotruecolor' ) ) {
+				imagepalettetotruecolor( $src );
+			}
+			imagealphablending( $src, false );
+			imagesavealpha( $src, true );
+
+			if ( imagepng( $src, $temp ) ) {
+				imagedestroy( $src );
+				return $temp;
+			}
+
+			imagedestroy( $src );
+		}
+
+		if ( self::convert_image_with_imagick( $path, $temp ) ) {
+			return $temp;
+		}
+
+		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		return null;
+	}
+
 	/** Convert an image to PNG using Imagick when GD cannot open it. */
 	private static function convert_image_with_imagick( string $path, string $output_path ): bool {
 		if ( ! class_exists( '\Imagick' ) ) {
@@ -311,7 +361,7 @@ abstract class OC_Print_Base {
 			$imagick->destroy();
 			return (bool) $result;
 		} catch ( \Throwable $e ) {
-			OC_Logger::warning( 'WEBP to PNG conversion failed for print artwork: ' . $e->getMessage() );
+			OC_Logger::warning( 'Image to PNG conversion failed for print artwork: ' . $e->getMessage() );
 			return false;
 		}
 	}
