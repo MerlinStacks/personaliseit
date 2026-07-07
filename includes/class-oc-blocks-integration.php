@@ -53,13 +53,12 @@ class OC_Blocks_Integration {
 			return [];
 		}
 
-		// v2 format only — v1 doesn't have layer labels available here.
 		if ( ! isset( $customisation['v'] ) || 2 !== (int) $customisation['v'] ) {
-			return [];
+			return $this->build_legacy_summary( $customisation );
 		}
 
 		$design_id = (int) ( $customisation['designId'] ?? $cart_item['_oc_design_id'] ?? 0 );
-		$layers    = $customisation['layers'] ?? [];
+		$layers    = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
 
 		$layer_map = [];
 		if ( $design_id ) {
@@ -69,6 +68,13 @@ class OC_Blocks_Integration {
 		}
 
 		$lines = [];
+		if ( ! empty( $customisation['designVariantLabel'] ) ) {
+			$lines[] = [
+				'key'   => __( 'Artwork Option', 'overcustomise' ),
+				'value' => (string) $customisation['designVariantLabel'],
+			];
+		}
+
 		foreach ( $layers as $layer_id => $layer_data ) {
 			if ( ! is_array( $layer_data ) ) continue;
 
@@ -81,6 +87,30 @@ class OC_Blocks_Integration {
 			if ( ! $value ) continue;
 
 			$lines[] = [ 'key' => $label, 'value' => $value ];
+		}
+
+		return $lines;
+	}
+
+	/** Build summary lines for the legacy v1 cart payload. */
+	private function build_legacy_summary( array $customisation ): array {
+		$lines = [];
+		foreach ( $customisation as $area_key => $area_data ) {
+			if ( ! is_array( $area_data ) ) continue;
+
+			$parts = [];
+			if ( ! empty( $area_data['text'] ) ) {
+				$parts[] = (string) $area_data['text'];
+			}
+			if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
+				$parts[] = __( 'Artwork attached', 'overcustomise' );
+			}
+			if ( empty( $parts ) ) continue;
+
+			$lines[] = [
+				'key'   => sprintf( __( 'Personalisation (%s)', 'overcustomise' ), ucwords( str_replace( '-', ' ', (string) $area_key ) ) ),
+				'value' => implode( ' ', $parts ),
+			];
 		}
 
 		return $lines;
@@ -186,9 +216,20 @@ class OC_Blocks_Integration {
 			width: 64px;
 			height: 64px;
 		}
-		.oc-has-personalised-preview .wc-block-components-product-image,
-		.oc-has-personalised-preview .wc-block-cart-item__image,
-		.oc-has-personalised-preview .wc-block-components-order-summary-item__image {
+		.oc-blocks-personalisation-summary {
+			list-style: none;
+			margin: 6px 0 0;
+			padding: 0;
+			font-size: 12px;
+			line-height: 1.4;
+			color: #555;
+		}
+		.oc-blocks-personalisation-summary li {
+			margin: 2px 0;
+		}
+		.oc-has-personalisation .wc-block-components-product-image,
+		.oc-has-personalisation .wc-block-cart-item__image,
+		.oc-has-personalisation .wc-block-components-order-summary-item__image {
 			display: none !important;
 		}
 		.widget_shopping_cart .woocommerce-mini-cart-item,

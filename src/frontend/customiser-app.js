@@ -332,6 +332,22 @@ class OCCustomiser {
 		return true;
 	}
 
+	stopTVPGAutoScroll( ...swipers ) {
+		swipers.forEach( swiper => {
+			if ( ! swiper || swiper._ocAutoScrollStopped ) return;
+
+			swiper.autoplay?.stop?.();
+			if ( swiper.params ) {
+				swiper.params.autoplay = false;
+			}
+			if ( swiper.originalParams ) {
+				swiper.originalParams.autoplay = false;
+			}
+
+			swiper._ocAutoScrollStopped = true;
+		} );
+	}
+
 	applyTVPGOverlayPreview( dataUrl, dimensions = null ) {
 		const mainSliderEl = document.querySelector( '.tvpg-main-slider' );
 		const mainWrapper  = mainSliderEl?.querySelector( '.swiper-wrapper' );
@@ -373,6 +389,7 @@ class OCCustomiser {
 		// Swiper attaches instances to the root element; update so the new last slide is navigable.
 		const mainSwiper  = mainSliderEl.swiper;
 		const thumbSwiper = thumbSliderEl?.swiper;
+		this.stopTVPGAutoScroll( mainSwiper, thumbSwiper );
 
 		mainSwiper?.update?.();
 		thumbSwiper?.update?.();
