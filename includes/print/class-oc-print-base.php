@@ -562,18 +562,72 @@ abstract class OC_Print_Base {
 	 */
 	protected static function resolve_artwork_path( array $area_data ): ?string {
 		if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
-			$attachment_path = get_attached_file( (int) $area_data['artworkAttachmentId'] );
-			if ( $attachment_path && file_exists( $attachment_path ) ) {
+			$attachment_path = self::resolve_attachment_artwork_path( (int) $area_data['artworkAttachmentId'] );
+			if ( $attachment_path ) {
 				return $attachment_path;
 			}
 		}
 
 		if ( ! empty( $area_data['artworkPath'] ) && is_string( $area_data['artworkPath'] ) ) {
-			$candidate = $area_data['artworkPath'];
-			$real      = realpath( $candidate );
-			$uploads   = wp_upload_dir();
-			$base_real = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
-			if ( $real && $base_real && 0 === strpos( $real, $base_real ) && file_exists( $real ) ) {
+			$real = self::resolve_uploads_file_path( $area_data['artworkPath'] );
+			if ( $real ) {
+				return $real;
+			}
+		}
+
+		return null;
+	}
+
+	/** Resolve a media-library artwork attachment, tolerating stale absolute upload paths. */
+	protected static function resolve_attachment_artwork_path( int $attachment_id ): ?string {
+		if ( $attachment_id <= 0 ) {
+			return null;
+		}
+
+		$attachment_path = get_attached_file( $attachment_id );
+		if ( is_string( $attachment_path ) && '' !== $attachment_path ) {
+			$real = self::resolve_uploads_file_path( $attachment_path );
+			if ( $real ) {
+				return $real;
+			}
+		}
+
+		$attached_file = get_post_meta( $attachment_id, '_wp_attached_file', true );
+		if ( is_string( $attached_file ) && '' !== $attached_file ) {
+			$real = self::resolve_uploads_file_path( $attached_file );
+			if ( $real ) {
+				return $real;
+			}
+		}
+
+		return null;
+	}
+
+	/** Resolve a path or uploads-relative filename to a readable file inside the current uploads directory. */
+	protected static function resolve_uploads_file_path( string $path ): ?string {
+		$uploads   = wp_upload_dir();
+		$base_real = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
+		if ( ! $base_real ) {
+			return null;
+		}
+
+		$candidates = [ $path ];
+		if ( ! str_starts_with( $path, '/' ) ) {
+			$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $path, '/\\' );
+		}
+
+		$normalised = str_replace( '\\', '/', $path );
+		$marker_pos = strpos( $normalised, '/uploads/' );
+		if ( false !== $marker_pos ) {
+			$relative = substr( $normalised, $marker_pos + strlen( '/uploads/' ) );
+			if ( is_string( $relative ) && '' !== $relative ) {
+				$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $relative, '/\\' );
+			}
+		}
+
+		foreach ( array_unique( $candidates ) as $candidate ) {
+			$real = realpath( $candidate );
+			if ( $real && 0 === strpos( $real, $base_real ) && is_readable( $real ) ) {
 				return $real;
 			}
 		}

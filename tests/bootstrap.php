@@ -53,6 +53,12 @@ if ( ! function_exists( 'wp_mkdir_p' ) ) {
 	}
 }
 
+if ( ! function_exists( 'trailingslashit' ) ) {
+	function trailingslashit( string $value ): string {
+		return rtrim( $value, '/\\' ) . '/';
+	}
+}
+
 if ( ! function_exists( 'sanitize_file_name' ) ) {
 	function sanitize_file_name( string $name ): string {
 		return preg_replace( '/[^a-zA-Z0-9._-]/', '-', $name );
@@ -186,6 +192,18 @@ if ( ! function_exists( 'wp_update_attachment_metadata' ) ) {
 }
 if ( ! function_exists( 'update_post_meta' ) ) {
 	function update_post_meta( int $id, string $key, $value ): void {}
+}
+if ( ! function_exists( 'get_post_meta' ) ) {
+	function get_post_meta( int $id, string $key, bool $single = false ) {
+		global $oc_test_post_meta;
+		return $oc_test_post_meta[ $id ][ $key ] ?? ( $single ? '' : [] );
+	}
+}
+if ( ! function_exists( 'get_attached_file' ) ) {
+	function get_attached_file( int $id ) {
+		global $oc_test_attached_files;
+		return $oc_test_attached_files[ $id ] ?? '';
+	}
 }
 if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 	function wp_get_attachment_url( int $id ): string { return ''; }

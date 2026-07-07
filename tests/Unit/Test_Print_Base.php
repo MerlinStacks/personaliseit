@@ -42,6 +42,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_build_spotify_code_url( string $input, bool $engraving = false ): string {
 		return self::build_spotify_code_url( $input, $engraving );
 	}
+
+	public static function test_resolve_artwork_path( array $area_data ): ?string {
+		return self::resolve_artwork_path( $area_data );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -202,5 +206,55 @@ class Test_Print_Base extends TestCase {
 	#[Test]
 	public function rejects_non_spotify_urls_for_scannable_codes(): void {
 		$this->assertSame( '', OC_Print_Base_Testable::test_build_spotify_code_url( 'https://example.com/track/6rqhFgbbKwnb9MLmUQDhG6' ) );
+	}
+
+	#[Test]
+	public function resolves_stale_absolute_attachment_path_inside_current_uploads(): void {
+		global $oc_test_attached_files, $oc_test_post_meta;
+
+		$dir = sys_get_temp_dir() . '/overcustomise/artwork';
+		wp_mkdir_p( $dir );
+		$path = $dir . '/customer-upload.png';
+		file_put_contents( $path, 'png' );
+
+		$oc_test_attached_files = [
+			123 => '/var/www/html/wp-content/uploads/overcustomise/artwork/customer-upload.png',
+		];
+		$oc_test_post_meta = [];
+
+		try {
+			$this->assertSame( realpath( $path ), OC_Print_Base_Testable::test_resolve_artwork_path( [
+				'artworkAttachmentId' => 123,
+			] ) );
+		} finally {
+			@unlink( $path );
+			$oc_test_attached_files = [];
+			$oc_test_post_meta = [];
+		}
+	}
+
+	#[Test]
+	public function resolves_attachment_meta_relative_upload_path(): void {
+		global $oc_test_attached_files, $oc_test_post_meta;
+
+		$dir = sys_get_temp_dir() . '/overcustomise/artwork';
+		wp_mkdir_p( $dir );
+		$path = $dir . '/relative-upload.png';
+		file_put_contents( $path, 'png' );
+
+		$oc_test_attached_files = [ 456 => '/missing/path/relative-upload.png' ];
+		$oc_test_post_meta = [
+			456 => [ '_wp_attached_file' => 'overcustomise/artwork/relative-upload.png' ],
+		];
+
+		try {
+			$this->assertSame( realpath( $path ), OC_Print_Base_Testable::test_resolve_artwork_path( [
+				'artworkAttachmentId' => 456,
+			] ) );
+		} finally {
+			@unlink( $path );
+			$oc_test_attached_files = [];
+			$oc_test_post_meta = [];
+		}
 	}
 }
