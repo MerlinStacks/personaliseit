@@ -26693,6 +26693,7 @@ class OCCustomiser {
     this.preflightRoot = document.getElementById('oc-preflight-messages');
     this.mobileCartPreviewDialog = null;
     this.setupInputListeners();
+    this.setupDesignVariantOptions();
     this.setupUploadZones();
     this.applyInputsToDOM();
     this.updateHiddenField();

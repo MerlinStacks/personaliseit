@@ -721,21 +721,27 @@ abstract class OC_Print_Base {
 
 		$width     = max( 0.01, (float) ( $outline['width'] ?? 0.0 ) );
 		$bbox      = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : [ 0.0, 0.0, $width, $font_size ];
+		$glyph_w   = max( 0.01, (float) $bbox[2] - (float) $bbox[0] );
 		$glyph_h   = max( 0.01, (float) $bbox[3] - (float) $bbox[1] );
 		$box_w_pt  = self::mm_to_pt_value( $w_mm );
 		$box_h_pt  = self::mm_to_pt_value( $h_mm );
-		$fit_scale = min( 1.0, $box_w_pt / $width, $box_h_pt / $glyph_h );
+		$layout_min_x = min( 0.0, (float) $bbox[0] );
+		$layout_max_x = max( $width, (float) $bbox[2] );
+		$layout_w     = max( 0.01, $layout_max_x - $layout_min_x );
+		$fit_scale = min( 1.0, $box_w_pt / $layout_w, $box_h_pt / $glyph_h );
 		$fit_scale = max( 0.01, $fit_scale );
-		$draw_w    = $width * $fit_scale;
-		$draw_h    = $glyph_h * $fit_scale;
+		$pad       = max( 1.0, $font_size * $fit_scale * 0.08 );
+		$advance_w = $width * $fit_scale;
+		$draw_w    = $glyph_w * $fit_scale + $pad * 2;
+		$draw_h    = $glyph_h * $fit_scale + $pad * 2;
 		$origin_x  = match ( $align ) {
-			'R' => $box_w_pt - $draw_w,
-			'L' => 0.0,
-			default => ( $box_w_pt - $draw_w ) / 2,
+			'R' => $box_w_pt - $advance_w + (float) $bbox[0] * $fit_scale - $pad,
+			'L' => (float) $bbox[0] * $fit_scale - $pad,
+			default => ( $box_w_pt - $advance_w ) / 2 + (float) $bbox[0] * $fit_scale - $pad,
 		};
 		$origin_y  = ( $box_h_pt - $draw_h ) / 2;
-		$path_x    = -1 * (float) $bbox[0] * $fit_scale;
-		$path_y    = (float) $bbox[3] * $fit_scale;
+		$path_x    = -1 * (float) $bbox[0] * $fit_scale + $pad;
+		$path_y    = (float) $bbox[3] * $fit_scale + $pad;
 
 		$svg = sprintf(
 			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000" fill-rule="evenodd" clip-rule="evenodd"/></g></svg>',
