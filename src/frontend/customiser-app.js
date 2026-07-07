@@ -691,7 +691,10 @@ class OCCustomiser {
 					} );
 				}
 
-				while ( ( obj.width > lw || obj.height > lh ) && fontSize > Math.max( 8, minFontSize ) ) {
+				const fittingFloor = minFontSize && this.textFitsBox( raw, font, minFontSize, layer.settings, lw, lh )
+					? minFontSize
+					: 4;
+				while ( ! this.textFitsBox( raw, font, fontSize, layer.settings, lw, lh ) && fontSize > fittingFloor ) {
 					fontSize -= 1;
 					obj.set( { fontSize } );
 				}
@@ -805,8 +808,8 @@ class OCCustomiser {
 		return Math.max( 0, parseInt( value, 10 ) || 0 );
 	}
 
-	textLayerFitsAtSize( layer, raw, font, fontSize ) {
-		if ( ! layer || ! raw ) {
+	textFitsBox( raw, font, fontSize, settings, maxW, maxH ) {
+		if ( ! raw ) {
 			return true;
 		}
 
@@ -815,17 +818,29 @@ class OCCustomiser {
 			top: 0,
 			originX: 'center',
 			originY: 'center',
-			width: Math.max( layer.w, 10 ),
 			fontFamily: font?.name || 'sans-serif',
 			fontSize,
-			textAlign: layer.settings?.alignment || 'center',
+			textAlign: settings?.alignment || 'center',
 			selectable: false,
 			evented: false,
 		} );
+		obj.setCoords?.();
+		const measured = obj.getBoundingRect?.( true, true ) || obj;
 
 		return (
-			obj.width <= Math.max( layer.w, 10 ) &&
-			obj.height <= Math.max( layer.h, 10 )
+			Number( measured.width || 0 ) <= Math.max( maxW, 10 ) &&
+			Number( measured.height || 0 ) <= Math.max( maxH, 10 )
+		);
+	}
+
+	textLayerFitsAtSize( layer, raw, font, fontSize ) {
+		return this.textFitsBox(
+			raw,
+			font,
+			fontSize,
+			layer?.settings || {},
+			Number( layer?.w || 0 ),
+			Number( layer?.h || 0 )
 		);
 	}
 
