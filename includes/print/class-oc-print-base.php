@@ -211,6 +211,12 @@ abstract class OC_Print_Base {
 		if ( ! file_exists( $font_path ) ) {
 			return '';
 		}
+
+		if ( ! class_exists( '\TCPDF_FONTS' ) ) {
+			OC_Logger::warning( 'TCPDF font registration skipped for ' . basename( $font_path ) . ': TCPDF_FONTS helper is not available in this TCPDF build.' );
+			return '';
+		}
+
 		try {
 			$upload_dir = wp_upload_dir();
 			$font_dir   = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts/';
@@ -221,6 +227,23 @@ abstract class OC_Print_Base {
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'TCPDF font registration failed for ' . basename( $font_path ) . ': ' . $e->getMessage() );
 			return '';
+		}
+	}
+
+	/** Write a TCPDF instance to an exact file path across TCPDF wrapper versions. */
+	protected static function write_pdf_file( \TCPDF $pdf, string $output_path ): void {
+		$dir = dirname( $output_path );
+		if ( ! is_dir( $dir ) || ! is_writable( $dir ) ) {
+			throw new \RuntimeException( sprintf( 'Print output directory is not writable: %s', $dir ) );
+		}
+
+		$raw = $pdf->Output( basename( $output_path ), 'S' );
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			throw new \RuntimeException( 'TCPDF returned an empty PDF document.' );
+		}
+
+		if ( false === file_put_contents( $output_path, $raw ) ) {
+			throw new \RuntimeException( sprintf( 'Could not write print PDF to %s', $output_path ) );
 		}
 	}
 
