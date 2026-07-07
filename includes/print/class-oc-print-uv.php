@@ -83,7 +83,7 @@ class OC_Print_UV extends OC_Print_Base {
 		// Artwork.
 		$artwork_path = self::resolve_artwork_path( $area_data );
 		if ( $artwork_path ) {
-			$pdf->Image( $artwork_path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
+			self::draw_pdf_image( $pdf, $artwork_path, $bleed, $bleed, $w_mm, $h_mm );
 		}
 
 		// Text.

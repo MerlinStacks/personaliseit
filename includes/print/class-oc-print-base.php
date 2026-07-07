@@ -247,6 +247,75 @@ abstract class OC_Print_Base {
 		}
 	}
 
+	/** Embed an image in TCPDF, converting WEBP artwork to PNG when needed. */
+	protected static function draw_pdf_image( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		$temp_path  = null;
+		$image_path = self::tcpdf_compatible_image_path( $path, $temp_path );
+
+		try {
+			$pdf->Image( $image_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 300 );
+		} finally {
+			if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
+				@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+	}
+
+	/** TCPDF does not reliably import WEBP, so create a temporary PNG copy first. */
+	private static function tcpdf_compatible_image_path( string $path, ?string &$temp_path ): string {
+		$temp_path = null;
+		if ( 'webp' !== strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			return $path;
+		}
+
+		$temp = self::temp_path( 'oc-tcpdf-webp-' . wp_generate_uuid4() . '.png' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return $path;
+		}
+
+		$src = self::open_raster_resource( $path );
+		if ( ! $src ) {
+			if ( self::convert_image_with_imagick( $path, $temp ) ) {
+				$temp_path = $temp;
+				return $temp;
+			}
+
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return $path;
+		}
+
+		imagesavealpha( $src, true );
+		if ( ! imagepng( $src, $temp ) ) {
+			imagedestroy( $src );
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return $path;
+		}
+
+		imagedestroy( $src );
+		$temp_path = $temp;
+		return $temp;
+	}
+
+	/** Convert an image to PNG using Imagick when GD cannot open it. */
+	private static function convert_image_with_imagick( string $path, string $output_path ): bool {
+		if ( ! class_exists( '\Imagick' ) ) {
+			return false;
+		}
+
+		try {
+			$imagick = new \Imagick( $path );
+			$imagick->setImageFormat( 'png' );
+			$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
+			$result = $imagick->writeImage( $output_path );
+			$imagick->clear();
+			$imagick->destroy();
+			return (bool) $result;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'WEBP to PNG conversion failed for print artwork: ' . $e->getMessage() );
+			return false;
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// Colour helpers
 	// -------------------------------------------------------------------------
@@ -756,7 +825,7 @@ abstract class OC_Print_Base {
 			$draw_y = $y_mm + ( $h_mm - $draw_h ) / 2;
 		}
 
-		$pdf->Image( $path, $draw_x, $draw_y, $draw_w, $draw_h, '', '', '', false, 300 );
+		self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
 
 		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
 			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -792,7 +861,7 @@ abstract class OC_Print_Base {
 		} else {
 			$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
 		}
-		$pdf->Image( $path, $draw_x, $draw_y, $draw_w, $draw_h, '', '', '', false, 300 );
+		self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
 		$pdf->StopTransform();
 	}
 

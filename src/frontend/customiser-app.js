@@ -542,6 +542,11 @@ class OCCustomiser {
 		this._redrawTimer = setTimeout( () => this.redraw( this.activeArea ), 120 );
 	}
 
+	async flushRedraw() {
+		clearTimeout( this._redrawTimer );
+		await this.redraw( this.activeArea );
+	}
+
 	async redraw( areaIndex ) {
 		const canvas = this.canvases[ areaIndex ];
 		if ( ! canvas ) return; // canvas not ready yet — will redraw after initCanvas
@@ -2319,6 +2324,7 @@ class OCCustomiser {
 			form.addEventListener( 'submit', async e => {
 				e.preventDefault();
 				this.syncInputsFromDOM();
+				await this.flushRedraw();
 
 				const preflight = await this.runPreflight();
 				this.renderPreflightMessages( preflight.errors, preflight.warnings );
@@ -2389,6 +2395,7 @@ class OCCustomiser {
 			}
 			e.preventDefault();
 			this.syncInputsFromDOM();
+			await this.flushRedraw();
 
 			const preflight = await this.runPreflight();
 			this.renderPreflightMessages( preflight.errors, preflight.warnings );
@@ -2545,12 +2552,12 @@ class OCCustomiser {
 	}
 
 	async uploadPreview() {
-		const canvas = this.canvases[ this.activeArea ];
-		if ( ! canvas || ! this.data.savePreviewUrl ) return;
+		if ( ! this.data.savePreviewUrl ) return;
+		await this.flushRedraw();
 
 		let dataUrl;
 		try {
-			dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.85 } );
+			dataUrl = this.getCurrentPreviewDataUrl();
 		} catch ( e ) {
 			this._previewUrl = '';
 			this.updateHiddenField();

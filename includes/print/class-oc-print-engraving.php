@@ -50,6 +50,15 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$pdf->SetFillColor( 255, 255, 255 );
 		$pdf->Rect( 0, 0, $w_mm, $h_mm, 'F' );
 
+		if ( self::render_snapshot_svg( $pdf, $area_data, $w_mm, $h_mm ) ) {
+			$output_dir  = self::ensure_output_dir( $order->get_id() );
+			$output_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'pdf' );
+
+			self::write_pdf_file( $pdf, $output_path );
+
+			return $output_path;
+		}
+
 		if ( self::has_layer_payload( $area_data ) ) {
 			self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0, 'engraving' );
 
@@ -70,12 +79,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 			$render_path = $temp_artwork ?: $artwork_path;
 
 			// Render artwork greyscale, fitted to page.
-				$pdf->Image(
-					$render_path,
-					0, 0,
-					$w_mm, $h_mm,
-					'', '', '', false, 300, '', false, false, 0
-				);
+			self::draw_pdf_image( $pdf, $render_path, 0, 0, $w_mm, $h_mm );
 		}
 
 		// ── Text layer ─────────────────────────────────────────────────────
@@ -100,6 +104,40 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		return $output_path;
+	}
+
+	private static function render_snapshot_svg( \TCPDF $pdf, array $area_data, float $w_mm, float $h_mm ): bool {
+		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
+		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( $snapshot['svg'] ) : '';
+
+		if ( '' === $svg || ! str_contains( $svg, '<svg' ) ) {
+			return false;
+		}
+
+		$temp_base = self::temp_path( 'oc-engraving-snapshot-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $temp_base ) || '' === $temp_base ) {
+			return false;
+		}
+
+		$temp = 'svg' === strtolower( pathinfo( $temp_base, PATHINFO_EXTENSION ) ) ? $temp_base : $temp_base . '.svg';
+
+		if ( false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		try {
+			$pdf->ImageSVG( $temp, 0, 0, $w_mm, $h_mm, '', '', '', 0, false );
+			return true;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Engraving snapshot SVG render failed: ' . $e->getMessage() );
+			return false;
+		} finally {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( $temp !== $temp_base ) {
+				@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
 	}
 
 	/** @return array<string,mixed> */

@@ -63,10 +63,10 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		if ( $artwork_path ) {
 			if ( $full_bleed ) {
 				// Artwork bleeds to page edge.
-				$pdf->Image( $artwork_path, 0, 0, $page_w, $page_h, '', '', '', false, 300 );
+				self::draw_pdf_image( $pdf, $artwork_path, 0, 0, $page_w, $page_h );
 			} else {
 				// Artwork inside live area only.
-				$pdf->Image( $artwork_path, $bleed, $bleed, $w_mm, $h_mm, '', '', '', false, 300 );
+				self::draw_pdf_image( $pdf, $artwork_path, $bleed, $bleed, $w_mm, $h_mm );
 			}
 		}
 
