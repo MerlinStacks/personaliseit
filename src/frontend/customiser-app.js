@@ -769,7 +769,7 @@ class OCCustomiser {
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				let textPadding = this.textRenderPadding( fontSize );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
-				const obj    = new Textbox( raw, {
+				let obj    = new Textbox( raw, {
 					left: lcX, top: lcY,
 					originX: 'center', originY: 'center',
 					width: lw,
@@ -856,7 +856,29 @@ class OCCustomiser {
 				const textNaturalWidth = Math.max( lw, Math.ceil( measuredText.width + textPadding * 2 ) );
 				const textFitScale = textNaturalWidth > lw ? Math.max( 0.05, lw / textNaturalWidth ) : 1;
 				if ( textFitScale < 1 ) {
-					obj.set( { width: textNaturalWidth, scaleX: textFitScale, padding: textPadding } );
+					obj = new FabricText( raw, {
+						left: lcX,
+						top: lcY,
+						originX: 'center',
+						originY: 'center',
+						padding: textPadding,
+						angle: rotation,
+						fontFamily: font?.name || 'sans-serif',
+						fontSize,
+						fill: textFill,
+						textAlign: align,
+						scaleX: textFitScale,
+						selectable: false,
+						evented: false,
+						objectCaching: false,
+					} );
+					obj._ocContent = true;
+					if ( isEngraving ) {
+						obj.set( {
+							opacity: 0.92,
+							shadow: new Shadow( { color: engravingPalette.highlight, offsetX: 0, offsetY: 1, blur: 1 } ),
+						} );
+					}
 				}
 				if ( isEmbroidery ) {
 					obj.set( { fill: this.embroideryPattern( color, fontSize ) } );
