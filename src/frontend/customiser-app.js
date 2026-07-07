@@ -437,6 +437,7 @@ class OCCustomiser {
 
 	async initCanvas( canvasEl, areaIndex ) {
 		const area = this.areas[ areaIndex ];
+		const bounds = this.areaBounds( area );
 
 		// Use mockup natural width when available (works even when canvas is visually hidden).
 		// Cap at 1200px for performance; fall back to element width or 600px.
@@ -489,7 +490,7 @@ class OCCustomiser {
 		canvas.add( mockupImg );
 
 		// Dashed print-bounds guide.
-		const b = displayBounds( area.bounds );
+		const b = displayBounds( bounds );
 		if ( b && b.w > 0 ) {
 			canvas.add( new Rect( {
 				left: ( b.x + b.w / 2 ) * scaleX, top: ( b.y + b.h / 2 ) * scaleX,
@@ -506,6 +507,13 @@ class OCCustomiser {
 		canvas._ocArea   = area;
 		canvas.renderAll();
 		this.canvases[ areaIndex ] = canvas;
+	}
+
+	areaBounds( area ) {
+		return {
+			...( area?.bounds || {} ),
+			unit: area?.bounds?.unit || area?.unit || 'px',
+		};
 	}
 
 	async rebuildCanvas( areaIndex ) {
@@ -572,8 +580,9 @@ class OCCustomiser {
 
 	async renderLayer( canvas, layer, input, area ) {
 		const scale       = canvas._ocScaleX ?? 1;
-		const bounds      = displayBounds( area?.bounds || {} );
-		const layerBox    = displayLayer( layer, area?.bounds || {} );
+		const areaBounds  = this.areaBounds( area );
+		const bounds      = displayBounds( areaBounds );
+		const layerBox    = displayLayer( layer, areaBounds );
 		const rotation    = Number( bounds.rotation ) || 0;
 		const contentClip = () => this.printAreaClipPath( bounds, scale );
 		const center      = this.rotatedLayerCenter( layerBox, bounds, rotation );
@@ -590,8 +599,8 @@ class OCCustomiser {
 		const clampFontSize = ( size, settings ) => {
 			const minLimit = fontLimit( settings?.min_font_size );
 			const maxLimit = fontLimit( settings?.max_font_size );
-			const min = minLimit ? displayFontSize( minLimit, area?.bounds || {}, scale ) : 0;
-			const max = maxLimit ? displayFontSize( maxLimit, area?.bounds || {}, scale ) : 0;
+			const min = minLimit ? displayFontSize( minLimit, areaBounds, scale ) : 0;
+			const max = maxLimit ? displayFontSize( maxLimit, areaBounds, scale ) : 0;
 			if ( max && ( ! min || min <= max ) ) size = Math.min( size, max );
 			if ( min ) size = Math.max( size, min );
 			return size;
@@ -620,10 +629,10 @@ class OCCustomiser {
 				}
 
 				const minLimit = fontLimit( layer.settings?.min_font_size );
-				const minFontSize = minLimit ? displayFontSize( minLimit, area?.bounds || {}, scale ) : 0;
+				const minFontSize = minLimit ? displayFontSize( minLimit, areaBounds, scale ) : 0;
 				const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
 				let fontSize = configuredFontSize
-					? clampFontSize( displayFontSize( parseInt( configuredFontSize, 10 ), area?.bounds || {}, scale ), layer.settings )
+					? clampFontSize( displayFontSize( parseInt( configuredFontSize, 10 ), areaBounds, scale ), layer.settings )
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
 				const obj    = new FabricText( raw, {
@@ -2958,7 +2967,7 @@ class OCCustomiser {
 		const snapshots = {};
 		for ( const [ areaIndex, area ] of this.areas.entries() ) {
 			const canvas = this.canvases[ areaIndex ];
-			const bounds = area?.bounds || {};
+			const bounds = this.areaBounds( area );
 			const display = displayBounds( bounds );
 			const scale  = canvas?._ocScaleX || 1;
 			if ( ! canvas || ! display?.w || ! display?.h || typeof canvas.toSVG !== 'function' ) {
