@@ -19,6 +19,21 @@ $all_fonts          = OC_Font_Registry::get_fonts_for_js();
 $upload_dir         = wp_upload_dir();
 $has_multiple_areas = count( $areas ) > 1;
 $has_spotify_layer  = false;
+$colour_label_threshold = 12;
+
+$colour_contrast_text = static function ( string $hex ): string {
+	$hex = ltrim( sanitize_hex_color( $hex ) ?: '#000000', '#' );
+	if ( 3 === strlen( $hex ) ) {
+		$hex = $hex[0] . $hex[0] . $hex[1] . $hex[1] . $hex[2] . $hex[2];
+	}
+
+	$r = hexdec( substr( $hex, 0, 2 ) );
+	$g = hexdec( substr( $hex, 2, 2 ) );
+	$b = hexdec( substr( $hex, 4, 2 ) );
+	$luminance = ( ( $r * 299 ) + ( $g * 587 ) + ( $b * 114 ) ) / 1000;
+
+	return $luminance >= 150 ? '#1f2933' : '#ffffff';
+};
 
 foreach ( $layers as $layer ) {
 	if ( 'spotify' === (string) $layer->type && (bool) $layer->visible && empty( $layer->locked ) ) {
@@ -135,6 +150,7 @@ foreach ( $layers as $layer ) {
 							$default_colour = sanitize_hex_color( (string) ( $layer_colours[0]->hex ?? '#000000' ) ) ?: '#000000';
 						}
 					}
+					$colour_swatch_class = 'oc-colour-swatches' . ( count( $layer_colours ) >= $colour_label_threshold ? ' oc-colour-swatches--labels' : '' );
 					$layer_fonts   = $all_fonts;
 					?>
 					<?php
@@ -286,14 +302,15 @@ foreach ( $layers as $layer ) {
 									<div class="oc-control-group">
 										<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?></label>
 										<?php if ( ! empty( $layer_colours ) ) : ?>
-											<div class="oc-colour-swatches">
+											<div class="<?php echo esc_attr( $colour_swatch_class ); ?>">
 												<?php foreach ( $layer_colours as $colour ) : ?>
 												<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
-													style="background:<?php echo esc_attr( $colour->hex ); ?>;"
+													style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
 													aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart colour', 'overcustomise' ), $colour->name ) ); ?>"
 													aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
 													data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
 													data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+													<span><?php echo esc_html( $colour->name ); ?></span>
 												</button>
 												<?php endforeach; ?>
 											</div>
@@ -310,14 +327,15 @@ foreach ( $layers as $layer ) {
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
-										<div class="oc-colour-swatches">
+										<div class="<?php echo esc_attr( $colour_swatch_class ); ?>">
 											<?php foreach ( $layer_colours as $colour ) : ?>
 											<button type="button" class="oc-colour-swatch"
-												style="background:<?php echo esc_attr( $colour->hex ); ?>;"
+												style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
 												aria-label="<?php echo esc_attr( sprintf( __( 'Select %s', 'overcustomise' ), $colour->name ) ); ?>"
 												aria-pressed="false"
 												data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
 												data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+												<span><?php echo esc_html( $colour->name ); ?></span>
 											</button>
 											<?php endforeach; ?>
 										</div>
@@ -382,14 +400,15 @@ foreach ( $layers as $layer ) {
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
-										<div class="oc-colour-swatches">
+										<div class="<?php echo esc_attr( $colour_swatch_class ); ?>">
 											<?php foreach ( $layer_colours as $colour ) : ?>
-										<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
-											style="background:<?php echo esc_attr( $colour->hex ); ?>;"
-											aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
-											aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
-											data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-											data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+									<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
+										style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
+										aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
+										aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
+										data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
+										data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+										<span><?php echo esc_html( $colour->name ); ?></span>
 											</button>
 											<?php endforeach; ?>
 										</div>

@@ -608,6 +608,8 @@ class OCCustomiser {
 				// Engraving uses a fixed silver tone instead of a customer-selected colour.
 				const color = isEngraving ? engravingPalette.text : ( input.colorHex || layer.settings?.default_color || '#000000' );
 				const align = layer.settings?.alignment || 'center';
+				const alignOriginX = align === 'left' ? 'left' : ( align === 'right' ? 'right' : 'center' );
+				const alignLeft = align === 'left' ? lx : ( align === 'right' ? lx + lw : lcX );
 				if ( font ) {
 					try {
 						await this.loadFont( font );
@@ -625,8 +627,8 @@ class OCCustomiser {
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
 				const obj    = new FabricText( raw, {
-					left: lcX, top: lcY,
-					originX: 'center', originY: 'center',
+					left: alignLeft, top: lcY,
+					originX: alignOriginX, originY: 'center',
 					width: lw,
 					angle: rotation,
 					fontFamily: font?.name || 'sans-serif',
@@ -648,9 +650,9 @@ class OCCustomiser {
 					const threadShadow = this.embroideryShadowColor( color );
 
 					stitchPad = new FabricText( raw, {
-						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
+						left: alignLeft + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
-						originX: 'center', originY: 'center',
+						originX: alignOriginX, originY: 'center',
 						width: lw,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
@@ -666,9 +668,9 @@ class OCCustomiser {
 					canvas.add( stitchPad );
 
 					stitchLift = new FabricText( raw, {
-						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
+						left: alignLeft - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
-						originX: 'center', originY: 'center',
+						originX: alignOriginX, originY: 'center',
 						width: lw,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
@@ -703,7 +705,7 @@ class OCCustomiser {
 				}
 				if ( stitchPad ) {
 					stitchPad.set( {
-						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
+						left: alignLeft + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
 						fontSize,
 					} );
@@ -711,7 +713,7 @@ class OCCustomiser {
 				}
 				if ( stitchLift ) {
 					stitchLift.set( {
-						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
+						left: alignLeft - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
 						fontSize,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),

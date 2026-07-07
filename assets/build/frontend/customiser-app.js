@@ -25625,6 +25625,8 @@ class OCCustomiser {
           // Engraving uses a fixed silver tone instead of a customer-selected colour.
           const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
           const align = layer.settings?.alignment || 'center';
+          const alignOriginX = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
+          const alignLeft = align === 'left' ? lx : align === 'right' ? lx + lw : lcX;
           if (font) {
             try {
               await this.loadFont(font);
@@ -25639,9 +25641,9 @@ class OCCustomiser {
           let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), area?.bounds || {}, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : color;
           const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-            left: lcX,
+            left: alignLeft,
             top: lcY,
-            originX: 'center',
+            originX: alignOriginX,
             originY: 'center',
             width: lw,
             angle: rotation,
@@ -25670,9 +25672,9 @@ class OCCustomiser {
             const threadLift = this.embroideryHighlightColor(color);
             const threadShadow = this.embroideryShadowColor(color);
             stitchPad = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-              left: lcX + Math.max(0.45, fontSize * 0.015),
+              left: alignLeft + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
-              originX: 'center',
+              originX: alignOriginX,
               originY: 'center',
               width: lw,
               angle: rotation,
@@ -25693,9 +25695,9 @@ class OCCustomiser {
             stitchPad._ocContent = true;
             canvas.add(stitchPad);
             stitchLift = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-              left: lcX - Math.max(0.25, fontSize * 0.006),
+              left: alignLeft - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
-              originX: 'center',
+              originX: alignOriginX,
               originY: 'center',
               width: lw,
               angle: rotation,
@@ -25736,7 +25738,7 @@ class OCCustomiser {
           }
           if (stitchPad) {
             stitchPad.set({
-              left: lcX + Math.max(0.45, fontSize * 0.015),
+              left: alignLeft + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
               fontSize
             });
@@ -25744,7 +25746,7 @@ class OCCustomiser {
           }
           if (stitchLift) {
             stitchLift.set({
-              left: lcX - Math.max(0.25, fontSize * 0.006),
+              left: alignLeft - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
               fontSize,
               strokeWidth: Math.max(0.2, fontSize * 0.006)

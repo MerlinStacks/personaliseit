@@ -468,6 +468,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		if ( layer.type === 'text' || layer.type === 'textarea' ) {
 			const text  = s.default_text || layer.label || layerLabel( layer.type );
 			const align = s.alignment || 'center';
+			const flexAlign = align === 'left' ? 'flex-start' : ( align === 'right' ? 'flex-end' : 'center' );
 			const scale = renderedH / Math.max( 1, layer.h );
 			const defaultFontSize = fontLimit( s.default_font_size );
 			const autoFontSize = Math.max( 8, Math.min( renderedH * ( isGhost ? 0.36 : 0.42 ), isGhost ? 22 : 30 ) );
@@ -478,9 +479,10 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			d.className      = 'oc-lp oc-lp-text';
 			d.style.fontSize = fs + 'px';
 			d.style.textAlign = align;
+			d.style.alignItems = flexAlign;
 			d.style.color = isEngraving ? engravingTextColor() : normaliseHex( s.default_color );
 			if ( font ) d.style.fontFamily = "'" + String( font.name ).replace( /'/g, "\\'" ) + "', sans-serif";
-			if ( layer.type === 'textarea' ) d.style.alignItems = 'flex-start';
+			if ( layer.type === 'textarea' ) d.style.justifyContent = 'flex-start';
 			d.textContent    = text;
 			el.appendChild( d );
 
