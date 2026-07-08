@@ -25773,8 +25773,8 @@ class OCCustomiser {
             width: lw,
             height: lh
           };
-          const singleLineMaxWidth = Math.max(1, Math.min(lw, Number(bounds.w || 0) * scale) - anchorPad * 2);
-          const singleLineMaxHeight = Math.max(1, Math.min(lh, Number(bounds.h || 0) * scale));
+          const singleLineMaxWidth = Math.max(1, lw - anchorPad * 2);
+          const singleLineMaxHeight = Math.max(1, lh);
           const obj = new textClass(raw, {
             left: lcX,
             top: lcY,
@@ -25867,7 +25867,7 @@ class OCCustomiser {
           }
           const fitsTextLayer = size => {
             if (isSingleLineText) {
-              return this.singleLineTextFitsHeight(raw, font, size, layer.settings, singleLineMaxHeight);
+              return this.textFitsBox(raw, font, size, layer.settings, singleLineMaxWidth, singleLineMaxHeight);
             }
             return this.textFitsBox(raw, font, size, layer.settings, lw, lh);
           };
@@ -25883,11 +25883,8 @@ class OCCustomiser {
           obj.initDimensions?.();
           obj.setCoords?.();
           const measuredText = this.measureSingleLineText(raw, font, fontSize, layer.settings);
-          const textNaturalWidth = Math.max(1, Math.ceil(measuredText.width + textPadding * 2));
-          const fitWidth = isSingleLineText ? singleLineMaxWidth : Math.max(1, lw - anchorPad * 2);
-          const textFitScale = isSingleLineText && textNaturalWidth > fitWidth ? Math.max(0.05, fitWidth / textNaturalWidth) : 1;
+          const renderedWidth = Math.max(1, Math.ceil(measuredText.width + textPadding * 2));
           if (isSingleLineText) {
-            const renderedWidth = textNaturalWidth * textFitScale;
             let alignedLeft = lcX;
             if (align === 'left') {
               alignedLeft = lx + anchorPad + renderedWidth / 2;
@@ -25896,7 +25893,7 @@ class OCCustomiser {
             }
             obj.set({
               left: alignedLeft,
-              scaleX: textFitScale
+              scaleX: 1
             });
             obj.initDimensions?.();
             obj.setCoords?.();
@@ -25917,7 +25914,7 @@ class OCCustomiser {
             });
             if (isSingleLineText) {
               stitchPad.set({
-                scaleX: textFitScale
+                scaleX: 1
               });
             }
             this.applyContentClip(stitchPad, contentClip());
@@ -25932,7 +25929,7 @@ class OCCustomiser {
             });
             if (isSingleLineText) {
               stitchLift.set({
-                scaleX: textFitScale
+                scaleX: 1
               });
             }
             this.applyContentClip(stitchLift, contentClip());
@@ -26079,13 +26076,7 @@ class OCCustomiser {
       height: Number(measured.height || 0)
     };
   }
-  singleLineTextFitsHeight(raw, font, fontSize, settings, maxH) {
-    return this.measureSingleLineText(raw, font, fontSize, settings).height <= Math.max(maxH, 10);
-  }
   textLayerFitsAtSize(layer, raw, font, fontSize) {
-    if (layer?.type === 'text') {
-      return this.singleLineTextFitsHeight(raw, font, fontSize, layer?.settings || {}, Number(layer?.h || 0));
-    }
     return this.textFitsBox(raw, font, fontSize, layer?.settings || {}, Number(layer?.w || 0), Number(layer?.h || 0));
   }
   async maxFittingFontSize(layerId, upperLimit) {

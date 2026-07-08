@@ -786,14 +786,8 @@ class OCCustomiser {
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
 				const textClass = isSingleLineText ? FabricText : Textbox;
 				const textBoxSize = isSingleLineText ? {} : { width: lw, height: lh };
-				const singleLineMaxWidth = Math.max(
-					1,
-					Math.min( lw, Number( bounds.w || 0 ) * scale ) - anchorPad * 2
-				);
-				const singleLineMaxHeight = Math.max(
-					1,
-					Math.min( lh, Number( bounds.h || 0 ) * scale )
-				);
+				const singleLineMaxWidth = Math.max( 1, lw - anchorPad * 2 );
+				const singleLineMaxHeight = Math.max( 1, lh );
 				const obj    = new textClass( raw, {
 					left: lcX, top: lcY,
 					originX: 'center', originY: 'center',
@@ -868,11 +862,12 @@ class OCCustomiser {
 
 				const fitsTextLayer = ( size ) => {
 					if ( isSingleLineText ) {
-						return this.singleLineTextFitsHeight(
+						return this.textFitsBox(
 							raw,
 							font,
 							size,
 							layer.settings,
+							singleLineMaxWidth,
 							singleLineMaxHeight
 						);
 					}
@@ -906,19 +901,11 @@ class OCCustomiser {
 					fontSize,
 					layer.settings
 				);
-				const textNaturalWidth = Math.max(
+				const renderedWidth = Math.max(
 					1,
 					Math.ceil( measuredText.width + textPadding * 2 )
 				);
-				const fitWidth = isSingleLineText
-					? singleLineMaxWidth
-					: Math.max( 1, lw - anchorPad * 2 );
-				const textFitScale =
-					isSingleLineText && textNaturalWidth > fitWidth
-						? Math.max( 0.05, fitWidth / textNaturalWidth )
-						: 1;
 				if ( isSingleLineText ) {
-					const renderedWidth = textNaturalWidth * textFitScale;
 					let alignedLeft = lcX;
 
 					if ( align === 'left' ) {
@@ -926,7 +913,7 @@ class OCCustomiser {
 					} else if ( align === 'right' ) {
 						alignedLeft = lx + lw - anchorPad - renderedWidth / 2;
 					}
-					obj.set( { left: alignedLeft, scaleX: textFitScale } );
+					obj.set( { left: alignedLeft, scaleX: 1 } );
 					obj.initDimensions?.();
 					obj.setCoords?.();
 					this.centerObjectBounds( obj, alignedLeft, lcY, rotation );
@@ -943,7 +930,7 @@ class OCCustomiser {
 						padding: textPadding,
 					} );
 					if ( isSingleLineText ) {
-						stitchPad.set( { scaleX: textFitScale } );
+						stitchPad.set( { scaleX: 1 } );
 					}
 					this.applyContentClip( stitchPad, contentClip() );
 				}
@@ -956,7 +943,7 @@ class OCCustomiser {
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
 					if ( isSingleLineText ) {
-						stitchLift.set( { scaleX: textFitScale } );
+						stitchLift.set( { scaleX: 1 } );
 					}
 					this.applyContentClip( stitchLift, contentClip() );
 				}
@@ -1100,24 +1087,7 @@ class OCCustomiser {
 		};
 	}
 
-	singleLineTextFitsHeight( raw, font, fontSize, settings, maxH ) {
-		return (
-			this.measureSingleLineText( raw, font, fontSize, settings )
-				.height <= Math.max( maxH, 10 )
-		);
-	}
-
 	textLayerFitsAtSize( layer, raw, font, fontSize ) {
-		if ( layer?.type === 'text' ) {
-			return this.singleLineTextFitsHeight(
-				raw,
-				font,
-				fontSize,
-				layer?.settings || {},
-				Number( layer?.h || 0 )
-			);
-		}
-
 		return this.textFitsBox(
 			raw,
 			font,
