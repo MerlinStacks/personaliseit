@@ -25753,6 +25753,9 @@ class OCCustomiser {
           // Engraving uses a fixed silver tone instead of a customer-selected colour.
           const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
           const align = layer.settings?.alignment || 'center';
+          const anchorPad = Math.max(2, Math.min(10, lw * 0.01));
+          const singleLineOriginX = align === 'left' ? 'left' : align === 'right' ? 'right' : 'center';
+          const singleLineLeft = align === 'left' ? lx + anchorPad : align === 'right' ? lx + lw - anchorPad : lcX;
           if (font) {
             try {
               await this.loadFont(font);
@@ -25773,9 +25776,9 @@ class OCCustomiser {
             height: lh
           };
           const obj = new textClass(raw, {
-            left: lcX,
+            left: isSingleLineText ? singleLineLeft : lcX,
             top: lcY,
-            originX: 'center',
+            originX: isSingleLineText ? singleLineOriginX : 'center',
             originY: 'center',
             ...textBoxSize,
             padding: textPadding,
@@ -25806,9 +25809,9 @@ class OCCustomiser {
             const threadLift = this.embroideryHighlightColor(color);
             const threadShadow = this.embroideryShadowColor(color);
             stitchPad = new textClass(raw, {
-              left: lcX + Math.max(0.45, fontSize * 0.015),
+              left: (isSingleLineText ? singleLineLeft : lcX) + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
-              originX: 'center',
+              originX: isSingleLineText ? singleLineOriginX : 'center',
               originY: 'center',
               ...textBoxSize,
               padding: textPadding,
@@ -25831,9 +25834,9 @@ class OCCustomiser {
             stitchPad._ocContent = true;
             canvas.add(stitchPad);
             stitchLift = new textClass(raw, {
-              left: lcX - Math.max(0.25, fontSize * 0.006),
+              left: (isSingleLineText ? singleLineLeft : lcX) - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
-              originX: 'center',
+              originX: isSingleLineText ? singleLineOriginX : 'center',
               originY: 'center',
               ...textBoxSize,
               padding: textPadding,
@@ -25886,7 +25889,7 @@ class OCCustomiser {
           }
           if (stitchPad) {
             stitchPad.set({
-              left: lcX + Math.max(0.45, fontSize * 0.015),
+              left: (isSingleLineText ? singleLineLeft : lcX) + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
               fontSize,
               padding: textPadding
@@ -25900,7 +25903,7 @@ class OCCustomiser {
           }
           if (stitchLift) {
             stitchLift.set({
-              left: lcX - Math.max(0.25, fontSize * 0.006),
+              left: (isSingleLineText ? singleLineLeft : lcX) - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
               fontSize,
               padding: textPadding,

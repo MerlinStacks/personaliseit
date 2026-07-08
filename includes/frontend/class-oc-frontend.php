@@ -574,8 +574,30 @@ class OC_Frontend {
 	// ── Validation ────────────────────────────────────────────────────────────
 
 	public function validate( bool $passed, int $product_id, int $qty ): bool {
-		if ( null === $this->design ) {
-			return $passed;
+		$variation_id = isset( $_POST['variation_id'] ) ? absint( wp_unslash( $_POST['variation_id'] ) ) : 0;
+		$assignment   = null;
+		$design       = $this->design;
+		$layers       = $this->layers;
+
+		if ( null === $design ) {
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+			if ( ! $assignment ) {
+				return $passed;
+			}
+
+			$design = OC_DB::get_design( (int) $assignment->design_id );
+			if ( ! $design || ! (bool) $design->active ) {
+				return $passed;
+			}
+
+			$areas = OC_DB::get_design_print_areas( (int) $design->id );
+			if ( empty( $areas ) ) {
+				return $passed;
+			}
+
+			$layers = OC_DB::get_design_layers( (int) $design->id );
+		} else {
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 		}
 
 		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
@@ -592,10 +614,8 @@ class OC_Frontend {
 		}
 
 		$posted_design_id = absint( $data['designId'] ?? 0 );
-		$validation_layers = $this->layers;
-		if ( $posted_design_id && $posted_design_id !== (int) $this->design->id ) {
-			$variation_id = isset( $_POST['variation_id'] ) ? absint( wp_unslash( $_POST['variation_id'] ) ) : 0;
-			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+		$validation_layers = $layers;
+		if ( $posted_design_id && $posted_design_id !== (int) $design->id ) {
 			$allowed_design_ids = array_map( fn( $variant ) => absint( $variant['designId'] ?? 0 ), $this->design_variants );
 			$is_allowed_design = in_array( $posted_design_id, $allowed_design_ids, true )
 				|| ( $assignment && OC_DB::assignment_allows_design( $assignment, $posted_design_id ) );
