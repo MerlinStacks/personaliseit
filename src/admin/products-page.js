@@ -569,6 +569,52 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 	function fontOptions( fonts, selected ) {
 		return '<option value="0">Auto / first available</option>' + fonts.map( f => '<option value="' + esc( f.id ) + '"' + ( Number( selected ) === Number( f.id ) ? ' selected' : '' ) + '>' + esc( f.name ) + '</option>' ).join( '' );
 	}
+	function selectedGroupIds( value ) {
+		return Array.isArray( value ) ? value.map( Number ).filter( Boolean ) : [];
+	}
+	function membersForGroups( groups, selected, memberKey ) {
+		if ( ! selected.length ) return [];
+		const ids = [];
+		groups.forEach( group => {
+			if ( selected.indexOf( Number( group.id ) ) === -1 ) return;
+			( group[ memberKey ] || [] ).forEach( id => {
+				id = Number( id );
+				if ( id && ids.indexOf( id ) === -1 ) ids.push( id );
+			} );
+		} );
+		return ids;
+	}
+	function fontsForSelectedGroups( fonts, groups, selected ) {
+		if ( ! selected.length ) return fonts;
+		const ids = membersForGroups( groups, selected, 'fontIds' );
+		return ids.map( id => fonts.find( font => Number( font.id ) === id ) ).filter( Boolean );
+	}
+	function coloursForSelectedGroups( colours, groups, selected ) {
+		if ( ! selected.length ) return colours;
+		const ids = membersForGroups( groups, selected, 'colourIds' );
+		return ids.map( id => colours.find( colour => Number( colour.id ) === id ) ).filter( Boolean );
+	}
+	function colourOptions( colours, selected ) {
+		const selectedHex = normaliseHex( selected ).toLowerCase();
+		return colours.map( colour => {
+			const hex = normaliseHex( colour.hex );
+			return '<option value="' + esc( hex ) + '"' + ( hex.toLowerCase() === selectedHex ? ' selected' : '' ) + '>' + esc( colour.name ) + ' (' + esc( hex ) + ')</option>';
+		} ).join( '' );
+	}
+	function ensureDefaultFontInList( settings, fonts ) {
+		if ( ! fonts.length ) {
+			settings.default_font_id = 0;
+			return;
+		}
+		if ( fonts.some( font => Number( font.id ) === Number( settings.default_font_id || 0 ) ) ) return;
+		settings.default_font_id = Number( fonts[ 0 ].id ) || 0;
+	}
+	function ensureDefaultColourInList( settings, colours ) {
+		if ( ! colours.length ) return;
+		const selectedHex = normaliseHex( settings.default_color ).toLowerCase();
+		if ( colours.some( colour => normaliseHex( colour.hex ).toLowerCase() === selectedHex ) ) return;
+		settings.default_color = normaliseHex( colours[ 0 ].hex );
+	}
 	function formatChecks( selected ) {
 		return '<div class="oc-group-checks">' +
 			[ 'png', 'jpg', 'svg', 'webp', 'pdf', 'eps' ].map( fmt =>
@@ -583,11 +629,19 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		const data    = window.ocProductsData || {};
 		const fGroups = data.fontGroups    || [];
 		const fonts   = data.fonts         || [];
+		const colours = data.colours       || [];
 		const cGroups = data.colourGroups  || [];
 		const aGroups = data.clipartGroups || [];
 		// Engraving has no colour — don't show colour group pickers for layers in engraving areas.
 		const area        = areas[ selectedIndex ];
 		const isEngraving = area && area.method === 'engraving';
+		const fontGroupIds = selectedGroupIds( s.font_groups );
+		const colourGroupIds = selectedGroupIds( s.colour_groups );
+		const availableFonts = fontsForSelectedGroups( fonts, fGroups, fontGroupIds );
+		const availableColours = coloursForSelectedGroups( colours, cGroups, colourGroupIds );
+
+		if ( fontGroupIds.length ) ensureDefaultFontInList( s, availableFonts );
+		if ( ! isEngraving && colourGroupIds.length ) ensureDefaultColourInList( s, availableColours );
 
 			switch ( tabId ) {
 			case 'general':
@@ -605,10 +659,10 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 					field( 'Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc( s.char_limit || 0 ) + '" />' );
 			case 'style':
 				return field( 'Alignment', alignBtns( s.alignment || 'center' ) ) +
-					( fonts.length ? field( 'Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions( fonts, s.default_font_id || 0 ) + '</select>' ) : field( 'Default font', '<span class="oc-settings-empty">No fonts uploaded yet.</span>' ) ) +
+					( availableFonts.length ? field( 'Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions( availableFonts, s.default_font_id || 0 ) + '</select>' ) : field( 'Default font', '<span class="oc-settings-empty">' + ( fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.' ) + '</span>' ) ) +
 					'<div class="oc-bounds-grid">' +
 						'<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc( s.default_font_size || 0 ) + '" /></div>' +
-						( isEngraving ? '' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc( normaliseHex( s.default_color ) ) + '" /></div>' ) +
+						( isEngraving ? '' : ( colourGroupIds.length ? ( availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions( availableColours, s.default_color ) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' ) : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc( normaliseHex( s.default_color ) ) + '" /></div>' ) ) +
 					'</div>' +
 					'<div class="oc-bounds-grid">' +
 						'<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc( s.min_font_size || 0 ) + '" /></div>' +
@@ -647,6 +701,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 	function bindSettingsHandlers( layer ) {
 		const s    = layer.settings;
 		const area = areas[ selectedIndex ];
+		const data = window.ocProductsData || {};
 
 		document.getElementById( 'oc-layer-label' )?.addEventListener( 'input', e => {
 			layer.label = e.target.value;
@@ -687,6 +742,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		document.getElementById( 'oc-set-char-limit'   )?.addEventListener( 'input', e => { s.char_limit   = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-font' )?.addEventListener( 'change', e => { s.default_font_id = parseInt( e.target.value, 10 ) || 0; renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-font-size' )?.addEventListener( 'input', e => { s.default_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-default-color' )?.addEventListener( 'change', e => { s.default_color = normaliseHex( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-color' )?.addEventListener( 'input', e => { s.default_color = normaliseHex( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-min-font-size' )?.addEventListener( 'input', e => { s.min_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-max-font-size' )?.addEventListener( 'input', e => { s.max_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
@@ -699,8 +755,18 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 				markDirty();
 			} );
 		} );
-		document.querySelectorAll( '.oc-fg-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.font_groups   = [ ...document.querySelectorAll( '.oc-fg-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
-		document.querySelectorAll( '.oc-cg-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.colour_groups  = [ ...document.querySelectorAll( '.oc-cg-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
+		document.querySelectorAll( '.oc-fg-check' ).forEach( cb => { cb.addEventListener( 'change', () => {
+			s.font_groups = [ ...document.querySelectorAll( '.oc-fg-check:checked' ) ].map( c => Number( c.value ) );
+			const selected = selectedGroupIds( s.font_groups );
+			if ( selected.length ) ensureDefaultFontInList( s, fontsForSelectedGroups( data.fonts || [], data.fontGroups || [], selected ) );
+			renderCanvas(); renderRightColumn(); renderHiddenFields(); markDirty();
+		} ); } );
+		document.querySelectorAll( '.oc-cg-check' ).forEach( cb => { cb.addEventListener( 'change', () => {
+			s.colour_groups = [ ...document.querySelectorAll( '.oc-cg-check:checked' ) ].map( c => Number( c.value ) );
+			const selected = selectedGroupIds( s.colour_groups );
+			if ( selected.length ) ensureDefaultColourInList( s, coloursForSelectedGroups( data.colours || [], data.colourGroups || [], selected ) );
+			renderCanvas(); renderRightColumn(); renderHiddenFields(); markDirty();
+		} ); } );
 		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
 		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); markDirty(); } ); } );
 		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); markDirty(); } );

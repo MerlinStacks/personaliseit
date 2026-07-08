@@ -745,7 +745,7 @@ class OCCustomiser {
 
 			case 'text':
 			case 'textarea': {
-				const raw  = ( input.value || '' ).trim() || ( layer.settings?.default_text || '' ).trim();
+				const raw  = ( input.value || '' ).trim();
 				if ( ! raw ) break;
 
 				let font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
@@ -1066,9 +1066,7 @@ class OCCustomiser {
 		}
 
 		const input = this.inputs[ layerId ] || {};
-		const raw =
-			( input.value || '' ).trim() ||
-			( layer.settings?.default_text || '' ).trim();
+		const raw = ( input.value || '' ).trim();
 		if ( ! raw ) {
 			return upperLimit;
 		}
@@ -1780,6 +1778,11 @@ class OCCustomiser {
 		document.querySelectorAll( '[data-oc-layer-font]' ).forEach( el => {
 			reflectFontOnSelect( el );
 			const lid = parseInt( el.dataset.ocLayerFont, 10 );
+			const selectedFontId = parseInt( el.value, 10 ) || 0;
+			if ( selectedFontId ) {
+				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
+				this.inputs[ lid ].fontId = selectedFontId;
+			}
 			el.addEventListener( 'change', async () => {
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
 				this.inputs[ lid ].fontId = parseInt( el.value, 10 );

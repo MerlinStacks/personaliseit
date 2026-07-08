@@ -923,6 +923,52 @@ __webpack_require__.r(__webpack_exports__);
   function fontOptions(fonts, selected) {
     return '<option value="0">Auto / first available</option>' + fonts.map(f => '<option value="' + esc(f.id) + '"' + (Number(selected) === Number(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('');
   }
+  function selectedGroupIds(value) {
+    return Array.isArray(value) ? value.map(Number).filter(Boolean) : [];
+  }
+  function membersForGroups(groups, selected, memberKey) {
+    if (!selected.length) return [];
+    const ids = [];
+    groups.forEach(group => {
+      if (selected.indexOf(Number(group.id)) === -1) return;
+      (group[memberKey] || []).forEach(id => {
+        id = Number(id);
+        if (id && ids.indexOf(id) === -1) ids.push(id);
+      });
+    });
+    return ids;
+  }
+  function fontsForSelectedGroups(fonts, groups, selected) {
+    if (!selected.length) return fonts;
+    const ids = membersForGroups(groups, selected, 'fontIds');
+    return ids.map(id => fonts.find(font => Number(font.id) === id)).filter(Boolean);
+  }
+  function coloursForSelectedGroups(colours, groups, selected) {
+    if (!selected.length) return colours;
+    const ids = membersForGroups(groups, selected, 'colourIds');
+    return ids.map(id => colours.find(colour => Number(colour.id) === id)).filter(Boolean);
+  }
+  function colourOptions(colours, selected) {
+    const selectedHex = normaliseHex(selected).toLowerCase();
+    return colours.map(colour => {
+      const hex = normaliseHex(colour.hex);
+      return '<option value="' + esc(hex) + '"' + (hex.toLowerCase() === selectedHex ? ' selected' : '') + '>' + esc(colour.name) + ' (' + esc(hex) + ')</option>';
+    }).join('');
+  }
+  function ensureDefaultFontInList(settings, fonts) {
+    if (!fonts.length) {
+      settings.default_font_id = 0;
+      return;
+    }
+    if (fonts.some(font => Number(font.id) === Number(settings.default_font_id || 0))) return;
+    settings.default_font_id = Number(fonts[0].id) || 0;
+  }
+  function ensureDefaultColourInList(settings, colours) {
+    if (!colours.length) return;
+    const selectedHex = normaliseHex(settings.default_color).toLowerCase();
+    if (colours.some(colour => normaliseHex(colour.hex).toLowerCase() === selectedHex)) return;
+    settings.default_color = normaliseHex(colours[0].hex);
+  }
   function formatChecks(selected) {
     return '<div class="oc-group-checks">' + ['png', 'jpg', 'svg', 'webp', 'pdf', 'eps'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
   }
@@ -934,18 +980,25 @@ __webpack_require__.r(__webpack_exports__);
     const data = window.ocProductsData || {};
     const fGroups = data.fontGroups || [];
     const fonts = data.fonts || [];
+    const colours = data.colours || [];
     const cGroups = data.colourGroups || [];
     const aGroups = data.clipartGroups || [];
     // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
     const area = areas[selectedIndex];
     const isEngraving = area && area.method === 'engraving';
+    const fontGroupIds = selectedGroupIds(s.font_groups);
+    const colourGroupIds = selectedGroupIds(s.colour_groups);
+    const availableFonts = fontsForSelectedGroups(fonts, fGroups, fontGroupIds);
+    const availableColours = coloursForSelectedGroups(colours, cGroups, colourGroupIds);
+    if (fontGroupIds.length) ensureDefaultFontInList(s, availableFonts);
+    if (!isEngraving && colourGroupIds.length) ensureDefaultColourInList(s, availableColours);
     switch (tabId) {
       case 'general':
         return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
-        return field('Alignment', alignBtns(s.alignment || 'center')) + (fonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(fonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">No fonts uploaded yet.</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        return field('Alignment', alignBtns(s.alignment || 'center')) + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupIds.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
         return field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
       case 'mask':
@@ -967,6 +1020,7 @@ __webpack_require__.r(__webpack_exports__);
   function bindSettingsHandlers(layer) {
     const s = layer.settings;
     const area = areas[selectedIndex];
+    const data = window.ocProductsData || {};
     document.getElementById('oc-layer-label')?.addEventListener('input', e => {
       layer.label = e.target.value;
       renderLayerList(area);
@@ -1023,6 +1077,12 @@ __webpack_require__.r(__webpack_exports__);
       renderHiddenFields();
       markDirty();
     });
+    document.getElementById('oc-set-default-color')?.addEventListener('change', e => {
+      s.default_color = normaliseHex(e.target.value);
+      renderCanvas();
+      renderHiddenFields();
+      markDirty();
+    });
     document.getElementById('oc-set-default-color')?.addEventListener('input', e => {
       s.default_color = normaliseHex(e.target.value);
       renderCanvas();
@@ -1053,6 +1113,10 @@ __webpack_require__.r(__webpack_exports__);
     document.querySelectorAll('.oc-fg-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.font_groups = [...document.querySelectorAll('.oc-fg-check:checked')].map(c => Number(c.value));
+        const selected = selectedGroupIds(s.font_groups);
+        if (selected.length) ensureDefaultFontInList(s, fontsForSelectedGroups(data.fonts || [], data.fontGroups || [], selected));
+        renderCanvas();
+        renderRightColumn();
         renderHiddenFields();
         markDirty();
       });
@@ -1060,6 +1124,10 @@ __webpack_require__.r(__webpack_exports__);
     document.querySelectorAll('.oc-cg-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.colour_groups = [...document.querySelectorAll('.oc-cg-check:checked')].map(c => Number(c.value));
+        const selected = selectedGroupIds(s.colour_groups);
+        if (selected.length) ensureDefaultColourInList(s, coloursForSelectedGroups(data.colours || [], data.colourGroups || [], selected));
+        renderCanvas();
+        renderRightColumn();
         renderHiddenFields();
         markDirty();
       });

@@ -748,7 +748,7 @@ abstract class OC_Print_Base {
 	}
 
 	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
-		$text = trim( (string) ( $input['value'] ?? $settings['default_text'] ?? '' ) );
+		$text = trim( (string) ( $input['value'] ?? '' ) );
 		if ( '' === $text ) {
 			return;
 		}

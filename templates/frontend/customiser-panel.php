@@ -16,6 +16,10 @@ foreach ( $layers as $layer ) {
 }
 
 $all_fonts          = OC_Font_Registry::get_fonts_for_js();
+$fonts_by_id        = [];
+foreach ( $all_fonts as $font ) {
+	$fonts_by_id[ (int) $font['id'] ] = $font;
+}
 $upload_dir         = wp_upload_dir();
 $has_multiple_areas = count( $areas ) > 1;
 $has_spotify_layer  = false;
@@ -151,7 +155,16 @@ foreach ( $layers as $layer ) {
 						}
 					}
 					$colour_swatch_class = 'oc-colour-swatches' . ( count( $layer_colours ) >= $colour_label_threshold ? ' oc-colour-swatches--labels' : '' );
-					$layer_fonts   = $all_fonts;
+					$fg_ids = array_values( array_filter( array_map( 'absint', is_array( $fg_ids ) ? $fg_ids : [] ) ) );
+					$layer_fonts = $all_fonts;
+					if ( ! empty( $fg_ids ) ) {
+						$layer_fonts = [];
+						foreach ( OC_DB::get_font_ids_for_groups( $fg_ids ) as $font_id ) {
+							if ( isset( $fonts_by_id[ $font_id ] ) ) {
+								$layer_fonts[] = $fonts_by_id[ $font_id ];
+							}
+						}
+					}
 					?>
 					<?php
 					// For text/textarea layers, the layer name is shown inline with the input
@@ -185,7 +198,7 @@ foreach ( $layers as $layer ) {
 										<input type="text"
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
 											name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]"
-											value="<?php echo esc_attr( $default ); ?>"
+											value=""
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											autocomplete="off"
 											inputmode="text"
@@ -207,7 +220,7 @@ foreach ( $layers as $layer ) {
 											inputmode="text"
 											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
 											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
-										><?php echo esc_textarea( $default ); ?></textarea>
+										></textarea>
 										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
 									</div>
 								</div>

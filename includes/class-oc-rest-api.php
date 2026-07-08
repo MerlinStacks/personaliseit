@@ -817,11 +817,22 @@ class OC_Rest_API {
 			$font_size = absint( $layer_data['fontSize'] ?? 0 );
 			$color_hex = sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000';
 			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
+				$default_font_id = absint( $settings['default_font_id'] ?? 0 );
 				if ( ! $font_id ) {
-					$font_id = absint( $settings['default_font_id'] ?? 0 ) ?: $fallback_font_id;
+					$font_id = $default_font_id ?: $fallback_font_id;
 				}
 				if ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) {
-					$font_id = absint( $settings['default_font_id'] ?? 0 );
+					$font_id = $default_font_id;
+				}
+
+				$font_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['font_groups'] ?? null ) ? $settings['font_groups'] : [] ) ) );
+				if ( ! empty( $font_group_ids ) ) {
+					$allowed_font_ids = OC_DB::get_font_ids_for_groups( $font_group_ids );
+					if ( empty( $allowed_font_ids ) ) {
+						$font_id = 0;
+					} elseif ( ! in_array( $font_id, $allowed_font_ids, true ) ) {
+						$font_id = in_array( $default_font_id, $allowed_font_ids, true ) ? $default_font_id : $allowed_font_ids[0];
+					}
 				}
 				if ( empty( $settings['allow_size_change'] ) ) {
 					$font_size = absint( $settings['default_font_size'] ?? 0 );

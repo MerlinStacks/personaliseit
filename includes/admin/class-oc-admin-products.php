@@ -685,8 +685,9 @@ class OC_Admin_Products {
 			'mediaTitle'   => __( 'Select Mockup Image', 'overcustomise' ),
 			'mediaBtn'     => __( 'Use as Mockup', 'overcustomise' ),
 			'fonts'        => OC_Font_Registry::get_fonts_for_js(),
-			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_font_groups() ),
-			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_colour_groups() ),
+			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'fontIds' => array_map( 'intval', $g->font_ids ) ]; }, OC_DB::get_font_groups() ),
+			'colours'      => array_map( function ( $c ) { return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ]; }, OC_DB::get_colours( true ) ),
+			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'colourIds' => array_map( 'intval', $g->colour_ids ) ]; }, OC_DB::get_colour_groups() ),
 			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_clipart_groups() ),
 			'methodLabels' => [
 				'engraving'   => __( 'Engraving', 'overcustomise' ),

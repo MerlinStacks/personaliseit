@@ -688,6 +688,32 @@ class OC_DB {
 		return $results;
 	}
 
+	/** Fetch active font IDs assigned to any of the supplied font groups. */
+	public static function get_font_ids_for_groups( array $group_ids ): array {
+		$group_ids = array_values( array_unique( array_filter( array_map( 'absint', $group_ids ) ) ) );
+		if ( empty( $group_ids ) ) {
+			return [];
+		}
+
+		$active_font_ids = array_flip( array_map( 'intval', array_column( self::get_fonts( true ), 'id' ) ) );
+		$font_ids        = [];
+
+		foreach ( self::get_font_groups() as $group ) {
+			if ( ! in_array( (int) $group->id, $group_ids, true ) ) {
+				continue;
+			}
+
+			foreach ( (array) $group->font_ids as $font_id ) {
+				$font_id = (int) $font_id;
+				if ( isset( $active_font_ids[ $font_id ] ) && ! in_array( $font_id, $font_ids, true ) ) {
+					$font_ids[] = $font_id;
+				}
+			}
+		}
+
+		return $font_ids;
+	}
+
 	/** Fetch print files for a given order item. */
 	public static function get_print_files_for_item( int $order_item_id ): array {
 		$cache_key = 'print_files_item_' . $order_item_id;
