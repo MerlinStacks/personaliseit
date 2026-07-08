@@ -898,6 +898,8 @@ class OCCustomiser {
 					textPadding = this.textRenderPadding( fontSize );
 					obj.set( { fontSize, padding: textPadding } );
 				}
+				obj.initDimensions?.();
+				obj.setCoords?.();
 				const measuredText = this.measureSingleLineText(
 					raw,
 					font,
@@ -925,6 +927,9 @@ class OCCustomiser {
 						alignedLeft = lx + lw - anchorPad - renderedWidth / 2;
 					}
 					obj.set( { left: alignedLeft, scaleX: textFitScale } );
+					obj.initDimensions?.();
+					obj.setCoords?.();
+					this.centerObjectBounds( obj, alignedLeft, lcY, rotation );
 					this.keepObjectInsidePrintArea( obj, bounds, scale );
 				}
 				if ( isEmbroidery ) {
@@ -1427,6 +1432,48 @@ class OCCustomiser {
 		if ( clipPath ) {
 			obj.set( { clipPath } );
 		}
+	}
+
+	centerObjectBounds( obj, targetX, targetY, angle = 0 ) {
+		if ( ! obj ) {
+			return;
+		}
+
+		obj.setCoords?.();
+		const points =
+			typeof obj.getCoords === 'function' ? obj.getCoords() : [];
+		if ( ! points.length ) {
+			return;
+		}
+
+		const rad = ( ( Number( angle ) || 0 ) * Math.PI ) / 180;
+		const cos = Math.cos( rad );
+		const sin = Math.sin( rad );
+		const local = points.map( ( point ) => {
+			const dx = point.x - targetX;
+			const dy = point.y - targetY;
+
+			return {
+				x: targetX + dx * cos + dy * sin,
+				y: targetY - dx * sin + dy * cos,
+			};
+		} );
+		const minX = Math.min( ...local.map( ( point ) => point.x ) );
+		const maxX = Math.max( ...local.map( ( point ) => point.x ) );
+		const minY = Math.min( ...local.map( ( point ) => point.y ) );
+		const maxY = Math.max( ...local.map( ( point ) => point.y ) );
+		const moveX = targetX - ( minX + maxX ) / 2;
+		const moveY = targetY - ( minY + maxY ) / 2;
+
+		if ( Math.abs( moveX ) < 0.01 && Math.abs( moveY ) < 0.01 ) {
+			return;
+		}
+
+		obj.set( {
+			left: Number( obj.left || 0 ) + moveX * cos - moveY * sin,
+			top: Number( obj.top || 0 ) + moveX * sin + moveY * cos,
+		} );
+		obj.setCoords?.();
 	}
 
 	keepObjectInsidePrintArea( obj, bounds, scale ) {
