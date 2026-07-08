@@ -213,10 +213,10 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
-	public function engraving_text_normalises_colour_emoji_to_text_presentation(): void {
+	public function engraving_text_removes_colour_emoji(): void {
 		$result = OC_Print_Base_Testable::test_normalise_engraving_text( "Name \u{2764}\u{FE0F} \u{1F44D}\u{1F3FD} \u{1F600}" );
 
-		$this->assertSame( "Name \u{2764}\u{FE0E} \u{1F44D}\u{FE0E} \u{1F600}\u{FE0E}", $result );
+		$this->assertSame( 'Name   ', $result );
 		$this->assertStringNotContainsString( "\u{FE0F}", $result );
 		$this->assertStringNotContainsString( "\u{1F3FD}", $result );
 	}

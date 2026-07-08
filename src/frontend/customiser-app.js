@@ -774,6 +774,7 @@ class OCCustomiser {
 		const ly          = ( center.y - layerBox.h / 2 ) * scale;
 		const lw          = Math.max( layerBox.w * scale, 10 );
 		const lh          = Math.max( layerBox.h * scale, 10 );
+		const textClip    = () => this.rectClipPath( lx, ly, lw, lh, rotation );
 		const lcX         = center.x * scale;
 		const lcY         = center.y * scale;
 		const isEngraving = area?.printMethod === 'engraving';
@@ -794,7 +795,7 @@ class OCCustomiser {
 
 			case 'text':
 			case 'textarea': {
-				const raw  = ( input.value || '' ).trim();
+				const raw  = ( isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji( input.value ) : ( input.value || '' ) ).trim();
 				if ( ! raw ) break;
 				const isSingleLineText = layer.type === 'text';
 
@@ -977,7 +978,7 @@ class OCCustomiser {
 					if ( isSingleLineText ) {
 						stitchPad.set( { scaleX: 1 } );
 					}
-					this.applyContentClip( stitchPad, contentClip() );
+					this.applyContentClip( stitchPad, textClip() );
 				}
 				if ( stitchLift ) {
 					stitchLift.set( {
@@ -990,9 +991,9 @@ class OCCustomiser {
 					if ( isSingleLineText ) {
 						stitchLift.set( { scaleX: 1 } );
 					}
-					this.applyContentClip( stitchLift, contentClip() );
+					this.applyContentClip( stitchLift, textClip() );
 				}
-				this.applyContentClip( obj, contentClip() );
+				this.applyContentClip( obj, textClip() );
 				canvas.add( obj );
 				break;
 			}
@@ -1086,6 +1087,15 @@ class OCCustomiser {
 		return Math.max( 4, Math.ceil( ( Number( fontSize ) || 0 ) * 0.18 ) );
 	}
 
+	textFitSafetyMargin( fontSize ) {
+		const size = Number( fontSize ) || 0;
+
+		return {
+			x: Math.max( 1, Math.ceil( size * 0.06 ) ),
+			y: Math.max( 2, Math.ceil( size * 0.12 ) ),
+		};
+	}
+
 	textFitsBox( raw, font, fontSize, settings, maxW, maxH ) {
 		if ( ! raw ) {
 			return true;
@@ -1104,10 +1114,11 @@ class OCCustomiser {
 		} );
 		obj.setCoords?.();
 		const measured = obj.getBoundingRect?.( true, true ) || obj;
+		const margin = this.textFitSafetyMargin( fontSize );
 
 		return (
-			Number( measured.width || 0 ) <= Math.max( maxW, 10 ) &&
-			Number( measured.height || 0 ) <= Math.max( maxH, 10 )
+			Number( measured.width || 0 ) + margin.x * 2 <= Math.max( maxW, 10 ) &&
+			Number( measured.height || 0 ) + margin.y * 2 <= Math.max( maxH, 10 )
 		);
 	}
 
@@ -1409,6 +1420,21 @@ class OCCustomiser {
 			angle: Number( bounds.rotation ) || 0,
 			width: Number( bounds.w ) * scale,
 			height: Number( bounds.h ) * scale,
+			absolutePositioned: true,
+		} );
+	}
+
+	rectClipPath( x, y, w, h, angle = 0 ) {
+		if ( ! w || ! h ) return null;
+
+		return new Rect( {
+			left: x + w / 2,
+			top: y + h / 2,
+			originX: 'center',
+			originY: 'center',
+			angle,
+			width: w,
+			height: h,
 			absolutePositioned: true,
 		} );
 	}
@@ -1872,12 +1898,10 @@ class OCCustomiser {
 			};
 			updateCounter();
 			el.addEventListener( 'input', async () => {
-				if ( limit > 0 ) {
-					const clipped = this.truncateText( el.value, limit );
-					if ( clipped !== el.value ) el.value = clipped;
-				}
+				const cleaned = this.normaliseLayerTextValue( lid, el.value );
+				if ( cleaned !== el.value ) el.value = cleaned;
 				if ( ! this.inputs[ lid ] ) this.inputs[ lid ] = {};
-				this.inputs[ lid ].value = limit > 0 ? this.truncateText( el.value, limit ) : el.value;
+				this.inputs[ lid ].value = cleaned;
 				this.syncLinkedLayerInput( lid, [ 'value' ] );
 				updateCounter();
 				await this.updateTextSizeSliderCap( lid );
@@ -2356,10 +2380,34 @@ class OCCustomiser {
 		return limit > 0 && this.textLength( text ) > limit ? Array.from( text ).slice( 0, limit ).join( '' ) : text;
 	}
 
-	clampLayerInputValue( layerId ) {
+	printMethodForLayer( layerId ) {
+		const area = this.areas[ this.areaIndexForLayer( layerId ) ];
+		return String( area?.printMethod || '' );
+	}
+
+	isThreadOrEngravingLayer( layerId ) {
+		return [ 'engraving', 'embroidery' ].includes( this.printMethodForLayer( layerId ) );
+	}
+
+	stripUnsupportedPrintEmoji( value ) {
+		return String( value || '' )
+			.replace( /[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}][\u{FE0E}\u{FE0F}]?/gu, '' )
+			.replace( /[\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}\u{200D}\u{FE0E}\u{FE0F}]/gu, '' );
+	}
+
+	normaliseLayerTextValue( layerId, value ) {
+		let text = String( value || '' );
+		if ( this.isThreadOrEngravingLayer( layerId ) ) {
+			text = this.stripUnsupportedPrintEmoji( text );
+		}
+
 		const limit = this.charLimitForLayer( layerId );
-		if ( limit > 0 && this.inputs[ layerId ]?.value !== undefined ) {
-			this.inputs[ layerId ].value = this.truncateText( this.inputs[ layerId ].value, limit );
+		return limit > 0 ? this.truncateText( text, limit ) : text;
+	}
+
+	clampLayerInputValue( layerId ) {
+		if ( this.inputs[ layerId ]?.value !== undefined ) {
+			this.inputs[ layerId ].value = this.normaliseLayerTextValue( layerId, this.inputs[ layerId ].value );
 		}
 	}
 
