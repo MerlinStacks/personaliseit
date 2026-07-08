@@ -686,11 +686,29 @@ __webpack_require__.r(__webpack_exports__);
   function defaultSettings(type) {
     switch (type) {
       case 'text':
+        return {
+          default_text: '',
+          char_limit: 0,
+          alignment: 'center',
+          default_font_id: 0,
+          default_font_size: 0,
+          default_color: '#000000',
+          min_font_size: 0,
+          max_font_size: 0,
+          font_groups: [],
+          colour_groups: [],
+          allow_font_change: true,
+          allow_colour_change: true,
+          allow_size_change: false,
+          required: false,
+          link_group: ''
+        };
       case 'textarea':
         return {
           default_text: '',
           char_limit: 0,
           alignment: 'center',
+          line_alignment: 'top',
           default_font_id: 0,
           default_font_size: 0,
           default_color: '#000000',
@@ -749,6 +767,9 @@ __webpack_require__.r(__webpack_exports__);
   }
   function normaliseSettings(type, existing) {
     const settings = Object.assign(defaultSettings(type), existing || {});
+    if (type === 'textarea' && !['top', 'center', 'bottom'].includes(settings.line_alignment)) {
+      settings.line_alignment = 'top';
+    }
     if (type === 'clipart') {
       settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
     }
@@ -836,6 +857,8 @@ __webpack_require__.r(__webpack_exports__);
       const text = s.default_text || layer.label || layerLabel(layer.type);
       const align = s.alignment || 'center';
       const flexAlign = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
+      const lineAlign = ['top', 'center', 'bottom'].includes(s.line_alignment) ? s.line_alignment : 'top';
+      const flexLineAlign = lineAlign === 'bottom' ? 'flex-end' : lineAlign === 'center' ? 'center' : 'flex-start';
       const scale = renderedH / Math.max(1, layer.h);
       const defaultFontSize = fontLimit(s.default_font_size);
       const autoFontSize = Math.max(8, Math.min(renderedH * (isGhost ? 0.36 : 0.42), isGhost ? 22 : 30));
@@ -848,7 +871,7 @@ __webpack_require__.r(__webpack_exports__);
       d.style.alignItems = flexAlign;
       d.style.color = isEngraving ? engravingTextColor() : normaliseHex(s.default_color);
       if (font) d.style.fontFamily = "'" + String(font.name).replace(/'/g, "\\'") + "', sans-serif";
-      if (layer.type === 'textarea') d.style.justifyContent = 'flex-start';
+      if (layer.type === 'textarea') d.style.justifyContent = flexLineAlign;
       d.textContent = text;
       el.appendChild(d);
     } else if (layer.type === 'image' || layer.type === 'clipmask') {
@@ -895,6 +918,10 @@ __webpack_require__.r(__webpack_exports__);
   }
   function alignBtns(current) {
     return '<div class="oc-align-btns">' + [['left', '\u2190', 'Left'], ['center', '\u2261', 'Center'], ['right', '\u2192', 'Right']].map(([a, icon, lbl]) => '<button type="button" class="oc-align-btn' + (a === current ? ' oc-align-btn--active' : '') + '" data-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
+  }
+  function lineAlignBtns(current) {
+    const value = ['top', 'center', 'bottom'].includes(current) ? current : 'top';
+    return '<div class="oc-align-btns">' + [['top', '\u2191', 'Top'], ['center', '\u2195', 'Center'], ['bottom', '\u2193', 'Bottom']].map(([a, icon, lbl]) => '<button type="button" class="oc-line-align-btn' + (a === value ? ' oc-align-btn--active' : '') + '" data-line-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
   }
   function groupChecks(cls, groups, selected) {
     if (!groups.length) return '<span class="oc-settings-empty">No groups created yet.</span>';
@@ -998,7 +1025,7 @@ __webpack_require__.r(__webpack_exports__);
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
-        return field('Alignment', alignBtns(s.alignment || 'center')) + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupIds.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupIds.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
         return field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
       case 'mask':
@@ -1105,6 +1132,15 @@ __webpack_require__.r(__webpack_exports__);
       btn.addEventListener('click', () => {
         s.alignment = btn.dataset.align;
         document.querySelectorAll('.oc-align-btn').forEach(b => b.classList.toggle('oc-align-btn--active', b.dataset.align === btn.dataset.align));
+        renderCanvas();
+        renderHiddenFields();
+        markDirty();
+      });
+    });
+    document.querySelectorAll('.oc-line-align-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        s.line_alignment = btn.dataset.lineAlign || 'top';
+        document.querySelectorAll('.oc-line-align-btn').forEach(b => b.classList.toggle('oc-align-btn--active', b.dataset.lineAlign === btn.dataset.lineAlign));
         renderCanvas();
         renderHiddenFields();
         markDirty();

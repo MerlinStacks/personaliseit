@@ -332,9 +332,11 @@ class OC_Admin_Products {
 			function saveAssignment( sel ) {
 				var row = sel.closest( 'tr' );
 				var designSelect = row.querySelector( '.oc-design-assign-select' );
+				var searchableInput = row.querySelector( '.oc-searchable-design-select-input' );
 				var status = row.querySelector( '.oc-assign-status' );
 					if ( status ) { status.textContent = 'Saving\u2026'; status.className = 'oc-assign-status oc-assign-status--saving'; }
 					designSelect.disabled = true;
+					if ( searchableInput ) { searchableInput.disabled = true; }
 
 					var body = new URLSearchParams( {
 						action:     'oc_assign_design',
@@ -348,6 +350,7 @@ class OC_Admin_Products {
 						.then( function ( r ) { return r.json(); } )
 						.then( function ( json ) {
 							designSelect.disabled = false;
+							if ( searchableInput ) { searchableInput.disabled = false; }
 							if ( status ) {
 								status.textContent = json.success ? 'Saved' : 'Error';
 								status.className = 'oc-assign-status ' + ( json.success ? 'oc-assign-status--saved' : 'oc-assign-status--error' );
@@ -356,8 +359,97 @@ class OC_Admin_Products {
 						} )
 						.catch( function () {
 							designSelect.disabled = false;
+							if ( searchableInput ) { searchableInput.disabled = false; }
 							if ( status ) { status.textContent = 'Error'; status.className = 'oc-assign-status oc-assign-status--error'; }
 						} );
+			}
+
+			function initSearchableDesignSelect( select ) {
+				var wrapper = document.createElement( 'div' );
+				var input = document.createElement( 'input' );
+				var list = document.createElement( 'div' );
+				var options = null;
+
+				function getOptions() {
+					if ( options ) return options;
+
+					options = Array.prototype.map.call( select.options, function ( option ) {
+						return {
+							value: option.value,
+							label: option.textContent.trim(),
+							search: option.textContent.toLowerCase() + ' ' + option.value,
+						};
+					} );
+					return options;
+				}
+
+				function selectedLabel() {
+					return select.options[ select.selectedIndex ] ? select.options[ select.selectedIndex ].textContent.trim() : '';
+				}
+
+				function renderList() {
+					var query = input.value.toLowerCase().trim();
+					var matches = getOptions().filter( function ( option ) {
+						return ! query || option.search.indexOf( query ) !== -1;
+					} ).slice( 0, 60 );
+
+					list.innerHTML = matches.length ? matches.map( function ( option ) {
+						var selected = option.value === select.value ? ' is-selected' : '';
+						return '<button type="button" class="oc-searchable-design-select-option' + selected + '" data-value="' + escHtml( option.value ) + '">' + escHtml( option.label ) + '</button>';
+					} ).join( '' ) : '<div class="oc-searchable-design-select-empty">No designs found</div>';
+				}
+
+				function openList() {
+					wrapper.classList.add( 'is-open' );
+					renderList();
+				}
+
+				function closeList() {
+					wrapper.classList.remove( 'is-open' );
+					input.value = selectedLabel();
+				}
+
+				wrapper.className = 'oc-searchable-design-select';
+				input.type = 'search';
+				input.className = 'oc-input oc-searchable-design-select-input';
+				input.placeholder = 'Search designs...';
+				input.autocomplete = 'off';
+				input.value = selectedLabel();
+				list.className = 'oc-searchable-design-select-list';
+
+				select.classList.add( 'oc-design-assign-select--hidden' );
+				select.parentNode.insertBefore( wrapper, select.nextSibling );
+				wrapper.appendChild( input );
+				wrapper.appendChild( list );
+
+				input.addEventListener( 'focus', function () {
+					input.select();
+					openList();
+				} );
+				input.addEventListener( 'input', renderList );
+				input.addEventListener( 'keydown', function ( e ) {
+					var firstOption = list.querySelector( '.oc-searchable-design-select-option' );
+					if ( 'Escape' === e.key ) {
+						closeList();
+						input.blur();
+					}
+					if ( 'Enter' === e.key && firstOption ) {
+						e.preventDefault();
+						firstOption.click();
+					}
+				} );
+				list.addEventListener( 'mousedown', function ( e ) {
+					var option = e.target.closest( '.oc-searchable-design-select-option' );
+					if ( ! option ) return;
+					e.preventDefault();
+					select.value = option.dataset.value;
+					input.value = selectedLabel();
+					closeList();
+					select.dispatchEvent( new Event( 'change', { bubbles: true } ) );
+				} );
+				document.addEventListener( 'mousedown', function ( e ) {
+					if ( ! wrapper.contains( e.target ) ) closeList();
+				} );
 			}
 
 			function parseVariants( box ) {
@@ -439,6 +531,7 @@ class OC_Admin_Products {
 
 			// AJAX assignment save.
 			document.querySelectorAll( '.oc-design-assign-select' ).forEach( function ( sel ) {
+				initSearchableDesignSelect( sel );
 				sel.addEventListener( 'change', function () {
 					saveAssignment( this );
 				} );

@@ -135,7 +135,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$input['value'] = $text_fallbacks[ $text_index ];
 					}
 					$text_index++;
-					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt );
+					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt, 'textarea' === $type ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center' );
 					break;
 
 				case 'lineart':
@@ -205,7 +205,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		float $w_pt,
 		float $h_pt,
 		bool $centered = false,
-		?float $font_px_to_pt = null
+		?float $font_px_to_pt = null,
+		string $line_alignment = 'center'
 	): void {
 		$text = trim( (string) ( $input['value'] ?? '' ) );
 		if ( '' === $text ) {
@@ -226,7 +227,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$font_path     = is_object( $font ) ? self::get_font_path( $font ) : null;
 		$align         = $centered ? (string) ( $settings['alignment'] ?? 'center' ) : 'left';
 		$anchor_x      = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt + 2;
-		$baseline_y    = $centered ? $y_pt + ( $h_pt + $font_size ) / 2 : $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 );
+		$baseline_y    = $centered ? self::eps_text_baseline_y( $line_alignment, $y_pt, $h_pt, $font_size ) : $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 );
 
 		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
 		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
@@ -253,6 +254,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'left'  => $x_pt + 2,
 			'right' => $x_pt + $w_pt - 2,
 			default => 0.0,
+		};
+	}
+
+	/** Return baseline y coordinate for text inside a center-origin layer box. */
+	private static function eps_text_baseline_y( string $line_alignment, float $y_pt, float $h_pt, float $font_size ): float {
+		return match ( $line_alignment ) {
+			'top' => $y_pt + $h_pt - $font_size * 0.2,
+			'bottom' => $y_pt + $font_size,
+			default => $y_pt + ( $h_pt + $font_size ) / 2,
 		};
 	}
 

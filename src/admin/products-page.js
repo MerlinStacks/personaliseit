@@ -387,8 +387,8 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 
 	function defaultSettings( type ) {
 		switch ( type ) {
-			case 'text':
-			case 'textarea': return { default_text: '', char_limit: 0, alignment: 'center', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false, link_group: '' };
+			case 'text': return { default_text: '', char_limit: 0, alignment: 'center', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false, link_group: '' };
+			case 'textarea': return { default_text: '', char_limit: 0, alignment: 'center', line_alignment: 'top', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false, link_group: '' };
 			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, remove_background: false, required: false, link_group: '' };
 			case 'clipmask': return { formats: [ 'png', 'jpg', 'webp' ], max_size_mb: 10, remove_background: false, mask_shape: 'circle', required: false, link_group: '' };
 			case 'spotify':  return { colour_groups: [], required: false, link_group: '' };
@@ -399,6 +399,9 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 	}
 	function normaliseSettings( type, existing ) {
 		const settings = Object.assign( defaultSettings( type ), existing || {} );
+		if ( type === 'textarea' && ! [ 'top', 'center', 'bottom' ].includes( settings.line_alignment ) ) {
+			settings.line_alignment = 'top';
+		}
 		if ( type === 'clipart' ) {
 			settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
 		}
@@ -469,6 +472,8 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			const text  = s.default_text || layer.label || layerLabel( layer.type );
 			const align = s.alignment || 'center';
 			const flexAlign = align === 'left' ? 'flex-start' : ( align === 'right' ? 'flex-end' : 'center' );
+			const lineAlign = [ 'top', 'center', 'bottom' ].includes( s.line_alignment ) ? s.line_alignment : 'top';
+			const flexLineAlign = lineAlign === 'bottom' ? 'flex-end' : ( lineAlign === 'center' ? 'center' : 'flex-start' );
 			const scale = renderedH / Math.max( 1, layer.h );
 			const defaultFontSize = fontLimit( s.default_font_size );
 			const autoFontSize = Math.max( 8, Math.min( renderedH * ( isGhost ? 0.36 : 0.42 ), isGhost ? 22 : 30 ) );
@@ -482,7 +487,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			d.style.alignItems = flexAlign;
 			d.style.color = isEngraving ? engravingTextColor() : normaliseHex( s.default_color );
 			if ( font ) d.style.fontFamily = "'" + String( font.name ).replace( /'/g, "\\'" ) + "', sans-serif";
-			if ( layer.type === 'textarea' ) d.style.justifyContent = 'flex-start';
+			if ( layer.type === 'textarea' ) d.style.justifyContent = flexLineAlign;
 			d.textContent    = text;
 			el.appendChild( d );
 
@@ -532,6 +537,14 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		return '<div class="oc-align-btns">' +
 			[ [ 'left', '\u2190', 'Left' ], [ 'center', '\u2261', 'Center' ], [ 'right', '\u2192', 'Right' ] ]
 				.map( ( [ a, icon, lbl ] ) => '<button type="button" class="oc-align-btn' + ( a === current ? ' oc-align-btn--active' : '' ) + '" data-align="' + a + '">' + icon + ' ' + lbl + '</button>' )
+				.join( '' ) +
+			'</div>';
+	}
+	function lineAlignBtns( current ) {
+		const value = [ 'top', 'center', 'bottom' ].includes( current ) ? current : 'top';
+		return '<div class="oc-align-btns">' +
+			[ [ 'top', '\u2191', 'Top' ], [ 'center', '\u2195', 'Center' ], [ 'bottom', '\u2193', 'Bottom' ] ]
+				.map( ( [ a, icon, lbl ] ) => '<button type="button" class="oc-line-align-btn' + ( a === value ? ' oc-align-btn--active' : '' ) + '" data-line-align="' + a + '">' + icon + ' ' + lbl + '</button>' )
 				.join( '' ) +
 			'</div>';
 	}
@@ -659,6 +672,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 					field( 'Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc( s.char_limit || 0 ) + '" />' );
 			case 'style':
 				return field( 'Alignment', alignBtns( s.alignment || 'center' ) ) +
+					( layer.type === 'textarea' ? field( 'Line alignment', lineAlignBtns( s.line_alignment || 'top' ) ) : '' ) +
 					( availableFonts.length ? field( 'Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions( availableFonts, s.default_font_id || 0 ) + '</select>' ) : field( 'Default font', '<span class="oc-settings-empty">' + ( fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.' ) + '</span>' ) ) +
 					'<div class="oc-bounds-grid">' +
 						'<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc( s.default_font_size || 0 ) + '" /></div>' +
@@ -750,6 +764,15 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			btn.addEventListener( 'click', () => {
 				s.alignment = btn.dataset.align;
 				document.querySelectorAll( '.oc-align-btn' ).forEach( b => b.classList.toggle( 'oc-align-btn--active', b.dataset.align === btn.dataset.align ) );
+				renderCanvas();
+				renderHiddenFields();
+				markDirty();
+			} );
+		} );
+		document.querySelectorAll( '.oc-line-align-btn' ).forEach( btn => {
+			btn.addEventListener( 'click', () => {
+				s.line_alignment = btn.dataset.lineAlign || 'top';
+				document.querySelectorAll( '.oc-line-align-btn' ).forEach( b => b.classList.toggle( 'oc-align-btn--active', b.dataset.lineAlign === btn.dataset.lineAlign ) );
 				renderCanvas();
 				renderHiddenFields();
 				markDirty();

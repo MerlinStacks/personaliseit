@@ -594,11 +594,18 @@ abstract class OC_Print_Base {
 		float $h_mm,
 		string $text,
 		float $cell_h,
-		string $align = 'C'
+		string $align = 'C',
+		string $valign = 'C'
 	): void {
+		$offset_y = match ( $valign ) {
+			'T' => 0.0,
+			'B' => max( 0.0, $h_mm - $cell_h ),
+			default => max( 0.0, ( $h_mm - $cell_h ) / 2 ),
+		};
+
 		$pdf->StartTransform();
 		$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
-		$pdf->SetXY( $x_mm, $y_mm + max( 0.0, ( $h_mm - $cell_h ) / 2 ) );
+		$pdf->SetXY( $x_mm, $y_mm + $offset_y );
 		$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
 		$pdf->StopTransform();
 	}
@@ -794,6 +801,12 @@ abstract class OC_Print_Base {
 		if ( ! in_array( $align, [ 'L', 'C', 'R' ], true ) ) {
 			$align = 'C';
 		}
+		$valign_setting = 'textarea' === (string) ( $layer['type'] ?? '' ) ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center';
+		$valign = match ( $valign_setting ) {
+			'top' => 'T',
+			'bottom' => 'B',
+			default => 'C',
+		};
 
 		if ( 'engraving' === $mode && is_object( $font ) ) {
 			$font_path = self::get_font_path( $font );
@@ -811,7 +824,7 @@ abstract class OC_Print_Base {
 		}
 
 		$cell_h = self::cell_h( $font_size );
-		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align );
+		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align, $valign );
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {

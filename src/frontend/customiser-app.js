@@ -269,6 +269,11 @@ class OCCustomiser {
 		const slider = document.querySelector( '.product-gallery-slider' );
 		if ( ! slider ) return false;
 
+		const realSlides = slider.querySelectorAll(
+			'.woocommerce-product-gallery__image:not(.oc-live-preview-slide), .slide:not(.oc-live-preview-slide)'
+		);
+		if ( realSlides.length <= 1 ) return false;
+
 		let flickity = this.getFlickityInstance( slider );
 		let previewSlide = slider.querySelector( '.oc-live-preview-slide' );
 
@@ -388,6 +393,9 @@ class OCCustomiser {
 		const mainSliderEl = document.querySelector( '.tvpg-main-slider' );
 		const mainWrapper  = mainSliderEl?.querySelector( '.swiper-wrapper' );
 		if ( ! mainSliderEl || ! mainWrapper ) return false;
+
+		const realSlides = mainWrapper.querySelectorAll( '.swiper-slide:not(.oc-live-preview-slide)' );
+		if ( realSlides.length <= 1 ) return false;
 
 		let mainPreviewSlide = mainWrapper.querySelector( '.swiper-slide.oc-live-preview-slide' );
 		if ( ! mainPreviewSlide ) {
@@ -798,6 +806,7 @@ class OCCustomiser {
 				const raw  = ( isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji( input.value ) : ( input.value || '' ) ).trim();
 				if ( ! raw ) break;
 				const isSingleLineText = layer.type === 'text';
+				const lineAlign = [ 'top', 'center', 'bottom' ].includes( layer.settings?.line_alignment ) ? layer.settings.line_alignment : 'top';
 
 				let font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
 				// Engraving uses a fixed silver tone instead of a customer-selected colour.
@@ -822,7 +831,7 @@ class OCCustomiser {
 				let textPadding = this.textRenderPadding( fontSize );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
 				const textClass = isSingleLineText ? FabricText : Textbox;
-				const textBoxSize = isSingleLineText ? {} : { width: lw, height: lh };
+				const textBoxSize = isSingleLineText ? {} : { width: lw };
 				const singleLineMaxWidth = Math.max( 1, lw - anchorPad * 2 );
 				const singleLineMaxHeight = Math.max( 1, lh );
 				const obj    = new textClass( raw, {
@@ -838,6 +847,21 @@ class OCCustomiser {
 				obj._ocContent = true; // tag after creation
 				let stitchPad = null;
 				let stitchLift = null;
+				const textareaPosition = ( target, extraX = 0, extraY = 0 ) => {
+					if ( isSingleLineText || ! target ) return;
+
+					target.initDimensions?.();
+					const contentH = Math.min( Math.max( Number( target.height || 0 ), 0 ), lh );
+					const freeY = Math.max( 0, ( lh - contentH ) / 2 );
+					const localY = lineAlign === 'bottom' ? freeY : ( lineAlign === 'center' ? 0 : -freeY );
+					const rad = rotation * Math.PI / 180;
+
+					target.set( {
+						left: lcX - localY * Math.sin( rad ) + extraX,
+						top: lcY + localY * Math.cos( rad ) + extraY,
+					} );
+					target.setCoords?.();
+				};
 
 				if ( isEngraving ) {
 					// Fake etched depth: subtle light highlight below + soft dark shadow above.
@@ -918,19 +942,17 @@ class OCCustomiser {
 						lh
 					);
 				};
-				const fittingFloor =
-					minFontSize && fitsTextLayer( minFontSize )
-						? minFontSize
-						: 4;
+				const fittingFloor = minFontSize || 4;
 				while (
 					! fitsTextLayer( fontSize ) &&
 					fontSize > fittingFloor
 				) {
-					fontSize -= 1;
+					fontSize = Math.max( fittingFloor, fontSize - 1 );
 					textPadding = this.textRenderPadding( fontSize );
 					obj.set( { fontSize, padding: textPadding } );
 				}
 				obj.initDimensions?.();
+				textareaPosition( obj );
 				obj.setCoords?.();
 				const measuredText = this.measureSingleLineText(
 					raw,
@@ -969,27 +991,35 @@ class OCCustomiser {
 					obj.set( { fill: this.embroideryPattern( color, fontSize ) } );
 				}
 				if ( stitchPad ) {
+					const padX = Math.max( 0.45, fontSize * 0.015 );
+					const padY = Math.max( 0.65, fontSize * 0.02 );
 					stitchPad.set( {
-						left: ( isSingleLineText ? obj.left : lcX ) + Math.max( 0.45, fontSize * 0.015 ),
-						top: ( isSingleLineText ? obj.top : lcY ) + Math.max( 0.65, fontSize * 0.02 ),
+						left: ( isSingleLineText ? obj.left : lcX ) + padX,
+						top: ( isSingleLineText ? obj.top : lcY ) + padY,
 						fontSize,
 						padding: textPadding,
 					} );
 					if ( isSingleLineText ) {
 						stitchPad.set( { scaleX: 1 } );
+					} else {
+						textareaPosition( stitchPad, padX, padY );
 					}
 					this.applyContentClip( stitchPad, textClip() );
 				}
 				if ( stitchLift ) {
+					const liftX = Math.max( 0.25, fontSize * 0.006 );
+					const liftY = Math.max( 0.25, fontSize * 0.006 );
 					stitchLift.set( {
-						left: ( isSingleLineText ? obj.left : lcX ) - Math.max( 0.25, fontSize * 0.006 ),
-						top: ( isSingleLineText ? obj.top : lcY ) - Math.max( 0.25, fontSize * 0.006 ),
+						left: ( isSingleLineText ? obj.left : lcX ) - liftX,
+						top: ( isSingleLineText ? obj.top : lcY ) - liftY,
 						fontSize,
 						padding: textPadding,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
 					if ( isSingleLineText ) {
 						stitchLift.set( { scaleX: 1 } );
+					} else {
+						textareaPosition( stitchLift, -liftX, -liftY );
 					}
 					this.applyContentClip( stitchLift, textClip() );
 				}
@@ -1158,6 +1188,10 @@ class OCCustomiser {
 		const layer = this.getLayerById( layerId );
 		if ( ! layer || ! [ 'text', 'textarea' ].includes( layer.type ) ) {
 			return upperLimit;
+		}
+		const maxLimit = this.fontLimit( layer.settings?.max_font_size );
+		if ( maxLimit ) {
+			upperLimit = Math.min( upperLimit, maxLimit );
 		}
 
 		const input = this.inputs[ layerId ] || {};
