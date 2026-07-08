@@ -95,9 +95,6 @@ foreach ( $layers as $layer ) {
 		if ( empty( $area_layers ) ) continue;
 		?>
 		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>">
-			<?php if ( $has_multiple_areas ) : ?>
-				<h3 class="oc-area-heading"><?php echo esc_html( $area->label ); ?></h3>
-			<?php endif; ?>
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :

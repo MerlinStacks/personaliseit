@@ -46,6 +46,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_resolve_artwork_path( array $area_data ): ?string {
 		return self::resolve_artwork_path( $area_data );
 	}
+
+	public static function test_normalise_engraving_text( string $text ): string {
+		return self::normalise_engraving_text( $text );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -206,6 +210,15 @@ class Test_Print_Base extends TestCase {
 	#[Test]
 	public function rejects_non_spotify_urls_for_scannable_codes(): void {
 		$this->assertSame( '', OC_Print_Base_Testable::test_build_spotify_code_url( 'https://example.com/track/6rqhFgbbKwnb9MLmUQDhG6' ) );
+	}
+
+	#[Test]
+	public function engraving_text_normalises_colour_emoji_to_text_presentation(): void {
+		$result = OC_Print_Base_Testable::test_normalise_engraving_text( "Name \u{2764}\u{FE0F} \u{1F44D}\u{1F3FD} \u{1F600}" );
+
+		$this->assertSame( "Name \u{2764}\u{FE0E} \u{1F44D}\u{FE0E} \u{1F600}\u{FE0E}", $result );
+		$this->assertStringNotContainsString( "\u{FE0F}", $result );
+		$this->assertStringNotContainsString( "\u{1F3FD}", $result );
 	}
 
 	#[Test]

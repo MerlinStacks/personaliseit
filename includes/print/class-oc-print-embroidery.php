@@ -211,6 +211,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( '' === $text ) {
 			return;
 		}
+		$text = self::normalise_engraving_text( $text );
 
 		$hex       = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )

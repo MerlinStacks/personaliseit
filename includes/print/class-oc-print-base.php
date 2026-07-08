@@ -603,6 +603,18 @@ abstract class OC_Print_Base {
 		$pdf->StopTransform();
 	}
 
+	/** Force emoji into monochrome/text presentation before engraving output. */
+	protected static function normalise_engraving_text( string $text ): string {
+		if ( '' === $text ) {
+			return '';
+		}
+
+		$text = str_replace( [ "\u{FE0F}", "\u{200D}" ], [ "\u{FE0E}", '' ], $text );
+		$text = preg_replace( '/[\x{1F3FB}-\x{1F3FF}\x{1F9B0}-\x{1F9B3}]/u', '', $text ) ?? $text;
+
+		return preg_replace( '/([\x{1F000}-\x{1FAFF}\x{2600}-\x{27BF}])(?!\x{FE0E})/u', "$1\u{FE0E}", $text ) ?? $text;
+	}
+
 	/**
 	 * Resolve artwork path for print renderers.
 	 *
@@ -751,6 +763,9 @@ abstract class OC_Print_Base {
 		$text = trim( (string) ( $input['value'] ?? '' ) );
 		if ( '' === $text ) {
 			return;
+		}
+		if ( 'engraving' === $mode ) {
+			$text = self::normalise_engraving_text( $text );
 		}
 
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );

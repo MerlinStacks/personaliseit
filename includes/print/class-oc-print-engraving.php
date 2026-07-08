@@ -74,7 +74,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		// ── Text layer ─────────────────────────────────────────────────────
-		$text = trim( $area_data['text'] ?? '' );
+		$text = self::normalise_engraving_text( trim( $area_data['text'] ?? '' ) );
 		if ( $text !== '' ) {
 			$font_name = self::resolve_font( (int) ( $area_data['fontId'] ?? 0 ), $pdf );
 			[ $min_font_size, $max_font_size ] = self::font_size_bounds( $area_data );

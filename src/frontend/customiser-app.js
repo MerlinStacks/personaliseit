@@ -140,6 +140,7 @@ class OCCustomiser {
 		// Wire up controls IMMEDIATELY — don't block on canvas.
 		this.setupInputListeners();
 		this.setupVariationGalleryHandoff();
+		this.setupCartGalleryUnlock();
 		this.setupDesignVariantOptions();
 		this.setupClipartCarousels();
 		this.setupUploadZones();
@@ -340,6 +341,24 @@ class OCCustomiser {
 		swipers.forEach( swiper => swiper?.autoplay?.stop?.() );
 	}
 
+	releaseTVPGPreviewLock( resumeAutoplay = false ) {
+		this._focusPreviewSlide = false;
+		this._tvpgPreviewLocked = false;
+
+		if ( ! resumeAutoplay ) return;
+
+		const mainSwiper  = document.querySelector( '.tvpg-main-slider' )?.swiper;
+		const thumbSwiper = document.querySelector( '.tvpg-thumb-slider' )?.swiper;
+		[ mainSwiper, thumbSwiper ].forEach( swiper => swiper?.autoplay?.start?.() );
+	}
+
+	setupCartGalleryUnlock() {
+		if ( this._cartGalleryUnlockBound ) return;
+		this._cartGalleryUnlockBound = true;
+
+		window.jQuery?.( document.body ).on?.( 'added_to_cart', () => this.releaseTVPGPreviewLock( true ) );
+	}
+
 	lockTVPGPreviewSlide( swiper, slide ) {
 		if ( ! swiper || ! slide ) return;
 		const previewIndex = Array.from( swiper.slides || [] ).indexOf( slide );
@@ -507,10 +526,7 @@ class OCCustomiser {
 
 		form._ocVariationGalleryHandoffBound = true;
 		const getSelectedVariationId = () => parseInt( form.querySelector( 'input.variation_id' )?.value || '0', 10 ) || 0;
-		const releasePreviewLock = () => {
-			this._focusPreviewSlide = false;
-			this._tvpgPreviewLocked = false;
-		};
+		const releasePreviewLock = () => this.releaseTVPGPreviewLock();
 		const handleVariationChange = variation => {
 			releasePreviewLock();
 			this.switchProductVariation( parseInt( variation?.variation_id || getSelectedVariationId(), 10 ) || 0 );
