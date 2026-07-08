@@ -1210,13 +1210,18 @@ class OCCustomiser {
 	}
 
 	textLayerFitsAtSize( layer, raw, font, fontSize ) {
+		const area = this.areas[ this.areaIndexForLayer( layer?.id ) ];
+		const bounds = area?.bounds || null;
+		const layerBox = bounds ? displayLayer( layer, bounds ) : layer;
+		const displaySize = bounds ? displayFontSize( fontSize, bounds ) : fontSize;
+
 		return this.textFitsBox(
 			raw,
 			font,
-			fontSize,
+			displaySize,
 			layer?.settings || {},
-			Number( layer?.w || 0 ),
-			Number( layer?.h || 0 ),
+			Number( layerBox?.w || 0 ),
+			Number( layerBox?.h || 0 ),
 			layer?.type === 'textarea'
 		);
 	}

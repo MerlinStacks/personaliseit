@@ -2464,6 +2464,13 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 .oc-lp-icon svg { opacity: .75; }
 
+.oc-lp-media {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	padding: 3px;
+}
+
 /* Type label pill below the bounds box */
 .oc-bounds-box-pill {
 	position: absolute;

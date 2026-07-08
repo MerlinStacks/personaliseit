@@ -500,6 +500,15 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			el.appendChild( d );
 
 		} else if ( layer.type === 'image' || layer.type === 'clipmask' ) {
+			if ( layer.type === 'image' && s.default_attachment_url ) {
+				const img = document.createElement( 'img' );
+				img.className = 'oc-lp oc-lp-media';
+				img.src = s.default_attachment_url;
+				img.alt = '';
+				el.appendChild( img );
+				return;
+			}
+
 			const fs = Math.max( 14, Math.min( renderedH * 0.35, 40 ) );
 			const d  = document.createElement( 'div' );
 			d.className = 'oc-lp oc-lp-icon';
@@ -512,6 +521,13 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 				'<span>' + ( layer.type === 'clipmask' ? 'Upload Clipped Photo' : 'Upload Image' ) + '</span>';
 			if ( layer.type === 'clipmask' ) d.style.borderRadius = '999px';
 			el.appendChild( d );
+
+		} else if ( layer.type === 'clipart' && s.default_clipart_url ) {
+			const img = document.createElement( 'img' );
+			img.className = 'oc-lp oc-lp-media';
+			img.src = s.default_clipart_url;
+			img.alt = '';
+			el.appendChild( img );
 
 		} else {
 			const icons = { spotify: '\u266b', lineart: '\u270f', clipart: '\u2726' };
@@ -690,7 +706,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		const colours = data.colours       || [];
 		const cGroups = data.colourGroups  || [];
 		const aGroups = data.clipartGroups || [];
-		const clipartItems = clipartForSelectedGroups( data.clipartItems || [], s.clipart_groups || [] );
+		const allClipartItems = clipartForSelectedGroups( data.clipartItems || [], [] );
 		// Engraving has no colour — don't show colour group pickers for layers in engraving areas.
 		const area        = areas[ selectedIndex ];
 		const isEngraving = area && area.method === 'engraving';
@@ -701,7 +717,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 
 		if ( fontGroupIds.length ) ensureDefaultFontInList( s, availableFonts );
 		if ( ! isEngraving && colourGroupIds.length ) ensureDefaultColourInList( s, availableColours );
-		ensureDefaultClipartInList( s, clipartItems );
+		ensureDefaultClipartInList( s, allClipartItems );
 
 			switch ( tabId ) {
 			case 'general':
@@ -746,7 +762,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 				return cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
 			case 'library':
 				return ( aGroups.length ? field( 'Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-ag-check', aGroups, s.clipart_groups || [] ) ) : '<span class="oc-settings-empty">No clipart groups created yet.</span>' ) +
-					field( 'Default clipart', clipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions( clipartItems, s.default_clipart_id || 0 ) + '</select>' : '<span class="oc-settings-empty">No active clipart is available for the selected groups.</span>' );
+					field( 'Default clipart', allClipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions( allClipartItems, s.default_clipart_id || 0 ) + '</select>' : '<span class="oc-settings-empty">No active clipart is available.</span>' );
 			case 'validation':
 				return toggleField( 'Required field', 'oc-set-required', s.required ) +
 					( layer.type === 'clipart' ? field( 'Frontend display', clipartDisplayField( s.clipart_display || 'grid' ) ) : '' );
@@ -819,6 +835,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 				if ( ! attachment ) return;
 				s.default_attachment_id = Number( attachment.id ) || 0;
 				s.default_attachment_url = attachment.sizes?.medium?.url || attachment.url || '';
+				renderCanvas();
 				renderRightColumn();
 				renderHiddenFields();
 				markDirty();
@@ -828,6 +845,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		document.getElementById( 'oc-remove-default-attachment' )?.addEventListener( 'click', () => {
 			s.default_attachment_id = 0;
 			s.default_attachment_url = '';
+			renderCanvas();
 			renderRightColumn();
 			renderHiddenFields();
 			markDirty();
@@ -870,10 +888,9 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		} ); } );
 		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => {
 			s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) );
-			ensureDefaultClipartInList( s, clipartForSelectedGroups( data.clipartItems || [], s.clipart_groups || [] ) );
 			renderRightColumn(); renderHiddenFields(); markDirty();
 		} ); } );
-		document.getElementById( 'oc-set-default-clipart' )?.addEventListener( 'change', e => { setDefaultClipart( s, e.target.value, clipartForSelectedGroups( data.clipartItems || [], s.clipart_groups || [] ) ); renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-default-clipart' )?.addEventListener( 'change', e => { setDefaultClipart( s, e.target.value, clipartForSelectedGroups( data.clipartItems || [], [] ) ); renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); markDirty(); } ); } );
 		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-remove-background' )?.addEventListener( 'change', e => { s.remove_background = e.target.checked; renderHiddenFields(); markDirty(); } );

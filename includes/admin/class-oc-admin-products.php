@@ -11,6 +11,8 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Products {
 
+	private const ADMIN_PAGE_SIZE = 50;
+
 	// ── AJAX ──────────────────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
@@ -188,20 +190,23 @@ class OC_Admin_Products {
 
 	private function render_products_tab(): void {
 		wp_enqueue_media();
+		$current_page = $this->get_admin_page_number( 'product_page' );
 
 		// Load active designs for the assignment dropdown.
 		$designs    = OC_DB::get_designs( true );
 		$assign_map = OC_DB::get_all_assignments();
 
-		// Load all published WC products.
-		$wc_products = wc_get_products( [
-			'limit'   => -1,
-			'type'    => [ 'simple', 'variable' ],
-			'status'  => 'publish',
-			'orderby' => 'name',
-			'order'   => 'ASC',
-			'return'  => 'objects',
-		] );
+		// Load one page of published WC products.
+		$product_query = $this->get_paginated_products( $current_page );
+		$wc_products   = $product_query->products;
+		$product_total = (int) $product_query->total;
+		$total_pages   = max( 1, (int) $product_query->max_num_pages );
+		if ( $current_page > $total_pages ) {
+			$current_page = $total_pages;
+			$product_query = $this->get_paginated_products( $current_page );
+			$wc_products   = $product_query->products;
+			$product_total = (int) $product_query->total;
+		}
 
 		$nonce = wp_create_nonce( 'oc-products-nonce' );
 		?>
@@ -215,11 +220,16 @@ class OC_Admin_Products {
 		<div class="oc-card">
 			<div class="oc-card-header">
 				<h2><?php esc_html_e( 'Products & Variants', 'overcustomise' ); ?></h2>
-				<input type="search" id="oc-product-search" class="oc-input oc-products-search"
-				       placeholder="<?php esc_attr_e( 'Filter products…', 'overcustomise' ); ?>" />
+				<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+					<span style="font-size:12px;color:var(--oc-gray-400);">
+						<?php echo esc_html( $product_total ); ?> <?php echo esc_html( 1 === $product_total ? __( 'product', 'overcustomise' ) : __( 'products', 'overcustomise' ) ); ?>
+					</span>
+					<input type="search" id="oc-product-search" class="oc-input oc-products-search"
+					       placeholder="<?php esc_attr_e( 'Filter this page…', 'overcustomise' ); ?>" />
+				</div>
 			</div>
 
-			<?php if ( empty( $wc_products ) ) : ?>
+			<?php if ( 0 === $product_total ) : ?>
 				<div class="oc-empty">
 					<span class="oc-empty-icon">🛍️</span>
 					<h3><?php esc_html_e( 'No products found', 'overcustomise' ); ?></h3>
@@ -237,6 +247,7 @@ class OC_Admin_Products {
 					</p>
 				</div>
 			<?php else : ?>
+				<?php $this->render_pagination_controls( 'products', 'product_page', $current_page, $total_pages, $product_total ); ?>
 				<div class="oc-table-wrap">
 					<table class="oc-table" id="oc-products-table">
 						<thead>
@@ -312,6 +323,7 @@ class OC_Admin_Products {
 						</tbody>
 					</table>
 				</div>
+				<?php $this->render_pagination_controls( 'products', 'product_page', $current_page, $total_pages, $product_total ); ?>
 			<?php endif; ?>
 		</div>
 
@@ -541,6 +553,57 @@ class OC_Admin_Products {
 		<?php
 	}
 
+	private function get_paginated_products( int $page ): object {
+		return wc_get_products( [
+			'limit'    => self::ADMIN_PAGE_SIZE,
+			'page'     => max( 1, $page ),
+			'paginate' => true,
+			'type'     => [ 'simple', 'variable' ],
+			'status'   => 'publish',
+			'orderby'  => 'name',
+			'order'    => 'ASC',
+			'return'   => 'objects',
+		] );
+	}
+
+	private function get_admin_page_number( string $param ): int {
+		return isset( $_GET[ $param ] ) ? max( 1, absint( wp_unslash( $_GET[ $param ] ) ) ) : 1;
+	}
+
+	private function render_pagination_controls( string $tab, string $param, int $current_page, int $total_pages, int $total_items ): void {
+		if ( $total_pages <= 1 ) {
+			return;
+		}
+
+		$base_url = admin_url( 'admin.php?page=overcustomise-products&tab=' . $tab );
+		$prev_url = add_query_arg( $param, max( 1, $current_page - 1 ), $base_url );
+		$next_url = add_query_arg( $param, min( $total_pages, $current_page + 1 ), $base_url );
+		?>
+		<div class="oc-pagination" style="display:flex;align-items:center;gap:8px;justify-content:flex-end;margin:12px 0;flex-wrap:wrap;">
+			<span style="font-size:12px;color:var(--oc-gray-500);">
+				<?php
+				echo esc_html( sprintf(
+					/* translators: 1: current page, 2: total pages, 3: total items. */
+					__( 'Page %1$d of %2$d (%3$d total)', 'overcustomise' ),
+					$current_page,
+					$total_pages,
+					$total_items
+				) );
+				?>
+			</span>
+			<a class="button<?php echo 1 === $current_page ? ' disabled' : ''; ?>" href="<?php echo esc_url( $prev_url ); ?>" <?php echo 1 === $current_page ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Prev', 'overcustomise' ); ?></a>
+			<form method="get" style="display:flex;align-items:center;gap:6px;margin:0;">
+				<input type="hidden" name="page" value="overcustomise-products" />
+				<input type="hidden" name="tab" value="<?php echo esc_attr( $tab ); ?>" />
+				<label for="oc-<?php echo esc_attr( $param ); ?>" style="font-size:12px;color:var(--oc-gray-500);"><?php esc_html_e( 'Page', 'overcustomise' ); ?></label>
+				<input id="oc-<?php echo esc_attr( $param ); ?>" class="oc-input" type="number" name="<?php echo esc_attr( $param ); ?>" value="<?php echo esc_attr( $current_page ); ?>" min="1" max="<?php echo esc_attr( $total_pages ); ?>" style="width:78px;" />
+				<button type="submit" class="button"><?php esc_html_e( 'Go', 'overcustomise' ); ?></button>
+			</form>
+			<a class="button<?php echo $current_page >= $total_pages ? ' disabled' : ''; ?>" href="<?php echo esc_url( $next_url ); ?>" <?php echo $current_page >= $total_pages ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Next', 'overcustomise' ); ?></a>
+		</div>
+		<?php
+	}
+
 	/** Render a design assignment <select> for one product/variant row. */
 	private function render_design_select( array $designs, int $product_id, int $variant_id, int $assigned_id ): void {
 		?>
@@ -616,17 +679,26 @@ class OC_Admin_Products {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Design deleted.', 'overcustomise' ) . '</p></div>';
 		}
 
-		$designs = OC_DB::get_designs_with_area_counts();
+		$current_page = $this->get_admin_page_number( 'design_page' );
+		$design_query  = OC_DB::get_designs_with_area_counts_paginated( $current_page, self::ADMIN_PAGE_SIZE );
+		$designs       = $design_query['items'];
+		$design_total  = (int) $design_query['total'];
+		$total_pages   = (int) $design_query['total_pages'];
+		if ( $current_page > $total_pages ) {
+			$current_page = $total_pages;
+			$design_query = OC_DB::get_designs_with_area_counts_paginated( $current_page, self::ADMIN_PAGE_SIZE );
+			$designs      = $design_query['items'];
+		}
 		?>
 		<div class="oc-card">
 			<div class="oc-card-header">
 				<h2><?php esc_html_e( 'Designs', 'overcustomise' ); ?></h2>
 				<span style="font-size:12px;color:var(--oc-gray-400);">
-					<?php echo esc_html( count( $designs ) ); ?> <?php echo esc_html( 1 === count( $designs ) ? __( 'design', 'overcustomise' ) : __( 'designs', 'overcustomise' ) ); ?>
+					<?php echo esc_html( $design_total ); ?> <?php echo esc_html( 1 === $design_total ? __( 'design', 'overcustomise' ) : __( 'designs', 'overcustomise' ) ); ?>
 				</span>
 			</div>
 
-			<?php if ( empty( $designs ) ) : ?>
+			<?php if ( 0 === $design_total ) : ?>
 				<div class="oc-empty">
 					<span class="oc-empty-icon">📐</span>
 					<h3><?php esc_html_e( 'No designs yet', 'overcustomise' ); ?></h3>
@@ -637,6 +709,7 @@ class OC_Admin_Products {
 					</a>
 				</div>
 			<?php else : ?>
+				<?php $this->render_pagination_controls( 'designs', 'design_page', $current_page, $total_pages, $design_total ); ?>
 				<div class="oc-table-wrap">
 					<table class="oc-table">
 						<thead>
@@ -695,6 +768,7 @@ class OC_Admin_Products {
 						</tbody>
 					</table>
 				</div>
+				<?php $this->render_pagination_controls( 'designs', 'design_page', $current_page, $total_pages, $design_total ); ?>
 			<?php endif; ?>
 		</div>
 		<?php

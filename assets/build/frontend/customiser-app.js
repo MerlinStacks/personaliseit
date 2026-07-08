@@ -26175,7 +26175,11 @@ class OCCustomiser {
     };
   }
   textLayerFitsAtSize(layer, raw, font, fontSize) {
-    return this.textFitsBox(raw, font, fontSize, layer?.settings || {}, Number(layer?.w || 0), Number(layer?.h || 0), layer?.type === 'textarea');
+    const area = this.areas[this.areaIndexForLayer(layer?.id)];
+    const bounds = area?.bounds || null;
+    const layerBox = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayLayer)(layer, bounds) : layer;
+    const displaySize = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(fontSize, bounds) : fontSize;
+    return this.textFitsBox(raw, font, displaySize, layer?.settings || {}, Number(layerBox?.w || 0), Number(layerBox?.h || 0), layer?.type === 'textarea');
   }
   async maxFittingFontSize(layerId, upperLimit) {
     const layer = this.getLayerById(layerId);

@@ -898,12 +898,26 @@ __webpack_require__.r(__webpack_exports__);
       d.textContent = text;
       el.appendChild(d);
     } else if (layer.type === 'image' || layer.type === 'clipmask') {
+      if (layer.type === 'image' && s.default_attachment_url) {
+        const img = document.createElement('img');
+        img.className = 'oc-lp oc-lp-media';
+        img.src = s.default_attachment_url;
+        img.alt = '';
+        el.appendChild(img);
+        return;
+      }
       const fs = Math.max(14, Math.min(renderedH * 0.35, 40));
       const d = document.createElement('div');
       d.className = 'oc-lp oc-lp-icon';
       d.innerHTML = '<svg width="' + Math.round(fs) + '" height="' + Math.round(fs * 0.8) + '" viewBox="0 0 24 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + '<rect x="1" y="4" width="22" height="15" rx="2"/>' + '<circle cx="12" cy="11.5" r="3.5"/>' + '<path d="M8 4l2-3h4l2 3"/>' + '</svg>' + '<span>' + (layer.type === 'clipmask' ? 'Upload Clipped Photo' : 'Upload Image') + '</span>';
       if (layer.type === 'clipmask') d.style.borderRadius = '999px';
       el.appendChild(d);
+    } else if (layer.type === 'clipart' && s.default_clipart_url) {
+      const img = document.createElement('img');
+      img.className = 'oc-lp oc-lp-media';
+      img.src = s.default_clipart_url;
+      img.alt = '';
+      el.appendChild(img);
     } else {
       const icons = {
         spotify: '\u266b',
@@ -1057,7 +1071,7 @@ __webpack_require__.r(__webpack_exports__);
     const colours = data.colours || [];
     const cGroups = data.colourGroups || [];
     const aGroups = data.clipartGroups || [];
-    const clipartItems = clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups || []);
+    const allClipartItems = clipartForSelectedGroups(data.clipartItems || [], []);
     // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
     const area = areas[selectedIndex];
     const isEngraving = area && area.method === 'engraving';
@@ -1067,7 +1081,7 @@ __webpack_require__.r(__webpack_exports__);
     const availableColours = coloursForSelectedGroups(colours, cGroups, colourGroupIds);
     if (fontGroupIds.length) ensureDefaultFontInList(s, availableFonts);
     if (!isEngraving && colourGroupIds.length) ensureDefaultColourInList(s, availableColours);
-    ensureDefaultClipartInList(s, clipartItems);
+    ensureDefaultClipartInList(s, allClipartItems);
     switch (tabId) {
       case 'general':
         return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
@@ -1084,7 +1098,7 @@ __webpack_require__.r(__webpack_exports__);
         if (isEngraving) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
         return cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
       case 'library':
-        return (aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>') + field('Default clipart', clipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions(clipartItems, s.default_clipart_id || 0) + '</select>' : '<span class="oc-settings-empty">No active clipart is available for the selected groups.</span>');
+        return (aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>') + field('Default clipart', allClipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions(allClipartItems, s.default_clipart_id || 0) + '</select>' : '<span class="oc-settings-empty">No active clipart is available.</span>');
       case 'validation':
         return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
       case 'properties':
@@ -1164,6 +1178,7 @@ __webpack_require__.r(__webpack_exports__);
         if (!attachment) return;
         s.default_attachment_id = Number(attachment.id) || 0;
         s.default_attachment_url = attachment.sizes?.medium?.url || attachment.url || '';
+        renderCanvas();
         renderRightColumn();
         renderHiddenFields();
         markDirty();
@@ -1173,6 +1188,7 @@ __webpack_require__.r(__webpack_exports__);
     document.getElementById('oc-remove-default-attachment')?.addEventListener('click', () => {
       s.default_attachment_id = 0;
       s.default_attachment_url = '';
+      renderCanvas();
       renderRightColumn();
       renderHiddenFields();
       markDirty();
@@ -1256,14 +1272,14 @@ __webpack_require__.r(__webpack_exports__);
     document.querySelectorAll('.oc-ag-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.clipart_groups = [...document.querySelectorAll('.oc-ag-check:checked')].map(c => Number(c.value));
-        ensureDefaultClipartInList(s, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups || []));
         renderRightColumn();
         renderHiddenFields();
         markDirty();
       });
     });
     document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
-      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups || []));
+      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], []));
+      renderCanvas();
       renderHiddenFields();
       markDirty();
     });

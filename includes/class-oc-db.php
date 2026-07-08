@@ -919,6 +919,34 @@ class OC_DB {
 		return $results;
 	}
 
+	/** Fetch a page of designs with their print area counts. */
+	public static function get_designs_with_area_counts_paginated( int $page = 1, int $per_page = 50 ): array {
+		global $wpdb;
+
+		$page     = max( 1, $page );
+		$per_page = max( 1, $per_page );
+		$offset   = ( $page - 1 ) * $per_page;
+		$total    = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}oc_designs" );
+		$items    = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT d.*, COUNT(a.id) AS area_count
+				 FROM {$wpdb->prefix}oc_designs d
+				 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
+				 GROUP BY d.id
+				 ORDER BY d.name ASC
+				 LIMIT %d OFFSET %d",
+				$per_page,
+				$offset
+			)
+		) ?: [];
+
+		return [
+			'items'       => $items,
+			'total'       => $total,
+			'total_pages' => max( 1, (int) ceil( $total / $per_page ) ),
+		];
+	}
+
 	/** Fetch print areas for a design. */
 	public static function get_design_print_areas( int $design_id ): array {
 		$cache_key = 'design_areas_' . $design_id;
