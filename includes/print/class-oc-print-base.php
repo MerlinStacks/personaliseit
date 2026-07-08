@@ -1051,7 +1051,11 @@ abstract class OC_Print_Base {
 			if ( is_string( $temp_path ) && '' !== $temp_path ) {
 				$path = $temp_path;
 			}
-		} elseif ( 'clipart' === (string) ( $layer['type'] ?? '' ) && ! empty( $input['clipartRecolourable'] ) ) {
+		} elseif (
+			'colour' !== $mode
+			&& 'clipart' === (string) ( $layer['type'] ?? '' )
+			&& ! empty( $input['clipartRecolourable'] )
+		) {
 			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );
 			if ( $hex ) {
 				$temp_path = self::build_coloured_clipart( $path, $hex );

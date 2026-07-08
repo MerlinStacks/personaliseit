@@ -25763,7 +25763,7 @@ class OCCustomiser {
     const ly = (center.y - layerBox.h / 2) * scale;
     const lw = Math.max(layerBox.w * scale, 10);
     const lh = Math.max(layerBox.h * scale, 10);
-    const textClip = () => this.rectClipPath(lx, ly, lw, lh, rotation);
+    const textClip = (pad = 0) => this.rectClipPath(lx - pad, ly - pad, lw + pad * 2, lh + pad * 2, rotation);
     const lcX = center.x * scale;
     const lcY = center.y * scale;
     const isEngraving = area?.printMethod === 'engraving';
@@ -25921,7 +25921,7 @@ class OCCustomiser {
             }
             return this.textFitsBox(raw, font, size, layer.settings, lw, lh, true);
           };
-          const fittingFloor = isSingleLineText ? minFontSize || 4 : 4;
+          const fittingFloor = minFontSize || 4;
           while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
             fontSize = Math.max(fittingFloor, fontSize - 1);
             textPadding = this.textRenderPadding(fontSize);
@@ -25973,6 +25973,7 @@ class OCCustomiser {
               fill: this.embroideryPattern(color, fontSize)
             });
           }
+          const textClipPath = textClip(this.textClipPadding(fontSize));
           if (stitchPad) {
             const padX = Math.max(0.45, fontSize * 0.015);
             const padY = Math.max(0.65, fontSize * 0.02);
@@ -25989,7 +25990,7 @@ class OCCustomiser {
             } else {
               textareaPosition(stitchPad, padX, padY);
             }
-            this.applyContentClip(stitchPad, textClip());
+            this.applyContentClip(stitchPad, textClipPath);
           }
           if (stitchLift) {
             const liftX = Math.max(0.25, fontSize * 0.006);
@@ -26008,9 +26009,9 @@ class OCCustomiser {
             } else {
               textareaPosition(stitchLift, -liftX, -liftY);
             }
-            this.applyContentClip(stitchLift, textClip());
+            this.applyContentClip(stitchLift, textClipPath);
           }
-          this.applyContentClip(obj, textClip());
+          this.applyContentClip(obj, textClipPath);
           canvas.add(obj);
           break;
         }
@@ -26023,7 +26024,8 @@ class OCCustomiser {
       case 'clipart':
         if (input.clipartUrl) {
           const selectedClipartColor = String(input.colorHex || '').trim();
-          const clipartColor = input.clipartRecolourable ? isEngraving ? engravingPalette.text : selectedClipartColor : '';
+          const shouldRecolourClipart = input.clipartRecolourable && (isEngraving || isEmbroidery);
+          const clipartColor = shouldRecolourClipart ? isEngraving ? engravingPalette.text : selectedClipartColor : '';
           const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl(input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '') : input.clipartUrl;
           const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
           const clipartEffects = isEmbroidery ? {
@@ -26113,6 +26115,9 @@ class OCCustomiser {
   }
   textRenderPadding(fontSize) {
     return Math.max(4, Math.ceil((Number(fontSize) || 0) * 0.18));
+  }
+  textClipPadding(fontSize) {
+    return Math.max(2, Math.ceil((Number(fontSize) || 0) * 0.18));
   }
   textFitSafetyMargin(fontSize) {
     const size = Number(fontSize) || 0;
