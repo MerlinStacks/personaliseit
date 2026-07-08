@@ -715,10 +715,6 @@ class OC_Frontend {
 			}
 
 			if ( $required && ! $filled ) {
-				wc_add_notice(
-					sprintf( __( 'Please complete the "%s" field before adding to cart.', 'overcustomise' ), $label ),
-					'error'
-				);
 				return false;
 			}
 

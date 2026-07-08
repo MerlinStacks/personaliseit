@@ -767,8 +767,6 @@ class OCCustomiser {
 				const color = isEngraving ? engravingPalette.text : ( input.colorHex || layer.settings?.default_color || '#000000' );
 				const align = layer.settings?.alignment || 'center';
 				const anchorPad = Math.max( 2, Math.min( 10, lw * 0.01 ) );
-				const singleLineOriginX = align === 'left' ? 'left' : ( align === 'right' ? 'right' : 'center' );
-				const singleLineLeft = align === 'left' ? lx + anchorPad : ( align === 'right' ? lx + lw - anchorPad : lcX );
 				if ( font ) {
 					try {
 						await this.loadFont( font );
@@ -789,8 +787,8 @@ class OCCustomiser {
 				const textClass = isSingleLineText ? FabricText : Textbox;
 				const textBoxSize = isSingleLineText ? {} : { width: lw, height: lh };
 				const obj    = new textClass( raw, {
-					left: isSingleLineText ? singleLineLeft : lcX, top: lcY,
-					originX: isSingleLineText ? singleLineOriginX : 'center', originY: 'center',
+					left: lcX, top: lcY,
+					originX: 'center', originY: 'center',
 					...textBoxSize,
 					padding: textPadding,
 					angle: rotation,
@@ -813,9 +811,9 @@ class OCCustomiser {
 					const threadShadow = this.embroideryShadowColor( color );
 
 					stitchPad = new textClass( raw, {
-						left: ( isSingleLineText ? singleLineLeft : lcX ) + Math.max( 0.45, fontSize * 0.015 ),
+						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
-						originX: isSingleLineText ? singleLineOriginX : 'center', originY: 'center',
+						originX: 'center', originY: 'center',
 						...textBoxSize,
 						padding: textPadding,
 						angle: rotation,
@@ -833,9 +831,9 @@ class OCCustomiser {
 					canvas.add( stitchPad );
 
 					stitchLift = new textClass( raw, {
-						left: ( isSingleLineText ? singleLineLeft : lcX ) - Math.max( 0.25, fontSize * 0.006 ),
+						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
-						originX: isSingleLineText ? singleLineOriginX : 'center', originY: 'center',
+						originX: 'center', originY: 'center',
 						...textBoxSize,
 						padding: textPadding,
 						angle: rotation,
@@ -872,14 +870,18 @@ class OCCustomiser {
 				const textNaturalWidth = Math.max( 1, Math.ceil( measuredText.width + textPadding * 2 ) );
 				const textFitScale = isSingleLineText && textNaturalWidth > lw ? Math.max( 0.05, lw / textNaturalWidth ) : 1;
 				if ( isSingleLineText ) {
-					obj.set( { scaleX: textFitScale } );
+					const renderedWidth = textNaturalWidth * textFitScale;
+					const alignedLeft = align === 'left'
+						? lx + anchorPad + renderedWidth / 2
+						: ( align === 'right' ? lx + lw - anchorPad - renderedWidth / 2 : lcX );
+					obj.set( { left: alignedLeft, scaleX: textFitScale } );
 				}
 				if ( isEmbroidery ) {
 					obj.set( { fill: this.embroideryPattern( color, fontSize ) } );
 				}
 				if ( stitchPad ) {
 					stitchPad.set( {
-						left: ( isSingleLineText ? singleLineLeft : lcX ) + Math.max( 0.45, fontSize * 0.015 ),
+						left: ( isSingleLineText ? obj.left : lcX ) + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
 						fontSize,
 						padding: textPadding,
@@ -891,7 +893,7 @@ class OCCustomiser {
 				}
 				if ( stitchLift ) {
 					stitchLift.set( {
-						left: ( isSingleLineText ? singleLineLeft : lcX ) - Math.max( 0.25, fontSize * 0.006 ),
+						left: ( isSingleLineText ? obj.left : lcX ) - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
 						fontSize,
 						padding: textPadding,
@@ -2362,7 +2364,7 @@ class OCCustomiser {
 				const input    = this.inputs[ layer.id ] || {};
 				const settings = layer.settings || {};
 				const required = Boolean( settings.required );
-				const label    = `${ area.label || 'Area' }: ${ layer.label || layer.type }`;
+				const label    = layer.label || layer.type;
 				const fieldEl  = this.getLayerInputEl( layer );
 				let value      = '';
 
