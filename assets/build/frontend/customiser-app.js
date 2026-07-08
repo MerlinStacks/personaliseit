@@ -25721,7 +25721,7 @@ class OCCustomiser {
     const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(areaBounds);
     const layerBox = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayLayer)(layer, areaBounds);
     const rotation = Number(bounds.rotation) || 0;
-    const contentClip = () => this.printAreaClipPath(bounds, scale, layerBox);
+    const contentClip = () => ['text', 'textarea'].includes(layer.type) ? null : this.printAreaClipPath(bounds, scale, layerBox);
     const center = this.rotatedLayerCenter(layerBox, bounds, rotation);
     const lx = (center.x - layerBox.w / 2) * scale;
     const ly = (center.y - layerBox.h / 2) * scale;
@@ -27390,6 +27390,50 @@ class OCCustomiser {
       ok: errors.length === 0
     };
   }
+  runImmediateBlockingPreflight() {
+    this.clearPreflightMessages();
+    const errors = [];
+    for (const area of this.areas) {
+      for (const layer of area.layers || []) {
+        if (layer.locked) continue;
+        const input = this.inputs[layer.id] || {};
+        const settings = layer.settings || {};
+        const label = layer.label || layer.type;
+        const fieldEl = this.getLayerInputEl(layer);
+        if (!settings.required) continue;
+        let filled = true;
+        switch (layer.type) {
+          case 'text':
+          case 'textarea':
+          case 'spotify':
+            filled = String(input.value || '').trim() !== '';
+            break;
+          case 'image':
+          case 'clipmask':
+            filled = Boolean(input.attachmentId);
+            break;
+          case 'clipart':
+            filled = Boolean(input.clipartId);
+            break;
+          default:
+            filled = true;
+        }
+        if (!filled) {
+          errors.push(`${label} is required.`);
+          fieldEl?.classList.add('oc-preflight-field-error');
+          if (fieldEl) {
+            fieldEl.setCustomValidity('This field is required.');
+            fieldEl.setAttribute('aria-invalid', 'true');
+          }
+        }
+      }
+    }
+    return {
+      errors,
+      warnings: [],
+      ok: errors.length === 0
+    };
+  }
   async validateSpotifyLayer(layerId, rawValue, inputEl = null) {
     const value = String(rawValue || '').trim();
     if (!this.inputs[layerId]) this.inputs[layerId] = {};
@@ -27578,6 +27622,7 @@ class OCCustomiser {
     if (this.editMode) {
       form.addEventListener('submit', async e => {
         e.preventDefault();
+        e.stopImmediatePropagation();
         this.syncInputsFromDOM();
         await this.flushRedraw();
         const preflight = await this.runPreflight();
@@ -27636,12 +27681,25 @@ class OCCustomiser {
           console.error('[OC] Update cart item failed:', err);
           this.renderPreflightMessages(['Failed to update customisation. Please try again.'], []);
         }
-      });
+      }, true);
       return;
     }
+    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
+      button.addEventListener('click', e => {
+        if (form._ocSubmitReady) return;
+        this.syncInputsFromDOM();
+        const preflight = this.runImmediateBlockingPreflight();
+        if (preflight.ok) return;
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.resetCartSubmitState(form);
+        this.renderPreflightMessages(preflight.errors, preflight.warnings);
+      }, true);
+    });
     form.addEventListener('submit', async e => {
       if (this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750) {
         e.preventDefault();
+        e.stopImmediatePropagation();
         this.resetCartSubmitState(form);
         return;
       }
@@ -27649,6 +27707,7 @@ class OCCustomiser {
         return; // preview already saved — let submit through
       }
       e.preventDefault();
+      e.stopImmediatePropagation();
       this.syncInputsFromDOM();
       await this.flushRedraw();
       const preflight = await this.runPreflight();
@@ -27679,7 +27738,7 @@ class OCCustomiser {
       } else {
         form.submit();
       }
-    });
+    }, true);
   }
   resetCartSubmitState(form) {
     form.classList.remove('loading', 'processing');
