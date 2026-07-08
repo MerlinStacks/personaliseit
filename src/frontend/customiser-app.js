@@ -647,6 +647,16 @@ class OCCustomiser {
 		};
 	}
 
+	areaCanvasGroupIndexes( areaIndex ) {
+		const area = this.areas[ areaIndex ];
+		const mockupUrl = area?.mockupUrl || '';
+		if ( ! mockupUrl ) return [ areaIndex ];
+
+		return this.areas
+			.map( ( candidate, index ) => ( candidate?.mockupUrl || '' ) === mockupUrl ? index : -1 )
+			.filter( index => index >= 0 );
+	}
+
 	async rebuildCanvas( areaIndex ) {
 		const oldCanvas = this.canvases[ areaIndex ];
 		if ( oldCanvas?.dispose ) {
@@ -690,7 +700,7 @@ class OCCustomiser {
 		await this.redraw( this.activeArea );
 	}
 
-	async redraw( areaIndex ) {
+	async redraw( areaIndex, options = {} ) {
 		const canvas = this.canvases[ areaIndex ];
 		if ( ! canvas ) return; // canvas not ready yet — will redraw after initCanvas
 
@@ -699,18 +709,21 @@ class OCCustomiser {
 			.filter( o => o._ocContent === true )
 			.forEach( o => canvas.remove( o ) );
 
-		const area = this.areas[ areaIndex ];
-		for ( const layer of ( area?.layers ?? [] ) ) {
-			// PHP already filters to visible-only layers — no client-side check needed.
-			try {
-				await this.renderLayer( canvas, layer, this.inputs[ layer.id ] || {}, area );
-			} catch ( err ) {
-				console.warn( '[OC] Layer render failed:', layer?.id, err );
+		const groupIndexes = options.renderGroup === false ? [ areaIndex ] : this.areaCanvasGroupIndexes( areaIndex );
+		for ( const groupIndex of groupIndexes ) {
+			const area = this.areas[ groupIndex ];
+			for ( const layer of ( area?.layers ?? [] ) ) {
+				// PHP already filters to visible-only layers — no client-side check needed.
+				try {
+					await this.renderLayer( canvas, layer, this.inputs[ layer.id ] || {}, area );
+				} catch ( err ) {
+					console.warn( '[OC] Layer render failed:', layer?.id, err );
+				}
 			}
 		}
 
 		canvas.renderAll();
-		if ( areaIndex === this.activeArea && ! canvas._ocMissingMockup ) this.pushToGallery( canvas );
+		if ( options.pushGallery !== false && areaIndex === this.activeArea && ! canvas._ocMissingMockup ) this.pushToGallery( canvas );
 	}
 
 	async renderLayer( canvas, layer, input, area ) {
@@ -747,6 +760,7 @@ class OCCustomiser {
 			case 'textarea': {
 				const raw  = ( input.value || '' ).trim();
 				if ( ! raw ) break;
+				const isSingleLineText = layer.type === 'text';
 
 				let font  = this.fonts.find( f => f.id === ( input.fontId || 0 ) );
 				// Engraving uses a fixed silver tone instead of a customer-selected colour.
@@ -769,11 +783,12 @@ class OCCustomiser {
 					: clampFontSize( Math.max( 10, Math.round( lh * 0.42 ) ), layer.settings );
 				let textPadding = this.textRenderPadding( fontSize );
 				const textFill = isEmbroidery ? this.embroideryPattern( color, fontSize ) : color;
-				let obj    = new Textbox( raw, {
+				const textClass = isSingleLineText ? FabricText : Textbox;
+				const textBoxSize = isSingleLineText ? {} : { width: lw, height: lh };
+				const obj    = new textClass( raw, {
 					left: lcX, top: lcY,
 					originX: 'center', originY: 'center',
-					width: lw,
-					height: lh,
+					...textBoxSize,
 					padding: textPadding,
 					angle: rotation,
 					fontFamily: font?.name || 'sans-serif',
@@ -794,12 +809,11 @@ class OCCustomiser {
 					const threadLift = this.embroideryHighlightColor( color );
 					const threadShadow = this.embroideryShadowColor( color );
 
-					stitchPad = new Textbox( raw, {
+					stitchPad = new textClass( raw, {
 						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
 						originX: 'center', originY: 'center',
-						width: lw,
-						height: lh,
+						...textBoxSize,
 						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
@@ -815,12 +829,11 @@ class OCCustomiser {
 					stitchPad._ocContent = true;
 					canvas.add( stitchPad );
 
-					stitchLift = new Textbox( raw, {
+					stitchLift = new textClass( raw, {
 						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
 						originX: 'center', originY: 'center',
-						width: lw,
-						height: lh,
+						...textBoxSize,
 						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
@@ -853,32 +866,10 @@ class OCCustomiser {
 					obj.set( { fontSize, padding: textPadding } );
 				}
 				const measuredText = this.measureSingleLineText( raw, font, fontSize, layer.settings );
-				const textNaturalWidth = Math.max( lw, Math.ceil( measuredText.width + textPadding * 2 ) );
-				const textFitScale = textNaturalWidth > lw ? Math.max( 0.05, lw / textNaturalWidth ) : 1;
-				if ( textFitScale < 1 ) {
-					obj = new FabricText( raw, {
-						left: lcX,
-						top: lcY,
-						originX: 'center',
-						originY: 'center',
-						padding: textPadding,
-						angle: rotation,
-						fontFamily: font?.name || 'sans-serif',
-						fontSize,
-						fill: textFill,
-						textAlign: align,
-						scaleX: textFitScale,
-						selectable: false,
-						evented: false,
-						objectCaching: false,
-					} );
-					obj._ocContent = true;
-					if ( isEngraving ) {
-						obj.set( {
-							opacity: 0.92,
-							shadow: new Shadow( { color: engravingPalette.highlight, offsetX: 0, offsetY: 1, blur: 1 } ),
-						} );
-					}
+				const textNaturalWidth = Math.max( 1, Math.ceil( measuredText.width + textPadding * 2 ) );
+				const textFitScale = isSingleLineText && textNaturalWidth > lw ? Math.max( 0.05, lw / textNaturalWidth ) : 1;
+				if ( isSingleLineText ) {
+					obj.set( { scaleX: textFitScale } );
 				}
 				if ( isEmbroidery ) {
 					obj.set( { fill: this.embroideryPattern( color, fontSize ) } );
@@ -890,8 +881,8 @@ class OCCustomiser {
 						fontSize,
 						padding: textPadding,
 					} );
-					if ( textFitScale < 1 ) {
-						stitchPad.set( { width: textNaturalWidth, scaleX: textFitScale } );
+					if ( isSingleLineText ) {
+						stitchPad.set( { scaleX: textFitScale } );
 					}
 					this.applyContentClip( stitchPad, contentClip() );
 				}
@@ -903,8 +894,8 @@ class OCCustomiser {
 						padding: textPadding,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
-					if ( textFitScale < 1 ) {
-						stitchLift.set( { width: textNaturalWidth, scaleX: textFitScale } );
+					if ( isSingleLineText ) {
+						stitchLift.set( { scaleX: textFitScale } );
 					}
 					this.applyContentClip( stitchLift, contentClip() );
 				}
@@ -2753,6 +2744,12 @@ class OCCustomiser {
 		}
 
 		form.addEventListener( 'submit', async ( e ) => {
+			if ( this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750 ) {
+				e.preventDefault();
+				this.resetCartSubmitState( form );
+				return;
+			}
+
 			if ( form._ocSubmitReady ) {
 				return; // preview already saved — let submit through
 			}
@@ -2879,6 +2876,10 @@ class OCCustomiser {
 			const previousFocus = dialog.ownerDocument.activeElement;
 
 			const finish = ( accepted ) => {
+				if ( ! accepted ) {
+					this.mobileCartPreviewDismissedAt = Date.now();
+				}
+
 				dialog.classList.remove( 'is-visible' );
 				dialog.removeEventListener( 'click', onBackdropClick );
 				dialog.removeEventListener( 'cancel', onCancel );
@@ -2891,8 +2892,20 @@ class OCCustomiser {
 				resolve( accepted );
 			};
 
-			const onAccept = () => finish( true );
-			const onChange = () => finish( false );
+			const stopModalAction = ( event ) => {
+				event?.preventDefault?.();
+				event?.stopPropagation?.();
+				event?.stopImmediatePropagation?.();
+			};
+
+			const onAccept = ( event ) => {
+				stopModalAction( event );
+				finish( true );
+			};
+			const onChange = ( event ) => {
+				stopModalAction( event );
+				finish( false );
+			};
 			const onBackdropClick = ( event ) => {
 				if ( event.target === dialog ) {
 					finish( false );
@@ -3208,6 +3221,8 @@ class OCCustomiser {
 				continue;
 			}
 
+			await this.redraw( areaIndex, { renderGroup: false, pushGallery: false } );
+
 			const objects = canvas.getObjects ? canvas.getObjects() : [];
 			const imageSources = objects
 				.filter( ( obj ) => obj._ocContent === true && obj._ocSourceUrl )
@@ -3249,6 +3264,8 @@ class OCCustomiser {
 				} );
 			}
 		}
+
+		await this.redraw( this.activeArea );
 
 		return snapshots;
 	}

@@ -25641,6 +25641,12 @@ class OCCustomiser {
       unit: area?.bounds?.unit || area?.unit || 'px'
     };
   }
+  areaCanvasGroupIndexes(areaIndex) {
+    const area = this.areas[areaIndex];
+    const mockupUrl = area?.mockupUrl || '';
+    if (!mockupUrl) return [areaIndex];
+    return this.areas.map((candidate, index) => (candidate?.mockupUrl || '') === mockupUrl ? index : -1).filter(index => index >= 0);
+  }
   async rebuildCanvas(areaIndex) {
     const oldCanvas = this.canvases[areaIndex];
     if (oldCanvas?.dispose) {
@@ -25688,23 +25694,26 @@ class OCCustomiser {
     clearTimeout(this._redrawTimer);
     await this.redraw(this.activeArea);
   }
-  async redraw(areaIndex) {
+  async redraw(areaIndex, options = {}) {
     const canvas = this.canvases[areaIndex];
     if (!canvas) return; // canvas not ready yet — will redraw after initCanvas
 
     // Remove previously added content objects.
     [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(o => canvas.remove(o));
-    const area = this.areas[areaIndex];
-    for (const layer of area?.layers ?? []) {
-      // PHP already filters to visible-only layers — no client-side check needed.
-      try {
-        await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area);
-      } catch (err) {
-        console.warn('[OC] Layer render failed:', layer?.id, err);
+    const groupIndexes = options.renderGroup === false ? [areaIndex] : this.areaCanvasGroupIndexes(areaIndex);
+    for (const groupIndex of groupIndexes) {
+      const area = this.areas[groupIndex];
+      for (const layer of area?.layers ?? []) {
+        // PHP already filters to visible-only layers — no client-side check needed.
+        try {
+          await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area);
+        } catch (err) {
+          console.warn('[OC] Layer render failed:', layer?.id, err);
+        }
       }
     }
     canvas.renderAll();
-    if (areaIndex === this.activeArea && !canvas._ocMissingMockup) this.pushToGallery(canvas);
+    if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) this.pushToGallery(canvas);
   }
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
@@ -25739,6 +25748,7 @@ class OCCustomiser {
         {
           const raw = (input.value || '').trim();
           if (!raw) break;
+          const isSingleLineText = layer.type === 'text';
           let font = this.fonts.find(f => f.id === (input.fontId || 0));
           // Engraving uses a fixed silver tone instead of a customer-selected colour.
           const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
@@ -25757,13 +25767,17 @@ class OCCustomiser {
           let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           let textPadding = this.textRenderPadding(fontSize);
           const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : color;
-          let obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
+          const textClass = isSingleLineText ? fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText : fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox;
+          const textBoxSize = isSingleLineText ? {} : {
+            width: lw,
+            height: lh
+          };
+          const obj = new textClass(raw, {
             left: lcX,
             top: lcY,
             originX: 'center',
             originY: 'center',
-            width: lw,
-            height: lh,
+            ...textBoxSize,
             padding: textPadding,
             angle: rotation,
             fontFamily: font?.name || 'sans-serif',
@@ -25791,13 +25805,12 @@ class OCCustomiser {
           } else if (isEmbroidery) {
             const threadLift = this.embroideryHighlightColor(color);
             const threadShadow = this.embroideryShadowColor(color);
-            stitchPad = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
+            stitchPad = new textClass(raw, {
               left: lcX + Math.max(0.45, fontSize * 0.015),
               top: lcY + Math.max(0.65, fontSize * 0.02),
               originX: 'center',
               originY: 'center',
-              width: lw,
-              height: lh,
+              ...textBoxSize,
               padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
@@ -25817,13 +25830,12 @@ class OCCustomiser {
             });
             stitchPad._ocContent = true;
             canvas.add(stitchPad);
-            stitchLift = new fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox(raw, {
+            stitchLift = new textClass(raw, {
               left: lcX - Math.max(0.25, fontSize * 0.006),
               top: lcY - Math.max(0.25, fontSize * 0.006),
               originX: 'center',
               originY: 'center',
-              width: lw,
-              height: lh,
+              ...textBoxSize,
               padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
@@ -25860,37 +25872,12 @@ class OCCustomiser {
             });
           }
           const measuredText = this.measureSingleLineText(raw, font, fontSize, layer.settings);
-          const textNaturalWidth = Math.max(lw, Math.ceil(measuredText.width + textPadding * 2));
-          const textFitScale = textNaturalWidth > lw ? Math.max(0.05, lw / textNaturalWidth) : 1;
-          if (textFitScale < 1) {
-            obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
-              left: lcX,
-              top: lcY,
-              originX: 'center',
-              originY: 'center',
-              padding: textPadding,
-              angle: rotation,
-              fontFamily: font?.name || 'sans-serif',
-              fontSize,
-              fill: textFill,
-              textAlign: align,
-              scaleX: textFitScale,
-              selectable: false,
-              evented: false,
-              objectCaching: false
+          const textNaturalWidth = Math.max(1, Math.ceil(measuredText.width + textPadding * 2));
+          const textFitScale = isSingleLineText && textNaturalWidth > lw ? Math.max(0.05, lw / textNaturalWidth) : 1;
+          if (isSingleLineText) {
+            obj.set({
+              scaleX: textFitScale
             });
-            obj._ocContent = true;
-            if (isEngraving) {
-              obj.set({
-                opacity: 0.92,
-                shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
-                  color: engravingPalette.highlight,
-                  offsetX: 0,
-                  offsetY: 1,
-                  blur: 1
-                })
-              });
-            }
           }
           if (isEmbroidery) {
             obj.set({
@@ -25904,9 +25891,8 @@ class OCCustomiser {
               fontSize,
               padding: textPadding
             });
-            if (textFitScale < 1) {
+            if (isSingleLineText) {
               stitchPad.set({
-                width: textNaturalWidth,
                 scaleX: textFitScale
               });
             }
@@ -25920,9 +25906,8 @@ class OCCustomiser {
               padding: textPadding,
               strokeWidth: Math.max(0.2, fontSize * 0.006)
             });
-            if (textFitScale < 1) {
+            if (isSingleLineText) {
               stitchLift.set({
-                width: textNaturalWidth,
                 scaleX: textFitScale
               });
             }
@@ -27651,6 +27636,11 @@ class OCCustomiser {
       return;
     }
     form.addEventListener('submit', async e => {
+      if (this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750) {
+        e.preventDefault();
+        this.resetCartSubmitState(form);
+        return;
+      }
       if (form._ocSubmitReady) {
         return; // preview already saved — let submit through
       }
@@ -27746,6 +27736,9 @@ class OCCustomiser {
       const changeBtn = dialog.querySelector('[data-oc-cart-preview-change]');
       const previousFocus = dialog.ownerDocument.activeElement;
       const finish = accepted => {
+        if (!accepted) {
+          this.mobileCartPreviewDismissedAt = Date.now();
+        }
         dialog.classList.remove('is-visible');
         dialog.removeEventListener('click', onBackdropClick);
         dialog.removeEventListener('cancel', onCancel);
@@ -27757,8 +27750,19 @@ class OCCustomiser {
         previousFocus?.focus?.();
         resolve(accepted);
       };
-      const onAccept = () => finish(true);
-      const onChange = () => finish(false);
+      const stopModalAction = event => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        event?.stopImmediatePropagation?.();
+      };
+      const onAccept = event => {
+        stopModalAction(event);
+        finish(true);
+      };
+      const onChange = event => {
+        stopModalAction(event);
+        finish(false);
+      };
       const onBackdropClick = event => {
         if (event.target === dialog) {
           finish(false);
@@ -28057,6 +28061,10 @@ class OCCustomiser {
       if (!canvas || !display?.w || !display?.h || typeof canvas.toSVG !== 'function') {
         continue;
       }
+      await this.redraw(areaIndex, {
+        renderGroup: false,
+        pushGallery: false
+      });
       const objects = canvas.getObjects ? canvas.getObjects() : [];
       const imageSources = objects.filter(obj => obj._ocContent === true && obj._ocSourceUrl).map(obj => ({
         url: obj._ocSourceUrl,
@@ -28095,6 +28103,7 @@ class OCCustomiser {
         });
       }
     }
+    await this.redraw(this.activeArea);
     return snapshots;
   }
   async inlineSnapshotSvgImages(svg, imageSources = []) {

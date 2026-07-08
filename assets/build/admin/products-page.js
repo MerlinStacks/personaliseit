@@ -1677,10 +1677,17 @@ __webpack_require__.r(__webpack_exports__);
   function initInteractions() {
     // Add area
     document.getElementById('oc-add-area-btn')?.addEventListener('click', () => {
+      const currentArea = areas[selectedIndex] || areas[0] || {};
       areas.push({
         ...normaliseArea({
           id: 0,
           label: 'Print Area ' + (areas.length + 1),
+          method: currentArea.method,
+          material: currentArea.material,
+          unit: currentArea.unit,
+          mockupId: currentArea.mockupId,
+          mockupUrl: currentArea.mockupUrl,
+          dpi: currentArea.dpi,
           visible: true,
           locked: false
         }, areas.length),

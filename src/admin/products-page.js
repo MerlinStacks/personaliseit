@@ -1322,7 +1322,22 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 	function initInteractions() {
 		// Add area
 		document.getElementById( 'oc-add-area-btn' )?.addEventListener( 'click', () => {
-			areas.push( { ...normaliseArea( { id: 0, label: 'Print Area ' + ( areas.length + 1 ), visible: true, locked: false }, areas.length ), layers: [] } );
+			const currentArea = areas[ selectedIndex ] || areas[ 0 ] || {};
+			areas.push( {
+				...normaliseArea( {
+					id: 0,
+					label: 'Print Area ' + ( areas.length + 1 ),
+					method: currentArea.method,
+					material: currentArea.material,
+					unit: currentArea.unit,
+					mockupId: currentArea.mockupId,
+					mockupUrl: currentArea.mockupUrl,
+					dpi: currentArea.dpi,
+					visible: true,
+					locked: false,
+				}, areas.length ),
+				layers: [],
+			} );
 			selectedIndex = areas.length - 1; selectedLayerIndex = -1;
 			snapshot(); renderAll();
 		} );
