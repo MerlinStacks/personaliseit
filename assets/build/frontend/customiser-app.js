@@ -25157,6 +25157,7 @@ class OCCustomiser {
     this.galleryImg = null; // the main <img> in the product gallery
     this._previewUrl = null; // saved preview URL (set just before cart submit)
     this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
+    this._hasCustomerPersonalisation = this.editMode;
     this._tvpgPreviewLocked = false;
     this.productVariationStates = {};
     this._variationRequestSeq = 0;
@@ -25503,6 +25504,7 @@ class OCCustomiser {
         previewImg.height = dimensions.height;
       }
     }
+    if (!this._hasCustomerPersonalisation) return;
     if (this.applyTVPGOverlayPreview(dataUrl, dimensions)) {
       this.setPanelPreviewHandoff(true);
       this._focusPreviewSlide = false;
@@ -25531,6 +25533,7 @@ class OCCustomiser {
     this._focusPreviewSlide = false;
   }
   requestPreviewFocus() {
+    this._hasCustomerPersonalisation = true;
     this._focusPreviewSlide = true;
   }
   setupVariationGalleryHandoff() {
@@ -25914,9 +25917,9 @@ class OCCustomiser {
           }
           const fitsTextLayer = size => {
             if (isSingleLineText) {
-              return this.textFitsBox(raw, font, size, layer.settings, singleLineMaxWidth, singleLineMaxHeight);
+              return this.textFitsBox(raw, font, size, layer.settings, singleLineMaxWidth, singleLineMaxHeight, false);
             }
-            return this.textFitsBox(raw, font, size, layer.settings, lw, lh);
+            return this.textFitsBox(raw, font, size, layer.settings, lw, lh, true);
           };
           const fittingFloor = minFontSize || 4;
           while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
@@ -26109,24 +26112,30 @@ class OCCustomiser {
       y: Math.max(2, Math.ceil(size * 0.12))
     };
   }
-  textFitsBox(raw, font, fontSize, settings, maxW, maxH) {
+  textFitsBox(raw, font, fontSize, settings, maxW, maxH, multiline = false) {
     if (!raw) {
       return true;
     }
-    const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw, {
+    const margin = this.textFitSafetyMargin(fontSize);
+    const textClass = multiline ? fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox : fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText;
+    const textBoxSize = multiline ? {
+      width: Math.max(1, maxW - margin.x * 2)
+    } : {};
+    const obj = new textClass(raw, {
       left: 0,
       top: 0,
       originX: 'center',
       originY: 'center',
+      ...textBoxSize,
       fontFamily: font?.name || 'sans-serif',
       fontSize,
       textAlign: settings?.alignment || 'center',
       selectable: false,
       evented: false
     });
+    obj.initDimensions?.();
     obj.setCoords?.();
     const measured = obj.getBoundingRect?.(true, true) || obj;
-    const margin = this.textFitSafetyMargin(fontSize);
     return Number(measured.width || 0) + margin.x * 2 <= Math.max(maxW, 10) && Number(measured.height || 0) + margin.y * 2 <= Math.max(maxH, 10);
   }
   measureSingleLineText(raw, font, fontSize, settings = {}) {
@@ -26149,7 +26158,7 @@ class OCCustomiser {
     };
   }
   textLayerFitsAtSize(layer, raw, font, fontSize) {
-    return this.textFitsBox(raw, font, fontSize, layer?.settings || {}, Number(layer?.w || 0), Number(layer?.h || 0));
+    return this.textFitsBox(raw, font, fontSize, layer?.settings || {}, Number(layer?.w || 0), Number(layer?.h || 0), layer?.type === 'textarea');
   }
   async maxFittingFontSize(layerId, upperLimit) {
     const layer = this.getLayerById(layerId);

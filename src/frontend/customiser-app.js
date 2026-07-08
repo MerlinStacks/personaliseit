@@ -59,6 +59,7 @@ class OCCustomiser {
 		this.galleryImg        = null; // the main <img> in the product gallery
 		this._previewUrl       = null; // saved preview URL (set just before cart submit)
 		this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
+		this._hasCustomerPersonalisation = this.editMode;
 		this._tvpgPreviewLocked = false;
 		this.productVariationStates = {};
 		this._variationRequestSeq = 0;
@@ -478,6 +479,8 @@ class OCCustomiser {
 			}
 		}
 
+		if ( ! this._hasCustomerPersonalisation ) return;
+
 		if ( this.applyTVPGOverlayPreview( dataUrl, dimensions ) ) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
@@ -525,6 +528,7 @@ class OCCustomiser {
 	}
 
 	requestPreviewFocus() {
+		this._hasCustomerPersonalisation = true;
 		this._focusPreviewSlide = true;
 	}
 
@@ -929,7 +933,8 @@ class OCCustomiser {
 							size,
 							layer.settings,
 							singleLineMaxWidth,
-							singleLineMaxHeight
+							singleLineMaxHeight,
+							false
 						);
 					}
 
@@ -939,7 +944,8 @@ class OCCustomiser {
 						size,
 						layer.settings,
 						lw,
-						lh
+						lh,
+						true
 					);
 				};
 				const fittingFloor = minFontSize || 4;
@@ -1126,25 +1132,31 @@ class OCCustomiser {
 		};
 	}
 
-	textFitsBox( raw, font, fontSize, settings, maxW, maxH ) {
+	textFitsBox( raw, font, fontSize, settings, maxW, maxH, multiline = false ) {
 		if ( ! raw ) {
 			return true;
 		}
 
-		const obj = new FabricText( raw, {
+		const margin = this.textFitSafetyMargin( fontSize );
+		const textClass = multiline ? Textbox : FabricText;
+		const textBoxSize = multiline
+			? { width: Math.max( 1, maxW - margin.x * 2 ) }
+			: {};
+		const obj = new textClass( raw, {
 			left: 0,
 			top: 0,
 			originX: 'center',
 			originY: 'center',
+			...textBoxSize,
 			fontFamily: font?.name || 'sans-serif',
 			fontSize,
 			textAlign: settings?.alignment || 'center',
 			selectable: false,
 			evented: false,
 		} );
+		obj.initDimensions?.();
 		obj.setCoords?.();
 		const measured = obj.getBoundingRect?.( true, true ) || obj;
-		const margin = this.textFitSafetyMargin( fontSize );
 
 		return (
 			Number( measured.width || 0 ) + margin.x * 2 <= Math.max( maxW, 10 ) &&
@@ -1180,7 +1192,8 @@ class OCCustomiser {
 			fontSize,
 			layer?.settings || {},
 			Number( layer?.w || 0 ),
-			Number( layer?.h || 0 )
+			Number( layer?.h || 0 ),
+			layer?.type === 'textarea'
 		);
 	}
 
