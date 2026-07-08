@@ -120,6 +120,8 @@ foreach ( $layers as $layer ) {
 					$allow_font_change   = ! array_key_exists( 'allow_font_change', $s ) || ! empty( $s['allow_font_change'] );
 					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
+					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
+					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
 					$cg_ids    = $s['colour_groups'] ?? [];
 					$fg_ids    = $s['font_groups']   ?? [];
 					$clipart_groups = $s['clipart_groups'] ?? [];
@@ -207,14 +209,21 @@ foreach ( $layers as $layer ) {
 								</div>
 
 							<?php elseif ( $layer->type === 'image' || $layer->type === 'clipmask' ) : ?>
-								<div class="oc-artwork-wrap">
-									<div class="oc-upload-zone"
-										data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
-								</div>
-								<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
-								</div>
+								<?php if ( $allow_image_change ) : ?>
+									<div class="oc-artwork-wrap">
+										<div class="oc-upload-zone"
+											data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
+									</div>
+									<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
+									</div>
+								<?php else : ?>
+									<p class="oc-settings-empty"><?php esc_html_e( 'Image is fixed for this product.', 'overcustomise' ); ?></p>
+								<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
+								<?php if ( ! $allow_clipart_change ) : ?>
+									<p class="oc-settings-empty"><?php esc_html_e( 'Clipart is fixed for this product.', 'overcustomise' ); ?></p>
+								<?php else : ?>
 								<?php
 								if ( ! empty( $clipart_group_ids ) ) {
 									global $wpdb;
@@ -315,7 +324,8 @@ foreach ( $layers as $layer ) {
 											<p class="oc-settings-empty"><?php esc_html_e( 'No colours are available for this option.', 'overcustomise' ); ?></p>
 										<?php endif; ?>
 									</div>
-								<?php endif; ?>
+							<?php endif; ?>
+							<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'lineart' && ! $is_engraving ) : ?>
 								<div class="oc-control-group">

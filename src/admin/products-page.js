@@ -55,11 +55,11 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 	const LAYER_TABS = {
 		text:     [ { id: 'general', label: 'General', icon: 'G' }, { id: 'content', label: 'Content', icon: 'T' }, { id: 'style', label: 'Style', icon: 'A' }, { id: 'properties', label: 'Properties', icon: '\u2699' } ],
 		textarea: [ { id: 'general', label: 'General', icon: 'G' }, { id: 'content', label: 'Content', icon: 'T' }, { id: 'style', label: 'Style', icon: 'A' }, { id: 'properties', label: 'Properties', icon: '\u2699' } ],
-		image:    [ { id: 'general', label: 'General', icon: 'G' }, { id: 'file',       label: 'File',       icon: '\ud83d\uddbc' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		image:    [ { id: 'general', label: 'General', icon: 'G' }, { id: 'file',       label: 'File',       icon: '\ud83d\uddbc' }, { id: 'validation', label: 'Validation', icon: '\u2713' }, { id: 'properties', label: 'Properties', icon: '\u2699' } ],
 		clipmask: [ { id: 'general', label: 'General', icon: 'G' }, { id: 'file',       label: 'File',       icon: '\ud83d\uddbc' }, { id: 'mask',       label: 'Mask',       icon: '◯' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		spotify:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'appearance', label: 'Appearance', icon: '\u25d0' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
 		lineart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'colours',    label: 'Colours',    icon: '\u25cf' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
-		clipart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'library',    label: 'Library',    icon: '\u2726' }, { id: 'validation', label: 'Validation', icon: '\u2713' } ],
+		clipart:  [ { id: 'general', label: 'General', icon: 'G' }, { id: 'library',    label: 'Library',    icon: '\u2726' }, { id: 'validation', label: 'Validation', icon: '\u2713' }, { id: 'properties', label: 'Properties', icon: '\u2699' } ],
 	};
 
 	// ── Area colours ───────────────────────────────────────────────────────────
@@ -389,11 +389,11 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		switch ( type ) {
 			case 'text': return { default_text: '', char_limit: 0, alignment: 'center', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false, link_group: '' };
 			case 'textarea': return { default_text: '', char_limit: 0, alignment: 'center', line_alignment: 'top', default_font_id: 0, default_font_size: 0, default_color: '#000000', min_font_size: 0, max_font_size: 0, font_groups: [], colour_groups: [], allow_font_change: true, allow_colour_change: true, allow_size_change: false, required: false, link_group: '' };
-			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, remove_background: false, required: false, link_group: '' };
+			case 'image':    return { formats: [ 'png', 'jpg', 'svg', 'webp' ], max_size_mb: 10, remove_background: false, default_attachment_id: 0, default_attachment_url: '', allow_image_change: true, required: false, link_group: '' };
 			case 'clipmask': return { formats: [ 'png', 'jpg', 'webp' ], max_size_mb: 10, remove_background: false, mask_shape: 'circle', required: false, link_group: '' };
 			case 'spotify':  return { colour_groups: [], required: false, link_group: '' };
 			case 'lineart':  return { colour_groups: [], required: false, link_group: '' };
-			case 'clipart':  return { clipart_groups: [], required: false, clipart_display: 'grid', link_group: '' };
+			case 'clipart':  return { clipart_groups: [], default_clipart_id: 0, default_clipart_url: '', default_clipart_recolourable: false, allow_clipart_change: true, required: false, clipart_display: 'grid', link_group: '' };
 			default:         return { required: false, link_group: '' };
 		}
 	}
@@ -404,6 +404,14 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		}
 		if ( type === 'clipart' ) {
 			settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
+			settings.default_clipart_id = Number( settings.default_clipart_id ) || 0;
+			settings.default_clipart_recolourable = !! settings.default_clipart_recolourable;
+			settings.allow_clipart_change = settings.allow_clipart_change !== false;
+		}
+		if ( type === 'image' ) {
+			settings.default_attachment_id = Number( settings.default_attachment_id ) || 0;
+			settings.default_attachment_url = settings.default_attachment_url || '';
+			settings.allow_image_change = settings.allow_image_change !== false;
 		}
 		return settings;
 	}
@@ -533,6 +541,43 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			'<option value="carousel"' + ( value === 'carousel' ? ' selected' : '' ) + '>One-row scroll with arrows and dots</option>' +
 			'</select>';
 	}
+	function clipartForSelectedGroups( items, groupIds ) {
+		const selected = selectedGroupIds( groupIds );
+		const activeItems = ( items || [] ).filter( item => item.active !== false );
+		if ( ! selected.length ) return activeItems;
+		return activeItems.filter( item => ( item.groupIds || [] ).some( id => selected.includes( Number( id ) ) ) );
+	}
+	function clipartOptions( items, currentId ) {
+		return '<option value="0">No default clipart</option>' + ( items || [] ).map( item =>
+			'<option value="' + esc( item.id ) + '"' + ( Number( item.id ) === Number( currentId || 0 ) ? ' selected' : '' ) + '>' + esc( item.name ) + '</option>'
+		).join( '' );
+	}
+	function setDefaultClipart( settings, clipartId, items ) {
+		const item = ( items || [] ).find( c => Number( c.id ) === Number( clipartId || 0 ) );
+		settings.default_clipart_id = item ? Number( item.id ) : 0;
+		settings.default_clipart_url = item ? ( item.url || '' ) : '';
+		settings.default_clipart_recolourable = item ? item.fileType === 'svg' : false;
+	}
+	function ensureDefaultClipartInList( settings, items ) {
+		if ( ! settings.default_clipart_id ) return;
+		if ( ( items || [] ).some( item => Number( item.id ) === Number( settings.default_clipart_id ) ) ) return;
+		setDefaultClipart( settings, 0, items );
+	}
+	function mediaDefaultField( settings ) {
+		const hasDefault = !! settings.default_attachment_url;
+		return '<div class="oc-default-media-field">' +
+			'<input type="hidden" id="oc-set-default-attachment-id" value="' + esc( settings.default_attachment_id || 0 ) + '" />' +
+			'<input type="hidden" id="oc-set-default-attachment-url" value="' + esc( settings.default_attachment_url || '' ) + '" />' +
+			'<div class="oc-mockup-thumb" style="margin-bottom:8px;">' +
+				'<img id="oc-default-attachment-preview" src="' + esc( settings.default_attachment_url || '' ) + '" alt="" style="' + ( hasDefault ? '' : 'display:none;' ) + 'max-width:100%;height:auto;" />' +
+				'<span id="oc-default-attachment-empty" style="font-size:12px;color:var(--oc-gray-400);' + ( hasDefault ? 'display:none;' : '' ) + '">No default image set</span>' +
+			'</div>' +
+			'<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+				'<button type="button" id="oc-choose-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm">Choose image</button>' +
+				'<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm"' + ( hasDefault ? '' : ' style="display:none;"' ) + '>Remove</button>' +
+			'</div>' +
+		'</div>';
+	}
 	function alignBtns( current ) {
 		return '<div class="oc-align-btns">' +
 			[ [ 'left', '\u2190', 'Left' ], [ 'center', '\u2261', 'Center' ], [ 'right', '\u2192', 'Right' ] ]
@@ -645,6 +690,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		const colours = data.colours       || [];
 		const cGroups = data.colourGroups  || [];
 		const aGroups = data.clipartGroups || [];
+		const clipartItems = clipartForSelectedGroups( data.clipartItems || [], s.clipart_groups || [] );
 		// Engraving has no colour — don't show colour group pickers for layers in engraving areas.
 		const area        = areas[ selectedIndex ];
 		const isEngraving = area && area.method === 'engraving';
@@ -655,6 +701,7 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 
 		if ( fontGroupIds.length ) ensureDefaultFontInList( s, availableFonts );
 		if ( ! isEngraving && colourGroupIds.length ) ensureDefaultColourInList( s, availableColours );
+		ensureDefaultClipartInList( s, clipartItems );
 
 			switch ( tabId ) {
 			case 'general':
@@ -687,7 +734,8 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 						? ''
 						: ( cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : field( 'Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>' ) ) );
 			case 'file':
-				return field( 'Accepted formats', formatChecks( s.formats || [ 'png', 'jpg', 'svg', 'webp' ] ) ) +
+				return field( 'Default image', mediaDefaultField( s ) ) +
+					field( 'Accepted formats', formatChecks( s.formats || [ 'png', 'jpg', 'svg', 'webp' ] ) ) +
 					field( 'Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc( s.max_size_mb || 10 ) + '" />' ) +
 					toggleField( 'Automatically remove background', 'oc-set-remove-background', !! s.remove_background );
 			case 'mask':
@@ -697,11 +745,20 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 				if ( isEngraving ) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
 				return cGroups.length ? field( 'Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-cg-check', cGroups, s.colour_groups || [] ) ) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
 			case 'library':
-				return aGroups.length ? field( 'Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-ag-check', aGroups, s.clipart_groups || [] ) ) : '<span class="oc-settings-empty">No clipart groups created yet.</span>';
+				return ( aGroups.length ? field( 'Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks( 'oc-ag-check', aGroups, s.clipart_groups || [] ) ) : '<span class="oc-settings-empty">No clipart groups created yet.</span>' ) +
+					field( 'Default clipart', clipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions( clipartItems, s.default_clipart_id || 0 ) + '</select>' : '<span class="oc-settings-empty">No active clipart is available for the selected groups.</span>' );
 			case 'validation':
 				return toggleField( 'Required field', 'oc-set-required', s.required ) +
 					( layer.type === 'clipart' ? field( 'Frontend display', clipartDisplayField( s.clipart_display || 'grid' ) ) : '' );
 			case 'properties':
+				if ( layer.type === 'image' ) {
+					return '<p class="oc-settings-section-hdr">Customer can change</p>' +
+						toggleField( 'Image', 'oc-set-allow-image-change', s.allow_image_change !== false );
+				}
+				if ( layer.type === 'clipart' ) {
+					return '<p class="oc-settings-section-hdr">Customer can change</p>' +
+						toggleField( 'Clipart', 'oc-set-allow-clipart-change', s.allow_clipart_change !== false );
+				}
 				return toggleField( 'Required field', 'oc-set-required', s.required ) +
 					'<p class="oc-settings-section-hdr">Customer can change</p>' +
 					toggleField( 'Font', 'oc-set-allow-font-change', s.allow_font_change !== false ) +
@@ -754,6 +811,27 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			markDirty();
 		} );
 		document.getElementById( 'oc-set-char-limit'   )?.addEventListener( 'input', e => { s.char_limit   = parseInt( e.target.value, 10 ) || 0; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-choose-default-attachment' )?.addEventListener( 'click', () => {
+			if ( ! window.wp || ! window.wp.media ) return;
+			const frame = window.wp.media( { title: 'Select Default Image', button: { text: 'Use as Default' }, multiple: false, library: { type: 'image' } } );
+			frame.on( 'select', () => {
+				const attachment = frame.state().get( 'selection' ).first()?.toJSON();
+				if ( ! attachment ) return;
+				s.default_attachment_id = Number( attachment.id ) || 0;
+				s.default_attachment_url = attachment.sizes?.medium?.url || attachment.url || '';
+				renderRightColumn();
+				renderHiddenFields();
+				markDirty();
+			} );
+			frame.open();
+		} );
+		document.getElementById( 'oc-remove-default-attachment' )?.addEventListener( 'click', () => {
+			s.default_attachment_id = 0;
+			s.default_attachment_url = '';
+			renderRightColumn();
+			renderHiddenFields();
+			markDirty();
+		} );
 		document.getElementById( 'oc-set-default-font' )?.addEventListener( 'change', e => { s.default_font_id = parseInt( e.target.value, 10 ) || 0; renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-font-size' )?.addEventListener( 'input', e => { s.default_font_size = fontLimit( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-default-color' )?.addEventListener( 'change', e => { s.default_color = normaliseHex( e.target.value ); renderCanvas(); renderHiddenFields(); markDirty(); } );
@@ -790,7 +868,12 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 			if ( selected.length ) ensureDefaultColourInList( s, coloursForSelectedGroups( data.colours || [], data.colourGroups || [], selected ) );
 			renderCanvas(); renderRightColumn(); renderHiddenFields(); markDirty();
 		} ); } );
-		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) ); renderHiddenFields(); markDirty(); } ); } );
+		document.querySelectorAll( '.oc-ag-check' ).forEach( cb => { cb.addEventListener( 'change', () => {
+			s.clipart_groups = [ ...document.querySelectorAll( '.oc-ag-check:checked'  ) ].map( c => Number( c.value ) );
+			ensureDefaultClipartInList( s, clipartForSelectedGroups( data.clipartItems || [], s.clipart_groups || [] ) );
+			renderRightColumn(); renderHiddenFields(); markDirty();
+		} ); } );
+		document.getElementById( 'oc-set-default-clipart' )?.addEventListener( 'change', e => { setDefaultClipart( s, e.target.value, clipartForSelectedGroups( data.clipartItems || [], s.clipart_groups || [] ) ); renderHiddenFields(); markDirty(); } );
 		document.querySelectorAll( '.oc-fmt-check' ).forEach( cb => { cb.addEventListener( 'change', () => { s.formats = [ ...document.querySelectorAll( '.oc-fmt-check:checked' ) ].map( c => c.value ); renderHiddenFields(); markDirty(); } ); } );
 		document.getElementById( 'oc-set-max-size'   )?.addEventListener( 'input', e => { s.max_size_mb = parseInt( e.target.value, 10 ) || 10; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-remove-background' )?.addEventListener( 'change', e => { s.remove_background = e.target.checked; renderHiddenFields(); markDirty(); } );
@@ -800,6 +883,8 @@ import { displayEntity, normaliseDpi, normaliseUnit, unitPxScale } from '../shar
 		document.getElementById( 'oc-set-allow-font-change' )?.addEventListener( 'change', e => { s.allow_font_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-colour-change' )?.addEventListener( 'change', e => { s.allow_colour_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 		document.getElementById( 'oc-set-allow-size-change' )?.addEventListener( 'change', e => { s.allow_size_change = e.target.checked; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-allow-image-change' )?.addEventListener( 'change', e => { s.allow_image_change = e.target.checked; renderHiddenFields(); markDirty(); } );
+		document.getElementById( 'oc-set-allow-clipart-change' )?.addEventListener( 'change', e => { s.allow_clipart_change = e.target.checked; renderHiddenFields(); markDirty(); } );
 	}
 
 	// ── Render ─────────────────────────────────────────────────────────────────

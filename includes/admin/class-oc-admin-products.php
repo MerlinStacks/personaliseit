@@ -769,6 +769,14 @@ class OC_Admin_Products {
 			];
 		}, $all_layers );
 
+		$clipart_groups = OC_DB::get_clipart_groups();
+		$clipart_group_ids_by_item = [];
+		foreach ( $clipart_groups as $group ) {
+			foreach ( (array) $group->clipart_ids as $clipart_id ) {
+				$clipart_group_ids_by_item[ (int) $clipart_id ][] = (int) $group->id;
+			}
+		}
+
 		wp_localize_script( 'oc-products-page', 'ocProductsData', [
 			'designId'     => $id,
 			'areas'        => $areas_js,
@@ -781,7 +789,20 @@ class OC_Admin_Products {
 			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'fontIds' => array_map( 'intval', $g->font_ids ) ]; }, OC_DB::get_font_groups() ),
 			'colours'      => array_map( function ( $c ) { return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ]; }, OC_DB::get_colours( true ) ),
 			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'colourIds' => array_map( 'intval', $g->colour_ids ) ]; }, OC_DB::get_colour_groups() ),
-			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, OC_DB::get_clipart_groups() ),
+			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, $clipart_groups ),
+			'clipartItems'  => array_map(
+				function ( $c ) use ( $clipart_group_ids_by_item ) {
+					return [
+						'id'        => (int) $c->id,
+						'name'      => $c->name,
+						'fileType'  => strtolower( (string) $c->file_type ),
+						'url'       => OC_Admin_Clipart::get_clipart_url( (string) $c->file_path ),
+						'active'    => (bool) $c->active,
+						'groupIds'  => $clipart_group_ids_by_item[ (int) $c->id ] ?? [],
+					];
+				},
+				OC_DB::get_clipart( true )
+			),
 			'methodLabels' => [
 				'engraving'   => __( 'Engraving', 'overcustomise' ),
 				'uv'          => __( 'UV Printing', 'overcustomise' ),

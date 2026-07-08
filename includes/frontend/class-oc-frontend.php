@@ -274,6 +274,11 @@ class OC_Frontend {
 
 				$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
 				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
+				$default_attachment_id  = absint( $settings['default_attachment_id'] ?? 0 );
+				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
+				if ( '' === $default_attachment_url && ! empty( $settings['default_attachment_url'] ) ) {
+					$default_attachment_url = esc_url_raw( (string) $settings['default_attachment_url'] );
+				}
 				if ( ! empty( $colour_group_ids ) ) {
 					$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
 					$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
@@ -303,8 +308,8 @@ class OC_Frontend {
 					'fontId'        => absint( $settings['default_font_id'] ?? 0 ),
 					'fontSize'      => absint( $settings['default_font_size'] ?? 0 ),
 					'colorHex'      => $default_colour,
-					'attachmentId'  => 0,
-					'attachmentUrl' => '',
+					'attachmentId'  => 'image' === $layer->type ? $default_attachment_id : 0,
+					'attachmentUrl' => 'image' === $layer->type ? $default_attachment_url : '',
 					'clipartId'     => 0,
 					'clipartUrl'    => '',
 					'clipartRecolourable' => false,
@@ -339,6 +344,25 @@ class OC_Frontend {
 
 		// Clipart items grouped per clipart layer.
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers );
+		foreach ( $layers as $layer ) {
+			if ( 'clipart' !== $layer->type ) continue;
+			$layer_id = (int) $layer->id;
+			if ( ! isset( $layer_inputs[ $layer_id ] ) ) continue;
+
+			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			if ( ! is_array( $settings ) ) $settings = [];
+
+			$default_clipart_id = absint( $settings['default_clipart_id'] ?? 0 );
+			if ( ! $default_clipart_id ) continue;
+
+			foreach ( $clipart_by_layer[ $layer_id ] ?? [] as $item ) {
+				if ( (int) $item['id'] !== $default_clipart_id ) continue;
+				$layer_inputs[ $layer_id ]['clipartId'] = (int) $item['id'];
+				$layer_inputs[ $layer_id ]['clipartUrl'] = (string) $item['url'];
+				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ! empty( $item['recolourable'] );
+				break;
+			}
+		}
 
 		// Flatten all clipart groups across layers into a unique list.
 		$clipart_groups = [];

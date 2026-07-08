@@ -292,6 +292,10 @@ __webpack_require__.r(__webpack_exports__);
       id: 'validation',
       label: 'Validation',
       icon: '\u2713'
+    }, {
+      id: 'properties',
+      label: 'Properties',
+      icon: '\u2699'
     }],
     clipmask: [{
       id: 'general',
@@ -348,6 +352,10 @@ __webpack_require__.r(__webpack_exports__);
       id: 'validation',
       label: 'Validation',
       icon: '\u2713'
+    }, {
+      id: 'properties',
+      label: 'Properties',
+      icon: '\u2699'
     }]
   };
 
@@ -727,6 +735,9 @@ __webpack_require__.r(__webpack_exports__);
           formats: ['png', 'jpg', 'svg', 'webp'],
           max_size_mb: 10,
           remove_background: false,
+          default_attachment_id: 0,
+          default_attachment_url: '',
+          allow_image_change: true,
           required: false,
           link_group: ''
         };
@@ -754,6 +765,10 @@ __webpack_require__.r(__webpack_exports__);
       case 'clipart':
         return {
           clipart_groups: [],
+          default_clipart_id: 0,
+          default_clipart_url: '',
+          default_clipart_recolourable: false,
+          allow_clipart_change: true,
           required: false,
           clipart_display: 'grid',
           link_group: ''
@@ -772,6 +787,14 @@ __webpack_require__.r(__webpack_exports__);
     }
     if (type === 'clipart') {
       settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
+      settings.default_clipart_id = Number(settings.default_clipart_id) || 0;
+      settings.default_clipart_recolourable = !!settings.default_clipart_recolourable;
+      settings.allow_clipart_change = settings.allow_clipart_change !== false;
+    }
+    if (type === 'image') {
+      settings.default_attachment_id = Number(settings.default_attachment_id) || 0;
+      settings.default_attachment_url = settings.default_attachment_url || '';
+      settings.allow_image_change = settings.allow_image_change !== false;
     }
     return settings;
   }
@@ -916,6 +939,30 @@ __webpack_require__.r(__webpack_exports__);
     const value = current === 'carousel' ? 'carousel' : 'grid';
     return '<select id="oc-set-clipart-display" class="oc-input" style="width:100%;">' + '<option value="grid"' + (value === 'grid' ? ' selected' : '') + '>Grid</option>' + '<option value="carousel"' + (value === 'carousel' ? ' selected' : '') + '>One-row scroll with arrows and dots</option>' + '</select>';
   }
+  function clipartForSelectedGroups(items, groupIds) {
+    const selected = selectedGroupIds(groupIds);
+    const activeItems = (items || []).filter(item => item.active !== false);
+    if (!selected.length) return activeItems;
+    return activeItems.filter(item => (item.groupIds || []).some(id => selected.includes(Number(id))));
+  }
+  function clipartOptions(items, currentId) {
+    return '<option value="0">No default clipart</option>' + (items || []).map(item => '<option value="' + esc(item.id) + '"' + (Number(item.id) === Number(currentId || 0) ? ' selected' : '') + '>' + esc(item.name) + '</option>').join('');
+  }
+  function setDefaultClipart(settings, clipartId, items) {
+    const item = (items || []).find(c => Number(c.id) === Number(clipartId || 0));
+    settings.default_clipart_id = item ? Number(item.id) : 0;
+    settings.default_clipart_url = item ? item.url || '' : '';
+    settings.default_clipart_recolourable = item ? item.fileType === 'svg' : false;
+  }
+  function ensureDefaultClipartInList(settings, items) {
+    if (!settings.default_clipart_id) return;
+    if ((items || []).some(item => Number(item.id) === Number(settings.default_clipart_id))) return;
+    setDefaultClipart(settings, 0, items);
+  }
+  function mediaDefaultField(settings) {
+    const hasDefault = !!settings.default_attachment_url;
+    return '<div class="oc-default-media-field">' + '<input type="hidden" id="oc-set-default-attachment-id" value="' + esc(settings.default_attachment_id || 0) + '" />' + '<input type="hidden" id="oc-set-default-attachment-url" value="' + esc(settings.default_attachment_url || '') + '" />' + '<div class="oc-mockup-thumb" style="margin-bottom:8px;">' + '<img id="oc-default-attachment-preview" src="' + esc(settings.default_attachment_url || '') + '" alt="" style="' + (hasDefault ? '' : 'display:none;') + 'max-width:100%;height:auto;" />' + '<span id="oc-default-attachment-empty" style="font-size:12px;color:var(--oc-gray-400);' + (hasDefault ? 'display:none;' : '') + '">No default image set</span>' + '</div>' + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + '<button type="button" id="oc-choose-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm">Choose image</button>' + '<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm"' + (hasDefault ? '' : ' style="display:none;"') + '>Remove</button>' + '</div>' + '</div>';
+  }
   function alignBtns(current) {
     return '<div class="oc-align-btns">' + [['left', '\u2190', 'Left'], ['center', '\u2261', 'Center'], ['right', '\u2192', 'Right']].map(([a, icon, lbl]) => '<button type="button" class="oc-align-btn' + (a === current ? ' oc-align-btn--active' : '') + '" data-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
   }
@@ -1010,6 +1057,7 @@ __webpack_require__.r(__webpack_exports__);
     const colours = data.colours || [];
     const cGroups = data.colourGroups || [];
     const aGroups = data.clipartGroups || [];
+    const clipartItems = clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups || []);
     // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
     const area = areas[selectedIndex];
     const isEngraving = area && area.method === 'engraving';
@@ -1019,6 +1067,7 @@ __webpack_require__.r(__webpack_exports__);
     const availableColours = coloursForSelectedGroups(colours, cGroups, colourGroupIds);
     if (fontGroupIds.length) ensureDefaultFontInList(s, availableFonts);
     if (!isEngraving && colourGroupIds.length) ensureDefaultColourInList(s, availableColours);
+    ensureDefaultClipartInList(s, clipartItems);
     switch (tabId) {
       case 'general':
         return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
@@ -1027,7 +1076,7 @@ __webpack_require__.r(__webpack_exports__);
       case 'style':
         return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupIds.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
-        return field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
+        return field('Default image', mediaDefaultField(s)) + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
       case 'mask':
         return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
       case 'appearance':
@@ -1035,10 +1084,16 @@ __webpack_require__.r(__webpack_exports__);
         if (isEngraving) return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
         return cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
       case 'library':
-        return aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>';
+        return (aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>') + field('Default clipart', clipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions(clipartItems, s.default_clipart_id || 0) + '</select>' : '<span class="oc-settings-empty">No active clipart is available for the selected groups.</span>');
       case 'validation':
         return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
       case 'properties':
+        if (layer.type === 'image') {
+          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Image', 'oc-set-allow-image-change', s.allow_image_change !== false);
+        }
+        if (layer.type === 'clipart') {
+          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Clipart', 'oc-set-allow-clipart-change', s.allow_clipart_change !== false);
+        }
         return toggleField('Required field', 'oc-set-required', s.required) + '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Font', 'oc-set-allow-font-change', s.allow_font_change !== false) + (isEngraving ? '' : toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false)) + toggleField('Size', 'oc-set-allow-size-change', !!s.allow_size_change);
       default:
         return '';
@@ -1089,6 +1144,36 @@ __webpack_require__.r(__webpack_exports__);
     });
     document.getElementById('oc-set-char-limit')?.addEventListener('input', e => {
       s.char_limit = parseInt(e.target.value, 10) || 0;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-choose-default-attachment')?.addEventListener('click', () => {
+      if (!window.wp || !window.wp.media) return;
+      const frame = window.wp.media({
+        title: 'Select Default Image',
+        button: {
+          text: 'Use as Default'
+        },
+        multiple: false,
+        library: {
+          type: 'image'
+        }
+      });
+      frame.on('select', () => {
+        const attachment = frame.state().get('selection').first()?.toJSON();
+        if (!attachment) return;
+        s.default_attachment_id = Number(attachment.id) || 0;
+        s.default_attachment_url = attachment.sizes?.medium?.url || attachment.url || '';
+        renderRightColumn();
+        renderHiddenFields();
+        markDirty();
+      });
+      frame.open();
+    });
+    document.getElementById('oc-remove-default-attachment')?.addEventListener('click', () => {
+      s.default_attachment_id = 0;
+      s.default_attachment_url = '';
+      renderRightColumn();
       renderHiddenFields();
       markDirty();
     });
@@ -1171,9 +1256,16 @@ __webpack_require__.r(__webpack_exports__);
     document.querySelectorAll('.oc-ag-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.clipart_groups = [...document.querySelectorAll('.oc-ag-check:checked')].map(c => Number(c.value));
+        ensureDefaultClipartInList(s, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups || []));
+        renderRightColumn();
         renderHiddenFields();
         markDirty();
       });
+    });
+    document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
+      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups || []));
+      renderHiddenFields();
+      markDirty();
     });
     document.querySelectorAll('.oc-fmt-check').forEach(cb => {
       cb.addEventListener('change', () => {
@@ -1220,6 +1312,16 @@ __webpack_require__.r(__webpack_exports__);
     });
     document.getElementById('oc-set-allow-size-change')?.addEventListener('change', e => {
       s.allow_size_change = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-allow-image-change')?.addEventListener('change', e => {
+      s.allow_image_change = e.target.checked;
+      renderHiddenFields();
+      markDirty();
+    });
+    document.getElementById('oc-set-allow-clipart-change')?.addEventListener('change', e => {
+      s.allow_clipart_change = e.target.checked;
       renderHiddenFields();
       markDirty();
     });

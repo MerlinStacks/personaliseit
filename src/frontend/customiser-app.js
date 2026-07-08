@@ -948,7 +948,7 @@ class OCCustomiser {
 						true
 					);
 				};
-				const fittingFloor = minFontSize || 4;
+				const fittingFloor = isSingleLineText ? ( minFontSize || 4 ) : 4;
 				while (
 					! fitsTextLayer( fontSize ) &&
 					fontSize > fittingFloor
@@ -958,6 +958,16 @@ class OCCustomiser {
 					obj.set( { fontSize, padding: textPadding } );
 				}
 				obj.initDimensions?.();
+				while (
+					! isSingleLineText &&
+					! this.textObjectFitsBox( obj, lw, lh, fontSize ) &&
+					fontSize > fittingFloor
+				) {
+					fontSize = Math.max( fittingFloor, fontSize - 1 );
+					textPadding = this.textRenderPadding( fontSize );
+					obj.set( { fontSize, padding: textPadding } );
+					obj.initDimensions?.();
+				}
 				textareaPosition( obj );
 				obj.setCoords?.();
 				const measuredText = this.measureSingleLineText(
@@ -1161,6 +1171,20 @@ class OCCustomiser {
 		return (
 			Number( measured.width || 0 ) + margin.x * 2 <= Math.max( maxW, 10 ) &&
 			Number( measured.height || 0 ) + margin.y * 2 <= Math.max( maxH, 10 )
+		);
+	}
+
+	textObjectFitsBox( obj, maxW, maxH, fontSize ) {
+		if ( ! obj ) {
+			return true;
+		}
+
+		obj.initDimensions?.();
+		const margin = this.textFitSafetyMargin( fontSize );
+
+		return (
+			Number( obj.width || 0 ) <= Math.max( maxW, 10 ) &&
+			Number( obj.height || 0 ) + margin.y * 2 <= Math.max( maxH, 10 )
 		);
 	}
 
@@ -2478,6 +2502,10 @@ class OCCustomiser {
 		if ( ! sourceInput ) return;
 
 		this.linkedLayerIds( sourceLayerId ).forEach( layerId => {
+			const targetLayer = this.getLayerById( layerId );
+			if ( targetLayer?.type === 'image' && targetLayer.settings?.allow_image_change === false ) return;
+			if ( targetLayer?.type === 'clipart' && targetLayer.settings?.allow_clipart_change === false ) return;
+
 			if ( ! this.inputs[ layerId ] ) this.inputs[ layerId ] = {};
 			keys.forEach( key => {
 				if ( sourceInput[ key ] === undefined ) {
