@@ -25886,18 +25886,26 @@ class OCCustomiser {
           const renderedWidth = Math.max(1, Math.ceil(measuredText.width + textPadding * 2));
           if (isSingleLineText) {
             let alignedLeft = lcX;
+            let alignedTop = lcY;
+            let alignmentOffset = 0;
             if (align === 'left') {
-              alignedLeft = lx + anchorPad + renderedWidth / 2;
+              alignmentOffset = -lw / 2 + anchorPad + renderedWidth / 2;
             } else if (align === 'right') {
-              alignedLeft = lx + lw - anchorPad - renderedWidth / 2;
+              alignmentOffset = lw / 2 - anchorPad - renderedWidth / 2;
+            }
+            if (alignmentOffset) {
+              const rad = rotation * Math.PI / 180;
+              alignedLeft += alignmentOffset * Math.cos(rad);
+              alignedTop += alignmentOffset * Math.sin(rad);
             }
             obj.set({
               left: alignedLeft,
+              top: alignedTop,
               scaleX: 1
             });
             obj.initDimensions?.();
             obj.setCoords?.();
-            this.centerObjectBounds(obj, alignedLeft, lcY, rotation);
+            this.centerObjectBounds(obj, alignedLeft, alignedTop, rotation);
             this.keepObjectInsidePrintArea(obj, bounds, scale);
           }
           if (isEmbroidery) {
