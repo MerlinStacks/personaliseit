@@ -25863,8 +25863,14 @@ class OCCustomiser {
               })
             });
           }
-          const fittingFloor = minFontSize && this.textFitsBox(raw, font, minFontSize, layer.settings, lw, lh) ? minFontSize : 4;
-          while (!this.textFitsBox(raw, font, fontSize, layer.settings, lw, lh) && fontSize > fittingFloor) {
+          const fitsTextLayer = size => {
+            if (isSingleLineText) {
+              return this.singleLineTextFitsHeight(raw, font, size, layer.settings, lh);
+            }
+            return this.textFitsBox(raw, font, size, layer.settings, lw, lh);
+          };
+          const fittingFloor = minFontSize && fitsTextLayer(minFontSize) ? minFontSize : 4;
+          while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
             fontSize -= 1;
             textPadding = this.textRenderPadding(fontSize);
             obj.set({
@@ -26060,7 +26066,13 @@ class OCCustomiser {
       height: Number(measured.height || 0)
     };
   }
+  singleLineTextFitsHeight(raw, font, fontSize, settings, maxH) {
+    return this.measureSingleLineText(raw, font, fontSize, settings).height <= Math.max(maxH, 10);
+  }
   textLayerFitsAtSize(layer, raw, font, fontSize) {
+    if (layer?.type === 'text') {
+      return this.singleLineTextFitsHeight(raw, font, fontSize, layer?.settings || {}, Number(layer?.h || 0));
+    }
     return this.textFitsBox(raw, font, fontSize, layer?.settings || {}, Number(layer?.w || 0), Number(layer?.h || 0));
   }
   async maxFittingFontSize(layerId, upperLimit) {
@@ -27674,11 +27686,11 @@ class OCCustomiser {
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.addEventListener('click', e => {
         if (form._ocSubmitReady) return;
+        e.stopImmediatePropagation();
         this.syncInputsFromDOM();
         const preflight = this.runImmediateBlockingPreflight();
         if (preflight.ok) return;
         e.preventDefault();
-        e.stopImmediatePropagation();
         this.resetCartSubmitState(form);
         this.renderPreflightMessages(preflight.errors, preflight.warnings);
       }, true);
