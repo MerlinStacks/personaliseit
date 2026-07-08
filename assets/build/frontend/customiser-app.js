@@ -25773,6 +25773,8 @@ class OCCustomiser {
             width: lw,
             height: lh
           };
+          const singleLineMaxWidth = Math.max(1, Math.min(lw, Number(bounds.w || 0) * scale) - anchorPad * 2);
+          const singleLineMaxHeight = Math.max(1, Math.min(lh, Number(bounds.h || 0) * scale));
           const obj = new textClass(raw, {
             left: lcX,
             top: lcY,
@@ -25865,7 +25867,7 @@ class OCCustomiser {
           }
           const fitsTextLayer = size => {
             if (isSingleLineText) {
-              return this.singleLineTextFitsHeight(raw, font, size, layer.settings, lh);
+              return this.singleLineTextFitsHeight(raw, font, size, layer.settings, singleLineMaxHeight);
             }
             return this.textFitsBox(raw, font, size, layer.settings, lw, lh);
           };
@@ -25880,15 +25882,21 @@ class OCCustomiser {
           }
           const measuredText = this.measureSingleLineText(raw, font, fontSize, layer.settings);
           const textNaturalWidth = Math.max(1, Math.ceil(measuredText.width + textPadding * 2));
-          const fitWidth = Math.max(1, lw - anchorPad * 2);
+          const fitWidth = isSingleLineText ? singleLineMaxWidth : Math.max(1, lw - anchorPad * 2);
           const textFitScale = isSingleLineText && textNaturalWidth > fitWidth ? Math.max(0.05, fitWidth / textNaturalWidth) : 1;
           if (isSingleLineText) {
             const renderedWidth = textNaturalWidth * textFitScale;
-            const alignedLeft = align === 'left' ? lx + anchorPad + renderedWidth / 2 : align === 'right' ? lx + lw - anchorPad - renderedWidth / 2 : lcX;
+            let alignedLeft = lcX;
+            if (align === 'left') {
+              alignedLeft = lx + anchorPad + renderedWidth / 2;
+            } else if (align === 'right') {
+              alignedLeft = lx + lw - anchorPad - renderedWidth / 2;
+            }
             obj.set({
               left: alignedLeft,
               scaleX: textFitScale
             });
+            this.keepObjectInsidePrintArea(obj, bounds, scale);
           }
           if (isEmbroidery) {
             obj.set({
@@ -25898,7 +25906,7 @@ class OCCustomiser {
           if (stitchPad) {
             stitchPad.set({
               left: (isSingleLineText ? obj.left : lcX) + Math.max(0.45, fontSize * 0.015),
-              top: lcY + Math.max(0.65, fontSize * 0.02),
+              top: (isSingleLineText ? obj.top : lcY) + Math.max(0.65, fontSize * 0.02),
               fontSize,
               padding: textPadding
             });
@@ -25912,7 +25920,7 @@ class OCCustomiser {
           if (stitchLift) {
             stitchLift.set({
               left: (isSingleLineText ? obj.left : lcX) - Math.max(0.25, fontSize * 0.006),
-              top: lcY - Math.max(0.25, fontSize * 0.006),
+              top: (isSingleLineText ? obj.top : lcY) - Math.max(0.25, fontSize * 0.006),
               fontSize,
               padding: textPadding,
               strokeWidth: Math.max(0.2, fontSize * 0.006)
@@ -26366,6 +26374,59 @@ class OCCustomiser {
         clipPath
       });
     }
+  }
+  keepObjectInsidePrintArea(obj, bounds, scale) {
+    if (!obj || !bounds || !bounds.w || !bounds.h) {
+      return;
+    }
+    obj.setCoords?.();
+    const points = typeof obj.getCoords === 'function' ? obj.getCoords() : [];
+    if (!points.length) {
+      return;
+    }
+    const cx = (Number(bounds.x) + Number(bounds.w) / 2) * scale;
+    const cy = (Number(bounds.y) + Number(bounds.h) / 2) * scale;
+    const halfW = Number(bounds.w) * scale / 2;
+    const halfH = Number(bounds.h) * scale / 2;
+    const angle = (Number(bounds.rotation) || 0) * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const local = points.map(point => {
+      const dx = point.x - cx;
+      const dy = point.y - cy;
+      return {
+        x: cx + dx * cos + dy * sin,
+        y: cy - dx * sin + dy * cos
+      };
+    });
+    const minX = Math.min(...local.map(point => point.x));
+    const maxX = Math.max(...local.map(point => point.x));
+    const minY = Math.min(...local.map(point => point.y));
+    const maxY = Math.max(...local.map(point => point.y));
+    const left = cx - halfW;
+    const right = cx + halfW;
+    const top = cy - halfH;
+    const bottom = cy + halfH;
+    let moveX = 0;
+    let moveY = 0;
+    if (minX < left) {
+      moveX = left - minX;
+    } else if (maxX > right) {
+      moveX = right - maxX;
+    }
+    if (minY < top) {
+      moveY = top - minY;
+    } else if (maxY > bottom) {
+      moveY = bottom - maxY;
+    }
+    if (!moveX && !moveY) {
+      return;
+    }
+    obj.set({
+      left: Number(obj.left || 0) + moveX * cos - moveY * sin,
+      top: Number(obj.top || 0) + moveX * sin + moveY * cos
+    });
+    obj.setCoords?.();
   }
   async recolourSvgClipartUrl(url, color, effect = '') {
     const key = `${url}|${color}|${effect}`;
@@ -27580,9 +27641,7 @@ class OCCustomiser {
         const textEl = document.querySelector(`[data-oc-layer-text="${layerId}"]`);
         if (textEl) {
           const limit = this.charLimitForLayer(layerId);
-          if (textEl.value !== '' || input.value === undefined) {
-            input.value = limit > 0 ? this.truncateText(textEl.value, limit) : textEl.value;
-          }
+          input.value = limit > 0 ? this.truncateText(textEl.value, limit) : textEl.value;
         }
         const spotifyEl = document.querySelector(`[data-oc-layer-spotify="${layerId}"]`);
         if (spotifyEl) {
@@ -27686,11 +27745,21 @@ class OCCustomiser {
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.addEventListener('click', e => {
         if (form._ocSubmitReady) return;
+        e.preventDefault();
         e.stopImmediatePropagation();
         this.syncInputsFromDOM();
         const preflight = this.runImmediateBlockingPreflight();
-        if (preflight.ok) return;
-        e.preventDefault();
+        if (preflight.ok) {
+          if (form.requestSubmit) {
+            form.requestSubmit(button);
+          } else {
+            form.dispatchEvent(new Event('submit', {
+              bubbles: true,
+              cancelable: true
+            }));
+          }
+          return;
+        }
         this.resetCartSubmitState(form);
         this.renderPreflightMessages(preflight.errors, preflight.warnings);
       }, true);
@@ -27703,6 +27772,7 @@ class OCCustomiser {
         return;
       }
       if (form._ocSubmitReady) {
+        form._ocSubmitReady = false;
         return; // preview already saved — let submit through
       }
       e.preventDefault();
