@@ -26309,11 +26309,8 @@ class OCCustomiser {
     const size = 640;
     return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
   }
-  printAreaClipPath(bounds, scale, layerBox = null) {
+  printAreaClipPath(bounds, scale) {
     if (!bounds || !bounds.w || !bounds.h) return null;
-    if (layerBox && !this.boxesIntersect(bounds, layerBox)) {
-      return null;
-    }
     return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
       left: (Number(bounds.x) + Number(bounds.w) / 2) * scale,
       top: (Number(bounds.y) + Number(bounds.h) / 2) * scale,
@@ -26324,17 +26321,6 @@ class OCCustomiser {
       height: Number(bounds.h) * scale,
       absolutePositioned: true
     });
-  }
-  boxesIntersect(a, b) {
-    const ax = Number(a?.x) || 0;
-    const ay = Number(a?.y) || 0;
-    const aw = Number(a?.w) || 0;
-    const ah = Number(a?.h) || 0;
-    const bx = Number(b?.x) || 0;
-    const by = Number(b?.y) || 0;
-    const bw = Number(b?.w) || 0;
-    const bh = Number(b?.h) || 0;
-    return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
   }
   layerClipPath(x, y, w, h, angle = 0, settings = {}) {
     if (!w || !h) return null;
