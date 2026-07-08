@@ -74,21 +74,6 @@ foreach ( $layers as $layer ) {
 		</div>
 	<?php endif; ?>
 
-	<?php if ( $has_multiple_areas ) : ?>
-	<div class="oc-area-tabs" role="tablist" aria-label="<?php esc_attr_e( 'Customisation areas', 'overcustomise' ); ?>">
-		<?php foreach ( $areas as $i => $area ) : ?>
-			<button type="button" role="tab"
-				class="oc-area-tab<?php echo 0 === $i ? ' oc-active' : ''; ?>"
-				id="oc-area-tab-<?php echo esc_attr( $i ); ?>"
-				data-area-index="<?php echo esc_attr( $i ); ?>"
-				aria-selected="<?php echo 0 === $i ? 'true' : 'false'; ?>"
-				aria-controls="oc-area-panel-<?php echo esc_attr( $i ); ?>"
-				<?php echo 0 === $i ? '' : 'tabindex="-1"'; ?>
-			><?php echo esc_html( $area->label ); ?></button>
-		<?php endforeach; ?>
-	</div>
-	<?php endif; ?>
-
 	<div class="oc-canvas-wrap" id="oc-canvas-wrap" aria-label="<?php esc_attr_e( 'Live customisation preview', 'overcustomise' ); ?>">
 		<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
 		<?php
@@ -109,11 +94,10 @@ foreach ( $layers as $layer ) {
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
 		if ( empty( $area_layers ) ) continue;
 		?>
-		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>"
+		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>">
 			<?php if ( $has_multiple_areas ) : ?>
-				role="tabpanel" aria-labelledby="oc-area-tab-<?php echo esc_attr( $i ); ?>"
+				<h3 class="oc-area-heading"><?php echo esc_html( $area->label ); ?></h3>
 			<?php endif; ?>
-			<?php echo 0 !== $i ? 'style="display:none;"' : ''; ?>>
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :

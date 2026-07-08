@@ -188,6 +188,46 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function checkout_name_preview_is_not_added_when_thumbnail_column_already_rendered(): void {
+		$cart        = new OC_Cart();
+		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$cart_item   = [ '_oc_preview_url' => $preview_url ];
+
+		add_filter( 'woocommerce_is_checkout', '__return_true' );
+		add_filter( 'woocommerce_is_cart', '__return_false' );
+
+		try {
+			$thumbnail = $cart->cart_item_thumbnail( '<img src="standard.jpg" />', $cart_item, 'cart-item-key' );
+			$this->assertStringContainsString( $preview_url, $thumbnail );
+
+			$product_name = $cart->checkout_item_name_preview( 'Pen - Various Colours - Purple', $cart_item, 'cart-item-key' );
+			$this->assertSame( 'Pen - Various Colours - Purple', $product_name );
+		} finally {
+			remove_filter( 'woocommerce_is_checkout', '__return_true' );
+			remove_filter( 'woocommerce_is_cart', '__return_false' );
+		}
+	}
+
+	#[Test]
+	public function checkout_name_preview_is_added_when_no_thumbnail_column_rendered(): void {
+		$cart        = new OC_Cart();
+		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$cart_item   = [ '_oc_preview_url' => $preview_url ];
+
+		add_filter( 'woocommerce_is_checkout', '__return_true' );
+		add_filter( 'woocommerce_is_cart', '__return_false' );
+
+		try {
+			$product_name = $cart->checkout_item_name_preview( 'Pen - Various Colours - Purple', $cart_item, 'cart-item-key' );
+			$this->assertStringContainsString( 'oc-checkout-preview-thumb', $product_name );
+			$this->assertStringContainsString( $preview_url, $product_name );
+		} finally {
+			remove_filter( 'woocommerce_is_checkout', '__return_true' );
+			remove_filter( 'woocommerce_is_cart', '__return_false' );
+		}
+	}
+
+	#[Test]
 	public function v2_customisation_only_accepts_layers_from_assigned_design(): void {
 		global $wpdb;
 

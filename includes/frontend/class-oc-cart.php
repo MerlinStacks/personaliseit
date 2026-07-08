@@ -10,6 +10,9 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Cart {
 
+	/** @var array<string,bool> Checkout rows where WooCommerce already rendered the thumbnail column. */
+	private array $checkout_thumbnail_rendered = [];
+
 	public function register(): void {
 		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_preview_styles' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_admin_preview_modal' ] );
@@ -431,6 +434,10 @@ class OC_Cart {
 	/** Replace the cart/checkout product thumbnail with the personalised preview. */
 	public function cart_item_thumbnail( string $thumbnail, array $cart_item, string $cart_item_key ): string {
 		if ( ! empty( $cart_item['_oc_preview_url'] ) ) {
+			if ( is_checkout() && ! is_cart() ) {
+				$this->checkout_thumbnail_rendered[ $cart_item_key ] = true;
+			}
+
 			return $this->preview_image_html( (string) $cart_item['_oc_preview_url'] );
 		}
 		return $thumbnail;
@@ -439,6 +446,9 @@ class OC_Cart {
 	/** Add a preview image to classic checkout rows, where WooCommerce has no thumbnail column. */
 	public function checkout_item_name_preview( string $product_name, array $cart_item, string $cart_item_key ): string {
 		if ( ! is_checkout() || is_cart() || empty( $cart_item['_oc_preview_url'] ) ) {
+			return $product_name;
+		}
+		if ( ! empty( $this->checkout_thumbnail_rendered[ $cart_item_key ] ) ) {
 			return $product_name;
 		}
 

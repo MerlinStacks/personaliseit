@@ -131,6 +131,25 @@
   display: block !important;
   margin: 0 0 var(--oc-gap);
 }
+.oc-customiser-panel .oc-area-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.oc-customiser-panel .oc-area-controls + .oc-area-controls {
+  padding-top: var(--oc-gap-sm);
+  border-top: 1px solid var(--oc-border);
+}
+.oc-customiser-panel .oc-area-heading {
+  margin: 0;
+  font: inherit;
+  font-size: 0.9em;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--oc-fg-muted);
+}
 .oc-customiser-panel .oc-layer-controls {
   display: flex;
   flex-direction: column;

@@ -690,8 +690,28 @@ class OCCustomiser {
 
 	// ── Redraw ──────────────────────────────────────────────────────────────────
 
-	scheduleRedraw() {
+	areaIndexForLayer( layerId ) {
+		for ( let i = 0; i < this.areas.length; i++ ) {
+			if ( ( this.areas[ i ]?.layers || [] ).some( layer => parseInt( layer.id, 10 ) === parseInt( layerId, 10 ) ) ) {
+				return i;
+			}
+		}
+		return this.activeArea;
+	}
+
+	focusPreviewArea( areaIndex ) {
+		const index = Number.isInteger( areaIndex ) ? areaIndex : this.activeArea;
+		this.activeArea = Math.max( 0, Math.min( this.areas.length - 1, index ) );
+		document.querySelectorAll( '.oc-area-tab' ).forEach( ( btn, i ) => {
+			btn.classList.toggle( 'oc-active', i === this.activeArea );
+			btn.setAttribute( 'aria-selected', i === this.activeArea ? 'true' : 'false' );
+			btn.setAttribute( 'tabindex', i === this.activeArea ? '0' : '-1' );
+		} );
+	}
+
+	scheduleRedraw( areaIndex = this.activeArea ) {
 		clearTimeout( this._redrawTimer );
+		this.focusPreviewArea( areaIndex );
 		this._redrawTimer = setTimeout( () => this.redraw( this.activeArea ), 120 );
 	}
 
@@ -1846,7 +1866,7 @@ class OCCustomiser {
 				updateCounter();
 				await this.updateTextSizeSliderCap( lid );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 			} );
 		} );
@@ -1864,7 +1884,7 @@ class OCCustomiser {
 				this.syncLinkedLayerInput( lid, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 				this.setSpotifyError( lid, '', el );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 
 				clearTimeout( this.spotifyValidateTimers[ lid ] );
@@ -1935,7 +1955,7 @@ class OCCustomiser {
 				if ( preview && font ) preview.style.fontFamily = font.name;
 				await this.updateTextSizeSliderCap( lid );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 			} );
 		} );
@@ -1955,7 +1975,7 @@ class OCCustomiser {
 				this.inputs[ lid ].fontSize = Math.max( 1, parseInt( el.value, 10 ) || 1 );
 				updateValue();
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 			} );
 		} );
@@ -1974,7 +1994,7 @@ class OCCustomiser {
 						s.setAttribute( 'aria-pressed', isSelected ? 'true' : 'false' );
 					} );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 			} );
 		} );
@@ -1987,7 +2007,7 @@ class OCCustomiser {
 				this.inputs[ lid ].colorHex = el.value;
 				if ( this.getLayerById( lid )?.type === 'lineart' ) this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 			} );
 		} );
@@ -2008,7 +2028,7 @@ class OCCustomiser {
 						i.setAttribute( 'aria-pressed', isSelected ? 'true' : 'false' );
 					} );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 			} );
 		} );
@@ -2672,7 +2692,7 @@ class OCCustomiser {
 			this.inputs[ layerId ].spotifyUri = '';
 			this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 			this.setSpotifyError( layerId, '', inputEl );
-			this.scheduleRedraw();
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return;
 		}
@@ -2683,7 +2703,7 @@ class OCCustomiser {
 			this.inputs[ layerId ].spotifyUri = '';
 			this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 			this.setSpotifyError( layerId, 'Invalid Spotify link format.', inputEl );
-			this.scheduleRedraw();
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return;
 		}
@@ -2693,7 +2713,7 @@ class OCCustomiser {
 			this.inputs[ layerId ].spotifyUri = localUri;
 			this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 			this.setSpotifyError( layerId, '', inputEl );
-			this.scheduleRedraw();
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return;
 		}
@@ -2724,7 +2744,7 @@ class OCCustomiser {
 				this.inputs[ layerId ].spotifyUri = '';
 				this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 				this.setSpotifyError( layerId, statusMessage, inputEl );
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 				this.updateHiddenField();
 				return;
 			}
@@ -2734,7 +2754,7 @@ class OCCustomiser {
 				this.inputs[ layerId ].spotifyUri = '';
 				this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
 				this.setSpotifyError( layerId, 'Could not validate Spotify right now. Please try again.', inputEl );
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 				this.updateHiddenField();
 				return;
 			}
@@ -2758,7 +2778,7 @@ class OCCustomiser {
 		}
 
 		this.syncLinkedLayerInput( layerId, [ 'value', 'spotifyStatus', 'spotifyUri' ] );
-		this.scheduleRedraw();
+		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 		this.updateHiddenField();
 	}
 
@@ -3331,7 +3351,7 @@ class OCCustomiser {
 							this.syncLinkedLayerInput( lid, [ 'attachmentId', 'attachmentUrl', 'imageMeta' ] );
 							this.setUploadZoneState( zoneEl, 'error' );
 							this.showUploadError( zoneEl, 'Image resolution too low. Please upload a higher resolution image.' );
-							this.scheduleRedraw();
+							this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 							this.updateHiddenField();
 							return;
 						} else if ( belowThreshold ) {
@@ -3346,7 +3366,7 @@ class OCCustomiser {
 				this.setUploadZoneState( zoneEl, 'uploaded' );
 				this.syncLinkedLayerInput( lid, [ 'attachmentId', 'attachmentUrl', 'imageMeta' ] );
 				this.requestPreviewFocus();
-				this.scheduleRedraw();
+				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
 				this.showUploadError( zoneEl, '' );
 			} );
