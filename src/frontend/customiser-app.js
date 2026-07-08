@@ -732,9 +732,7 @@ class OCCustomiser {
 		const bounds      = displayBounds( areaBounds );
 		const layerBox    = displayLayer( layer, areaBounds );
 		const rotation    = Number( bounds.rotation ) || 0;
-		const contentClip = () => [ 'text', 'textarea' ].includes( layer.type )
-			? null
-			: this.printAreaClipPath( bounds, scale, layerBox );
+		const contentClip = () => this.printAreaClipPath( bounds, scale, layerBox );
 		const center      = this.rotatedLayerCenter( layerBox, bounds, rotation );
 		const lx          = ( center.x - layerBox.w / 2 ) * scale;
 		const ly          = ( center.y - layerBox.h / 2 ) * scale;
@@ -870,7 +868,8 @@ class OCCustomiser {
 				}
 				const measuredText = this.measureSingleLineText( raw, font, fontSize, layer.settings );
 				const textNaturalWidth = Math.max( 1, Math.ceil( measuredText.width + textPadding * 2 ) );
-				const textFitScale = isSingleLineText && textNaturalWidth > lw ? Math.max( 0.05, lw / textNaturalWidth ) : 1;
+				const fitWidth = Math.max( 1, lw - anchorPad * 2 );
+				const textFitScale = isSingleLineText && textNaturalWidth > fitWidth ? Math.max( 0.05, fitWidth / textNaturalWidth ) : 1;
 				if ( isSingleLineText ) {
 					const renderedWidth = textNaturalWidth * textFitScale;
 					const alignedLeft = align === 'left'
