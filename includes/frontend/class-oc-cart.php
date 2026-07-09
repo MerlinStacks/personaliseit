@@ -254,9 +254,16 @@ class OC_Cart {
 					}
 				}
 
+				$value = '';
+				if ( is_scalar( $layer_data['value'] ?? null ) ) {
+					$value = 'textarea' === $type && function_exists( 'sanitize_textarea_field' )
+						? sanitize_textarea_field( (string) $layer_data['value'] )
+						: sanitize_text_field( (string) $layer_data['value'] );
+				}
+
 				$sanitised_layers[ $layer_key ] = [
 					'type'          => $type,
-					'value'         => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',
+					'value'         => $value,
 					'fontId'        => $font_id,
 					'fontSize'      => $font_size,
 					'colorHex'      => $color_hex,

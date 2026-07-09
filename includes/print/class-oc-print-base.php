@@ -780,6 +780,10 @@ abstract class OC_Print_Base {
 	 * print-area space before converting to millimetres.
 	 */
 	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour' ): void {
+		if ( self::render_textarea_snapshot_payload( $pdf, $area, $area_data, $origin_x_mm, $origin_y_mm ) ) {
+			return;
+		}
+
 		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
@@ -837,6 +841,60 @@ abstract class OC_Print_Base {
 					break;
 			}
 		}
+	}
+
+	/** Render the exact preview snapshot for textarea areas when order-time SVG is available. */
+	protected static function render_textarea_snapshot_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm ): bool {
+		if ( ! method_exists( $pdf, 'ImageSVG' ) || ! self::area_data_contains_textarea( $area_data ) ) {
+			return false;
+		}
+
+		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
+		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( (string) $snapshot['svg'] ) : '';
+		if ( '' === $svg || ! str_contains( $svg, '<svg' ) ) {
+			return false;
+		}
+
+		try {
+			if ( class_exists( 'OC_SVG_Sanitiser' ) ) {
+				$svg = OC_SVG_Sanitiser::sanitise( $svg );
+			}
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Print snapshot rejected: ' . $e->getMessage() );
+			return false;
+		}
+
+		$tmp = self::temp_path( 'oc-print-snapshot-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $tmp ) || '' === $tmp ) {
+			return false;
+		}
+
+		if ( false === file_put_contents( $tmp, $svg ) ) {
+			return false;
+		}
+
+		try {
+			[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
+			$pdf->ImageSVG( $tmp, $origin_x_mm, $origin_y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+			return true;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Print snapshot render failed: ' . $e->getMessage() );
+			return false;
+		} finally {
+			@unlink( $tmp );
+		}
+	}
+
+	/** Return true when the v2 area payload contains at least one textarea layer. */
+	private static function area_data_contains_textarea( array $area_data ): bool {
+		$layers = is_array( $area_data['layers'] ?? null ) ? $area_data['layers'] : [];
+		foreach ( $layers as $layer ) {
+			if ( is_array( $layer ) && 'textarea' === (string) ( $layer['type'] ?? '' ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
