@@ -2011,7 +2011,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	private static function has_complex_svg_paint_references( \DOMElement $svg ): bool {
-		$complex_tags = [ 'clipPath', 'mask', 'filter', 'pattern', 'linearGradient', 'radialGradient' ];
+		$complex_tags = [ 'clipPath', 'mask', 'filter' ];
 		foreach ( $complex_tags as $tag ) {
 			if ( $svg->getElementsByTagName( $tag )->length > 0 ) {
 				return true;

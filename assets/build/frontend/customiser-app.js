@@ -26793,7 +26793,7 @@ class OCCustomiser {
     return /^data:image\/svg\+xml/i.test(value) || /\.svg(?:[?#]|$)/i.test(value);
   }
   hasComplexSvgPaintReferences(svg) {
-    return !!svg.querySelector('clipPath, mask, filter, pattern, linearGradient, radialGradient, [clip-path], [mask], [filter]');
+    return !!svg.querySelector('clipPath, mask, filter, [clip-path], [mask], [filter]');
   }
   addEmbroiderySvgPattern(svg, color) {
     const rgb = this.hexToRgb(color) || {

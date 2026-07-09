@@ -2411,7 +2411,7 @@ class OCCustomiser {
 
 	hasComplexSvgPaintReferences( svg ) {
 		return !! svg.querySelector(
-			'clipPath, mask, filter, pattern, linearGradient, radialGradient, [clip-path], [mask], [filter]'
+			'clipPath, mask, filter, [clip-path], [mask], [filter]'
 		);
 	}
 
