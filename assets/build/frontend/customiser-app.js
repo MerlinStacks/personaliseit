@@ -26232,7 +26232,7 @@ class OCCustomiser {
     const margin = this.textFitSafetyMargin(fontSize);
     const textClass = multiline ? fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox : fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText;
     const textBoxSize = multiline ? {
-      width: Math.max(1, maxW - margin.x * 2)
+      width: Math.max(1, maxW)
     } : {};
     const obj = new textClass(raw, {
       left: 0,
@@ -26249,6 +26249,9 @@ class OCCustomiser {
     obj.initDimensions?.();
     obj.setCoords?.();
     const measured = obj.getBoundingRect?.(true, true) || obj;
+    if (multiline) {
+      return Number(measured.height || 0) + margin.y * 2 <= Math.max(maxH, 10);
+    }
     return Number(measured.width || 0) + margin.x * 2 <= Math.max(maxW, 10) && Number(measured.height || 0) + margin.y * 2 <= Math.max(maxH, 10);
   }
   textObjectFitsBox(obj, maxW, maxH, fontSize) {
@@ -26280,7 +26283,7 @@ class OCCustomiser {
   }
   textLayerFitsAtSize(layer, raw, font, fontSize) {
     const area = this.areas[this.areaIndexForLayer(layer?.id)];
-    const bounds = area?.bounds || null;
+    const bounds = area ? this.areaBounds(area) : null;
     const layerBox = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayLayer)(layer, bounds) : layer;
     const displaySize = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(fontSize, bounds) : fontSize;
     return this.textFitsBox(raw, font, displaySize, layer?.settings || {}, Number(layerBox?.w || 0), Number(layerBox?.h || 0), layer?.type === 'textarea');
