@@ -917,10 +917,17 @@ import {
 			'</select>'
 		);
 	}
-	function clipartForSelectedGroups( items, groupIds ) {
+	function clipartAllowedForMethod( item, printMethod ) {
+		const allowed = Array.isArray( item.allowedPrintMethods )
+			? item.allowedPrintMethods
+			: [];
+		return ! allowed.length || allowed.includes( printMethod );
+	}
+	function clipartForSelectedGroups( items, groupIds, printMethod = '' ) {
 		const selected = selectedGroupIds( groupIds );
 		const activeItems = ( items || [] ).filter(
-			( item ) => item.active !== false
+			( item ) =>
+				item.active !== false && clipartAllowedForMethod( item, printMethod )
 		);
 		if ( ! selected.length ) {
 			return activeItems;
@@ -957,7 +964,7 @@ import {
 		settings.default_clipart_id = item ? Number( item.id ) : 0;
 		settings.default_clipart_url = item ? item.url || '' : '';
 		settings.default_clipart_recolourable = item
-			? item.fileType === 'svg'
+			? item.fileType === 'svg' && item.colourChangeable !== false
 			: false;
 	}
 	function ensureDefaultClipartInList( settings, items ) {
@@ -1263,13 +1270,15 @@ import {
 		const fonts = data.fonts || [];
 		const colours = data.colours || [];
 		const cGroups = data.colourGroups || [];
+		// Engraving has no colour — don't show colour group pickers for layers in engraving areas.
+		const area = areas[ selectedIndex ];
+		const printMethod = area?.method || '';
 		const aGroups = data.clipartGroups || [];
 		const allClipartItems = clipartForSelectedGroups(
 			data.clipartItems || [],
-			[]
+			[],
+			printMethod
 		);
-		// Engraving has no colour — don't show colour group pickers for layers in engraving areas.
-		const area = areas[ selectedIndex ];
 		const isEngraving = area && area.method === 'engraving';
 		const fontGroupIds = selectedGroupIds( s.font_groups );
 		const colourGroupIds = selectedGroupIds( s.colour_groups );
@@ -1790,9 +1799,17 @@ import {
 		} );
 		document.querySelectorAll( '.oc-ag-check' ).forEach( ( cb ) => {
 			cb.addEventListener( 'change', () => {
-				s.clipart_groups = [
+			s.clipart_groups = [
 					...document.querySelectorAll( '.oc-ag-check:checked' ),
 				].map( ( c ) => Number( c.value ) );
+				ensureDefaultClipartInList(
+					s,
+					clipartForSelectedGroups(
+						data.clipartItems || [],
+						s.clipart_groups,
+						area?.method || ''
+					)
+				);
 				renderRightColumn();
 				renderHiddenFields();
 				markDirty();
@@ -1804,7 +1821,11 @@ import {
 				setDefaultClipart(
 					s,
 					e.target.value,
-					clipartForSelectedGroups( data.clipartItems || [], [] )
+					clipartForSelectedGroups(
+						data.clipartItems || [],
+						[],
+						area?.method || ''
+					)
 				);
 				renderCanvas();
 				renderHiddenFields();

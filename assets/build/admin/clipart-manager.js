@@ -1333,6 +1333,13 @@ let currentFile = null;
 let editClipartId = null;
 let editGroupId = null;
 const TRACE_MAX_SIZE = 1200;
+const PRINT_METHODS = ['engraving', 'uv', 'embroidery', 'sublimation'];
+const PRINT_METHOD_LABELS = {
+  engraving: 'Engraving',
+  uv: 'UV Printing',
+  embroidery: 'Embroidery',
+  sublimation: 'Sublimation'
+};
 
 // ---------------------------------------------------------------------------
 // Normalisers
@@ -1344,11 +1351,32 @@ function normaliseClipart(c) {
     name: c.name || '',
     fileType: c.fileType || '',
     canConvert: !!c.canConvert,
+    colourChangeable: c.colourChangeable !== false,
+    allowedPrintMethods: normalisePrintMethods(c.allowedPrintMethods || []),
     active: !!c.active,
     url: c.url || '',
     toggleUrl: c.toggleUrl || '',
     deleteUrl: c.deleteUrl || ''
   };
+}
+function normalisePrintMethods(methods) {
+  return (Array.isArray(methods) ? methods : []).filter(method => PRINT_METHODS.includes(method));
+}
+function methodSummary(methods) {
+  methods = normalisePrintMethods(methods);
+  if (!methods.length) {
+    return 'All print methods';
+  }
+  return methods.map(method => PRINT_METHOD_LABELS[method] || method).join(', ');
+}
+function checkedMethods(selector) {
+  return [...document.querySelectorAll(`${selector}:checked`)].map(input => input.value);
+}
+function setCheckedMethods(selector, methods) {
+  methods = normalisePrintMethods(methods);
+  document.querySelectorAll(selector).forEach(input => {
+    input.checked = methods.includes(input.value);
+  });
 }
 function normaliseGroup(g) {
   return {
@@ -1407,7 +1435,7 @@ function buildClipartCardEl(item) {
   card.dataset.clipartId = item.id;
   card.setAttribute('role', 'button');
   card.setAttribute('tabindex', '0');
-  card.innerHTML = '<div class="oc-clipart-preview">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" loading="lazy" />' + '</div>' + '<div class="oc-clipart-card-body">' + '<div class="oc-clipart-card-title-row">' + '<p class="oc-clipart-card-name" title="' + h(item.name) + '">' + h(item.name) + '</p>' + '<span class="oc-badge ' + (item.active ? 'oc-badge-active' : 'oc-badge-inactive') + '">' + (item.active ? 'Active' : 'Inactive') + '</span>' + '</div>' + '<p class="oc-clipart-type-label">' + h(item.fileType.toUpperCase()) + '</p>' + '<div class="oc-clipart-card-actions">' + (item.canConvert ? '<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="' + item.id + '">Convert to SVG</button>' : '') + '<a href="' + h(item.toggleUrl) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' + (item.active ? 'Deactivate' : 'Activate') + '</a>' + '<a href="' + h(item.deleteUrl) + '" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>' + '</div>' + '</div>';
+  card.innerHTML = '<div class="oc-clipart-preview">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" loading="lazy" />' + '</div>' + '<div class="oc-clipart-card-body">' + '<div class="oc-clipart-card-title-row">' + '<p class="oc-clipart-card-name" title="' + h(item.name) + '">' + h(item.name) + '</p>' + '<span class="oc-badge ' + (item.active ? 'oc-badge-active' : 'oc-badge-inactive') + '">' + (item.active ? 'Active' : 'Inactive') + '</span>' + '</div>' + '<p class="oc-clipart-type-label">' + h(item.fileType.toUpperCase()) + ' · ' + (item.colourChangeable ? 'Colour changeable' : 'Fixed colour') + '</p>' + '<p class="oc-clipart-type-label">' + h(methodSummary(item.allowedPrintMethods)) + '</p>' + '<div class="oc-clipart-card-actions">' + (item.canConvert ? '<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="' + item.id + '">Convert to SVG</button>' : '') + '<a href="' + h(item.toggleUrl) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' + (item.active ? 'Deactivate' : 'Activate') + '</a>' + '<a href="' + h(item.deleteUrl) + '" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>' + '</div>' + '</div>';
   card.addEventListener('click', e => {
     if (isCardActionEvent(e)) {
       return;
@@ -1657,6 +1685,11 @@ function initUploadModal() {
       errDiv.style.display = 'none';
       errDiv.textContent = '';
     }
+    const colourChangeable = document.getElementById('oc_clipart_upload_colour_changeable');
+    if (colourChangeable) {
+      colourChangeable.checked = true;
+    }
+    setCheckedMethods('.oc-clipart-upload-method-check', []);
     currentFile = null;
   }
   function showStep2(file) {
@@ -1752,6 +1785,8 @@ function initUploadModal() {
     fd.append('action', 'oc_clipart_upload');
     fd.append('nonce', window.ocClipartNonce);
     fd.append('name', name);
+    fd.append('colour_changeable', document.getElementById('oc_clipart_upload_colour_changeable')?.checked ? '1' : '0');
+    checkedMethods('.oc-clipart-upload-method-check').forEach(method => fd.append('allowed_print_methods[]', method));
     fd.append('clipart_file', uploadFile);
     try {
       const res = await fetch(window.ocAjaxUrl, {
@@ -1808,6 +1843,7 @@ function openEditModal(id) {
   const preview = document.getElementById('oc-clipart-modal-preview-img');
   const errDiv = document.getElementById('oc-clipart-error');
   const delBtn = document.getElementById('oc-clipart-delete-btn');
+  const colourChangeable = document.getElementById('oc_clipart_colour_changeable');
   if (nameInp) {
     nameInp.value = item.name;
   }
@@ -1819,6 +1855,10 @@ function openEditModal(id) {
     errDiv.style.display = 'none';
     errDiv.textContent = '';
   }
+  if (colourChangeable) {
+    colourChangeable.checked = !!item.colourChangeable;
+  }
+  setCheckedMethods('.oc-clipart-method-check', item.allowedPrintMethods);
   if (delBtn) {
     delBtn.style.display = '';
   }
@@ -1837,6 +1877,7 @@ function initEditModal() {
   const saveBtn = document.getElementById('oc-clipart-save-btn');
   const deleteBtn = document.getElementById('oc-clipart-delete-btn');
   const nameInput = document.getElementById('oc_clipart_name');
+  const colourChangeable = document.getElementById('oc_clipart_colour_changeable');
   const errDiv = document.getElementById('oc-clipart-error');
   if (!modal) {
     return;
@@ -1877,8 +1918,10 @@ function initEditModal() {
       action: 'oc_clipart_rename',
       nonce: window.ocClipartNonce,
       id: editClipartId,
-      name
+      name,
+      colour_changeable: colourChangeable?.checked ? '1' : '0'
     });
+    checkedMethods('.oc-clipart-method-check').forEach(method => body.append('allowed_print_methods[]', method));
     try {
       const res = await fetch(window.ocAjaxUrl, {
         method: 'POST',
@@ -1897,7 +1940,11 @@ function initEditModal() {
       }
       const idx = clipart.findIndex(c => c.id === editClipartId);
       if (idx !== -1) {
-        clipart[idx].name = name;
+        clipart[idx] = normaliseClipart({
+          ...clipart[idx],
+          ...json.data,
+          name
+        });
         updateClipartGridUI();
       }
       closeModal();

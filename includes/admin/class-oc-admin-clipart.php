@@ -10,6 +10,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_Admin_Clipart {
 
 	private const CLIPART_SUBDIR = 'overcustomise/clipart';
+	private const PRINT_METHODS = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
 
 	/** Clear cached clipart and clipart-group data after manager changes. */
 	private static function clear_clipart_cache(): void {
@@ -57,11 +58,14 @@ class OC_Admin_Clipart {
 
 		// JS payload — clipart items.
 		$clipart_js = array_map( function ( $c ) {
+			$file_type = strtolower( (string) $c->file_type );
 			return [
 				'id'        => (int) $c->id,
 				'name'      => $c->name,
-				'fileType'   => $c->file_type,
-				'canConvert' => 'svg' !== strtolower( (string) $c->file_type ),
+				'fileType'   => $file_type,
+				'canConvert' => 'svg' !== $file_type,
+				'colourChangeable' => self::clipart_colour_changeable( $c ),
+				'allowedPrintMethods' => self::clipart_allowed_print_methods( $c ),
 				'url'       => self::get_clipart_url( $c->file_path ),
 				'active'    => (bool) $c->active,
 				'toggleUrl' => wp_nonce_url(
@@ -263,13 +267,26 @@ class OC_Admin_Clipart {
 						<div class="oc-clipart-modal-preview">
 							<img id="oc-clipart-modal-preview-img" src="" alt="" />
 						</div>
-						<div class="oc-upload-fields">
-							<div class="oc-upload-field">
-								<label for="oc_clipart_name"><?php esc_html_e( 'Clipart name', 'overcustomise' ); ?></label>
-								<input type="text" id="oc_clipart_name" class="oc-input" required
-								       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
-							</div>
+				<div class="oc-upload-fields">
+					<div class="oc-upload-field">
+						<label for="oc_clipart_name"><?php esc_html_e( 'Clipart name', 'overcustomise' ); ?></label>
+						<input type="text" id="oc_clipart_name" class="oc-input" required
+						       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
+					</div>
+					<div class="oc-upload-field">
+						<label><input type="checkbox" id="oc_clipart_colour_changeable" /> <?php esc_html_e( 'Colour changeable', 'overcustomise' ); ?></label>
+						<p class="description"><?php esc_html_e( 'Use only for simple one-colour SVG clipart. Leave off for full-colour artwork.', 'overcustomise' ); ?></p>
+					</div>
+					<div class="oc-upload-field">
+						<label><?php esc_html_e( 'Allowed print methods', 'overcustomise' ); ?></label>
+						<div class="oc-group-checks">
+							<?php foreach ( self::PRINT_METHODS as $method ) : ?>
+								<label class="oc-group-check-item"><input type="checkbox" class="oc-clipart-method-check" value="<?php echo esc_attr( $method ); ?>" /> <span><?php echo esc_html( self::print_method_label( $method ) ); ?></span></label>
+							<?php endforeach; ?>
 						</div>
+						<p class="description"><?php esc_html_e( 'No selection means available for all print methods.', 'overcustomise' ); ?></p>
+					</div>
+				</div>
 						<div id="oc-clipart-error" class="oc-upload-error" style="display:none;"></div>
 					</div>
 
@@ -348,13 +365,26 @@ class OC_Admin_Clipart {
 							<div class="oc-clipart-upload-preview">
 								<img id="oc-clipart-upload-preview-img" src="" alt="" />
 							</div>
-							<div class="oc-upload-fields">
-								<div class="oc-upload-field">
-									<label for="oc_clipart_upload_name"><?php esc_html_e( 'Clipart name', 'overcustomise' ); ?></label>
-									<input type="text" id="oc_clipart_upload_name" class="oc-input" required
-									       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
-								</div>
-							</div>
+				<div class="oc-upload-fields">
+					<div class="oc-upload-field">
+						<label for="oc_clipart_upload_name"><?php esc_html_e( 'Clipart name', 'overcustomise' ); ?></label>
+						<input type="text" id="oc_clipart_upload_name" class="oc-input" required
+						       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
+					</div>
+					<div class="oc-upload-field">
+						<label><input type="checkbox" id="oc_clipart_upload_colour_changeable" checked /> <?php esc_html_e( 'Colour changeable', 'overcustomise' ); ?></label>
+						<p class="description"><?php esc_html_e( 'Turn off for full-colour artwork that should keep its original colours.', 'overcustomise' ); ?></p>
+					</div>
+					<div class="oc-upload-field">
+						<label><?php esc_html_e( 'Allowed print methods', 'overcustomise' ); ?></label>
+						<div class="oc-group-checks">
+							<?php foreach ( self::PRINT_METHODS as $method ) : ?>
+								<label class="oc-group-check-item"><input type="checkbox" class="oc-clipart-upload-method-check" value="<?php echo esc_attr( $method ); ?>" /> <span><?php echo esc_html( self::print_method_label( $method ) ); ?></span></label>
+							<?php endforeach; ?>
+						</div>
+						<p class="description"><?php esc_html_e( 'No selection means available for all print methods.', 'overcustomise' ); ?></p>
+					</div>
+				</div>
 							<div id="oc-clipart-upload-error" class="oc-upload-error" style="display:none;"></div>
 						</div>
 					</div>
@@ -393,7 +423,10 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'Clipart name is required.', 'overcustomise' ) ] );
 		}
 
-		$result = self::do_upload( $_FILES['clipart_file'], $name );
+		$colour_changeable = ! empty( $_POST['colour_changeable'] );
+		$allowed_methods   = self::normalise_print_methods( $_POST['allowed_print_methods'] ?? [] );
+
+		$result = self::do_upload( $_FILES['clipart_file'], $name, $colour_changeable, $allowed_methods );
 
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( [ 'message' => $result->get_error_message() ] );
@@ -427,7 +460,7 @@ class OC_Admin_Clipart {
 		}
 
 		if ( 'svg' === strtolower( (string) $row->file_type ) ) {
-			wp_send_json_success( self::clipart_response( $id, (string) $row->name, (string) $row->file_path, 'svg', (bool) $row->active ) );
+			wp_send_json_success( self::clipart_response( $id, (string) $row->name, (string) $row->file_path, 'svg', (bool) $row->active, $row ) );
 		}
 
 		if ( ! empty( $_FILES['clipart_file'] ) && UPLOAD_ERR_OK === (int) $_FILES['clipart_file']['error'] ) {
@@ -459,7 +492,8 @@ class OC_Admin_Clipart {
 		}
 
 		self::clear_clipart_cache();
-		wp_send_json_success( self::clipart_response( $id, (string) $row->name, $converted, 'svg', (bool) $row->active ) );
+		$row->file_type = 'svg';
+		wp_send_json_success( self::clipart_response( $id, (string) $row->name, $converted, 'svg', (bool) $row->active, $row ) );
 	}
 
 	// ── AJAX: rename clipart ──────────────────────────────────────────────────
@@ -471,7 +505,9 @@ class OC_Admin_Clipart {
 		}
 
 		$id   = (int) ( $_POST['id'] ?? 0 );
-		$name = sanitize_text_field( $_POST['name'] ?? '' );
+		$name              = sanitize_text_field( $_POST['name'] ?? '' );
+		$colour_changeable = ! empty( $_POST['colour_changeable'] );
+		$allowed_methods   = self::normalise_print_methods( $_POST['allowed_print_methods'] ?? [] );
 
 		if ( ! $id || ! $name ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
@@ -480,16 +516,25 @@ class OC_Admin_Clipart {
 		global $wpdb;
 		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_clipart",
-			[ 'name' => $name ],
+			[
+				'name' => $name,
+				'colour_changeable' => (int) $colour_changeable,
+				'allowed_print_methods' => self::encode_print_methods( $allowed_methods ),
+			],
 			[ 'id'   => $id ],
-			[ '%s' ], [ '%d' ]
+			[ '%s', '%d', '%s' ], [ '%d' ]
 		);
 		if ( false === $updated ) {
 			wp_send_json_error( [ 'message' => __( 'Could not rename clipart.', 'overcustomise' ) ] );
 		}
 
 		self::clear_clipart_cache();
-		wp_send_json_success( [ 'id' => $id, 'name' => $name ] );
+		wp_send_json_success( [
+			'id' => $id,
+			'name' => $name,
+			'colourChangeable' => $colour_changeable,
+			'allowedPrintMethods' => $allowed_methods,
+		] );
 	}
 
 	// ── AJAX: clipart group create ────────────────────────────────────────────
@@ -653,7 +698,7 @@ class OC_Admin_Clipart {
 
 	// ── Private: save uploaded file to disk + DB ──────────────────────────────
 
-	private static function do_upload( array $file, string $name ): array|\WP_Error {
+	private static function do_upload( array $file, string $name, bool $colour_changeable = true, array $allowed_methods = [] ): array|\WP_Error {
 		$allowed_types = [
 			'svg'  => 'image/svg+xml',
 			'png'  => 'image/png',
@@ -726,9 +771,11 @@ class OC_Admin_Clipart {
 				'name'      => $name,
 				'file_path' => $dest,
 				'file_type' => 'svg',
+				'colour_changeable' => (int) $colour_changeable,
+				'allowed_print_methods' => self::encode_print_methods( $allowed_methods ),
 				'active'    => 1,
 			],
-			[ '%s', '%s', '%s', '%d' ]
+			[ '%s', '%s', '%s', '%d', '%s', '%d' ]
 		);
 		$id = (int) $wpdb->insert_id;
 		if ( false === $inserted || $id <= 0 ) {
@@ -741,6 +788,8 @@ class OC_Admin_Clipart {
 			'name'      => $name,
 				'fileType'   => 'svg',
 				'canConvert' => false,
+			'colourChangeable' => $colour_changeable,
+			'allowedPrintMethods' => $allowed_methods,
 			'url'       => self::get_clipart_url( $dest ),
 			'active'    => true,
 			'toggleUrl' => wp_nonce_url(
@@ -754,12 +803,14 @@ class OC_Admin_Clipart {
 		];
 	}
 
-	private static function clipart_response( int $id, string $name, string $path, string $file_type, bool $active ): array {
+	private static function clipart_response( int $id, string $name, string $path, string $file_type, bool $active, ?object $row = null ): array {
 		return [
 			'id'        => $id,
 			'name'      => $name,
 			'fileType'   => $file_type,
 			'canConvert' => 'svg' !== strtolower( $file_type ),
+			'colourChangeable' => $row ? self::clipart_colour_changeable( $row ) : true,
+			'allowedPrintMethods' => $row ? self::clipart_allowed_print_methods( $row ) : [],
 			'url'       => self::get_clipart_url( $path ),
 			'active'    => $active,
 			'toggleUrl' => wp_nonce_url(
@@ -771,6 +822,39 @@ class OC_Admin_Clipart {
 				'oc_clipart_delete_' . $id
 			),
 		];
+	}
+
+	private static function print_method_label( string $method ): string {
+		return match ( $method ) {
+			'engraving' => __( 'Engraving', 'overcustomise' ),
+			'uv' => __( 'UV Printing', 'overcustomise' ),
+			'embroidery' => __( 'Embroidery', 'overcustomise' ),
+			'sublimation' => __( 'Sublimation', 'overcustomise' ),
+			default => ucfirst( $method ),
+		};
+	}
+
+	private static function normalise_print_methods( mixed $methods ): array {
+		$methods = is_array( $methods ) ? $methods : [ $methods ];
+		return array_values( array_intersect( self::PRINT_METHODS, array_map( 'sanitize_key', $methods ) ) );
+	}
+
+	private static function encode_print_methods( array $methods ): string {
+		$methods = self::normalise_print_methods( $methods );
+		return empty( $methods ) ? '' : wp_json_encode( $methods );
+	}
+
+	private static function clipart_allowed_print_methods( object $row ): array {
+		$raw = isset( $row->allowed_print_methods ) ? (string) $row->allowed_print_methods : '';
+		if ( '' === trim( $raw ) ) {
+			return [];
+		}
+		$decoded = json_decode( $raw, true );
+		return self::normalise_print_methods( is_array( $decoded ) ? $decoded : explode( ',', $raw ) );
+	}
+
+	private static function clipart_colour_changeable( object $row ): bool {
+		return ! property_exists( $row, 'colour_changeable' ) || (bool) $row->colour_changeable;
 	}
 
 	private static function convert_file_to_svg( string $source_path ): string|\WP_Error {

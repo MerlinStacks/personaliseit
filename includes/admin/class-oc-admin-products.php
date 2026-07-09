@@ -938,6 +938,8 @@ class OC_Admin_Products {
 						'url'       => OC_Admin_Clipart::get_clipart_url( (string) $c->file_path ),
 						'active'    => (bool) $c->active,
 						'groupIds'  => $clipart_group_ids_by_item[ (int) $c->id ] ?? [],
+						'colourChangeable' => ! property_exists( $c, 'colour_changeable' ) || (bool) $c->colour_changeable,
+						'allowedPrintMethods' => self::normalise_clipart_print_methods( (string) ( $c->allowed_print_methods ?? '' ) ),
 					];
 				},
 				OC_DB::get_clipart( true )
@@ -1442,5 +1444,17 @@ class OC_Admin_Products {
 
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&duplicated=1' ) );
 		exit;
+	}
+
+	private static function normalise_clipart_print_methods( string $raw ): array {
+		if ( '' === trim( $raw ) ) {
+			return [];
+		}
+
+		$decoded = json_decode( $raw, true );
+		$methods = is_array( $decoded ) ? $decoded : explode( ',', $raw );
+		$allowed = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+
+		return array_values( array_intersect( $allowed, array_map( 'sanitize_key', $methods ) ) );
 	}
 }

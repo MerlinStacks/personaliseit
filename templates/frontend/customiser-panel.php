@@ -225,24 +225,35 @@ foreach ( $layers as $layer ) {
 									<p class="oc-settings-empty"><?php esc_html_e( 'Clipart is fixed for this product.', 'overcustomise' ); ?></p>
 								<?php else : ?>
 								<?php
-								if ( ! empty( $clipart_group_ids ) ) {
+								if ( isset( $clipart_by_layer[ (int) $layer->id ] ) ) {
+									$items = array_map( static function ( array $item ) {
+										return (object) [
+											'id' => $item['id'] ?? 0,
+											'name' => $item['name'] ?? '',
+											'url' => $item['url'] ?? '',
+											'file_type' => $item['fileType'] ?? 'svg',
+											'recolourable' => ! empty( $item['recolourable'] ),
+											'group_names' => implode( '||', $item['groupNames'] ?? [] ),
+										];
+									}, $clipart_by_layer[ (int) $layer->id ] );
+								} elseif ( ! empty( $clipart_group_ids ) ) {
 									global $wpdb;
 									$phs   = implode( ',', array_fill( 0, count( $clipart_group_ids ), '%d' ) );
 									$items = $wpdb->get_results( $wpdb->prepare(
-										"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
+										"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, c.colour_changeable, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
 										 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 										 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 										 WHERE gi.group_id IN ($phs) AND c.active = 1
-										 GROUP BY c.id, c.name, c.file_path, c.file_type ORDER BY c.name ASC",
+										 GROUP BY c.id, c.name, c.file_path, c.file_type, c.colour_changeable ORDER BY c.name ASC",
 										...$clipart_group_ids
 									) ) ?: [];
 								} else {
 									global $wpdb;
-									$items = $wpdb->get_results( "SELECT id, name, file_path, file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
+									$items = $wpdb->get_results( "SELECT id, name, file_path, file_type, colour_changeable, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
 									 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 									 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 									 WHERE c.active = 1
-									 GROUP BY c.id, c.name, c.file_path, c.file_type ORDER BY c.name ASC" ) ?: [];
+									 GROUP BY c.id, c.name, c.file_path, c.file_type, c.colour_changeable ORDER BY c.name ASC" ) ?: [];
 								}
 								$group_names = [];
 								foreach ( $items as $ci ) {
@@ -275,15 +286,16 @@ foreach ( $layers as $layer ) {
 								<?php endif; ?>
 								<div class="oc-clipart-grid<?php echo 'carousel' === $clipart_display ? ' oc-clipart-grid--carousel' : ''; ?>" data-oc-clipart-grid="<?php echo esc_attr( $layer->id ); ?>">
 									<?php foreach ( $items as $ci ) :
-										$curl = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $ci->file_path );
+										$curl = ! empty( $ci->url ) ? (string) $ci->url : $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $ci->file_path );
 										$ci_group_names = $ci->group_names ? array_filter( array_map( 'trim', explode( '||', $ci->group_names ) ) ) : [];
 										$ci_groups_attr = implode( '||', $ci_group_names );
+										$ci_recolourable = property_exists( $ci, 'recolourable' ) ? (bool) $ci->recolourable : ( ( ! property_exists( $ci, 'colour_changeable' ) || (bool) $ci->colour_changeable ) && 'svg' === strtolower( (string) $ci->file_type ) );
 										?>
 										<button type="button" class="oc-clipart-item"
 											data-oc-clipart="<?php echo esc_attr( $ci->id ); ?>"
 											data-oc-layer-clipart="<?php echo esc_attr( $layer->id ); ?>"
 											data-oc-clipart-url="<?php echo esc_attr( $curl ); ?>"
-										data-oc-clipart-recolourable="<?php echo 'svg' === strtolower( (string) $ci->file_type ) ? '1' : '0'; ?>"
+										data-oc-clipart-recolourable="<?php echo $ci_recolourable ? '1' : '0'; ?>"
 										data-oc-clipart-groups="<?php echo esc_attr( $ci_groups_attr ); ?>"
 										title="<?php echo esc_attr( $ci->name ); ?>"
 										aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart', 'overcustomise' ), $ci->name ) ); ?>"

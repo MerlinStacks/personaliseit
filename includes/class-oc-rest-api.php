@@ -782,6 +782,10 @@ class OC_Rest_API {
 		}
 
 		$design_layers = [];
+		$print_methods_by_area = [];
+		foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
+			$print_methods_by_area[ absint( $area->id ?? 0 ) ] = sanitize_key( (string) ( $area->print_method ?? '' ) );
+		}
 		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
 			$layer_id = isset( $layer->id ) ? absint( $layer->id ) : 0;
 			if ( ! $layer_id ) continue;
@@ -790,6 +794,7 @@ class OC_Rest_API {
 			$settings = $layer->settings ? json_decode( (string) $layer->settings, true ) : [];
 			$design_layers[ $layer_id ] = [
 				'type'     => $layer_type,
+				'printMethod' => $print_methods_by_area[ absint( $layer->area_id ?? 0 ) ] ?? '',
 				'settings' => is_array( $settings ) ? $settings : [],
 			];
 		}
@@ -854,6 +859,24 @@ class OC_Rest_API {
 				}
 			}
 
+			$clipart_id = absint( $layer_data['clipartId'] ?? 0 );
+			$clipart_recolourable = false;
+			if ( 'clipart' === $type && $clipart_id > 0 ) {
+				global $wpdb;
+				$clipart_row = $wpdb->get_row( $wpdb->prepare(
+					"SELECT file_type, colour_changeable, allowed_print_methods FROM {$wpdb->prefix}oc_clipart WHERE id = %d AND active = 1 LIMIT 1",
+					$clipart_id
+				) );
+				if ( $clipart_row ) {
+					$allowed_methods = self::normalise_clipart_print_methods( (string) ( $clipart_row->allowed_print_methods ?? '' ) );
+					$print_method = $design_layers[ $layer_key ]['printMethod'] ?? '';
+					if ( ! empty( $allowed_methods ) && ! in_array( $print_method, $allowed_methods, true ) ) {
+						return new \WP_Error( 'invalid_clipart', __( 'Selected clipart is not available for this print method.', 'overcustomise' ), [ 'status' => 400 ] );
+					}
+					$clipart_recolourable = ( ! property_exists( $clipart_row, 'colour_changeable' ) || (bool) $clipart_row->colour_changeable ) && 'svg' === strtolower( (string) $clipart_row->file_type );
+				}
+			}
+
 			$sanitised_layers[ $layer_key ] = [
 				'type'         => $type,
 				'value'        => is_scalar( $layer_data['value'] ?? null ) ? sanitize_text_field( (string) $layer_data['value'] ) : '',
@@ -861,9 +884,9 @@ class OC_Rest_API {
 				'fontSize'     => $font_size,
 				'colorHex'     => $color_hex,
 				'attachmentId' => absint( $layer_data['attachmentId'] ?? 0 ),
-				'clipartId'    => absint( $layer_data['clipartId'] ?? 0 ),
+				'clipartId'    => $clipart_id,
 				'clipartUrl'   => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
-				'clipartRecolourable' => ! empty( $layer_data['clipartRecolourable'] ),
+				'clipartRecolourable' => $clipart_recolourable,
 			];
 		}
 
@@ -921,6 +944,18 @@ class OC_Rest_API {
 		}
 
 		return rest_ensure_response( [ 'success' => true ] );
+	}
+
+	private static function normalise_clipart_print_methods( string $raw ): array {
+		if ( '' === trim( $raw ) ) {
+			return [];
+		}
+
+		$decoded = json_decode( $raw, true );
+		$methods = is_array( $decoded ) ? $decoded : explode( ',', $raw );
+		$allowed = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+
+		return array_values( array_intersect( $allowed, array_map( 'sanitize_key', $methods ) ) );
 	}
 
 }

@@ -1010,9 +1010,13 @@ __webpack_require__.r(__webpack_exports__);
     const value = current === 'carousel' ? 'carousel' : 'grid';
     return '<select id="oc-set-clipart-display" class="oc-input" style="width:100%;">' + '<option value="grid"' + (value === 'grid' ? ' selected' : '') + '>Grid</option>' + '<option value="carousel"' + (value === 'carousel' ? ' selected' : '') + '>One-row scroll with arrows and dots</option>' + '</select>';
   }
-  function clipartForSelectedGroups(items, groupIds) {
+  function clipartAllowedForMethod(item, printMethod) {
+    const allowed = Array.isArray(item.allowedPrintMethods) ? item.allowedPrintMethods : [];
+    return !allowed.length || allowed.includes(printMethod);
+  }
+  function clipartForSelectedGroups(items, groupIds, printMethod = '') {
     const selected = selectedGroupIds(groupIds);
-    const activeItems = (items || []).filter(item => item.active !== false);
+    const activeItems = (items || []).filter(item => item.active !== false && clipartAllowedForMethod(item, printMethod));
     if (!selected.length) {
       return activeItems;
     }
@@ -1025,7 +1029,7 @@ __webpack_require__.r(__webpack_exports__);
     const item = (items || []).find(c => Number(c.id) === Number(clipartId || 0));
     settings.default_clipart_id = item ? Number(item.id) : 0;
     settings.default_clipart_url = item ? item.url || '' : '';
-    settings.default_clipart_recolourable = item ? item.fileType === 'svg' : false;
+    settings.default_clipart_recolourable = item ? item.fileType === 'svg' && item.colourChangeable !== false : false;
   }
   function ensureDefaultClipartInList(settings, items) {
     if (!settings.default_clipart_id) {
@@ -1155,10 +1159,11 @@ __webpack_require__.r(__webpack_exports__);
     const fonts = data.fonts || [];
     const colours = data.colours || [];
     const cGroups = data.colourGroups || [];
-    const aGroups = data.clipartGroups || [];
-    const allClipartItems = clipartForSelectedGroups(data.clipartItems || [], []);
     // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
     const area = areas[selectedIndex];
+    const printMethod = area?.method || '';
+    const aGroups = data.clipartGroups || [];
+    const allClipartItems = clipartForSelectedGroups(data.clipartItems || [], [], printMethod);
     const isEngraving = area && area.method === 'engraving';
     const fontGroupIds = selectedGroupIds(s.font_groups);
     const colourGroupIds = selectedGroupIds(s.colour_groups);
@@ -1371,13 +1376,14 @@ __webpack_require__.r(__webpack_exports__);
     document.querySelectorAll('.oc-ag-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.clipart_groups = [...document.querySelectorAll('.oc-ag-check:checked')].map(c => Number(c.value));
+        ensureDefaultClipartInList(s, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups, area?.method || ''));
         renderRightColumn();
         renderHiddenFields();
         markDirty();
       });
     });
     document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
-      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], []));
+      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], [], area?.method || ''));
       renderCanvas();
       renderHiddenFields();
       markDirty();

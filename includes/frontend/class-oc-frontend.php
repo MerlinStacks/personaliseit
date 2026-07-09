@@ -345,7 +345,7 @@ class OC_Frontend {
 		}, $all_colours );
 
 		// Clipart items grouped per clipart layer.
-		$clipart_by_layer = $this->build_clipart_by_layer( $layers );
+		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		foreach ( $layers as $layer ) {
 			if ( 'clipart' !== $layer->type ) continue;
 			$layer_id = (int) $layer->id;
@@ -368,14 +368,14 @@ class OC_Frontend {
 			if ( ! empty( $layer_inputs[ $layer_id ]['clipartUrl'] ) ) continue;
 
 			$default_clipart = $wpdb->get_row( $wpdb->prepare(
-				"SELECT id, file_path, file_type FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
+				"SELECT id, file_path, file_type, colour_changeable, allowed_print_methods FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
 				$default_clipart_id
 			) );
 			if ( $default_clipart && ! empty( $default_clipart->file_path ) ) {
 				$upload_dir = wp_upload_dir();
 				$layer_inputs[ $layer_id ]['clipartId'] = (int) $default_clipart->id;
 				$layer_inputs[ $layer_id ]['clipartUrl'] = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $default_clipart->file_path );
-				$layer_inputs[ $layer_id ]['clipartRecolourable'] = 'svg' === strtolower( (string) $default_clipart->file_type );
+				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ( ! property_exists( $default_clipart, 'colour_changeable' ) || (bool) $default_clipart->colour_changeable ) && 'svg' === strtolower( (string) $default_clipart->file_type );
 				continue;
 			}
 
@@ -521,18 +521,26 @@ class OC_Frontend {
 			return '';
 		}
 
+		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
+
 		ob_start();
 		include $template;
 		return (string) ob_get_clean();
 	}
 
 	/** Load clipart items for all clipart layers. */
-	private function build_clipart_by_layer( ?array $layers = null ): array {
+	private function build_clipart_by_layer( ?array $layers = null, ?array $areas = null ): array {
 		global $wpdb;
 
 		$by_layer   = [];
 		$upload_dir = wp_upload_dir();
 		$layers     = $layers ?? $this->layers;
+		$areas      = $areas ?? $this->areas;
+
+		$methods_by_area = [];
+		foreach ( $areas as $area ) {
+			$methods_by_area[ (int) $area->id ] = sanitize_key( (string) ( $area->print_method ?? '' ) );
+		}
 
 		foreach ( $layers as $layer ) {
 			if ( $layer->type !== 'clipart' ) continue;
@@ -545,27 +553,33 @@ class OC_Frontend {
 				$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
 				$items = $wpdb->get_results(
 					$wpdb->prepare(
-						"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
+						"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, c.colour_changeable, c.allowed_print_methods, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
 						 FROM {$wpdb->prefix}oc_clipart c
 						 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 						 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 						 WHERE gi.group_id IN ($placeholders) AND c.active = 1
-						 GROUP BY c.id, c.name, c.file_path, c.file_type
+						 GROUP BY c.id, c.name, c.file_path, c.file_type, c.colour_changeable, c.allowed_print_methods
 						 ORDER BY c.name ASC",
 						...$group_ids
 					)
 				) ?: [];
 			} else {
 				$items = $wpdb->get_results(
-					"SELECT c.id, c.name, c.file_path, c.file_type, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
+					"SELECT c.id, c.name, c.file_path, c.file_type, c.colour_changeable, c.allowed_print_methods, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names
 					 FROM {$wpdb->prefix}oc_clipart c
 					 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
 					 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
 					 WHERE c.active = 1
-					 GROUP BY c.id, c.name, c.file_path, c.file_type
+					 GROUP BY c.id, c.name, c.file_path, c.file_type, c.colour_changeable, c.allowed_print_methods
 					 ORDER BY c.name ASC"
 				) ?: [];
 			}
+
+			$print_method = $methods_by_area[ (int) $layer->area_id ] ?? '';
+			$items = array_values( array_filter( $items, function ( $item ) use ( $print_method ) {
+				$allowed = self::normalise_clipart_print_methods( (string) ( $item->allowed_print_methods ?? '' ) );
+				return empty( $allowed ) || in_array( $print_method, $allowed, true );
+			} ) );
 
 			$by_layer[ $layer_id ] = array_map( function ( $item ) use ( $upload_dir ) {
 				$url = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $item->file_path );
@@ -575,13 +589,26 @@ class OC_Frontend {
 					'name'       => $item->name,
 					'url'        => $url,
 					'fileType'   => (string) $item->file_type,
-					'recolourable' => 'svg' === strtolower( (string) $item->file_type ),
+					'recolourable' => ( ! property_exists( $item, 'colour_changeable' ) || (bool) $item->colour_changeable ) && 'svg' === strtolower( (string) $item->file_type ),
+					'allowedPrintMethods' => self::normalise_clipart_print_methods( (string) ( $item->allowed_print_methods ?? '' ) ),
 					'groupNames' => $groupNames,
 				];
 			}, $items );
 		}
 
 		return $by_layer;
+	}
+
+	private static function normalise_clipart_print_methods( string $raw ): array {
+		if ( '' === trim( $raw ) ) {
+			return [];
+		}
+
+		$decoded = json_decode( $raw, true );
+		$methods = is_array( $decoded ) ? $decoded : explode( ',', $raw );
+		$allowed = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+
+		return array_values( array_intersect( $allowed, array_map( 'sanitize_key', $methods ) ) );
 	}
 
 	// ── Panel injection ───────────────────────────────────────────────────────
@@ -612,6 +639,7 @@ class OC_Frontend {
 		$design = $this->design;
 		$areas  = $this->areas;
 		$layers = $this->layers;
+		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		$design_variants = $this->design_variants;
 
 		include $template;
@@ -661,6 +689,7 @@ class OC_Frontend {
 
 		$posted_design_id = absint( $data['designId'] ?? 0 );
 		$validation_layers = $layers;
+		$validation_areas  = $areas;
 		if ( $posted_design_id && $posted_design_id !== (int) $design->id ) {
 			$allowed_design_ids = array_map( fn( $variant ) => absint( $variant['designId'] ?? 0 ), $this->design_variants );
 			$is_allowed_design = in_array( $posted_design_id, $allowed_design_ids, true )
@@ -671,6 +700,12 @@ class OC_Frontend {
 				return false;
 			}
 			$validation_layers = OC_DB::get_design_layers( $posted_design_id );
+			$validation_areas  = OC_DB::get_design_print_areas( $posted_design_id );
+		}
+
+		$print_methods_by_area = [];
+		foreach ( $validation_areas as $area ) {
+			$print_methods_by_area[ (int) $area->id ] = sanitize_key( (string) ( $area->print_method ?? '' ) );
 		}
 
 		// Check layer requirements and hard validation rules before cart insert.
@@ -724,6 +759,13 @@ class OC_Frontend {
 
 				case 'clipart':
 					$filled = ! empty( $input['clipartId'] );
+					if ( $filled && ! $this->clipart_allowed_for_print_method( absint( $input['clipartId'] ), $print_methods_by_area[ (int) $layer->area_id ] ?? '' ) ) {
+						wc_add_notice(
+							sprintf( __( 'Please choose a compatible clipart for "%s".', 'overcustomise' ), $label ),
+							'error'
+						);
+						return false;
+					}
 					break;
 
 				case 'spotify':
@@ -786,6 +828,25 @@ class OC_Frontend {
 		}
 
 		return $passed;
+	}
+
+	private function clipart_allowed_for_print_method( int $clipart_id, string $print_method ): bool {
+		if ( $clipart_id <= 0 ) {
+			return true;
+		}
+
+		global $wpdb;
+		$row = $wpdb->get_row( $wpdb->prepare(
+			"SELECT allowed_print_methods FROM {$wpdb->prefix}oc_clipart WHERE id = %d AND active = 1 LIMIT 1",
+			$clipart_id
+		) );
+
+		if ( ! $row ) {
+			return false;
+		}
+
+		$allowed = self::normalise_clipart_print_methods( (string) ( $row->allowed_print_methods ?? '' ) );
+		return empty( $allowed ) || in_array( sanitize_key( $print_method ), $allowed, true );
 	}
 
 	/** Return UTF-8 character length when mbstring is available. */

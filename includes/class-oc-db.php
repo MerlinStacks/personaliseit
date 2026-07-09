@@ -136,6 +136,8 @@ class OC_DB {
 			name       VARCHAR(100) NOT NULL,
 			file_path  VARCHAR(500) NOT NULL,
 			file_type  VARCHAR(10)  NOT NULL DEFAULT 'svg',
+			colour_changeable TINYINT(1) NOT NULL DEFAULT 1,
+			allowed_print_methods TEXT NULL,
 			active     TINYINT(1) NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id)
@@ -436,6 +438,22 @@ class OC_DB {
 							 ADD COLUMN engraving_material VARCHAR(30) NOT NULL DEFAULT 'silver_metal' AFTER print_method"
 						);
 					}
+				}
+			}
+
+			if ( version_compare( $installed, '1.13.3', '<' ) ) {
+				$table_name = $wpdb->prefix . 'oc_clipart';
+				if ( ! self::column_exists( $table_name, 'colour_changeable' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN colour_changeable TINYINT(1) NOT NULL DEFAULT 1 AFTER file_type"
+					);
+				}
+				if ( ! self::column_exists( $table_name, 'allowed_print_methods' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN allowed_print_methods TEXT NULL AFTER colour_changeable"
+					);
 				}
 			}
 
