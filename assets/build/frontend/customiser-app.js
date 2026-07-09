@@ -26889,6 +26889,9 @@ class OCCustomiser {
   }
   isVisibleSvgGraphicElement(element) {
     const tagName = element.localName.toLowerCase();
+    if (this.isInSvgDefinitionTree(element)) {
+      return false;
+    }
     const graphicTags = ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line', 'text', 'image', 'use'];
     if (!graphicTags.includes(tagName)) {
       return false;
@@ -26901,6 +26904,17 @@ class OCCustomiser {
       return true;
     }
     return style.fill !== 'none' || style.stroke !== 'none';
+  }
+  isInSvgDefinitionTree(element) {
+    const nonRenderedContainers = ['defs', 'clippath', 'mask', 'pattern', 'symbol', 'marker', 'filter', 'lineargradient', 'radialgradient'];
+    let parent = element.parentElement;
+    while (parent) {
+      if (nonRenderedContainers.includes(parent.localName.toLowerCase())) {
+        return true;
+      }
+      parent = parent.parentElement;
+    }
+    return false;
   }
   svgElementRootBounds(element) {
     if (typeof element.getBBox !== 'function') {
