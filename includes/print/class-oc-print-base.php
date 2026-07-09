@@ -891,10 +891,16 @@ abstract class OC_Print_Base {
 			$textarea_wraps = str_contains( $text, "\n" ) || (int) $pdf->getNumLines( $text, $w_mm ) > 1;
 		}
 
-		if ( 'engraving' === $mode && is_object( $font ) && ! $textarea_wraps ) {
+		if ( 'engraving' === $mode && is_object( $font ) ) {
 			$font_path = self::get_font_path( $font );
-			if ( is_string( $font_path ) && '' !== $font_path && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align ) ) {
-				return;
+			if ( is_string( $font_path ) && '' !== $font_path ) {
+				if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align, $valign ) ) {
+					return;
+				}
+
+				if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align ) ) {
+					return;
+				}
 			}
 		}
 
@@ -992,6 +998,111 @@ abstract class OC_Print_Base {
 				@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
 		}
+	}
+
+	private static function render_engraving_multiline_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign ): bool {
+		$lines = self::wrap_engraving_outline_lines( $text, $font_path, $font_size, self::mm_to_pt_value( $w_mm ) );
+		if ( empty( $lines ) ) {
+			return false;
+		}
+
+		$line_h = self::cell_h( $font_size );
+		$total_h = min( $h_mm, count( $lines ) * $line_h );
+		$offset_y = match ( $valign ) {
+			'T' => 0.0,
+			'B' => max( 0.0, $h_mm - $total_h ),
+			default => max( 0.0, ( $h_mm - $total_h ) / 2 ),
+		};
+
+		$rendered = false;
+		foreach ( $lines as $index => $line ) {
+			$line_y = $y_mm + $offset_y + ( $index * $line_h );
+			if ( $line_y + $line_h > $y_mm + $h_mm + 0.001 ) {
+				break;
+			}
+
+			$rendered = self::render_engraving_text_outline( $pdf, $line, $font_path, $font_size, $x_mm, $line_y, $w_mm, $line_h, $align ) || $rendered;
+		}
+
+		return $rendered;
+	}
+
+	/** @return string[] */
+	private static function wrap_engraving_outline_lines( string $text, string $font_path, float $font_size, float $max_width_pt ): array {
+		$lines = [];
+		foreach ( preg_split( '/\R/u', $text ) ?: [] as $paragraph ) {
+			$paragraph = trim( (string) $paragraph );
+			if ( '' === $paragraph ) {
+				continue;
+			}
+
+			$current = '';
+			foreach ( preg_split( '/\s+/u', $paragraph ) ?: [] as $word ) {
+				$word = (string) $word;
+				$candidate = '' === $current ? $word : $current . ' ' . $word;
+				if ( self::engraving_outline_text_width( $font_path, $candidate, $font_size ) <= $max_width_pt ) {
+					$current = $candidate;
+					continue;
+				}
+
+				if ( '' !== $current ) {
+					$lines[] = $current;
+				}
+
+				if ( self::engraving_outline_text_width( $font_path, $word, $font_size ) <= $max_width_pt ) {
+					$current = $word;
+				} else {
+					$split = self::wrap_engraving_outline_word( $word, $font_path, $font_size, $max_width_pt );
+					$lines = array_merge( $lines, array_slice( $split, 0, -1 ) );
+					$current = (string) end( $split );
+				}
+			}
+
+			if ( '' !== $current ) {
+				$lines[] = $current;
+			}
+		}
+
+		return $lines;
+	}
+
+	/** @return string[] */
+	private static function wrap_engraving_outline_word( string $word, string $font_path, float $font_size, float $max_width_pt ): array {
+		$chars = preg_split( '//u', $word, -1, PREG_SPLIT_NO_EMPTY ) ?: str_split( $word );
+		$lines = [];
+		$current = '';
+
+		foreach ( $chars as $char ) {
+			$candidate = $current . $char;
+			if ( '' === $current || self::engraving_outline_text_width( $font_path, $candidate, $font_size ) <= $max_width_pt ) {
+				$current = $candidate;
+				continue;
+			}
+
+			$lines[] = $current;
+			$current = $char;
+		}
+
+		if ( '' !== $current ) {
+			$lines[] = $current;
+		}
+
+		return $lines;
+	}
+
+	private static function engraving_outline_text_width( string $font_path, string $text, float $font_size ): float {
+		if ( '' === $text || ! class_exists( 'OC_Print_Embroidery' ) || ! method_exists( 'OC_Print_Embroidery', 'ttf_text_outline' ) ) {
+			return 0.0;
+		}
+
+		try {
+			$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
+			$outline = $method->invoke( null, $font_path, $text, $font_size );
+		} catch ( \Throwable $e ) {
+			return 0.0;
+		}
+
+		return is_array( $outline ) ? max( 0.0, (float) ( $outline['width'] ?? 0.0 ) ) : 0.0;
 	}
 
 	private static function eps_outline_commands_to_svg_path( array $commands ): string {
