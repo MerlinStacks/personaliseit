@@ -25783,7 +25783,7 @@ class OCCustomiser {
       case 'text':
       case 'textarea':
         {
-          const raw = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(input.value) : input.value || '').trim();
+          const raw = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(input.value) : input.value || '').replace(/\r\n?/g, '\n').trim();
           if (!raw) break;
           const isSingleLineText = layer.type === 'text';
           const lineAlign = ['top', 'center', 'bottom'].includes(layer.settings?.line_alignment) ? layer.settings.line_alignment : 'top';
@@ -25922,13 +25922,25 @@ class OCCustomiser {
             return this.textFitsBox(raw, font, size, layer.settings, lw, lh, true);
           };
           const fittingFloor = minFontSize || 4;
-          while (isSingleLineText && !fitsTextLayer(fontSize) && fontSize > fittingFloor) {
+          while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
             fontSize = Math.max(fittingFloor, fontSize - 1);
             textPadding = this.textRenderPadding(fontSize);
             obj.set({
               fontSize,
               padding: textPadding
             });
+            if (stitchPad) {
+              stitchPad.set({
+                fontSize,
+                padding: textPadding
+              });
+            }
+            if (stitchLift) {
+              stitchLift.set({
+                fontSize,
+                padding: textPadding
+              });
+            }
           }
           obj.initDimensions?.();
           const textareaScale = isSingleLineText ? 1 : 1;

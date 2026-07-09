@@ -580,9 +580,17 @@ abstract class OC_Print_Base {
 		string $text,
 		float $w_mm,
 		float $h_mm,
-		float $font_size_pt
+		float $font_size_pt,
+		bool $multiline = false
 	): bool {
-		return $pdf->GetStringWidth( $text ) <= $w_mm && self::cell_h( $font_size_pt ) <= $h_mm;
+		$cell_h = self::cell_h( $font_size_pt );
+		if ( $multiline ) {
+			$lines = max( 1, (int) $pdf->getNumLines( $text, $w_mm ) );
+
+			return $lines * $cell_h <= $h_mm;
+		}
+
+		return $pdf->GetStringWidth( $text ) <= $w_mm && $cell_h <= $h_mm;
 	}
 
 	/** Draw text constrained to the supplied box. */
@@ -595,18 +603,30 @@ abstract class OC_Print_Base {
 		string $text,
 		float $cell_h,
 		string $align = 'C',
-		string $valign = 'C'
+		string $valign = 'C',
+		bool $multiline = false
 	): void {
+		if ( $multiline ) {
+			$line_count = max( 1, (int) $pdf->getNumLines( $text, $w_mm ) );
+			$content_h = min( $h_mm, $line_count * $cell_h );
+		} else {
+			$content_h = $cell_h;
+		}
+
 		$offset_y = match ( $valign ) {
 			'T' => 0.0,
-			'B' => max( 0.0, $h_mm - $cell_h ),
-			default => max( 0.0, ( $h_mm - $cell_h ) / 2 ),
+			'B' => max( 0.0, $h_mm - $content_h ),
+			default => max( 0.0, ( $h_mm - $content_h ) / 2 ),
 		};
 
 		$pdf->StartTransform();
 		$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
 		$pdf->SetXY( $x_mm, $y_mm + $offset_y );
-		$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
+		if ( $multiline ) {
+			$pdf->MultiCell( $w_mm, $cell_h, $text, 0, $align, false, 1, $x_mm, $y_mm + $offset_y );
+		} else {
+			$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
+		}
 		$pdf->StopTransform();
 	}
 
@@ -766,7 +786,8 @@ abstract class OC_Print_Base {
 	}
 
 	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
-		$text = trim( (string) ( $input['value'] ?? '' ) );
+		$is_textarea = 'textarea' === (string) ( $layer['type'] ?? '' );
+		$text        = trim( str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) ) );
 		if ( '' === $text ) {
 			return;
 		}
@@ -791,7 +812,7 @@ abstract class OC_Print_Base {
 
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			if ( self::text_fits_box( $pdf, $text, $w_mm, $h_mm, $font_size ) ) {
+			if ( self::text_fits_box( $pdf, $text, $w_mm, $h_mm, $font_size, $is_textarea ) ) {
 				break;
 			}
 			$font_size -= 0.5;
@@ -801,14 +822,14 @@ abstract class OC_Print_Base {
 		if ( ! in_array( $align, [ 'L', 'C', 'R' ], true ) ) {
 			$align = 'C';
 		}
-		$valign_setting = 'textarea' === (string) ( $layer['type'] ?? '' ) ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center';
+		$valign_setting = $is_textarea ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center';
 		$valign = match ( $valign_setting ) {
 			'top' => 'T',
 			'bottom' => 'B',
 			default => 'C',
 		};
 
-		if ( 'engraving' === $mode && is_object( $font ) ) {
+		if ( 'engraving' === $mode && is_object( $font ) && ! ( $is_textarea && str_contains( $text, "\n" ) ) ) {
 			$font_path = self::get_font_path( $font );
 			if ( is_string( $font_path ) && '' !== $font_path && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align ) ) {
 				return;
@@ -824,7 +845,7 @@ abstract class OC_Print_Base {
 		}
 
 		$cell_h = self::cell_h( $font_size );
-		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align, $valign );
+		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align, $valign, $is_textarea );
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
