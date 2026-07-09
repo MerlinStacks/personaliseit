@@ -920,25 +920,32 @@ class OC_DB {
 	}
 
 	/** Fetch a page of designs with their print area counts. */
-	public static function get_designs_with_area_counts_paginated( int $page = 1, int $per_page = 50 ): array {
+	public static function get_designs_with_area_counts_paginated( int $page = 1, int $per_page = 50, string $search = '' ): array {
 		global $wpdb;
 
 		$page     = max( 1, $page );
 		$per_page = max( 1, $per_page );
 		$offset   = ( $page - 1 ) * $per_page;
-		$total    = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}oc_designs" );
-		$items    = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT d.*, COUNT(a.id) AS area_count
-				 FROM {$wpdb->prefix}oc_designs d
-				 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
-				 GROUP BY d.id
-				 ORDER BY d.name ASC
-				 LIMIT %d OFFSET %d",
-				$per_page,
-				$offset
-			)
-		) ?: [];
+		$search   = trim( $search );
+		$where    = '';
+		$args     = [];
+
+		if ( '' !== $search ) {
+			$where  = ' WHERE d.name LIKE %s';
+			$args[] = '%' . $wpdb->esc_like( $search ) . '%';
+		}
+
+		$total_sql = "SELECT COUNT(*) FROM {$wpdb->prefix}oc_designs d" . $where;
+		$total     = (int) ( empty( $args ) ? $wpdb->get_var( $total_sql ) : $wpdb->get_var( $wpdb->prepare( $total_sql, ...$args ) ) );
+
+		$items_sql = "SELECT d.*, COUNT(a.id) AS area_count
+			 FROM {$wpdb->prefix}oc_designs d
+			 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
+			 {$where}
+			 GROUP BY d.id
+			 ORDER BY d.name ASC
+			 LIMIT %d OFFSET %d";
+		$items     = $wpdb->get_results( $wpdb->prepare( $items_sql, ...array_merge( $args, [ $per_page, $offset ] ) ) ) ?: [];
 
 		return [
 			'items'       => $items,

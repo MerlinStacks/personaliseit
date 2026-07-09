@@ -855,7 +855,7 @@ class OCCustomiser {
 					if ( isSingleLineText || ! target ) return;
 
 					target.initDimensions?.();
-					const contentH = Math.min( Math.max( Number( target.height || 0 ), 0 ), lh );
+					const contentH = Math.min( Math.max( Number( target.getScaledHeight?.() || target.height || 0 ), 0 ), lh );
 					const freeY = Math.max( 0, ( lh - contentH ) / 2 );
 					const localY = lineAlign === 'bottom' ? freeY : ( lineAlign === 'center' ? 0 : -freeY );
 					const rad = rotation * Math.PI / 180;
@@ -968,6 +968,12 @@ class OCCustomiser {
 					obj.set( { fontSize, padding: textPadding } );
 					obj.initDimensions?.();
 				}
+				const textareaScale = isSingleLineText
+					? 1
+					: this.textareaFitScale( obj, lw, lh, fontSize );
+				if ( ! isSingleLineText ) {
+					obj.set( { scaleX: textareaScale, scaleY: textareaScale } );
+				}
 				textareaPosition( obj );
 				obj.setCoords?.();
 				const measuredText = this.measureSingleLineText(
@@ -980,15 +986,19 @@ class OCCustomiser {
 					1,
 					Math.ceil( measuredText.width + textPadding * 2 )
 				);
+				const singleLineScaleX = isSingleLineText
+					? Math.min( 1, singleLineMaxWidth / renderedWidth )
+					: 1;
 				if ( isSingleLineText ) {
 					let alignedLeft = lcX;
 					let alignedTop = lcY;
 					let alignmentOffset = 0;
+					const renderedDisplayWidth = renderedWidth * singleLineScaleX;
 
 					if ( align === 'left' ) {
-						alignmentOffset = -lw / 2 + anchorPad + renderedWidth / 2;
+						alignmentOffset = -lw / 2 + anchorPad + renderedDisplayWidth / 2;
 					} else if ( align === 'right' ) {
-						alignmentOffset = lw / 2 - anchorPad - renderedWidth / 2;
+						alignmentOffset = lw / 2 - anchorPad - renderedDisplayWidth / 2;
 					}
 
 					if ( alignmentOffset ) {
@@ -997,7 +1007,7 @@ class OCCustomiser {
 						alignedTop += alignmentOffset * Math.sin( rad );
 					}
 
-					obj.set( { left: alignedLeft, top: alignedTop, scaleX: 1 } );
+					obj.set( { left: alignedLeft, top: alignedTop, scaleX: singleLineScaleX } );
 					obj.initDimensions?.();
 					obj.setCoords?.();
 					this.centerObjectBounds( obj, alignedLeft, alignedTop, rotation );
@@ -1018,8 +1028,9 @@ class OCCustomiser {
 						padding: textPadding,
 					} );
 					if ( isSingleLineText ) {
-						stitchPad.set( { scaleX: 1 } );
+						stitchPad.set( { scaleX: singleLineScaleX } );
 					} else {
+						stitchPad.set( { scaleX: textareaScale, scaleY: textareaScale } );
 						textareaPosition( stitchPad, padX, padY );
 					}
 					this.applyContentClip( stitchPad, textClipPath );
@@ -1035,8 +1046,9 @@ class OCCustomiser {
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
 					if ( isSingleLineText ) {
-						stitchLift.set( { scaleX: 1 } );
+						stitchLift.set( { scaleX: singleLineScaleX } );
 					} else {
+						stitchLift.set( { scaleX: textareaScale, scaleY: textareaScale } );
 						textareaPosition( stitchLift, -liftX, -liftY );
 					}
 					this.applyContentClip( stitchLift, textClipPath );
@@ -1061,7 +1073,9 @@ class OCCustomiser {
 					const clipartColor = shouldRecolourClipart
 						? ( isEngraving ? engravingPalette.text : selectedClipartColor )
 						: '';
-					const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl( input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '' ) : input.clipartUrl;
+					const clipartUrl = clipartColor
+						? await this.recolourSvgClipartUrl( input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '' )
+						: await this.cropSvgClipartUrl( input.clipartUrl );
 					const clipartCrossOrigin = clipartUrl.startsWith( 'data:' ) ? '' : 'anonymous';
 					const clipartEffects = isEmbroidery ? { embroideryColor: clipartColor || selectedClipartColor || '#000000' } : {};
 					await this.renderFabricImg( canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects );
@@ -1138,6 +1152,23 @@ class OCCustomiser {
 
 	textClipPadding( fontSize ) {
 		return Math.max( 2, Math.ceil( ( Number( fontSize ) || 0 ) * 0.18 ) );
+	}
+
+	textareaFitScale( obj, maxW, maxH, fontSize ) {
+		if ( ! obj ) {
+			return 1;
+		}
+
+		obj.initDimensions?.();
+		const margin = this.textFitSafetyMargin( fontSize );
+		const width = Math.max( 1, Number( obj.width || 0 ) + margin.x * 2 );
+		const height = Math.max( 1, Number( obj.height || 0 ) + margin.y * 2 );
+
+		return Math.min(
+			1,
+			Math.max( 1, Number( maxW || 0 ) ) / width,
+			Math.max( 1, Number( maxH || 0 ) ) / height
+		);
 	}
 
 	textFitSafetyMargin( fontSize ) {
@@ -1670,13 +1701,21 @@ class OCCustomiser {
 		}
 
 		try {
-			const response = await fetch( url, { credentials: 'same-origin', cache: 'force-cache' } );
+			const response = await fetch( url, {
+				credentials: 'same-origin',
+				cache: 'force-cache',
+			} );
 			if ( ! response.ok ) {
-				throw new Error( `Could not load clipart SVG (${ response.status }).` );
+				throw new Error(
+					`Could not load clipart SVG (${ response.status }).`
+				);
 			}
 
 			const raw = await response.text();
-			const doc = new DOMParser().parseFromString( raw, 'image/svg+xml' );
+			const doc = new window.DOMParser().parseFromString(
+				raw,
+				'image/svg+xml'
+			);
 			const svg = doc.documentElement;
 			if ( ! svg || svg.localName.toLowerCase() !== 'svg' ) {
 				throw new Error( 'Clipart is not an SVG.' );
@@ -1690,13 +1729,65 @@ class OCCustomiser {
 			}
 			this.cropSvgToVisibleBounds( svg );
 
-			const output = new XMLSerializer().serializeToString( svg );
+			const output = new window.XMLSerializer().serializeToString( svg );
 			this.clipartSvgCache[ key ] = `data:image/svg+xml;charset=utf-8,${ encodeURIComponent( output ) }`;
 			return this.clipartSvgCache[ key ];
 		} catch ( e ) {
 			console.warn( '[OC] SVG clipart recolour failed:', e, 'URL:', url );
 			return url;
 		}
+	}
+
+	async cropSvgClipartUrl( url ) {
+		if ( ! this.isSvgClipartUrl( url ) ) {
+			return url;
+		}
+
+		const key = `${ url }|crop`;
+		if ( this.clipartSvgCache[ key ] ) {
+			return this.clipartSvgCache[ key ];
+		}
+
+		try {
+			const response = await fetch( url, {
+				credentials: 'same-origin',
+				cache: 'force-cache',
+			} );
+			if ( ! response.ok ) {
+				throw new Error(
+					`Could not load clipart SVG (${ response.status }).`
+				);
+			}
+
+			const raw = await response.text();
+			const doc = new window.DOMParser().parseFromString(
+				raw,
+				'image/svg+xml'
+			);
+			const svg = doc.documentElement;
+			if ( ! svg || svg.localName.toLowerCase() !== 'svg' ) {
+				throw new Error( 'Clipart is not an SVG.' );
+			}
+
+			this.cropSvgToVisibleBounds( svg );
+			const output = new window.XMLSerializer().serializeToString( svg );
+			this.clipartSvgCache[
+				key
+			] = `data:image/svg+xml;charset=utf-8,${ encodeURIComponent(
+				output
+			) }`;
+			return this.clipartSvgCache[ key ];
+		} catch {
+			return url;
+		}
+	}
+
+	isSvgClipartUrl( url ) {
+		const value = String( url || '' ).trim();
+		return (
+			/^data:image\/svg\+xml/i.test( value ) ||
+			/\.svg(?:[?#]|$)/i.test( value )
+		);
 	}
 
 	addEmbroiderySvgPattern( svg, color ) {
