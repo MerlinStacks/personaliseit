@@ -852,7 +852,7 @@ abstract class OC_Print_Base {
 
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 		$font      = $font_id ? self::get_font( $font_id ) : null;
-		$font_name = 'engraving' === $mode ? 'helvetica' : self::resolve_font( $font_id, $pdf );
+		$font_name = self::resolve_font( $font_id, $pdf );
 		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : 72 / self::CANVAS_DPI;
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? max( 4.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_px_to_pt )
