@@ -829,7 +829,13 @@ abstract class OC_Print_Base {
 			default => 'C',
 		};
 
-		if ( 'engraving' === $mode && is_object( $font ) && ! ( $is_textarea && str_contains( $text, "\n" ) ) ) {
+		$textarea_wraps = false;
+		if ( $is_textarea ) {
+			$pdf->SetFont( $font_name, '', $font_size );
+			$textarea_wraps = str_contains( $text, "\n" ) || (int) $pdf->getNumLines( $text, $w_mm ) > 1;
+		}
+
+		if ( 'engraving' === $mode && is_object( $font ) && ! $textarea_wraps ) {
 			$font_path = self::get_font_path( $font );
 			if ( is_string( $font_path ) && '' !== $font_path && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align ) ) {
 				return;
@@ -1052,12 +1058,24 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
+		$body = self::make_spotify_svg_background_transparent( $body );
+
 		if ( false === file_put_contents( $temp, $body ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			return null;
 		}
 
 		return $temp;
+	}
+
+	private static function make_spotify_svg_background_transparent( string $svg ): string {
+		$white = '(?:#fff(?:fff)?|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\)|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,\s*1\s*\))';
+		$svg   = preg_replace( '/(\sfill=["\'])' . $white . '(["\'])/i', '$1none$2', $svg ) ?? $svg;
+		$svg   = preg_replace( '/(\sstroke=["\'])' . $white . '(["\'])/i', '$1none$2', $svg ) ?? $svg;
+		$svg   = preg_replace( '/(fill\s*:\s*)' . $white . '/i', '$1none', $svg ) ?? $svg;
+		$svg   = preg_replace( '/(stroke\s*:\s*)' . $white . '/i', '$1none', $svg ) ?? $svg;
+
+		return $svg;
 	}
 
 	private static function render_layer_image( \TCPDF $pdf, array $layer, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {

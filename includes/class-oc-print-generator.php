@@ -327,7 +327,6 @@ class OC_Print_Generator {
 
 		if ( $created_count > 0 ) {
 			$order->add_order_note( sprintf( __( 'OverCustomise queued %d print file(s) for generation.', 'overcustomise' ), $created_count ) );
-			$this->schedule_queue_processing();
 		}
 	}
 
@@ -339,12 +338,6 @@ class OC_Print_Generator {
 
 		if ( $order instanceof \WC_Order ) {
 			$this->generate_for_order( $order );
-		}
-	}
-
-	private function schedule_queue_processing(): void {
-		if ( ! wp_next_scheduled( 'oc_process_print_queue' ) ) {
-			wp_schedule_single_event( time() + 1, 'oc_process_print_queue' );
 		}
 	}
 

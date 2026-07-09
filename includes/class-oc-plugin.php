@@ -181,6 +181,8 @@ class OC_Plugin {
 			wp_unschedule_event( $timestamp, 'oc_process_print_queue' );
 		}
 
+		wp_clear_scheduled_hook( 'oc_process_print_queue_now' );
+
 		// Clear webhook delivery options.
 		global $wpdb;
 		$options = $wpdb->get_results( "SELECT option_name FROM {$wpdb->prefix}options WHERE option_name LIKE 'oc_wh_delivery_%'" );
@@ -199,6 +201,7 @@ class OC_Plugin {
 
 		wp_clear_scheduled_hook( 'oc_daily_file_cleanup' );
 		wp_clear_scheduled_hook( 'oc_process_print_queue' );
+		wp_clear_scheduled_hook( 'oc_process_print_queue_now' );
 
 		unregister_taxonomy( 'oc_mockup', 'attachment' );
 

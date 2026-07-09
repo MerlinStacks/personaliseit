@@ -43,8 +43,7 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		$page_w = $w_mm + $bleed * 2;
 		$page_h = $h_mm + $bleed * 2;
 
-		$pdf->SetFillColorArray( [ 0, 0, 0, 0 ] );
-		$pdf->Rect( 0, 0, $page_w, $page_h, 'F' );
+		// Leave the page unpainted so transparent artwork does not gain a white box.
 
 		if ( self::has_layer_payload( $area_data ) ) {
 			self::render_layer_payload( $pdf, $area, $area_data, $bleed, $bleed, 'colour' );

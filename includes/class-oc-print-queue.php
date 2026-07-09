@@ -19,6 +19,7 @@ class OC_Print_Queue {
 
 	public function register(): void {
 		add_action( 'oc_process_print_queue', [ $this, 'process' ] );
+		add_action( 'oc_process_print_queue_now', [ $this, 'process' ] );
 	}
 
 	public function enqueue( int $order_id, int $item_id, int $print_area_id, array $area_data, string $print_method ): int {
@@ -37,7 +38,16 @@ class OC_Print_Queue {
 			[ '%d', '%d', '%d', '%s', '%s', '%s' ]
 		);
 
+		$this->schedule_processing();
+
 		return (int) $wpdb->insert_id;
+	}
+
+	/** Schedule a near-immediate queue run for newly inserted jobs. */
+	public function schedule_processing(): void {
+		if ( ! wp_next_scheduled( 'oc_process_print_queue_now' ) ) {
+			wp_schedule_single_event( time() + 1, 'oc_process_print_queue_now' );
+		}
 	}
 
 	public function process(): void {

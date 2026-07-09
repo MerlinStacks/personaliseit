@@ -46,9 +46,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$pdf->SetTitle( sprintf( 'Engraving — Order #%d — %s', $order->get_id(), $area->label ) );
 		$pdf->AddPage();
 
-		// White background.
-		$pdf->SetFillColor( 255, 255, 255 );
-		$pdf->Rect( 0, 0, $w_mm, $h_mm, 'F' );
+		// Leave the page unpainted so the generated file contains only engraving marks.
 
 		if ( self::has_layer_payload( $area_data ) ) {
 			self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0, 'engraving' );
