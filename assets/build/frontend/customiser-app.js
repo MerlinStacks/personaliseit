@@ -25103,8 +25103,10 @@ __webpack_require__.r(__webpack_exports__);
  * Data: window.ocCustomiserData (wp_localize_script).
  * Canvas: Fabric.js 6.x  |  Uploads: Uppy 4.x
  *
- * @package OverCustomise
+ * @package
  */
+
+/* eslint-disable no-console, no-alert, no-undef, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return */
 
 
 
@@ -25120,7 +25122,9 @@ __webpack_require__.r(__webpack_exports__);
 
 document.addEventListener('DOMContentLoaded', () => {
   const data = window.ocCustomiserData;
-  if (!data || !data.areas?.length) return;
+  if (!data || !data.areas?.length) {
+    return;
+  }
   new OCCustomiser(data).init();
 });
 
@@ -25208,8 +25212,12 @@ class OCCustomiser {
       design_id: String(this.data.designId || ''),
       product_id: String(this.data.productId || '')
     });
-    if (this.data.uploadNonce) params.set('_wpnonce', this.data.uploadNonce);
-    if (this.data.requestToken) params.set('oc_token', this.data.requestToken);
+    if (this.data.uploadNonce) {
+      params.set('_wpnonce', this.data.uploadNonce);
+    }
+    if (this.data.requestToken) {
+      params.set('oc_token', this.data.requestToken);
+    }
     return uploadUrl + (uploadUrl.includes('?') ? '&' : '?') + params.toString();
   }
 
@@ -25226,7 +25234,9 @@ class OCCustomiser {
         (area.layers || []).forEach(layer => {
           if (layer.type === 'text' || layer.type === 'textarea') {
             const inp = this.inputs[layer.id];
-            if (inp && !inp.fontId) inp.fontId = layer.settings?.default_font_id || firstFont.id;
+            if (inp && !inp.fontId) {
+              inp.fontId = layer.settings?.default_font_id || firstFont.id;
+            }
           }
         });
       });
@@ -25239,7 +25249,9 @@ class OCCustomiser {
     this.setupDesignVariantOptions();
     this.setupClipartCarousels();
     this.setupUploadZones();
-    if (this.editMode) this.updateInputsFromDOM();
+    if (this.editMode) {
+      this.updateInputsFromDOM();
+    }
     this.setupFormSubmit();
     this.updateHiddenField();
 
@@ -25271,7 +25283,9 @@ class OCCustomiser {
     this.galleryImg = null;
   }
   applyPreviewToImage(img, dataUrl, dimensions = null) {
-    if (!img) return;
+    if (!img) {
+      return;
+    }
     const hasDimensions = dimensions?.width && dimensions?.height;
     const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
     const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
@@ -25330,20 +25344,28 @@ class OCCustomiser {
   }
   refreshFlatsomeGallery() {
     const slider = document.querySelector('.product-gallery-slider');
-    if (!slider) return;
+    if (!slider) {
+      return;
+    }
     const flickity = slider.flickity || window.jQuery?.(slider).data('flickity');
     flickity?.reloadCells?.();
     flickity?.resize?.();
   }
   getFlickityInstance(slider) {
-    if (!slider) return null;
+    if (!slider) {
+      return null;
+    }
     return slider.flickity || window.jQuery?.(slider).data('flickity') || null;
   }
   applyFlatsomeOverlayPreview(dataUrl, dimensions = null) {
     const slider = document.querySelector('.product-gallery-slider');
-    if (!slider) return false;
+    if (!slider) {
+      return false;
+    }
     const realSlides = slider.querySelectorAll('.woocommerce-product-gallery__image:not(.oc-live-preview-slide), .slide:not(.oc-live-preview-slide)');
-    if (realSlides.length <= 1) return false;
+    if (realSlides.length <= 1) {
+      return false;
+    }
     let flickity = this.getFlickityInstance(slider);
     let previewSlide = slider.querySelector('.oc-live-preview-slide');
     if (!previewSlide) {
@@ -25381,7 +25403,9 @@ class OCCustomiser {
   }
   mountPreviewInGallery() {
     const canvasWrap = document.getElementById('oc-canvas-wrap');
-    if (!canvasWrap) return false;
+    if (!canvasWrap) {
+      return false;
+    }
     const gallery = document.querySelector('.product-gallery, .product-images, .woocommerce-product-gallery, .product .images');
     if (!gallery) {
       canvasWrap.classList.add('oc-preview-visible');
@@ -25399,26 +25423,40 @@ class OCCustomiser {
   releaseTVPGPreviewLock(resumeAutoplay = false) {
     this._focusPreviewSlide = false;
     this._tvpgPreviewLocked = false;
-    if (!resumeAutoplay) return;
+    if (!resumeAutoplay) {
+      return;
+    }
     const mainSwiper = document.querySelector('.tvpg-main-slider')?.swiper;
     const thumbSwiper = document.querySelector('.tvpg-thumb-slider')?.swiper;
     [mainSwiper, thumbSwiper].forEach(swiper => swiper?.autoplay?.start?.());
   }
   setupCartGalleryUnlock() {
-    if (this._cartGalleryUnlockBound) return;
+    if (this._cartGalleryUnlockBound) {
+      return;
+    }
     this._cartGalleryUnlockBound = true;
     window.jQuery?.(document.body).on?.('added_to_cart', () => this.releaseTVPGPreviewLock(true));
   }
   lockTVPGPreviewSlide(swiper, slide) {
-    if (!swiper || !slide) return;
+    if (!swiper || !slide) {
+      return;
+    }
     const previewIndex = Array.from(swiper.slides || []).indexOf(slide);
-    if (previewIndex < 0) return;
+    if (previewIndex < 0) {
+      return;
+    }
     swiper._ocPreviewSlideIndex = previewIndex;
-    if (swiper._ocPreviewLockBound) return;
+    if (swiper._ocPreviewLockBound) {
+      return;
+    }
     const keepPreviewActive = () => {
-      if (!this._tvpgPreviewLocked || swiper._ocPreviewLocking) return;
+      if (!this._tvpgPreviewLocked || swiper._ocPreviewLocking) {
+        return;
+      }
       const targetIndex = swiper._ocPreviewSlideIndex;
-      if (targetIndex === undefined || swiper.activeIndex === targetIndex) return;
+      if (targetIndex === undefined || swiper.activeIndex === targetIndex) {
+        return;
+      }
       swiper._ocPreviewLocking = true;
       requestAnimationFrame(() => {
         swiper.slideTo?.(targetIndex, 0, false);
@@ -25431,9 +25469,13 @@ class OCCustomiser {
   applyTVPGOverlayPreview(dataUrl, dimensions = null) {
     const mainSliderEl = document.querySelector('.tvpg-main-slider');
     const mainWrapper = mainSliderEl?.querySelector('.swiper-wrapper');
-    if (!mainSliderEl || !mainWrapper) return false;
+    if (!mainSliderEl || !mainWrapper) {
+      return false;
+    }
     const realSlides = mainWrapper.querySelectorAll('.swiper-slide:not(.oc-live-preview-slide)');
-    if (realSlides.length <= 1) return false;
+    if (realSlides.length <= 1) {
+      return false;
+    }
     let mainPreviewSlide = mainWrapper.querySelector('.swiper-slide.oc-live-preview-slide');
     if (!mainPreviewSlide) {
       mainPreviewSlide = document.createElement('div');
@@ -25504,7 +25546,9 @@ class OCCustomiser {
         previewImg.height = dimensions.height;
       }
     }
-    if (!this._hasCustomerPersonalisation) return;
+    if (!this._hasCustomerPersonalisation) {
+      return;
+    }
     if (this.applyTVPGOverlayPreview(dataUrl, dimensions)) {
       this.setPanelPreviewHandoff(true);
       this._focusPreviewSlide = false;
@@ -25538,7 +25582,9 @@ class OCCustomiser {
   }
   setupVariationGalleryHandoff() {
     const form = document.querySelector('form.variations_form, form.cart');
-    if (!form || form._ocVariationGalleryHandoffBound) return;
+    if (!form || form._ocVariationGalleryHandoffBound) {
+      return;
+    }
     form._ocVariationGalleryHandoffBound = true;
     const getSelectedVariationId = () => parseInt(form.querySelector('input.variation_id')?.value || '0', 10) || 0;
     const releasePreviewLock = () => this.releaseTVPGPreviewLock();
@@ -25564,7 +25610,9 @@ class OCCustomiser {
     }
   }
   async switchProductVariation(variationId) {
-    if (this.editMode) return;
+    if (this.editMode) {
+      return;
+    }
     const key = String(Math.max(0, parseInt(variationId, 10) || 0));
     const requestSeq = ++this._variationRequestSeq;
     let state = this.productVariationStates[key];
@@ -25579,7 +25627,9 @@ class OCCustomiser {
             Accept: 'application/json'
           }
         });
-        if (!response.ok) throw new Error(`Variation design request failed (${response.status})`);
+        if (!response.ok) {
+          throw new Error(`Variation design request failed (${response.status})`);
+        }
         state = await response.json();
         this.productVariationStates[key] = state;
       } catch (err) {
@@ -25587,7 +25637,9 @@ class OCCustomiser {
         return;
       }
     }
-    if (requestSeq !== this._variationRequestSeq || !state?.active || !state?.panelHtml) return;
+    if (requestSeq !== this._variationRequestSeq || !state?.active || !state?.panelHtml) {
+      return;
+    }
     await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
   }
 
@@ -25662,7 +25714,9 @@ class OCCustomiser {
   areaCanvasGroupIndexes(areaIndex) {
     const area = this.areas[areaIndex];
     const mockupUrl = area?.mockupUrl || '';
-    if (!mockupUrl) return [areaIndex];
+    if (!mockupUrl) {
+      return [areaIndex];
+    }
     return this.areas.map((candidate, index) => (candidate?.mockupUrl || '') === mockupUrl ? index : -1).filter(index => index >= 0);
   }
   async rebuildCanvas(areaIndex) {
@@ -25672,7 +25726,9 @@ class OCCustomiser {
     }
     delete this.canvases[areaIndex];
     const oldEl = document.getElementById(`oc-canvas-${areaIndex}`);
-    if (!oldEl) return;
+    if (!oldEl) {
+      return;
+    }
     const canvasEl = document.createElement('canvas');
     canvasEl.id = oldEl.id;
     oldEl.replaceWith(canvasEl);
@@ -25732,7 +25788,9 @@ class OCCustomiser {
   }
   async redraw(areaIndex, options = {}) {
     const canvas = this.canvases[areaIndex];
-    if (!canvas) return; // canvas not ready yet — will redraw after initCanvas
+    if (!canvas) {
+      return;
+    } // canvas not ready yet — will redraw after initCanvas
 
     // Remove previously added content objects.
     [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(o => canvas.remove(o));
@@ -25749,7 +25807,9 @@ class OCCustomiser {
       }
     }
     canvas.renderAll();
-    if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) this.pushToGallery(canvas);
+    if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) {
+      this.pushToGallery(canvas);
+    }
   }
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
@@ -25775,8 +25835,12 @@ class OCCustomiser {
       const maxLimit = fontLimit(settings?.max_font_size);
       const min = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(minLimit, areaBounds, scale) : 0;
       const max = maxLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(maxLimit, areaBounds, scale) : 0;
-      if (max && (!min || min <= max)) size = Math.min(size, max);
-      if (min) size = Math.max(size, min);
+      if (max && (!min || min <= max)) {
+        size = Math.min(size, max);
+      }
+      if (min) {
+        size = Math.max(size, min);
+      }
       return size;
     };
     switch (layer.type) {
@@ -25784,7 +25848,9 @@ class OCCustomiser {
       case 'textarea':
         {
           const raw = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(input.value) : input.value || '').replace(/\r\n?/g, '\n').trim();
-          if (!raw) break;
+          if (!raw) {
+            break;
+          }
           const isSingleLineText = layer.type === 'text';
           const lineAlign = ['top', 'center', 'bottom'].includes(layer.settings?.line_alignment) ? layer.settings.line_alignment : 'top';
           let font = this.fonts.find(f => f.id === (input.fontId || 0));
@@ -25832,7 +25898,9 @@ class OCCustomiser {
           let stitchPad = null;
           let stitchLift = null;
           const textareaPosition = (target, extraX = 0, extraY = 0) => {
-            if (isSingleLineText || !target) return;
+            if (isSingleLineText || !target) {
+              return;
+            }
             target.initDimensions?.();
             const contentH = Math.min(Math.max(Number(target.getScaledHeight?.() || target.height || 0), 0), lh);
             const freeY = Math.max(0, (lh - contentH) / 2);
@@ -25922,7 +25990,7 @@ class OCCustomiser {
             return this.textFitsBox(raw, font, size, layer.settings, lw, lh, true);
           };
           const fittingFloor = minFontSize || 4;
-          while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
+          while (isSingleLineText && !fitsTextLayer(fontSize) && fontSize > fittingFloor) {
             fontSize = Math.max(fittingFloor, fontSize - 1);
             textPadding = this.textRenderPadding(fontSize);
             obj.set({
@@ -26036,10 +26104,14 @@ class OCCustomiser {
           break;
         }
       case 'image':
-        if (input.attachmentUrl) await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip());
+        if (input.attachmentUrl) {
+          await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip());
+        }
         break;
       case 'clipmask':
-        if (input.attachmentUrl) await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover');
+        if (input.attachmentUrl) {
+          await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover');
+        }
         break;
       case 'clipart':
         if (input.clipartUrl) {
@@ -26057,7 +26129,9 @@ class OCCustomiser {
       case 'lineart':
         {
           const lineartColor = isEngraving ? engravingPalette.text : String(input.colorHex || '').trim();
-          if (!lineartColor) break;
+          if (!lineartColor) {
+            break;
+          }
           const r = new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
             left: lcX,
             top: lcY,
@@ -26079,7 +26153,9 @@ class OCCustomiser {
       case 'spotify':
         {
           const val = (input.value || '').trim();
-          if (!val) break;
+          if (!val) {
+            break;
+          }
           if (input.spotifyStatus === 'invalid_format' || input.spotifyStatus === 'playlist_private_or_invalid' || input.spotifyStatus === 'invalid_or_unavailable') {
             const invalidText = input.spotifyStatus === 'playlist_private_or_invalid' ? 'Private / invalid Spotify playlist' : 'Invalid Spotify link';
             const invalidObj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(invalidText, {
@@ -26108,7 +26184,9 @@ class OCCustomiser {
             if (!rendered) {
               rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette, contentClip());
             }
-            if (rendered) break;
+            if (rendered) {
+              break;
+            }
           }
           const fallback = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText('\u266b Spotify code unavailable', {
             left: lcX,
@@ -26268,10 +26346,12 @@ class OCCustomiser {
   rotatedLayerCenter(layer, bounds, rotation) {
     let x = layer.x + layer.w / 2;
     let y = layer.y + layer.h / 2;
-    if (!bounds?.w || !rotation) return {
-      x,
-      y
-    };
+    if (!bounds?.w || !rotation) {
+      return {
+        x,
+        y
+      };
+    }
     const cx = bounds.x + bounds.w / 2;
     const cy = bounds.y + bounds.h / 2;
     const rad = rotation * Math.PI / 180;
@@ -26286,8 +26366,12 @@ class OCCustomiser {
   }
   extractSpotifyUri(inputValue) {
     const raw = String(inputValue || '').trim();
-    if (!raw) return '';
-    if (/^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(raw)) return raw;
+    if (!raw) {
+      return '';
+    }
+    if (/^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(raw)) {
+      return raw;
+    }
     let parsed;
     try {
       parsed = new URL(raw);
@@ -26295,15 +26379,23 @@ class OCCustomiser {
       return '';
     }
     const host = parsed.hostname.toLowerCase();
-    if (host !== 'open.spotify.com' && host !== 'play.spotify.com') return '';
+    if (host !== 'open.spotify.com' && host !== 'play.spotify.com') {
+      return '';
+    }
     const parts = parsed.pathname.split('/').filter(Boolean).filter(p => !/^intl-[a-z]{2}$/i.test(p));
-    if (!parts.length) return '';
+    if (!parts.length) {
+      return '';
+    }
     const validTypes = ['track', 'album', 'artist', 'playlist', 'episode', 'show'];
     const typeIndex = parts.findIndex(p => validTypes.includes(p));
-    if (typeIndex < 0 || !parts[typeIndex + 1]) return '';
+    if (typeIndex < 0 || !parts[typeIndex + 1]) {
+      return '';
+    }
     const type = parts[typeIndex];
     const id = parts[typeIndex + 1];
-    if (!/^[A-Za-z0-9]+$/.test(id)) return '';
+    if (!/^[A-Za-z0-9]+$/.test(id)) {
+      return '';
+    }
     return `spotify:${type}:${id}`;
   }
   engravingPalette(material = 'silver_metal') {
@@ -26362,7 +26454,9 @@ class OCCustomiser {
     source.width = size;
     source.height = size;
     const ctx = source.getContext('2d');
-    if (!ctx) return color;
+    if (!ctx) {
+      return color;
+    }
     const rgb = this.hexToRgb(color) || {
       r: 0,
       g: 0,
@@ -26419,23 +26513,31 @@ class OCCustomiser {
   }
   embroiderySoftEdgeColor(color) {
     const rgb = this.hexToRgb(color);
-    if (!rgb) return 'rgba(0,0,0,0.16)';
+    if (!rgb) {
+      return 'rgba(0,0,0,0.16)';
+    }
     return `rgba(${Math.max(0, rgb.r - 36)},${Math.max(0, rgb.g - 36)},${Math.max(0, rgb.b - 36)},0.24)`;
   }
   embroideryHighlightColor(color) {
     const rgb = this.hexToRgb(color);
-    if (!rgb) return 'rgba(255,255,255,0.42)';
+    if (!rgb) {
+      return 'rgba(255,255,255,0.42)';
+    }
     return `rgba(${Math.min(255, rgb.r + 88)},${Math.min(255, rgb.g + 88)},${Math.min(255, rgb.b + 88)},0.62)`;
   }
   embroideryShadowColor(color) {
     const rgb = this.hexToRgb(color);
-    if (!rgb) return 'rgba(0,0,0,0.42)';
+    if (!rgb) {
+      return 'rgba(0,0,0,0.42)';
+    }
     return `rgba(${Math.max(0, rgb.r - 96)},${Math.max(0, rgb.g - 96)},${Math.max(0, rgb.b - 96)},0.72)`;
   }
   hexToRgb(color) {
     const value = String(color || '').trim();
     const match = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
-    if (!match) return null;
+    if (!match) {
+      return null;
+    }
     const hex = match[1].length === 3 ? match[1].split('').map(char => char + char).join('') : match[1];
     return {
       r: parseInt(hex.slice(0, 2), 16),
@@ -26445,7 +26547,9 @@ class OCCustomiser {
   }
   buildSpotifyCodeUrl(inputValue, isEngraving, engravingPalette = null) {
     const spotifyUri = this.extractSpotifyUri(inputValue);
-    if (!spotifyUri) return '';
+    if (!spotifyUri) {
+      return '';
+    }
 
     // Official Spotify scannable-code endpoint.
     // Endpoint shape:
@@ -26458,7 +26562,9 @@ class OCCustomiser {
     return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
   }
   printAreaClipPath(bounds, scale) {
-    if (!bounds || !bounds.w || !bounds.h) return null;
+    if (!bounds || !bounds.w || !bounds.h) {
+      return null;
+    }
     return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
       left: (Number(bounds.x) + Number(bounds.w) / 2) * scale,
       top: (Number(bounds.y) + Number(bounds.h) / 2) * scale,
@@ -26471,7 +26577,9 @@ class OCCustomiser {
     });
   }
   rectClipPath(x, y, w, h, angle = 0) {
-    if (!w || !h) return null;
+    if (!w || !h) {
+      return null;
+    }
     return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
       left: x + w / 2,
       top: y + h / 2,
@@ -26484,7 +26592,9 @@ class OCCustomiser {
     });
   }
   layerClipPath(x, y, w, h, angle = 0, settings = {}) {
-    if (!w || !h) return null;
+    if (!w || !h) {
+      return null;
+    }
     const shape = String(settings?.mask_shape || 'circle').toLowerCase();
     const left = x + w / 2;
     const top = y + h / 2;
@@ -26953,8 +27063,12 @@ class OCCustomiser {
     }
   }
   async loadFont(font) {
-    if (!font?.name || !font?.url) return;
-    if (this.fontCache[font.name]) return this.fontCache[font.name];
+    if (!font?.name || !font?.url) {
+      return;
+    }
+    if (this.fontCache[font.name]) {
+      return this.fontCache[font.name];
+    }
     const ff = new FontFace(font.name, `url('${font.url}')`, {
       weight: font.weight || 'normal',
       style: font.style || 'normal'
@@ -26981,14 +27095,24 @@ class OCCustomiser {
         passive: false
       });
       btn.addEventListener('keydown', e => {
-        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+          return;
+        }
         e.preventDefault();
         const currentIndex = areaTabs.indexOf(btn);
         let nextIndex = currentIndex;
-        if (e.key === 'ArrowLeft') nextIndex = Math.max(0, currentIndex - 1);
-        if (e.key === 'ArrowRight') nextIndex = Math.min(areaTabs.length - 1, currentIndex + 1);
-        if (e.key === 'Home') nextIndex = 0;
-        if (e.key === 'End') nextIndex = areaTabs.length - 1;
+        if (e.key === 'ArrowLeft') {
+          nextIndex = Math.max(0, currentIndex - 1);
+        }
+        if (e.key === 'ArrowRight') {
+          nextIndex = Math.min(areaTabs.length - 1, currentIndex + 1);
+        }
+        if (e.key === 'Home') {
+          nextIndex = 0;
+        }
+        if (e.key === 'End') {
+          nextIndex = areaTabs.length - 1;
+        }
         areaTabs[nextIndex]?.focus();
         this.switchArea(parseInt(areaTabs[nextIndex]?.dataset.areaIndex || '0', 10));
       });
@@ -26999,9 +27123,13 @@ class OCCustomiser {
       const lid = parseInt(el.dataset.ocLayerText, 10);
       const counter = el.parentElement?.querySelector(`.oc-char-counter[data-oc-char-counter="${lid}"]`);
       const limit = parseInt(counter?.dataset.charLimit, 10) || this.charLimitForLayer(lid);
-      if (limit > 0) el.maxLength = limit;
+      if (limit > 0) {
+        el.maxLength = limit;
+      }
       const updateCounter = () => {
-        if (!counter) return;
+        if (!counter) {
+          return;
+        }
         const current = this.textLength(el.value);
         if (limit === 0 || current <= limit) {
           counter.style.display = 'none';
@@ -27013,8 +27141,12 @@ class OCCustomiser {
       updateCounter();
       el.addEventListener('input', async () => {
         const cleaned = this.normaliseLayerTextValue(lid, el.value);
-        if (cleaned !== el.value) el.value = cleaned;
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (cleaned !== el.value) {
+          el.value = cleaned;
+        }
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].value = cleaned;
         this.syncLinkedLayerInput(lid, ['value']);
         updateCounter();
@@ -27028,9 +27160,13 @@ class OCCustomiser {
     // Spotify validation (invalid format / private playlist / unavailable).
     document.querySelectorAll('[data-oc-layer-spotify]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerSpotify, 10);
-      if (!lid) return;
+      if (!lid) {
+        return;
+      }
       el.addEventListener('input', () => {
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].value = el.value;
         this.inputs[lid].spotifyStatus = '';
         this.inputs[lid].spotifyUri = '';
@@ -27061,7 +27197,9 @@ class OCCustomiser {
         e.preventDefault();
         e.stopPropagation();
         const help = btn.closest('.oc-help-tooltip, .oc-spotify-help');
-        if (!help) return;
+        if (!help) {
+          return;
+        }
         const willOpen = !help.classList.contains('oc-open');
         closeHelpTooltips();
         if (willOpen) {
@@ -27071,7 +27209,9 @@ class OCCustomiser {
       });
     });
     document.addEventListener('click', e => {
-      if (!e.target.closest('.oc-help-tooltip, .oc-spotify-help')) closeHelpTooltips();
+      if (!e.target.closest('.oc-help-tooltip, .oc-spotify-help')) {
+        closeHelpTooltips();
+      }
     });
     this.setupSpotifyModal();
 
@@ -27079,18 +27219,24 @@ class OCCustomiser {
     const reflectFontOnSelect = el => {
       const opt = el.options[el.selectedIndex];
       const fam = opt?.style?.fontFamily || '';
-      if (fam) el.style.fontFamily = fam;
+      if (fam) {
+        el.style.fontFamily = fam;
+      }
     };
     document.querySelectorAll('[data-oc-layer-font]').forEach(el => {
       reflectFontOnSelect(el);
       const lid = parseInt(el.dataset.ocLayerFont, 10);
       const selectedFontId = parseInt(el.value, 10) || 0;
       if (selectedFontId) {
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].fontId = selectedFontId;
       }
       el.addEventListener('change', async () => {
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].fontId = parseInt(el.value, 10);
         const font = this.fonts.find(f => f.id === this.inputs[lid].fontId);
         if (font) {
@@ -27102,7 +27248,9 @@ class OCCustomiser {
         }
         reflectFontOnSelect(el);
         const preview = document.querySelector(`.oc-font-preview[data-oc-font-preview="${lid}"]`);
-        if (preview && font) preview.style.fontFamily = font.name;
+        if (preview && font) {
+          preview.style.fontFamily = font.name;
+        }
         await this.updateTextSizeSliderCap(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
@@ -27114,14 +27262,20 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-layer-font-size]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerFontSize, 10);
       const valueEl = document.querySelector(`.oc-range-value[data-oc-range-value="${lid}"]`);
-      if (!el.dataset.ocOriginalMax) el.dataset.ocOriginalMax = el.max || '200';
+      if (!el.dataset.ocOriginalMax) {
+        el.dataset.ocOriginalMax = el.max || '200';
+      }
       const updateValue = () => {
-        if (valueEl) valueEl.textContent = el.value;
+        if (valueEl) {
+          valueEl.textContent = el.value;
+        }
       };
       updateValue();
       this.updateTextSizeSliderCap(lid);
       el.addEventListener('input', () => {
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].fontSize = Math.max(1, parseInt(el.value, 10) || 1);
         updateValue();
         this.requestPreviewFocus();
@@ -27134,9 +27288,13 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-layer-swatch]').forEach(btn => {
       btn.addEventListener('click', () => {
         const lid = parseInt(btn.dataset.ocLayerSwatch, 10);
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].colorHex = btn.dataset.hex;
-        if (this.getLayerById(lid)?.type === 'lineart') this.syncLinkedLayerInput(lid, ['colorHex']);
+        if (this.getLayerById(lid)?.type === 'lineart') {
+          this.syncLinkedLayerInput(lid, ['colorHex']);
+        }
         btn.closest('.oc-colour-swatches')?.querySelectorAll('.oc-colour-swatch').forEach(s => {
           const isSelected = s === btn;
           s.classList.toggle('oc-selected', isSelected);
@@ -27152,9 +27310,13 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-layer-color]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerColor, 10);
       el.addEventListener('input', () => {
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].colorHex = el.value;
-        if (this.getLayerById(lid)?.type === 'lineart') this.syncLinkedLayerInput(lid, ['colorHex']);
+        if (this.getLayerById(lid)?.type === 'lineart') {
+          this.syncLinkedLayerInput(lid, ['colorHex']);
+        }
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
@@ -27165,7 +27327,9 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-layer-clipart]').forEach(btn => {
       btn.addEventListener('click', () => {
         const lid = parseInt(btn.dataset.ocLayerClipart, 10);
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].clipartId = parseInt(btn.dataset.ocClipart, 10);
         this.inputs[lid].clipartUrl = btn.dataset.ocClipartUrl;
         this.inputs[lid].clipartRecolourable = btn.dataset.ocClipartRecolourable === '1';
@@ -27219,22 +27383,30 @@ class OCCustomiser {
     });
   }
   setupDesignVariantOptions() {
-    if (!this.designVariants.length) return;
+    if (!this.designVariants.length) {
+      return;
+    }
     document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
       btn.addEventListener('click', () => {
         const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
-        if (!variant || variant.id === this.selectedDesignVariant) return;
+        if (!variant || variant.id === this.selectedDesignVariant) {
+          return;
+        }
         this.switchDesignVariant(variant.id);
       });
     });
   }
   async switchDesignVariant(variantId) {
     const state = this.data.designVariantStates?.[variantId];
-    if (!state?.panelHtml) return;
+    if (!state?.panelHtml) {
+      return;
+    }
     await this.applyDesignState(state, variantId, true);
   }
   async applyDesignState(state, variantId, preserveCurrentState = true) {
-    if (!state?.panelHtml) return;
+    if (!state?.panelHtml) {
+      return;
+    }
     if (preserveCurrentState) {
       this.syncInputsFromDOM();
       const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
@@ -27287,7 +27459,9 @@ class OCCustomiser {
   }
   setupSpotifyModal() {
     const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog) return;
+    if (!dialog) {
+      return;
+    }
     document.querySelectorAll('.oc-spotify-modal-trigger').forEach(trigger => {
       trigger.addEventListener('click', event => {
         event.preventDefault();
@@ -27301,7 +27475,9 @@ class OCCustomiser {
     dialog.addEventListener('click', event => {
       const rect = dialog.getBoundingClientRect();
       const inDialog = rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
-      if (!inDialog) this.closeSpotifyModal();
+      if (!inDialog) {
+        this.closeSpotifyModal();
+      }
     });
     dialog.addEventListener('close', () => {
       dialog.classList.remove('is-visible');
@@ -27310,7 +27486,9 @@ class OCCustomiser {
   }
   openSpotifyModal() {
     const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog || dialog.open) return;
+    if (!dialog || dialog.open) {
+      return;
+    }
     clearTimeout(this.spotifyModalCloseTimer);
     dialog.showModal();
     requestAnimationFrame(() => {
@@ -27322,17 +27500,23 @@ class OCCustomiser {
   }
   closeSpotifyModal() {
     const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog || !dialog.open) return;
+    if (!dialog || !dialog.open) {
+      return;
+    }
     dialog.classList.remove('is-visible');
     clearTimeout(this.spotifyModalCloseTimer);
     this.spotifyModalCloseTimer = setTimeout(() => {
-      if (dialog.open) dialog.close();
+      if (dialog.open) {
+        dialog.close();
+      }
       document.body.style.overflow = '';
     }, 300);
   }
   filterClipart(layerId) {
     const grid = document.querySelector(`.oc-clipart-grid[data-oc-clipart-grid="${layerId}"]`) || document.querySelector(`[data-oc-clipart-search="${layerId}"]`)?.closest('.oc-layer-body')?.querySelector('.oc-clipart-grid');
-    if (!grid) return;
+    if (!grid) {
+      return;
+    }
     const items = grid.querySelectorAll('.oc-clipart-item');
     const term = (this.clipartSearchTerms[layerId] || '').toLowerCase().trim();
     const category = this.clipartCategoryFilters[layerId] || '';
@@ -27344,7 +27528,9 @@ class OCCustomiser {
       const matchesCategory = !category || groups.includes(category);
       const visible = matchesSearch && matchesCategory;
       btn.style.display = visible ? '' : 'none';
-      if (visible) visibleCount++;
+      if (visible) {
+        visibleCount++;
+      }
     });
     let noResults = grid.querySelector('.oc-clipart-no-results');
     if (visibleCount === 0) {
@@ -27364,7 +27550,9 @@ class OCCustomiser {
     document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
       const layerId = parseInt(carousel.dataset.ocClipartCarousel, 10);
       const grid = carousel.querySelector('.oc-clipart-grid--carousel');
-      if (!layerId || !grid) return;
+      if (!layerId || !grid) {
+        return;
+      }
       carousel.querySelector('[data-oc-clipart-prev]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, -1));
       carousel.querySelector('[data-oc-clipart-next]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, 1));
       grid.addEventListener('scroll', () => this.updateClipartCarouselDots(layerId), {
@@ -27378,12 +27566,16 @@ class OCCustomiser {
   }
   clipartCarouselPageCount(grid) {
     const visibleItems = this.visibleClipartItems(grid);
-    if (!visibleItems.length || !grid.clientWidth) return 1;
+    if (!visibleItems.length || !grid.clientWidth) {
+      return 1;
+    }
     return Math.max(1, Math.ceil(grid.scrollWidth / grid.clientWidth));
   }
   scrollClipartCarousel(layerId, direction) {
     const grid = document.querySelector(`.oc-clipart-grid--carousel[data-oc-clipart-grid="${layerId}"]`);
-    if (!grid) return;
+    if (!grid) {
+      return;
+    }
     const page = Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth)) + direction;
     const maxPage = this.clipartCarouselPageCount(grid) - 1;
     grid.scrollTo({
@@ -27395,10 +27587,14 @@ class OCCustomiser {
     const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
     const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
     const dots = carousel?.querySelector('[data-oc-clipart-dots]');
-    if (!carousel || !grid || !dots) return;
+    if (!carousel || !grid || !dots) {
+      return;
+    }
     const pageCount = this.clipartCarouselPageCount(grid);
     const maxLeft = Math.max(0, (pageCount - 1) * grid.clientWidth);
-    if (grid.scrollLeft > maxLeft) grid.scrollLeft = maxLeft;
+    if (grid.scrollLeft > maxLeft) {
+      grid.scrollLeft = maxLeft;
+    }
     dots.innerHTML = '';
     for (let i = 0; i < pageCount; i++) {
       const dot = document.createElement('button');
@@ -27417,7 +27613,9 @@ class OCCustomiser {
   updateClipartCarouselDots(layerId) {
     const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
     const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
-    if (!carousel || !grid) return;
+    if (!carousel || !grid) {
+      return;
+    }
     const pageCount = this.clipartCarouselPageCount(grid);
     const page = Math.max(0, Math.min(pageCount - 1, Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth))));
     carousel.querySelectorAll('.oc-clipart-carousel-dot').forEach((dot, i) => {
@@ -27478,24 +27676,38 @@ class OCCustomiser {
   linkedLayerIds(sourceLayerId) {
     const source = this.getLayerById(sourceLayerId);
     const group = String(source?.settings?.link_group || '').trim();
-    if (!source || !group) return [];
+    if (!source || !group) {
+      return [];
+    }
     const ids = [];
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
-        if (layer.id === sourceLayerId || layer.type !== source.type) return;
-        if (String(layer.settings?.link_group || '').trim() === group) ids.push(layer.id);
+        if (layer.id === sourceLayerId || layer.type !== source.type) {
+          return;
+        }
+        if (String(layer.settings?.link_group || '').trim() === group) {
+          ids.push(layer.id);
+        }
       });
     });
     return ids;
   }
   syncLinkedLayerInput(sourceLayerId, keys) {
     const sourceInput = this.inputs[sourceLayerId];
-    if (!sourceInput) return;
+    if (!sourceInput) {
+      return;
+    }
     this.linkedLayerIds(sourceLayerId).forEach(layerId => {
       const targetLayer = this.getLayerById(layerId);
-      if (targetLayer?.type === 'image' && targetLayer.settings?.allow_image_change === false) return;
-      if (targetLayer?.type === 'clipart' && targetLayer.settings?.allow_clipart_change === false) return;
-      if (!this.inputs[layerId]) this.inputs[layerId] = {};
+      if (targetLayer?.type === 'image' && targetLayer.settings?.allow_image_change === false) {
+        return;
+      }
+      if (targetLayer?.type === 'clipart' && targetLayer.settings?.allow_clipart_change === false) {
+        return;
+      }
+      if (!this.inputs[layerId]) {
+        this.inputs[layerId] = {};
+      }
       keys.forEach(key => {
         if (sourceInput[key] === undefined) {
           delete this.inputs[layerId][key];
@@ -27529,7 +27741,9 @@ class OCCustomiser {
         swatch.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
       });
       const colorEl = document.querySelector(`[data-oc-layer-color="${layerId}"]`);
-      if (colorEl && input.colorHex) colorEl.value = input.colorHex;
+      if (colorEl && input.colorHex) {
+        colorEl.value = input.colorHex;
+      }
     }
     if (keys.includes('clipartId')) {
       document.querySelectorAll(`[data-oc-layer-clipart="${layerId}"]`).forEach(item => {
@@ -27545,7 +27759,9 @@ class OCCustomiser {
     }
   }
   getLayerInputEl(layer) {
-    if (!layer?.id) return null;
+    if (!layer?.id) {
+      return null;
+    }
     switch (layer.type) {
       case 'text':
       case 'textarea':
@@ -27575,7 +27791,9 @@ class OCCustomiser {
     });
   }
   renderPreflightMessages(errors = [], warnings = []) {
-    if (!this.preflightRoot) return;
+    if (!this.preflightRoot) {
+      return;
+    }
     if (!errors.length && !warnings.length) {
       this.clearPreflightMessages();
       return;
@@ -27591,7 +27809,9 @@ class OCCustomiser {
       box.appendChild(title);
     };
     const appendList = (items, cls) => {
-      if (!items.length) return;
+      if (!items.length) {
+        return;
+      }
       const list = document.createElement('ul');
       list.className = cls;
       items.forEach(msg => {
@@ -27618,7 +27838,9 @@ class OCCustomiser {
     });
   }
   async getImageMeta(url) {
-    if (!url) return null;
+    if (!url) {
+      return null;
+    }
     return new Promise(resolve => {
       const img = new Image();
       img.onload = () => resolve({
@@ -27637,7 +27859,9 @@ class OCCustomiser {
     const invalidSpotifyStatuses = ['invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited'];
     for (const area of this.areas) {
       for (const layer of area.layers || []) {
-        if (layer.locked) continue; // Locked layers skip preflight validation
+        if (layer.locked) {
+          continue;
+        } // Locked layers skip preflight validation
         const input = this.inputs[layer.id] || {};
         const settings = layer.settings || {};
         const required = Boolean(settings.required);
@@ -27747,12 +27971,16 @@ class OCCustomiser {
     const errors = [];
     for (const area of this.areas) {
       for (const layer of area.layers || []) {
-        if (layer.locked) continue;
+        if (layer.locked) {
+          continue;
+        }
         const input = this.inputs[layer.id] || {};
         const settings = layer.settings || {};
         const label = layer.label || layer.type;
         const fieldEl = this.getLayerInputEl(layer);
-        if (!settings.required) continue;
+        if (!settings.required) {
+          continue;
+        }
         let filled = true;
         switch (layer.type) {
           case 'text':
@@ -27788,7 +28016,9 @@ class OCCustomiser {
   }
   async validateSpotifyLayer(layerId, rawValue, inputEl = null) {
     const value = String(rawValue || '').trim();
-    if (!this.inputs[layerId]) this.inputs[layerId] = {};
+    if (!this.inputs[layerId]) {
+      this.inputs[layerId] = {};
+    }
     const token = (this.spotifyValidateTokens[layerId] || 0) + 1;
     this.spotifyValidateTokens[layerId] = token;
     if (!value) {
@@ -27841,7 +28071,9 @@ class OCCustomiser {
       } else {
         text = await res.text();
       }
-      if (this.spotifyValidateTokens[layerId] !== token) return;
+      if (this.spotifyValidateTokens[layerId] !== token) {
+        return;
+      }
       if (!res.ok) {
         const statusReason = json?.code === 'rate_limited' || res.status === 429 ? 'rate_limited' : 'unreachable';
         const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
@@ -27873,7 +28105,9 @@ class OCCustomiser {
         this.setSpotifyError(layerId, json?.message || 'Spotify link is invalid or unavailable.', inputEl);
       }
     } catch (e) {
-      if (this.spotifyValidateTokens[layerId] !== token) return;
+      if (this.spotifyValidateTokens[layerId] !== token) {
+        return;
+      }
       this.inputs[layerId].spotifyStatus = 'unreachable';
       this.inputs[layerId].spotifyUri = '';
       this.setSpotifyError(layerId, 'Could not validate Spotify right now. Please try again.', inputEl);
@@ -27893,7 +28127,9 @@ class OCCustomiser {
     for (const layerIdStr in this.inputs) {
       const layerId = parseInt(layerIdStr, 10);
       const inp = this.inputs[layerId];
-      if (!inp) continue;
+      if (!inp) {
+        continue;
+      }
       const textEl = document.querySelector(`[data-oc-layer-text="${layerId}"]`);
       if (textEl && inp.value !== undefined) {
         this.clampLayerInputValue(layerId);
@@ -27928,7 +28164,9 @@ class OCCustomiser {
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
         const layerId = layer.id;
-        if (!this.inputs[layerId]) this.inputs[layerId] = {};
+        if (!this.inputs[layerId]) {
+          this.inputs[layerId] = {};
+        }
         const input = this.inputs[layerId];
         const textEl = document.querySelector(`[data-oc-layer-text="${layerId}"]`);
         if (textEl) {
@@ -27952,7 +28190,9 @@ class OCCustomiser {
           input.colorHex = colorEl.value;
         } else {
           const selectedSwatch = document.querySelector(`[data-oc-layer-swatch="${layerId}"].oc-selected`);
-          if (selectedSwatch?.dataset.hex) input.colorHex = selectedSwatch.dataset.hex;
+          if (selectedSwatch?.dataset.hex) {
+            input.colorHex = selectedSwatch.dataset.hex;
+          }
         }
         const selectedClipart = document.querySelector(`[data-oc-layer-clipart="${layerId}"].oc-selected`);
         if (selectedClipart) {
@@ -27965,9 +28205,13 @@ class OCCustomiser {
     this.updateHiddenField();
   }
   setupFormSubmit() {
-    if (this.formSubmitBound) return;
+    if (this.formSubmitBound) {
+      return;
+    }
     const form = document.querySelector('form.cart');
-    if (!form) return;
+    if (!form) {
+      return;
+    }
     this.formSubmitBound = true;
     if (this.editMode) {
       form.addEventListener('submit', async e => {
@@ -27977,10 +28221,14 @@ class OCCustomiser {
         await this.flushRedraw();
         const preflight = await this.runPreflight();
         this.renderPreflightMessages(preflight.errors, preflight.warnings);
-        if (!preflight.ok) return;
+        if (!preflight.ok) {
+          return;
+        }
         if (preflight.warnings.length) {
           const proceed = window.confirm('We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.');
-          if (!proceed) return;
+          if (!proceed) {
+            return;
+          }
         }
         await this.uploadPreview();
         this.updateHiddenField();
@@ -27988,10 +28236,12 @@ class OCCustomiser {
         this.areas.forEach(area => {
           (area.layers || []).forEach(layer => {
             const inp = this.inputs[layer.id];
-            if (inp) layers[layer.id] = {
-              type: layer.type,
-              ...inp
-            };
+            if (inp) {
+              layers[layer.id] = {
+                type: layer.type,
+                ...inp
+              };
+            }
           });
         });
         const snapshots = await this.captureAreaSnapshots();
@@ -28036,7 +28286,9 @@ class OCCustomiser {
     }
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.addEventListener('click', e => {
-        if (form._ocSubmitReady) return;
+        if (form._ocSubmitReady) {
+          return;
+        }
         e.preventDefault();
         e.stopImmediatePropagation();
         this.syncInputsFromDOM();
@@ -28206,7 +28458,9 @@ class OCCustomiser {
     });
   }
   async uploadPreview() {
-    if (!this.data.savePreviewUrl) return;
+    if (!this.data.savePreviewUrl) {
+      return;
+    }
     await this.flushRedraw();
     let dataUrl;
     try {
@@ -28288,7 +28542,9 @@ class OCCustomiser {
   setupUploadZones() {
     document.querySelectorAll('[data-oc-upload-zone]').forEach(zoneEl => {
       const lid = parseInt(zoneEl.dataset.ocUploadZone, 10);
-      if (!lid) return;
+      if (!lid) {
+        return;
+      }
       const uploadUrl = this.data?.uploadUrl || '';
       if (!uploadUrl) {
         this.showUploadError(zoneEl, 'Uploads are unavailable right now.');
@@ -28299,7 +28555,9 @@ class OCCustomiser {
       let layer = null;
       for (const area of this.areas) {
         layer = (area.layers || []).find(l => l.id === lid);
-        if (layer) break;
+        if (layer) {
+          break;
+        }
       }
       if (!layer) {
         console.warn('[OC] Upload zone has no matching layer:', lid);
@@ -28319,7 +28577,9 @@ class OCCustomiser {
           uppy.getFiles().forEach(existingFile => uppy.removeFile(existingFile.id));
           this.setUploadZoneState(zoneEl, '');
           const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
-          if (warnEl) warnEl.style.display = 'none';
+          if (warnEl) {
+            warnEl.style.display = 'none';
+          }
           this.setUploadProgress(zoneEl, 0, 'Starting upload...');
           this.showUploadError(zoneEl, '');
           return true;
@@ -28356,7 +28616,9 @@ class OCCustomiser {
           this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
           return;
         }
-        if (!this.inputs[lid]) this.inputs[lid] = {};
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
         this.inputs[lid].attachmentId = res.body.attachment_id || 0;
         this.inputs[lid].attachmentUrl = res.body.preview_url || '';
         this.inputs[lid].imageMeta = null;
@@ -28436,13 +28698,17 @@ class OCCustomiser {
       browse.textContent = state === 'uploaded' ? 'Image uploaded' : 'Tap / click here to upload your image';
     }
     if (note) {
-      if (!note.dataset.ocOriginalText) note.dataset.ocOriginalText = note.textContent;
+      if (!note.dataset.ocOriginalText) {
+        note.dataset.ocOriginalText = note.textContent;
+      }
       note.textContent = state === 'uploaded' ? 'Click to replace image' : note.dataset.ocOriginalText || note.textContent;
     }
   }
   setUploadProgress(zoneEl, percent, label) {
     const wrap = zoneEl.closest('.oc-artwork-wrap');
-    if (!wrap) return;
+    if (!wrap) {
+      return;
+    }
     let progressEl = wrap.querySelector('.oc-upload-progress');
     if (!progressEl) {
       progressEl = document.createElement('div');
@@ -28454,14 +28720,22 @@ class OCCustomiser {
     const labelEl = progressEl.querySelector('.oc-upload-progress-label');
     const track = progressEl.querySelector('.oc-upload-progress-track');
     const bar = progressEl.querySelector('.oc-upload-progress-bar');
-    if (labelEl) labelEl.textContent = label || '';
-    if (track) track.setAttribute('aria-valuenow', String(safePercent));
-    if (bar) bar.style.width = `${safePercent}%`;
+    if (labelEl) {
+      labelEl.textContent = label || '';
+    }
+    if (track) {
+      track.setAttribute('aria-valuenow', String(safePercent));
+    }
+    if (bar) {
+      bar.style.width = `${safePercent}%`;
+    }
     progressEl.style.display = label ? '' : 'none';
   }
   showUploadError(zoneEl, message) {
     const wrap = zoneEl.closest('.oc-artwork-wrap');
-    if (!wrap) return;
+    if (!wrap) {
+      return;
+    }
     let err = wrap.querySelector('.oc-artwork-error');
     if (!err) {
       err = document.createElement('div');
@@ -28531,29 +28805,41 @@ class OCCustomiser {
     return snapshots;
   }
   async inlineSnapshotSvgImages(svg, imageSources = []) {
-    if (!svg || !svg.includes('<image') || !imageSources.length) return svg;
+    if (!svg || !svg.includes('<image') || !imageSources.length) {
+      return svg;
+    }
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     const svgEl = doc.documentElement;
-    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') return svg;
+    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') {
+      return svg;
+    }
     const imageNodes = Array.from(svgEl.querySelectorAll('image'));
     for (let index = 0; index < imageNodes.length; index++) {
       const source = imageSources[index];
-      if (!source?.url) continue;
+      if (!source?.url) {
+        continue;
+      }
       let sourceSvg = '';
       try {
         sourceSvg = await this.svgSourceForSnapshotImage(source.url);
       } catch {
         continue;
       }
-      if (!sourceSvg) continue;
+      if (!sourceSvg) {
+        continue;
+      }
       const sourceDoc = new DOMParser().parseFromString(sourceSvg, 'image/svg+xml');
       const sourceEl = sourceDoc.documentElement;
-      if (!sourceEl || sourceEl.nodeName.toLowerCase() !== 'svg') continue;
+      if (!sourceEl || sourceEl.nodeName.toLowerCase() !== 'svg') {
+        continue;
+      }
       if (source.color) {
         this.flattenSnapshotPatternPaint(sourceEl, source.color);
       }
       const replacement = this.snapshotImageReplacementGroup(doc, imageNodes[index], sourceEl);
-      if (replacement) imageNodes[index].replaceWith(replacement);
+      if (replacement) {
+        imageNodes[index].replaceWith(replacement);
+      }
     }
     return new XMLSerializer().serializeToString(svgEl);
   }
@@ -28564,19 +28850,25 @@ class OCCustomiser {
       return decodeURIComponent(payload);
     }
     const cleanUrl = value.split('?')[0].toLowerCase();
-    if (!cleanUrl.endsWith('.svg')) return '';
+    if (!cleanUrl.endsWith('.svg')) {
+      return '';
+    }
     const response = await fetch(value, {
       credentials: 'same-origin',
       cache: 'force-cache'
     });
-    if (!response.ok) return '';
+    if (!response.ok) {
+      return '';
+    }
     return response.text();
   }
   flattenSnapshotPatternPaint(element, color) {
     Array.from(element.querySelectorAll('[fill], [stroke]')).forEach(node => {
       ['fill', 'stroke'].forEach(attr => {
         const value = String(node.getAttribute(attr) || '').trim();
-        if (/^url\(/i.test(value)) node.setAttribute(attr, color);
+        if (/^url\(/i.test(value)) {
+          node.setAttribute(attr, color);
+        }
       });
     });
     Array.from(element.querySelectorAll('[style]')).forEach(node => {
@@ -28585,17 +28877,23 @@ class OCCustomiser {
   }
   snapshotImageReplacementGroup(doc, imageNode, sourceEl) {
     const viewBox = this.svgViewBoxValues(sourceEl);
-    if (!viewBox) return null;
+    if (!viewBox) {
+      return null;
+    }
     const [vbX, vbY, vbW, vbH] = viewBox;
     const imageX = this.svgNumber(imageNode.getAttribute('x'), 0);
     const imageY = this.svgNumber(imageNode.getAttribute('y'), 0);
     const imageW = this.svgNumber(imageNode.getAttribute('width'), vbW);
     const imageH = this.svgNumber(imageNode.getAttribute('height'), vbH);
-    if (vbW <= 0 || vbH <= 0 || imageW <= 0 || imageH <= 0) return null;
+    if (vbW <= 0 || vbH <= 0 || imageW <= 0 || imageH <= 0) {
+      return null;
+    }
     const ns = 'http://www.w3.org/2000/svg';
     const outer = doc.createElementNS(ns, 'g');
     ['transform', 'opacity', 'clip-path'].forEach(attr => {
-      if (imageNode.hasAttribute(attr)) outer.setAttribute(attr, imageNode.getAttribute(attr));
+      if (imageNode.hasAttribute(attr)) {
+        outer.setAttribute(attr, imageNode.getAttribute(attr));
+      }
     });
     const inner = doc.createElementNS(ns, 'g');
     inner.setAttribute('transform', `translate(${imageX} ${imageY}) scale(${imageW / vbW} ${imageH / vbH}) translate(${-vbX} ${-vbY})`);
@@ -28609,22 +28907,30 @@ class OCCustomiser {
     const viewBox = String(svgEl.getAttribute('viewBox') || '').trim();
     if (viewBox) {
       const parts = viewBox.split(/[\s,]+/).map(Number);
-      if (parts.length >= 4 && parts.every(Number.isFinite)) return parts.slice(0, 4);
+      if (parts.length >= 4 && parts.every(Number.isFinite)) {
+        return parts.slice(0, 4);
+      }
     }
     const width = this.svgNumber(svgEl.getAttribute('width'), 0);
     const height = this.svgNumber(svgEl.getAttribute('height'), 0);
     return width > 0 && height > 0 ? [0, 0, width, height] : null;
   }
   async outlineSnapshotText(svg) {
-    if (!svg || !svg.includes('<text')) return svg;
+    if (!svg || !svg.includes('<text')) {
+      return svg;
+    }
     const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
     const svgEl = doc.documentElement;
-    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') return svg;
+    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') {
+      return svg;
+    }
     const textNodes = Array.from(svgEl.querySelectorAll('text'));
     for (const textNode of textNodes) {
       const fontFamily = this.cleanSvgFontFamily(textNode.getAttribute('font-family') || textNode.style?.fontFamily || '');
       const font = this.fonts.find(item => item.name === fontFamily);
-      if (!font) continue;
+      if (!font) {
+        continue;
+      }
       let outlineFont = null;
       try {
         outlineFont = await this.loadOutlineFont(font);
@@ -28632,13 +28938,19 @@ class OCCustomiser {
         continue;
       }
       const pathData = this.svgTextNodeToPathData(textNode, outlineFont);
-      if (!pathData) continue;
+      if (!pathData) {
+        continue;
+      }
       const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('d', pathData);
       ['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'transform'].forEach(attr => {
-        if (textNode.hasAttribute(attr)) path.setAttribute(attr, textNode.getAttribute(attr));
+        if (textNode.hasAttribute(attr)) {
+          path.setAttribute(attr, textNode.getAttribute(attr));
+        }
       });
-      if (!path.hasAttribute('fill')) path.setAttribute('fill', '#000000');
+      if (!path.hasAttribute('fill')) {
+        path.setAttribute('fill', '#000000');
+      }
       textNode.replaceWith(path);
     }
     return new XMLSerializer().serializeToString(svgEl);
@@ -28647,13 +28959,19 @@ class OCCustomiser {
     return String(value || '').split(',')[0].trim().replace(/^['"]|['"]$/g, '');
   }
   async loadOutlineFont(font) {
-    if (!font?.name || !font?.url) throw new Error('Missing font.');
-    if (this.outlineFontCache[font.name]) return this.outlineFontCache[font.name];
+    if (!font?.name || !font?.url) {
+      throw new Error('Missing font.');
+    }
+    if (this.outlineFontCache[font.name]) {
+      return this.outlineFontCache[font.name];
+    }
     this.outlineFontCache[font.name] = fetch(font.url, {
       credentials: 'same-origin',
       cache: 'force-cache'
     }).then(response => {
-      if (!response.ok) throw new Error('Font download failed.');
+      if (!response.ok) {
+        throw new Error('Font download failed.');
+      }
       return response.arrayBuffer();
     }).then(buffer => {
       const parsed = (0,fonteditor_core__WEBPACK_IMPORTED_MODULE_1__.createFont)(buffer, {
@@ -28688,7 +29006,9 @@ class OCCustomiser {
   }
   svgTextNodeToPathData(textNode, outlineFont) {
     const chunks = this.svgTextChunks(textNode);
-    if (!chunks.length) return '';
+    if (!chunks.length) {
+      return '';
+    }
     return chunks.map(chunk => this.textChunkToPathData(chunk, textNode, outlineFont)).filter(Boolean).join(' ');
   }
   svgTextChunks(textNode) {
@@ -28715,8 +29035,12 @@ class OCCustomiser {
     const advance = this.textAdvanceWidth(chunk.text, outlineFont) * scale;
     let cursor = chunk.x;
     const anchor = String(chunk.anchor || '').toLowerCase();
-    if (anchor === 'middle') cursor -= advance / 2;
-    if (anchor === 'end') cursor -= advance;
+    if (anchor === 'middle') {
+      cursor -= advance / 2;
+    }
+    if (anchor === 'end') {
+      cursor -= advance;
+    }
     const parts = [];
     for (const char of Array.from(chunk.text)) {
       const glyph = outlineFont.glyphs[char.codePointAt(0)];
@@ -28737,7 +29061,9 @@ class OCCustomiser {
     return glyph.contours.map(contour => this.contourToSvgPath(contour, x, baseline, scale)).filter(Boolean).join(' ');
   }
   contourToSvgPath(contour, x, baseline, scale) {
-    if (!contour?.length) return '';
+    if (!contour?.length) {
+      return '';
+    }
     const pointAt = index => contour[(index + contour.length) % contour.length];
     const mid = (a, b) => ({
       x: (a.x + b.x) / 2,
@@ -28782,7 +29108,9 @@ class OCCustomiser {
   }
   async updateHiddenField(includeSnapshots = false) {
     const el = document.getElementById('oc-customisation-data');
-    if (!el) return;
+    if (!el) {
+      return;
+    }
     const layers = {};
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
@@ -28804,13 +29132,19 @@ class OCCustomiser {
     if (this.selectedDesignVariant) {
       const variant = this.designVariants.find(item => item.id === this.selectedDesignVariant);
       payload.designVariant = this.selectedDesignVariant;
-      if (variant?.label) payload.designVariantLabel = variant.label;
+      if (variant?.label) {
+        payload.designVariantLabel = variant.label;
+      }
     }
     if (includeSnapshots) {
       const snapshots = await this.captureAreaSnapshots();
-      if (Object.keys(snapshots).length) payload.snapshots = snapshots;
+      if (Object.keys(snapshots).length) {
+        payload.snapshots = snapshots;
+      }
     }
-    if (this._previewUrl) payload.previewUrl = this._previewUrl;
+    if (this._previewUrl) {
+      payload.previewUrl = this._previewUrl;
+    }
     el.value = JSON.stringify(payload);
   }
 }

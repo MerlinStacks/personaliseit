@@ -1311,6 +1311,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var imagetracerjs__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(imagetracerjs__WEBPACK_IMPORTED_MODULE_0__);
 
 
+/* eslint-disable no-console, no-alert, no-undef, @wordpress/no-unused-vars-before-return, no-unused-vars */
+
 /**
  * Clipart Manager admin JS.
  *
@@ -1321,13 +1323,11 @@ __webpack_require__.r(__webpack_exports__);
  *  - Clipart group editor modal (create / update / delete)
  */
 
-/* global ocClipartData, ocClipartGroups, ocClipartNonce, ocAjaxUrl */
-
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-let clipart = (window.ocClipartData || []).map(normaliseClipart);
+const clipart = (window.ocClipartData || []).map(normaliseClipart);
 let groups = (window.ocClipartGroups || []).map(normaliseGroup);
 let currentFile = null;
 let editClipartId = null;
@@ -1383,10 +1383,16 @@ function initTabs() {
       });
       tab.classList.add('oc-tab--active');
       const target = document.getElementById(tab.dataset.target);
-      if (target) target.hidden = false;
+      if (target) {
+        target.hidden = false;
+      }
       const isGroups = tab.dataset.target === 'oc-tab-clipart-groups';
-      if (uploadBtn) uploadBtn.style.display = isGroups ? 'none' : '';
-      if (createGrpBtn) createGrpBtn.style.display = isGroups ? 'inline-flex' : 'none';
+      if (uploadBtn) {
+        uploadBtn.style.display = isGroups ? 'none' : '';
+      }
+      if (createGrpBtn) {
+        createGrpBtn.style.display = isGroups ? 'inline-flex' : 'none';
+      }
     });
   });
 }
@@ -1403,7 +1409,9 @@ function buildClipartCardEl(item) {
   card.setAttribute('tabindex', '0');
   card.innerHTML = '<div class="oc-clipart-preview">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" loading="lazy" />' + '</div>' + '<div class="oc-clipart-card-body">' + '<div class="oc-clipart-card-title-row">' + '<p class="oc-clipart-card-name" title="' + h(item.name) + '">' + h(item.name) + '</p>' + '<span class="oc-badge ' + (item.active ? 'oc-badge-active' : 'oc-badge-inactive') + '">' + (item.active ? 'Active' : 'Inactive') + '</span>' + '</div>' + '<p class="oc-clipart-type-label">' + h(item.fileType.toUpperCase()) + '</p>' + '<div class="oc-clipart-card-actions">' + (item.canConvert ? '<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="' + item.id + '">Convert to SVG</button>' : '') + '<a href="' + h(item.toggleUrl) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' + (item.active ? 'Deactivate' : 'Activate') + '</a>' + '<a href="' + h(item.deleteUrl) + '" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>' + '</div>' + '</div>';
   card.addEventListener('click', e => {
-    if (isCardActionEvent(e)) return;
+    if (isCardActionEvent(e)) {
+      return;
+    }
     openEditModal(item.id);
   });
   card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
@@ -1412,8 +1420,12 @@ function buildClipartCardEl(item) {
     convertClipartToSvg(item.id, e.currentTarget);
   });
   card.addEventListener('keydown', e => {
-    if (isCardActionEvent(e)) return;
-    if (e.key === 'Enter' || e.key === ' ') openEditModal(item.id);
+    if (isCardActionEvent(e)) {
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      openEditModal(item.id);
+    }
   });
   return card;
 }
@@ -1426,7 +1438,9 @@ function isCardActionEvent(event) {
 }
 async function convertClipartToSvg(id, button) {
   const item = clipart.find(c => c.id === Number(id));
-  if (!item) return;
+  if (!item) {
+    return;
+  }
   const originalText = button?.textContent || 'Convert to SVG';
   if (button) {
     button.disabled = true;
@@ -1456,9 +1470,13 @@ async function convertClipartToSvg(id, button) {
       method: 'POST',
       body: requestBody
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     const json = await res.json();
-    if (!json.success) throw new Error(json.data?.message || 'Conversion failed.');
+    if (!json.success) {
+      throw new Error(json.data?.message || 'Conversion failed.');
+    }
     const converted = normaliseClipart(json.data);
     const idx = clipart.findIndex(c => c.id === converted.id);
     if (idx !== -1) {
@@ -1478,7 +1496,9 @@ async function traceUrlToSvg(url) {
     credentials: 'same-origin',
     cache: 'no-store'
   });
-  if (!response.ok) throw new Error(`Could not load clipart (${response.status}).`);
+  if (!response.ok) {
+    throw new Error(`Could not load clipart (${response.status}).`);
+  }
   return traceBlobToSvg(await response.blob());
 }
 async function traceBlobToSvg(blob) {
@@ -1492,7 +1512,9 @@ async function traceBlobToSvg(blob) {
   const ctx = canvas.getContext('2d', {
     willReadFrequently: true
   });
-  if (!ctx) throw new Error('Canvas is unavailable for tracing.');
+  if (!ctx) {
+    throw new Error('Canvas is unavailable for tracing.');
+  }
   ctx.clearRect(0, 0, width, height);
   ctx.drawImage(image, 0, 0, width, height);
   const imgData = ctx.getImageData(0, 0, width, height);
@@ -1566,15 +1588,25 @@ function updateClipartGridUI() {
   const empty = document.getElementById('oc-clipart-empty');
   const count = document.getElementById('oc-clipart-count');
   const tab = document.querySelector('.oc-tab[data-target="oc-tab-clipart"] .oc-tab-count');
-  if (!grid) return;
-  if (count) count.textContent = clipart.length + ' ' + (1 === clipart.length ? 'item' : 'items');
-  if (tab) tab.textContent = clipart.length;
+  if (!grid) {
+    return;
+  }
+  if (count) {
+    count.textContent = clipart.length + ' ' + (1 === clipart.length ? 'item' : 'items');
+  }
+  if (tab) {
+    tab.textContent = clipart.length;
+  }
   if (clipart.length === 0) {
-    if (empty) empty.style.display = '';
+    if (empty) {
+      empty.style.display = '';
+    }
     grid.style.display = 'none';
     return;
   }
-  if (empty) empty.style.display = 'none';
+  if (empty) {
+    empty.style.display = 'none';
+  }
   grid.style.display = '';
   grid.innerHTML = '';
   clipart.forEach(c => grid.appendChild(buildClipartCardEl(c)));
@@ -1598,7 +1630,9 @@ function initUploadModal() {
   const errDiv = document.getElementById('oc-clipart-upload-error');
   const backBtn = document.getElementById('oc-clipart-upload-back-btn');
   const submitBtn = document.getElementById('oc-clipart-upload-submit-btn');
-  if (!modal) return;
+  if (!modal) {
+    return;
+  }
   function openModal() {
     resetToStep1();
     modal.hidden = false;
@@ -1610,9 +1644,15 @@ function initUploadModal() {
     currentFile = null;
   }
   function resetToStep1() {
-    if (step1) step1.style.display = '';
-    if (step2) step2.style.display = 'none';
-    if (footer) footer.style.display = 'none';
+    if (step1) {
+      step1.style.display = '';
+    }
+    if (step2) {
+      step2.style.display = 'none';
+    }
+    if (footer) {
+      footer.style.display = 'none';
+    }
     if (errDiv) {
       errDiv.style.display = 'none';
       errDiv.textContent = '';
@@ -1629,10 +1669,18 @@ function initUploadModal() {
     if (nameInput && !nameInput.value) {
       nameInput.value = file.name.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
     }
-    if (step1) step1.style.display = 'none';
-    if (step2) step2.style.display = '';
-    if (footer) footer.style.display = '';
-    if (errDiv) errDiv.style.display = 'none';
+    if (step1) {
+      step1.style.display = 'none';
+    }
+    if (step2) {
+      step2.style.display = '';
+    }
+    if (footer) {
+      footer.style.display = '';
+    }
+    if (errDiv) {
+      errDiv.style.display = 'none';
+    }
   }
   function handleFile(file) {
     if (!/\.(svg|png|jpe?g|webp|gif)$/i.test(file.name)) {
@@ -1650,23 +1698,33 @@ function initUploadModal() {
     e.preventDefault();
     dropZone.classList.remove('oc-drop-zone--over');
     const file = e.dataTransfer.files[0];
-    if (file) handleFile(file);
+    if (file) {
+      handleFile(file);
+    }
   });
   dropZone?.addEventListener('click', () => fileInput?.click());
   fileInput?.addEventListener('change', () => {
-    if (fileInput.files[0]) handleFile(fileInput.files[0]);
+    if (fileInput.files[0]) {
+      handleFile(fileInput.files[0]);
+    }
   });
   openBtn?.addEventListener('click', openModal);
   closeBtn?.addEventListener('click', closeModal);
   backBtn?.addEventListener('click', () => {
-    if (nameInput) nameInput.value = '';
+    if (nameInput) {
+      nameInput.value = '';
+    }
     resetToStep1();
   });
   modal?.addEventListener('click', e => {
-    if (e.target === modal) closeModal();
+    if (e.target === modal) {
+      closeModal();
+    }
   });
   submitBtn?.addEventListener('click', async () => {
-    if (!currentFile) return;
+    if (!currentFile) {
+      return;
+    }
     const name = nameInput?.value.trim() || '';
     if (!name) {
       if (errDiv) {
@@ -1700,7 +1758,9 @@ function initUploadModal() {
         method: 'POST',
         body: fd
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const text = await res.text();
       let json;
       try {
@@ -1717,7 +1777,9 @@ function initUploadModal() {
       }
       clipart.push(normaliseClipart(json.data));
       updateClipartGridUI();
-      if (nameInput) nameInput.value = '';
+      if (nameInput) {
+        nameInput.value = '';
+      }
       closeModal();
     } catch (err) {
       if (errDiv) {
@@ -1738,13 +1800,17 @@ function initUploadModal() {
 function openEditModal(id) {
   editClipartId = id;
   const item = clipart.find(c => c.id === id);
-  if (!item) return;
+  if (!item) {
+    return;
+  }
   const modal = document.getElementById('oc-clipart-modal');
   const nameInp = document.getElementById('oc_clipart_name');
   const preview = document.getElementById('oc-clipart-modal-preview-img');
   const errDiv = document.getElementById('oc-clipart-error');
   const delBtn = document.getElementById('oc-clipart-delete-btn');
-  if (nameInp) nameInp.value = item.name;
+  if (nameInp) {
+    nameInp.value = item.name;
+  }
   if (preview) {
     preview.src = item.url;
     preview.alt = item.name;
@@ -1753,11 +1819,15 @@ function openEditModal(id) {
     errDiv.style.display = 'none';
     errDiv.textContent = '';
   }
-  if (delBtn) delBtn.style.display = '';
+  if (delBtn) {
+    delBtn.style.display = '';
+  }
   if (modal) {
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
-    if (nameInp) nameInp.focus();
+    if (nameInp) {
+      nameInp.focus();
+    }
   }
 }
 function initEditModal() {
@@ -1768,7 +1838,9 @@ function initEditModal() {
   const deleteBtn = document.getElementById('oc-clipart-delete-btn');
   const nameInput = document.getElementById('oc_clipart_name');
   const errDiv = document.getElementById('oc-clipart-error');
-  if (!modal) return;
+  if (!modal) {
+    return;
+  }
   function closeModal() {
     modal.hidden = true;
     document.body.style.overflow = '';
@@ -1777,20 +1849,28 @@ function initEditModal() {
   closeBtn?.addEventListener('click', closeModal);
   cancelBtn?.addEventListener('click', closeModal);
   modal?.addEventListener('click', e => {
-    if (e.target === modal) closeModal();
+    if (e.target === modal) {
+      closeModal();
+    }
   });
   deleteBtn?.addEventListener('click', () => {
-    if (!editClipartId) return;
+    if (!editClipartId) {
+      return;
+    }
     const item = clipart.find(c => c.id === editClipartId);
     if (item && confirm('Delete this clipart?')) {
       window.location.href = item.deleteUrl;
     }
   });
   saveBtn?.addEventListener('click', async () => {
-    if (!editClipartId) return;
+    if (!editClipartId) {
+      return;
+    }
     const name = nameInput && nameInput.value.trim() || '';
     if (!name) {
-      if (nameInput) nameInput.focus();
+      if (nameInput) {
+        nameInput.focus();
+      }
       return;
     }
     const body = new URLSearchParams({
@@ -1804,7 +1884,9 @@ function initEditModal() {
         method: 'POST',
         body
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const json = await res.json();
       if (!json.success) {
         if (errDiv) {
@@ -1831,7 +1913,9 @@ function initEditModal() {
   // Wire up server-rendered cards.
   document.querySelectorAll('.oc-clipart-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (isCardActionEvent(e)) return;
+      if (isCardActionEvent(e)) {
+        return;
+      }
       openEditModal(Number(card.dataset.clipartId));
     });
     card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
@@ -1840,8 +1924,12 @@ function initEditModal() {
       convertClipartToSvg(Number(card.dataset.clipartId), e.currentTarget);
     });
     card.addEventListener('keydown', e => {
-      if (isCardActionEvent(e)) return;
-      if (e.key === 'Enter' || e.key === ' ') openEditModal(Number(card.dataset.clipartId));
+      if (isCardActionEvent(e)) {
+        return;
+      }
+      if (e.key === 'Enter' || e.key === ' ') {
+        openEditModal(Number(card.dataset.clipartId));
+      }
     });
   });
 }
@@ -1862,7 +1950,9 @@ function buildGroupCardEl(group) {
   card.setAttribute('tabindex', '0');
   let thumbsHtml = group.clipartIds.slice(0, 6).map(cid => {
     const c = clipartById(cid);
-    if (!c) return '';
+    if (!c) {
+      return '';
+    }
     return '<div class="oc-clipart-thumb" title="' + h(c.name) + '"><img src="' + h(c.url) + '" alt="' + h(c.name) + '" /></div>';
   }).join('');
   if (group.clipartIds.length > 6) {
@@ -1874,7 +1964,9 @@ function buildGroupCardEl(group) {
   card.innerHTML = '<div class="oc-group-card-body">' + '<p class="oc-group-card-name">' + h(group.name) + '</p>' + '<p class="oc-group-card-count">' + group.clipartIds.length + ' ' + (1 === group.clipartIds.length ? 'item' : 'items') + '</p>' + '<div class="oc-clipart-group-thumbs">' + thumbsHtml + '</div>' + '</div>';
   card.addEventListener('click', () => openGroupModal(group.id));
   card.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') openGroupModal(group.id);
+    if (e.key === 'Enter' || e.key === ' ') {
+      openGroupModal(group.id);
+    }
   });
   return card;
 }
@@ -1883,15 +1975,25 @@ function updateGroupGridUI() {
   const empty = document.getElementById('oc-clipart-groups-empty');
   const count = document.getElementById('oc-clipart-groups-count');
   const tab = document.querySelector('.oc-tab[data-target="oc-tab-clipart-groups"] .oc-tab-count');
-  if (!grid) return;
-  if (count) count.textContent = groups.length + ' ' + (1 === groups.length ? 'group' : 'groups');
-  if (tab) tab.textContent = groups.length;
+  if (!grid) {
+    return;
+  }
+  if (count) {
+    count.textContent = groups.length + ' ' + (1 === groups.length ? 'group' : 'groups');
+  }
+  if (tab) {
+    tab.textContent = groups.length;
+  }
   if (groups.length === 0) {
-    if (empty) empty.style.display = '';
+    if (empty) {
+      empty.style.display = '';
+    }
     grid.style.display = 'none';
     return;
   }
-  if (empty) empty.style.display = 'none';
+  if (empty) {
+    empty.style.display = 'none';
+  }
   grid.style.display = '';
   grid.innerHTML = '';
   groups.forEach(g => grid.appendChild(buildGroupCardEl(g)));
@@ -1911,7 +2013,9 @@ function openGroupModal(id) {
   const group = id ? groups.find(g => g.id === id) : null;
   groupNameInput().value = group ? group.name : '';
   const deleteBtn = groupDeleteBtn();
-  if (deleteBtn) deleteBtn.style.display = group ? '' : 'none';
+  if (deleteBtn) {
+    deleteBtn.style.display = group ? '' : 'none';
+  }
   renderClipartPicker(group ? group.clipartIds : []);
   groupModal().hidden = false;
   document.body.style.overflow = 'hidden';
@@ -1924,7 +2028,9 @@ function closeGroupModal() {
 }
 function renderClipartPicker(selectedIds) {
   const picker = groupPicker();
-  if (!picker) return;
+  if (!picker) {
+    return;
+  }
   picker.innerHTML = '';
   clipart.forEach(item => {
     const checked = selectedIds.includes(item.id);
@@ -1938,11 +2044,15 @@ function renderClipartPicker(selectedIds) {
 }
 function updateGroupSelCount() {
   const n = groupPicker() ? groupPicker().querySelectorAll('input:checked').length : 0;
-  if (groupSelCount()) groupSelCount().textContent = n + ' selected';
+  if (groupSelCount()) {
+    groupSelCount().textContent = n + ' selected';
+  }
 }
 function selectedClipartIds() {
   const picker = groupPicker();
-  if (!picker) return [];
+  if (!picker) {
+    return [];
+  }
   return Array.from(picker.querySelectorAll('input:checked')).map(cb => Number(cb.value));
 }
 async function saveGroup() {
@@ -1966,7 +2076,9 @@ async function saveGroup() {
       method: 'POST',
       body
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     json = await res.json();
   } catch (e) {
     console.warn('[OC] Clipart group save failed:', e);
@@ -1980,7 +2092,9 @@ async function saveGroup() {
   const saved = normaliseGroup(json.data);
   if (editGroupId) {
     const idx = groups.findIndex(g => g.id === editGroupId);
-    if (idx !== -1) groups[idx] = saved;
+    if (idx !== -1) {
+      groups[idx] = saved;
+    }
   } else {
     groups.push(saved);
   }
@@ -1988,8 +2102,12 @@ async function saveGroup() {
   closeGroupModal();
 }
 async function deleteGroup() {
-  if (!editGroupId) return;
-  if (!confirm('Delete this clipart group?')) return;
+  if (!editGroupId) {
+    return;
+  }
+  if (!confirm('Delete this clipart group?')) {
+    return;
+  }
   const body = new URLSearchParams({
     action: 'oc_clipart_group_delete',
     nonce: window.ocClipartNonce,
@@ -2001,7 +2119,9 @@ async function deleteGroup() {
       method: 'POST',
       body
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     json = await res.json();
   } catch (e) {
     console.warn('[OC] Clipart group delete failed:', e);
@@ -2021,14 +2141,18 @@ function initGroupModal() {
   document.getElementById('oc-clipart-group-modal-close')?.addEventListener('click', closeGroupModal);
   document.getElementById('oc-clipart-group-cancel-btn')?.addEventListener('click', closeGroupModal);
   groupModal()?.addEventListener('click', e => {
-    if (e.target === groupModal()) closeGroupModal();
+    if (e.target === groupModal()) {
+      closeGroupModal();
+    }
   });
   document.getElementById('oc-clipart-group-save-btn')?.addEventListener('click', saveGroup);
   groupDeleteBtn()?.addEventListener('click', deleteGroup);
   document.querySelectorAll('.oc-clipart-group-card').forEach(card => {
     card.addEventListener('click', () => openGroupModal(Number(card.dataset.groupId)));
     card.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') openGroupModal(Number(card.dataset.groupId));
+      if (e.key === 'Enter' || e.key === ' ') {
+        openGroupModal(Number(card.dataset.groupId));
+      }
     });
   });
 }

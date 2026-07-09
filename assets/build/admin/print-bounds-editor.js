@@ -49,10 +49,10 @@ __webpack_require__.r(__webpack_exports__);
 
 class PrintBoundsEditor {
   /**
-   * @param {HTMLElement} wrap      - The .oc-bounds-editor container div.
-   * @param {HTMLElement} selEl     - The .oc-bounds-selection div.
-   * @param {HTMLElement} imgEl     - The mockup <img> element.
-   * @param {Function}    onChange  - Callback( x, y, w, h ) in natural image pixels.
+   * @param {HTMLElement} wrap     - The .oc-bounds-editor container div.
+   * @param {HTMLElement} selEl    - The .oc-bounds-selection div.
+   * @param {HTMLElement} imgEl    - The mockup <img> element.
+   * @param {Function}    onChange - Callback( x, y, w, h ) in natural image pixels.
    */
   constructor(wrap, selEl, imgEl, onChange) {
     this.wrap = wrap;

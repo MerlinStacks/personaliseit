@@ -1,3 +1,5 @@
+/* eslint-disable import/no-unresolved */
+
 import { registerCheckoutFilters } from '@woocommerce/blocks-checkout';
 
 const getPreviewUrl = ( extensions ) => {

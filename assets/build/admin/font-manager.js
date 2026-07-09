@@ -19147,6 +19147,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var fonteditor_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! fonteditor-core */ "./node_modules/fonteditor-core/lib/main.esm.js");
 
 
+/* eslint-disable no-console, no-alert, no-undef, no-unused-vars, @wordpress/no-unused-vars-before-return, jsdoc/require-param-type */
+
 /**
  * Admin — Font Manager JS.
  *
@@ -19198,20 +19200,27 @@ __webpack_require__.r(__webpack_exports__);
   const detailCloseBtn = document.getElementById('oc-detail-close');
   const addWeightBtn = document.getElementById('oc-add-weight-btn');
   const detailVariants = document.getElementById('oc-detail-variants');
-  if (!uploadModal) return; // Safety — not on the fonts page.
+  if (!uploadModal) {
+    return;
+  } // Safety — not on the fonts page.
 
   // ── TTF / OTF name-table parser ────────────────────────────────────────────
 
   /**
    * Parse the 'name' table from a raw TTF/OTF ArrayBuffer.
    * Returns an object keyed by nameID, or null if the file is not a parseable sfnt.
+   * @param buffer
    */
   function parseFontNames(buffer) {
     const view = new DataView(buffer);
-    if (buffer.byteLength < 12) return null;
+    if (buffer.byteLength < 12) {
+      return null;
+    }
     const sig = view.getUint32(0);
     // Valid sfnt signatures: TrueType (0x00010000), 'true' (0x74727565), CFF/OTF ('OTTO' 0x4f54544f)
-    if (sig !== 0x00010000 && sig !== 0x74727565 && sig !== 0x4f54544f) return null;
+    if (sig !== 0x00010000 && sig !== 0x74727565 && sig !== 0x4f54544f) {
+      return null;
+    }
     const numTables = view.getUint16(4);
     let nameOffset = 0;
     for (let i = 0; i < numTables; i++) {
@@ -19222,7 +19231,9 @@ __webpack_require__.r(__webpack_exports__);
         break;
       }
     }
-    if (!nameOffset) return null;
+    if (!nameOffset) {
+      return null;
+    }
     const count = view.getUint16(nameOffset + 2);
     const strBase = nameOffset + view.getUint16(nameOffset + 4);
     const names = {};
@@ -19234,19 +19245,29 @@ __webpack_require__.r(__webpack_exports__);
       const nameID = view.getUint16(r + 6);
       const length = view.getUint16(r + 8);
       const offset = view.getUint16(r + 10);
-      if (nameID > 17) continue; // Only standard IDs
+      if (nameID > 17) {
+        continue;
+      } // Only standard IDs
 
       const isWin = platformID === 3 && encodingID === 1 && langID === 0x0409;
       const isMac = platformID === 1 && encodingID === 0 && langID === 0;
-      if (!isWin && !isMac) continue;
-      if (names[nameID] && !isWin) continue; // Prefer Windows records
+      if (!isWin && !isMac) {
+        continue;
+      }
+      if (names[nameID] && !isWin) {
+        continue;
+      } // Prefer Windows records
 
       let str = '';
       const start = strBase + offset;
       if (isWin) {
-        for (let j = 0; j < length; j += 2) str += String.fromCharCode(view.getUint16(start + j));
+        for (let j = 0; j < length; j += 2) {
+          str += String.fromCharCode(view.getUint16(start + j));
+        }
       } else {
-        for (let j = 0; j < length; j++) str += String.fromCharCode(view.getUint8(start + j));
+        for (let j = 0; j < length; j++) {
+          str += String.fromCharCode(view.getUint8(start + j));
+        }
       }
       names[nameID] = str;
     }
@@ -19255,11 +19276,28 @@ __webpack_require__.r(__webpack_exports__);
 
   /**
    * Map an sfnt subfamily string (e.g. "Bold Italic") to CSS weight + style.
+   * @param subfamily
    */
   function subfamilyToProps(subfamily) {
     const s = (subfamily || 'Regular').toLowerCase();
     let weight = 'normal';
-    if (s.includes('thin') || s.includes('hairline')) weight = '100';else if (s.includes('extralight') || s.includes('extra light') || s.includes('ultralight') || s.includes('ultra light')) weight = '200';else if (s.includes('light')) weight = '300';else if (s.includes('semibold') || s.includes('semi bold') || s.includes('demibold')) weight = '600';else if (s.includes('extrabold') || s.includes('extra bold') || s.includes('ultrabold') || s.includes('ultra bold')) weight = '800';else if (s.includes('black') || s.includes('heavy')) weight = '900';else if (s.includes('bold')) weight = 'bold';else if (s.includes('medium')) weight = '500';
+    if (s.includes('thin') || s.includes('hairline')) {
+      weight = '100';
+    } else if (s.includes('extralight') || s.includes('extra light') || s.includes('ultralight') || s.includes('ultra light')) {
+      weight = '200';
+    } else if (s.includes('light')) {
+      weight = '300';
+    } else if (s.includes('semibold') || s.includes('semi bold') || s.includes('demibold')) {
+      weight = '600';
+    } else if (s.includes('extrabold') || s.includes('extra bold') || s.includes('ultrabold') || s.includes('ultra bold')) {
+      weight = '800';
+    } else if (s.includes('black') || s.includes('heavy')) {
+      weight = '900';
+    } else if (s.includes('bold')) {
+      weight = 'bold';
+    } else if (s.includes('medium')) {
+      weight = '500';
+    }
     const style = s.includes('italic') || s.includes('oblique') ? 'italic' : 'normal';
     return {
       weight,
@@ -19298,7 +19336,9 @@ __webpack_require__.r(__webpack_exports__);
     nameInput.style.opacity = '';
     weightSel.value = 'normal';
     styleSel.value = 'normal';
-    if (embroCheck) embroCheck.checked = false;
+    if (embroCheck) {
+      embroCheck.checked = false;
+    }
     previewText.textContent = 'AaBbCc 123';
     previewText.style.fontFamily = '';
     previewText.style.fontWeight = '';
@@ -19318,7 +19358,9 @@ __webpack_require__.r(__webpack_exports__);
   // ── File handling ──────────────────────────────────────────────────────────
 
   async function handleFileSelected(file) {
-    if (!file) return;
+    if (!file) {
+      return;
+    }
     currentFile = file;
     let buffer;
     let names;
@@ -19350,7 +19392,9 @@ __webpack_require__.r(__webpack_exports__);
     try {
       // Remove any previous upload preview font.
       document.fonts.forEach(function (f) {
-        if (f.family === PREVIEW_FAMILY) document.fonts.delete(f);
+        if (f.family === PREVIEW_FAMILY) {
+          document.fonts.delete(f);
+        }
       });
       const ff = new FontFace(PREVIEW_FAMILY, buffer, {
         weight: weightSel.value,
@@ -19377,7 +19421,9 @@ __webpack_require__.r(__webpack_exports__);
   // ── AJAX upload ────────────────────────────────────────────────────────────
 
   async function submitUpload() {
-    if (!currentFile) return;
+    if (!currentFile) {
+      return;
+    }
     if (!nameInput.value.trim()) {
       nameInput.focus();
       return;
@@ -19393,13 +19439,17 @@ __webpack_require__.r(__webpack_exports__);
     fd.append('oc_font_name', nameInput.value.trim());
     fd.append('oc_font_weight', weightSel.value);
     fd.append('oc_font_style', styleSel.value);
-    if (embroCheck && embroCheck.checked) fd.append('oc_font_embroidery', '1');
+    if (embroCheck && embroCheck.checked) {
+      fd.append('oc_font_embroidery', '1');
+    }
     try {
       const res = await fetch(ajaxUrl, {
         method: 'POST',
         body: fd
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const text = await res.text();
       let json;
       try {
@@ -19437,7 +19487,9 @@ __webpack_require__.r(__webpack_exports__);
 
   function injectFontFace(font) {
     const styleId = `oc-ff-${font.id}`;
-    if (document.getElementById(styleId)) return;
+    if (document.getElementById(styleId)) {
+      return;
+    }
     const s = document.createElement('style');
     s.id = styleId;
     s.textContent = `@font-face { font-family: 'oc-preview-${font.id}'; src: url('${font.url}'); font-weight: ${font.weight}; font-style: ${font.style}; }`;
@@ -19477,14 +19529,18 @@ __webpack_require__.r(__webpack_exports__);
     return el;
   }
   function addCardToGrid(font) {
-    if (fontsEmpty) fontsEmpty.style.display = 'none';
+    if (fontsEmpty) {
+      fontsEmpty.style.display = 'none';
+    }
     fontGrid.style.display = '';
     const card = buildCardEl(font);
     fontGrid.appendChild(card);
     bindCardClick(card);
   }
   function updateFontsCount() {
-    if (!fontsCount) return;
+    if (!fontsCount) {
+      return;
+    }
     const n = fonts.length;
     fontsCount.textContent = `${n} ${n === 1 ? 'font' : 'fonts'}`;
   }
@@ -19495,7 +19551,9 @@ __webpack_require__.r(__webpack_exports__);
     // Mark the active card.
     document.querySelectorAll('.oc-font-card--active-detail').forEach(c => c.classList.remove('oc-font-card--active-detail'));
     const activeCard = document.querySelector(`.oc-font-card[data-font-id="${fontId}"]`);
-    if (activeCard) activeCard.classList.add('oc-font-card--active-detail');
+    if (activeCard) {
+      activeCard.classList.add('oc-font-card--active-detail');
+    }
     detailFontName = familyName;
     detailNameInput.value = familyName;
     renderDetailVariants(familyName);
@@ -19538,7 +19596,9 @@ __webpack_require__.r(__webpack_exports__);
   }
   async function convertFontForPrint(fontId, button) {
     const font = fonts.find(f => Number(f.id) === Number(fontId));
-    if (!font) return;
+    if (!font) {
+      return;
+    }
     const label = button?.textContent || 'Convert for print';
     if (button) {
       button.disabled = true;
@@ -19557,7 +19617,9 @@ __webpack_require__.r(__webpack_exports__);
         method: 'POST',
         body: fd
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const json = await res.json();
       if (!json.success) {
         if (font.ext === 'WOFF') {
@@ -19582,7 +19644,9 @@ __webpack_require__.r(__webpack_exports__);
       credentials: 'same-origin',
       cache: 'no-store'
     });
-    if (!response.ok) throw new Error(`Could not load font file (${response.status}).`);
+    if (!response.ok) {
+      throw new Error(`Could not load font file (${response.status}).`);
+    }
     const sourceType = String(font.ext || '').toLowerCase();
     const source = (0,fonteditor_core__WEBPACK_IMPORTED_MODULE_0__.createFont)(await response.arrayBuffer(), {
       type: sourceType,
@@ -19603,9 +19667,13 @@ __webpack_require__.r(__webpack_exports__);
       method: 'POST',
       body: fd
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     const json = await res.json();
-    if (!json.success) throw new Error(json.data?.message || 'Browser conversion failed.');
+    if (!json.success) {
+      throw new Error(json.data?.message || 'Browser conversion failed.');
+    }
     applyConvertedFont(json.data);
   }
   function applyConvertedFont(updated) {
@@ -19621,7 +19689,9 @@ __webpack_require__.r(__webpack_exports__);
   }
   function replaceFontCard(font) {
     const existing = document.querySelector(`.oc-font-card[data-font-id="${font.id}"]`);
-    if (!existing) return;
+    if (!existing) {
+      return;
+    }
     const replacement = buildCardEl(font);
     existing.replaceWith(replacement);
     bindCardClick(replacement);
@@ -19631,11 +19701,15 @@ __webpack_require__.r(__webpack_exports__);
 
   async function saveRename() {
     const newName = detailNameInput.value.trim();
-    if (!newName || newName === detailFontName) return;
+    if (!newName || newName === detailFontName) {
+      return;
+    }
 
     // Get any font ID from this family to pass to the server.
     const sample = fonts.find(f => f.name === detailFontName);
-    if (!sample) return;
+    if (!sample) {
+      return;
+    }
     detailSaveBtn.disabled = true;
     detailSaveBtn.textContent = 'Saving…';
     try {
@@ -19648,7 +19722,9 @@ __webpack_require__.r(__webpack_exports__);
         method: 'POST',
         body: fd
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const json = await res.json();
       if (!json.success) {
         alert(json.data?.message || 'Rename failed.');
@@ -19658,7 +19734,9 @@ __webpack_require__.r(__webpack_exports__);
       // Update local state.
       const oldName = json.data.oldName;
       fonts.forEach(f => {
-        if (f.name === oldName) f.name = newName;
+        if (f.name === oldName) {
+          f.name = newName;
+        }
       });
 
       // Update all matching cards in the DOM.
@@ -19684,7 +19762,9 @@ __webpack_require__.r(__webpack_exports__);
   function bindCardClick(card) {
     card.addEventListener('click', function (e) {
       // Don't intercept clicks on action links.
-      if (e.target.closest('a') || e.target.closest('button')) return;
+      if (e.target.closest('a') || e.target.closest('button')) {
+        return;
+      }
       openDetailPanel(this.dataset.fontId, this.dataset.fontName);
     });
     card.addEventListener('keydown', function (e) {
@@ -19697,7 +19777,9 @@ __webpack_require__.r(__webpack_exports__);
   document.querySelectorAll('.oc-font-card').forEach(bindCardClick);
   document.addEventListener('click', function (e) {
     const btn = e.target.closest('.oc-font-convert-btn');
-    if (!btn) return;
+    if (!btn) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     convertFontForPrint(btn.dataset.fontId, btn);
@@ -19713,7 +19795,9 @@ __webpack_require__.r(__webpack_exports__);
 
   modalCloseBtn.addEventListener('click', closeUploadModal);
   uploadModal.addEventListener('click', function (e) {
-    if (e.target === uploadModal) closeUploadModal();
+    if (e.target === uploadModal) {
+      closeUploadModal();
+    }
   });
 
   // ── Event: drop zone ───────────────────────────────────────────────────────
@@ -19732,10 +19816,14 @@ __webpack_require__.r(__webpack_exports__);
     e.preventDefault();
     dropZone.classList.remove('oc-drop-over');
     const file = e.dataTransfer?.files[0];
-    if (file) handleFileSelected(file);
+    if (file) {
+      handleFileSelected(file);
+    }
   });
   fileInput.addEventListener('change', function () {
-    if (this.files[0]) handleFileSelected(this.files[0]);
+    if (this.files[0]) {
+      handleFileSelected(this.files[0]);
+    }
   });
 
   // ── Event: upload step 2 controls ─────────────────────────────────────────
@@ -19752,20 +19840,28 @@ __webpack_require__.r(__webpack_exports__);
 
   // Live preview weight/style update.
   [weightSel, styleSel].forEach(function (sel) {
-    if (sel) sel.addEventListener('change', function () {
-      if (currentFontFace) applyPreviewStyle();
-    });
+    if (sel) {
+      sel.addEventListener('change', function () {
+        if (currentFontFace) {
+          applyPreviewStyle();
+        }
+      });
+    }
   });
 
   // ── Event: detail panel controls ───────────────────────────────────────────
 
   detailCloseBtn.addEventListener('click', closeDetailPanel);
   detailPanel.addEventListener('click', function (e) {
-    if (e.target === detailPanel) closeDetailPanel();
+    if (e.target === detailPanel) {
+      closeDetailPanel();
+    }
   });
   detailSaveBtn.addEventListener('click', saveRename);
   detailNameInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') saveRename();
+    if (e.key === 'Enter') {
+      saveRename();
+    }
   });
   addWeightBtn.addEventListener('click', function () {
     openUploadModal(detailFontName);
@@ -19783,8 +19879,12 @@ __webpack_require__.r(__webpack_exports__);
       tab.classList.add('oc-tab--active');
       document.getElementById(tab.dataset.target).hidden = false;
       const onFonts = tab.dataset.target === 'oc-tab-fonts';
-      if (uploadFontBtn) uploadFontBtn.style.display = onFonts ? '' : 'none';
-      if (createGroupBtn) createGroupBtn.style.display = onFonts ? 'none' : '';
+      if (uploadFontBtn) {
+        uploadFontBtn.style.display = onFonts ? '' : 'none';
+      }
+      if (createGroupBtn) {
+        createGroupBtn.style.display = onFonts ? 'none' : '';
+      }
     });
   });
 
@@ -19812,7 +19912,9 @@ __webpack_require__.r(__webpack_exports__);
     groupNameInput.value = group ? group.name : '';
 
     // Show delete button only for existing groups.
-    if (groupDeleteBtn) groupDeleteBtn.style.display = group ? '' : 'none';
+    if (groupDeleteBtn) {
+      groupDeleteBtn.style.display = group ? '' : 'none';
+    }
     renderFontPicker(group ? group.fontIds : []);
     groupModal.hidden = false;
     document.body.style.overflow = 'hidden';
@@ -19874,7 +19976,9 @@ __webpack_require__.r(__webpack_exports__);
     return Array.from(groupFontPicker.querySelectorAll('input[type="checkbox"]:checked')).map(cb => parseInt(cb.value, 10));
   }
   function updateSelectedCount() {
-    if (!selectedCountEl) return;
+    if (!selectedCountEl) {
+      return;
+    }
     const n = getCheckedFontIds().length;
     selectedCountEl.textContent = `${n} selected`;
   }
@@ -19907,7 +20011,9 @@ __webpack_require__.r(__webpack_exports__);
         method: 'POST',
         body: fd
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const json = await res.json();
       if (!json.success) {
         alert(json.data?.message || 'Save failed.');
@@ -19917,7 +20023,9 @@ __webpack_require__.r(__webpack_exports__);
       if (editingGroup) {
         // Update in state.
         const idx = groups.findIndex(g => g.id === saved.id);
-        if (idx !== -1) groups[idx] = saved;
+        if (idx !== -1) {
+          groups[idx] = saved;
+        }
         // Update card in DOM.
         const card = groupGrid.querySelector(`.oc-group-card[data-group-id="${saved.id}"]`);
         if (card) {
@@ -19941,8 +20049,12 @@ __webpack_require__.r(__webpack_exports__);
   // ── AJAX: delete group ─────────────────────────────────────────────────────
 
   async function deleteGroup() {
-    if (!editingGroup) return;
-    if (!confirm(`Delete the group "${editingGroup.name}"?`)) return;
+    if (!editingGroup) {
+      return;
+    }
+    if (!confirm(`Delete the group "${editingGroup.name}"?`)) {
+      return;
+    }
     const fd = new FormData();
     fd.append('action', 'oc_group_delete');
     fd.append('nonce', nonce);
@@ -19952,7 +20064,9 @@ __webpack_require__.r(__webpack_exports__);
         method: 'POST',
         body: fd
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
+      }
       const json = await res.json();
       if (!json.success) {
         alert('Delete failed.');
@@ -19964,7 +20078,9 @@ __webpack_require__.r(__webpack_exports__);
 
       // Remove card from DOM.
       const card = groupGrid.querySelector(`.oc-group-card[data-group-id="${editingGroup.id}"]`);
-      if (card) card.remove();
+      if (card) {
+        card.remove();
+      }
       updateGroupsCount();
       closeGroupModal();
     } catch (err) {
@@ -20002,14 +20118,20 @@ __webpack_require__.r(__webpack_exports__);
 		`;
   }
   function addGroupCardToGrid(group) {
-    if (groupsEmpty) groupsEmpty.style.display = 'none';
-    if (groupGrid) groupGrid.style.display = '';
+    if (groupsEmpty) {
+      groupsEmpty.style.display = 'none';
+    }
+    if (groupGrid) {
+      groupGrid.style.display = '';
+    }
     const card = buildGroupCardEl(group);
     bindGroupCardClick(card);
     groupGrid.appendChild(card);
   }
   function updateGroupsCount() {
-    if (!groupsCount) return;
+    if (!groupsCount) {
+      return;
+    }
     const n = groups.length;
     groupsCount.textContent = `${n} ${n === 1 ? 'group' : 'groups'}`;
   }
@@ -20020,7 +20142,9 @@ __webpack_require__.r(__webpack_exports__);
     card.addEventListener('click', function () {
       const id = parseInt(this.dataset.groupId, 10);
       const group = groups.find(g => g.id === id);
-      if (group) openGroupModal(group);
+      if (group) {
+        openGroupModal(group);
+      }
     });
     card.addEventListener('keydown', function (e) {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -20033,25 +20157,42 @@ __webpack_require__.r(__webpack_exports__);
 
   // ── Event: group modal controls ────────────────────────────────────────────
 
-  if (createGroupBtn) createGroupBtn.addEventListener('click', () => openGroupModal(null));
-  if (groupModalClose) groupModalClose.addEventListener('click', closeGroupModal);
-  if (groupCancelBtn) groupCancelBtn.addEventListener('click', closeGroupModal);
-  if (groupSaveBtn) groupSaveBtn.addEventListener('click', saveGroup);
-  if (groupDeleteBtn) groupDeleteBtn.addEventListener('click', deleteGroup);
+  if (createGroupBtn) {
+    createGroupBtn.addEventListener('click', () => openGroupModal(null));
+  }
+  if (groupModalClose) {
+    groupModalClose.addEventListener('click', closeGroupModal);
+  }
+  if (groupCancelBtn) {
+    groupCancelBtn.addEventListener('click', closeGroupModal);
+  }
+  if (groupSaveBtn) {
+    groupSaveBtn.addEventListener('click', saveGroup);
+  }
+  if (groupDeleteBtn) {
+    groupDeleteBtn.addEventListener('click', deleteGroup);
+  }
   if (groupModal) {
     groupModal.addEventListener('click', function (e) {
-      if (e.target === groupModal) closeGroupModal();
+      if (e.target === groupModal) {
+        closeGroupModal();
+      }
     });
   }
   if (groupNameInput) {
     groupNameInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter') saveGroup();
+      if (e.key === 'Enter') {
+        saveGroup();
+      }
     });
   }
 
   // ── Utilities ──────────────────────────────────────────────────────────────
 
-  /** Escape a string for safe HTML insertion. */
+  /**
+   * Escape a string for safe HTML insertion.
+   * @param str
+   */
   function h(str) {
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }

@@ -12,13 +12,13 @@
  *  - Colour group editor modal (create / update / delete)
  */
 
-/* global ocColoursData, ocColourGroups, ocColourNonce, ocAjaxUrl */
+/* eslint-disable no-console, no-alert, no-undef, @wordpress/no-unused-vars-before-return */
 
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
-let colours = (window.ocColoursData || []).map(normaliseColour);
+const colours = (window.ocColoursData || []).map(normaliseColour);
 let groups = (window.ocColourGroups || []).map(normaliseGroup);
 let editColourId = null; // null = adding new, number = editing existing
 let editGroupId = null;
@@ -68,10 +68,16 @@ function initTabs() {
       panels.forEach(p => p.hidden = true);
       tab.classList.add('oc-tab--active');
       const target = document.getElementById(tab.dataset.target);
-      if (target) target.hidden = false;
+      if (target) {
+        target.hidden = false;
+      }
       const isGroups = tab.dataset.target === 'oc-tab-colour-groups';
-      if (addBtn) addBtn.style.display = isGroups ? 'none' : '';
-      if (createGrpBtn) createGrpBtn.style.display = isGroups ? 'inline-flex' : 'none';
+      if (addBtn) {
+        addBtn.style.display = isGroups ? 'none' : '';
+      }
+      if (createGrpBtn) {
+        createGrpBtn.style.display = isGroups ? 'inline-flex' : 'none';
+      }
     });
   });
 }
@@ -109,11 +115,15 @@ function buildColourCardEl(colour) {
 			</div>
 		</div>`;
   card.addEventListener('click', e => {
-    if (e.target.closest('a')) return;
+    if (e.target.closest('a')) {
+      return;
+    }
     openColourModal(colour.id);
   });
   card.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') openColourModal(colour.id);
+    if (e.key === 'Enter' || e.key === ' ') {
+      openColourModal(colour.id);
+    }
   });
   return card;
 }
@@ -122,15 +132,25 @@ function updateColourGridUI() {
   const empty = document.getElementById('oc-colours-empty');
   const count = document.getElementById('oc-colours-count');
   const tab = document.querySelector('.oc-tab[data-target="oc-tab-colours"] .oc-tab-count');
-  if (!grid) return;
-  if (count) count.textContent = colours.length + ' ' + (1 === colours.length ? 'colour' : 'colours');
-  if (tab) tab.textContent = colours.length;
+  if (!grid) {
+    return;
+  }
+  if (count) {
+    count.textContent = colours.length + ' ' + (1 === colours.length ? 'colour' : 'colours');
+  }
+  if (tab) {
+    tab.textContent = colours.length;
+  }
   if (colours.length === 0) {
-    if (empty) empty.style.display = '';
+    if (empty) {
+      empty.style.display = '';
+    }
     grid.style.display = 'none';
     return;
   }
-  if (empty) empty.style.display = 'none';
+  if (empty) {
+    empty.style.display = 'none';
+  }
   grid.style.display = '';
   grid.innerHTML = '';
   colours.forEach(c => grid.appendChild(buildColourCardEl(c)));
@@ -159,7 +179,9 @@ function openColourModal(id) {
   hexInput().value = hex;
   nameInput().value = name;
   const deleteBtn = colourDeleteBtn();
-  if (deleteBtn) deleteBtn.style.display = colour ? '' : 'none';
+  if (deleteBtn) {
+    deleteBtn.style.display = colour ? '' : 'none';
+  }
   if (colourError()) {
     colourError().style.display = 'none';
     colourError().textContent = '';
@@ -195,7 +217,9 @@ async function saveColour() {
       method: 'POST',
       body
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     json = await res.json();
   } catch (e) {
     console.warn('[OC] Colour save failed:', e);
@@ -211,7 +235,9 @@ async function saveColour() {
   const saved = normaliseColour(json.data);
   if (editColourId) {
     const idx = colours.findIndex(c => c.id === editColourId);
-    if (idx !== -1) colours[idx] = saved;
+    if (idx !== -1) {
+      colours[idx] = saved;
+    }
   } else {
     colours.push(saved);
   }
@@ -219,10 +245,16 @@ async function saveColour() {
   closeColourModal();
 }
 async function deleteColourFromModal() {
-  if (!editColourId) return;
-  if (!confirm('Delete this colour?')) return;
+  if (!editColourId) {
+    return;
+  }
+  if (!confirm('Delete this colour?')) {
+    return;
+  }
   const colour = colours.find(c => c.id === editColourId);
-  if (!colour) return;
+  if (!colour) {
+    return;
+  }
 
   // Use the server-generated delete URL (has nonce baked in).
   window.location.href = colour.deleteUrl;
@@ -237,7 +269,9 @@ function initColourModal() {
 
   // Backdrop click.
   colourModal()?.addEventListener('click', e => {
-    if (e.target === colourModal()) closeColourModal();
+    if (e.target === colourModal()) {
+      closeColourModal();
+    }
   });
 
   // Save.
@@ -249,19 +283,27 @@ function initColourModal() {
   // Open from existing cards (initial render).
   document.querySelectorAll('.oc-colour-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('a')) return;
+      if (e.target.closest('a')) {
+        return;
+      }
       openColourModal(Number(card.dataset.colourId));
     });
     card.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') openColourModal(Number(card.dataset.colourId));
+      if (e.key === 'Enter' || e.key === ' ') {
+        openColourModal(Number(card.dataset.colourId));
+      }
     });
   });
 
   // Colour picker ↔ hex text sync.
   colourPicker()?.addEventListener('input', () => {
     const hex = colourPicker().value;
-    if (swatchLarge()) swatchLarge().style.background = hex;
-    if (hexInput()) hexInput().value = hex;
+    if (swatchLarge()) {
+      swatchLarge().style.background = hex;
+    }
+    if (hexInput()) {
+      hexInput().value = hex;
+    }
   });
   hexInput()?.addEventListener('input', () => {
     const raw = hexInput().value.trim();
@@ -291,7 +333,9 @@ function buildGroupCardEl(group) {
   card.setAttribute('tabindex', '0');
   const dots = group.colourIds.slice(0, 10).map(cid => {
     const c = colourById(cid);
-    if (!c) return '';
+    if (!c) {
+      return '';
+    }
     return `<span class="oc-colour-dot" style="background:${h(c.hex)};" title="${h(c.name)}"></span>`;
   }).join('');
   const more = group.colourIds.length > 10 ? `<span class="oc-group-card-more">+${group.colourIds.length - 10}</span>` : '';
@@ -304,7 +348,9 @@ function buildGroupCardEl(group) {
 		</div>`;
   card.addEventListener('click', () => openGroupModal(group.id));
   card.addEventListener('keydown', e => {
-    if (e.key === 'Enter' || e.key === ' ') openGroupModal(group.id);
+    if (e.key === 'Enter' || e.key === ' ') {
+      openGroupModal(group.id);
+    }
   });
   return card;
 }
@@ -313,15 +359,25 @@ function updateGroupGridUI() {
   const empty = document.getElementById('oc-colour-groups-empty');
   const count = document.getElementById('oc-colour-groups-count');
   const tab = document.querySelector('.oc-tab[data-target="oc-tab-colour-groups"] .oc-tab-count');
-  if (!grid) return;
-  if (count) count.textContent = groups.length + ' ' + (1 === groups.length ? 'group' : 'groups');
-  if (tab) tab.textContent = groups.length;
+  if (!grid) {
+    return;
+  }
+  if (count) {
+    count.textContent = groups.length + ' ' + (1 === groups.length ? 'group' : 'groups');
+  }
+  if (tab) {
+    tab.textContent = groups.length;
+  }
   if (groups.length === 0) {
-    if (empty) empty.style.display = '';
+    if (empty) {
+      empty.style.display = '';
+    }
     grid.style.display = 'none';
     return;
   }
-  if (empty) empty.style.display = 'none';
+  if (empty) {
+    empty.style.display = 'none';
+  }
   grid.style.display = '';
   grid.innerHTML = '';
   groups.forEach(g => grid.appendChild(buildGroupCardEl(g)));
@@ -341,7 +397,9 @@ function openGroupModal(id) {
   const group = id ? groups.find(g => g.id === id) : null;
   groupNameInput().value = group ? group.name : '';
   const deleteBtn = groupDeleteBtn();
-  if (deleteBtn) deleteBtn.style.display = group ? '' : 'none';
+  if (deleteBtn) {
+    deleteBtn.style.display = group ? '' : 'none';
+  }
   renderColourPicker(group ? group.colourIds : []);
   groupModal().hidden = false;
   document.body.style.overflow = 'hidden';
@@ -354,7 +412,9 @@ function closeGroupModal() {
 }
 function renderColourPicker(selectedIds) {
   const picker = groupPicker();
-  if (!picker) return;
+  if (!picker) {
+    return;
+  }
   picker.innerHTML = '';
   colours.forEach(colour => {
     const checked = selectedIds.includes(colour.id);
@@ -374,7 +434,9 @@ function renderColourPicker(selectedIds) {
 }
 function updateGroupSelCount() {
   const n = groupPicker()?.querySelectorAll('input:checked').length ?? 0;
-  if (groupSelCount()) groupSelCount().textContent = n + ' selected';
+  if (groupSelCount()) {
+    groupSelCount().textContent = n + ' selected';
+  }
 }
 function selectedColourIds() {
   return [...(groupPicker()?.querySelectorAll('input:checked') || [])].map(cb => Number(cb.value));
@@ -400,7 +462,9 @@ async function saveGroup() {
       method: 'POST',
       body
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     json = await res.json();
   } catch (e) {
     console.warn('[OC] Colour group save failed:', e);
@@ -414,7 +478,9 @@ async function saveGroup() {
   const saved = normaliseGroup(json.data);
   if (editGroupId) {
     const idx = groups.findIndex(g => g.id === editGroupId);
-    if (idx !== -1) groups[idx] = saved;
+    if (idx !== -1) {
+      groups[idx] = saved;
+    }
   } else {
     groups.push(saved);
   }
@@ -422,8 +488,12 @@ async function saveGroup() {
   closeGroupModal();
 }
 async function deleteGroup() {
-  if (!editGroupId) return;
-  if (!confirm('Delete this colour group?')) return;
+  if (!editGroupId) {
+    return;
+  }
+  if (!confirm('Delete this colour group?')) {
+    return;
+  }
   const body = new URLSearchParams({
     action: 'oc_colour_group_delete',
     nonce: window.ocColourNonce,
@@ -435,7 +505,9 @@ async function deleteGroup() {
       method: 'POST',
       body
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
     json = await res.json();
   } catch (e) {
     console.warn('[OC] Colour group delete failed:', e);
@@ -455,7 +527,9 @@ function initGroupModal() {
   document.getElementById('oc-colour-group-modal-close')?.addEventListener('click', closeGroupModal);
   document.getElementById('oc-colour-group-cancel-btn')?.addEventListener('click', closeGroupModal);
   groupModal()?.addEventListener('click', e => {
-    if (e.target === groupModal()) closeGroupModal();
+    if (e.target === groupModal()) {
+      closeGroupModal();
+    }
   });
   document.getElementById('oc-colour-group-save-btn')?.addEventListener('click', saveGroup);
   groupDeleteBtn()?.addEventListener('click', deleteGroup);
@@ -464,7 +538,9 @@ function initGroupModal() {
   document.querySelectorAll('.oc-colour-group-card').forEach(card => {
     card.addEventListener('click', () => openGroupModal(Number(card.dataset.groupId)));
     card.addEventListener('keydown', e => {
-      if (e.key === 'Enter' || e.key === ' ') openGroupModal(Number(card.dataset.groupId));
+      if (e.key === 'Enter' || e.key === ' ') {
+        openGroupModal(Number(card.dataset.groupId));
+      }
     });
   });
 }

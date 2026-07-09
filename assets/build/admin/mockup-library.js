@@ -8,7 +8,7 @@
  * Core interactions are inlined in PHP; this file handles edge cases.
  */
 
-/* global ocMockupData, wp, jQuery */
+/* global jQuery */
 
 jQuery(function ($) {
   // Flash success on inline label save (form redirects; detect ?saved param).
