@@ -26745,7 +26745,9 @@ class OCCustomiser {
       if (effect === 'embroidery') {
         this.addEmbroiderySvgPattern(svg, color);
       }
-      this.cropSvgToVisibleBounds(svg);
+      if (!this.hasComplexSvgPaintReferences(svg)) {
+        this.cropSvgToVisibleBounds(svg);
+      }
       const output = new window.XMLSerializer().serializeToString(svg);
       this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
       return this.clipartSvgCache[key];
@@ -26776,6 +26778,10 @@ class OCCustomiser {
       if (!svg || svg.localName.toLowerCase() !== 'svg') {
         throw new Error('Clipart is not an SVG.');
       }
+      if (this.hasComplexSvgPaintReferences(svg)) {
+        this.clipartSvgCache[key] = url;
+        return url;
+      }
       this.cropSvgToVisibleBounds(svg);
       const output = new window.XMLSerializer().serializeToString(svg);
       this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
@@ -26787,6 +26793,9 @@ class OCCustomiser {
   isSvgClipartUrl(url) {
     const value = String(url || '').trim();
     return /^data:image\/svg\+xml/i.test(value) || /\.svg(?:[?#]|$)/i.test(value);
+  }
+  hasComplexSvgPaintReferences(svg) {
+    return !!svg.querySelector('clipPath, mask, filter, pattern, linearGradient, radialGradient, [clip-path], [mask], [filter]');
   }
   addEmbroiderySvgPattern(svg, color) {
     const rgb = this.hexToRgb(color) || {

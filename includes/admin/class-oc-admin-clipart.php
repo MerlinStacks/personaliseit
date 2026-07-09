@@ -399,6 +399,7 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => $result->get_error_message() ] );
 		}
 
+		self::clear_clipart_cache();
 		wp_send_json_success( $result );
 	}
 
@@ -477,13 +478,17 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$wpdb->update(
+		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_clipart",
 			[ 'name' => $name ],
 			[ 'id'   => $id ],
 			[ '%s' ], [ '%d' ]
 		);
+		if ( false === $updated ) {
+			wp_send_json_error( [ 'message' => __( 'Could not rename clipart.', 'overcustomise' ) ] );
+		}
 
+		self::clear_clipart_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name ] );
 	}
 
@@ -502,14 +507,23 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$wpdb->insert( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ '%s' ] );
+		$inserted = $wpdb->insert( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ '%s' ] );
+		if ( false === $inserted ) {
+			wp_send_json_error( [ 'message' => __( 'Could not create clipart group.', 'overcustomise' ) ] );
+		}
 		$id = (int) $wpdb->insert_id;
 		foreach ( $clipart_ids as $order => $clipart_id ) {
-			$wpdb->insert(
+			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_clipart_group_items",
 				[ 'group_id' => $id, 'clipart_id' => $clipart_id, 'sort_order' => $order ],
 				[ '%d', '%d', '%d' ]
 			);
+			if ( false === $inserted ) {
+				$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
+				$wpdb->delete( "{$wpdb->prefix}oc_clipart_groups", [ 'id' => $id ], [ '%d' ] );
+				self::clear_clipart_cache();
+				wp_send_json_error( [ 'message' => __( 'Could not save clipart group items.', 'overcustomise' ) ] );
+			}
 		}
 		self::clear_clipart_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => $clipart_ids ] );
@@ -532,14 +546,24 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$wpdb->update( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
+		$updated = $wpdb->update( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
+		if ( false === $updated ) {
+			wp_send_json_error( [ 'message' => __( 'Could not update clipart group.', 'overcustomise' ) ] );
+		}
+		$deleted = $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
+		if ( false === $deleted ) {
+			wp_send_json_error( [ 'message' => __( 'Could not update clipart group items.', 'overcustomise' ) ] );
+		}
 		foreach ( array_values( $clipart_ids ) as $order => $clipart_id ) {
-			$wpdb->insert(
+			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_clipart_group_items",
 				[ 'group_id' => $id, 'clipart_id' => $clipart_id, 'sort_order' => $order ],
 				[ '%d', '%d', '%d' ]
 			);
+			if ( false === $inserted ) {
+				self::clear_clipart_cache();
+				wp_send_json_error( [ 'message' => __( 'Could not save clipart group items.', 'overcustomise' ) ] );
+			}
 		}
 		self::clear_clipart_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => array_values( $clipart_ids ) ] );
@@ -559,8 +583,11 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_clipart_groups",      [ 'id'       => $id ], [ '%d' ] );
+		$deleted_items = $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
+		$deleted_group = $wpdb->delete( "{$wpdb->prefix}oc_clipart_groups",      [ 'id'       => $id ], [ '%d' ] );
+		if ( false === $deleted_items || false === $deleted_group ) {
+			wp_send_json_error( [ 'message' => __( 'Could not delete clipart group.', 'overcustomise' ) ] );
+		}
 		self::clear_clipart_cache();
 		wp_send_json_success();
 	}
@@ -578,7 +605,10 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$wpdb->update( "{$wpdb->prefix}oc_clipart", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		$updated = $wpdb->update( "{$wpdb->prefix}oc_clipart", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		if ( false === $updated ) {
+			wp_die( esc_html__( 'Could not update clipart.', 'overcustomise' ) );
+		}
 		self::clear_clipart_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-clipart' ) );
 		exit;
@@ -595,11 +625,18 @@ class OC_Admin_Clipart {
 
 		global $wpdb;
 
-		// Optionally delete the physical file.
+		// Capture the physical file path before deleting the database row.
 		$row = $wpdb->get_row( $wpdb->prepare(
 			"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
 			$id
 		) );
+
+		$deleted_items   = $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'clipart_id' => $id ], [ '%d' ] );
+		$deleted_clipart = $wpdb->delete( "{$wpdb->prefix}oc_clipart", [ 'id' => $id ], [ '%d' ] );
+		if ( false === $deleted_items || false === $deleted_clipart ) {
+			wp_die( esc_html__( 'Could not delete clipart.', 'overcustomise' ) );
+		}
+
 		if ( $row && $row->file_path && file_exists( $row->file_path ) ) {
 			// Only unlink files that live under wp-content/uploads.
 			$upload    = wp_upload_dir();
@@ -609,9 +646,6 @@ class OC_Admin_Clipart {
 				wp_delete_file( $path_real );
 			}
 		}
-
-		$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'clipart_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_clipart", [ 'id' => $id ], [ '%d' ] );
 		self::clear_clipart_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-clipart' ) );
 		exit;
