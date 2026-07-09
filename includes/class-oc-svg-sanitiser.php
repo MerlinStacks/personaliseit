@@ -238,7 +238,15 @@ class OC_SVG_Sanitiser {
 	/** Strip CSS constructs that can execute script or fetch external resources. */
 	private static function clean_css( string $css ): string {
 		$css = preg_replace( '/@import\b[^;]*(?:;|$)/i', '', $css ) ?? '';
-		$css = preg_replace( '/url\s*\([^)]*\)/i', 'none', $css ) ?? '';
+		$css = preg_replace_callback(
+			'/url\s*\(\s*(["\']?)(.*?)\1\s*\)/i',
+			static function ( array $matches ): string {
+				$url = trim( html_entity_decode( (string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+
+				return str_starts_with( $url, '#' ) ? 'url(' . $url . ')' : 'none';
+			},
+			$css
+		) ?? '';
 		$css = preg_replace( '/expression\s*\([^)]*\)/i', '', $css ) ?? '';
 		$css = preg_replace( '/javascript\s*:/i', '', $css ) ?? '';
 		$css = preg_replace( '/vbscript\s*:/i', '', $css ) ?? '';
