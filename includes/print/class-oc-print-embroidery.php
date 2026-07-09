@@ -76,7 +76,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = 'showpage';
 		$lines[] = '%%EOF';
 
-		$output_path = $output_dir . '/' . self::build_versioned_filename( $item_id, (string) $area->area_key, 'eps' );
+		$output_path = $output_dir . '/' . self::build_versioned_filename( $order, $item_id, $area, 'eps' );
 		if ( false === file_put_contents( $output_path, implode( "\n", $lines ) . "\n" ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 			throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
 		}
@@ -2254,13 +2254,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Build a cache-busting embroidery filename so regenerated EPS files cannot be confused with older downloads. */
-	private static function build_versioned_filename( int $item_id, string $area_key, string $extension ): string {
+	private static function build_versioned_filename( \WC_Order $order, int $item_id, object $area, string $extension ): string {
+		$filename = self::build_filename( $order, $item_id, $area, $extension );
+		$stem     = pathinfo( $filename, PATHINFO_FILENAME );
+
 		return sprintf(
-			'%d-%s-%s.%s',
-			$item_id,
-			sanitize_file_name( $area_key ),
+			'%s-%s.%s',
+			$stem,
 			gmdate( 'YmdHis' ) . '-' . substr( wp_generate_uuid4(), 0, 8 ),
-			$extension
+			sanitize_file_name( $extension )
 		);
 	}
 

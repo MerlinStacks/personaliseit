@@ -235,11 +235,14 @@ class Test_Print_Embroidery extends TestCase {
 	#[Test]
 	public function embroidery_eps_filenames_are_versioned_for_regeneration(): void {
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'build_versioned_filename' );
+		$order  = $this->createMock( \WC_Order::class );
+		$order->method( 'get_id' )->willReturn( 1001 );
+		$order->method( 'get_order_number' )->willReturn( '1001' );
 
-		$filename = $method->invoke( null, 123, 'front area', 'eps' );
+		$filename = $method->invoke( null, $order, 123, (object) [ 'id' => 10, 'area_key' => 'front area' ], 'eps' );
 
-		$this->assertMatchesRegularExpression( '/^123-front-area-\d{14}-[a-f0-9-]{8}\.eps$/', $filename );
-		$this->assertNotSame( '123-front-area.eps', $filename );
+		$this->assertMatchesRegularExpression( '/^1001-p1-\d{14}-[a-f0-9-]{8}\.eps$/', $filename );
+		$this->assertNotSame( '1001-p1.eps', $filename );
 	}
 
 	#[Test]

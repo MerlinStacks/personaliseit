@@ -11,6 +11,18 @@ use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
+if ( ! class_exists( 'WC_Order' ) ) {
+	class WC_Order {
+		public function get_id(): int {
+			return 1234;
+		}
+
+		public function get_order_number(): string {
+			return '1234';
+		}
+	}
+}
+
 /**
  * Concrete subclass to expose the protected static methods for testing.
  */
@@ -31,8 +43,8 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 		return self::cell_h( $size );
 	}
 
-	public static function test_build_filename( int $item_id, string $area_key, string $ext ): string {
-		return self::build_filename( $item_id, $area_key, $ext );
+	public static function test_build_filename( \WC_Order $order, int $item_id, object $area, string $ext ): string {
+		return self::build_filename( $order, $item_id, $area, $ext );
 	}
 
 	public static function test_extract_spotify_uri( string $input ): string {
@@ -165,18 +177,54 @@ class Test_Print_Base extends TestCase {
 	// ── build_filename ────────────────────────────────────────────────────
 
 	#[Test]
-	public function build_filename_includes_item_id_area_key_ext(): void {
-		$name = OC_Print_Base_Testable::test_build_filename( 42, 'front', 'pdf' );
-		$this->assertStringStartsWith( '42-', $name );
-		$this->assertStringContainsString( 'front', $name );
+	public function build_filename_uses_order_number_and_print_position(): void {
+		$name = OC_Print_Base_Testable::test_build_filename( $this->mock_order( 1234 ), 42, (object) [ 'id' => 8 ], 'pdf' );
+
+		$this->assertStringStartsWith( '1234-p1', $name );
 		$this->assertStringEndsWith( '.pdf', $name );
 	}
 
 	#[Test]
-	public function build_filename_sanitises_area_key(): void {
-		// Area keys with special characters should be sanitised.
-		$name = OC_Print_Base_Testable::test_build_filename( 1, 'front/back', 'pdf' );
+	public function build_filename_sanitises_order_number(): void {
+		$name = OC_Print_Base_Testable::test_build_filename( $this->mock_order( 'CK/1234' ), 1, (object) [ 'id' => 8 ], 'pdf' );
+
 		$this->assertStringNotContainsString( '/', $name );
+	}
+
+	#[Test]
+	public function build_filename_uses_second_print_file_position(): void {
+		global $wpdb;
+		$previous_wpdb = $wpdb ?? null;
+		$wpdb = new class {
+			public string $prefix = 'wp_';
+
+			public function prepare( string $query, int $order_id ): string {
+				return $query . ' -- ' . $order_id;
+			}
+
+			public function get_results( string $query ): array {
+				return [
+					(object) [ 'order_item_id' => 42, 'print_area_id' => 8 ],
+					(object) [ 'order_item_id' => 43, 'print_area_id' => 9 ],
+				];
+			}
+		};
+
+		try {
+			$name = OC_Print_Base_Testable::test_build_filename( $this->mock_order( 1234 ), 43, (object) [ 'id' => 9 ], 'pdf' );
+
+			$this->assertSame( '1234-p2.pdf', $name );
+		} finally {
+			$wpdb = $previous_wpdb;
+		}
+	}
+
+	private function mock_order( int|string $order_number ): \WC_Order {
+		$order = $this->createMock( \WC_Order::class );
+		$order->method( 'get_id' )->willReturn( 1234 );
+		$order->method( 'get_order_number' )->willReturn( (string) $order_number );
+
+		return $order;
 	}
 
 	// ── Spotify scannable codes ────────────────────────────────────────────

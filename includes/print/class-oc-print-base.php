@@ -97,8 +97,54 @@ abstract class OC_Print_Base {
 	}
 
 	/** Build a stable output filename for a print file. */
-	protected static function build_filename( int $item_id, string $area_key, string $extension ): string {
-		return sprintf( '%d-%s.%s', $item_id, sanitize_file_name( $area_key ), $extension );
+	protected static function build_filename( \WC_Order $order, int $item_id, object $area, string $extension ): string {
+		return sprintf(
+			'%s-p%d.%s',
+			self::order_filename_part( $order ),
+			self::print_file_position( $order, $item_id, $area ),
+			sanitize_file_name( $extension )
+		);
+	}
+
+	/** Return the customer-facing order number as a safe filename segment. */
+	protected static function order_filename_part( \WC_Order $order ): string {
+		$order_number = method_exists( $order, 'get_order_number' ) ? (string) $order->get_order_number() : (string) $order->get_id();
+		$order_number = sanitize_file_name( $order_number );
+
+		return '' !== $order_number ? $order_number : (string) $order->get_id();
+	}
+
+	/** Return this print file's 1-based position within its order. */
+	protected static function print_file_position( \WC_Order $order, int $item_id, object $area ): int {
+		global $wpdb;
+
+		if ( empty( $wpdb ) || ! method_exists( $wpdb, 'get_results' ) || ! method_exists( $wpdb, 'prepare' ) ) {
+			return 1;
+		}
+
+		$area_id = (int) ( $area->id ?? 0 );
+		if ( $area_id <= 0 ) {
+			return 1;
+		}
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT order_item_id, print_area_id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d ORDER BY id ASC",
+			(int) $order->get_id()
+		) );
+
+		if ( ! is_array( $rows ) || empty( $rows ) ) {
+			return 1;
+		}
+
+		$position = 1;
+		foreach ( $rows as $row ) {
+			if ( (int) $row->order_item_id === $item_id && (int) $row->print_area_id === $area_id ) {
+				return $position;
+			}
+			$position++;
+		}
+
+		return $position;
 	}
 
 	/** Create a temporary file, loading WP's file API when queue runners have not done so. */
@@ -738,6 +784,10 @@ abstract class OC_Print_Base {
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
+		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
+		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
+		$area_w_mm = self::unit_to_mm( (float) ( $area->canvas_w ?? $bounds_w ), $unit );
+		$area_h_mm = self::unit_to_mm( (float) ( $area->canvas_h ?? $bounds_h ), $unit );
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -745,10 +795,14 @@ abstract class OC_Print_Base {
 			}
 
 			$type = (string) ( $layer['type'] ?? '' );
-			$x_mm = $origin_x_mm + self::unit_to_mm( (float) ( $layer['x'] ?? 0 ) - $area_x, $unit );
-			$y_mm = $origin_y_mm + self::unit_to_mm( (float) ( $layer['y'] ?? 0 ) - $area_y, $unit );
-			$w_mm = self::unit_to_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $unit );
-			$h_mm = self::unit_to_mm( max( 1.0, (float) ( $layer['h'] ?? 1 ) ), $unit );
+			$layer_x = (float) ( $layer['x'] ?? 0 );
+			$layer_y = (float) ( $layer['y'] ?? 0 );
+			$layer_w = max( 1.0, (float) ( $layer['w'] ?? 1 ) );
+			$layer_h = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
+			$x_mm = $origin_x_mm + ( ( $layer_x - $area_x ) / $bounds_w ) * $area_w_mm;
+			$y_mm = $origin_y_mm + ( ( $layer_y - $area_y ) / $bounds_h ) * $area_h_mm;
+			$w_mm = ( $layer_w / $bounds_w ) * $area_w_mm;
+			$h_mm = ( $layer_h / $bounds_h ) * $area_h_mm;
 			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 

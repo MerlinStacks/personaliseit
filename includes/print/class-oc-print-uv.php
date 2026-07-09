@@ -51,7 +51,7 @@ class OC_Print_UV extends OC_Print_Base {
 		}
 
 		$output_dir  = self::ensure_output_dir( $order->get_id() );
-		$output_path = $output_dir . '/' . self::build_filename( $item_id, $area->area_key, 'pdf' );
+		$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $area, 'pdf' );
 
 		self::write_pdf_file( $pdf, $output_path );
 
