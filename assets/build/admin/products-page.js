@@ -866,6 +866,21 @@ __webpack_require__.r(__webpack_exports__);
     }
     return size;
   }
+  function fitTextPreview(el, fontSize, minFontSize, singleLine = false) {
+    if (!el || !el.clientWidth || !el.clientHeight) {
+      return;
+    }
+    el.style.transform = '';
+    let size = fontSize;
+    const floor = Math.max(1, minFontSize || 4);
+    while (size > floor && (singleLine ? el.scrollHeight > el.clientHeight : el.scrollWidth > el.clientWidth || el.scrollHeight > el.clientHeight)) {
+      size = Math.max(floor, size - 1);
+      el.style.fontSize = size + 'px';
+    }
+    if (singleLine && el.scrollWidth > el.clientWidth) {
+      el.style.transform = 'scaleX(' + Math.max(0.01, el.clientWidth / el.scrollWidth) + ')';
+    }
+  }
   function findFont(fontId) {
     const fonts = (window.ocProductsData || {}).fonts || [];
     return fonts.find(f => Number(f.id) === Number(fontId)) || (!fontId ? fonts[0] : null);
@@ -914,11 +929,12 @@ __webpack_require__.r(__webpack_exports__);
    * Apply rich visual content to a layer container element
    * @param layer
    * @param el
+   * @param renderedW
    * @param renderedH
    * @param isGhost
    * @param isEngraving
    */
-  function applyLayerPreview(layer, el, renderedH, isGhost, isEngraving) {
+  function applyLayerPreview(layer, el, renderedW, renderedH, isGhost, isEngraving) {
     // Remove any existing preview children
     el.querySelectorAll('.oc-lp').forEach(c => c.remove());
     if (!layer) {
@@ -926,6 +942,7 @@ __webpack_require__.r(__webpack_exports__);
     }
     const s = layer.settings || {};
     if (layer.type === 'text' || layer.type === 'textarea') {
+      const isSingleLine = layer.type === 'text';
       const text = s.default_text || layer.label || layerLabel(layer.type);
       const align = s.alignment || 'center';
       const flexAlign = align === 'left' ? 'flex-start' : align === 'right' ? 'flex-end' : 'center';
@@ -939,17 +956,27 @@ __webpack_require__.r(__webpack_exports__);
       const d = document.createElement('div');
       d.className = 'oc-lp oc-lp-text';
       d.style.fontSize = fs + 'px';
+      d.style.fontWeight = '400';
+      d.style.lineHeight = '1.16';
+      d.style.whiteSpace = isSingleLine ? 'nowrap' : 'normal';
+      d.style.transformOrigin = align === 'left' ? 'left center' : align === 'right' ? 'right center' : 'center center';
       d.style.textAlign = align;
       d.style.alignItems = flexAlign;
+      d.style.maxWidth = Math.max(1, renderedW) + 'px';
+      d.style.maxHeight = Math.max(1, renderedH) + 'px';
       d.style.color = isEngraving ? engravingTextColor() : normaliseHex(s.default_color);
       if (font) {
         d.style.fontFamily = "'" + String(font.name).replace(/'/g, "\\'") + "', sans-serif";
       }
-      if (layer.type === 'textarea') {
+      if (!isSingleLine) {
         d.style.justifyContent = flexLineAlign;
       }
       d.textContent = text;
       el.appendChild(d);
+      const minFontSize = fontLimit(s.min_font_size) ? fontLimit(s.min_font_size) * scale : 4;
+      fitTextPreview(d, fs, minFontSize, isSingleLine);
+      requestAnimationFrame(() => fitTextPreview(d, fs, minFontSize, isSingleLine));
+      document.fonts?.ready?.then?.(() => fitTextPreview(d, parseFloat(d.style.fontSize) || fs, minFontSize, isSingleLine));
     } else if (layer.type === 'image' || layer.type === 'clipmask') {
       if (layer.type === 'image' && s.default_attachment_url) {
         const img = document.createElement('img');
@@ -1928,8 +1955,9 @@ __webpack_require__.r(__webpack_exports__);
 
     // Layer content preview inside bounds box
     box.querySelectorAll('.oc-bounds-box-pill').forEach(el => el.remove());
+    const renderedW = Math.round(display.w * scale);
     const renderedH = Math.round(display.h * scale);
-    applyLayerPreview(layer, box, renderedH, false, area.method === 'engraving');
+    applyLayerPreview(layer, box, renderedW, renderedH, false, area.method === 'engraving');
     if (layer) {
       const pill = document.createElement('div');
       pill.className = 'oc-bounds-box-pill';
@@ -1977,7 +2005,7 @@ __webpack_require__.r(__webpack_exports__);
       const g = ghost(layer, layerColor(layer.type), 0.1);
       g.classList.add('oc-canvas-layer-ghost');
       g.appendChild(ghostLabel(layerIcon(layer.type) + ' ' + (layer.label || layerLabel(layer.type)), layerColor(layer.type)));
-      applyLayerPreview(layer, g, Math.round(displayLayer.h * scale), true, area.method === 'engraving');
+      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, area.method === 'engraving');
       pos(g, displayLayer, scale, normaliseRotation(area.rotation), (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area));
       if (layer.locked) {
         g.style.cursor = 'not-allowed';

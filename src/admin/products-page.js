@@ -678,6 +678,32 @@ import {
 		}
 		return size;
 	}
+	function fitTextPreview( el, fontSize, minFontSize, singleLine = false ) {
+		if ( ! el || ! el.clientWidth || ! el.clientHeight ) {
+			return;
+		}
+
+		el.style.transform = '';
+		let size = fontSize;
+		const floor = Math.max( 1, minFontSize || 4 );
+		while (
+			size > floor &&
+			( singleLine
+				? el.scrollHeight > el.clientHeight
+				: el.scrollWidth > el.clientWidth ||
+				  el.scrollHeight > el.clientHeight )
+		) {
+			size = Math.max( floor, size - 1 );
+			el.style.fontSize = size + 'px';
+		}
+
+		if ( singleLine && el.scrollWidth > el.clientWidth ) {
+			el.style.transform =
+				'scaleX(' +
+				Math.max( 0.01, el.clientWidth / el.scrollWidth ) +
+				')';
+		}
+	}
 	function findFont( fontId ) {
 		const fonts = ( window.ocProductsData || {} ).fonts || [];
 		return (
@@ -743,11 +769,19 @@ import {
 	 * Apply rich visual content to a layer container element
 	 * @param layer
 	 * @param el
+	 * @param renderedW
 	 * @param renderedH
 	 * @param isGhost
 	 * @param isEngraving
 	 */
-	function applyLayerPreview( layer, el, renderedH, isGhost, isEngraving ) {
+	function applyLayerPreview(
+		layer,
+		el,
+		renderedW,
+		renderedH,
+		isGhost,
+		isEngraving
+	) {
 		// Remove any existing preview children
 		el.querySelectorAll( '.oc-lp' ).forEach( ( c ) => c.remove() );
 		if ( ! layer ) {
@@ -757,6 +791,7 @@ import {
 		const s = layer.settings || {};
 
 		if ( layer.type === 'text' || layer.type === 'textarea' ) {
+			const isSingleLine = layer.type === 'text';
 			const text =
 				s.default_text || layer.label || layerLabel( layer.type );
 			const align = s.alignment || 'center';
@@ -796,8 +831,19 @@ import {
 			const d = document.createElement( 'div' );
 			d.className = 'oc-lp oc-lp-text';
 			d.style.fontSize = fs + 'px';
+			d.style.fontWeight = '400';
+			d.style.lineHeight = '1.16';
+			d.style.whiteSpace = isSingleLine ? 'nowrap' : 'normal';
+			d.style.transformOrigin =
+				align === 'left'
+					? 'left center'
+					: align === 'right'
+					? 'right center'
+					: 'center center';
 			d.style.textAlign = align;
 			d.style.alignItems = flexAlign;
+			d.style.maxWidth = Math.max( 1, renderedW ) + 'px';
+			d.style.maxHeight = Math.max( 1, renderedH ) + 'px';
 			d.style.color = isEngraving
 				? engravingTextColor()
 				: normaliseHex( s.default_color );
@@ -807,11 +853,27 @@ import {
 					String( font.name ).replace( /'/g, "\\'" ) +
 					"', sans-serif";
 			}
-			if ( layer.type === 'textarea' ) {
+			if ( ! isSingleLine ) {
 				d.style.justifyContent = flexLineAlign;
 			}
 			d.textContent = text;
 			el.appendChild( d );
+
+			const minFontSize = fontLimit( s.min_font_size )
+				? fontLimit( s.min_font_size ) * scale
+				: 4;
+			fitTextPreview( d, fs, minFontSize, isSingleLine );
+			requestAnimationFrame( () =>
+				fitTextPreview( d, fs, minFontSize, isSingleLine )
+			);
+			document.fonts?.ready?.then?.( () =>
+				fitTextPreview(
+					d,
+					parseFloat( d.style.fontSize ) || fs,
+					minFontSize,
+					isSingleLine
+				)
+			);
 		} else if ( layer.type === 'image' || layer.type === 'clipmask' ) {
 			if ( layer.type === 'image' && s.default_attachment_url ) {
 				const img = document.createElement( 'img' );
@@ -927,7 +989,8 @@ import {
 		const selected = selectedGroupIds( groupIds );
 		const activeItems = ( items || [] ).filter(
 			( item ) =>
-				item.active !== false && clipartAllowedForMethod( item, printMethod )
+				item.active !== false &&
+				clipartAllowedForMethod( item, printMethod )
 		);
 		if ( ! selected.length ) {
 			return activeItems;
@@ -1799,7 +1862,7 @@ import {
 		} );
 		document.querySelectorAll( '.oc-ag-check' ).forEach( ( cb ) => {
 			cb.addEventListener( 'change', () => {
-			s.clipart_groups = [
+				s.clipart_groups = [
 					...document.querySelectorAll( '.oc-ag-check:checked' ),
 				].map( ( c ) => Number( c.value ) );
 				ensureDefaultClipartInList(
@@ -2619,10 +2682,12 @@ import {
 		box.querySelectorAll( '.oc-bounds-box-pill' ).forEach( ( el ) =>
 			el.remove()
 		);
+		const renderedW = Math.round( display.w * scale );
 		const renderedH = Math.round( display.h * scale );
 		applyLayerPreview(
 			layer,
 			box,
+			renderedW,
 			renderedH,
 			false,
 			area.method === 'engraving'
@@ -2710,6 +2775,7 @@ import {
 			applyLayerPreview(
 				layer,
 				g,
+				Math.round( displayLayer.w * scale ),
 				Math.round( displayLayer.h * scale ),
 				true,
 				area.method === 'engraving'
