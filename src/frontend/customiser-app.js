@@ -950,6 +950,7 @@ class OCCustomiser {
 				};
 				const fittingFloor = minFontSize || 4;
 				while (
+					isSingleLineText &&
 					! fitsTextLayer( fontSize ) &&
 					fontSize > fittingFloor
 				) {
@@ -958,19 +959,9 @@ class OCCustomiser {
 					obj.set( { fontSize, padding: textPadding } );
 				}
 				obj.initDimensions?.();
-				while (
-					! isSingleLineText &&
-					! this.textObjectFitsBox( obj, lw, lh, fontSize ) &&
-					fontSize > fittingFloor
-				) {
-					fontSize = Math.max( fittingFloor, fontSize - 1 );
-					textPadding = this.textRenderPadding( fontSize );
-					obj.set( { fontSize, padding: textPadding } );
-					obj.initDimensions?.();
-				}
 				const textareaScale = isSingleLineText
 					? 1
-					: this.textareaFitScale( obj, lw, lh, fontSize );
+					: 1;
 				if ( ! isSingleLineText ) {
 					obj.set( { scaleX: textareaScale, scaleY: textareaScale } );
 				}
@@ -1152,23 +1143,6 @@ class OCCustomiser {
 
 	textClipPadding( fontSize ) {
 		return Math.max( 2, Math.ceil( ( Number( fontSize ) || 0 ) * 0.18 ) );
-	}
-
-	textareaFitScale( obj, maxW, maxH, fontSize ) {
-		if ( ! obj ) {
-			return 1;
-		}
-
-		obj.initDimensions?.();
-		const margin = this.textFitSafetyMargin( fontSize );
-		const width = Math.max( 1, Number( obj.width || 0 ) + margin.x * 2 );
-		const height = Math.max( 1, Number( obj.height || 0 ) + margin.y * 2 );
-
-		return Math.min(
-			1,
-			Math.max( 1, Number( maxW || 0 ) ) / width,
-			Math.max( 1, Number( maxH || 0 ) ) / height
-		);
 	}
 
 	textFitSafetyMargin( fontSize ) {
@@ -1864,7 +1838,6 @@ class OCCustomiser {
 		const clone = document.importNode( svg, true );
 		clone.setAttribute( 'width', '1000' );
 		clone.setAttribute( 'height', '1000' );
-		this.removeInvisibleSvgShapes( clone );
 
 		try {
 			wrapper.appendChild( clone );
@@ -1884,6 +1857,7 @@ class OCCustomiser {
 
 	svgVisibleBounds( svg ) {
 		const boxes = Array.from( svg.querySelectorAll( '*' ) )
+			.filter( element => this.isVisibleSvgGraphicElement( element ) )
 			.map( element => this.svgElementRootBounds( element ) )
 			.filter( Boolean );
 
@@ -1902,6 +1876,36 @@ class OCCustomiser {
 			width: maxX - minX,
 			height: maxY - minY,
 		};
+	}
+
+	isVisibleSvgGraphicElement( element ) {
+		const tagName = element.localName.toLowerCase();
+		const graphicTags = [
+			'path',
+			'rect',
+			'circle',
+			'ellipse',
+			'polygon',
+			'polyline',
+			'line',
+			'text',
+			'image',
+			'use',
+		];
+		if ( ! graphicTags.includes( tagName ) ) {
+			return false;
+		}
+
+		const style = window.getComputedStyle( element );
+		if ( style.display === 'none' || style.visibility === 'hidden' || Number( style.opacity ) === 0 ) {
+			return false;
+		}
+
+		if ( [ 'image', 'use' ].includes( tagName ) ) {
+			return true;
+		}
+
+		return style.fill !== 'none' || style.stroke !== 'none';
 	}
 
 	svgElementRootBounds( element ) {
