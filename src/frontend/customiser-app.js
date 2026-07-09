@@ -1326,8 +1326,12 @@ class OCCustomiser {
 			parseInt( sizeEl.dataset.ocOriginalMax, 10 ) || 200,
 			parseInt( sizeEl.min, 10 ) || 1
 		);
-		const max = await this.maxFittingFontSize( layerId, originalMax );
-		const cappedMax = Math.max( parseInt( sizeEl.min, 10 ) || 1, max );
+		const layer = this.getLayerById( layerId );
+		const configuredMax = this.fontLimit( layer?.settings?.max_font_size );
+		const cappedMax = Math.max(
+			parseInt( sizeEl.min, 10 ) || 1,
+			configuredMax ? Math.min( originalMax, configuredMax ) : originalMax
+		);
 
 		sizeEl.max = String( cappedMax );
 		if ( clampValue && parseInt( sizeEl.value, 10 ) > cappedMax ) {
@@ -1856,7 +1860,7 @@ class OCCustomiser {
 		}
 
 		const wrapper = document.createElement( 'div' );
-		wrapper.style.cssText = 'position:absolute;left:-99999px;top:-99999px;visibility:hidden;pointer-events:none;';
+		wrapper.style.cssText = 'position:absolute;left:-99999px;top:-99999px;opacity:0;pointer-events:none;';
 		const clone = document.importNode( svg, true );
 		clone.setAttribute( 'width', '1000' );
 		clone.setAttribute( 'height', '1000' );
@@ -1865,7 +1869,7 @@ class OCCustomiser {
 		try {
 			wrapper.appendChild( clone );
 			document.body.appendChild( wrapper );
-			const bounds = clone.getBBox();
+			const bounds = this.svgVisibleBounds( clone );
 			if ( bounds.width > 0 && bounds.height > 0 ) {
 				svg.setAttribute( 'viewBox', `${ bounds.x } ${ bounds.y } ${ bounds.width } ${ bounds.height }` );
 				svg.setAttribute( 'width', String( bounds.width ) );
@@ -1875,6 +1879,73 @@ class OCCustomiser {
 			console.warn( '[OC] SVG clipart bounds crop failed:', e );
 		} finally {
 			wrapper.remove();
+		}
+	}
+
+	svgVisibleBounds( svg ) {
+		const boxes = Array.from( svg.querySelectorAll( '*' ) )
+			.map( element => this.svgElementRootBounds( element ) )
+			.filter( Boolean );
+
+		if ( ! boxes.length ) {
+			return svg.getBBox();
+		}
+
+		const minX = Math.min( ...boxes.map( box => box.x ) );
+		const minY = Math.min( ...boxes.map( box => box.y ) );
+		const maxX = Math.max( ...boxes.map( box => box.x + box.width ) );
+		const maxY = Math.max( ...boxes.map( box => box.y + box.height ) );
+
+		return {
+			x: minX,
+			y: minY,
+			width: maxX - minX,
+			height: maxY - minY,
+		};
+	}
+
+	svgElementRootBounds( element ) {
+		if ( typeof element.getBBox !== 'function' ) {
+			return null;
+		}
+
+		try {
+			const box = element.getBBox();
+			if ( ! box.width || ! box.height ) {
+				return null;
+			}
+
+			const root = element.ownerSVGElement;
+			const rootMatrix = root && typeof root.getScreenCTM === 'function' ? root.getScreenCTM() : null;
+			const elementMatrix = typeof element.getScreenCTM === 'function' ? element.getScreenCTM() : null;
+			const matrix = rootMatrix && elementMatrix ? rootMatrix.inverse().multiply( elementMatrix ) : null;
+			if ( ! matrix ) {
+				return box;
+			}
+
+			const points = [
+				[ box.x, box.y ],
+				[ box.x + box.width, box.y ],
+				[ box.x + box.width, box.y + box.height ],
+				[ box.x, box.y + box.height ],
+			].map( ( [ x, y ] ) => ( {
+				x: matrix.a * x + matrix.c * y + matrix.e,
+				y: matrix.b * x + matrix.d * y + matrix.f,
+			} ) );
+
+			const minX = Math.min( ...points.map( point => point.x ) );
+			const minY = Math.min( ...points.map( point => point.y ) );
+			const maxX = Math.max( ...points.map( point => point.x ) );
+			const maxY = Math.max( ...points.map( point => point.y ) );
+
+			return {
+				x: minX,
+				y: minY,
+				width: maxX - minX,
+				height: maxY - minY,
+			};
+		} catch {
+			return null;
 		}
 	}
 
