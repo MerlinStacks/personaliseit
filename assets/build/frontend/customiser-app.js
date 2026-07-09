@@ -25847,11 +25847,12 @@ class OCCustomiser {
       case 'text':
       case 'textarea':
         {
-          const raw = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(input.value) : input.value || '').replace(/\r\n?/g, '\n').trim();
-          if (!raw) {
+          const isSingleLineText = layer.type === 'text';
+          const normalisedText = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(input.value) : input.value || '').replace(/\r\n?/g, '\n');
+          const raw = isSingleLineText ? normalisedText.trim() : normalisedText;
+          if (!raw.trim()) {
             break;
           }
-          const isSingleLineText = layer.type === 'text';
           const lineAlign = ['top', 'center', 'bottom'].includes(layer.settings?.line_alignment) ? layer.settings.line_alignment : 'top';
           let font = this.fonts.find(f => f.id === (input.fontId || 0));
           // Engraving uses a fixed silver tone instead of a customer-selected colour.
@@ -25990,7 +25991,7 @@ class OCCustomiser {
             return this.textFitsBox(raw, font, size, layer.settings, lw, lh, true);
           };
           const fittingFloor = minFontSize || 4;
-          while (isSingleLineText && !fitsTextLayer(fontSize) && fontSize > fittingFloor) {
+          while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
             fontSize = Math.max(fittingFloor, fontSize - 1);
             textPadding = this.textRenderPadding(fontSize);
             obj.set({
@@ -26294,8 +26295,9 @@ class OCCustomiser {
       upperLimit = Math.min(upperLimit, maxLimit);
     }
     const input = this.inputs[layerId] || {};
-    const raw = (input.value || '').trim();
-    if (!raw) {
+    const normalisedText = String(input.value || '').replace(/\r\n?/g, '\n');
+    const raw = layer.type === 'text' ? normalisedText.trim() : normalisedText;
+    if (!raw.trim()) {
       return upperLimit;
     }
     let font = this.fonts.find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
@@ -26332,7 +26334,8 @@ class OCCustomiser {
     const originalMax = Math.max(parseInt(sizeEl.dataset.ocOriginalMax, 10) || 200, parseInt(sizeEl.min, 10) || 1);
     const layer = this.getLayerById(layerId);
     const configuredMax = this.fontLimit(layer?.settings?.max_font_size);
-    const cappedMax = Math.max(parseInt(sizeEl.min, 10) || 1, configuredMax ? Math.min(originalMax, configuredMax) : originalMax);
+    let cappedMax = Math.max(parseInt(sizeEl.min, 10) || 1, configuredMax ? Math.min(originalMax, configuredMax) : originalMax);
+    cappedMax = await this.maxFittingFontSize(layerId, cappedMax);
     sizeEl.max = String(cappedMax);
     if (clampValue && parseInt(sizeEl.value, 10) > cappedMax) {
       sizeEl.value = String(cappedMax);

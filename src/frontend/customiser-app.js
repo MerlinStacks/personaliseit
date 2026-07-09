@@ -1071,17 +1071,19 @@ class OCCustomiser {
 		switch ( layer.type ) {
 			case 'text':
 			case 'textarea': {
-				const raw = (
+				const isSingleLineText = layer.type === 'text';
+				const normalisedText = (
 					isEngraving || isEmbroidery
 						? this.stripUnsupportedPrintEmoji( input.value )
 						: input.value || ''
 				)
-					.replace( /\r\n?/g, '\n' )
-					.trim();
-				if ( ! raw ) {
+					.replace( /\r\n?/g, '\n' );
+				const raw = isSingleLineText
+					? normalisedText.trim()
+					: normalisedText;
+				if ( ! raw.trim() ) {
 					break;
 				}
-				const isSingleLineText = layer.type === 'text';
 				const lineAlign = [ 'top', 'center', 'bottom' ].includes(
 					layer.settings?.line_alignment
 				)
@@ -1288,7 +1290,6 @@ class OCCustomiser {
 				};
 				const fittingFloor = minFontSize || 4;
 				while (
-					isSingleLineText &&
 					! fitsTextLayer( fontSize ) &&
 					fontSize > fittingFloor
 				) {
@@ -1765,8 +1766,12 @@ class OCCustomiser {
 		}
 
 		const input = this.inputs[ layerId ] || {};
-		const raw = ( input.value || '' ).trim();
-		if ( ! raw ) {
+		const normalisedText = String( input.value || '' ).replace(
+			/\r\n?/g,
+			'\n'
+		);
+		const raw = layer.type === 'text' ? normalisedText.trim() : normalisedText;
+		if ( ! raw.trim() ) {
 			return upperLimit;
 		}
 
@@ -1818,10 +1823,11 @@ class OCCustomiser {
 		);
 		const layer = this.getLayerById( layerId );
 		const configuredMax = this.fontLimit( layer?.settings?.max_font_size );
-		const cappedMax = Math.max(
+		let cappedMax = Math.max(
 			parseInt( sizeEl.min, 10 ) || 1,
 			configuredMax ? Math.min( originalMax, configuredMax ) : originalMax
 		);
+		cappedMax = await this.maxFittingFontSize( layerId, cappedMax );
 
 		sizeEl.max = String( cappedMax );
 		if ( clampValue && parseInt( sizeEl.value, 10 ) > cappedMax ) {
