@@ -780,10 +780,6 @@ abstract class OC_Print_Base {
 	 * print-area space before converting to millimetres.
 	 */
 	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour' ): void {
-		if ( self::render_textarea_snapshot_payload( $pdf, $area, $area_data, $origin_x_mm, $origin_y_mm ) ) {
-			return;
-		}
-
 		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
 		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
@@ -792,6 +788,7 @@ abstract class OC_Print_Base {
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		$area_w_mm = self::unit_to_mm( (float) ( $area->canvas_w ?? $bounds_w ), $unit );
 		$area_h_mm = self::unit_to_mm( (float) ( $area->canvas_h ?? $bounds_h ), $unit );
+		$font_px_to_pt = self::mm_to_pt_value( $area_h_mm ) / $bounds_h;
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -813,7 +810,7 @@ abstract class OC_Print_Base {
 			switch ( $type ) {
 				case 'text':
 				case 'textarea':
-					self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+					self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $font_px_to_pt );
 					break;
 
 				case 'spotify':
@@ -843,61 +840,7 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	/** Render the exact preview snapshot for textarea areas when order-time SVG is available. */
-	protected static function render_textarea_snapshot_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm ): bool {
-		if ( ! method_exists( $pdf, 'ImageSVG' ) || ! self::area_data_contains_textarea( $area_data ) ) {
-			return false;
-		}
-
-		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
-		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( (string) $snapshot['svg'] ) : '';
-		if ( '' === $svg || ! str_contains( $svg, '<svg' ) ) {
-			return false;
-		}
-
-		try {
-			if ( class_exists( 'OC_SVG_Sanitiser' ) ) {
-				$svg = OC_SVG_Sanitiser::sanitise( $svg );
-			}
-		} catch ( \Throwable $e ) {
-			OC_Logger::warning( 'Print snapshot rejected: ' . $e->getMessage() );
-			return false;
-		}
-
-		$tmp = self::temp_path( 'oc-print-snapshot-' . wp_generate_uuid4() . '.svg' );
-		if ( ! is_string( $tmp ) || '' === $tmp ) {
-			return false;
-		}
-
-		if ( false === file_put_contents( $tmp, $svg ) ) {
-			return false;
-		}
-
-		try {
-			[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
-			$pdf->ImageSVG( $tmp, $origin_x_mm, $origin_y_mm, $w_mm, $h_mm, '', '', '', 0, false );
-			return true;
-		} catch ( \Throwable $e ) {
-			OC_Logger::warning( 'Print snapshot render failed: ' . $e->getMessage() );
-			return false;
-		} finally {
-			@unlink( $tmp );
-		}
-	}
-
-	/** Return true when the v2 area payload contains at least one textarea layer. */
-	private static function area_data_contains_textarea( array $area_data ): bool {
-		$layers = is_array( $area_data['layers'] ?? null ) ? $area_data['layers'] : [];
-		foreach ( $layers as $layer ) {
-			if ( is_array( $layer ) && 'textarea' === (string) ( $layer['type'] ?? '' ) ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
+	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode, ?float $font_px_to_pt = null ): void {
 		$is_textarea = 'textarea' === (string) ( $layer['type'] ?? '' );
 		$text        = trim( str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) ) );
 		if ( '' === $text ) {
@@ -910,11 +853,12 @@ abstract class OC_Print_Base {
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 		$font      = $font_id ? self::get_font( $font_id ) : null;
 		$font_name = 'engraving' === $mode ? 'helvetica' : self::resolve_font( $font_id, $pdf );
+		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : 72 / self::CANVAS_DPI;
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
-			? self::px_to_pt( (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) )
-			: max( 4.0, self::px_to_pt( max( 1, (int) ( $layer['h'] ?? 1 ) ) * 0.42 ) );
-		$min_size  = ! empty( $settings['min_font_size'] ) ? self::px_to_pt( (float) $settings['min_font_size'] ) : 0.0;
-		$max_size  = ! empty( $settings['max_font_size'] ) ? self::px_to_pt( (float) $settings['max_font_size'] ) : 0.0;
+			? max( 4.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_px_to_pt )
+			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.42 * $font_px_to_pt );
+		$min_size  = ! empty( $settings['min_font_size'] ) ? (float) $settings['min_font_size'] * $font_px_to_pt : 0.0;
+		$max_size  = ! empty( $settings['max_font_size'] ) ? (float) $settings['max_font_size'] * $font_px_to_pt : 0.0;
 		if ( $max_size > 0.0 ) {
 			$font_size = min( $font_size, $max_size );
 		}
