@@ -234,6 +234,8 @@ class OC_Frontend {
 
 	/** Build reusable frontend state for one design. */
 	private function build_design_state( object $design, array $areas, array $layers ): array {
+		global $wpdb;
+
 		$all_fonts   = OC_Font_Registry::get_fonts_for_js();
 		$all_colours = OC_DB::get_colours( true );
 
@@ -361,6 +363,26 @@ class OC_Frontend {
 				$layer_inputs[ $layer_id ]['clipartUrl'] = (string) $item['url'];
 				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ! empty( $item['recolourable'] );
 				break;
+			}
+
+			if ( ! empty( $layer_inputs[ $layer_id ]['clipartUrl'] ) ) continue;
+
+			$default_clipart = $wpdb->get_row( $wpdb->prepare(
+				"SELECT id, file_path, file_type FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
+				$default_clipart_id
+			) );
+			if ( $default_clipart && ! empty( $default_clipart->file_path ) ) {
+				$upload_dir = wp_upload_dir();
+				$layer_inputs[ $layer_id ]['clipartId'] = (int) $default_clipart->id;
+				$layer_inputs[ $layer_id ]['clipartUrl'] = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $default_clipart->file_path );
+				$layer_inputs[ $layer_id ]['clipartRecolourable'] = 'svg' === strtolower( (string) $default_clipart->file_type );
+				continue;
+			}
+
+			if ( ! empty( $settings['default_clipart_url'] ) ) {
+				$layer_inputs[ $layer_id ]['clipartId'] = $default_clipart_id;
+				$layer_inputs[ $layer_id ]['clipartUrl'] = esc_url_raw( (string) $settings['default_clipart_url'] );
+				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ! empty( $settings['default_clipart_recolourable'] );
 			}
 		}
 
