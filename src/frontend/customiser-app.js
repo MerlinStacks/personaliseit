@@ -1479,7 +1479,7 @@ class OCCustomiser {
 								clipartColor,
 								isEmbroidery ? 'embroidery' : ''
 						  )
-						: await this.expandSvgClipartUrl( input.clipartUrl );
+						: await this.normaliseSvgClipartUrl( input.clipartUrl );
 					const clipartCrossOrigin = clipartUrl.startsWith( 'data:' )
 						? ''
 						: 'anonymous';
@@ -2338,7 +2338,7 @@ class OCCustomiser {
 			if ( effect === 'embroidery' ) {
 				this.addEmbroiderySvgPattern( svg, color );
 			}
-			this.expandSvgViewBoxToVisibleBounds( svg );
+			this.ensureSvgIntrinsicSize( svg );
 			const output = new window.XMLSerializer().serializeToString( svg );
 			this.clipartSvgCache[
 				key
@@ -2352,12 +2352,12 @@ class OCCustomiser {
 		}
 	}
 
-	async expandSvgClipartUrl( url ) {
+	async cropSvgClipartUrl( url ) {
 		if ( ! this.isSvgClipartUrl( url ) ) {
 			return url;
 		}
 
-		const key = `${ url }|expand`;
+		const key = `${ url }|crop`;
 		if ( this.clipartSvgCache[ key ] ) {
 			return this.clipartSvgCache[ key ];
 		}
@@ -2383,9 +2383,8 @@ class OCCustomiser {
 				throw new Error( 'Clipart is not an SVG.' );
 			}
 
-			if ( ! this.expandSvgViewBoxToVisibleBounds( svg ) ) {
-				this.clipartSvgCache[ key ] = url;
-				return url;
+			if ( ! this.hasComplexSvgPaintReferences( svg ) ) {
+				this.cropSvgToVisibleBounds( svg );
 			}
 			const output = new window.XMLSerializer().serializeToString( svg );
 			this.clipartSvgCache[
@@ -2395,6 +2394,55 @@ class OCCustomiser {
 			) }`;
 			return this.clipartSvgCache[ key ];
 		} catch {
+			return url;
+		}
+	}
+
+	async normaliseSvgClipartUrl( url ) {
+		if ( ! this.isSvgClipartUrl( url ) ) {
+			return url;
+		}
+
+		const key = `${ url }|normalise`;
+		if ( this.clipartSvgCache[ key ] ) {
+			return this.clipartSvgCache[ key ];
+		}
+
+		try {
+			const response = await fetch( url, {
+				credentials: 'same-origin',
+				cache: 'force-cache',
+			} );
+			if ( ! response.ok ) {
+				throw new Error(
+					`Could not load clipart SVG (${ response.status }).`
+				);
+			}
+
+			const raw = await response.text();
+			const doc = new window.DOMParser().parseFromString(
+				raw,
+				'image/svg+xml'
+			);
+			const svg = doc.documentElement;
+			if ( ! svg || svg.localName.toLowerCase() !== 'svg' ) {
+				throw new Error( 'Clipart is not an SVG.' );
+			}
+
+			if ( ! this.ensureSvgIntrinsicSize( svg ) ) {
+				this.clipartSvgCache[ key ] = url;
+				return url;
+			}
+
+			const output = new window.XMLSerializer().serializeToString( svg );
+			this.clipartSvgCache[
+				key
+			] = `data:image/svg+xml;charset=utf-8,${ encodeURIComponent(
+				output
+			) }`;
+			return this.clipartSvgCache[ key ];
+		} catch {
+			this.clipartSvgCache[ key ] = url;
 			return url;
 		}
 	}
@@ -2512,64 +2560,58 @@ class OCCustomiser {
 		);
 	}
 
-	expandSvgViewBoxToVisibleBounds( svg ) {
+	cropSvgToVisibleBounds( svg ) {
 		if (
 			typeof document === 'undefined' ||
 			! document.body ||
 			typeof svg.getAttribute !== 'function'
 		) {
-			return false;
-		}
-
-		const viewBox = this.parseSvgViewBox( svg );
-		if ( ! viewBox ) {
-			return false;
+			return;
 		}
 
 		const wrapper = document.createElement( 'div' );
 		wrapper.style.cssText =
 			'position:absolute;left:-99999px;top:-99999px;opacity:0;pointer-events:none;';
 		const clone = document.importNode( svg, true );
-		clone.setAttribute( 'width', String( viewBox.width ) );
-		clone.setAttribute( 'height', String( viewBox.height ) );
+		clone.setAttribute( 'width', '1000' );
+		clone.setAttribute( 'height', '1000' );
 
 		try {
 			wrapper.appendChild( clone );
 			document.body.appendChild( wrapper );
 			const bounds = this.svgVisibleBounds( clone );
-			if ( ! bounds.width || ! bounds.height ) {
-				return false;
-			}
-
-			const expanded = {
-				x: Math.min( viewBox.x, bounds.x ),
-				y: Math.min( viewBox.y, bounds.y ),
-				width:
-					Math.max( viewBox.x + viewBox.width, bounds.x + bounds.width ) -
-					Math.min( viewBox.x, bounds.x ),
-				height:
-					Math.max( viewBox.y + viewBox.height, bounds.y + bounds.height ) -
-					Math.min( viewBox.y, bounds.y ),
-			};
-			const changed =
-				Math.abs( expanded.x - viewBox.x ) > 0.01 ||
-				Math.abs( expanded.y - viewBox.y ) > 0.01 ||
-				Math.abs( expanded.width - viewBox.width ) > 0.01 ||
-				Math.abs( expanded.height - viewBox.height ) > 0.01;
-			if ( changed ) {
+			if ( bounds.width > 0 && bounds.height > 0 ) {
 				svg.setAttribute(
 					'viewBox',
-					`${ expanded.x } ${ expanded.y } ${ expanded.width } ${ expanded.height }`
+					`${ bounds.x } ${ bounds.y } ${ bounds.width } ${ bounds.height }`
 				);
+				svg.setAttribute( 'width', String( bounds.width ) );
+				svg.setAttribute( 'height', String( bounds.height ) );
 			}
-
-			return changed;
 		} catch ( e ) {
-			console.warn( '[OC] SVG clipart viewBox expansion failed:', e );
-			return false;
+			console.warn( '[OC] SVG clipart bounds crop failed:', e );
 		} finally {
 			wrapper.remove();
 		}
+	}
+
+	ensureSvgIntrinsicSize( svg ) {
+		const viewBox = this.parseSvgViewBox( svg );
+		if ( ! viewBox ) {
+			return false;
+		}
+
+		let changed = false;
+		if ( ! this.hasUsableSvgLength( svg.getAttribute( 'width' ) ) ) {
+			svg.setAttribute( 'width', String( viewBox.width ) );
+			changed = true;
+		}
+		if ( ! this.hasUsableSvgLength( svg.getAttribute( 'height' ) ) ) {
+			svg.setAttribute( 'height', String( viewBox.height ) );
+			changed = true;
+		}
+
+		return changed;
 	}
 
 	parseSvgViewBox( svg ) {
@@ -2578,22 +2620,25 @@ class OCCustomiser {
 			.split( /[\s,]+/ )
 			.map( Number )
 			.filter( ( value ) => Number.isFinite( value ) );
-		if ( values.length === 4 && values[ 2 ] > 0 && values[ 3 ] > 0 ) {
-			return {
-				x: values[ 0 ],
-				y: values[ 1 ],
-				width: values[ 2 ],
-				height: values[ 3 ],
-			};
+		if ( values.length !== 4 || values[ 2 ] <= 0 || values[ 3 ] <= 0 ) {
+			return null;
 		}
 
-		const width = parseFloat( svg.getAttribute( 'width' ) || '' );
-		const height = parseFloat( svg.getAttribute( 'height' ) || '' );
-		if ( width > 0 && height > 0 ) {
-			return { x: 0, y: 0, width, height };
+		return {
+			x: values[ 0 ],
+			y: values[ 1 ],
+			width: values[ 2 ],
+			height: values[ 3 ],
+		};
+	}
+
+	hasUsableSvgLength( value ) {
+		const raw = String( value || '' ).trim();
+		if ( ! raw || raw.endsWith( '%' ) ) {
+			return false;
 		}
 
-		return null;
+		return parseFloat( raw ) > 0;
 	}
 
 	svgVisibleBounds( svg ) {
