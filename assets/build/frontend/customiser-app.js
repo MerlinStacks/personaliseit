@@ -26757,7 +26757,34 @@ class OCCustomiser {
     }
   }
   async cropSvgClipartUrl(url) {
-    return url;
+    if (!this.isSvgClipartUrl(url)) {
+      return url;
+    }
+    const key = `${url}|crop`;
+    if (this.clipartSvgCache[key]) {
+      return this.clipartSvgCache[key];
+    }
+    try {
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        cache: 'force-cache'
+      });
+      if (!response.ok) {
+        throw new Error(`Could not load clipart SVG (${response.status}).`);
+      }
+      const raw = await response.text();
+      const doc = new window.DOMParser().parseFromString(raw, 'image/svg+xml');
+      const svg = doc.documentElement;
+      if (!svg || svg.localName.toLowerCase() !== 'svg') {
+        throw new Error('Clipart is not an SVG.');
+      }
+      this.cropSvgToVisibleBounds(svg);
+      const output = new window.XMLSerializer().serializeToString(svg);
+      this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
+      return this.clipartSvgCache[key];
+    } catch {
+      return url;
+    }
   }
   isSvgClipartUrl(url) {
     const value = String(url || '').trim();
