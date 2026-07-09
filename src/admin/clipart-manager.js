@@ -16,13 +16,6 @@ import ImageTracer from 'imagetracerjs';
 // State
 // ---------------------------------------------------------------------------
 
-const clipart = ( window.ocClipartData || [] ).map( normaliseClipart );
-let groups = ( window.ocClipartGroups || [] ).map( normaliseGroup );
-
-let currentFile = null;
-let editClipartId = null;
-let editGroupId = null;
-
 const TRACE_MAX_SIZE = 1200;
 const PRINT_METHODS = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
 const PRINT_METHOD_LABELS = {
@@ -31,6 +24,13 @@ const PRINT_METHOD_LABELS = {
 	embroidery: 'Embroidery',
 	sublimation: 'Sublimation',
 };
+
+const clipart = ( window.ocClipartData || [] ).map( normaliseClipart );
+let groups = ( window.ocClipartGroups || [] ).map( normaliseGroup );
+
+let currentFile = null;
+let editClipartId = null;
+let editGroupId = null;
 
 // ---------------------------------------------------------------------------
 // Normalisers
@@ -43,7 +43,9 @@ function normaliseClipart( c ) {
 		fileType: c.fileType || '',
 		canConvert: !! c.canConvert,
 		colourChangeable: c.colourChangeable !== false,
-		allowedPrintMethods: normalisePrintMethods( c.allowedPrintMethods || [] ),
+		allowedPrintMethods: normalisePrintMethods(
+			c.allowedPrintMethods || []
+		),
 		active: !! c.active,
 		url: c.url || '',
 		toggleUrl: c.toggleUrl || '',
@@ -62,7 +64,9 @@ function methodSummary( methods ) {
 	if ( ! methods.length ) {
 		return 'All print methods';
 	}
-	return methods.map( ( method ) => PRINT_METHOD_LABELS[ method ] || method ).join( ', ' );
+	return methods
+		.map( ( method ) => PRINT_METHOD_LABELS[ method ] || method )
+		.join( ', ' );
 }
 
 function checkedMethods( selector ) {
@@ -645,8 +649,8 @@ function initUploadModal() {
 				? '1'
 				: '0'
 		);
-		checkedMethods( '.oc-clipart-upload-method-check' ).forEach( ( method ) =>
-			fd.append( 'allowed_print_methods[]', method )
+		checkedMethods( '.oc-clipart-upload-method-check' ).forEach(
+			( method ) => fd.append( 'allowed_print_methods[]', method )
 		);
 		fd.append( 'clipart_file', uploadFile );
 

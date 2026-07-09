@@ -1479,7 +1479,7 @@ class OCCustomiser {
 								clipartColor,
 								isEmbroidery ? 'embroidery' : ''
 						  )
-						: await this.cropSvgClipartUrl( input.clipartUrl );
+						: input.clipartUrl;
 					const clipartCrossOrigin = clipartUrl.startsWith( 'data:' )
 						? ''
 						: 'anonymous';
@@ -2338,10 +2338,6 @@ class OCCustomiser {
 			if ( effect === 'embroidery' ) {
 				this.addEmbroiderySvgPattern( svg, color );
 			}
-			if ( ! this.hasComplexSvgPaintReferences( svg ) ) {
-				this.cropSvgToVisibleBounds( svg );
-			}
-
 			const output = new window.XMLSerializer().serializeToString( svg );
 			this.clipartSvgCache[
 				key

@@ -1327,11 +1327,6 @@ __webpack_require__.r(__webpack_exports__);
 // State
 // ---------------------------------------------------------------------------
 
-const clipart = (window.ocClipartData || []).map(normaliseClipart);
-let groups = (window.ocClipartGroups || []).map(normaliseGroup);
-let currentFile = null;
-let editClipartId = null;
-let editGroupId = null;
 const TRACE_MAX_SIZE = 1200;
 const PRINT_METHODS = ['engraving', 'uv', 'embroidery', 'sublimation'];
 const PRINT_METHOD_LABELS = {
@@ -1340,6 +1335,11 @@ const PRINT_METHOD_LABELS = {
   embroidery: 'Embroidery',
   sublimation: 'Sublimation'
 };
+const clipart = (window.ocClipartData || []).map(normaliseClipart);
+let groups = (window.ocClipartGroups || []).map(normaliseGroup);
+let currentFile = null;
+let editClipartId = null;
+let editGroupId = null;
 
 // ---------------------------------------------------------------------------
 // Normalisers
