@@ -26778,7 +26778,9 @@ class OCCustomiser {
       if (!svg || svg.localName.toLowerCase() !== 'svg') {
         throw new Error('Clipart is not an SVG.');
       }
-      this.cropSvgToVisibleBounds(svg);
+      if (!this.hasComplexSvgPaintReferences(svg)) {
+        this.cropSvgToVisibleBounds(svg);
+      }
       const output = new window.XMLSerializer().serializeToString(svg);
       this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
       return this.clipartSvgCache[key];

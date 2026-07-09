@@ -1987,6 +1987,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Match the preview by fitting recoloured SVG clipart to visible artwork, not its original canvas. */
 	private static function crop_svg_to_visible_bounds( \DOMElement $svg ): void {
+		if ( self::has_complex_svg_paint_references( $svg ) ) {
+			return;
+		}
+
 		$bounds = self::svg_visible_bounds( $svg );
 		if ( ! $bounds ) {
 			return;
@@ -2004,6 +2008,29 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$svg->setAttribute( 'viewBox', sprintf( '%.4F %.4F %.4F %.4F', $x, $y, $w, $h ) );
 		$svg->setAttribute( 'width', sprintf( '%.4F', $w ) );
 		$svg->setAttribute( 'height', sprintf( '%.4F', $h ) );
+	}
+
+	private static function has_complex_svg_paint_references( \DOMElement $svg ): bool {
+		$complex_tags = [ 'clipPath', 'mask', 'filter', 'pattern', 'linearGradient', 'radialGradient' ];
+		foreach ( $complex_tags as $tag ) {
+			if ( $svg->getElementsByTagName( $tag )->length > 0 ) {
+				return true;
+			}
+		}
+
+		foreach ( $svg->getElementsByTagName( '*' ) as $element ) {
+			if ( ! $element instanceof \DOMElement ) {
+				continue;
+			}
+
+			foreach ( [ 'clip-path', 'mask', 'filter' ] as $attribute ) {
+				if ( $element->hasAttribute( $attribute ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private static function svg_visible_bounds( \DOMElement $root ): ?array {

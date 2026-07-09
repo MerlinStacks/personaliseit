@@ -2386,7 +2386,9 @@ class OCCustomiser {
 				throw new Error( 'Clipart is not an SVG.' );
 			}
 
-			this.cropSvgToVisibleBounds( svg );
+			if ( ! this.hasComplexSvgPaintReferences( svg ) ) {
+				this.cropSvgToVisibleBounds( svg );
+			}
 			const output = new window.XMLSerializer().serializeToString( svg );
 			this.clipartSvgCache[
 				key
