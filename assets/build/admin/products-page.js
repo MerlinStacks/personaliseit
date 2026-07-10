@@ -179,6 +179,11 @@ __webpack_require__.r(__webpack_exports__);
       icon: '◯',
       color: '#0d9488'
     },
+    mask: {
+      label: 'Mask',
+      icon: '\u25a0',
+      color: '#64748b'
+    },
     spotify: {
       label: 'Spotify Code',
       icon: '\u266b',
@@ -209,6 +214,10 @@ __webpack_require__.r(__webpack_exports__);
       h: 200
     },
     clipmask: {
+      w: 200,
+      h: 200
+    },
+    mask: {
       w: 200,
       h: 200
     },
@@ -313,6 +322,11 @@ __webpack_require__.r(__webpack_exports__);
       id: 'validation',
       label: 'Validation',
       icon: '\u2713'
+    }],
+    mask: [{
+      id: 'general',
+      label: 'General',
+      icon: 'G'
     }],
     spotify: [{
       id: 'general',
@@ -780,6 +794,11 @@ __webpack_require__.r(__webpack_exports__);
           required: false,
           link_group: ''
         };
+      case 'mask':
+        return {
+          required: false,
+          link_group: ''
+        };
       case 'spotify':
         return {
           colour_groups: [],
@@ -1002,11 +1021,13 @@ __webpack_require__.r(__webpack_exports__);
       el.appendChild(img);
     } else {
       const icons = {
+        mask: '\u25a0',
         spotify: '\u266b',
         lineart: '\u270f',
         clipart: '\u2726'
       };
       const labels = {
+        mask: 'Mask',
         spotify: 'Spotify Code',
         lineart: 'Line Art',
         clipart: 'Clipart'

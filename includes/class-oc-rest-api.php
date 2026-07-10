@@ -803,7 +803,7 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_design', __( 'Design has no layers.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
+		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
 
 		$sanitised_layers = [];
 		$fallback_font_id = OC_DB::get_first_active_font_id();

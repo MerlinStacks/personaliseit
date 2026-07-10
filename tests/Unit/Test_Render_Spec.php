@@ -99,6 +99,31 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 	}
 
 	#[Test]
+	public function area_to_print_data_preserves_but_excludes_mask_layers_from_print_summary(): void {
+		$area = [
+			'layers' => [
+				[
+					'id'                  => 45,
+					'type'                => 'mask',
+					'x'                   => 10,
+					'y'                   => 20,
+					'w'                   => 100,
+					'h'                   => 100,
+					'input'               => [ 'attachmentId' => 99, 'value' => 'Do not print' ],
+					'artworkAttachmentId' => 99,
+				],
+			],
+		];
+
+		$data = OC_Render_Spec::area_to_print_data( $area );
+
+		$this->assertSame( '', $data['text'] );
+		$this->assertSame( 0, $data['artworkAttachmentId'] );
+		$this->assertSame( '', $data['artworkPath'] );
+		$this->assertSame( 'mask', $data['layers'][0]['type'] );
+	}
+
+	#[Test]
 	public function print_generation_area_uses_order_time_render_spec_snapshot(): void {
 		$current = (object) [
 			'id'              => 10,

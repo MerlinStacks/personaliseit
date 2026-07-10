@@ -64,6 +64,9 @@ class OC_Render_Spec {
 			}
 
 			$type     = (string) ( $layer['type'] ?? '' );
+			if ( 'mask' === $type ) {
+				continue;
+			}
 			$input    = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 

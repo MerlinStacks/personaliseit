@@ -796,6 +796,9 @@ abstract class OC_Print_Base {
 			}
 
 			$type = (string) ( $layer['type'] ?? '' );
+			if ( 'mask' === $type ) {
+				continue;
+			}
 			$layer_x = (float) ( $layer['x'] ?? 0 );
 			$layer_y = (float) ( $layer['y'] ?? 0 );
 			$layer_w = max( 1.0, (float) ( $layer['w'] ?? 1 ) );

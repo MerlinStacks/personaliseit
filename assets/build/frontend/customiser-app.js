@@ -26123,6 +26123,8 @@ class OCCustomiser {
           const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
           const clipartEffects = isEmbroidery ? {
             embroideryColor: clipartColor || selectedClipartColor || '#000000'
+          } : shouldRecolourClipart ? {
+            preserveRecolouredPixels: true
           } : {};
           await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects);
         }
@@ -27093,7 +27095,7 @@ class OCCustomiser {
         evented: false
       });
       const filters = [];
-      if (makeWhiteTransparent || isEngraving) {
+      if (makeWhiteTransparent || isEngraving && !effects.preserveRecolouredPixels) {
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.RemoveColor({
           color: '#FFFFFF',
           distance: isEngraving ? 0.18 : 0.1

@@ -1127,6 +1127,7 @@ class OC_Admin_Products {
 								<button type="button" class="oc-layer-type-btn" data-type="textarea"><span class="oc-layer-type-btn-icon" style="color:#7c3aed;">&para;</span><span><?php esc_html_e( 'Text Area', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="image"><span class="oc-layer-type-btn-icon" style="color:#059669;">&#x1f5bc;</span><span><?php esc_html_e( 'Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipmask"><span class="oc-layer-type-btn-icon" style="color:#0d9488;">&#9711;</span><span><?php esc_html_e( 'Clipping Mask', 'overcustomise' ); ?></span></button>
+								<button type="button" class="oc-layer-type-btn" data-type="mask"><span class="oc-layer-type-btn-icon" style="color:#64748b;">&#9632;</span><span><?php esc_html_e( 'Mask', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="spotify"><span class="oc-layer-type-btn-icon" style="color:#1db954;">&#x266b;</span><span><?php esc_html_e( 'Spotify', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="lineart"><span class="oc-layer-type-btn-icon" style="color:#d97706;">&#x270f;</span><span><?php esc_html_e( 'Line Art', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
@@ -1284,7 +1285,7 @@ class OC_Admin_Products {
 		// Save layers — delete all and re-insert from POST.
 		$wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $design_id ], [ '%d' ] );
 
-		$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
+		$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
 		foreach ( (array) ( $_POST['oc_layers'] ?? [] ) as $sort => $layer_data ) {
 			$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 			$area_db_id = $area_id_map[ $area_index ] ?? 0;

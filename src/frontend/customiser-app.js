@@ -1490,6 +1490,8 @@ class OCCustomiser {
 									selectedClipartColor ||
 									'#000000',
 						  }
+						: shouldRecolourClipart
+						? { preserveRecolouredPixels: true }
 						: {};
 					await this.renderFabricImg(
 						canvas,
@@ -2927,7 +2929,10 @@ class OCCustomiser {
 			} );
 
 			const filters = [];
-			if ( makeWhiteTransparent || isEngraving ) {
+			if (
+				makeWhiteTransparent ||
+				( isEngraving && ! effects.preserveRecolouredPixels )
+			) {
 				filters.push(
 					new FabricFilters.RemoveColor( {
 						color: '#FFFFFF',

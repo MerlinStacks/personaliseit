@@ -123,7 +123,7 @@ class OC_Cart {
 			return $cart_item_data;
 		}
 
-		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
+		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
 
 		// ── v2 format: { v:2, designId, layers:{layerId:{type,...}} } ────────
 		if ( isset( $decoded['v'] ) && 2 === (int) $decoded['v'] ) {

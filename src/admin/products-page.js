@@ -28,6 +28,7 @@ import {
 		textarea: { label: 'Text Area', icon: '\u00b6', color: '#7c3aed' },
 		image: { label: 'Image', icon: '\ud83d\uddbc', color: '#059669' },
 		clipmask: { label: 'Clipping Mask', icon: '◯', color: '#0d9488' },
+		mask: { label: 'Mask', icon: '\u25a0', color: '#64748b' },
 		spotify: { label: 'Spotify Code', icon: '\u266b', color: '#1db954' },
 		lineart: { label: 'Line Art', icon: '\u270f', color: '#d97706' },
 		clipart: { label: 'Clipart', icon: '\u2726', color: '#dc2626' },
@@ -38,6 +39,7 @@ import {
 		textarea: { w: 300, h: 120 },
 		image: { w: 200, h: 200 },
 		clipmask: { w: 200, h: 200 },
+		mask: { w: 200, h: 200 },
 		spotify: { w: 150, h: 150 },
 		lineart: { w: 200, h: 200 },
 		clipart: { w: 150, h: 150 },
@@ -93,6 +95,7 @@ import {
 			{ id: 'mask', label: 'Mask', icon: '◯' },
 			{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		],
+		mask: [ { id: 'general', label: 'General', icon: 'G' } ],
 		spotify: [
 			{ id: 'general', label: 'General', icon: 'G' },
 			{ id: 'appearance', label: 'Appearance', icon: '\u25d0' },
@@ -585,6 +588,8 @@ import {
 					required: false,
 					link_group: '',
 				};
+			case 'mask':
+				return { required: false, link_group: '' };
 			case 'spotify':
 				return { colour_groups: [], required: false, link_group: '' };
 			case 'lineart':
@@ -914,11 +919,13 @@ import {
 			el.appendChild( img );
 		} else {
 			const icons = {
+				mask: '\u25a0',
 				spotify: '\u266b',
 				lineart: '\u270f',
 				clipart: '\u2726',
 			};
 			const labels = {
+				mask: 'Mask',
 				spotify: 'Spotify Code',
 				lineart: 'Line Art',
 				clipart: 'Clipart',

@@ -122,6 +122,7 @@ foreach ( $layers as $layer ) {
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
 					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
+					if ( 'clipart' === $layer->type && ! $allow_clipart_change ) continue;
 					$cg_ids    = $s['colour_groups'] ?? [];
 					$fg_ids    = $s['font_groups']   ?? [];
 					$clipart_groups = $s['clipart_groups'] ?? [];
@@ -150,13 +151,8 @@ foreach ( $layers as $layer ) {
 					}
 					?>
 					<?php
-					// For text/textarea layers, the layer name is shown inline with the input
-					// (matching the Font row), so we suppress it in the section header to avoid
-					// duplication — only the type badge remains.
-					$inline_label_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify' ];
-					if ( 'clipart' === $layer->type && 1 === count( $clipart_group_ids ) ) {
-						$inline_label_types[] = 'clipart';
-					}
+					// These layer types either show their label inline or do not need a section header.
+					$inline_label_types = [ 'text', 'textarea', 'image', 'clipmask', 'clipart', 'spotify' ];
 					$show_header_label  = ! in_array( $layer->type, $inline_label_types, true );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					?>
@@ -221,9 +217,6 @@ foreach ( $layers as $layer ) {
 								<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
-								<?php if ( ! $allow_clipart_change ) : ?>
-									<p class="oc-settings-empty"><?php esc_html_e( 'Clipart is fixed for this product.', 'overcustomise' ); ?></p>
-								<?php else : ?>
 								<?php
 								if ( isset( $clipart_by_layer[ (int) $layer->id ] ) ) {
 									$items = array_map( static function ( array $item ) {
@@ -336,7 +329,6 @@ foreach ( $layers as $layer ) {
 											<p class="oc-settings-empty"><?php esc_html_e( 'No colours are available for this option.', 'overcustomise' ); ?></p>
 										<?php endif; ?>
 									</div>
-							<?php endif; ?>
 							<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'lineart' && ! $is_engraving ) : ?>
