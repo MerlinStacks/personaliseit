@@ -485,10 +485,17 @@ class OC_Frontend {
 			return [];
 		}
 
-		$canvas_x = (int) ( $area->canvas_x ?? 0 );
-		$canvas_y = (int) ( $area->canvas_y ?? 0 );
-		$canvas_w = max( 1, (int) ( $area->canvas_w ?: 300 ) );
-		$canvas_h = max( 1, (int) ( $area->canvas_h ?: 300 ) );
+		$bounds = $this->get_design_variant_layer_bounds( $layers, $area );
+		if ( empty( $bounds ) ) {
+			return [];
+		}
+
+		$bounds_w = max( 1, (float) ( $bounds['max_x'] - $bounds['min_x'] ) );
+		$bounds_h = max( 1, (float) ( $bounds['max_y'] - $bounds['min_y'] ) );
+		$pad      = 8;
+		$scale    = min( ( 100 - ( $pad * 2 ) ) / $bounds_w, ( 100 - ( $pad * 2 ) ) / $bounds_h );
+		$offset_x = ( 100 - ( $bounds_w * $scale ) ) / 2;
+		$offset_y = ( 100 - ( $bounds_h * $scale ) ) / 2;
 		$items    = [];
 
 		foreach ( $layers as $layer ) {
@@ -503,10 +510,10 @@ class OC_Frontend {
 
 			$item = [
 				'type' => (string) $layer->type,
-				'x'    => ( ( (int) $layer->x - $canvas_x ) / $canvas_w ) * 100,
-				'y'    => ( ( (int) $layer->y - $canvas_y ) / $canvas_h ) * 100,
-				'w'    => max( 1, ( (int) $layer->w / $canvas_w ) * 100 ),
-				'h'    => max( 1, ( (int) $layer->h / $canvas_h ) * 100 ),
+				'x'    => $offset_x + ( ( (int) $layer->x - (float) $bounds['min_x'] ) * $scale ),
+				'y'    => $offset_y + ( ( (int) $layer->y - (float) $bounds['min_y'] ) * $scale ),
+				'w'    => max( 1, (int) $layer->w * $scale ),
+				'h'    => max( 1, (int) $layer->h * $scale ),
 			];
 
 			if ( in_array( (string) $layer->type, [ 'text', 'textarea' ], true ) ) {
@@ -517,13 +524,14 @@ class OC_Frontend {
 
 				$font = $this->get_design_variant_thumb_font( absint( $settings['default_font_id'] ?? 0 ) );
 				$longest_line = max( array_map( [ $this, 'string_length' ], preg_split( '/\R/', $text ) ?: [ $text ] ) );
-				$scaled_font_size = ( ( absint( $settings['default_font_size'] ?? 24 ) / $canvas_h ) * 100 ) * 0.72;
-				$box_height_cap   = (float) $item['h'] * 0.65;
-				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.45;
+				$line_count       = max( 1, count( preg_split( '/\R/', $text ) ?: [ $text ] ) );
+				$scaled_font_size = absint( $settings['default_font_size'] ?? 24 ) * $scale * 0.5;
+				$box_height_cap   = ( (float) $item['h'] / $line_count ) * 0.55;
+				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.15;
 
 				$item['text'] = $text;
 				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
-				$item['fontSize'] = max( 4, min( 14, $scaled_font_size, $box_height_cap, $box_width_cap ) );
+				$item['fontSize'] = max( 3.5, min( 12, $scaled_font_size, $box_height_cap, $box_width_cap ) );
 				$item['fontFamily'] = $font['family'];
 				$item['fontWeight'] = $font['weight'];
 				$item['fontStyle'] = $font['style'];
@@ -1167,7 +1175,7 @@ class OC_Frontend {
 		.oc-design-variant-option > img { object-fit:contain; object-position:center; }
 		.oc-design-variant-thumb { position:relative; overflow:hidden; container-type:inline-size; }
 		.oc-design-variant-thumb-layer { position:absolute; display:block; max-width:none !important; object-fit:contain; object-position:center; }
-		.oc-design-variant-thumb-text { display:flex; align-items:center; justify-content:center; overflow:hidden; text-align:center; font-weight:700; line-height:1.05; overflow-wrap:anywhere; font-size:clamp(4px, calc(var(--oc-thumb-font-size, 10) * 1cqw), 14px) !important; }
+		.oc-design-variant-thumb-text { display:flex; align-items:center; justify-content:center; overflow:hidden; text-align:center; font-weight:700; line-height:1.05; overflow-wrap:anywhere; white-space:pre-line; font-size:clamp(3.5px, calc(var(--oc-thumb-font-size, 10) * 1cqw), 12px) !important; }
 		.oc-design-variant-option > span { min-height:30px; display:flex !important; align-items:center; justify-content:center; font-size:11px; line-height:1.2; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
 		@media (max-width:639px) {
 			.oc-design-variant-carousel { display:grid; grid-template-columns:12px minmax(0,1fr) 12px; grid-template-areas:"prev track next" "dots dots dots"; align-items:center; column-gap:3px; row-gap:5px; margin-inline:-4px; }
