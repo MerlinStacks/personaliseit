@@ -485,8 +485,17 @@ class OC_Frontend {
 			return [];
 		}
 
-		$canvas_w = max( 1, (int) ( $area->canvas_w ?: 300 ) );
-		$canvas_h = max( 1, (int) ( $area->canvas_h ?: 300 ) );
+		$bounds = $this->get_design_variant_layer_bounds( $layers, $area );
+		if ( empty( $bounds ) ) {
+			return [];
+		}
+
+		$bounds_w = max( 1, (float) ( $bounds['max_x'] - $bounds['min_x'] ) );
+		$bounds_h = max( 1, (float) ( $bounds['max_y'] - $bounds['min_y'] ) );
+		$pad      = 8;
+		$scale    = min( ( 100 - ( $pad * 2 ) ) / $bounds_w, ( 100 - ( $pad * 2 ) ) / $bounds_h );
+		$offset_x = ( 100 - ( $bounds_w * $scale ) ) / 2;
+		$offset_y = ( 100 - ( $bounds_h * $scale ) ) / 2;
 		$items    = [];
 
 		foreach ( $layers as $layer ) {
@@ -501,10 +510,10 @@ class OC_Frontend {
 
 			$item = [
 				'type' => (string) $layer->type,
-				'x'    => ( (int) $layer->x / $canvas_w ) * 100,
-				'y'    => ( (int) $layer->y / $canvas_h ) * 100,
-				'w'    => max( 1, ( (int) $layer->w / $canvas_w ) * 100 ),
-				'h'    => max( 1, ( (int) $layer->h / $canvas_h ) * 100 ),
+				'x'    => $offset_x + ( ( (int) $layer->x - (float) $bounds['min_x'] ) * $scale ),
+				'y'    => $offset_y + ( ( (int) $layer->y - (float) $bounds['min_y'] ) * $scale ),
+				'w'    => max( 1, (int) $layer->w * $scale ),
+				'h'    => max( 1, (int) $layer->h * $scale ),
 			];
 
 			if ( 'text' === (string) $layer->type ) {
@@ -515,7 +524,7 @@ class OC_Frontend {
 
 				$item['text'] = $text;
 				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
-				$item['fontSize'] = max( 8, min( 26, ( absint( $settings['default_font_size'] ?? 24 ) / $canvas_h ) * 110 ) );
+				$item['fontSize'] = max( 8, min( 26, absint( $settings['default_font_size'] ?? 24 ) * $scale ) );
 				$items[] = $item;
 				continue;
 			}
@@ -532,6 +541,41 @@ class OC_Frontend {
 		}
 
 		return $items;
+	}
+
+	/** Calculate the visible artwork bounds for thumbnail fitting. */
+	private function get_design_variant_layer_bounds( array $layers, object $area ): array {
+		$min_x = null;
+		$min_y = null;
+		$max_x = null;
+		$max_y = null;
+
+		foreach ( $layers as $layer ) {
+			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'image', 'clipart' ], true ) ) {
+				continue;
+			}
+
+			$x1 = (int) $layer->x;
+			$y1 = (int) $layer->y;
+			$x2 = $x1 + max( 1, (int) $layer->w );
+			$y2 = $y1 + max( 1, (int) $layer->h );
+
+			$min_x = null === $min_x ? $x1 : min( $min_x, $x1 );
+			$min_y = null === $min_y ? $y1 : min( $min_y, $y1 );
+			$max_x = null === $max_x ? $x2 : max( $max_x, $x2 );
+			$max_y = null === $max_y ? $y2 : max( $max_y, $y2 );
+		}
+
+		if ( null === $min_x || null === $min_y || null === $max_x || null === $max_y ) {
+			return [];
+		}
+
+		return [
+			'min_x' => $min_x,
+			'min_y' => $min_y,
+			'max_x' => $max_x,
+			'max_y' => $max_y,
+		];
 	}
 
 	/** Resolve a layer's default artwork URL. */
