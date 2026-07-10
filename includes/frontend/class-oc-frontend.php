@@ -523,10 +523,14 @@ class OC_Frontend {
 				}
 
 				$font = $this->get_design_variant_thumb_font( absint( $settings['default_font_id'] ?? 0 ) );
+				$longest_line = max( array_map( [ $this, 'string_length' ], preg_split( '/\R/', $text ) ?: [ $text ] ) );
+				$scaled_font_size = absint( $settings['default_font_size'] ?? 24 ) * $scale;
+				$box_height_cap   = (float) $item['h'] * 0.55;
+				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.7;
 
 				$item['text'] = $text;
 				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
-				$item['fontSize'] = max( 8, min( 26, absint( $settings['default_font_size'] ?? 24 ) * $scale ) );
+				$item['fontSize'] = max( 5, min( 20, $scaled_font_size, $box_height_cap, $box_width_cap ) );
 				$item['fontFamily'] = $font['family'];
 				$item['fontWeight'] = $font['weight'];
 				$item['fontStyle'] = $font['style'];
