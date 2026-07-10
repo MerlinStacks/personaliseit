@@ -27782,39 +27782,47 @@ class OCCustomiser {
     const scale = Math.min(size / Math.max(1, bounds.w || 1), size / Math.max(1, bounds.h || 1));
     const offsetX = (size - (bounds.w || 1) * scale) / 2;
     const offsetY = (size - (bounds.h || 1) * scale) / 2;
-    const thumbArea = {
-      ...area,
-      bounds: {
-        ...sourceBounds,
-        x: offsetX / scale,
-        y: offsetY / scale,
-        unit: 'px',
-        dpi: sourceBounds.dpi || 300
-      }
-    };
-    thumbArea.layers = (area.layers || []).map(layer => ({
-      ...layer,
-      x: offsetX / scale + Number(layer.x || 0) - Number(bounds.x || 0),
-      y: offsetY / scale + Number(layer.y || 0) - Number(bounds.y || 0)
-    }));
+    canvas.setViewportTransform([1, 0, 0, 1, offsetX - Number(bounds.x || 0) * scale, offsetY - Number(bounds.y || 0) * scale]);
     canvas._ocScaleX = scale;
     const previousFonts = this.fonts;
     this.fonts = state.fonts || this.fonts || [];
     try {
-      for (const layer of thumbArea.layers) {
+      for (const layer of area.layers || []) {
         const input = {
           ...(state.layerInputs?.[layer.id] || {})
         };
         if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
           input.value = layer.settings?.default_text || layer.label || '';
         }
-        await this.renderLayer(canvas, layer, input, thumbArea);
+        await this.renderLayer(canvas, layer, input, area);
       }
     } finally {
       this.fonts = previousFonts;
     }
     canvas.renderAll();
-    return canvas.getObjects().some(object => object._ocContent === true);
+    return canvas.getObjects().some(object => object._ocContent === true) && this.canvasHasVisiblePixels(canvasEl);
+  }
+  canvasHasVisiblePixels(canvasEl) {
+    const context = canvasEl.getContext('2d', {
+      willReadFrequently: true
+    });
+    if (!context) {
+      return false;
+    }
+    const {
+      width,
+      height
+    } = canvasEl;
+    if (!width || !height) {
+      return false;
+    }
+    const data = context.getImageData(0, 0, width, height).data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 8) {
+        return true;
+      }
+    }
+    return false;
   }
   async switchDesignVariant(variantId) {
     const state = this.data.designVariantStates?.[variantId];
