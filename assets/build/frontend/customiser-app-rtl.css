@@ -345,8 +345,9 @@
   right: 0;
   left: 0;
   max-height: 220px;
+  overflow-x: hidden;
   overflow-y: auto;
-  padding: 6px;
+  padding: 4px;
   background: var(--oc-accent-ink, #fff);
   border: 1px solid var(--oc-border-strong);
   border-radius: var(--oc-radius);
@@ -358,13 +359,16 @@
 .oc-customiser-panel .oc-font-option {
   display: block;
   width: 100%;
-  min-height: 36px;
-  padding: 7px 9px;
+  min-height: 30px;
+  padding: 5px 8px;
   border: 0;
   border-radius: var(--oc-radius-sm);
   background: transparent;
   color: inherit;
+  overflow: hidden;
   text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: pointer;
 }
 .oc-customiser-panel .oc-font-option:hover, .oc-customiser-panel .oc-font-option:focus-visible, .oc-customiser-panel .oc-font-option[aria-selected=true] {
