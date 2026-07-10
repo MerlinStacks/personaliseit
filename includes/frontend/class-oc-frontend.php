@@ -485,17 +485,10 @@ class OC_Frontend {
 			return [];
 		}
 
-		$bounds = $this->get_design_variant_layer_bounds( $layers, $area );
-		if ( empty( $bounds ) ) {
-			return [];
-		}
-
-		$bounds_w = max( 1, (float) ( $bounds['max_x'] - $bounds['min_x'] ) );
-		$bounds_h = max( 1, (float) ( $bounds['max_y'] - $bounds['min_y'] ) );
-		$pad      = 8;
-		$scale    = min( ( 100 - ( $pad * 2 ) ) / $bounds_w, ( 100 - ( $pad * 2 ) ) / $bounds_h );
-		$offset_x = ( 100 - ( $bounds_w * $scale ) ) / 2;
-		$offset_y = ( 100 - ( $bounds_h * $scale ) ) / 2;
+		$canvas_x = (int) ( $area->canvas_x ?? 0 );
+		$canvas_y = (int) ( $area->canvas_y ?? 0 );
+		$canvas_w = max( 1, (int) ( $area->canvas_w ?: 300 ) );
+		$canvas_h = max( 1, (int) ( $area->canvas_h ?: 300 ) );
 		$items    = [];
 
 		foreach ( $layers as $layer ) {
@@ -510,10 +503,10 @@ class OC_Frontend {
 
 			$item = [
 				'type' => (string) $layer->type,
-				'x'    => $offset_x + ( ( (int) $layer->x - (float) $bounds['min_x'] ) * $scale ),
-				'y'    => $offset_y + ( ( (int) $layer->y - (float) $bounds['min_y'] ) * $scale ),
-				'w'    => max( 1, (int) $layer->w * $scale ),
-				'h'    => max( 1, (int) $layer->h * $scale ),
+				'x'    => ( ( (int) $layer->x - $canvas_x ) / $canvas_w ) * 100,
+				'y'    => ( ( (int) $layer->y - $canvas_y ) / $canvas_h ) * 100,
+				'w'    => max( 1, ( (int) $layer->w / $canvas_w ) * 100 ),
+				'h'    => max( 1, ( (int) $layer->h / $canvas_h ) * 100 ),
 			];
 
 			if ( 'text' === (string) $layer->type ) {
@@ -524,9 +517,9 @@ class OC_Frontend {
 
 				$font = $this->get_design_variant_thumb_font( absint( $settings['default_font_id'] ?? 0 ) );
 				$longest_line = max( array_map( [ $this, 'string_length' ], preg_split( '/\R/', $text ) ?: [ $text ] ) );
-				$scaled_font_size = absint( $settings['default_font_size'] ?? 24 ) * $scale;
-				$box_height_cap   = (float) $item['h'] * 0.55;
-				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.7;
+				$scaled_font_size = ( absint( $settings['default_font_size'] ?? 24 ) / $canvas_h ) * 100;
+				$box_height_cap   = (float) $item['h'] * 0.8;
+				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.9;
 
 				$item['text'] = $text;
 				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';

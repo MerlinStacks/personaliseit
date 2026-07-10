@@ -47,7 +47,7 @@ foreach ( $layers as $layer ) {
 }
 ?>
 
-<div id="oc-customiser-panel" class="oc-customiser-panel">
+<div id="oc-customiser-panel" class="oc-customiser-panel<?php echo esc_attr( ! empty( $design_variants ) ? ' oc-has-design-variants' : '' ); ?>">
 
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 
@@ -204,7 +204,7 @@ foreach ( $layers as $layer ) {
 						<div class="oc-layer-body">
 
 							<?php if ( $layer->type === 'text' ) : ?>
-								<div class="oc-control-group">
+								<div class="oc-control-group oc-control-group--side-label">
 									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php if ( $required ) echo ' *'; ?></label>
 									<div class="oc-input-wrap">
 										<input type="text"
@@ -222,7 +222,7 @@ foreach ( $layers as $layer ) {
 								</div>
 
 							<?php elseif ( $layer->type === 'textarea' ) : ?>
-								<div class="oc-control-group">
+								<div class="oc-control-group oc-control-group--side-label">
 									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php if ( $required ) echo ' *'; ?></label>
 									<div class="oc-input-wrap">
 										<textarea
@@ -389,7 +389,7 @@ foreach ( $layers as $layer ) {
 								</div>
 
 							<?php elseif ( $layer->type === 'spotify' ) : ?>
-								<div class="oc-control-group">
+								<div class="oc-control-group oc-control-group--side-label">
 									<label for="oc-spotify-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Spotify URL', 'overcustomise' ); ?><?php if ( $required ) echo ' *'; ?></label>
 									<input type="url"
 										id="oc-spotify-<?php echo esc_attr( $layer->id ); ?>"

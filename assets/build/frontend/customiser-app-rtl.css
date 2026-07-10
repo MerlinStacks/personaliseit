@@ -291,6 +291,41 @@
   flex-direction: column;
   gap: 8px;
 }
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label {
+  display: grid;
+  grid-template-columns: minmax(96px, 32%) minmax(0, 1fr);
+  align-items: start;
+  column-gap: var(--oc-gap-sm);
+  row-gap: var(--oc-gap-xs);
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > label {
+  grid-column: 1;
+  padding-top: 9px;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-input-wrap,
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > input[type=url] {
+  grid-column: 2;
+  min-width: 0;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-help-tooltip, .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-spotify-help {
+  grid-column: 2;
+  justify-self: end;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-spotify-error {
+  grid-column: 2;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) {
+  grid-template-columns: minmax(96px, 32%) minmax(0, 1fr) auto;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > input[type=url] {
+  grid-column: 2;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > .oc-help-tooltip, .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > .oc-spotify-help {
+  grid-column: 3;
+}
+.oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > .oc-spotify-error {
+  grid-column: 2/-1;
+}
 .oc-customiser-panel select.oc-font-native-select {
   position: absolute;
   width: 1px;
@@ -1342,6 +1377,38 @@
   }
   .oc-customiser-panel .oc-control-group select {
     padding-left: 40px;
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label {
+    display: grid;
+    grid-template-columns: minmax(84px, 34%) minmax(0, 1fr);
+    align-items: start;
+    column-gap: var(--oc-gap-xs);
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > label {
+    flex: none;
+    grid-column: 1;
+    min-width: 0;
+    padding-top: 10px;
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-input-wrap,
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > input[type=url],
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-help-tooltip,
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-spotify-help,
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label > .oc-spotify-error {
+    grid-column: 2;
+    min-width: 0;
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) {
+    grid-template-columns: minmax(84px, 34%) minmax(0, 1fr) auto;
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > input[type=url] {
+    grid-column: 2;
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > .oc-help-tooltip, .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > .oc-spotify-help {
+    grid-column: 3;
+  }
+  .oc-customiser-panel.oc-has-design-variants .oc-control-group--side-label:has(> [data-oc-tooltip]) > .oc-spotify-error {
+    grid-column: 2/-1;
   }
   .oc-customiser-panel .oc-colour-swatches {
     grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
