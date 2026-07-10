@@ -81,7 +81,8 @@ foreach ( $layers as $layer ) {
 										$thumb_colour = sanitize_hex_color( (string) ( $thumb_layer['color'] ?? '#111111' ) ) ?: '#111111';
 										$thumb_text_style = $thumb_style
 											. 'color:' . $thumb_colour . ';'
-											. 'font-size:' . (float) ( $thumb_layer['fontSize'] ?? 12 ) . 'px;'
+											. '--oc-thumb-font-size:' . (float) ( $thumb_layer['fontSize'] ?? 10 ) . ';'
+											. 'font-size:' . (float) ( $thumb_layer['fontSize'] ?? 10 ) . 'px;'
 											. 'font-family:' . wp_json_encode( (string) ( $thumb_layer['fontFamily'] ?? 'sans-serif' ) ) . ', sans-serif;'
 											. 'font-weight:' . preg_replace( '/[^a-zA-Z0-9-]/', '', (string) ( $thumb_layer['fontWeight'] ?? 'normal' ) ) . ';'
 											. 'font-style:' . preg_replace( '/[^a-zA-Z-]/', '', (string) ( $thumb_layer['fontStyle'] ?? 'normal' ) ) . ';';

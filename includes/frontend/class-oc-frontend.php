@@ -509,7 +509,7 @@ class OC_Frontend {
 				'h'    => max( 1, ( (int) $layer->h / $canvas_h ) * 100 ),
 			];
 
-			if ( 'text' === (string) $layer->type ) {
+			if ( in_array( (string) $layer->type, [ 'text', 'textarea' ], true ) ) {
 				$text = trim( (string) ( $settings['default_text'] ?? $layer->label ?? '' ) );
 				if ( '' === $text ) {
 					continue;
@@ -517,13 +517,13 @@ class OC_Frontend {
 
 				$font = $this->get_design_variant_thumb_font( absint( $settings['default_font_id'] ?? 0 ) );
 				$longest_line = max( array_map( [ $this, 'string_length' ], preg_split( '/\R/', $text ) ?: [ $text ] ) );
-				$scaled_font_size = ( absint( $settings['default_font_size'] ?? 24 ) / $canvas_h ) * 100;
-				$box_height_cap   = (float) $item['h'] * 0.8;
-				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.9;
+				$scaled_font_size = ( ( absint( $settings['default_font_size'] ?? 24 ) / $canvas_h ) * 100 ) * 0.72;
+				$box_height_cap   = (float) $item['h'] * 0.65;
+				$box_width_cap    = ( (float) $item['w'] / max( 1, $longest_line ) ) * 1.45;
 
 				$item['text'] = $text;
 				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
-				$item['fontSize'] = max( 5, min( 20, $scaled_font_size, $box_height_cap, $box_width_cap ) );
+				$item['fontSize'] = max( 4, min( 14, $scaled_font_size, $box_height_cap, $box_width_cap ) );
 				$item['fontFamily'] = $font['family'];
 				$item['fontWeight'] = $font['weight'];
 				$item['fontStyle'] = $font['style'];
@@ -553,7 +553,7 @@ class OC_Frontend {
 		$max_y = null;
 
 		foreach ( $layers as $layer ) {
-			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'image', 'clipart' ], true ) ) {
+			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'image', 'clipart' ], true ) ) {
 				continue;
 			}
 
@@ -1165,9 +1165,9 @@ class OC_Frontend {
 		.oc-design-variant-option > img,
 		.oc-design-variant-thumb { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; display:block; border-radius:7px; background:transparent; }
 		.oc-design-variant-option > img { object-fit:contain; object-position:center; }
-		.oc-design-variant-thumb { position:relative; overflow:hidden; }
+		.oc-design-variant-thumb { position:relative; overflow:hidden; container-type:inline-size; }
 		.oc-design-variant-thumb-layer { position:absolute; display:block; max-width:none !important; object-fit:contain; object-position:center; }
-		.oc-design-variant-thumb-text { display:flex; align-items:center; justify-content:center; overflow:hidden; text-align:center; font-weight:700; line-height:1.05; overflow-wrap:anywhere; }
+		.oc-design-variant-thumb-text { display:flex; align-items:center; justify-content:center; overflow:hidden; text-align:center; font-weight:700; line-height:1.05; overflow-wrap:anywhere; font-size:clamp(4px, calc(var(--oc-thumb-font-size, 10) * 1cqw), 14px) !important; }
 		.oc-design-variant-option > span { min-height:30px; display:flex !important; align-items:center; justify-content:center; font-size:11px; line-height:1.2; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
 		@media (max-width:639px) {
 			.oc-design-variant-carousel { display:grid; grid-template-columns:12px minmax(0,1fr) 12px; grid-template-areas:"prev track next" "dots dots dots"; align-items:center; column-gap:3px; row-gap:5px; margin-inline:-4px; }

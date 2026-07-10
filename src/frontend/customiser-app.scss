@@ -353,6 +353,17 @@
 		}
 	}
 
+	&.oc-has-design-variants .oc-font-size-row:not(:has(.oc-font-combobox)) {
+		display: grid;
+		grid-template-columns: minmax(96px, 32%) minmax(0, 1fr);
+		column-gap: var(--oc-gap-sm);
+
+		> .oc-control-group {
+			grid-column: 2;
+			min-width: 0;
+		}
+	}
+
 	select.oc-font-native-select {
 		position: absolute;
 		width: 1px;
@@ -1603,6 +1614,16 @@
 			}
 		}
 
+		&.oc-has-design-variants .oc-font-size-row:not(:has(.oc-font-combobox)) {
+			grid-template-columns: minmax(84px, 34%) minmax(0, 1fr);
+			column-gap: var(--oc-gap-xs);
+
+			> .oc-control-group {
+				grid-column: 2;
+				min-width: 0;
+			}
+		}
+
 		.oc-colour-swatches {
 			grid-template-columns: repeat(auto-fill, minmax(44px, 1fr));
 		}
@@ -1680,6 +1701,15 @@
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) minmax(160px, 0.72fr);
 			align-items: end;
+		}
+
+		&.oc-has-design-variants .oc-font-size-row:not(:has(.oc-font-combobox)) {
+			grid-template-columns: minmax(96px, 32%) minmax(0, 1fr);
+			align-items: start;
+
+			> .oc-control-group {
+				grid-column: 2;
+			}
 		}
 
 		.oc-clipart-grid {

@@ -25874,7 +25874,7 @@ class OCCustomiser {
           const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
           let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           let textPadding = this.textRenderPadding(fontSize);
-          const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : color;
+          const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : isEngraving && engravingPalette.grainPattern ? this.woodEngravingPattern(fontSize) : color;
           const textClass = isSingleLineText ? fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText : fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox;
           const textBoxSize = isSingleLineText ? {} : {
             width: lw
@@ -25918,7 +25918,8 @@ class OCCustomiser {
           if (isEngraving) {
             // Fake etched depth: subtle light highlight below + soft dark shadow above.
             obj.set({
-              opacity: 0.92,
+              opacity: engravingPalette.opacity,
+              globalCompositeOperation: engravingPalette.composite || 'source-over',
               shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
                 color: engravingPalette.highlight,
                 offsetX: 0,
@@ -26447,16 +26448,49 @@ class OCCustomiser {
         opacity: 0.95
       },
       wood: {
-        text: '#5d3922',
+        text: 'rgba(78,42,20,0.7)',
         imageTint: '#5d3922',
-        bg: '8A5A34',
-        highlight: 'rgba(255,225,180,0.24)',
+        bg: 'C8A06B',
+        highlight: 'rgba(255,225,180,0.16)',
         brightness: -0.16,
         contrast: 0.2,
-        opacity: 0.9
+        opacity: 0.72,
+        tintAlpha: 0.72,
+        composite: 'multiply',
+        grainPattern: true
       }
     };
     return palettes[material] || palettes.silver_metal;
+  }
+  woodEngravingPattern(fontSize = 24) {
+    const source = document.createElement('canvas');
+    const width = Math.max(42, Math.min(96, Math.round(fontSize * 1.9)));
+    const height = Math.max(14, Math.min(30, Math.round(fontSize * 0.48)));
+    source.width = width;
+    source.height = height;
+    const ctx = source.getContext('2d');
+    if (!ctx) {
+      return 'rgba(78,42,20,0.7)';
+    }
+    ctx.fillStyle = 'rgba(78,42,20,0.64)';
+    ctx.fillRect(0, 0, width, height);
+    for (let y = 1; y < height; y += 4) {
+      ctx.strokeStyle = 'rgba(255,220,165,0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + y % 3 * 0.25);
+      ctx.bezierCurveTo(width * 0.28, y - 1.3, width * 0.62, y + 1.2, width, y - 0.4);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(54,26,12,0.18)';
+      ctx.beginPath();
+      ctx.moveTo(0, y + 1.8);
+      ctx.bezierCurveTo(width * 0.32, y + 2.8, width * 0.7, y + 0.8, width, y + 1.6);
+      ctx.stroke();
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Pattern({
+      source,
+      repeat: 'repeat'
+    });
   }
   embroideryPattern(color, fontSize = 24) {
     const source = document.createElement('canvas');
@@ -27121,7 +27155,7 @@ class OCCustomiser {
           filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
             color: palette.imageTint,
             mode: 'tint',
-            alpha: 1
+            alpha: palette.tintAlpha ?? 1
           }));
         }
       }
@@ -27132,12 +27166,14 @@ class OCCustomiser {
       if (isEngraving && effects.preserveRecolouredPixels) {
         const palette = engravingPalette || this.engravingPalette();
         img.set({
-          opacity: palette.opacity
+          opacity: palette.opacity,
+          globalCompositeOperation: palette.composite || 'source-over'
         });
       } else if (isEngraving) {
         const palette = engravingPalette || this.engravingPalette();
         img.set({
           opacity: palette.opacity,
+          globalCompositeOperation: palette.composite || 'source-over',
           shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
             color: palette.highlight,
             offsetX: 0,
