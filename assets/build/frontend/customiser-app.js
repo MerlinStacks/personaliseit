@@ -25255,6 +25255,7 @@ class OCCustomiser {
     }
     this.setupFormSubmit();
     this.updateHiddenField();
+    this.setupDesignVariantCarousel();
 
     // Canvas init runs in background; calls redraw() when done.
     this.initAllCanvases();
@@ -27575,6 +27576,7 @@ class OCCustomiser {
       });
     });
     window.addEventListener('resize', () => {
+      this.refreshDesignVariantCarousel();
       document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
         this.refreshClipartCarousel(parseInt(carousel.dataset.ocClipartCarousel, 10));
       });
@@ -27625,6 +27627,80 @@ class OCCustomiser {
         this.switchDesignVariant(variant.id);
       });
     });
+  }
+  setupDesignVariantCarousel() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    if (!carousel || !track || carousel.dataset.ocCarouselReady === '1') {
+      return;
+    }
+    carousel.dataset.ocCarouselReady = '1';
+    carousel.querySelector('[data-oc-design-variant-prev]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(-1));
+    carousel.querySelector('[data-oc-design-variant-next]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(1));
+    track.addEventListener('scroll', () => this.updateDesignVariantCarouselDots(), {
+      passive: true
+    });
+    this.refreshDesignVariantCarousel();
+  }
+  designVariantCarouselPageCount(track) {
+    if (!track || !track.clientWidth) {
+      return 1;
+    }
+    return Math.max(1, Math.ceil(track.scrollWidth / track.clientWidth));
+  }
+  scrollDesignVariantCarousel(direction) {
+    const track = document.querySelector('[data-oc-design-variant-track]');
+    if (!track) {
+      return;
+    }
+    const page = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + direction;
+    const maxPage = this.designVariantCarouselPageCount(track) - 1;
+    track.scrollTo({
+      left: Math.max(0, Math.min(maxPage, page)) * track.clientWidth,
+      behavior: 'smooth'
+    });
+  }
+  refreshDesignVariantCarousel() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    const dots = carousel?.querySelector('[data-oc-design-variant-dots]');
+    if (!carousel || !track || !dots) {
+      return;
+    }
+    const pageCount = this.designVariantCarouselPageCount(track);
+    const maxLeft = Math.max(0, (pageCount - 1) * track.clientWidth);
+    if (track.scrollLeft > maxLeft) {
+      track.scrollLeft = maxLeft;
+    }
+    dots.innerHTML = '';
+    for (let i = 0; i < pageCount; i++) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'oc-design-variant-carousel-dot';
+      dot.setAttribute('aria-label', `Go to artwork option page ${i + 1}`);
+      dot.addEventListener('click', () => track.scrollTo({
+        left: i * track.clientWidth,
+        behavior: 'smooth'
+      }));
+      dots.appendChild(dot);
+    }
+    carousel.classList.toggle('oc-design-variant-carousel--single-page', pageCount <= 1);
+    this.updateDesignVariantCarouselDots();
+  }
+  updateDesignVariantCarouselDots() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    if (!carousel || !track) {
+      return;
+    }
+    const pageCount = this.designVariantCarouselPageCount(track);
+    const page = Math.max(0, Math.min(pageCount - 1, Math.round(track.scrollLeft / Math.max(1, track.clientWidth))));
+    carousel.querySelectorAll('.oc-design-variant-carousel-dot').forEach((dot, i) => {
+      dot.classList.toggle('oc-active', i === page);
+      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
+    });
+    carousel.querySelector('[data-oc-design-variant-prev]')?.toggleAttribute('disabled', page <= 0);
+    carousel.querySelector('[data-oc-design-variant-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
   }
   async switchDesignVariant(variantId) {
     const state = this.data.designVariantStates?.[variantId];
@@ -27681,6 +27757,7 @@ class OCCustomiser {
     this.mobileCartPreviewDialog = null;
     this.setupInputListeners();
     this.setupDesignVariantOptions();
+    this.setupDesignVariantCarousel();
     this.setupUploadZones();
     this.setupVariationGalleryHandoff();
     this.applyInputsToDOM();

@@ -56,7 +56,9 @@ foreach ( $layers as $layer ) {
 		<div class="oc-design-variants" aria-label="<?php esc_attr_e( 'Artwork options', 'overcustomise' ); ?>">
 			<div class="oc-control-group">
 				<label><?php esc_html_e( 'Artwork Option', 'overcustomise' ); ?></label>
-				<div class="oc-design-variant-grid">
+				<div class="oc-design-variant-carousel" data-oc-design-variant-carousel>
+					<button type="button" class="oc-design-variant-carousel-arrow oc-design-variant-carousel-arrow--prev" data-oc-design-variant-prev aria-label="<?php esc_attr_e( 'Previous artwork options', 'overcustomise' ); ?>">‹</button>
+					<div class="oc-design-variant-grid" data-oc-design-variant-track>
 					<?php $has_selected_design_variant = ! empty( array_filter( $design_variants, fn( $item ) => ! empty( $item['selected'] ) ) ); ?>
 					<?php foreach ( $design_variants as $i => $variant ) :
 						$is_selected = ! empty( $variant['selected'] ) || ( 0 === $i && ! $has_selected_design_variant );
@@ -76,9 +78,16 @@ foreach ( $layers as $layer ) {
 											(float) ( $thumb_layer['w'] ?? 0 ),
 											(float) ( $thumb_layer['h'] ?? 0 )
 										);
+										$thumb_colour = sanitize_hex_color( (string) ( $thumb_layer['color'] ?? '#111111' ) ) ?: '#111111';
+										$thumb_text_style = $thumb_style
+											. 'color:' . $thumb_colour . ';'
+											. 'font-size:' . (float) ( $thumb_layer['fontSize'] ?? 12 ) . 'px;'
+											. 'font-family:' . wp_json_encode( (string) ( $thumb_layer['fontFamily'] ?? 'sans-serif' ) ) . ', sans-serif;'
+											. 'font-weight:' . preg_replace( '/[^a-zA-Z0-9-]/', '', (string) ( $thumb_layer['fontWeight'] ?? 'normal' ) ) . ';'
+											. 'font-style:' . preg_replace( '/[^a-zA-Z-]/', '', (string) ( $thumb_layer['fontStyle'] ?? 'normal' ) ) . ';';
 										?>
 										<?php if ( 'text' === (string) ( $thumb_layer['type'] ?? '' ) ) : ?>
-											<span class="oc-design-variant-thumb-layer oc-design-variant-thumb-text" style="<?php echo esc_attr( $thumb_style . 'color:' . ( $thumb_layer['color'] ?? '#111111' ) . ';font-size:' . (float) ( $thumb_layer['fontSize'] ?? 12 ) . 'px;' ); ?>"><?php echo esc_html( $thumb_layer['text'] ?? '' ); ?></span>
+											<span class="oc-design-variant-thumb-layer oc-design-variant-thumb-text" style="<?php echo esc_attr( $thumb_text_style ); ?>"><?php echo esc_html( $thumb_layer['text'] ?? '' ); ?></span>
 										<?php elseif ( ! empty( $thumb_layer['url'] ) ) : ?>
 											<img class="oc-design-variant-thumb-layer" src="<?php echo esc_url( $thumb_layer['url'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" style="<?php echo esc_attr( $thumb_style ); ?>" />
 										<?php endif; ?>
@@ -90,6 +99,9 @@ foreach ( $layers as $layer ) {
 							<span><?php echo esc_html( $variant['label'] ); ?></span>
 						</button>
 					<?php endforeach; ?>
+					</div>
+					<button type="button" class="oc-design-variant-carousel-arrow oc-design-variant-carousel-arrow--next" data-oc-design-variant-next aria-label="<?php esc_attr_e( 'Next artwork options', 'overcustomise' ); ?>">›</button>
+					<div class="oc-design-variant-carousel-dots" data-oc-design-variant-dots></div>
 				</div>
 			</div>
 		</div>

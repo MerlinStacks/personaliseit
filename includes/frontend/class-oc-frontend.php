@@ -522,9 +522,14 @@ class OC_Frontend {
 					continue;
 				}
 
+				$font = $this->get_design_variant_thumb_font( absint( $settings['default_font_id'] ?? 0 ) );
+
 				$item['text'] = $text;
 				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
 				$item['fontSize'] = max( 8, min( 26, absint( $settings['default_font_size'] ?? 24 ) * $scale ) );
+				$item['fontFamily'] = $font['family'];
+				$item['fontWeight'] = $font['weight'];
+				$item['fontStyle'] = $font['style'];
 				$items[] = $item;
 				continue;
 			}
@@ -575,6 +580,37 @@ class OC_Frontend {
 			'min_y' => $min_y,
 			'max_x' => $max_x,
 			'max_y' => $max_y,
+		];
+	}
+
+	/** Resolve font details for thumbnail text layers. */
+	private function get_design_variant_thumb_font( int $font_id ): array {
+		static $fonts_by_id = null;
+
+		if ( null === $fonts_by_id ) {
+			$fonts_by_id = [];
+			foreach ( OC_DB::get_fonts( true ) as $font ) {
+				$fonts_by_id[ (int) $font->id ] = [
+					'family' => (string) $font->name,
+					'weight' => (string) ( $font->weight ?: 'normal' ),
+					'style'  => (string) ( $font->style ?: 'normal' ),
+				];
+			}
+		}
+
+		if ( $font_id && isset( $fonts_by_id[ $font_id ] ) ) {
+			return $fonts_by_id[ $font_id ];
+		}
+
+		$first_font = reset( $fonts_by_id );
+		if ( is_array( $first_font ) ) {
+			return $first_font;
+		}
+
+		return [
+			'family' => 'sans-serif',
+			'weight' => 'normal',
+			'style'  => 'normal',
 		];
 	}
 
@@ -1122,7 +1158,10 @@ class OC_Frontend {
 		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
 		.oc-range-value { float:right; color:#1d2327; font-weight:700; }
 		.oc-design-variants { margin-bottom:16px; }
+		.oc-design-variant-carousel { width:100%; }
 		.oc-design-variant-grid { display:grid !important; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:10px; width:100%; max-width:560px; margin:0 auto; justify-content:center; }
+		.oc-design-variant-carousel-arrow,
+		.oc-design-variant-carousel-dots { display:none; }
 		.oc-design-variant-option { width:100% !important; min-width:0; min-height:0; padding:7px !important; border:1px solid #dcdcde; border-radius:10px; background:#fff; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:stretch !important; gap:7px; text-align:left; transition:border-color .15s, box-shadow .15s, transform .15s; box-sizing:border-box; }
 		.oc-design-variant-option:hover { border-color:#d88da0; box-shadow:0 8px 20px rgba(0,0,0,.08); transform:translateY(-1px); }
 		.oc-design-variant-option.oc-selected { border-color:#d88da0; box-shadow:0 0 0 2px rgba(216,141,160,.24); }
@@ -1133,7 +1172,23 @@ class OC_Frontend {
 		.oc-design-variant-thumb-layer { position:absolute; display:block; max-width:none !important; object-fit:contain; object-position:center; }
 		.oc-design-variant-thumb-text { display:flex; align-items:center; justify-content:center; overflow:hidden; text-align:center; font-weight:700; line-height:1.05; overflow-wrap:anywhere; }
 		.oc-design-variant-option > span { min-height:30px; display:flex !important; align-items:center; justify-content:center; font-size:11px; line-height:1.2; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
-		@media (max-width:480px) { .oc-design-variant-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+		@media (max-width:639px) {
+			.oc-design-variant-carousel { display:grid; grid-template-columns:12px minmax(0,1fr) 12px; grid-template-areas:"prev track next" "dots dots dots"; align-items:center; column-gap:3px; row-gap:5px; margin-inline:-4px; }
+			.oc-design-variant-grid { grid-area:track; display:flex !important; grid-template-columns:none; gap:8px; max-width:none; margin:0; overflow-x:auto; overflow-y:hidden; scroll-snap-type:x mandatory; scroll-behavior:smooth; -webkit-overflow-scrolling:touch; scrollbar-width:none; justify-content:flex-start; }
+			.oc-design-variant-grid::-webkit-scrollbar { display:none; }
+			.oc-design-variant-option { flex:0 0 calc((100% - 17.5px) / 2.5); scroll-snap-align:start; }
+			.oc-design-variant-carousel-arrow { display:block; width:12px; height:24px; border:0; border-radius:0; background:transparent; color:#777; font-size:20px; font-weight:700; line-height:1; cursor:pointer; box-shadow:none; padding:0; }
+			.oc-design-variant-carousel-arrow:not(:disabled):hover { color:#0073aa; transform:scale(1.08); }
+			.oc-design-variant-carousel-arrow:disabled { opacity:.28; cursor:default; box-shadow:none; }
+			.oc-design-variant-carousel-arrow--prev { grid-area:prev; }
+			.oc-design-variant-carousel-arrow--next { grid-area:next; }
+			.oc-design-variant-carousel-dots { grid-area:dots; display:flex; justify-content:center; gap:6px; min-height:6px; }
+			.oc-design-variant-carousel-dot { width:5px; height:5px; min-width:5px; min-height:5px; max-width:5px; max-height:5px; flex:0 0 5px; padding:0; border:0; border-radius:50%; background:#bbb; cursor:pointer; appearance:none; line-height:0; transition:background .15s ease,transform .15s ease; }
+			.oc-design-variant-carousel-dot.oc-active { background:#0073aa; transform:scale(1.25); }
+			.oc-design-variant-carousel--single-page .oc-design-variant-carousel-arrow,
+			.oc-design-variant-carousel--single-page .oc-design-variant-carousel-dots { display:none; }
+			.oc-design-variant-carousel--single-page .oc-design-variant-grid { grid-column:1 / -1; }
+		}
 		.oc-control-group:has(> [data-oc-tooltip]) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:10px; row-gap:5px; }
 		.oc-control-group:has(> [data-oc-tooltip]) > label,
 		.oc-control-group:has(> [data-oc-tooltip]) > .oc-char-counter,
