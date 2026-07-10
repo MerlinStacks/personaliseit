@@ -52,6 +52,7 @@ foreach ( $layers as $layer ) {
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 
 	<?php if ( ! empty( $design_variants ) ) : ?>
+		<?php $oc_thumb_protocols = array_merge( wp_allowed_protocols(), [ 'data' ] ); ?>
 		<div class="oc-design-variants" aria-label="<?php esc_attr_e( 'Artwork options', 'overcustomise' ); ?>">
 			<div class="oc-control-group">
 				<label><?php esc_html_e( 'Artwork Option', 'overcustomise' ); ?></label>
@@ -65,7 +66,9 @@ foreach ( $layers as $layer ) {
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
 							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
 							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
-							<img src="<?php echo esc_url( $variant['thumbUrl'] ); ?>" alt="" loading="lazy" />
+							<?php if ( ! empty( $variant['thumbUrl'] ) ) : ?>
+								<img src="<?php echo esc_url( $variant['thumbUrl'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" />
+							<?php endif; ?>
 							<span><?php echo esc_html( $variant['label'] ); ?></span>
 						</button>
 					<?php endforeach; ?>
@@ -378,7 +381,8 @@ foreach ( $layers as $layer ) {
 							<?php endif; ?>
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_font_change && ! empty( $layer_fonts ) ) : ?>
 								<div class="oc-control-group">
-									<select data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>" aria-label="<?php esc_attr_e( 'Font', 'overcustomise' ); ?>">
+									<label for="oc-font-search-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Font', 'overcustomise' ); ?></label>
+									<select class="oc-font-native-select" data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>" aria-hidden="true" tabindex="-1">
 										<?php foreach ( $layer_fonts as $font ) : ?>
 											<option value="<?php echo esc_attr( $font['id'] ); ?>"
 												<?php selected( absint( $s['default_font_id'] ?? 0 ), absint( $font['id'] ) ); ?>
@@ -387,6 +391,31 @@ foreach ( $layers as $layer ) {
 											</option>
 										<?php endforeach; ?>
 									</select>
+									<div class="oc-font-combobox" data-oc-font-combobox="<?php echo esc_attr( $layer->id ); ?>">
+										<input type="search"
+											id="oc-font-search-<?php echo esc_attr( $layer->id ); ?>"
+											class="oc-font-search"
+											placeholder="<?php esc_attr_e( 'Search fonts', 'overcustomise' ); ?>"
+											autocomplete="off"
+											role="combobox"
+											aria-autocomplete="list"
+											aria-expanded="false"
+											aria-controls="oc-font-list-<?php echo esc_attr( $layer->id ); ?>"
+											data-oc-font-search="<?php echo esc_attr( $layer->id ); ?>" />
+										<div class="oc-font-options" id="oc-font-list-<?php echo esc_attr( $layer->id ); ?>" role="listbox" data-oc-font-list="<?php echo esc_attr( $layer->id ); ?>">
+											<?php foreach ( $layer_fonts as $font ) : ?>
+												<button type="button"
+													class="oc-font-option"
+													role="option"
+													aria-selected="<?php echo absint( $s['default_font_id'] ?? 0 ) === absint( $font['id'] ) ? 'true' : 'false'; ?>"
+													data-oc-font-option="<?php echo esc_attr( $font['id'] ); ?>"
+													style="font-family:'<?php echo esc_attr( $font['name'] ); ?>';">
+													<?php echo esc_html( $font['name'] ); ?>
+												</button>
+											<?php endforeach; ?>
+											<div class="oc-font-no-results" data-oc-font-empty hidden><?php esc_html_e( 'No fonts found.', 'overcustomise' ); ?></div>
+										</div>
+									</div>
 								</div>
 							<?php endif; ?>
 

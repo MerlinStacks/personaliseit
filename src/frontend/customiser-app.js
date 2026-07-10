@@ -93,6 +93,7 @@ class OCCustomiser {
 		this.spotifyModalCloseTimer = null;
 		this.mobileCartPreviewDialog = null;
 		this.formSubmitBound = false;
+		this.fontComboboxDocumentClickBound = false;
 
 		if ( this.editMode ) {
 			Object.entries( data.layerInputs || {} ).forEach( ( [ k, v ] ) => {
@@ -3033,7 +3034,172 @@ class OCCustomiser {
 
 	// ── Input listeners ─────────────────────────────────────────────────────────
 
+	updateFontCombobox( select ) {
+		const lid = select?.dataset?.ocLayerFont;
+		if ( ! lid ) {
+			return;
+		}
+		const combo = document.querySelector(
+			`.oc-font-combobox[data-oc-font-combobox="${ lid }"]`
+		);
+		const input = combo?.querySelector( '[data-oc-font-search]' );
+		const options = combo?.querySelectorAll( '[data-oc-font-option]' );
+		const selected = select.options[ select.selectedIndex ];
+		if ( ! combo || ! input || ! selected ) {
+			return;
+		}
+
+		input.value = selected.textContent.trim();
+		input.style.fontFamily = selected.style.fontFamily || '';
+		options?.forEach( ( option ) => {
+			const isSelected = option.dataset.ocFontOption === select.value;
+			option.setAttribute(
+				'aria-selected',
+				isSelected ? 'true' : 'false'
+			);
+		} );
+	}
+
+	setupFontComboboxes() {
+		document
+			.querySelectorAll( '[data-oc-layer-font]' )
+			.forEach( ( select ) => {
+				const lid = select.dataset.ocLayerFont;
+				const combo = document.querySelector(
+					`.oc-font-combobox[data-oc-font-combobox="${ lid }"]`
+				);
+				if ( ! combo ) {
+					return;
+				}
+				if ( combo.dataset.ocFontComboboxReady === '1' ) {
+					this.updateFontCombobox( select );
+					return;
+				}
+
+				const input = combo.querySelector( '[data-oc-font-search]' );
+				const list = combo.querySelector( '[data-oc-font-list]' );
+				const options = Array.from(
+					combo.querySelectorAll( '[data-oc-font-option]' )
+				);
+				const empty = combo.querySelector( '[data-oc-font-empty]' );
+				if ( ! input || ! list || ! options.length ) {
+					return;
+				}
+				combo.dataset.ocFontComboboxReady = '1';
+
+				const setOpen = ( isOpen ) => {
+					combo.classList.toggle( 'oc-open', isOpen );
+					input.setAttribute(
+						'aria-expanded',
+						isOpen ? 'true' : 'false'
+					);
+				};
+
+				const filterOptions = () => {
+					const query = input.value.trim().toLowerCase();
+					let visibleCount = 0;
+					options.forEach( ( option ) => {
+						const isVisible = option.textContent
+							.trim()
+							.toLowerCase()
+							.includes( query );
+						option.hidden = ! isVisible;
+						if ( isVisible ) {
+							visibleCount++;
+						}
+					} );
+					if ( empty ) {
+						empty.hidden = visibleCount > 0;
+					}
+				};
+
+				const selectFont = ( value ) => {
+					select.value = value;
+					select.dispatchEvent(
+						new Event( 'change', { bubbles: true } )
+					);
+					setOpen( false );
+				};
+
+				this.updateFontCombobox( select );
+				filterOptions();
+
+				input.addEventListener( 'focus', () => {
+					filterOptions();
+					setOpen( true );
+				} );
+				input.addEventListener( 'input', () => {
+					filterOptions();
+					setOpen( true );
+				} );
+				input.addEventListener( 'keydown', ( e ) => {
+					if ( e.key === 'Escape' ) {
+						setOpen( false );
+						this.updateFontCombobox( select );
+						return;
+					}
+					if ( e.key === 'ArrowDown' ) {
+						e.preventDefault();
+						setOpen( true );
+						options.find( ( option ) => ! option.hidden )?.focus();
+					}
+				} );
+				input.addEventListener( 'blur', () => {
+					window.setTimeout( () => {
+						if (
+							! combo.contains(
+								combo.ownerDocument.activeElement
+							)
+						) {
+							setOpen( false );
+							this.updateFontCombobox( select );
+						}
+					}, 120 );
+				} );
+
+				options.forEach( ( option ) => {
+					option.addEventListener( 'click', () =>
+						selectFont( option.dataset.ocFontOption )
+					);
+					option.addEventListener( 'keydown', ( e ) => {
+						const visible = options.filter(
+							( item ) => ! item.hidden
+						);
+						const index = visible.indexOf( option );
+						if ( e.key === 'ArrowDown' ) {
+							e.preventDefault();
+							visible[ index + 1 ]?.focus();
+						} else if ( e.key === 'ArrowUp' ) {
+							e.preventDefault();
+							( visible[ index - 1 ] || input ).focus();
+						} else if ( e.key === 'Escape' ) {
+							setOpen( false );
+							input.focus();
+						}
+					} );
+				} );
+			} );
+
+		if ( ! this.fontComboboxDocumentClickBound ) {
+			this.fontComboboxDocumentClickBound = true;
+			document.addEventListener( 'click', ( e ) => {
+				document
+					.querySelectorAll( '.oc-font-combobox.oc-open' )
+					.forEach( ( combo ) => {
+						if ( ! combo.contains( e.target ) ) {
+							combo.classList.remove( 'oc-open' );
+							combo
+								.querySelector( '[data-oc-font-search]' )
+								?.setAttribute( 'aria-expanded', 'false' );
+						}
+					} );
+			} );
+		}
+	}
+
 	setupInputListeners() {
+		this.setupFontComboboxes();
+
 		// Area tabs
 		const areaTabs = Array.from(
 			document.querySelectorAll( '.oc-area-tab' )
@@ -3219,6 +3385,7 @@ class OCCustomiser {
 		};
 		document.querySelectorAll( '[data-oc-layer-font]' ).forEach( ( el ) => {
 			reflectFontOnSelect( el );
+			this.updateFontCombobox( el );
 			const lid = parseInt( el.dataset.ocLayerFont, 10 );
 			const selectedFontId = parseInt( el.value, 10 ) || 0;
 			if ( selectedFontId ) {
@@ -3243,6 +3410,7 @@ class OCCustomiser {
 					}
 				}
 				reflectFontOnSelect( el );
+				this.updateFontCombobox( el );
 				const preview = document.querySelector(
 					`.oc-font-preview[data-oc-font-preview="${ lid }"]`
 				);
@@ -4557,6 +4725,7 @@ class OCCustomiser {
 			);
 			if ( fontEl && inp.fontId ) {
 				fontEl.value = inp.fontId;
+				this.updateFontCombobox( fontEl );
 			}
 
 			const swatch = document.querySelector(

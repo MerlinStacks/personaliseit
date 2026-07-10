@@ -449,7 +449,7 @@ class OC_Frontend {
 		return count( $options ) > 1 ? $options : [];
 	}
 
-	/** Build one selectable design option from a design's first mockup image. */
+	/** Build one selectable design option from a design's artwork content. */
 	private function build_design_variant_option( int $design_id, string $label, int $selected_design_id ): ?array {
 		$design = OC_DB::get_design( $design_id );
 		if ( ! $design || ! (bool) $design->active ) {
@@ -457,21 +457,121 @@ class OC_Frontend {
 		}
 		$areas = OC_DB::get_design_print_areas( $design_id );
 		$area  = $areas[0] ?? null;
-		if ( ! $area || empty( $area->mockup_attachment_id ) ) {
+		if ( ! $area ) {
 			return null;
 		}
-		$src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
-		if ( ! $src ) {
-			return null;
+
+		$thumb_url = $this->get_design_variant_artwork_thumb_url( $design_id, $areas );
+		if ( '' === $thumb_url && ! empty( $area->mockup_attachment_id ) ) {
+			$mockup_src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
+			$thumb_url  = wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: ( $mockup_src[0] ?? '' );
 		}
 
 		return [
 			'id'       => 'design-' . $design_id,
 			'designId' => $design_id,
 			'label'    => sanitize_text_field( $label ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
-			'thumbUrl' => wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: $src[0],
+			'thumbUrl' => $thumb_url,
 			'selected' => $design_id === $selected_design_id,
 		];
+	}
+
+	/** Return a thumbnail URL for the first visible artwork/text layer, without the mockup background. */
+	private function get_design_variant_artwork_thumb_url( int $design_id, array $areas ): string {
+		global $wpdb;
+
+		$layers = OC_DB::get_design_layers( $design_id );
+		if ( empty( $layers ) ) {
+			return '';
+		}
+
+		$area_ids = array_map( fn( $area ) => (int) $area->id, $areas );
+		foreach ( $layers as $layer ) {
+			if ( ! (bool) $layer->visible || ! in_array( (int) $layer->area_id, $area_ids, true ) ) {
+				continue;
+			}
+
+			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			if ( ! is_array( $settings ) ) {
+				$settings = [];
+			}
+
+			if ( 'image' === (string) $layer->type ) {
+				$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
+				if ( $attachment_id ) {
+					$url = wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: wp_get_attachment_url( $attachment_id );
+					if ( $url ) {
+						return (string) $url;
+					}
+				}
+
+				if ( ! empty( $settings['default_attachment_url'] ) ) {
+					return esc_url_raw( (string) $settings['default_attachment_url'] );
+				}
+			}
+
+			if ( 'clipart' === (string) $layer->type ) {
+				$clipart_id = absint( $settings['default_clipart_id'] ?? 0 );
+				if ( $clipart_id ) {
+					$clipart = $wpdb->get_row( $wpdb->prepare(
+						"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d AND active = 1 LIMIT 1",
+						$clipart_id
+					) );
+					if ( $clipart && ! empty( $clipart->file_path ) ) {
+						$upload_dir = wp_upload_dir();
+						return $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $clipart->file_path );
+					}
+				}
+
+				if ( ! empty( $settings['default_clipart_url'] ) ) {
+					return esc_url_raw( (string) $settings['default_clipart_url'] );
+				}
+			}
+		}
+
+		return $this->build_design_variant_text_thumb_url( $layers, $areas[0] ?? null );
+	}
+
+	/** Build a small SVG thumbnail for text-only designs. */
+	private function build_design_variant_text_thumb_url( array $layers, ?object $area ): string {
+		if ( ! $area ) {
+			return '';
+		}
+
+		$view_w = max( 1, (int) ( $area->canvas_w ?: 300 ) );
+		$view_h = max( 1, (int) ( $area->canvas_h ?: 300 ) );
+		$items  = [];
+
+		foreach ( $layers as $layer ) {
+			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id || 'text' !== (string) $layer->type ) {
+				continue;
+			}
+
+			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			if ( ! is_array( $settings ) ) {
+				$settings = [];
+			}
+
+			$text = trim( (string) ( $settings['default_text'] ?? $layer->label ?? '' ) );
+			if ( '' === $text ) {
+				continue;
+			}
+
+			$font_size = max( 10, min( 72, absint( $settings['default_font_size'] ?? 28 ) ) );
+			$colour    = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
+			$x         = (int) $layer->x + ( (int) $layer->w / 2 );
+			$y         = (int) $layer->y + ( (int) $layer->h / 2 );
+
+			$items[] = '<text x="' . esc_attr( (string) $x ) . '" y="' . esc_attr( (string) $y ) . '" text-anchor="middle" dominant-baseline="middle" fill="' . esc_attr( $colour ) . '" font-family="Arial, sans-serif" font-size="' . esc_attr( (string) $font_size ) . '" font-weight="600">' . esc_html( $text ) . '</text>';
+		}
+
+		if ( empty( $items ) ) {
+			return '';
+		}
+
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . $view_w . ' ' . $view_h . '"><rect width="100%" height="100%" fill="transparent"/>' . implode( '', $items ) . '</svg>';
+
+		return 'data:image/svg+xml;charset=UTF-8,' . rawurlencode( $svg );
 	}
 
 	/** Build preloaded state and HTML for every selectable design option. */
@@ -885,12 +985,12 @@ class OC_Frontend {
 		.oc-control-group label { font-size:12px; font-weight:600; color:#3c434a; text-transform:uppercase; letter-spacing:.03em; }
 		.oc-range-value { float:right; color:#1d2327; font-weight:700; }
 		.oc-design-variants { margin-bottom:16px; }
-		.oc-design-variant-grid { display:grid !important; grid-template-columns:repeat(auto-fit, minmax(132px, 1fr)); gap:12px; max-width:560px; }
-		.oc-design-variant-option { width:100% !important; min-width:0; min-height:0; padding:8px !important; border:1px solid #dcdcde; border-radius:10px; background:#fff; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:stretch !important; gap:8px; text-align:left; transition:border-color .15s, box-shadow .15s, transform .15s; box-sizing:border-box; }
+		.oc-design-variant-grid { display:grid !important; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:10px; width:100%; max-width:560px; margin:0 auto; justify-content:center; }
+		.oc-design-variant-option { width:100% !important; min-width:0; min-height:0; padding:7px !important; border:1px solid #dcdcde; border-radius:10px; background:#fff; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:stretch !important; gap:7px; text-align:left; transition:border-color .15s, box-shadow .15s, transform .15s; box-sizing:border-box; }
 		.oc-design-variant-option:hover { border-color:#d88da0; box-shadow:0 8px 20px rgba(0,0,0,.08); transform:translateY(-1px); }
 		.oc-design-variant-option.oc-selected { border-color:#d88da0; box-shadow:0 0 0 2px rgba(216,141,160,.24); }
-		.oc-design-variant-option img { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; object-fit:cover; display:block; border-radius:7px; background:#f6f7f7; }
-		.oc-design-variant-option span { min-height:34px; display:flex !important; align-items:center; justify-content:center; font-size:12px; line-height:1.25; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
+		.oc-design-variant-option img { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; object-fit:contain; object-position:center; display:block; border-radius:7px; background:transparent; }
+		.oc-design-variant-option span { min-height:30px; display:flex !important; align-items:center; justify-content:center; font-size:11px; line-height:1.2; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
 		@media (max-width:480px) { .oc-design-variant-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 		.oc-control-group:has(> [data-oc-tooltip]) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:10px; row-gap:5px; }
 		.oc-control-group:has(> [data-oc-tooltip]) > label,
