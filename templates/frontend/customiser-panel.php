@@ -64,7 +64,7 @@ foreach ( $layers as $layer ) {
 						$is_selected = ! empty( $variant['selected'] ) || ( 0 === $i && ! $has_selected_design_variant );
 						?>
 						<button type="button"
-							class="oc-design-variant-option<?php echo $is_selected ? ' oc-selected' : ''; ?>"
+							class="oc-design-variant-option oc-thumb-pending<?php echo $is_selected ? ' oc-selected' : ''; ?>"
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
 							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
 							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">

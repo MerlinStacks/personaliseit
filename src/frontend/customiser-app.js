@@ -3826,6 +3826,9 @@ class OCCustomiser {
 			const variantId = canvasEl.dataset.ocDesignVariantThumb;
 			const state = this.data.designVariantStates?.[ variantId ];
 			if ( ! state?.areas?.length ) {
+				canvasEl.closest( '.oc-design-variant-option' )?.classList.remove(
+					'oc-thumb-pending'
+				);
 				continue;
 			}
 
@@ -3834,6 +3837,9 @@ class OCCustomiser {
 					canvasEl,
 					state
 				);
+				canvasEl.closest( '.oc-design-variant-option' )?.classList.remove(
+					'oc-thumb-pending'
+				);
 				if ( rendered ) {
 					canvasEl.dataset.ocThumbRendered = '1';
 					canvasEl.closest( '.oc-design-variant-option' )?.classList.add(
@@ -3841,6 +3847,9 @@ class OCCustomiser {
 					);
 				}
 			} catch ( err ) {
+				canvasEl.closest( '.oc-design-variant-option' )?.classList.remove(
+					'oc-thumb-pending'
+				);
 				console.warn( '[OC] Design variant thumbnail failed:', variantId, err );
 			}
 		}
@@ -3882,6 +3891,10 @@ class OCCustomiser {
 		const previousFonts = this.fonts;
 		this.fonts = state.fonts || this.fonts || [];
 		try {
+			const thumbArea = {
+				...area,
+				printMethod: 'uv',
+			};
 			for ( const layer of area.layers || [] ) {
 				const input = {
 					...( state.layerInputs?.[ layer.id ] || {} ),
@@ -3892,7 +3905,7 @@ class OCCustomiser {
 				) {
 					input.value = layer.settings?.default_text || layer.label || '';
 				}
-				await this.renderLayer( canvas, layer, input, area );
+				await this.renderLayer( canvas, layer, input, thumbArea );
 			}
 		} finally {
 			this.fonts = previousFonts;

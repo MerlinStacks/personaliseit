@@ -1174,6 +1174,8 @@ class OC_Frontend {
 		.oc-design-variant-canvas,
 		.oc-design-variant-thumb { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; display:block; border-radius:7px; background:transparent; }
 		.oc-design-variant-canvas { display:none; }
+		.oc-design-variant-option.oc-thumb-pending > img,
+		.oc-design-variant-option.oc-thumb-pending .oc-design-variant-thumb { visibility:hidden; }
 		.oc-design-variant-option.oc-thumb-rendered .oc-design-variant-canvas { display:block; }
 		.oc-design-variant-option.oc-thumb-rendered > img,
 		.oc-design-variant-option.oc-thumb-rendered .oc-design-variant-thumb { display:none !important; }
