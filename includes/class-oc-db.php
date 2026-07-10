@@ -684,7 +684,7 @@ class OC_DB {
 
 	/** Fetch all active fonts. */
 	public static function get_fonts( bool $active_only = true ): array {
-		$cache_key = 'fonts_' . ( $active_only ? 'active' : 'all' );
+		$cache_key = 'fonts_v2_' . ( $active_only ? 'active' : 'all' );
 		$cached    = OC_Cache::get( $cache_key );
 		if ( null !== $cached ) {
 			return $cached;

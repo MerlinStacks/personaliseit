@@ -869,9 +869,17 @@ abstract class OC_Print_Base {
 			$font_size = max( $font_size, $min_size );
 		}
 
+		$draw_x_mm = $x_mm;
+		$draw_w_mm = $w_mm;
+		if ( ! $is_textarea ) {
+			$anchor_pad_mm = self::single_line_anchor_pad_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $w_mm );
+			$draw_x_mm     = $x_mm + $anchor_pad_mm;
+			$draw_w_mm     = max( 0.01, $w_mm - $anchor_pad_mm * 2 );
+		}
+
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			if ( self::text_fits_box( $pdf, $text, $w_mm, $h_mm, $font_size, $is_textarea ) ) {
+			if ( self::text_fits_box( $pdf, $text, $draw_w_mm, $h_mm, $font_size, $is_textarea ) ) {
 				break;
 			}
 			$font_size -= 0.5;
@@ -897,11 +905,11 @@ abstract class OC_Print_Base {
 		if ( 'engraving' === $mode && is_object( $font ) ) {
 			$font_path = self::get_font_path( $font );
 			if ( is_string( $font_path ) && '' !== $font_path ) {
-				if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align, $valign ) ) {
+				if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $text, $font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
 					return;
 				}
 
-				if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $x_mm, $y_mm, $w_mm, $h_mm, $align ) ) {
+				if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
 					return;
 				}
 			}
@@ -916,7 +924,13 @@ abstract class OC_Print_Base {
 		}
 
 		$cell_h = self::cell_h( $font_size );
-		self::draw_clipped_text_cell( $pdf, $x_mm, $y_mm, $w_mm, $h_mm, $text, $cell_h, $align, $valign, $is_textarea );
+		self::draw_clipped_text_cell( $pdf, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $text, $cell_h, $align, $valign, $is_textarea );
+	}
+
+	protected static function single_line_anchor_pad_mm( float $layer_w_px, float $w_mm ): float {
+		$anchor_pad_px = max( 2.0, min( 10.0, $layer_w_px * 0.01 ) );
+
+		return ( $anchor_pad_px / max( 1.0, $layer_w_px ) ) * $w_mm;
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {

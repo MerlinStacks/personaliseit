@@ -62,6 +62,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_normalise_engraving_text( string $text ): string {
 		return self::normalise_engraving_text( $text );
 	}
+
+	public static function test_single_line_anchor_pad_mm( float $layer_w_px, float $w_mm ): float {
+		return self::single_line_anchor_pad_mm( $layer_w_px, $w_mm );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -172,6 +176,12 @@ class Test_Print_Base extends TestCase {
 	#[Test]
 	public function cell_h_is_positive(): void {
 		$this->assertGreaterThan( 0.0, OC_Print_Base_Testable::test_cell_h( 10.0 ) );
+	}
+
+	#[Test]
+	public function single_line_anchor_pad_matches_frontend_limits(): void {
+		$this->assertEqualsWithDelta( 0.2, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 100, 10 ), 0.001 );
+		$this->assertEqualsWithDelta( 1.0, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 1000, 100 ), 0.001 );
 	}
 
 	// ── build_filename ────────────────────────────────────────────────────

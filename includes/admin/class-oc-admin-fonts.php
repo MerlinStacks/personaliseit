@@ -16,6 +16,8 @@ class OC_Admin_Fonts {
 	private static function clear_font_cache(): void {
 		OC_Cache::delete( 'fonts_active' );
 		OC_Cache::delete( 'fonts_all' );
+		OC_Cache::delete( 'fonts_v2_active' );
+		OC_Cache::delete( 'fonts_v2_all' );
 		OC_Cache::delete( 'font_groups' );
 	}
 
@@ -386,6 +388,9 @@ class OC_Admin_Fonts {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 		$result = self::do_upload();
+		if ( ! is_wp_error( $result ) ) {
+			self::clear_font_cache();
+		}
 		is_wp_error( $result ) ? wp_send_json_error( [ 'message' => $result->get_error_message() ] ) : wp_send_json_success( $result );
 	}
 
@@ -419,6 +424,7 @@ class OC_Admin_Fonts {
 			[ 'id' => $id ],
 			[ '%s' ], [ '%d' ]
 		);
+		self::clear_font_cache();
 
 		wp_send_json_success( [ 'newName' => $new_name, 'oldName' => $old_name ] );
 	}
@@ -710,6 +716,7 @@ class OC_Admin_Fonts {
 		}
 
 		$font->file_path = $rel_path;
+		self::clear_font_cache();
 		return self::font_payload( $font );
 	}
 
@@ -766,6 +773,7 @@ class OC_Admin_Fonts {
 		}
 
 		$font->file_path = $rel_path;
+		self::clear_font_cache();
 		return self::font_payload( $font );
 	}
 
