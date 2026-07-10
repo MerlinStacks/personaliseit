@@ -27754,9 +27754,11 @@ class OCCustomiser {
         continue;
       }
       try {
-        await this.renderDesignVariantThumbnailCanvas(canvasEl, state);
-        canvasEl.dataset.ocThumbRendered = '1';
-        canvasEl.closest('.oc-design-variant-option')?.classList.add('oc-thumb-rendered');
+        const rendered = await this.renderDesignVariantThumbnailCanvas(canvasEl, state);
+        if (rendered) {
+          canvasEl.dataset.ocThumbRendered = '1';
+          canvasEl.closest('.oc-design-variant-option')?.classList.add('oc-thumb-rendered');
+        }
       } catch (err) {
         console.warn('[OC] Design variant thumbnail failed:', variantId, err);
       }
@@ -27784,16 +27786,16 @@ class OCCustomiser {
       ...area,
       bounds: {
         ...sourceBounds,
-        x: -offsetX / scale,
-        y: -offsetY / scale,
+        x: offsetX / scale,
+        y: offsetY / scale,
         unit: 'px',
         dpi: sourceBounds.dpi || 300
       }
     };
     thumbArea.layers = (area.layers || []).map(layer => ({
       ...layer,
-      x: Number(layer.x || 0) - Number(bounds.x || 0),
-      y: Number(layer.y || 0) - Number(bounds.y || 0)
+      x: offsetX / scale + Number(layer.x || 0) - Number(bounds.x || 0),
+      y: offsetY / scale + Number(layer.y || 0) - Number(bounds.y || 0)
     }));
     canvas._ocScaleX = scale;
     const previousFonts = this.fonts;
@@ -27812,6 +27814,7 @@ class OCCustomiser {
       this.fonts = previousFonts;
     }
     canvas.renderAll();
+    return canvas.getObjects().some(object => object._ocContent === true);
   }
   async switchDesignVariant(variantId) {
     const state = this.data.designVariantStates?.[variantId];
