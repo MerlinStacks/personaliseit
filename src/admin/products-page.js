@@ -916,6 +916,10 @@ import {
 			img.className = 'oc-lp oc-lp-media';
 			img.src = s.default_clipart_url;
 			img.alt = '';
+			if ( isEngraving && s.default_clipart_recolourable ) {
+				img.style.filter =
+					'brightness(0) saturate(100%) invert(91%) opacity(0.9)';
+			}
 			el.appendChild( img );
 		} else {
 			const icons = {

@@ -286,6 +286,11 @@
   background-repeat: no-repeat;
   padding-right: 36px;
 }
+.oc-customiser-panel .oc-font-size-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
 .oc-customiser-panel .oc-colour-swatches {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(36px, 1fr));
@@ -579,25 +584,37 @@
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container {
   border-radius: 8px;
-  border: 1px dashed var(--oc-border-strong);
+  border: 0;
   background: transparent;
   min-height: 0;
   height: auto;
-  padding: 12px 14px;
+  padding: 0;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container:hover, .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container.uppy-DragDrop--isDraggingOver {
-  border-color: var(--oc-accent);
-  background: color-mix(in srgb, var(--oc-accent) 6%, transparent);
+  background: transparent;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-inner {
-  padding: 0;
+  padding: 12px 14px;
   margin: 0;
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 10px;
   text-align: left;
+  border: 1px dashed var(--oc-border-strong);
+  border-radius: 8px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.oc-customiser-panel .oc-upload-zone.oc-upload-zone--error .uppy-DragDrop-inner {
+  border-color: color-mix(in srgb, var(--oc-danger) 45%, transparent);
+  background: color-mix(in srgb, var(--oc-danger) 7%, var(--oc-accent-ink, #fff));
+}
+.oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container:hover .uppy-DragDrop-inner,
+.oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container.uppy-DragDrop--isDraggingOver .uppy-DragDrop-inner,
+.oc-customiser-panel .oc-upload-zone .uppy-DragDrop--isDraggingOver .uppy-DragDrop-inner {
+  border-color: var(--oc-accent);
+  background: color-mix(in srgb, var(--oc-accent) 6%, transparent);
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-arrow {
   grid-row: 1/span 2;
@@ -640,14 +657,16 @@
   display: block;
 }
 .oc-customiser-panel .oc-upload-zone.oc-upload-zone--uploaded .uppy-DragDrop-container {
-  padding: 10px 12px;
-  border-style: solid;
-  border-color: color-mix(in srgb, #2f6f4e 35%, transparent);
-  background: color-mix(in srgb, #2f6f4e 8%, var(--oc-accent-ink, #fff));
+  padding: 0;
+  background: transparent;
 }
 .oc-customiser-panel .oc-upload-zone.oc-upload-zone--uploaded .uppy-DragDrop-inner {
   display: block;
   text-align: left;
+  padding: 10px 12px;
+  border-style: solid;
+  border-color: color-mix(in srgb, #2f6f4e 35%, transparent);
+  background: color-mix(in srgb, #2f6f4e 8%, var(--oc-accent-ink, #fff));
 }
 .oc-customiser-panel .oc-upload-zone.oc-upload-zone--uploaded .uppy-DragDrop-arrow {
   display: none;
@@ -669,10 +688,6 @@
   font-weight: 700;
   color: color-mix(in srgb, #24573d 78%, transparent);
   text-transform: uppercase;
-}
-.oc-customiser-panel .oc-upload-zone.oc-upload-zone--error .uppy-DragDrop-container {
-  border-color: color-mix(in srgb, var(--oc-danger) 45%, transparent);
-  background: color-mix(in srgb, var(--oc-danger) 7%, var(--oc-accent-ink, #fff));
 }
 .oc-customiser-panel .oc-upload-progress {
   display: flex;
@@ -1288,6 +1303,11 @@
   }
 }
 @media (min-width: 720px) {
+  .oc-customiser-panel .oc-font-size-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(160px, 0.72fr);
+    align-items: end;
+  }
   .oc-customiser-panel .oc-clipart-grid {
     grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
   }

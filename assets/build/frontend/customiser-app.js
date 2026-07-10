@@ -27108,7 +27108,7 @@ class OCCustomiser {
           alpha: 1
         }));
       }
-      if (isEngraving) {
+      if (isEngraving && !effects.preserveRecolouredPixels) {
         const palette = engravingPalette || this.engravingPalette();
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale(), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness({
           brightness: palette.brightness
@@ -27127,7 +27127,12 @@ class OCCustomiser {
         img.filters = filters;
         img.applyFilters();
       }
-      if (isEngraving) {
+      if (isEngraving && effects.preserveRecolouredPixels) {
+        const palette = engravingPalette || this.engravingPalette();
+        img.set({
+          opacity: palette.opacity
+        });
+      } else if (isEngraving) {
         const palette = engravingPalette || this.engravingPalette();
         img.set({
           opacity: palette.opacity,

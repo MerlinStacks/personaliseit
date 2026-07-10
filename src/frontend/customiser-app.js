@@ -2949,7 +2949,7 @@ class OCCustomiser {
 					} )
 				);
 			}
-			if ( isEngraving ) {
+			if ( isEngraving && ! effects.preserveRecolouredPixels ) {
 				const palette = engravingPalette || this.engravingPalette();
 				filters.push(
 					new FabricFilters.Grayscale(),
@@ -2972,7 +2972,10 @@ class OCCustomiser {
 				img.filters = filters;
 				img.applyFilters();
 			}
-			if ( isEngraving ) {
+			if ( isEngraving && effects.preserveRecolouredPixels ) {
+				const palette = engravingPalette || this.engravingPalette();
+				img.set( { opacity: palette.opacity } );
+			} else if ( isEngraving ) {
 				const palette = engravingPalette || this.engravingPalette();
 				img.set( {
 					opacity: palette.opacity,

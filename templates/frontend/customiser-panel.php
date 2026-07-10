@@ -373,6 +373,9 @@ foreach ( $layers as $layer ) {
 							<?php endif; ?>
 
 							<!-- Font picker (text / textarea) -->
+							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
+								<div class="oc-font-size-row">
+							<?php endif; ?>
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_font_change && ! empty( $layer_fonts ) ) : ?>
 								<div class="oc-control-group">
 									<select data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>" aria-label="<?php esc_attr_e( 'Font', 'overcustomise' ); ?>">
@@ -400,6 +403,9 @@ foreach ( $layers as $layer ) {
 										value="<?php echo esc_attr( $font_size_value ); ?>"
 										id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"
 										data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
+								</div>
+							<?php endif; ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
 								</div>
 							<?php endif; ?>
 
