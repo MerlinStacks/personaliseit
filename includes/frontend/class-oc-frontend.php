@@ -461,8 +461,9 @@ class OC_Frontend {
 			return null;
 		}
 
-		$thumb_url = $this->get_design_variant_artwork_thumb_url( $design_id, $areas );
-		if ( '' === $thumb_url && ! empty( $area->mockup_attachment_id ) ) {
+		$thumb_layers = $this->get_design_variant_thumb_layers( $design_id, $area );
+		$thumb_url    = empty( $thumb_layers ) ? $this->get_design_variant_artwork_thumb_url( $design_id, $areas ) : '';
+		if ( empty( $thumb_layers ) && '' === $thumb_url && ! empty( $area->mockup_attachment_id ) ) {
 			$mockup_src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
 			$thumb_url  = wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: ( $mockup_src[0] ?? '' );
 		}
@@ -472,8 +473,100 @@ class OC_Frontend {
 			'designId' => $design_id,
 			'label'    => sanitize_text_field( $label ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
 			'thumbUrl' => $thumb_url,
+			'thumbLayers' => $thumb_layers,
 			'selected' => $design_id === $selected_design_id,
 		];
+	}
+
+	/** Return positioned thumbnail layers for the first print area, without the mockup background. */
+	private function get_design_variant_thumb_layers( int $design_id, object $area ): array {
+		$layers = OC_DB::get_design_layers( $design_id );
+		if ( empty( $layers ) ) {
+			return [];
+		}
+
+		$canvas_w = max( 1, (int) ( $area->canvas_w ?: 300 ) );
+		$canvas_h = max( 1, (int) ( $area->canvas_h ?: 300 ) );
+		$items    = [];
+
+		foreach ( $layers as $layer ) {
+			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id ) {
+				continue;
+			}
+
+			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
+			if ( ! is_array( $settings ) ) {
+				$settings = [];
+			}
+
+			$item = [
+				'type' => (string) $layer->type,
+				'x'    => ( (int) $layer->x / $canvas_w ) * 100,
+				'y'    => ( (int) $layer->y / $canvas_h ) * 100,
+				'w'    => max( 1, ( (int) $layer->w / $canvas_w ) * 100 ),
+				'h'    => max( 1, ( (int) $layer->h / $canvas_h ) * 100 ),
+			];
+
+			if ( 'text' === (string) $layer->type ) {
+				$text = trim( (string) ( $settings['default_text'] ?? $layer->label ?? '' ) );
+				if ( '' === $text ) {
+					continue;
+				}
+
+				$item['text'] = $text;
+				$item['color'] = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#111111' ) ) ?: '#111111';
+				$item['fontSize'] = max( 8, min( 26, ( absint( $settings['default_font_size'] ?? 24 ) / $canvas_h ) * 110 ) );
+				$items[] = $item;
+				continue;
+			}
+
+			if ( in_array( (string) $layer->type, [ 'image', 'clipart' ], true ) ) {
+				$url = $this->get_design_layer_artwork_url( $layer, $settings );
+				if ( '' === $url ) {
+					continue;
+				}
+
+				$item['url'] = $url;
+				$items[] = $item;
+			}
+		}
+
+		return $items;
+	}
+
+	/** Resolve a layer's default artwork URL. */
+	private function get_design_layer_artwork_url( object $layer, array $settings ): string {
+		global $wpdb;
+
+		if ( 'image' === (string) $layer->type ) {
+			$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
+			if ( $attachment_id ) {
+				$url = wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: wp_get_attachment_url( $attachment_id );
+				if ( $url ) {
+					return (string) $url;
+				}
+			}
+
+			return ! empty( $settings['default_attachment_url'] ) ? esc_url_raw( (string) $settings['default_attachment_url'] ) : '';
+		}
+
+		if ( 'clipart' === (string) $layer->type ) {
+			$clipart_id = absint( $settings['default_clipart_id'] ?? 0 );
+			if ( $clipart_id ) {
+				$clipart = $wpdb->get_row( $wpdb->prepare(
+					"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d AND active = 1 LIMIT 1",
+					$clipart_id
+				) );
+				if ( $clipart && ! empty( $clipart->file_path ) ) {
+					$upload_dir = wp_upload_dir();
+					return $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $clipart->file_path );
+				}
+			}
+
+			return ! empty( $settings['default_clipart_url'] ) ? esc_url_raw( (string) $settings['default_clipart_url'] ) : '';
+		}
+
+		return '';
 	}
 
 	/** Return a thumbnail URL for the first visible artwork/text layer, without the mockup background. */
@@ -989,8 +1082,13 @@ class OC_Frontend {
 		.oc-design-variant-option { width:100% !important; min-width:0; min-height:0; padding:7px !important; border:1px solid #dcdcde; border-radius:10px; background:#fff; cursor:pointer; display:flex !important; flex-direction:column !important; align-items:stretch !important; gap:7px; text-align:left; transition:border-color .15s, box-shadow .15s, transform .15s; box-sizing:border-box; }
 		.oc-design-variant-option:hover { border-color:#d88da0; box-shadow:0 8px 20px rgba(0,0,0,.08); transform:translateY(-1px); }
 		.oc-design-variant-option.oc-selected { border-color:#d88da0; box-shadow:0 0 0 2px rgba(216,141,160,.24); }
-		.oc-design-variant-option img { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; object-fit:contain; object-position:center; display:block; border-radius:7px; background:transparent; }
-		.oc-design-variant-option span { min-height:30px; display:flex !important; align-items:center; justify-content:center; font-size:11px; line-height:1.2; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
+		.oc-design-variant-option > img,
+		.oc-design-variant-thumb { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; display:block; border-radius:7px; background:transparent; }
+		.oc-design-variant-option > img { object-fit:contain; object-position:center; }
+		.oc-design-variant-thumb { position:relative; overflow:hidden; }
+		.oc-design-variant-thumb-layer { position:absolute; display:block; max-width:none !important; object-fit:contain; object-position:center; }
+		.oc-design-variant-thumb-text { display:flex; align-items:center; justify-content:center; overflow:hidden; text-align:center; font-weight:700; line-height:1.05; overflow-wrap:anywhere; }
+		.oc-design-variant-option > span { min-height:30px; display:flex !important; align-items:center; justify-content:center; font-size:11px; line-height:1.2; font-weight:700; color:#1d2327; text-align:center; overflow-wrap:anywhere; }
 		@media (max-width:480px) { .oc-design-variant-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
 		.oc-control-group:has(> [data-oc-tooltip]) { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; column-gap:10px; row-gap:5px; }
 		.oc-control-group:has(> [data-oc-tooltip]) > label,

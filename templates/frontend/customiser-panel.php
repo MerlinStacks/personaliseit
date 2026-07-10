@@ -66,7 +66,25 @@ foreach ( $layers as $layer ) {
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
 							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
 							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
-							<?php if ( ! empty( $variant['thumbUrl'] ) ) : ?>
+							<?php if ( ! empty( $variant['thumbLayers'] ) ) : ?>
+								<div class="oc-design-variant-thumb" aria-hidden="true">
+									<?php foreach ( $variant['thumbLayers'] as $thumb_layer ) :
+										$thumb_style = sprintf(
+											'left:%1$.4f%%;top:%2$.4f%%;width:%3$.4f%%;height:%4$.4f%%;',
+											(float) ( $thumb_layer['x'] ?? 0 ),
+											(float) ( $thumb_layer['y'] ?? 0 ),
+											(float) ( $thumb_layer['w'] ?? 0 ),
+											(float) ( $thumb_layer['h'] ?? 0 )
+										);
+										?>
+										<?php if ( 'text' === (string) ( $thumb_layer['type'] ?? '' ) ) : ?>
+											<span class="oc-design-variant-thumb-layer oc-design-variant-thumb-text" style="<?php echo esc_attr( $thumb_style . 'color:' . ( $thumb_layer['color'] ?? '#111111' ) . ';font-size:' . (float) ( $thumb_layer['fontSize'] ?? 12 ) . 'px;' ); ?>"><?php echo esc_html( $thumb_layer['text'] ?? '' ); ?></span>
+										<?php elseif ( ! empty( $thumb_layer['url'] ) ) : ?>
+											<img class="oc-design-variant-thumb-layer" src="<?php echo esc_url( $thumb_layer['url'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" style="<?php echo esc_attr( $thumb_style ); ?>" />
+										<?php endif; ?>
+									<?php endforeach; ?>
+								</div>
+							<?php elseif ( ! empty( $variant['thumbUrl'] ) ) : ?>
 								<img src="<?php echo esc_url( $variant['thumbUrl'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" />
 							<?php endif; ?>
 							<span><?php echo esc_html( $variant['label'] ); ?></span>

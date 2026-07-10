@@ -357,15 +357,17 @@
   display: block;
 }
 .oc-customiser-panel .oc-font-option {
-  display: block;
+  display: flex;
+  align-items: center;
   width: 100%;
-  min-height: 30px;
-  padding: 5px 8px;
+  height: 30px;
+  padding: 3px 8px;
   border: 0;
   border-radius: var(--oc-radius-sm);
   background: transparent;
   color: inherit;
   overflow: hidden;
+  line-height: 1;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
