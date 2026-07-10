@@ -1171,7 +1171,12 @@ class OC_Frontend {
 		.oc-design-variant-option:hover { border-color:#d88da0; box-shadow:0 8px 20px rgba(0,0,0,.08); transform:translateY(-1px); }
 		.oc-design-variant-option.oc-selected { border-color:#d88da0; box-shadow:0 0 0 2px rgba(216,141,160,.24); }
 		.oc-design-variant-option > img,
+		.oc-design-variant-canvas,
 		.oc-design-variant-thumb { width:100% !important; max-width:none !important; aspect-ratio:1 / 1; height:auto !important; display:block; border-radius:7px; background:transparent; }
+		.oc-design-variant-canvas { display:none; }
+		.oc-design-variant-option.oc-thumb-rendered .oc-design-variant-canvas { display:block; }
+		.oc-design-variant-option.oc-thumb-rendered > img,
+		.oc-design-variant-option.oc-thumb-rendered .oc-design-variant-thumb { display:none !important; }
 		.oc-design-variant-option > img { object-fit:contain; object-position:center; }
 		.oc-design-variant-thumb { position:relative; overflow:hidden; container-type:inline-size; }
 		.oc-design-variant-thumb-layer { position:absolute; display:block; max-width:none !important; object-fit:contain; object-position:center; }

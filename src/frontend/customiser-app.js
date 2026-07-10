@@ -189,6 +189,7 @@ class OCCustomiser {
 		this.setupFormSubmit();
 		this.updateHiddenField();
 		this.setupDesignVariantCarousel();
+		this.renderDesignVariantThumbnails();
 
 		// Canvas init runs in background; calls redraw() when done.
 		this.initAllCanvases();
@@ -3809,6 +3810,100 @@ class OCCustomiser {
 			?.toggleAttribute( 'disabled', page >= pageCount - 1 );
 	}
 
+	async renderDesignVariantThumbnails() {
+		const canvases = Array.from(
+			document.querySelectorAll( '[data-oc-design-variant-thumb]' )
+		);
+		if ( ! canvases.length ) {
+			return;
+		}
+
+		for ( const canvasEl of canvases ) {
+			if ( canvasEl.dataset.ocThumbRendered === '1' ) {
+				continue;
+			}
+
+			const variantId = canvasEl.dataset.ocDesignVariantThumb;
+			const state = this.data.designVariantStates?.[ variantId ];
+			if ( ! state?.areas?.length ) {
+				continue;
+			}
+
+			try {
+				await this.renderDesignVariantThumbnailCanvas( canvasEl, state );
+				canvasEl.dataset.ocThumbRendered = '1';
+				canvasEl.closest( '.oc-design-variant-option' )?.classList.add(
+					'oc-thumb-rendered'
+				);
+			} catch ( err ) {
+				console.warn( '[OC] Design variant thumbnail failed:', variantId, err );
+			}
+		}
+	}
+
+	async renderDesignVariantThumbnailCanvas( canvasEl, state ) {
+		const area = state.areas?.[ 0 ];
+		if ( ! area ) {
+			return;
+		}
+
+		const sourceBounds = this.areaBounds( area );
+		const bounds = displayBounds( sourceBounds );
+		const size = 320;
+		canvasEl.width = size;
+		canvasEl.height = size;
+
+		const canvas = new StaticCanvas( canvasEl, {
+			width: size,
+			height: size,
+			backgroundColor: 'rgba(255,255,255,0)',
+		} );
+		const scale = Math.min(
+			size / Math.max( 1, bounds.w || 1 ),
+			size / Math.max( 1, bounds.h || 1 )
+		);
+		const offsetX = ( size - ( bounds.w || 1 ) * scale ) / 2;
+		const offsetY = ( size - ( bounds.h || 1 ) * scale ) / 2;
+
+		const thumbArea = {
+			...area,
+			bounds: {
+				...sourceBounds,
+				x: -offsetX / scale,
+				y: -offsetY / scale,
+				unit: 'px',
+				dpi: sourceBounds.dpi || 300,
+			},
+		};
+		thumbArea.layers = ( area.layers || [] ).map( ( layer ) => ( {
+			...layer,
+			x: Number( layer.x || 0 ) - Number( bounds.x || 0 ),
+			y: Number( layer.y || 0 ) - Number( bounds.y || 0 ),
+		} ) );
+
+		canvas._ocScaleX = scale;
+		const previousFonts = this.fonts;
+		this.fonts = state.fonts || this.fonts || [];
+		try {
+			for ( const layer of thumbArea.layers ) {
+				const input = {
+					...( state.layerInputs?.[ layer.id ] || {} ),
+				};
+				if (
+					( layer.type === 'text' || layer.type === 'textarea' ) &&
+					! String( input.value || '' ).trim()
+				) {
+					input.value = layer.settings?.default_text || layer.label || '';
+				}
+				await this.renderLayer( canvas, layer, input, thumbArea );
+			}
+		} finally {
+			this.fonts = previousFonts;
+		}
+
+		canvas.renderAll();
+	}
+
 	async switchDesignVariant( variantId ) {
 		const state = this.data.designVariantStates?.[ variantId ];
 		if ( ! state?.panelHtml ) {
@@ -3879,6 +3974,7 @@ class OCCustomiser {
 		this.setupInputListeners();
 		this.setupDesignVariantOptions();
 		this.setupDesignVariantCarousel();
+		this.renderDesignVariantThumbnails();
 		this.setupUploadZones();
 		this.setupVariationGalleryHandoff();
 		this.applyInputsToDOM();

@@ -68,6 +68,7 @@ foreach ( $layers as $layer ) {
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
 							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
 							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
+							<canvas class="oc-design-variant-canvas" data-oc-design-variant-thumb="<?php echo esc_attr( $variant['id'] ); ?>" aria-hidden="true"></canvas>
 							<?php if ( ! empty( $variant['thumbLayers'] ) ) : ?>
 								<div class="oc-design-variant-thumb" aria-hidden="true">
 									<?php foreach ( $variant['thumbLayers'] as $thumb_layer ) :
