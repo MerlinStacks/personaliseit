@@ -916,6 +916,10 @@ abstract class OC_Print_Base {
 		$area_w_mm = self::unit_to_mm( (float) ( $area->canvas_w ?? $bounds_w ), $unit );
 		$area_h_mm = self::unit_to_mm( (float) ( $area->canvas_h ?? $bounds_h ), $unit );
 		$font_px_to_pt = self::mm_to_pt_value( $area_h_mm ) / $bounds_h;
+		$area_rotation = self::normalise_layer_rotation( (float) ( $area->canvas_rotation ?? $bounds['rotation'] ?? 0 ) );
+		$rotate_layers = 0.0 !== $area_rotation && method_exists( $pdf, 'Rotate' );
+		$area_center_x_mm = $origin_x_mm + $area_w_mm / 2;
+		$area_center_y_mm = $origin_y_mm + $area_h_mm / 2;
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -937,35 +941,46 @@ abstract class OC_Print_Base {
 			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 
-			switch ( $type ) {
-				case 'text':
-				case 'textarea':
-					self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $font_px_to_pt );
-					break;
+			if ( $rotate_layers ) {
+				$pdf->StartTransform();
+				$pdf->Rotate( $area_rotation, $area_center_x_mm, $area_center_y_mm );
+			}
 
-				case 'spotify':
-					self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
-					break;
+			try {
+				switch ( $type ) {
+					case 'text':
+					case 'textarea':
+						self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $font_px_to_pt );
+						break;
 
-				case 'image':
-				case 'clipart':
-					self::render_layer_image( $pdf, $layer, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
-					break;
+					case 'spotify':
+						self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+						break;
 
-				case 'clipmask':
-					self::render_layer_clipped_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
-					break;
+					case 'image':
+					case 'clipart':
+						self::render_layer_image( $pdf, $layer, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+						break;
 
-				case 'lineart':
-					$hex = (string) ( $input['colorHex'] ?? '#000000' );
-					if ( 'engraving' === $mode ) {
-						$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
-					} else {
-						[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
-						$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
-					}
-					$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'F' );
-					break;
+					case 'clipmask':
+						self::render_layer_clipped_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+						break;
+
+					case 'lineart':
+						$hex = (string) ( $input['colorHex'] ?? '#000000' );
+						if ( 'engraving' === $mode ) {
+							$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
+						} else {
+							[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
+							$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
+						}
+						$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'F' );
+						break;
+				}
+			} finally {
+				if ( $rotate_layers ) {
+					$pdf->StopTransform();
+				}
 			}
 		}
 	}
@@ -1058,6 +1073,12 @@ abstract class OC_Print_Base {
 		$anchor_pad_px = max( 2.0, min( 10.0, $layer_w_px * 0.01 ) );
 
 		return ( $anchor_pad_px / max( 1.0, $layer_w_px ) ) * $w_mm;
+	}
+
+	private static function normalise_layer_rotation( float $rotation ): float {
+		$rotation = fmod( $rotation, 360.0 );
+
+		return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {

@@ -30,7 +30,7 @@ class OC_Print_UV extends OC_Print_Base {
 	): string {
 		self::require_tcpdf();
 
-		[ $area, $w_mm, $h_mm ] = self::normalise_uv_area_for_print( $area, $area_data );
+		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
 		$bleed = (float) OC_Admin_Settings::get( 'bleed_mm' ) ?: 3.0;
 
 		$pdf = self::make_pdf( $w_mm, $h_mm, $bleed );
@@ -59,35 +59,6 @@ class OC_Print_UV extends OC_Print_Base {
 	}
 
 	// ── Private helpers ───────────────────────────────────────────────────────
-
-	/**
-	 * UV artwork should be output on the flat print bed, not in the rotated
-	 * orientation used to place the area on the product mockup photo.
-	 *
-	 * @return array{0:object,1:float,2:float}
-	 */
-	private static function normalise_uv_area_for_print( object $area, array $area_data ): array {
-		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
-
-		if ( ! self::has_layer_payload( $area_data ) ) {
-			return [ $area, $w_mm, $h_mm ];
-		}
-
-		$rotation = (float) ( $area->canvas_rotation ?? ( $area_data['bounds']['rotation'] ?? 0 ) );
-		$rotation = abs( fmod( $rotation, 180.0 ) );
-		$is_quarter_turn = abs( $rotation - 90.0 ) < 0.001;
-
-		if ( ! $is_quarter_turn || $h_mm <= $w_mm ) {
-			return [ $area, $w_mm, $h_mm ];
-		}
-
-		$flat_area = clone $area;
-		$flat_area->canvas_w = (float) ( $area->canvas_h ?? $area->canvas_w ?? 1 );
-		$flat_area->canvas_h = (float) ( $area->canvas_w ?? $area->canvas_h ?? 1 );
-		$flat_area->canvas_rotation = 0;
-
-		return [ $flat_area, $h_mm, $w_mm ];
-	}
 
 	private static function render_colour_page(
 		\TCPDF $pdf,
