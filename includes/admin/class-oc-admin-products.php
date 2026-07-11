@@ -1350,6 +1350,9 @@ class OC_Admin_Products {
 		$wpdb->delete( "{$wpdb->prefix}oc_design_layers",       [ 'design_id' => $id ], [ '%d' ] );
 		$wpdb->delete( "{$wpdb->prefix}oc_product_assignments",  [ 'design_id' => $id ], [ '%d' ] );
 		$wpdb->delete( "{$wpdb->prefix}oc_designs",              [ 'id'        => $id ], [ '%d' ] );
+		OC_Cache::delete( 'all_assignments_v2' );
+		OC_Cache::flush_pattern( 'assignment_' );
+		$this->clear_design_cache( $id );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&deleted=1' ) );
 		exit;

@@ -48,6 +48,10 @@ class OC_Font_Registry {
 
 	/** Output @font-face declarations for all active fonts. */
 	public function output_font_face_css(): void {
+		if ( 'wp_head' === current_filter() && ! is_product() ) {
+			return;
+		}
+
 		$fonts = OC_DB::get_fonts( true );
 		if ( empty( $fonts ) ) {
 			return;

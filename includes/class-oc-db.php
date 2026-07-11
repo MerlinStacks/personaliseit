@@ -1032,6 +1032,15 @@ class OC_DB {
 			$product_id = $product->get_parent_id();
 		}
 
+		$cache_key = 'assignment_' . $product_id . '_' . $variant_id . '_' . ( $allow_variant_fallback ? '1' : '0' );
+		$cached    = OC_Cache::get( $cache_key );
+		if ( '__oc_no_assignment__' === $cached ) {
+			return null;
+		}
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
 		if ( $variant_id > 0 ) {
 			$row = $wpdb->get_row( $wpdb->prepare(
 				"SELECT * FROM {$wpdb->prefix}oc_product_assignments
@@ -1040,6 +1049,7 @@ class OC_DB {
 				$variant_id
 			) );
 			if ( $row ) {
+				OC_Cache::set( $cache_key, $row );
 				return $row;
 			}
 		}
@@ -1050,6 +1060,7 @@ class OC_DB {
 			$product_id
 		) );
 		if ( $row ) {
+			OC_Cache::set( $cache_key, $row );
 			return $row;
 		}
 
@@ -1067,11 +1078,13 @@ class OC_DB {
 					)
 				);
 				if ( $row ) {
+					OC_Cache::set( $cache_key, $row );
 					return $row;
 				}
 			}
 		}
 
+		OC_Cache::set( $cache_key, '__oc_no_assignment__' );
 		return null;
 	}
 
@@ -1109,6 +1122,7 @@ class OC_DB {
 			$product_id, $variant_id, $design_id
 		) );
 		OC_Cache::delete( 'all_assignments_v2' );
+		OC_Cache::flush_pattern( 'assignment_' );
 	}
 
 	/** Update enabled customer-selectable design variants for a product/variant assignment. */
@@ -1122,6 +1136,7 @@ class OC_DB {
 			[ '%d', '%d' ]
 		);
 		OC_Cache::delete( 'all_assignments_v2' );
+		OC_Cache::flush_pattern( 'assignment_' );
 	}
 
 	/** Remove a product/variant assignment (unassign design). */
@@ -1133,6 +1148,7 @@ class OC_DB {
 			[ '%d', '%d' ]
 		);
 		OC_Cache::delete( 'all_assignments_v2' );
+		OC_Cache::flush_pattern( 'assignment_' );
 	}
 
 	/** Fetch pending queue jobs, ordered by creation time, limited to $limit. */

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.13.4 - 2026-07-10
+
+### Changed
+- Reduced frontend page load overhead by limiting customiser font CSS and cart preview CSS to pages that need them.
+- Cached product design assignment lookups and cleared assignment caches when assignments or designs change.
+
 ## 1.13.0 - 2026-07-07
 
 ### Added

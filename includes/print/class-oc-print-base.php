@@ -295,6 +295,11 @@ abstract class OC_Print_Base {
 
 	/** Embed an image in TCPDF, converting artwork to a safe PNG when needed. */
 	protected static function draw_pdf_image( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		if ( 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			self::draw_pdf_svg( $pdf, $path, $x_mm, $y_mm, $w_mm, $h_mm );
+			return;
+		}
+
 		$temp_path      = null;
 		$fallback_path  = null;
 		$image_path     = self::tcpdf_compatible_image_path( $path, $temp_path );
@@ -319,6 +324,44 @@ abstract class OC_Print_Base {
 				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
 		}
+	}
+
+	/** Embed SVG artwork with TCPDF's SVG renderer instead of the raster image importer. */
+	private static function draw_pdf_svg( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		try {
+			$pdf->ImageSVG( $path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+		} catch ( \Throwable $e ) {
+			$fallback_path = self::normalise_svg_for_tcpdf( $path );
+			if ( ! is_string( $fallback_path ) || '' === $fallback_path ) {
+				throw $e;
+			}
+
+			try {
+				OC_Logger::warning( 'TCPDF could not render SVG artwork directly, retrying normalised PNG: ' . basename( $path ) . ' (' . $e->getMessage() . ')' );
+				$pdf->Image( $fallback_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 300 );
+			} finally {
+				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+	}
+
+	/** Convert SVG artwork to PNG when TCPDF's vector SVG renderer cannot handle it. */
+	private static function normalise_svg_for_tcpdf( string $path ): ?string {
+		if ( ! class_exists( '\Imagick' ) ) {
+			return null;
+		}
+
+		$temp = self::temp_path( 'oc-tcpdf-svg-' . wp_generate_uuid4() . '.png' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		if ( self::convert_image_with_imagick( $path, $temp ) ) {
+			return $temp;
+		}
+
+		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		return null;
 	}
 
 	/** TCPDF does not reliably import WEBP, so create a temporary PNG copy first. */

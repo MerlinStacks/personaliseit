@@ -44,6 +44,10 @@ class OC_Cart {
 
 	/** Ensure personalised previews are contained rather than cropped across classic, Blocks, and Mini Cart. */
 	public function enqueue_preview_styles(): void {
+		if ( ! is_cart() && ! is_checkout() && ! is_account_page() && ! $this->cart_has_customisation() ) {
+			return;
+		}
+
 		wp_register_style( 'oc-cart-preview', false, [], OC_VERSION );
 		wp_enqueue_style( 'oc-cart-preview' );
 		wp_add_inline_style( 'oc-cart-preview', '
@@ -86,6 +90,22 @@ class OC_Cart {
 				margin: 0 !important;
 			}
 		' );
+	}
+
+	/** Check whether global cart preview styles are needed for mini-cart rendering. */
+	private function cart_has_customisation(): bool {
+		$cart = function_exists( 'WC' ) ? WC()->cart ?? null : null;
+		if ( ! $cart ) {
+			return false;
+		}
+
+		foreach ( $cart->get_cart() as $item ) {
+			if ( ! empty( $item['_oc_customisation'] ) || ! empty( $item['_oc_preview_url'] ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** Load WordPress' image modal on WooCommerce order admin screens. */
