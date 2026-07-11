@@ -398,7 +398,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function layer_export_applies_print_area_rotation_to_production_eps(): void {
+	public function layer_export_does_not_apply_print_area_rotation_to_production_eps(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -427,12 +427,12 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
-		$this->assertStringContainsString( '90.0000 rotate', $output );
+		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
+		$this->assertStringNotContainsString( '90.0000 rotate', $output );
 	}
 
 	#[Test]
-	public function layer_export_combines_print_area_and_explicit_layer_rotation(): void {
+	public function layer_export_keeps_only_explicit_layer_rotation(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -462,8 +462,9 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertStringContainsString( '22.8009 21.6009 translate', $output );
-		$this->assertStringContainsString( '105.0000 rotate', $output );
+		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
+		$this->assertStringContainsString( '15.0000 rotate', $output );
+		$this->assertStringNotContainsString( '105.0000 rotate', $output );
 	}
 
 }

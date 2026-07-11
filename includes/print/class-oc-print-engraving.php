@@ -40,7 +40,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 	): string {
 		self::require_tcpdf();
 
-		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
+		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
 
 		$pdf = self::make_pdf( $w_mm, $h_mm, 0.0 );
 		$pdf->SetTitle( sprintf( 'Engraving — Order #%d — %s', $order->get_id(), $area->label ) );

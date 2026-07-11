@@ -66,6 +66,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_single_line_anchor_pad_mm( float $layer_w_px, float $w_mm ): float {
 		return self::single_line_anchor_pad_mm( $layer_w_px, $w_mm );
 	}
+
+	public static function test_normalise_rotated_artboard_for_print( object $area, array $area_data ): array {
+		return self::normalise_rotated_artboard_for_print( $area, $area_data );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -182,6 +186,28 @@ class Test_Print_Base extends TestCase {
 	public function single_line_anchor_pad_matches_frontend_limits(): void {
 		$this->assertEqualsWithDelta( 0.2, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 100, 10 ), 0.001 );
 		$this->assertEqualsWithDelta( 1.0, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 1000, 100 ), 0.001 );
+	}
+
+	#[Test]
+	public function rotated_layer_payload_uses_swapped_flat_artboard_dimensions(): void {
+		$area = (object) [
+			'canvas_unit'     => 'mm',
+			'canvas_w'        => 40,
+			'canvas_h'        => 120,
+			'canvas_rotation' => 90,
+		];
+		$area_data = [
+			'bounds' => [ 'w' => 40, 'h' => 120, 'rotation' => 90 ],
+			'layers' => [ [ 'type' => 'image', 'x' => 0, 'y' => 0, 'w' => 40, 'h' => 120 ] ],
+		];
+
+		[ $flat_area, $w_mm, $h_mm ] = OC_Print_Base_Testable::test_normalise_rotated_artboard_for_print( $area, $area_data );
+
+		$this->assertSame( 120.0, $w_mm );
+		$this->assertSame( 40.0, $h_mm );
+		$this->assertSame( 120.0, $flat_area->canvas_w );
+		$this->assertSame( 40.0, $flat_area->canvas_h );
+		$this->assertSame( 0, $flat_area->canvas_rotation );
 	}
 
 	// ── build_filename ────────────────────────────────────────────────────

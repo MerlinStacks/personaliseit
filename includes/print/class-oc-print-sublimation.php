@@ -30,7 +30,7 @@ class OC_Print_Sublimation extends OC_Print_Base {
 	): string {
 		self::require_tcpdf();
 
-		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
+		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
 		$bleed = (float) OC_Admin_Settings::get( 'bleed_mm' ) ?: 3.0;
 
 		$methods_settings = get_option( 'oc_print_methods', [] );

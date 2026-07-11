@@ -93,9 +93,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		$font_px_to_pt = self::mm_to_pt( $area_h_mm ) / $bounds_h;
-		$area_rotation = self::normalise_rotation( (float) ( $area->canvas_rotation ?? $bounds['rotation'] ?? 0 ) );
-		$area_center_x = $area_x + $bounds_w / 2;
-		$area_center_y = $area_y + $bounds_h / 2;
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
 		$artwork_used   = false;
@@ -117,10 +114,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
-			if ( 0.0 !== $area_rotation ) {
-				[ $center_x, $center_y ] = self::rotate_point( $center_x, $center_y, $area_center_x, $area_center_y, $area_rotation );
-			}
-			$rotation = self::normalise_rotation( self::layer_rotation( $layer, $input, $settings ) + $area_rotation );
+			$rotation = self::layer_rotation( $layer, $input, $settings );
 
 			$center_x_mm = ( ( $center_x - $area_x ) / $bounds_w ) * $area_w_mm;
 			$center_y_mm = ( ( $center_y - $area_y ) / $bounds_h ) * $area_h_mm;
@@ -2227,18 +2221,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function normalise_rotation( float $rotation ): float {
 		$rotation = fmod( $rotation, 360.0 );
 		return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
-	}
-
-	/** @return array{0:float,1:float} */
-	private static function rotate_point( float $x, float $y, float $center_x, float $center_y, float $rotation ): array {
-		$rad = deg2rad( $rotation );
-		$dx  = $x - $center_x;
-		$dy  = $y - $center_y;
-
-		return [
-			$center_x + $dx * cos( $rad ) - $dy * sin( $rad ),
-			$center_y + $dx * sin( $rad ) + $dy * cos( $rad ),
-		];
 	}
 
 	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {
