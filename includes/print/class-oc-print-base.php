@@ -574,6 +574,18 @@ abstract class OC_Print_Base {
 			define( 'K_PATH_CACHE', $cache_dir );
 		}
 
+		if ( ! defined( 'K_ALLOWED_PATHS' ) ) {
+			$upload_dir = wp_upload_dir();
+			define(
+				'K_ALLOWED_PATHS',
+				[
+					$upload_dir['basedir'],
+					trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts',
+					trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-cache',
+				]
+			);
+		}
+
 		if ( ! defined( 'K_PATH_FONTS' ) ) {
 			define( 'K_PATH_FONTS', OC_PATH . 'vendor/tecnickcom/tc-lib-pdf-font/target/fonts' );
 		}
@@ -605,7 +617,29 @@ abstract class OC_Print_Base {
 		$page_w = $w_mm + $bleed * 2;
 		$page_h = $h_mm + $bleed * 2;
 
-		$pdf = new \TCPDF( 'P', 'mm', [ $page_w, $page_h ], true, 'UTF-8' );
+		$pdf = new class( 'P', 'mm', [ $page_w, $page_h ], true, 'UTF-8' ) extends \TCPDF {
+			/** Include WordPress uploads in TCPDF 7's local file allowlist. */
+			protected function fileAllowedPaths(): array {
+				$paths      = parent::fileAllowedPaths();
+				$upload_dir = wp_upload_dir();
+
+				if ( empty( $upload_dir['error'] ) ) {
+					$paths[] = $upload_dir['basedir'];
+					$paths[] = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts';
+					$paths[] = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-cache';
+				}
+
+				$allowed = [];
+				foreach ( $paths as $path ) {
+					if ( is_string( $path ) && '' !== $path ) {
+						$real = realpath( $path );
+						$allowed[] = false !== $real ? $real : $path;
+					}
+				}
+
+				return array_values( array_unique( $allowed ) );
+			}
+		};
 		$pdf->SetCreator( 'OverCustomise' );
 		$pdf->SetAuthor( 'Custom Kings' );
 		$pdf->SetMargins( $bleed, $bleed, $bleed );
