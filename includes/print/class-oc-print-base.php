@@ -617,7 +617,8 @@ abstract class OC_Print_Base {
 		$page_w = $w_mm + $bleed * 2;
 		$page_h = $h_mm + $bleed * 2;
 
-		$pdf = new class( 'P', 'mm', [ $page_w, $page_h ], true, 'UTF-8' ) extends \TCPDF {
+		$orientation = $page_w > $page_h ? 'L' : 'P';
+		$pdf = new class( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8' ) extends \TCPDF {
 			/** Include WordPress uploads in TCPDF 7's local file allowlist. */
 			protected function fileAllowedPaths(): array {
 				$paths      = parent::fileAllowedPaths();
@@ -915,7 +916,7 @@ abstract class OC_Print_Base {
 		}
 
 		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
-		$rotation = abs( fmod( (float) ( $area->canvas_rotation ?? $bounds['rotation'] ?? 0 ), 180.0 ) );
+		$rotation = abs( fmod( (float) ( $bounds['rotation'] ?? $area->canvas_rotation ?? 0 ), 180.0 ) );
 		if ( abs( $rotation - 90.0 ) >= 0.001 ) {
 			return [ $area, $w_mm, $h_mm ];
 		}

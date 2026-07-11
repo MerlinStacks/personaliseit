@@ -70,6 +70,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_normalise_rotated_artboard_for_print( object $area, array $area_data ): array {
 		return self::normalise_rotated_artboard_for_print( $area, $area_data );
 	}
+
+	public static function test_make_pdf( float $w_mm, float $h_mm, float $bleed = 0.0 ): \TCPDF {
+		return self::make_pdf( $w_mm, $h_mm, $bleed );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -208,6 +212,26 @@ class Test_Print_Base extends TestCase {
 		$this->assertSame( 120.0, $flat_area->canvas_w );
 		$this->assertSame( 40.0, $flat_area->canvas_h );
 		$this->assertSame( 0, $flat_area->canvas_rotation );
+	}
+
+	#[Test]
+	public function make_pdf_preserves_landscape_artboard_orientation(): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+
+		try {
+			$pdf = OC_Print_Base_Testable::test_make_pdf( 120.0, 40.0, 3.0 );
+		} catch ( \RuntimeException $e ) {
+			if ( str_contains( $e->getMessage(), 'TCPDF font assets are missing' ) ) {
+				$this->markTestSkipped( $e->getMessage() );
+			}
+			throw $e;
+		}
+
+		$this->assertGreaterThan( $pdf->getPageHeight(), $pdf->getPageWidth() );
+		$this->assertEqualsWithDelta( 126.0, $pdf->getPageWidth(), 0.001 );
+		$this->assertEqualsWithDelta( 46.0, $pdf->getPageHeight(), 0.001 );
 	}
 
 	// ── build_filename ────────────────────────────────────────────────────
