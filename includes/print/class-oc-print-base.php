@@ -258,22 +258,67 @@ abstract class OC_Print_Base {
 			return '';
 		}
 
-		if ( ! class_exists( '\TCPDF_FONTS' ) ) {
-			OC_Logger::warning( 'TCPDF font registration skipped for ' . basename( $font_path ) . ': TCPDF_FONTS helper is not available in this TCPDF build.' );
-			return '';
-		}
-
 		try {
 			$upload_dir = wp_upload_dir();
 			$font_dir   = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts/';
 			wp_mkdir_p( $font_dir );
 
-			$name = \TCPDF_FONTS::addTTFfont( $font_path, 'TrueTypeUnicode', '', 96, $font_dir );
-			return is_string( $name ) ? $name : '';
+			if ( class_exists( '\TCPDF_FONTS' ) ) {
+				$name = \TCPDF_FONTS::addTTFfont( $font_path, 'TrueTypeUnicode', '', 96, $font_dir );
+				return is_string( $name ) ? $name : '';
+			}
+
+			if ( class_exists( '\Com\Tecnick\Pdf\Font\Import' ) ) {
+				return self::register_tc_lib_pdf_font( $font_path, $font_dir );
+			}
+
+			OC_Logger::warning( 'TCPDF font registration skipped for ' . basename( $font_path ) . ': no compatible TCPDF font importer is available.' );
+			return '';
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'TCPDF font registration failed for ' . basename( $font_path ) . ': ' . $e->getMessage() );
 			return '';
 		}
+	}
+
+	/** Register a font using the TCPDF v7 tc-lib-pdf-font importer. */
+	protected static function register_tc_lib_pdf_font( string $font_path, string $font_dir ): string {
+		$font_dir  = trailingslashit( $font_dir );
+		$font_name = self::tc_lib_pdf_font_name( $font_path );
+		if ( '' !== $font_name && file_exists( $font_dir . $font_name . '.json' ) ) {
+			return $font_name;
+		}
+
+		try {
+			$import = new \Com\Tecnick\Pdf\Font\Import(
+				$font_path,
+				$font_dir,
+				'TrueTypeUnicode',
+				'',
+				32,
+				3,
+				1,
+				false
+			);
+
+			return $import->getFontName();
+		} catch ( \Throwable $e ) {
+			if ( preg_match( '/([a-z0-9_\-]+)\.json$/i', $e->getMessage(), $match ) ) {
+				return strtolower( (string) $match[1] );
+			}
+
+			throw $e;
+		}
+	}
+
+	/** Match tc-lib-pdf-font's generated family name for cache lookups. */
+	protected static function tc_lib_pdf_font_name( string $font_path ): string {
+		$name = strtolower( (string) pathinfo( $font_path, PATHINFO_FILENAME ) );
+		$name = preg_replace( '/[^a-z0-9_]/', '', $name );
+		if ( ! is_string( $name ) || '' === $name ) {
+			return '';
+		}
+
+		return str_replace( [ 'bold', 'oblique', 'italic', 'regular' ], [ 'b', 'i', 'i', '' ], $name );
 	}
 
 	/** Write a TCPDF instance to an exact file path across TCPDF wrapper versions. */
@@ -609,6 +654,11 @@ abstract class OC_Print_Base {
 	protected static function tcpdf_font_definition_path( string $font_path, string $font_name ): string {
 		$upload_dir = wp_upload_dir();
 		$font_dir   = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts/';
+		$json_file  = $font_dir . $font_name . '.json';
+		if ( file_exists( $json_file ) ) {
+			return $json_file;
+		}
+
 		$font_file  = $font_dir . $font_name . '.php';
 
 		return file_exists( $font_file ) ? $font_file : '';
