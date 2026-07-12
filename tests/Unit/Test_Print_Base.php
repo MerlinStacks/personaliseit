@@ -234,6 +234,30 @@ class Test_Print_Base extends TestCase {
 		$this->assertEqualsWithDelta( 46.0, $pdf->getPageHeight(), 0.001 );
 	}
 
+	#[Test]
+	public function viewbox_only_svg_gets_intrinsic_size_for_tcpdf_vector_rendering(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-svg-' );
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 256"><path d="M0 0h512v256H0z"/></svg>' );
+
+		$method = new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_intrinsic_size_for_tcpdf' );
+		$method->setAccessible( true );
+
+		try {
+			$normalised = $method->invoke( null, $path );
+
+			$this->assertIsString( $normalised );
+			$this->assertFileExists( $normalised );
+			$svg = file_get_contents( $normalised );
+			$this->assertStringContainsString( 'width="512.0000"', $svg );
+			$this->assertStringContainsString( 'height="256.0000"', $svg );
+		} finally {
+			@unlink( $path );
+			if ( isset( $normalised ) && is_string( $normalised ) ) {
+				@unlink( $normalised );
+			}
+		}
+	}
+
 	// ── build_filename ────────────────────────────────────────────────────
 
 	#[Test]

@@ -373,8 +373,11 @@ abstract class OC_Print_Base {
 
 	/** Embed SVG artwork with TCPDF's SVG renderer instead of the raster image importer. */
 	private static function draw_pdf_svg( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		$vector_path = self::normalise_svg_intrinsic_size_for_tcpdf( $path );
+		$svg_path    = is_string( $vector_path ) && '' !== $vector_path ? $vector_path : $path;
+
 		try {
-			$pdf->ImageSVG( $path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+			$pdf->ImageSVG( $svg_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
 		} catch ( \Throwable $e ) {
 			$fallback_path = self::normalise_svg_for_tcpdf( $path );
 			if ( ! is_string( $fallback_path ) || '' === $fallback_path ) {
@@ -387,7 +390,69 @@ abstract class OC_Print_Base {
 			} finally {
 				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
+		} finally {
+			if ( is_string( $vector_path ) && '' !== $vector_path && file_exists( $vector_path ) ) {
+				@unlink( $vector_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
 		}
+	}
+
+	/** Add explicit SVG width/height from viewBox so TCPDF can keep vector artwork. */
+	private static function normalise_svg_intrinsic_size_for_tcpdf( string $path ): ?string {
+		if ( ! class_exists( '\DOMDocument' ) || ! is_readable( $path ) ) {
+			return null;
+		}
+
+		$dom = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded = $dom->load( $path, LIBXML_NONET );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		if ( ! $loaded || ! $dom->documentElement instanceof \DOMElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return null;
+		}
+
+		$svg = $dom->documentElement;
+		if ( self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'width' ) ) && self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'height' ) ) ) {
+			return null;
+		}
+
+		$view_box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
+		if ( ! is_array( $view_box ) || count( $view_box ) < 4 ) {
+			return null;
+		}
+
+		$width  = (float) $view_box[2];
+		$height = (float) $view_box[3];
+		if ( $width <= 0.0 || $height <= 0.0 ) {
+			return null;
+		}
+
+		$svg->setAttribute( 'width', sprintf( '%.4F', $width ) );
+		$svg->setAttribute( 'height', sprintf( '%.4F', $height ) );
+
+		$temp = self::temp_path( 'oc-tcpdf-vector-svg-' . wp_generate_uuid4() . '.svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return null;
+		}
+
+		if ( false === $dom->save( $temp ) ) {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $temp;
+	}
+
+	/** Check whether TCPDF's SVG size regex/unit parser will see a positive intrinsic size. */
+	private static function tcpdf_svg_length_is_positive( string $value ): bool {
+		$value = trim( $value );
+		if ( '' === $value || str_contains( $value, '%' ) ) {
+			return false;
+		}
+
+		return preg_match( '/^[+]?(?:\d+\.?\d*|\.\d+)(?:px|pt|pc|mm|cm|in)?$/i', $value ) && (float) $value > 0.0;
 	}
 
 	/** Convert SVG artwork to PNG when TCPDF's vector SVG renderer cannot handle it. */
