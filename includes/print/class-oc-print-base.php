@@ -371,22 +371,32 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	/** Embed SVG artwork with TCPDF's SVG renderer instead of the raster image importer. */
+	/** Embed SVG artwork using a print-resolution raster fallback when TCPDF cannot render it faithfully. */
 	private static function draw_pdf_svg( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		$fallback_path = self::normalise_svg_for_tcpdf( $path, $w_mm, $h_mm );
+		if ( is_string( $fallback_path ) && '' !== $fallback_path ) {
+			try {
+				$pdf->Image( $fallback_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 600 );
+			} finally {
+				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			return;
+		}
+
 		$vector_path = self::normalise_svg_intrinsic_size_for_tcpdf( $path );
 		$svg_path    = is_string( $vector_path ) && '' !== $vector_path ? $vector_path : $path;
 
 		try {
 			$pdf->ImageSVG( $svg_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
 		} catch ( \Throwable $e ) {
-			$fallback_path = self::normalise_svg_for_tcpdf( $path );
+			$fallback_path = self::normalise_svg_for_tcpdf( $path, $w_mm, $h_mm );
 			if ( ! is_string( $fallback_path ) || '' === $fallback_path ) {
 				throw $e;
 			}
 
 			try {
-				OC_Logger::warning( 'TCPDF could not render SVG artwork directly, retrying normalised PNG: ' . basename( $path ) . ' (' . $e->getMessage() . ')' );
-				$pdf->Image( $fallback_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 300 );
+				OC_Logger::warning( 'TCPDF could not render SVG artwork directly, retrying print-resolution PNG: ' . basename( $path ) . ' (' . $e->getMessage() . ')' );
+				$pdf->Image( $fallback_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 600 );
 			} finally {
 				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			}
@@ -479,8 +489,8 @@ abstract class OC_Print_Base {
 		return preg_match( '/^[+]?(?:\d+\.?\d*|\.\d+)(?:px|pt|pc|mm|cm|in)?$/i', $value ) && (float) $value > 0.0;
 	}
 
-	/** Convert SVG artwork to PNG when TCPDF's vector SVG renderer cannot handle it. */
-	private static function normalise_svg_for_tcpdf( string $path ): ?string {
+	/** Convert SVG artwork to a transparent PNG at the final print size. */
+	private static function normalise_svg_for_tcpdf( string $path, float $w_mm = 0.0, float $h_mm = 0.0 ): ?string {
 		if ( ! class_exists( '\Imagick' ) ) {
 			return null;
 		}
@@ -490,12 +500,40 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		if ( self::convert_image_with_imagick( $path, $temp ) ) {
+		if ( self::convert_svg_with_imagick( $path, $temp, $w_mm, $h_mm ) ) {
 			return $temp;
 		}
 
 		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		return null;
+	}
+
+	/** Rasterise an SVG with enough pixels for the placed PDF dimensions. */
+	private static function convert_svg_with_imagick( string $path, string $output_path, float $w_mm, float $h_mm ): bool {
+		if ( ! class_exists( '\Imagick' ) ) {
+			return false;
+		}
+
+		$dpi       = 600;
+		$width_px  = max( 1, min( 12000, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ) );
+		$height_px = max( 1, min( 12000, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) ) );
+
+		try {
+			$imagick = new \Imagick();
+			$imagick->setResolution( $dpi, $dpi );
+			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
+			$imagick->readImage( $path );
+			$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
+			$imagick->setImageFormat( 'png32' );
+			$imagick->resizeImage( $width_px, $height_px, \Imagick::FILTER_LANCZOS, 1, false );
+			$result = $imagick->writeImage( $output_path );
+			$imagick->clear();
+			$imagick->destroy();
+			return (bool) $result;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'SVG to print-resolution PNG conversion failed for print artwork: ' . $e->getMessage() );
+			return false;
+		}
 	}
 
 	/** TCPDF does not reliably import WEBP, so create a temporary PNG copy first. */
