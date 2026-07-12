@@ -403,6 +403,11 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
+		$data = file_get_contents( $path );
+		if ( is_string( $data ) && self::tcpdf_svg_markup_has_positive_intrinsic_size( $data ) ) {
+			return null;
+		}
+
 		$dom = new \DOMDocument();
 		$previous = libxml_use_internal_errors( true );
 		$loaded = $dom->load( $path, LIBXML_NONET );
@@ -414,17 +419,19 @@ abstract class OC_Print_Base {
 		}
 
 		$svg = $dom->documentElement;
-		if ( self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'width' ) ) && self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'height' ) ) ) {
-			return null;
+		$width  = self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'width' ) ) ? (float) $svg->getAttribute( 'width' ) : 0.0;
+		$height = self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'height' ) ) ? (float) $svg->getAttribute( 'height' ) : 0.0;
+
+		if ( $width <= 0.0 || $height <= 0.0 ) {
+			$view_box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
+			if ( ! is_array( $view_box ) || count( $view_box ) < 4 ) {
+				return null;
+			}
+
+			$width  = (float) $view_box[2];
+			$height = (float) $view_box[3];
 		}
 
-		$view_box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
-		if ( ! is_array( $view_box ) || count( $view_box ) < 4 ) {
-			return null;
-		}
-
-		$width  = (float) $view_box[2];
-		$height = (float) $view_box[3];
 		if ( $width <= 0.0 || $height <= 0.0 ) {
 			return null;
 		}
@@ -443,6 +450,23 @@ abstract class OC_Print_Base {
 		}
 
 		return $temp;
+	}
+
+	/** Check whether the raw SVG root already matches TCPDF's strict double-quoted size parser. */
+	private static function tcpdf_svg_markup_has_positive_intrinsic_size( string $data ): bool {
+		$matches = [];
+		if ( ! preg_match( '/<svg([^>]*)>/si', $data, $matches ) || empty( $matches[1] ) ) {
+			return false;
+		}
+
+		$attrs = $matches[1];
+		$width = [];
+		$height = [];
+		return preg_match( '/[\s]+width[\s]*=[\s]*"([^"]*)"/si', $attrs, $width )
+			&& preg_match( '/[\s]+height[\s]*=[\s]*"([^"]*)"/si', $attrs, $height )
+			&& isset( $width[1], $height[1] )
+			&& self::tcpdf_svg_length_is_positive( $width[1] )
+			&& self::tcpdf_svg_length_is_positive( $height[1] );
 	}
 
 	/** Check whether TCPDF's SVG size regex/unit parser will see a positive intrinsic size. */
