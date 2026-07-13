@@ -360,8 +360,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return null;
 		}
 
+		$previous_gid = null;
 		foreach ( $codepoints as $codepoint ) {
-			$gid      = self::ttf_glyph_id( $font, $codepoint );
+			$gid = self::ttf_glyph_id( $font, $codepoint );
+			if ( null !== $previous_gid ) {
+				$x_offset += self::ttf_glyph_kerning( $font, $previous_gid, $gid ) * $scale;
+			}
 			$contours = self::ttf_glyph_contours( $font, $gid );
 			foreach ( $contours as $contour ) {
 				foreach ( $contour as $point ) {
@@ -372,6 +376,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 
 			$x_offset += self::ttf_glyph_advance( $font, $gid ) * $scale;
+			$previous_gid = $gid;
 		}
 
 		return [
@@ -546,6 +551,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'num_h_metrics'  => max( 1, $num_h_metrics ),
 			'glyph_offsets'  => $glyph_offsets,
 			'cmap'           => $cmap,
+			'kern'           => ! empty( $tables['kern'] ) ? self::ttf_parse_kern( $data, (int) $tables['kern']['offset'], (int) $tables['kern']['length'] ) : [],
 		];
 
 		self::$ttf_outline_cache[ $cache_key ] = $font;
@@ -594,6 +600,47 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return [ 'format' => 12, 'groups' => $groups ];
+	}
+
+	/** Parse classic TrueType kerning pairs. OpenType GPOS kerning is intentionally out of scope. */
+	private static function ttf_parse_kern( string $data, int $offset, int $length ): array {
+		if ( $length < 18 || strlen( $data ) < $offset + $length ) {
+			return [];
+		}
+
+		$end      = $offset + $length;
+		$version  = self::ttf_u16( $data, $offset );
+		$num_tabs = self::ttf_u16( $data, $offset + 2 );
+		if ( 0 !== $version || $num_tabs < 1 ) {
+			return [];
+		}
+
+		$pairs = [];
+		$pos   = $offset + 4;
+		for ( $table = 0; $table < $num_tabs && $pos + 14 <= $end; $table++ ) {
+			$sub_length = self::ttf_u16( $data, $pos + 2 );
+			$coverage   = self::ttf_u16( $data, $pos + 4 );
+			$format     = ( $coverage >> 8 ) & 0xFF;
+			if ( 0 !== $format || $sub_length < 14 || $pos + $sub_length > $end ) {
+				$pos += max( 6, $sub_length );
+				continue;
+			}
+
+			$n_pairs = self::ttf_u16( $data, $pos + 6 );
+			$record  = $pos + 14;
+			for ( $i = 0; $i < $n_pairs && $record + 6 <= $pos + $sub_length; $i++, $record += 6 ) {
+				$left  = self::ttf_u16( $data, $record );
+				$right = self::ttf_u16( $data, $record + 2 );
+				$value = self::ttf_i16( $data, $record + 4 );
+				if ( 0 !== $value ) {
+					$pairs[ $left . ':' . $right ] = $value;
+				}
+			}
+
+			$pos += $sub_length;
+		}
+
+		return $pairs;
 	}
 
 	/** Parse a cmap format 4 subtable. */
@@ -678,6 +725,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$metric_index  = min( max( 0, $gid ), $num_h_metrics - 1 );
 
 		return self::ttf_u16( $data, $hmtx_offset + $metric_index * 4 );
+	}
+
+	private static function ttf_glyph_kerning( array $font, int $left_gid, int $right_gid ): int {
+		$kern = is_array( $font['kern'] ?? null ) ? $font['kern'] : [];
+		return (int) ( $kern[ $left_gid . ':' . $right_gid ] ?? 0 );
 	}
 
 	/** Return glyph contours in font units, resolving simple composite glyphs. */

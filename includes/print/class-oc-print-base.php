@@ -237,6 +237,9 @@ abstract class OC_Print_Base {
 
 		if ( 'otf' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && self::is_cff_opentype( $real ) ) {
 			$print_font = self::get_print_companion_font_path( $real );
+			if ( ! $print_font ) {
+				$print_font = self::get_print_variant_font_path( $font );
+			}
 			if ( $print_font ) {
 				return $print_font;
 			}
@@ -248,6 +251,9 @@ abstract class OC_Print_Base {
 		if ( 'woff' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && class_exists( 'OC_WOFF_Converter' ) ) {
 			if ( self::is_cff_woff( $real ) ) {
 				$print_font = self::get_print_companion_font_path( $real );
+				if ( ! $print_font ) {
+					$print_font = self::get_print_variant_font_path( $font );
+				}
 				if ( $print_font ) {
 					return $print_font;
 				}
@@ -286,6 +292,34 @@ abstract class OC_Print_Base {
 			$real = realpath( $candidate );
 			if ( $real && is_readable( $real ) && self::is_truetype_outline_font( $real ) ) {
 				return $real;
+			}
+		}
+
+		return null;
+	}
+
+	/** Find another active DB font row for the same family that already points to a print-safe TTF. */
+	protected static function get_print_variant_font_path( object $font ): ?string {
+		$name = trim( (string) ( $font->name ?? '' ) );
+		$id   = (int) ( $font->id ?? 0 );
+		if ( '' === $name || $id <= 0 ) {
+			return null;
+		}
+
+		global $wpdb;
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE name = %s AND id <> %d AND active = 1 ORDER BY id DESC",
+			$name,
+			$id
+		) );
+		if ( ! is_array( $rows ) ) {
+			return null;
+		}
+
+		foreach ( $rows as $row ) {
+			$path = self::get_raw_font_path( $row );
+			if ( is_string( $path ) && '' !== $path && self::is_truetype_outline_font( $path ) ) {
+				return $path;
 			}
 		}
 
@@ -1433,7 +1467,7 @@ abstract class OC_Print_Base {
 		$path_y    = (float) $bbox[3] * $fit_scale + $pad;
 
 		$svg = sprintf(
-			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000" fill-rule="evenodd" clip-rule="evenodd"/></g></svg>',
+			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000" fill-rule="nonzero" clip-rule="nonzero"/></g></svg>',
 			$draw_w,
 			$draw_h,
 			$draw_w,

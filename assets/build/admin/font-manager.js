@@ -19465,6 +19465,14 @@ __webpack_require__.r(__webpack_exports__);
       fonts.push(font);
       addCardToGrid(font);
       updateFontsCount();
+      if (font.canPrintConvert && ['OTF', 'WOFF'].includes(String(font.ext || '').toUpperCase())) {
+        submitBtn.textContent = 'Preparing print font...';
+        try {
+          await convertFontInBrowser(font, false);
+        } catch (convertErr) {
+          console.warn('[OC] Automatic print font conversion failed:', convertErr);
+        }
+      }
       closeUploadModal();
 
       // If detail panel is open for this family, refresh it.
@@ -19639,7 +19647,7 @@ __webpack_require__.r(__webpack_exports__);
       }
     }
   }
-  async function convertFontInBrowser(font) {
+  async function convertFontInBrowser(font, showSuccess = true) {
     const response = await fetch(font.url, {
       credentials: 'same-origin',
       cache: 'no-store'
@@ -19674,15 +19682,17 @@ __webpack_require__.r(__webpack_exports__);
     if (!json.success) {
       throw new Error(json.data?.message || 'Browser conversion failed.');
     }
-    applyConvertedFont(json.data);
+    applyConvertedFont(json.data, showSuccess);
   }
-  function applyConvertedFont(updated) {
+  function applyConvertedFont(updated, showSuccess = true) {
     fonts = fonts.map(f => Number(f.id) === Number(updated.id) ? updated : f);
     replaceFontCard(updated);
     if (detailFontName === updated.name) {
       renderDetailVariants(updated.name);
     }
-    window.alert('Font converted for print. Existing designs will keep using this font.');
+    if (showSuccess) {
+      window.alert('Font converted for print. Existing designs will keep using this font.');
+    }
   }
   function safeFilename(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');
