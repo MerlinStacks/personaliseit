@@ -205,7 +205,7 @@ abstract class OC_Print_Base {
 	}
 
 	/** Return the absolute path to a font file, or null if not accessible. */
-	protected static function get_font_path( object $font ): ?string {
+	protected static function get_raw_font_path( object $font ): ?string {
 		// Validate font path doesn't contain directory traversal.
 		$file_path = ltrim( (string) ( $font->file_path ?? '' ), '/' );
 		if ( '' === $file_path || str_contains( $file_path, '..' ) ) {
@@ -222,6 +222,16 @@ abstract class OC_Print_Base {
 		}
 		
 		if ( ! file_exists( $real ) ) {
+			return null;
+		}
+
+		return $real;
+	}
+
+	/** Return the absolute path to a print-compatible TrueType-outline font file, or null. */
+	protected static function get_font_path( object $font ): ?string {
+		$real = self::get_raw_font_path( $font );
+		if ( ! $real ) {
 			return null;
 		}
 
@@ -1209,6 +1219,8 @@ abstract class OC_Print_Base {
 			$textarea_wraps = str_contains( $text, "\n" ) || (int) $pdf->getNumLines( $text, $w_mm ) > 1;
 		}
 
+		$raw_font_path = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
+
 		if ( 'engraving' === $mode && is_object( $font ) ) {
 			$font_path = self::get_font_path( $font );
 			if ( is_string( $font_path ) && '' !== $font_path ) {
@@ -1222,6 +1234,10 @@ abstract class OC_Print_Base {
 			}
 		}
 
+		if ( 'engraving' === $mode && is_string( $raw_font_path ) && '' !== $raw_font_path && self::render_engraving_text_raster( $pdf, $text, $raw_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
+			return;
+		}
+
 		$pdf->SetFont( $font_name, '', $font_size );
 		if ( 'engraving' === $mode ) {
 			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
@@ -1232,6 +1248,79 @@ abstract class OC_Print_Base {
 
 		$cell_h = self::cell_h( $font_size );
 		self::draw_clipped_text_cell( $pdf, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $text, $cell_h, $align, $valign, $is_textarea );
+	}
+
+	private static function render_engraving_text_raster( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign ): bool {
+		if ( ! class_exists( '\Imagick' ) || ! class_exists( '\ImagickDraw' ) || ! is_readable( $font_path ) ) {
+			return false;
+		}
+
+		$dpi       = 600;
+		$width_px  = max( 1, min( 12000, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ) );
+		$height_px = max( 1, min( 12000, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) ) );
+		$temp      = self::temp_path_with_extension( 'oc-engraving-text-raster-' . wp_generate_uuid4() . '.png', 'png' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return false;
+		}
+
+		try {
+			$image = new \Imagick();
+			$image->newImage( $width_px, $height_px, new \ImagickPixel( 'transparent' ), 'png' );
+			$image->setImageFormat( 'png32' );
+
+			$draw = new \ImagickDraw();
+			$draw->setFont( $font_path );
+			$draw->setFontSize( max( 1.0, $font_size * $dpi / 72 ) );
+			$draw->setFillColor( new \ImagickPixel( 'black' ) );
+			$draw->setTextAntialias( true );
+			$draw->setTextAlignment( match ( $align ) {
+				'L' => \Imagick::ALIGN_LEFT,
+				'R' => \Imagick::ALIGN_RIGHT,
+				default => \Imagick::ALIGN_CENTER,
+			} );
+			$draw->setGravity( self::imagick_text_gravity( $align, $valign ) );
+			$image->annotateImage( $draw, 0, 0, 0, $text );
+
+			if ( ! $image->writeImage( $temp ) ) {
+				return false;
+			}
+
+			$pdf->Image( $temp, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, $dpi );
+			return true;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Engraving text raster font render failed for ' . basename( $font_path ) . ': ' . $e->getMessage() );
+			return false;
+		} finally {
+			if ( isset( $draw ) && $draw instanceof \ImagickDraw ) {
+				$draw->clear();
+				$draw->destroy();
+			}
+			if ( isset( $image ) && $image instanceof \Imagick ) {
+				$image->clear();
+				$image->destroy();
+			}
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
+	private static function imagick_text_gravity( string $align, string $valign ): int {
+		return match ( $valign ) {
+			'T' => match ( $align ) {
+				'L' => \Imagick::GRAVITY_NORTHWEST,
+				'R' => \Imagick::GRAVITY_NORTHEAST,
+				default => \Imagick::GRAVITY_NORTH,
+			},
+			'B' => match ( $align ) {
+				'L' => \Imagick::GRAVITY_SOUTHWEST,
+				'R' => \Imagick::GRAVITY_SOUTHEAST,
+				default => \Imagick::GRAVITY_SOUTH,
+			},
+			default => match ( $align ) {
+				'L' => \Imagick::GRAVITY_WEST,
+				'R' => \Imagick::GRAVITY_EAST,
+				default => \Imagick::GRAVITY_CENTER,
+			},
+		};
 	}
 
 	protected static function single_line_anchor_pad_mm( float $layer_w_px, float $w_mm ): float {
