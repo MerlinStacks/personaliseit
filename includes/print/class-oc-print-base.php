@@ -1170,9 +1170,11 @@ abstract class OC_Print_Base {
 			$text = self::normalise_engraving_text( $text );
 		}
 
-		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
-		$font      = $font_id ? self::get_font( $font_id ) : null;
-		$font_name = self::resolve_font( $font_id, $pdf );
+		$font_id             = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+		$font                = $font_id ? self::get_font( $font_id ) : null;
+		$font_name           = self::resolve_font( $font_id, $pdf );
+		$raw_font_path       = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
+		$engraving_font_path = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
 		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : 72 / self::CANVAS_DPI;
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? max( 4.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_px_to_pt )
@@ -1196,7 +1198,10 @@ abstract class OC_Print_Base {
 
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			if ( self::text_fits_box( $pdf, $text, $draw_w_mm, $h_mm, $font_size, $is_textarea ) ) {
+			$fits = is_string( $engraving_font_path ) && '' !== $engraving_font_path && $is_textarea
+				? self::engraving_outline_text_fits_box( $text, $engraving_font_path, $draw_w_mm, $h_mm, $font_size )
+				: self::text_fits_box( $pdf, $text, $draw_w_mm, $h_mm, $font_size, $is_textarea );
+			if ( $fits ) {
 				break;
 			}
 			$font_size -= 0.5;
@@ -1216,21 +1221,18 @@ abstract class OC_Print_Base {
 		$textarea_wraps = false;
 		if ( $is_textarea ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			$textarea_wraps = str_contains( $text, "\n" ) || (int) $pdf->getNumLines( $text, $w_mm ) > 1;
+			$textarea_wraps = str_contains( $text, "\n" ) || ( is_string( $engraving_font_path ) && '' !== $engraving_font_path
+				? count( self::wrap_engraving_outline_lines( $text, $engraving_font_path, $font_size, self::mm_to_pt_value( $draw_w_mm ) ) ) > 1
+				: (int) $pdf->getNumLines( $text, $w_mm ) > 1 );
 		}
 
-		$raw_font_path = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
+		if ( 'engraving' === $mode && is_string( $engraving_font_path ) && '' !== $engraving_font_path ) {
+			if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
+				return;
+			}
 
-		if ( 'engraving' === $mode && is_object( $font ) ) {
-			$font_path = self::get_font_path( $font );
-			if ( is_string( $font_path ) && '' !== $font_path ) {
-				if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $text, $font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
-					return;
-				}
-
-				if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $text, $font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
-					return;
-				}
+			if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
+				return;
 			}
 		}
 
@@ -1327,6 +1329,15 @@ abstract class OC_Print_Base {
 		$anchor_pad_px = max( 2.0, min( 10.0, $layer_w_px * 0.01 ) );
 
 		return ( $anchor_pad_px / max( 1.0, $layer_w_px ) ) * $w_mm;
+	}
+
+	private static function engraving_outline_text_fits_box( string $text, string $font_path, float $w_mm, float $h_mm, float $font_size ): bool {
+		$lines = self::wrap_engraving_outline_lines( $text, $font_path, $font_size, self::mm_to_pt_value( $w_mm ) );
+		if ( empty( $lines ) ) {
+			return false;
+		}
+
+		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
