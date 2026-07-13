@@ -163,6 +163,31 @@ abstract class OC_Print_Base {
 		return tempnam( sys_get_temp_dir(), $filename ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_tempnam
 	}
 
+	/** Return a writable temporary path that keeps the requested extension for file-type detection. */
+	protected static function temp_path_with_extension( string $filename, string $extension ): string|false {
+		$temp = self::temp_path( $filename );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return false;
+		}
+
+		$extension = ltrim( strtolower( $extension ), '.' );
+		if ( '' === $extension || $extension === strtolower( pathinfo( $temp, PATHINFO_EXTENSION ) ) ) {
+			return $temp;
+		}
+
+		$typed_temp = $temp . '.' . $extension;
+		if ( file_exists( $typed_temp ) ) {
+			@unlink( $typed_temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+
+		if ( ! @rename( $temp, $typed_temp ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		return $typed_temp;
+	}
+
 	// -------------------------------------------------------------------------
 	// Font helpers
 	// -------------------------------------------------------------------------
@@ -449,7 +474,7 @@ abstract class OC_Print_Base {
 		$svg->setAttribute( 'width', sprintf( '%.4F', $width ) );
 		$svg->setAttribute( 'height', sprintf( '%.4F', $height ) );
 
-		$temp = self::temp_path( 'oc-tcpdf-vector-svg-' . wp_generate_uuid4() . '.svg' );
+		$temp = self::temp_path_with_extension( 'oc-tcpdf-vector-svg-' . wp_generate_uuid4() . '.svg', 'svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -495,7 +520,7 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$temp = self::temp_path( 'oc-tcpdf-svg-' . wp_generate_uuid4() . '.png' );
+		$temp = self::temp_path_with_extension( 'oc-tcpdf-svg-' . wp_generate_uuid4() . '.png', 'png' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -543,7 +568,7 @@ abstract class OC_Print_Base {
 			return $path;
 		}
 
-		$temp = self::temp_path( 'oc-tcpdf-webp-' . wp_generate_uuid4() . '.png' );
+		$temp = self::temp_path_with_extension( 'oc-tcpdf-webp-' . wp_generate_uuid4() . '.png', 'png' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return $path;
 		}
@@ -578,7 +603,7 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$temp = self::temp_path( 'oc-tcpdf-raster-' . wp_generate_uuid4() . '.png' );
+		$temp = self::temp_path_with_extension( 'oc-tcpdf-raster-' . wp_generate_uuid4() . '.png', 'png' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -1274,14 +1299,13 @@ abstract class OC_Print_Base {
 			htmlspecialchars( $d, ENT_QUOTES | ENT_XML1, 'UTF-8' )
 		);
 
-		$temp_base = self::temp_path( 'oc-engraving-text-outline-' . wp_generate_uuid4() . '.svg' );
-		if ( ! is_string( $temp_base ) || '' === $temp_base ) {
+		$temp = self::temp_path_with_extension( 'oc-engraving-text-outline-' . wp_generate_uuid4() . '.svg', 'svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
 			return false;
 		}
-		$temp = 'svg' === strtolower( pathinfo( $temp_base, PATHINFO_EXTENSION ) ) ? $temp_base : $temp_base . '.svg';
 
 		if ( false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
-			@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			return false;
 		}
 
@@ -1293,9 +1317,6 @@ abstract class OC_Print_Base {
 			return false;
 		} finally {
 			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			if ( $temp !== $temp_base ) {
-				@unlink( $temp_base ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			}
 		}
 	}
 
@@ -1519,7 +1540,7 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$temp = self::temp_path( 'oc-spotify-code-' . wp_generate_uuid4() . '.svg' );
+		$temp = self::temp_path_with_extension( 'oc-spotify-code-' . wp_generate_uuid4() . '.svg', 'svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -1655,7 +1676,7 @@ abstract class OC_Print_Base {
 		$dom->documentElement->setAttribute( 'fill', $hex );
 		self::force_svg_node_colour( $dom->documentElement, $hex );
 
-		$temp = self::temp_path( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg' );
+		$temp = self::temp_path_with_extension( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg', 'svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return null;
 		}
@@ -1746,7 +1767,7 @@ abstract class OC_Print_Base {
 		}
 		imagedestroy( $src );
 
-		$temp = self::temp_path( 'oc-black-clipart-' . wp_generate_uuid4() . '.png' );
+		$temp = self::temp_path_with_extension( 'oc-black-clipart-' . wp_generate_uuid4() . '.png', 'png' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			imagedestroy( $dst );
 			return null;

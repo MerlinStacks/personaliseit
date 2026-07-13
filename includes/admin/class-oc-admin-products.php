@@ -190,24 +190,31 @@ class OC_Admin_Products {
 
 	private function render_products_tab(): void {
 		wp_enqueue_media();
-		$current_page = $this->get_admin_page_number( 'product_page' );
-		$search       = $this->get_admin_search_term( 'product_search' );
+		$current_page      = $this->get_admin_page_number( 'product_page' );
+		$search            = $this->get_admin_search_term( 'product_search' );
+		$product_filter    = isset( $_GET['product_design_filter'] ) ? sanitize_key( wp_unslash( $_GET['product_design_filter'] ) ) : 'all';
+		$product_filter    = 'unassigned' === $product_filter ? 'unassigned' : 'all';
+		$is_unassigned_tab = 'unassigned' === $product_filter;
 
 		// Load active designs for the assignment dropdown.
 		$designs    = OC_DB::get_designs( true );
 		$assign_map = OC_DB::get_all_assignments();
 
 		// Load one page of published WC products.
-		$product_query = $this->get_paginated_products( $current_page, $search );
+		$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );
 		$wc_products   = $product_query->products;
 		$product_total = (int) $product_query->total;
 		$total_pages   = max( 1, (int) $product_query->max_num_pages );
 		if ( $current_page > $total_pages ) {
 			$current_page = $total_pages;
-			$product_query = $this->get_paginated_products( $current_page, $search );
+			$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );
 			$wc_products   = $product_query->products;
 			$product_total = (int) $product_query->total;
 		}
+		$pagination_args = [
+			'product_search'        => $search,
+			'product_design_filter' => $product_filter,
+		];
 
 		$nonce = wp_create_nonce( 'oc-products-nonce' );
 		?>
@@ -224,6 +231,7 @@ class OC_Admin_Products {
 				<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
 					<input type="hidden" name="page" value="overcustomise-products" />
 					<input type="hidden" name="tab" value="products" />
+					<input type="hidden" name="product_design_filter" value="<?php echo esc_attr( $product_filter ); ?>" />
 					<span style="font-size:12px;color:var(--oc-gray-400);">
 						<?php echo esc_html( $product_total ); ?> <?php echo esc_html( 1 === $product_total ? __( 'product', 'overcustomise' ) : __( 'products', 'overcustomise' ) ); ?>
 					</span>
@@ -231,16 +239,27 @@ class OC_Admin_Products {
 					       placeholder="<?php esc_attr_e( 'Filter all products…', 'overcustomise' ); ?>" />
 					<button type="submit" class="button"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></button>
 					<?php if ( '' !== $search ) : ?>
-						<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
+						<a class="button" href="<?php echo esc_url( add_query_arg( 'product_design_filter', $product_filter, admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
 					<?php endif; ?>
 				</form>
+			</div>
+
+			<div class="oc-tabs-bar" style="margin:0 18px 12px;">
+				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ); ?>"
+				   class="oc-tab<?php echo ! $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
+					<?php esc_html_e( 'All products', 'overcustomise' ); ?>
+				</a>
+				<a href="<?php echo esc_url( add_query_arg( 'product_design_filter', 'unassigned', admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"
+				   class="oc-tab<?php echo $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
+					<?php esc_html_e( 'Without designs', 'overcustomise' ); ?>
+				</a>
 			</div>
 
 			<?php if ( 0 === $product_total ) : ?>
 				<div class="oc-empty">
 					<span class="oc-empty-icon">🛍️</span>
-					<h3><?php echo '' !== $search ? esc_html__( 'No matching products found', 'overcustomise' ) : esc_html__( 'No products found', 'overcustomise' ); ?></h3>
-					<p><?php echo '' !== $search ? esc_html__( 'Try a different product name, SKU, or variant value.', 'overcustomise' ) : esc_html__( 'Publish some WooCommerce products first.', 'overcustomise' ); ?></p>
+					<h3><?php echo $is_unassigned_tab ? esc_html__( 'No products without designs', 'overcustomise' ) : ( '' !== $search ? esc_html__( 'No matching products found', 'overcustomise' ) : esc_html__( 'No products found', 'overcustomise' ) ); ?></h3>
+					<p><?php echo $is_unassigned_tab ? esc_html__( 'Every published simple or variable product currently has a design assignment.', 'overcustomise' ) : ( '' !== $search ? esc_html__( 'Try a different product name, SKU, or variant value.', 'overcustomise' ) : esc_html__( 'Publish some WooCommerce products first.', 'overcustomise' ) ); ?></p>
 				</div>
 			<?php elseif ( empty( $designs ) ) : ?>
 				<div class="oc-empty">
@@ -254,7 +273,7 @@ class OC_Admin_Products {
 					</p>
 				</div>
 			<?php else : ?>
-				<?php $this->render_pagination_controls( 'products', 'product_page', $current_page, $total_pages, $product_total, [ 'product_search' => $search ] ); ?>
+				<?php $this->render_pagination_controls( 'products', 'product_page', $current_page, $total_pages, $product_total, $pagination_args ); ?>
 				<div class="oc-table-wrap">
 					<table class="oc-table" id="oc-products-table">
 						<thead>
@@ -330,7 +349,7 @@ class OC_Admin_Products {
 						</tbody>
 					</table>
 				</div>
-				<?php $this->render_pagination_controls( 'products', 'product_page', $current_page, $total_pages, $product_total, [ 'product_search' => $search ] ); ?>
+				<?php $this->render_pagination_controls( 'products', 'product_page', $current_page, $total_pages, $product_total, $pagination_args ); ?>
 			<?php endif; ?>
 		</div>
 
@@ -548,10 +567,10 @@ class OC_Admin_Products {
 		<?php
 	}
 
-	private function get_paginated_products( int $page, string $search = '' ): object {
+	private function get_paginated_products( int $page, string $search = '', string $design_filter = 'all' ): object {
 		$search = trim( $search );
-		if ( '' !== $search ) {
-			return $this->get_paginated_products_by_search( $page, $search );
+		if ( '' !== $search || 'unassigned' === $design_filter ) {
+			return $this->get_paginated_products_by_query( $page, $search, $design_filter );
 		}
 
 		return wc_get_products( [
@@ -566,7 +585,7 @@ class OC_Admin_Products {
 		] );
 	}
 
-	private function get_paginated_products_by_search( int $page, string $search ): object {
+	private function get_paginated_products_by_query( int $page, string $search, string $design_filter = 'all' ): object {
 		global $wpdb;
 
 		$page     = max( 1, $page );
@@ -576,8 +595,7 @@ class OC_Admin_Products {
 		$where    = "p.post_type = 'product'
 			AND p.post_status = 'publish'
 			AND tt.taxonomy = 'product_type'
-			AND t.slug IN ('simple', 'variable')
-			AND (p.post_title LIKE %s OR sku.meta_value LIKE %s OR variation_sku.meta_value LIKE %s OR variation_meta.meta_value LIKE %s)";
+			AND t.slug IN ('simple', 'variable')";
 		$join     = "INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
 			INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
 			INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
@@ -585,23 +603,22 @@ class OC_Admin_Products {
 			LEFT JOIN {$wpdb->posts} variation ON variation.post_parent = p.ID AND variation.post_type = 'product_variation'
 			LEFT JOIN {$wpdb->postmeta} variation_sku ON variation_sku.post_id = variation.ID AND variation_sku.meta_key = '_sku'
 			LEFT JOIN {$wpdb->postmeta} variation_meta ON variation_meta.post_id = variation.ID AND variation_meta.meta_key LIKE 'attribute_%'";
+		$args     = [];
 
-		$total = (int) $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p {$join} WHERE {$where}",
-			$like,
-			$like,
-			$like,
-			$like
-		) );
-		$ids   = $wpdb->get_col( $wpdb->prepare(
-			"SELECT DISTINCT p.ID FROM {$wpdb->posts} p {$join} WHERE {$where} ORDER BY p.post_title ASC LIMIT %d OFFSET %d",
-			$like,
-			$like,
-			$like,
-			$like,
-			$per_page,
-			$offset
-		) ) ?: [];
+		if ( 'unassigned' === $design_filter ) {
+			$join  .= " LEFT JOIN {$wpdb->prefix}oc_product_assignments assignment ON assignment.product_id = p.ID";
+			$where .= ' AND assignment.id IS NULL';
+		}
+
+		if ( '' !== $search ) {
+			$where .= ' AND (p.post_title LIKE %s OR sku.meta_value LIKE %s OR variation_sku.meta_value LIKE %s OR variation_meta.meta_value LIKE %s)';
+			$args   = [ $like, $like, $like, $like ];
+		}
+
+		$total_sql = "SELECT COUNT(DISTINCT p.ID) FROM {$wpdb->posts} p {$join} WHERE {$where}";
+		$total     = (int) ( empty( $args ) ? $wpdb->get_var( $total_sql ) : $wpdb->get_var( $wpdb->prepare( $total_sql, ...$args ) ) );
+		$ids_sql   = "SELECT DISTINCT p.ID FROM {$wpdb->posts} p {$join} WHERE {$where} ORDER BY p.post_title ASC LIMIT %d OFFSET %d";
+		$ids       = $wpdb->get_col( $wpdb->prepare( $ids_sql, ...array_merge( $args, [ $per_page, $offset ] ) ) ) ?: [];
 
 		return (object) [
 			'products'      => array_values( array_filter( array_map( 'wc_get_product', array_map( 'absint', $ids ) ) ) ),
@@ -1208,6 +1225,8 @@ class OC_Admin_Products {
 		$fmt = [ '%s', '%s', '%s', '%d' ];
 
 		if ( $design_id > 0 ) {
+			$data['clone_priority'] = 0;
+			$fmt[]                  = '%d';
 			$wpdb->update( "{$wpdb->prefix}oc_designs", $data, [ 'id' => $design_id ], $fmt, [ '%d' ] );
 		} else {
 			$wpdb->insert( "{$wpdb->prefix}oc_designs", $data, $fmt );
@@ -1380,10 +1399,11 @@ class OC_Admin_Products {
 			[
 				'name'        => $original->name . __( ' (Copy)', 'overcustomise' ),
 				'custom_type' => $original->custom_type,
-				'flat_rate'   => $original->flat_rate,
-				'active'      => 0,
+				'flat_rate'      => $original->flat_rate,
+				'active'         => 0,
+				'clone_priority' => 1,
 			],
-			[ '%s', '%s', '%s', '%d' ]
+			[ '%s', '%s', '%s', '%d', '%d' ]
 		);
 		$new_id = (int) $wpdb->insert_id;
 		if ( ! $new_id ) {

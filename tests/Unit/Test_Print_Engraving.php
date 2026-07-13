@@ -42,4 +42,16 @@ class Test_Print_Engraving extends TestCase {
 		$this->assertStringContainsString( 'fill-rule="evenodd"', $pdf->image_svg );
 	}
 
+	#[Test]
+	public function print_temp_image_paths_keep_requested_extension(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'temp_path_with_extension' );
+		$path   = $method->invokeArgs( null, [ 'oc-test-image-' . wp_generate_uuid4() . '.png', 'png' ] );
+
+		$this->assertIsString( $path );
+		$this->assertSame( 'png', strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) );
+		$this->assertFileExists( $path );
+
+		@unlink( $path );
+	}
+
 }

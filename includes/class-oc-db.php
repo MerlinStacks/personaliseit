@@ -176,6 +176,7 @@ class OC_DB {
 			custom_type ENUM('text_only','photo_text') NOT NULL DEFAULT 'text_only',
 			flat_rate   DECIMAL(10,2) NOT NULL DEFAULT 0.00,
 			active      TINYINT(1) NOT NULL DEFAULT 1,
+			clone_priority TINYINT(1) NOT NULL DEFAULT 0,
 			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
@@ -453,6 +454,16 @@ class OC_DB {
 					$wpdb->query(
 						"ALTER TABLE {$table_name}
 						 ADD COLUMN allowed_print_methods TEXT NULL AFTER colour_changeable"
+					);
+				}
+			}
+
+			if ( version_compare( $installed, '1.13.5', '<' ) ) {
+				$table_name = $wpdb->prefix . 'oc_designs';
+				if ( ! self::column_exists( $table_name, 'clone_priority' ) ) {
+					$wpdb->query(
+						"ALTER TABLE {$table_name}
+						 ADD COLUMN clone_priority TINYINT(1) NOT NULL DEFAULT 0 AFTER active"
 					);
 				}
 			}
@@ -905,13 +916,13 @@ class OC_DB {
 		if ( $active_only ) {
 			$results = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_designs WHERE active = %d ORDER BY name ASC",
+					"SELECT * FROM {$wpdb->prefix}oc_designs WHERE active = %d ORDER BY clone_priority DESC, name ASC",
 					1
 				)
 			) ?: [];
 		} else {
 			$results = $wpdb->get_results(
-				"SELECT * FROM {$wpdb->prefix}oc_designs ORDER BY name ASC"
+				"SELECT * FROM {$wpdb->prefix}oc_designs ORDER BY clone_priority DESC, name ASC"
 			) ?: [];
 		}
 		OC_Cache::set( $cache_key, $results, OC_Cache::TTL_SHORT );
@@ -931,7 +942,7 @@ class OC_DB {
 			 FROM {$wpdb->prefix}oc_designs d
 			 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
 			 GROUP BY d.id
-			 ORDER BY d.name ASC"
+			 ORDER BY d.clone_priority DESC, d.name ASC"
 		) ?: [];
 		OC_Cache::set( $cache_key, $results, OC_Cache::TTL_SHORT );
 		return $results;
@@ -961,7 +972,7 @@ class OC_DB {
 			 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
 			 {$where}
 			 GROUP BY d.id
-			 ORDER BY d.name ASC
+			 ORDER BY d.clone_priority DESC, d.name ASC
 			 LIMIT %d OFFSET %d";
 		$items     = $wpdb->get_results( $wpdb->prepare( $items_sql, ...array_merge( $args, [ $per_page, $offset ] ) ) ) ?: [];
 
