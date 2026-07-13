@@ -5592,6 +5592,161 @@ exports.ParseError = ParseError;
 
 /***/ },
 
+/***/ "./src/frontend/customiser/gallery-preview.js"
+/*!****************************************************!*\
+  !*** ./src/frontend/customiser/gallery-preview.js ***!
+  \****************************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/**
+ * Product gallery preview integration for the frontend customiser.
+ */
+
+const GALLERY_IMAGE_SELECTORS = [
+// True Video Product Gallery (Swiper): prefer active non-video slide.
+'.tvpg-main-slider .swiper-slide-active:not(.tvpg-video-slide) .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide-active .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide:not(.tvpg-video-slide) .woocommerce-product-gallery__image img',
+// Flatsome theme.
+'.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image.is-selected img', '.product-gallery-slider .flickity-slider .slide.is-selected img', '.product-gallery-slider .is-selected img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image:first-child img', '.product-gallery-slider .flickity-slider .slide:first-child img', '.product-gallery .woocommerce-product-gallery__image:first-child img', '.product-images .woocommerce-product-gallery__image:first-child a img', '.product-image-wrap .woocommerce-product-gallery__image:first-child img',
+// WC Blocks.
+'.wp-block-woocommerce-product-image-gallery .woocommerce-product-gallery__image:first-child img',
+// Default WC / Storefront.
+'.woocommerce-product-gallery__image:first-child a img', '.woocommerce-product-gallery__image:first-child img',
+// Broad fallback.
+'.woocommerce-product-gallery .wp-post-image', '.wp-post-image'];
+const galleryPreviewMethods = {
+  findGalleryImage() {
+    for (const sel of GALLERY_IMAGE_SELECTORS) {
+      const img = document.querySelector(sel);
+      if (img) {
+        this.galleryImg = img;
+        return;
+      }
+    }
+    this.galleryImg = null;
+  },
+  applyPreviewToImage(img, dataUrl, dimensions = null) {
+    if (!img) {
+      return;
+    }
+    const hasDimensions = dimensions?.width && dimensions?.height;
+    const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
+    const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
+    img.src = dataUrl;
+    img.srcset = '';
+    img.sizes = '';
+    img.classList.add('oc-live-preview-applied');
+    if (hasDimensions) {
+      img.width = dimensions.width;
+      img.height = dimensions.height;
+      img.style.aspectRatio = aspectRatio;
+    }
+    img.style.display = 'block';
+    img.style.width = '100%';
+    img.style.objectFit = 'contain';
+    img.style.height = 'auto';
+    img.style.maxHeight = 'none';
+    img.style.position = 'static';
+
+    // Update zoom / lightbox href if wrapped in <a>.
+    const a = img.closest('a');
+    if (a) {
+      a.href = dataUrl;
+      a.setAttribute('data-src', dataUrl);
+    }
+
+    // WooCommerce zoom/lightbox compatibility attributes.
+    img.setAttribute('data-large_image', dataUrl);
+    img.setAttribute('data-large-image', dataUrl);
+    img.setAttribute('data-src', dataUrl);
+    img.setAttribute('data-lazy-src', dataUrl);
+    img.setAttribute('data-zoom-image', dataUrl);
+    img.removeAttribute('data-srcset');
+    img.removeAttribute('data-lazy-srcset');
+    img.removeAttribute('data-o_srcset');
+    img.removeAttribute('data-o_src');
+    const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
+    if (galleryItem) {
+      galleryItem.setAttribute('data-thumb', dataUrl);
+      if (hasDimensions && !img.closest('.product-thumbnails, .tvpg-thumb-slider')) {
+        galleryItem.classList.add('oc-live-preview-frame');
+        galleryItem.style.aspectRatio = aspectRatio;
+        galleryItem.style.height = 'auto';
+        galleryItem.style.paddingTop = '0';
+        galleryItem.style.paddingBottom = ratioPadding;
+        const link = img.closest('a');
+        if (link && galleryItem.contains(link)) {
+          link.classList.add('oc-live-preview-frame');
+          link.style.aspectRatio = aspectRatio;
+          link.style.height = 'auto';
+          link.style.paddingTop = '0';
+          link.style.paddingBottom = ratioPadding;
+        }
+      }
+    }
+  },
+  refreshFlatsomeGallery() {
+    const slider = document.querySelector('.product-gallery-slider');
+    if (!slider) {
+      return;
+    }
+    const flickity = slider.flickity || window.jQuery?.(slider).data('flickity');
+    flickity?.reloadCells?.();
+    flickity?.resize?.();
+  },
+  getFlickityInstance(slider) {
+    if (!slider) {
+      return null;
+    }
+    return slider.flickity || window.jQuery?.(slider).data('flickity') || null;
+  },
+  applyFlatsomeOverlayPreview(dataUrl, dimensions = null) {
+    const slider = document.querySelector('.product-gallery-slider');
+    if (!slider) {
+      return false;
+    }
+    const realSlides = slider.querySelectorAll('.woocommerce-product-gallery__image:not(.oc-live-preview-slide), .slide:not(.oc-live-preview-slide)');
+    if (realSlides.length <= 1) {
+      return false;
+    }
+    let flickity = this.getFlickityInstance(slider);
+    let previewSlide = slider.querySelector('.oc-live-preview-slide');
+    if (!previewSlide) {
+      previewSlide = document.createElement('div');
+      previewSlide.className = 'woocommerce-product-gallery__image slide oc-live-preview-slide';
+      previewSlide.innerHTML = '<a href="#">' + '<img class="oc-live-preview-image wp-post-image" alt="Custom preview">' + '</a>';
+      if (flickity?.append) {
+        flickity.append(previewSlide);
+      } else {
+        slider.appendChild(previewSlide);
+      }
+    }
+    const previewImg = previewSlide.querySelector('img.oc-live-preview-image');
+    if (previewImg) {
+      this.applyPreviewToImage(previewImg, dataUrl, dimensions);
+    }
+    previewSlide.setAttribute('data-thumb', dataUrl);
+    previewSlide.querySelector('a')?.setAttribute('href', dataUrl);
+    flickity = this.getFlickityInstance(slider);
+    if (flickity) {
+      flickity.reloadCells?.();
+      flickity.resize?.();
+      const previewIndex = (flickity.cells || []).findIndex(cell => cell.element === previewSlide);
+      if (previewIndex >= 0) {
+        flickity.select?.(previewIndex, false, true);
+      }
+    }
+    return true;
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (galleryPreviewMethods);
+
+/***/ },
+
 /***/ "./src/shared/render-math.js"
 /*!***********************************!*\
   !*** ./src/shared/render-math.js ***!
@@ -25097,6 +25252,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _uppy_drag_drop_css_style_min_css__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! @uppy/drag-drop/css/style.min.css */ "./node_modules/@uppy/drag-drop/dist/style.min.css");
 /* harmony import */ var _customiser_app_scss__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./customiser-app.scss */ "./src/frontend/customiser-app.scss");
 /* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
+/* harmony import */ var _customiser_gallery_preview__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! ./customiser/gallery-preview */ "./src/frontend/customiser/gallery-preview.js");
 /**
  * Frontend Customiser — vanilla JS, no framework dependency.
  *
@@ -25107,6 +25263,7 @@ __webpack_require__.r(__webpack_exports__);
  */
 
 /* eslint-disable no-console, no-alert, no-undef, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return */
+
 
 
 
@@ -25260,143 +25417,6 @@ class OCCustomiser {
 
     // Canvas init runs in background; calls redraw() when done.
     this.initAllCanvases();
-  }
-
-  // ── Gallery: find the <img> and store a reference ─────────────────────────
-
-  findGalleryImage() {
-    const SELECTORS = [
-    // True Video Product Gallery (Swiper): prefer active non-video slide.
-    '.tvpg-main-slider .swiper-slide-active:not(.tvpg-video-slide) .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide-active .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide:not(.tvpg-video-slide) .woocommerce-product-gallery__image img',
-    // Flatsome theme
-    '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image.is-selected img', '.product-gallery-slider .flickity-slider .slide.is-selected img', '.product-gallery-slider .is-selected img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image:first-child img', '.product-gallery-slider .flickity-slider .slide:first-child img', '.product-gallery .woocommerce-product-gallery__image:first-child img', '.product-images .woocommerce-product-gallery__image:first-child a img', '.product-image-wrap .woocommerce-product-gallery__image:first-child img',
-    // WC Blocks
-    '.wp-block-woocommerce-product-image-gallery .woocommerce-product-gallery__image:first-child img',
-    // Default WC / Storefront
-    '.woocommerce-product-gallery__image:first-child a img', '.woocommerce-product-gallery__image:first-child img',
-    // Broad fallback
-    '.woocommerce-product-gallery .wp-post-image', '.wp-post-image'];
-    for (const sel of SELECTORS) {
-      const img = document.querySelector(sel);
-      if (img) {
-        this.galleryImg = img;
-        return;
-      }
-    }
-    this.galleryImg = null;
-  }
-  applyPreviewToImage(img, dataUrl, dimensions = null) {
-    if (!img) {
-      return;
-    }
-    const hasDimensions = dimensions?.width && dimensions?.height;
-    const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
-    const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
-    img.src = dataUrl;
-    img.srcset = '';
-    img.sizes = '';
-    img.classList.add('oc-live-preview-applied');
-    if (hasDimensions) {
-      img.width = dimensions.width;
-      img.height = dimensions.height;
-      img.style.aspectRatio = aspectRatio;
-    }
-    img.style.display = 'block';
-    img.style.width = '100%';
-    img.style.objectFit = 'contain';
-    img.style.height = 'auto';
-    img.style.maxHeight = 'none';
-    img.style.position = 'static';
-
-    // Update zoom / lightbox href if wrapped in <a>.
-    const a = img.closest('a');
-    if (a) {
-      a.href = dataUrl;
-      a.setAttribute('data-src', dataUrl);
-    }
-
-    // WooCommerce zoom/lightbox compatibility attributes.
-    img.setAttribute('data-large_image', dataUrl);
-    img.setAttribute('data-large-image', dataUrl);
-    img.setAttribute('data-src', dataUrl);
-    img.setAttribute('data-lazy-src', dataUrl);
-    img.setAttribute('data-zoom-image', dataUrl);
-    img.removeAttribute('data-srcset');
-    img.removeAttribute('data-lazy-srcset');
-    img.removeAttribute('data-o_srcset');
-    img.removeAttribute('data-o_src');
-    const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
-    if (galleryItem) {
-      galleryItem.setAttribute('data-thumb', dataUrl);
-      if (hasDimensions && !img.closest('.product-thumbnails, .tvpg-thumb-slider')) {
-        galleryItem.classList.add('oc-live-preview-frame');
-        galleryItem.style.aspectRatio = aspectRatio;
-        galleryItem.style.height = 'auto';
-        galleryItem.style.paddingTop = '0';
-        galleryItem.style.paddingBottom = ratioPadding;
-        const link = img.closest('a');
-        if (link && galleryItem.contains(link)) {
-          link.classList.add('oc-live-preview-frame');
-          link.style.aspectRatio = aspectRatio;
-          link.style.height = 'auto';
-          link.style.paddingTop = '0';
-          link.style.paddingBottom = ratioPadding;
-        }
-      }
-    }
-  }
-  refreshFlatsomeGallery() {
-    const slider = document.querySelector('.product-gallery-slider');
-    if (!slider) {
-      return;
-    }
-    const flickity = slider.flickity || window.jQuery?.(slider).data('flickity');
-    flickity?.reloadCells?.();
-    flickity?.resize?.();
-  }
-  getFlickityInstance(slider) {
-    if (!slider) {
-      return null;
-    }
-    return slider.flickity || window.jQuery?.(slider).data('flickity') || null;
-  }
-  applyFlatsomeOverlayPreview(dataUrl, dimensions = null) {
-    const slider = document.querySelector('.product-gallery-slider');
-    if (!slider) {
-      return false;
-    }
-    const realSlides = slider.querySelectorAll('.woocommerce-product-gallery__image:not(.oc-live-preview-slide), .slide:not(.oc-live-preview-slide)');
-    if (realSlides.length <= 1) {
-      return false;
-    }
-    let flickity = this.getFlickityInstance(slider);
-    let previewSlide = slider.querySelector('.oc-live-preview-slide');
-    if (!previewSlide) {
-      previewSlide = document.createElement('div');
-      previewSlide.className = 'woocommerce-product-gallery__image slide oc-live-preview-slide';
-      previewSlide.innerHTML = '<a href="#">' + '<img class="oc-live-preview-image wp-post-image" alt="Custom preview">' + '</a>';
-      if (flickity?.append) {
-        flickity.append(previewSlide);
-      } else {
-        slider.appendChild(previewSlide);
-      }
-    }
-    const previewImg = previewSlide.querySelector('img.oc-live-preview-image');
-    if (previewImg) {
-      this.applyPreviewToImage(previewImg, dataUrl, dimensions);
-    }
-    previewSlide.setAttribute('data-thumb', dataUrl);
-    previewSlide.querySelector('a')?.setAttribute('href', dataUrl);
-    flickity = this.getFlickityInstance(slider);
-    if (flickity) {
-      flickity.reloadCells?.();
-      flickity.resize?.();
-      const previewIndex = (flickity.cells || []).findIndex(cell => cell.element === previewSlide);
-      if (previewIndex >= 0) {
-        flickity.select?.(previewIndex, false, true);
-      }
-    }
-    return true;
   }
   setPanelPreviewHandoff(isActive) {
     const panel = document.getElementById('oc-customiser-panel');
@@ -27224,6 +27244,19 @@ class OCCustomiser {
 
   // ── Input listeners ─────────────────────────────────────────────────────────
 
+  closeFontComboboxes(resetSearch = false) {
+    document.querySelectorAll('.oc-font-combobox.oc-open').forEach(combo => {
+      combo.classList.remove('oc-open');
+      const input = combo.querySelector('[data-oc-font-search]');
+      input?.setAttribute('aria-expanded', 'false');
+      if (resetSearch) {
+        const select = document.querySelector(`[data-oc-layer-font="${combo.dataset.ocFontCombobox}"]`);
+        if (select) {
+          this.updateFontCombobox(select);
+        }
+      }
+    });
+  }
   updateFontCombobox(select) {
     const lid = select?.dataset?.ocLayerFont;
     if (!lid) {
@@ -27262,6 +27295,7 @@ class OCCustomiser {
         return;
       }
       combo.dataset.ocFontComboboxReady = '1';
+      let filterFrame = null;
       const setOpen = isOpen => {
         combo.classList.toggle('oc-open', isOpen);
         input.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
@@ -27280,6 +27314,16 @@ class OCCustomiser {
           empty.hidden = visibleCount > 0;
         }
       };
+      const scheduleFilterOptions = () => {
+        if (filterFrame) {
+          window.cancelAnimationFrame(filterFrame);
+        }
+        filterFrame = window.requestAnimationFrame(() => {
+          filterFrame = null;
+          filterOptions();
+        });
+      };
+      const firstVisibleOption = () => options.find(option => !option.hidden);
       const selectFont = value => {
         select.value = value;
         select.dispatchEvent(new Event('change', {
@@ -27290,11 +27334,11 @@ class OCCustomiser {
       this.updateFontCombobox(select);
       filterOptions();
       input.addEventListener('focus', () => {
-        filterOptions();
+        scheduleFilterOptions();
         setOpen(true);
       });
       input.addEventListener('input', () => {
-        filterOptions();
+        scheduleFilterOptions();
         setOpen(true);
       });
       input.addEventListener('keydown', e => {
@@ -27305,8 +27349,21 @@ class OCCustomiser {
         }
         if (e.key === 'ArrowDown') {
           e.preventDefault();
+          filterOptions();
           setOpen(true);
-          options.find(option => !option.hidden)?.focus();
+          firstVisibleOption()?.focus();
+          return;
+        }
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          filterOptions();
+          const option = firstVisibleOption();
+          if (option) {
+            selectFont(option.dataset.ocFontOption);
+          } else {
+            setOpen(false);
+            this.updateFontCombobox(select);
+          }
         }
       });
       input.addEventListener('blur', () => {
@@ -27338,12 +27395,9 @@ class OCCustomiser {
     if (!this.fontComboboxDocumentClickBound) {
       this.fontComboboxDocumentClickBound = true;
       document.addEventListener('click', e => {
-        document.querySelectorAll('.oc-font-combobox.oc-open').forEach(combo => {
-          if (!combo.contains(e.target)) {
-            combo.classList.remove('oc-open');
-            combo.querySelector('[data-oc-font-search]')?.setAttribute('aria-expanded', 'false');
-          }
-        });
+        if (!e.target.closest('.oc-font-combobox')) {
+          this.closeFontComboboxes(true);
+        }
       });
     }
   }
@@ -28653,6 +28707,7 @@ class OCCustomiser {
     this.formSubmitBound = true;
     if (this.editMode) {
       form.addEventListener('submit', async e => {
+        this.closeFontComboboxes(true);
         e.preventDefault();
         e.stopImmediatePropagation();
         this.syncInputsFromDOM();
@@ -28724,6 +28779,7 @@ class OCCustomiser {
     }
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.addEventListener('click', e => {
+        this.closeFontComboboxes(true);
         if (form._ocSubmitReady) {
           return;
         }
@@ -28747,6 +28803,7 @@ class OCCustomiser {
       }, true);
     });
     form.addEventListener('submit', async e => {
+      this.closeFontComboboxes(true);
       if (this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -28821,14 +28878,20 @@ class OCCustomiser {
     if (this.mobileCartPreviewDialog) {
       return this.mobileCartPreviewDialog;
     }
-    const panel = document.getElementById('oc-customiser-panel') || document.body;
+    let dialogRoot = document.getElementById('oc-cart-preview-root');
+    if (!dialogRoot) {
+      dialogRoot = document.createElement('div');
+      dialogRoot.id = 'oc-cart-preview-root';
+      dialogRoot.className = 'oc-customiser-panel oc-cart-preview-root';
+      document.body.appendChild(dialogRoot);
+    }
     const dialog = document.createElement('dialog');
     dialog.id = 'oc-cart-preview-dialog';
     dialog.className = 'oc-cart-preview-dialog';
     dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
     dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
     dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-image-wrap">' + '<img class="oc-cart-preview-image" alt="Customisation preview">' + '</div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
-    panel.appendChild(dialog);
+    dialogRoot.appendChild(dialog);
     this.mobileCartPreviewDialog = dialog;
     return dialog;
   }
@@ -28836,8 +28899,10 @@ class OCCustomiser {
     if (!this.isMobileCartPreviewRequired()) {
       return Promise.resolve(true);
     }
+    this.closeFontComboboxes(true);
     const previewUrl = this.getCurrentPreviewDataUrl();
     const dialog = this.getMobileCartPreviewDialog();
+    dialog.ownerDocument.activeElement?.blur?.();
     const img = dialog.querySelector('.oc-cart-preview-image');
     if (img && previewUrl) {
       img.src = previewUrl;
@@ -29586,6 +29651,7 @@ class OCCustomiser {
     el.value = JSON.stringify(payload);
   }
 }
+Object.assign(OCCustomiser.prototype, _customiser_gallery_preview__WEBPACK_IMPORTED_MODULE_9__["default"]);
 })();
 
 /******/ })()

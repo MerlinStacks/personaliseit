@@ -567,11 +567,6 @@ import { createFont } from 'fonteditor-core';
 		}
 
 		try {
-			if ( font.ext === 'OTF' ) {
-				await convertFontInBrowser( font );
-				return;
-			}
-
 			const fd = new FormData();
 			fd.append( 'action', 'oc_font_convert' );
 			fd.append( 'nonce', nonce );
@@ -584,7 +579,11 @@ import { createFont } from 'fonteditor-core';
 			const json = await res.json();
 
 			if ( ! json.success ) {
-				if ( font.ext === 'WOFF' ) {
+				if (
+					[ 'OTF', 'WOFF' ].includes(
+						String( font.ext || '' ).toUpperCase()
+					)
+				) {
 					await convertFontInBrowser( font );
 					return;
 				}
@@ -614,8 +613,9 @@ import { createFont } from 'fonteditor-core';
 			);
 		}
 
-		const sourceType = String( font.ext || '' ).toLowerCase();
-		const source = createFont( await response.arrayBuffer(), {
+		const buffer = await response.arrayBuffer();
+		const sourceType = fontSourceType( font, buffer );
+		const source = createFont( buffer, {
 			type: sourceType,
 			compound2simple: true,
 		} );
@@ -644,6 +644,21 @@ import { createFont } from 'fonteditor-core';
 		}
 
 		applyConvertedFont( json.data );
+	}
+
+	function fontSourceType( font, buffer ) {
+		const ext = String( font.ext || '' ).toLowerCase();
+		if ( ext !== 'otf' || buffer.byteLength < 4 ) {
+			return ext;
+		}
+
+		const signature = new Uint8Array( buffer, 0, 4 );
+		return signature[ 0 ] === 0x4f &&
+			signature[ 1 ] === 0x54 &&
+			signature[ 2 ] === 0x54 &&
+			signature[ 3 ] === 0x4f
+			? 'otf'
+			: 'ttf';
 	}
 
 	function applyConvertedFont( updated ) {

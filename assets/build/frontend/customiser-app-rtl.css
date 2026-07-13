@@ -44,6 +44,10 @@
   gap: var(--oc-gap);
   margin-block: var(--oc-gap-lg);
 }
+.oc-customiser-panel.oc-cart-preview-root {
+  display: contents;
+  margin: 0;
+}
 .oc-customiser-panel *,
 .oc-customiser-panel *::before,
 .oc-customiser-panel *::after {

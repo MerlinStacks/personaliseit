@@ -19465,14 +19465,6 @@ __webpack_require__.r(__webpack_exports__);
       fonts.push(font);
       addCardToGrid(font);
       updateFontsCount();
-      if (font.canPrintConvert && ['OTF', 'WOFF'].includes(String(font.ext || '').toUpperCase())) {
-        submitBtn.textContent = 'Preparing print font...';
-        try {
-          await convertFontInBrowser(font, false);
-        } catch (convertErr) {
-          console.warn('[OC] Automatic print font conversion failed:', convertErr);
-        }
-      }
       closeUploadModal();
 
       // If detail panel is open for this family, refresh it.
@@ -19613,10 +19605,6 @@ __webpack_require__.r(__webpack_exports__);
       button.textContent = 'Converting...';
     }
     try {
-      if (font.ext === 'OTF') {
-        await convertFontInBrowser(font);
-        return;
-      }
       const fd = new FormData();
       fd.append('action', 'oc_font_convert');
       fd.append('nonce', nonce);
@@ -19630,7 +19618,7 @@ __webpack_require__.r(__webpack_exports__);
       }
       const json = await res.json();
       if (!json.success) {
-        if (font.ext === 'WOFF') {
+        if (['OTF', 'WOFF'].includes(String(font.ext || '').toUpperCase())) {
           await convertFontInBrowser(font);
           return;
         }
@@ -19647,7 +19635,7 @@ __webpack_require__.r(__webpack_exports__);
       }
     }
   }
-  async function convertFontInBrowser(font, showSuccess = true) {
+  async function convertFontInBrowser(font) {
     const response = await fetch(font.url, {
       credentials: 'same-origin',
       cache: 'no-store'
@@ -19655,8 +19643,9 @@ __webpack_require__.r(__webpack_exports__);
     if (!response.ok) {
       throw new Error(`Could not load font file (${response.status}).`);
     }
-    const sourceType = String(font.ext || '').toLowerCase();
-    const source = (0,fonteditor_core__WEBPACK_IMPORTED_MODULE_0__.createFont)(await response.arrayBuffer(), {
+    const buffer = await response.arrayBuffer();
+    const sourceType = fontSourceType(font, buffer);
+    const source = (0,fonteditor_core__WEBPACK_IMPORTED_MODULE_0__.createFont)(buffer, {
       type: sourceType,
       compound2simple: true
     });
@@ -19682,17 +19671,23 @@ __webpack_require__.r(__webpack_exports__);
     if (!json.success) {
       throw new Error(json.data?.message || 'Browser conversion failed.');
     }
-    applyConvertedFont(json.data, showSuccess);
+    applyConvertedFont(json.data);
   }
-  function applyConvertedFont(updated, showSuccess = true) {
+  function fontSourceType(font, buffer) {
+    const ext = String(font.ext || '').toLowerCase();
+    if (ext !== 'otf' || buffer.byteLength < 4) {
+      return ext;
+    }
+    const signature = new Uint8Array(buffer, 0, 4);
+    return signature[0] === 0x4f && signature[1] === 0x54 && signature[2] === 0x54 && signature[3] === 0x4f ? 'otf' : 'ttf';
+  }
+  function applyConvertedFont(updated) {
     fonts = fonts.map(f => Number(f.id) === Number(updated.id) ? updated : f);
     replaceFontCard(updated);
     if (detailFontName === updated.name) {
       renderDetailVariants(updated.name);
     }
-    if (showSuccess) {
-      window.alert('Font converted for print. Existing designs will keep using this font.');
-    }
+    window.alert('Font converted for print. Existing designs will keep using this font.');
   }
   function safeFilename(value) {
     return String(value || '').toLowerCase().replace(/[^a-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '');

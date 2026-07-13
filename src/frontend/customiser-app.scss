@@ -39,6 +39,11 @@
 	gap: var(--oc-gap);
 	margin-block: var(--oc-gap-lg);
 
+	&.oc-cart-preview-root {
+		display: contents;
+		margin: 0;
+	}
+
 	*,
 	*::before,
 	*::after { box-sizing: border-box; }
