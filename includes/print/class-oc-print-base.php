@@ -236,12 +236,22 @@ abstract class OC_Print_Base {
 		}
 
 		if ( 'otf' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && self::is_cff_opentype( $real ) ) {
+			$print_font = self::get_print_companion_font_path( $real );
+			if ( $print_font ) {
+				return $print_font;
+			}
+
 			OC_Logger::warning( 'Print font fallback: ' . basename( $real ) . ' is an OpenType/CFF font. TCPDF needs a TrueType-outline TTF/OTF file.' );
 			return null;
 		}
 
 		if ( 'woff' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && class_exists( 'OC_WOFF_Converter' ) ) {
 			if ( self::is_cff_woff( $real ) ) {
+				$print_font = self::get_print_companion_font_path( $real );
+				if ( $print_font ) {
+					return $print_font;
+				}
+
 				OC_Logger::warning( 'Print font fallback: ' . basename( $real ) . ' is a WOFF-wrapped OpenType/CFF font. TCPDF needs a TrueType-outline TTF/OTF file.' );
 				return null;
 			}
@@ -256,6 +266,41 @@ abstract class OC_Print_Base {
 		}
 
 		return $real;
+	}
+
+	/** Return a browser-converted print TTF companion for CFF/WOFF fonts, if one exists. */
+	protected static function get_print_companion_font_path( string $source_path ): ?string {
+		$dir  = dirname( $source_path );
+		$base = pathinfo( $source_path, PATHINFO_FILENAME );
+		if ( '' === $base || ! is_dir( $dir ) ) {
+			return null;
+		}
+
+		$candidates = [ $dir . '/' . $base . '-print.ttf' ];
+		$matches    = glob( $dir . '/' . $base . '-print*.ttf' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob
+		if ( is_array( $matches ) ) {
+			$candidates = array_merge( $candidates, $matches );
+		}
+
+		foreach ( array_unique( $candidates ) as $candidate ) {
+			$real = realpath( $candidate );
+			if ( $real && is_readable( $real ) && self::is_truetype_outline_font( $real ) ) {
+				return $real;
+			}
+		}
+
+		return null;
+	}
+
+	protected static function is_truetype_outline_font( string $path ): bool {
+		$handle = fopen( $path, 'rb' );
+		if ( ! $handle ) {
+			return false;
+		}
+		$signature = fread( $handle, 4 );
+		fclose( $handle );
+
+		return in_array( $signature, [ "\x00\x01\x00\x00", 'true' ], true );
 	}
 
 	protected static function is_cff_opentype( string $path ): bool {
@@ -825,6 +870,7 @@ abstract class OC_Print_Base {
 		if ( $font_id ) {
 			$font = self::get_font( $font_id );
 			if ( $font ) {
+				$raw_path = self::get_raw_font_path( $font );
 				$path = self::get_font_path( $font );
 				if ( $path ) {
 					$name = self::register_tcpdf_font( $path );
@@ -838,7 +884,7 @@ abstract class OC_Print_Base {
 						return $name;
 					}
 					OC_Logger::warning( 'Print font fallback: TCPDF could not register font #' . $font_id . ' from ' . basename( $path ) . '.' );
-				} else {
+				} elseif ( ! $raw_path ) {
 					OC_Logger::warning( 'Print font fallback: font #' . $font_id . ' file was not accessible.' );
 				}
 			} else {

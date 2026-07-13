@@ -54,4 +54,32 @@ class Test_Print_Engraving extends TestCase {
 		@unlink( $path );
 	}
 
+	#[Test]
+	public function cff_font_uses_browser_converted_print_companion(): void {
+		$font_dir = sys_get_temp_dir() . '/overcustomise/fonts';
+		if ( ! is_dir( $font_dir ) ) {
+			mkdir( $font_dir, 0755, true );
+		}
+
+		$source    = $font_dir . '/Belinda-Script-1783647232.otf';
+		$companion = $font_dir . '/Belinda-Script-1783647232-print.ttf';
+		$ttf       = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! file_exists( $ttf ) ) {
+			$this->markTestSkipped( 'DejaVuSans.ttf is not available.' );
+		}
+
+		file_put_contents( $source, 'OTTOtest' );
+		copy( $ttf, $companion );
+
+		try {
+			$method = new ReflectionMethod( OC_Print_Base::class, 'get_font_path' );
+			$path   = $method->invokeArgs( null, [ (object) [ 'file_path' => 'overcustomise/fonts/Belinda-Script-1783647232.otf' ] ] );
+
+			$this->assertSame( realpath( $companion ), $path );
+		} finally {
+			@unlink( $source );
+			@unlink( $companion );
+		}
+	}
+
 }
