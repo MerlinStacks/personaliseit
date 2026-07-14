@@ -125,6 +125,7 @@ const cartSerializationMethods = {
 			if ( source.color ) {
 				this.flattenSnapshotPatternPaint( sourceEl, source.color );
 			}
+			this.prefixSnapshotSvgIds( sourceEl, `oc-snapshot-${ index }-` );
 
 			const replacement = this.snapshotImageReplacementGroup(
 				doc,
@@ -143,6 +144,19 @@ const cartSerializationMethods = {
 		const value = String( url || '' );
 		if ( value.startsWith( 'data:image/svg+xml' ) ) {
 			const payload = value.slice( value.indexOf( ',' ) + 1 );
+			if ( /^data:image\/svg\+xml(?:;[^,]*)?;base64,/i.test( value ) ) {
+				const decoded = atob( payload );
+				if ( typeof TextDecoder !== 'undefined' ) {
+					return new TextDecoder().decode(
+						Uint8Array.from( decoded, ( char ) =>
+							char.charCodeAt( 0 )
+						)
+					);
+				}
+
+				return decoded;
+			}
+
 			return decodeURIComponent( payload );
 		}
 
@@ -213,7 +227,7 @@ const cartSerializationMethods = {
 			}
 		);
 
-		styleEls.forEach( ( styleEl ) => styleEl.remove() );
+		// Keep original styles as a fallback for selectors we do not inline.
 	},
 
 	svgPresentationDeclarations( cssText ) {
@@ -281,6 +295,67 @@ const cartSerializationMethods = {
 		);
 	},
 
+	prefixSnapshotSvgIds( sourceEl, prefix ) {
+		const idMap = new Map();
+		[
+			sourceEl,
+			...Array.from( sourceEl.querySelectorAll( '[id]' ) ),
+		].forEach( ( node ) => {
+			const id = node.getAttribute( 'id' );
+			if ( ! id ) {
+				return;
+			}
+			if ( ! idMap.has( id ) ) {
+				idMap.set( id, `${ prefix }${ id }` );
+			}
+			node.setAttribute( 'id', idMap.get( id ) );
+		} );
+
+		if ( ! idMap.size ) {
+			return;
+		}
+
+		[ sourceEl, ...Array.from( sourceEl.querySelectorAll( '*' ) ) ].forEach(
+			( node ) => {
+				if ( node.localName?.toLowerCase() === 'style' ) {
+					node.textContent = this.rewriteSnapshotSvgIdReferences(
+						node.textContent || '',
+						idMap
+					);
+				}
+				Array.from( node.attributes || [] ).forEach( ( attr ) => {
+					const rewritten = this.rewriteSnapshotSvgIdReferences(
+						attr.value,
+						idMap
+					);
+					if ( rewritten !== attr.value ) {
+						node.setAttribute( attr.name, rewritten );
+					}
+				} );
+			}
+		);
+	},
+
+	rewriteSnapshotSvgIdReferences( value, idMap ) {
+		let output = String( value || '' );
+		idMap.forEach( ( replacement, id ) => {
+			const escaped = this.escapeRegExp( id );
+			output = output.replace(
+				new RegExp( `url\\(\\s*#${ escaped }\\s*\\)`, 'g' ),
+				`url(#${ replacement })`
+			);
+			if ( output === `#${ id }` ) {
+				output = `#${ replacement }`;
+			}
+		} );
+
+		return output;
+	},
+
+	escapeRegExp( value ) {
+		return String( value ).replace( /[.*+?^${}()|[\]\\]/g, '\\$&' );
+	},
+
 	snapshotImageReplacementGroup( doc, imageNode, sourceEl ) {
 		const viewBox = this.svgViewBoxValues( sourceEl );
 		if ( ! viewBox ) {
@@ -307,12 +382,18 @@ const cartSerializationMethods = {
 			}
 		} );
 
-		const inner = doc.createElementNS( ns, 'g' );
+		const inner = doc.createElementNS( ns, 'svg' );
+		inner.setAttribute( 'x', String( imageX ) );
+		inner.setAttribute( 'y', String( imageY ) );
+		inner.setAttribute( 'width', String( imageW ) );
+		inner.setAttribute( 'height', String( imageH ) );
+		inner.setAttribute( 'viewBox', `${ vbX } ${ vbY } ${ vbW } ${ vbH }` );
+		inner.setAttribute( 'overflow', 'hidden' );
 		inner.setAttribute(
-			'transform',
-			`translate(${ imageX } ${ imageY }) scale(${ imageW / vbW } ${
-				imageH / vbH
-			}) translate(${ -vbX } ${ -vbY })`
+			'preserveAspectRatio',
+			imageNode.getAttribute( 'preserveAspectRatio' ) ||
+				sourceEl.getAttribute( 'preserveAspectRatio' ) ||
+				'xMidYMid meet'
 		);
 
 		Array.from( sourceEl.childNodes ).forEach( ( child ) => {

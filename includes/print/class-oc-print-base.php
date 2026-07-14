@@ -616,10 +616,7 @@ abstract class OC_Print_Base {
 				}
 			}
 
-			if ( $style->parentNode ) {
-				$style->parentNode->removeChild( $style );
-				$changed = true;
-			}
+			// Keep original cleaned CSS as a fallback for selectors we do not inline.
 		}
 
 		foreach ( $xpath->query( './/*[@style]', $svg ) ?: [] as $node ) {

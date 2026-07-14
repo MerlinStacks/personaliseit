@@ -314,7 +314,7 @@ class Test_Print_Base extends TestCase {
 			$this->assertStringContainsString( 'fill="#78d5df"', $svg );
 			$this->assertStringContainsString( 'stroke="#123456"', $svg );
 			$this->assertStringContainsString( 'stroke-width="2"', $svg );
-			$this->assertStringNotContainsString( '<style', $svg );
+			$this->assertStringContainsString( '<style', $svg );
 		} finally {
 			@unlink( $path );
 			if ( isset( $normalised ) && is_string( $normalised ) ) {
