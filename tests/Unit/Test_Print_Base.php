@@ -27,6 +27,7 @@ if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) && class_exists( 'TCPDF' ) ) {
 	class OC_Test_Vector_SVG_PDF extends TCPDF {
 		public bool $image_called = false;
 		public bool $image_svg_called = false;
+		public array $image_svg_args = [];
 
 		public function Image( $file, $x = '', $y = '', $w = 0, $h = 0, $type = '', $link = '', $align = '', $resize = false, $dpi = 300, $palign = '', $ismask = false, $imgmask = false, $border = 0, $fitbox = false, $hidden = false, $fitonpage = false, $alt = false, $altimgs = [] ) {
 			$this->image_called = true;
@@ -34,6 +35,7 @@ if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) && class_exists( 'TCPDF' ) ) {
 
 		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
 			$this->image_svg_called = true;
+			$this->image_svg_args = func_get_args();
 		}
 	}
 }
@@ -88,6 +90,14 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 
 	public static function test_make_pdf( float $w_mm, float $h_mm, float $bleed = 0.0 ): \TCPDF {
 		return self::make_pdf( $w_mm, $h_mm, $bleed );
+	}
+
+	public static function test_has_vector_snapshot_payload( array $area_data ): bool {
+		return self::has_vector_snapshot_payload( $area_data );
+	}
+
+	public static function test_render_vector_snapshot_payload( \TCPDF $pdf, array $area_data, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): bool {
+		return self::render_vector_snapshot_payload( $pdf, $area_data, $x_mm, $y_mm, $w_mm, $h_mm );
 	}
 }
 
@@ -343,6 +353,42 @@ class Test_Print_Base extends TestCase {
 		} finally {
 			@unlink( $path );
 		}
+	}
+
+	#[Test]
+	public function vector_snapshot_payload_renders_through_tcpdf_svg_renderer(): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+
+		$pdf = ( new ReflectionClass( OC_Test_Vector_SVG_PDF::class ) )->newInstanceWithoutConstructor();
+		$data = [
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50" viewBox="0 0 100 50"><path d="M0 0h100v50H0z" fill="#ff0000"/></svg>',
+			],
+		];
+
+		$this->assertTrue( OC_Print_Base_Testable::test_has_vector_snapshot_payload( $data ) );
+		$this->assertTrue( OC_Print_Base_Testable::test_render_vector_snapshot_payload( $pdf, $data, 3.0, 4.0, 50.0, 25.0 ) );
+		$this->assertTrue( $pdf->image_svg_called );
+		$this->assertFalse( $pdf->image_called );
+		$this->assertSame( 3.0, $pdf->image_svg_args[1] );
+		$this->assertSame( 4.0, $pdf->image_svg_args[2] );
+		$this->assertSame( 50.0, $pdf->image_svg_args[3] );
+		$this->assertSame( 25.0, $pdf->image_svg_args[4] );
+	}
+
+	#[Test]
+	public function vector_snapshot_payload_rejects_unresolved_image_nodes(): void {
+		$data = [
+			'snapshot' => [
+				'format' => 'fabric-svg-v1',
+				'svg'    => '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><image href="photo.png" width="100" height="50"/></svg>',
+			],
+		];
+
+		$this->assertFalse( OC_Print_Base_Testable::test_has_vector_snapshot_payload( $data ) );
 	}
 
 	// ── build_filename ────────────────────────────────────────────────────

@@ -1259,6 +1259,43 @@ abstract class OC_Print_Base {
 		return ! empty( $area_data['layers'] ) && is_array( $area_data['layers'] );
 	}
 
+	/** Return true when the print payload contains a fully vector snapshot. */
+	protected static function has_vector_snapshot_payload( array $area_data ): bool {
+		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
+		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( (string) $snapshot['svg'] ) : '';
+
+		return '' !== $svg && str_contains( $svg, '<svg' ) && ! preg_match( '/<image\b/i', $svg );
+	}
+
+	/** Render the browser-captured vector snapshot so PDF output matches the customer preview. */
+	protected static function render_vector_snapshot_payload( \TCPDF $pdf, array $area_data, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): bool {
+		if ( ! self::has_vector_snapshot_payload( $area_data ) ) {
+			return false;
+		}
+
+		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
+		$svg      = (string) $snapshot['svg'];
+		$temp     = self::temp_path_with_extension( 'oc-vector-snapshot-' . wp_generate_uuid4() . '.svg', 'svg' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			return false;
+		}
+
+		if ( false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		try {
+			self::draw_pdf_svg( $pdf, $temp, $x_mm, $y_mm, $w_mm, $h_mm );
+			return true;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Vector snapshot render failed, falling back to layer payload: ' . $e->getMessage() );
+			return false;
+		} finally {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
 	/**
 	 * Rotated print areas are rotated on the product mockup only. Production files
 	 * need the flat artboard dimensions, with artwork kept upright on that bed.

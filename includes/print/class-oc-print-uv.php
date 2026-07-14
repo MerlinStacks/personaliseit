@@ -70,6 +70,10 @@ class OC_Print_UV extends OC_Print_Base {
 	): void {
 		// Leave the page unpainted so transparent artwork does not gain a white box.
 
+		if ( self::render_vector_snapshot_payload( $pdf, $area_data, $bleed, $bleed, $w_mm, $h_mm ) ) {
+			return;
+		}
+
 		if ( self::has_layer_payload( $area_data ) ) {
 			self::render_layer_payload( $pdf, $area, $area_data, $bleed, $bleed, 'colour' );
 			return;

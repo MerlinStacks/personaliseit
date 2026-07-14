@@ -45,6 +45,17 @@ class OC_Print_Sublimation extends OC_Print_Base {
 
 		// Leave the page unpainted so transparent artwork does not gain a white box.
 
+		if ( self::render_vector_snapshot_payload( $pdf, $area_data, $bleed, $bleed, $w_mm, $h_mm ) ) {
+			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+
+			$output_dir  = self::ensure_output_dir( $order->get_id() );
+			$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $area, 'pdf' );
+
+			self::write_pdf_file( $pdf, $output_path );
+
+			return $output_path;
+		}
+
 		if ( self::has_layer_payload( $area_data ) ) {
 			self::render_layer_payload( $pdf, $area, $area_data, $bleed, $bleed, 'colour' );
 			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
