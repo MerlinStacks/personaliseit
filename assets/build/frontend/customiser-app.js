@@ -8886,9 +8886,9 @@ const inputControlMethods = {
       options.forEach(option => {
         option.addEventListener('pointerdown', e => {
           e.preventDefault();
-          selectFont(option.dataset.ocFontOption, true);
+          selectFont(option.dataset.ocFontOption);
         });
-        option.addEventListener('click', () => selectFont(option.dataset.ocFontOption, true));
+        option.addEventListener('click', () => selectFont(option.dataset.ocFontOption));
         option.addEventListener('keydown', e => {
           const visible = options.filter(item => !item.hidden);
           const index = visible.indexOf(option);
