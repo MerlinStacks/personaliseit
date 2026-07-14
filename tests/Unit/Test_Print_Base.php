@@ -298,6 +298,32 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function svg_css_presentation_styles_are_inlined_for_tcpdf_vector_rendering(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-svg-' );
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><style>.st0{fill:#78d5df;stroke:#123456;stroke-width:2}</style><path class="st0" d="M0 0h20v10H0z"/></svg>' );
+
+		$method = new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_intrinsic_size_for_tcpdf' );
+		$method->setAccessible( true );
+
+		try {
+			$normalised = $method->invoke( null, $path );
+
+			$this->assertIsString( $normalised );
+			$this->assertFileExists( $normalised );
+			$svg = file_get_contents( $normalised );
+			$this->assertStringContainsString( 'fill="#78d5df"', $svg );
+			$this->assertStringContainsString( 'stroke="#123456"', $svg );
+			$this->assertStringContainsString( 'stroke-width="2"', $svg );
+			$this->assertStringNotContainsString( '<style', $svg );
+		} finally {
+			@unlink( $path );
+			if ( isset( $normalised ) && is_string( $normalised ) ) {
+				@unlink( $normalised );
+			}
+		}
+	}
+
+	#[Test]
 	public function svg_print_artwork_uses_tcpdf_vector_renderer_before_raster_fallback(): void {
 		if ( ! class_exists( 'TCPDF' ) ) {
 			$this->markTestSkipped( 'TCPDF is not available.' );

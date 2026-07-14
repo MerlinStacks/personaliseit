@@ -121,6 +121,7 @@ const cartSerializationMethods = {
 				continue;
 			}
 
+			this.inlineSnapshotSvgPresentationStyles( sourceEl );
 			if ( source.color ) {
 				this.flattenSnapshotPatternPaint( sourceEl, source.color );
 			}
@@ -158,6 +159,100 @@ const cartSerializationMethods = {
 			return '';
 		}
 		return response.text();
+	},
+
+	inlineSnapshotSvgPresentationStyles( sourceEl ) {
+		const styleEls = Array.from( sourceEl.querySelectorAll( 'style' ) );
+		for ( const styleEl of styleEls ) {
+			const css = String( styleEl.textContent || '' ).replace(
+				/\/\*[\s\S]*?\*\//g,
+				''
+			);
+			const rulePattern = /([^{}@]+)\{([^{}]+)\}/g;
+			let match;
+			while ( ( match = rulePattern.exec( css ) ) ) {
+				const declarations = this.svgPresentationDeclarations(
+					match[ 2 ]
+				);
+				if ( ! Object.keys( declarations ).length ) {
+					continue;
+				}
+
+				String( match[ 1 ] )
+					.split( ',' )
+					.map( ( selector ) => selector.trim() )
+					.filter( Boolean )
+					.forEach( ( selector ) => {
+						let nodes = [];
+						try {
+							nodes = Array.from(
+								sourceEl.querySelectorAll( selector )
+							);
+						} catch {
+							nodes = [];
+						}
+						nodes.forEach( ( node ) => {
+							Object.entries( declarations ).forEach(
+								( [ attr, value ] ) => {
+									node.setAttribute( attr, value );
+								}
+							);
+						} );
+					} );
+			}
+		}
+
+		Array.from( sourceEl.querySelectorAll( '[style]' ) ).forEach(
+			( node ) => {
+				const declarations = this.svgPresentationDeclarations(
+					node.getAttribute( 'style' ) || ''
+				);
+				Object.entries( declarations ).forEach( ( [ attr, value ] ) => {
+					node.setAttribute( attr, value );
+				} );
+			}
+		);
+
+		styleEls.forEach( ( styleEl ) => styleEl.remove() );
+	},
+
+	svgPresentationDeclarations( cssText ) {
+		const allowed = new Set( [
+			'fill',
+			'stroke',
+			'opacity',
+			'fill-opacity',
+			'stroke-opacity',
+			'stroke-width',
+			'stroke-linecap',
+			'stroke-linejoin',
+			'fill-rule',
+			'clip-rule',
+		] );
+		const declarations = {};
+		String( cssText || '' )
+			.split( ';' )
+			.map( ( declaration ) => declaration.trim() )
+			.filter( Boolean )
+			.forEach( ( declaration ) => {
+				const separator = declaration.indexOf( ':' );
+				if ( separator <= 0 ) {
+					return;
+				}
+				const property = declaration
+					.slice( 0, separator )
+					.trim()
+					.toLowerCase();
+				const value = declaration
+					.slice( separator + 1 )
+					.trim()
+					.replace( /\s*!important$/i, '' );
+				if ( allowed.has( property ) && value ) {
+					declarations[ property ] = value;
+				}
+			} );
+
+		return declarations;
 	},
 
 	flattenSnapshotPatternPaint( element, color ) {

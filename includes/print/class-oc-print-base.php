@@ -519,9 +519,7 @@ abstract class OC_Print_Base {
 		}
 
 		$data = file_get_contents( $path );
-		if ( is_string( $data ) && self::tcpdf_svg_markup_has_positive_intrinsic_size( $data ) ) {
-			return null;
-		}
+		$has_positive_intrinsic_size = is_string( $data ) && self::tcpdf_svg_markup_has_positive_intrinsic_size( $data );
 
 		$dom = new \DOMDocument();
 		$previous = libxml_use_internal_errors( true );
@@ -537,6 +535,7 @@ abstract class OC_Print_Base {
 		$width  = self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'width' ) ) ? (float) $svg->getAttribute( 'width' ) : 0.0;
 		$height = self::tcpdf_svg_length_is_positive( $svg->getAttribute( 'height' ) ) ? (float) $svg->getAttribute( 'height' ) : 0.0;
 
+		$changed = false;
 		if ( $width <= 0.0 || $height <= 0.0 ) {
 			$view_box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
 			if ( ! is_array( $view_box ) || count( $view_box ) < 4 ) {
@@ -551,8 +550,16 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$svg->setAttribute( 'width', sprintf( '%.4F', $width ) );
-		$svg->setAttribute( 'height', sprintf( '%.4F', $height ) );
+		if ( ! $has_positive_intrinsic_size ) {
+			$svg->setAttribute( 'width', sprintf( '%.4F', $width ) );
+			$svg->setAttribute( 'height', sprintf( '%.4F', $height ) );
+			$changed = true;
+		}
+
+		$changed = self::inline_svg_presentation_styles( $dom, $svg ) || $changed;
+		if ( ! $changed ) {
+			return null;
+		}
 
 		$temp = self::temp_path_with_extension( 'oc-tcpdf-vector-svg-' . wp_generate_uuid4() . '.svg', 'svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
@@ -565,6 +572,126 @@ abstract class OC_Print_Base {
 		}
 
 		return $temp;
+	}
+
+	/** Inline simple SVG CSS presentation styles because TCPDF does not apply them reliably. */
+	private static function inline_svg_presentation_styles( \DOMDocument $dom, \DOMElement $svg ): bool {
+		$changed = false;
+		$xpath   = new \DOMXPath( $dom );
+		$styles  = [];
+		foreach ( $svg->getElementsByTagName( 'style' ) as $style ) {
+			$styles[] = $style;
+		}
+
+		foreach ( $styles as $style ) {
+			$css = preg_replace( '/\/\*[\s\S]*?\*\//', '', (string) $style->textContent ) ?? '';
+			if ( preg_match_all( '/([^{}@]+)\{([^{}]+)\}/', $css, $rules, PREG_SET_ORDER ) ) {
+				foreach ( $rules as $rule ) {
+					$declarations = self::svg_presentation_declarations( (string) $rule[2] );
+					if ( empty( $declarations ) ) {
+						continue;
+					}
+
+					foreach ( explode( ',', (string) $rule[1] ) as $selector ) {
+						$query = self::svg_css_selector_xpath( trim( $selector ) );
+						if ( '' === $query ) {
+							continue;
+						}
+
+						$nodes = $xpath->query( $query, $svg );
+						if ( ! $nodes instanceof \DOMNodeList ) {
+							continue;
+						}
+
+						foreach ( $nodes as $node ) {
+							if ( ! $node instanceof \DOMElement ) {
+								continue;
+							}
+							foreach ( $declarations as $attribute => $value ) {
+								$node->setAttribute( $attribute, $value );
+								$changed = true;
+							}
+						}
+					}
+				}
+			}
+
+			if ( $style->parentNode ) {
+				$style->parentNode->removeChild( $style );
+				$changed = true;
+			}
+		}
+
+		foreach ( $xpath->query( './/*[@style]', $svg ) ?: [] as $node ) {
+			if ( ! $node instanceof \DOMElement ) {
+				continue;
+			}
+			foreach ( self::svg_presentation_declarations( $node->getAttribute( 'style' ) ) as $attribute => $value ) {
+				$node->setAttribute( $attribute, $value );
+				$changed = true;
+			}
+		}
+
+		return $changed;
+	}
+
+	/** @return array<string,string> */
+	private static function svg_presentation_declarations( string $css ): array {
+		$allowed = [ 'fill', 'stroke', 'opacity', 'fill-opacity', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule' ];
+		$declarations = [];
+		foreach ( explode( ';', $css ) as $declaration ) {
+			$parts = explode( ':', $declaration, 2 );
+			if ( count( $parts ) !== 2 ) {
+				continue;
+			}
+
+			$property = strtolower( trim( $parts[0] ) );
+			$value    = preg_replace( '/\s*!important$/i', '', trim( $parts[1] ) ) ?? '';
+			if ( in_array( $property, $allowed, true ) && '' !== $value ) {
+				$declarations[ $property ] = $value;
+			}
+		}
+
+		return $declarations;
+	}
+
+	private static function svg_css_selector_xpath( string $selector ): string {
+		if ( preg_match( '/^\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match ) ) {
+			$class = self::xpath_literal( ' ' . $match[1] . ' ' );
+			return './/*[contains(concat(" ", normalize-space(@class), " "), ' . $class . ')]';
+		}
+
+		if ( preg_match( '/^#([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match ) ) {
+			return './/*[@id=' . self::xpath_literal( $match[1] ) . ']';
+		}
+
+		if ( preg_match( '/^([A-Za-z][A-Za-z0-9_-]*)\.([A-Za-z_][A-Za-z0-9_-]*)$/', $selector, $match ) ) {
+			$class = self::xpath_literal( ' ' . $match[2] . ' ' );
+			return './/*[local-name()=' . self::xpath_literal( $match[1] ) . ' and contains(concat(" ", normalize-space(@class), " "), ' . $class . ')]';
+		}
+
+		if ( preg_match( '/^[A-Za-z][A-Za-z0-9_-]*$/', $selector ) ) {
+			return './/*[local-name()=' . self::xpath_literal( $selector ) . ']';
+		}
+
+		return '';
+	}
+
+	private static function xpath_literal( string $value ): string {
+		if ( ! str_contains( $value, "'" ) ) {
+			return "'" . $value . "'";
+		}
+
+		if ( ! str_contains( $value, '"' ) ) {
+			return '"' . $value . '"';
+		}
+
+		$parts = array_map(
+			static fn( string $part ): string => "'" . $part . "'",
+			explode( "'", $value )
+		);
+
+		return 'concat(' . implode( ', "\'", ', $parts ) . ')';
 	}
 
 	/** Check whether the raw SVG root already matches TCPDF's strict double-quoted size parser. */
