@@ -23,6 +23,21 @@ if ( ! class_exists( 'WC_Order' ) ) {
 	}
 }
 
+if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) && class_exists( 'TCPDF' ) ) {
+	class OC_Test_Vector_SVG_PDF extends TCPDF {
+		public bool $image_called = false;
+		public bool $image_svg_called = false;
+
+		public function Image( $file, $x = '', $y = '', $w = 0, $h = 0, $type = '', $link = '', $align = '', $resize = false, $dpi = 300, $palign = '', $ismask = false, $imgmask = false, $border = 0, $fitbox = false, $hidden = false, $fitonpage = false, $alt = false, $altimgs = [] ) {
+			$this->image_called = true;
+		}
+
+		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
+			$this->image_svg_called = true;
+		}
+	}
+}
+
 /**
  * Concrete subclass to expose the protected static methods for testing.
  */
@@ -279,6 +294,28 @@ class Test_Print_Base extends TestCase {
 			if ( isset( $normalised ) && is_string( $normalised ) ) {
 				@unlink( $normalised );
 			}
+		}
+	}
+
+	#[Test]
+	public function svg_print_artwork_uses_tcpdf_vector_renderer_before_raster_fallback(): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+
+		$path = tempnam( sys_get_temp_dir(), 'oc-svg-' );
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="512" height="256" viewBox="0 0 512 256"><path d="M0 0h512v256H0z"/></svg>' );
+		$pdf = ( new ReflectionClass( OC_Test_Vector_SVG_PDF::class ) )->newInstanceWithoutConstructor();
+		$method = new ReflectionMethod( OC_Print_Base::class, 'draw_pdf_svg' );
+		$method->setAccessible( true );
+
+		try {
+			$method->invokeArgs( null, [ $pdf, $path, 0.0, 0.0, 50.0, 25.0 ] );
+
+			$this->assertTrue( $pdf->image_svg_called );
+			$this->assertFalse( $pdf->image_called );
+		} finally {
+			@unlink( $path );
 		}
 	}
 

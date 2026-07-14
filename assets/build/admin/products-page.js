@@ -2,142 +2,31 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ "./src/shared/render-math.js"
-/*!***********************************!*\
-  !*** ./src/shared/render-math.js ***!
-  \***********************************/
+/***/ "./src/admin/products-page-core.js"
+/*!*****************************************!*\
+  !*** ./src/admin/products-page-core.js ***!
+  \*****************************************/
 (__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 
 __webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   VALID_UNITS: () => (/* binding */ VALID_UNITS),
-/* harmony export */   displayBounds: () => (/* binding */ displayBounds),
-/* harmony export */   displayEntity: () => (/* binding */ displayEntity),
-/* harmony export */   displayFontSize: () => (/* binding */ displayFontSize),
-/* harmony export */   displayLayer: () => (/* binding */ displayLayer),
-/* harmony export */   normaliseDpi: () => (/* binding */ normaliseDpi),
-/* harmony export */   normaliseUnit: () => (/* binding */ normaliseUnit),
-/* harmony export */   unitPxScale: () => (/* binding */ unitPxScale)
-/* harmony export */ });
-const VALID_UNITS = ['px', 'mm', 'cm', 'in'];
-function normaliseUnit(value) {
-  return VALID_UNITS.includes(value) ? value : 'px';
-}
-function normaliseDpi(value) {
-  return Math.min(1200, Math.max(1, Math.round(Number(value) || 300)));
-}
-function unitPxScale(areaOrBounds) {
-  const dpi = normaliseDpi(areaOrBounds?.dpi);
-  switch (normaliseUnit(areaOrBounds?.unit)) {
-    case 'mm':
-      return dpi / 25.4;
-    case 'cm':
-      return dpi / 2.54;
-    case 'in':
-      return dpi;
-    default:
-      return 1;
-  }
-}
-function displayEntity(entity, area = null) {
-  if (!entity) {
-    return entity;
-  }
-  const sourceArea = area || entity;
-  const px = unitPxScale(sourceArea);
-  if (px === 1) {
-    return entity;
-  }
-  const originX = Number(sourceArea.x) || 0;
-  const originY = Number(sourceArea.y) || 0;
-  return {
-    ...entity,
-    x: originX + (Number(entity.x) - originX) * px,
-    y: originY + (Number(entity.y) - originY) * px,
-    w: Number(entity.w || 0) * px,
-    h: Number(entity.h || 0) * px
-  };
-}
-function displayBounds(bounds) {
-  return displayEntity(bounds);
-}
-function displayLayer(layer, bounds) {
-  return displayEntity(layer, bounds);
-}
-function displayFontSize(fontSize, areaOrBounds, canvasScale = 1) {
-  return Math.max(1, Number(fontSize) || 0) * unitPxScale(areaOrBounds) * canvasScale;
-}
+/* harmony import */ var _products_page_editor__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./products-page-editor */ "./src/admin/products-page-editor.js");
+/**
+ * Admin product editor core module.
+ *
+ * Kept as a small indirection layer so the public products-page entry can stay
+ * stable while the editor implementation is split into focused modules.
+ */
 
-/***/ }
 
-/******/ 	});
-/************************************************************************/
-/******/ 	// The module cache
-/******/ 	var __webpack_module_cache__ = {};
-/******/ 	
-/******/ 	// The require function
-/******/ 	function __webpack_require__(moduleId) {
-/******/ 		// Check if module is in cache
-/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
-/******/ 		if (cachedModule !== undefined) {
-/******/ 			return cachedModule.exports;
-/******/ 		}
-/******/ 		// Create a new module (and put it into the cache)
-/******/ 		var module = __webpack_module_cache__[moduleId] = {
-/******/ 			// no module.id needed
-/******/ 			// no module.loaded needed
-/******/ 			exports: {}
-/******/ 		};
-/******/ 	
-/******/ 		// Execute the module function
-/******/ 		if (!(moduleId in __webpack_modules__)) {
-/******/ 			delete __webpack_module_cache__[moduleId];
-/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
-/******/ 			e.code = 'MODULE_NOT_FOUND';
-/******/ 			throw e;
-/******/ 		}
-/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
-/******/ 	
-/******/ 		// Return the exports of the module
-/******/ 		return module.exports;
-/******/ 	}
-/******/ 	
-/************************************************************************/
-/******/ 	/* webpack/runtime/define property getters */
-/******/ 	(() => {
-/******/ 		// define getter functions for harmony exports
-/******/ 		__webpack_require__.d = (exports, definition) => {
-/******/ 			for(var key in definition) {
-/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
-/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
-/******/ 				}
-/******/ 			}
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
-/******/ 	(() => {
-/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/make namespace object */
-/******/ 	(() => {
-/******/ 		// define __esModule on exports
-/******/ 		__webpack_require__.r = (exports) => {
-/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
-/******/ 			}
-/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/************************************************************************/
-var __webpack_exports__ = {};
-// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
-(() => {
-/*!************************************!*\
-  !*** ./src/admin/products-page.js ***!
-  \************************************/
+
+/***/ },
+
+/***/ "./src/admin/products-page-editor.js"
+/*!*******************************************!*\
+  !*** ./src/admin/products-page-editor.js ***!
+  \*******************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
 /**
@@ -915,6 +804,13 @@ __webpack_require__.r(__webpack_exports__);
   function currentAspectRatio(entity) {
     return normaliseAspectRatio(entity?.aspectRatio, entity?.w, entity?.h);
   }
+  function selectedArea() {
+    return areas[selectedIndex] || null;
+  }
+  function selectedLayer() {
+    const area = selectedArea();
+    return area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || null : null;
+  }
   function updateAspectRatio(entity) {
     if (entity?.w && entity?.h) {
       entity.aspectRatio = normaliseAspectRatio(0, entity.w, entity.h);
@@ -1211,7 +1107,7 @@ __webpack_require__.r(__webpack_exports__);
     const colours = data.colours || [];
     const cGroups = data.colourGroups || [];
     // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     const printMethod = area?.method || '';
     const aGroups = data.clipartGroups || [];
     const allClipartItems = clipartForSelectedGroups(data.clipartItems || [], [], printMethod);
@@ -1262,23 +1158,23 @@ __webpack_require__.r(__webpack_exports__);
   }
   function bindSettingsHandlers(layer) {
     const s = layer.settings;
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     const data = window.ocProductsData || {};
     document.getElementById('oc-layer-label')?.addEventListener('input', e => {
       layer.label = e.target.value;
       renderLayerList(area);
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
     });
     document.getElementById('oc-set-default-text')?.addEventListener('input', e => {
       s.default_text = e.target.value;
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     const linkGroupControl = document.getElementById('oc-set-link-group');
     const newLinkGroupControl = document.getElementById('oc-set-link-group-new');
@@ -1295,18 +1191,15 @@ __webpack_require__.r(__webpack_exports__);
         }
         s.link_group = normaliseLinkGroup(e.target.value);
       }
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     newLinkGroupControl?.addEventListener('input', e => {
       s.link_group = normaliseLinkGroup(e.target.value);
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-char-limit')?.addEventListener('input', e => {
       s.char_limit = parseInt(e.target.value, 10) || 0;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-choose-default-attachment')?.addEventListener('click', () => {
       if (!window.wp || !window.wp.media) {
@@ -1329,73 +1222,73 @@ __webpack_require__.r(__webpack_exports__);
         }
         s.default_attachment_id = Number(attachment.id) || 0;
         s.default_attachment_url = attachment.sizes?.medium?.url || attachment.url || '';
-        renderCanvas();
-        renderRightColumn();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          canvas: true,
+          rightColumn: true
+        });
       });
       frame.open();
     });
     document.getElementById('oc-remove-default-attachment')?.addEventListener('click', () => {
       s.default_attachment_id = 0;
       s.default_attachment_url = '';
-      renderCanvas();
-      renderRightColumn();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true,
+        rightColumn: true
+      });
     });
     document.getElementById('oc-set-default-font')?.addEventListener('change', e => {
       s.default_font_id = parseInt(e.target.value, 10) || 0;
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-default-font-size')?.addEventListener('input', e => {
       s.default_font_size = fontLimit(e.target.value);
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-default-color')?.addEventListener('change', e => {
       s.default_color = normaliseHex(e.target.value);
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-default-color')?.addEventListener('input', e => {
       s.default_color = normaliseHex(e.target.value);
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-min-font-size')?.addEventListener('input', e => {
       s.min_font_size = fontLimit(e.target.value);
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-max-font-size')?.addEventListener('input', e => {
       s.max_font_size = fontLimit(e.target.value);
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.querySelectorAll('.oc-align-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         s.alignment = btn.dataset.align;
         document.querySelectorAll('.oc-align-btn').forEach(b => b.classList.toggle('oc-align-btn--active', b.dataset.align === btn.dataset.align));
-        renderCanvas();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          canvas: true
+        });
       });
     });
     document.querySelectorAll('.oc-line-align-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         s.line_alignment = btn.dataset.lineAlign || 'top';
         document.querySelectorAll('.oc-line-align-btn').forEach(b => b.classList.toggle('oc-align-btn--active', b.dataset.lineAlign === btn.dataset.lineAlign));
-        renderCanvas();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          canvas: true
+        });
       });
     });
     document.querySelectorAll('.oc-fg-check').forEach(cb => {
@@ -1405,10 +1298,10 @@ __webpack_require__.r(__webpack_exports__);
         if (selected.length) {
           ensureDefaultFontInList(s, fontsForSelectedGroups(data.fonts || [], data.fontGroups || [], selected));
         }
-        renderCanvas();
-        renderRightColumn();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          canvas: true,
+          rightColumn: true
+        });
       });
     });
     document.querySelectorAll('.oc-cg-check').forEach(cb => {
@@ -1418,84 +1311,74 @@ __webpack_require__.r(__webpack_exports__);
         if (selected.length) {
           ensureDefaultColourInList(s, coloursForSelectedGroups(data.colours || [], data.colourGroups || [], selected));
         }
-        renderCanvas();
-        renderRightColumn();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          canvas: true,
+          rightColumn: true
+        });
       });
     });
     document.querySelectorAll('.oc-ag-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.clipart_groups = [...document.querySelectorAll('.oc-ag-check:checked')].map(c => Number(c.value));
         ensureDefaultClipartInList(s, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups, area?.method || ''));
-        renderRightColumn();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          rightColumn: true
+        });
       });
     });
     document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
       setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], [], area?.method || ''));
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.querySelectorAll('.oc-fmt-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.formats = [...document.querySelectorAll('.oc-fmt-check:checked')].map(c => c.value);
-        renderHiddenFields();
-        markDirty();
+        commitChange();
       });
     });
     document.getElementById('oc-set-max-size')?.addEventListener('input', e => {
       s.max_size_mb = parseInt(e.target.value, 10) || 10;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-remove-background')?.addEventListener('change', e => {
       s.remove_background = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-mask-shape')?.addEventListener('change', e => {
       s.mask_shape = e.target.value || 'circle';
-      renderCanvas();
-      renderHiddenFields();
-      markDirty();
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-required')?.addEventListener('change', e => {
       s.required = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-clipart-display')?.addEventListener('change', e => {
       s.clipart_display = e.target.value === 'carousel' ? 'carousel' : 'grid';
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-allow-font-change')?.addEventListener('change', e => {
       s.allow_font_change = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-allow-colour-change')?.addEventListener('change', e => {
       s.allow_colour_change = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-allow-size-change')?.addEventListener('change', e => {
       s.allow_size_change = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-allow-image-change')?.addEventListener('change', e => {
       s.allow_image_change = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
     document.getElementById('oc-set-allow-clipart-change')?.addEventListener('change', e => {
       s.allow_clipart_change = e.target.checked;
-      renderHiddenFields();
-      markDirty();
+      commitChange();
     });
   }
 
@@ -1508,6 +1391,28 @@ __webpack_require__.r(__webpack_exports__);
     renderCanvas();
     renderRightColumn();
     renderHiddenFields();
+  }
+  function commitChange(options = {}) {
+    if (options.all) {
+      renderAll();
+    } else {
+      if (options.areasList) {
+        renderAreasList();
+      }
+      if (options.areaStrip) {
+        renderAreaStrip();
+      }
+      if (options.canvas) {
+        renderCanvas();
+      }
+      if (options.rightColumn) {
+        renderRightColumn();
+      }
+      if (options.hiddenFields !== false) {
+        renderHiddenFields();
+      }
+    }
+    markDirty();
   }
 
   // ── Feature 3: Multi-area navigation strip ─────────────────────────────────
@@ -1621,7 +1526,7 @@ __webpack_require__.r(__webpack_exports__);
   function renderLeftAreaProps() {
     const noSel = document.getElementById('oc-area-no-sel');
     const inner = document.getElementById('oc-area-props-inner');
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       if (noSel) {
         noSel.style.display = '';
@@ -1700,8 +1605,8 @@ __webpack_require__.r(__webpack_exports__);
   // ── Right column ───────────────────────────────────────────────────────────
 
   function renderRightColumn() {
-    const area = areas[selectedIndex];
-    const layer = area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const area = selectedArea();
+    const layer = selectedLayer();
     const hint = document.getElementById('oc-type-picker-hint');
     if (hint) {
       hint.style.display = area ? 'none' : '';
@@ -1903,7 +1808,7 @@ __webpack_require__.r(__webpack_exports__);
     if (!stage) {
       return;
     }
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area || !area.mockupUrl) {
       stage.style.display = 'none';
       noMockup.style.display = '';
@@ -1940,7 +1845,7 @@ __webpack_require__.r(__webpack_exports__);
   function updateBoundsBox() {
     const box = document.getElementById('oc-bounds-box');
     const img = document.getElementById('oc-canvas-mockup-img');
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!box || !img || !area) {
       if (box) {
         box.style.display = 'none';
@@ -1951,7 +1856,7 @@ __webpack_require__.r(__webpack_exports__);
     if (!scale) {
       return;
     }
-    const layer = selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const layer = selectedLayer();
     const entity = layer || area;
     const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(entity, layer ? area : null);
     const color = layer ? layerColor(layer.type) : areaColor(selectedIndex);
@@ -2001,7 +1906,7 @@ __webpack_require__.r(__webpack_exports__);
     if (!scale) {
       return;
     }
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     const activeMockup = area ? area.mockupUrl : '';
     areas.forEach((a, i) => {
       if (i === selectedIndex || a.mockupUrl !== activeMockup || !activeMockup || !a.visible) {
@@ -2145,57 +2050,55 @@ __webpack_require__.r(__webpack_exports__);
 
     // Area prop inputs
     document.getElementById('oc-prop-label')?.addEventListener('input', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.label = document.getElementById('oc-prop-label').value;
-        renderAreasList();
-        renderAreaStrip();
-        renderHiddenFields();
-        markDirty();
+        commitChange({
+          areasList: true,
+          areaStrip: true
+        });
       }
     });
     document.getElementById('oc-prop-method')?.addEventListener('change', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.method = document.getElementById('oc-prop-method').value;
         if (area.method === 'engraving' && !area.material) {
           area.material = 'silver_metal';
         }
         // Re-render everything so layer panels reflect method-dependent UI (e.g. hide colour picks under engraving).
-        renderAll();
-        markDirty();
+        commitChange({
+          all: true
+        });
       }
     });
     document.getElementById('oc-prop-engraving-material')?.addEventListener('change', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.material = document.getElementById('oc-prop-engraving-material').value;
-        renderHiddenFields();
-        markDirty();
+        commitChange();
       }
     });
     document.getElementById('oc-prop-unit')?.addEventListener('change', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.unit = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit)(document.getElementById('oc-prop-unit').value);
         updateBoundsBox();
         renderGhosts();
-        renderHiddenFields();
-        markDirty();
+        commitChange();
       }
     });
     document.getElementById('oc-prop-dpi')?.addEventListener('input', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.dpi = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(document.getElementById('oc-prop-dpi').value);
         updateBoundsBox();
         renderGhosts();
-        renderHiddenFields();
-        markDirty();
+        commitChange();
       }
     });
     document.getElementById('oc-prop-ratio-lock')?.addEventListener('click', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.ratioLocked = !area.ratioLocked;
         updateAspectRatio(area);
@@ -2216,12 +2119,13 @@ __webpack_require__.r(__webpack_exports__);
     // Mockup
     document.getElementById('oc-choose-mockup-btn')?.addEventListener('click', openMockupPicker);
     document.getElementById('oc-remove-mockup-btn')?.addEventListener('click', () => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (area) {
         area.mockupId = 0;
         area.mockupUrl = '';
-        renderAll();
-        markDirty();
+        commitChange({
+          all: true
+        });
       }
     });
 
@@ -2273,7 +2177,7 @@ __webpack_require__.r(__webpack_exports__);
     initCanvasInteractions();
   }
   function addLayer(type) {
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       return;
     }
@@ -2286,22 +2190,32 @@ __webpack_require__.r(__webpack_exports__);
     const lh = Math.max(1, Math.round(def.h / px));
     const lx = area.x + Math.max(0, Math.round((area.w - lw) / 2));
     const ly = area.y + Math.max(0, Math.round((area.h - lh) / 2));
+    addLayerWithBounds(type, lx, ly, lw, lh);
+  }
+  function createLayer(type, area, x, y, w, h) {
     const layer = {
       _uid: ++uidCounter,
       id: 0,
       type,
       label: layerLabel(type) + ' ' + (area.layers.length + 1),
-      x: lx,
-      y: ly,
-      w: lw,
-      h: lh,
+      x,
+      y,
+      w,
+      h,
       visible: true,
       locked: false,
       settings: defaultSettings(type),
       sortOrder: area.layers.length
     };
     clampLayerToArea(layer, area);
-    area.layers.push(layer);
+    return layer;
+  }
+  function addLayerWithBounds(type, x, y, w, h) {
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    area.layers.push(createLayer(type, area, x, y, w, h));
     selectedLayerIndex = area.layers.length - 1;
     snapshot();
     renderAll();
@@ -2338,7 +2252,7 @@ __webpack_require__.r(__webpack_exports__);
 
     // Draw-to-create: mousedown on the image itself (not covered by bounds/ghosts)
     document.getElementById('oc-canvas-mockup-img')?.addEventListener('mousedown', e => {
-      const area = areas[selectedIndex];
+      const area = selectedArea();
       if (!area || area.locked || selectedLayerIndex >= 0) {
         return;
       }
@@ -2369,7 +2283,7 @@ __webpack_require__.r(__webpack_exports__);
     if (!img) {
       return;
     }
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       return;
     }
@@ -2401,7 +2315,7 @@ __webpack_require__.r(__webpack_exports__);
     if (!img) {
       return;
     }
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       return;
     }
@@ -2515,40 +2429,22 @@ __webpack_require__.r(__webpack_exports__);
     document.removeEventListener('keydown', onDrawPickerKey);
   }
   function addLayerAt(type, x, y, w, h) {
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       return;
     }
     const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
-    const layer = {
-      _uid: ++uidCounter,
-      id: 0,
-      type,
-      label: layerLabel(type) + ' ' + (area.layers.length + 1),
-      x: area.x + Math.round((x - area.x) / px),
-      y: area.y + Math.round((y - area.y) / px),
-      w: Math.max(1, Math.round(w / px)),
-      h: Math.max(1, Math.round(h / px)),
-      visible: true,
-      locked: false,
-      settings: defaultSettings(type),
-      sortOrder: area.layers.length
-    };
-    clampLayerToArea(layer, area);
-    area.layers.push(layer);
-    selectedLayerIndex = area.layers.length - 1;
-    snapshot();
-    renderAll();
+    addLayerWithBounds(type, area.x + Math.round((x - area.x) / px), area.y + Math.round((y - area.y) / px), Math.max(1, Math.round(w / px)), Math.max(1, Math.round(h / px)));
   }
 
   // ── Canvas drag/resize ─────────────────────────────────────────────────────
 
   function activeEntity() {
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       return null;
     }
-    const layer = selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const layer = selectedLayer();
     return layer || area;
   }
   function startDrag(e, type, dir) {
@@ -2556,8 +2452,8 @@ __webpack_require__.r(__webpack_exports__);
     if (!entity) {
       return;
     }
-    const area = areas[selectedIndex];
-    const layer = area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const area = selectedArea();
+    const layer = selectedLayer();
     if (layer ? layer.locked : area && area.locked) {
       return;
     }
@@ -2579,8 +2475,8 @@ __webpack_require__.r(__webpack_exports__);
     }
     const entity = activeEntity();
     const img = document.getElementById('oc-canvas-mockup-img');
-    const area = areas[selectedIndex];
-    const layer = area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const area = selectedArea();
+    const layer = selectedLayer();
     if (!entity || !img) {
       return;
     }
@@ -2678,7 +2574,7 @@ __webpack_require__.r(__webpack_exports__);
     drag = null;
   }
   function syncBoundsFromInputs(changedId = '') {
-    const area = areas[selectedIndex];
+    const area = selectedArea();
     if (!area) {
       return;
     }
@@ -2726,8 +2622,8 @@ __webpack_require__.r(__webpack_exports__);
     markDirty();
   }
   function syncRightBounds(entity) {
-    const area = areas[selectedIndex];
-    const layer = area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
+    const area = selectedArea();
+    const layer = selectedLayer();
     const prefix = entity === layer ? 'oc-layer' : 'oc-prop';
     setVal(prefix + '-x', entity.x);
     setVal(prefix + '-y', entity.y);
@@ -2765,7 +2661,7 @@ __webpack_require__.r(__webpack_exports__);
       });
       mediaFrame.on('select', () => {
         const att = mediaFrame.state().get('selection').first().toJSON();
-        const area = areas[selectedIndex];
+        const area = selectedArea();
         if (area) {
           area.mockupId = att.id;
           area.mockupUrl = att.sizes && att.sizes.large && att.sizes.large.url || att.url;
@@ -2781,6 +2677,155 @@ __webpack_require__.r(__webpack_exports__);
 
   document.addEventListener('DOMContentLoaded', init);
 })();
+
+/***/ },
+
+/***/ "./src/shared/render-math.js"
+/*!***********************************!*\
+  !*** ./src/shared/render-math.js ***!
+  \***********************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   VALID_UNITS: () => (/* binding */ VALID_UNITS),
+/* harmony export */   displayBounds: () => (/* binding */ displayBounds),
+/* harmony export */   displayEntity: () => (/* binding */ displayEntity),
+/* harmony export */   displayFontSize: () => (/* binding */ displayFontSize),
+/* harmony export */   displayLayer: () => (/* binding */ displayLayer),
+/* harmony export */   normaliseDpi: () => (/* binding */ normaliseDpi),
+/* harmony export */   normaliseUnit: () => (/* binding */ normaliseUnit),
+/* harmony export */   unitPxScale: () => (/* binding */ unitPxScale)
+/* harmony export */ });
+const VALID_UNITS = ['px', 'mm', 'cm', 'in'];
+function normaliseUnit(value) {
+  return VALID_UNITS.includes(value) ? value : 'px';
+}
+function normaliseDpi(value) {
+  return Math.min(1200, Math.max(1, Math.round(Number(value) || 300)));
+}
+function unitPxScale(areaOrBounds) {
+  const dpi = normaliseDpi(areaOrBounds?.dpi);
+  switch (normaliseUnit(areaOrBounds?.unit)) {
+    case 'mm':
+      return dpi / 25.4;
+    case 'cm':
+      return dpi / 2.54;
+    case 'in':
+      return dpi;
+    default:
+      return 1;
+  }
+}
+function displayEntity(entity, area = null) {
+  if (!entity) {
+    return entity;
+  }
+  const sourceArea = area || entity;
+  const px = unitPxScale(sourceArea);
+  if (px === 1) {
+    return entity;
+  }
+  const originX = Number(sourceArea.x) || 0;
+  const originY = Number(sourceArea.y) || 0;
+  return {
+    ...entity,
+    x: originX + (Number(entity.x) - originX) * px,
+    y: originY + (Number(entity.y) - originY) * px,
+    w: Number(entity.w || 0) * px,
+    h: Number(entity.h || 0) * px
+  };
+}
+function displayBounds(bounds) {
+  return displayEntity(bounds);
+}
+function displayLayer(layer, bounds) {
+  return displayEntity(layer, bounds);
+}
+function displayFontSize(fontSize, areaOrBounds, canvasScale = 1) {
+  return Math.max(1, Number(fontSize) || 0) * unitPxScale(areaOrBounds) * canvasScale;
+}
+
+/***/ }
+
+/******/ 	});
+/************************************************************************/
+/******/ 	// The module cache
+/******/ 	var __webpack_module_cache__ = {};
+/******/ 	
+/******/ 	// The require function
+/******/ 	function __webpack_require__(moduleId) {
+/******/ 		// Check if module is in cache
+/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
+/******/ 		if (cachedModule !== undefined) {
+/******/ 			return cachedModule.exports;
+/******/ 		}
+/******/ 		// Create a new module (and put it into the cache)
+/******/ 		var module = __webpack_module_cache__[moduleId] = {
+/******/ 			// no module.id needed
+/******/ 			// no module.loaded needed
+/******/ 			exports: {}
+/******/ 		};
+/******/ 	
+/******/ 		// Execute the module function
+/******/ 		if (!(moduleId in __webpack_modules__)) {
+/******/ 			delete __webpack_module_cache__[moduleId];
+/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
+/******/ 			e.code = 'MODULE_NOT_FOUND';
+/******/ 			throw e;
+/******/ 		}
+/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
+/******/ 	
+/******/ 		// Return the exports of the module
+/******/ 		return module.exports;
+/******/ 	}
+/******/ 	
+/************************************************************************/
+/******/ 	/* webpack/runtime/define property getters */
+/******/ 	(() => {
+/******/ 		// define getter functions for harmony exports
+/******/ 		__webpack_require__.d = (exports, definition) => {
+/******/ 			for(var key in definition) {
+/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
+/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
+/******/ 				}
+/******/ 			}
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
+/******/ 	(() => {
+/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
+/******/ 	})();
+/******/ 	
+/******/ 	/* webpack/runtime/make namespace object */
+/******/ 	(() => {
+/******/ 		// define __esModule on exports
+/******/ 		__webpack_require__.r = (exports) => {
+/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
+/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
+/******/ 			}
+/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
+/******/ 		};
+/******/ 	})();
+/******/ 	
+/************************************************************************/
+var __webpack_exports__ = {};
+// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
+(() => {
+/*!************************************!*\
+  !*** ./src/admin/products-page.js ***!
+  \************************************/
+__webpack_require__.r(__webpack_exports__);
+/* harmony import */ var _products_page_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./products-page-core */ "./src/admin/products-page-core.js");
+/**
+ * Admin product editor bundle entry.
+ *
+ * The implementation lives in products-page-core.js so this entry stays small
+ * while preserving the existing webpack entry name and WordPress script handle.
+ */
+
+
 })();
 
 /******/ })()

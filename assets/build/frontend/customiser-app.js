@@ -5592,6 +5592,752 @@ exports.ParseError = ParseError;
 
 /***/ },
 
+/***/ "./src/frontend/customiser/checkout.js"
+/*!*********************************************!*\
+  !*** ./src/frontend/customiser/checkout.js ***!
+  \*********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/**
+ * Cart submission, mobile preview confirmation, and preview upload helpers.
+ */
+
+/* eslint-disable no-console, no-alert */
+
+const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
+const checkoutMethods = {
+  setupFormSubmit() {
+    if (this.formSubmitBound) {
+      return;
+    }
+    const form = document.querySelector('form.cart');
+    if (!form) {
+      return;
+    }
+    this.formSubmitBound = true;
+    if (this.editMode) {
+      form.addEventListener('submit', async e => {
+        this.closeFontComboboxes(true);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.syncInputsFromDOM();
+        await this.flushRedraw();
+        const preflight = await this.runPreflight();
+        this.renderPreflightMessages(preflight.errors, preflight.warnings);
+        if (!preflight.ok) {
+          return;
+        }
+        if (preflight.warnings.length) {
+          const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
+          if (!proceed) {
+            return;
+          }
+        }
+        await this.uploadPreview();
+        this.updateHiddenField();
+        const layers = {};
+        this.areas.forEach(area => {
+          (area.layers || []).forEach(layer => {
+            const inp = this.inputs[layer.id];
+            if (inp) {
+              layers[layer.id] = {
+                type: layer.type,
+                ...inp
+              };
+            }
+          });
+        });
+        const snapshots = await this.captureAreaSnapshots();
+        try {
+          const res = await fetch(this.data.updateCartItemUrl, {
+            method: 'POST',
+            headers: this.restHeaders({
+              'Content-Type': 'application/json'
+            }),
+            body: JSON.stringify({
+              cart_key: this.cartKey,
+              designId: this.data.designId,
+              layers,
+              snapshots,
+              previewUrl: this._previewUrl || ''
+            })
+          });
+          let json = null;
+          const isJson = res.headers.get('content-type')?.includes('application/json');
+          if (isJson) {
+            try {
+              json = await res.json();
+            } catch (err) {
+              console.warn('[OC] Cart update response parse failed:', err);
+            }
+          }
+          if (!res.ok) {
+            this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
+            return;
+          }
+          if (json?.success) {
+            window.location.href = window.wc_cart_params?.cart_url || '/cart/';
+          } else {
+            this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
+          }
+        } catch (err) {
+          console.error('[OC] Update cart item failed:', err);
+          this.renderPreflightMessages(['Failed to update customisation. Please try again.'], []);
+        }
+      }, true);
+      return;
+    }
+    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
+      button.addEventListener('click', e => {
+        this.closeFontComboboxes(true);
+        if (form._ocSubmitReady) {
+          return;
+        }
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.syncInputsFromDOM();
+        const preflight = this.runImmediateBlockingPreflight();
+        if (preflight.ok) {
+          if (form.requestSubmit) {
+            form.requestSubmit(button);
+          } else {
+            form.dispatchEvent(new Event('submit', {
+              bubbles: true,
+              cancelable: true
+            }));
+          }
+          return;
+        }
+        this.resetCartSubmitState(form);
+        this.renderPreflightMessages(preflight.errors, preflight.warnings);
+      }, true);
+    });
+    form.addEventListener('submit', async e => {
+      this.closeFontComboboxes(true);
+      if (this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.resetCartSubmitState(form);
+        return;
+      }
+      if (form._ocSubmitReady) {
+        form._ocSubmitReady = false;
+        return; // preview already saved, let submit through
+      }
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this.syncInputsFromDOM();
+      await this.flushRedraw();
+      const preflight = await this.runPreflight();
+      this.renderPreflightMessages(preflight.errors, preflight.warnings);
+      if (!preflight.ok) {
+        this.resetCartSubmitState(form);
+        return;
+      }
+      if (preflight.warnings.length) {
+        const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
+        if (!proceed) {
+          this.resetCartSubmitState(form);
+          return;
+        }
+      }
+      const acceptedPreview = await this.confirmMobileCartPreview();
+      if (!acceptedPreview) {
+        this.resetCartSubmitState(form);
+        return;
+      }
+      await this.uploadPreview();
+      await this.updateHiddenField(true);
+      form._ocSubmitReady = true;
+      // requestSubmit() re-triggers HTML5 validation before submitting.
+      if (form.requestSubmit) {
+        const submitter = form.querySelector('[type="submit"]') || undefined;
+        form.requestSubmit(submitter);
+      } else {
+        form.submit();
+      }
+    }, true);
+  },
+  resetCartSubmitState(form) {
+    form.classList.remove('loading', 'processing');
+    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
+      button.classList.remove('loading', 'processing');
+      button.disabled = false;
+      button.removeAttribute('disabled');
+      button.setAttribute('aria-disabled', 'false');
+    });
+  },
+  isMobileCartPreviewRequired() {
+    return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
+  },
+  getCurrentPreviewDataUrl() {
+    const canvas = this.canvases[this.activeArea];
+    if (canvas) {
+      try {
+        return canvas.toDataURL({
+          format: 'jpeg',
+          quality: 0.92
+        });
+      } catch {
+        // Fall back to the already-rendered preview image below.
+      }
+    }
+    return document.getElementById('oc-canvas-preview')?.src || '';
+  },
+  getMobileCartPreviewDialog() {
+    if (this.mobileCartPreviewDialog) {
+      return this.mobileCartPreviewDialog;
+    }
+    let dialogRoot = document.getElementById('oc-cart-preview-root');
+    if (!dialogRoot) {
+      dialogRoot = document.createElement('div');
+      dialogRoot.id = 'oc-cart-preview-root';
+      dialogRoot.className = 'oc-customiser-panel oc-cart-preview-root';
+      document.body.appendChild(dialogRoot);
+    }
+    const dialog = document.createElement('dialog');
+    dialog.id = 'oc-cart-preview-dialog';
+    dialog.className = 'oc-cart-preview-dialog';
+    dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
+    dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
+    dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-image-wrap">' + '<img class="oc-cart-preview-image" alt="Customisation preview">' + '</div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
+    dialogRoot.appendChild(dialog);
+    this.mobileCartPreviewDialog = dialog;
+    return dialog;
+  },
+  confirmMobileCartPreview() {
+    if (!this.isMobileCartPreviewRequired()) {
+      return Promise.resolve(true);
+    }
+    this.closeFontComboboxes(true);
+    const previewUrl = this.getCurrentPreviewDataUrl();
+    const dialog = this.getMobileCartPreviewDialog();
+    dialog.ownerDocument.activeElement?.blur?.();
+    const img = dialog.querySelector('.oc-cart-preview-image');
+    if (img && previewUrl) {
+      img.src = previewUrl;
+    }
+    if (!dialog.showModal) {
+      return Promise.resolve(true);
+    }
+    return new Promise(resolve => {
+      const acceptBtn = dialog.querySelector('[data-oc-cart-preview-accept]');
+      const changeBtn = dialog.querySelector('[data-oc-cart-preview-change]');
+      const previousFocus = dialog.ownerDocument.activeElement;
+      const finish = accepted => {
+        if (!accepted) {
+          this.mobileCartPreviewDismissedAt = Date.now();
+        }
+        dialog.classList.remove('is-visible');
+        dialog.removeEventListener('click', onBackdropClick);
+        dialog.removeEventListener('cancel', onCancel);
+        acceptBtn?.removeEventListener('click', onAccept);
+        changeBtn?.removeEventListener('click', onChange);
+        if (dialog.open) {
+          dialog.close();
+        }
+        previousFocus?.focus?.();
+        resolve(accepted);
+      };
+      const stopModalAction = event => {
+        event?.preventDefault?.();
+        event?.stopPropagation?.();
+        event?.stopImmediatePropagation?.();
+      };
+      const onAccept = event => {
+        stopModalAction(event);
+        finish(true);
+      };
+      const onChange = event => {
+        stopModalAction(event);
+        finish(false);
+      };
+      const onBackdropClick = event => {
+        if (event.target === dialog) {
+          finish(false);
+        }
+      };
+      const onCancel = event => {
+        event.preventDefault();
+        finish(false);
+      };
+      acceptBtn?.addEventListener('click', onAccept);
+      changeBtn?.addEventListener('click', onChange);
+      dialog.addEventListener('click', onBackdropClick);
+      dialog.addEventListener('cancel', onCancel);
+      dialog.showModal();
+      window.requestAnimationFrame(() => dialog.classList.add('is-visible'));
+      acceptBtn?.focus?.();
+    });
+  },
+  async uploadPreview() {
+    if (!this.data.savePreviewUrl) {
+      return;
+    }
+    await this.flushRedraw();
+    let dataUrl;
+    try {
+      dataUrl = this.getCurrentPreviewDataUrl();
+    } catch (e) {
+      this._previewUrl = '';
+      this.updateHiddenField();
+      console.warn('[OC] Could not capture preview for cart:', e.message);
+      return;
+    }
+    try {
+      const res = await fetch(this.data.savePreviewUrl, {
+        method: 'POST',
+        headers: this.restHeaders({
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({
+          image: dataUrl
+        })
+      });
+      if (!res.ok) {
+        this._previewUrl = '';
+        this.updateHiddenField();
+        return;
+      }
+      let json = null;
+      const isJson = res.headers.get('content-type')?.includes('application/json');
+      if (isJson) {
+        try {
+          json = await res.json();
+        } catch (err) {
+          console.warn('[OC] Preview upload JSON parse failed:', err);
+        }
+      }
+      if (!json) {
+        this._previewUrl = '';
+        this.updateHiddenField();
+        return;
+      }
+      if (json.url) {
+        this._previewUrl = json.url;
+        this.updateHiddenField();
+      }
+    } catch (e) {
+      this._previewUrl = '';
+      this.updateHiddenField();
+      // Non-fatal: cart submits without a preview image.
+      console.warn('[OC] Preview upload failed:', e.message);
+    }
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (checkoutMethods);
+
+/***/ },
+
+/***/ "./src/frontend/customiser/clipart.js"
+/*!********************************************!*\
+  !*** ./src/frontend/customiser/clipart.js ***!
+  \********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/**
+ * Clipart search and carousel helpers.
+ */
+
+const clipartMethods = {
+  filterClipart(layerId) {
+    const grid = document.querySelector(`.oc-clipart-grid[data-oc-clipart-grid="${layerId}"]`) || document.querySelector(`[data-oc-clipart-search="${layerId}"]`)?.closest('.oc-layer-body')?.querySelector('.oc-clipart-grid');
+    if (!grid) {
+      return;
+    }
+    const items = grid.querySelectorAll('.oc-clipart-item');
+    const term = (this.clipartSearchTerms[layerId] || '').toLowerCase().trim();
+    const category = this.clipartCategoryFilters[layerId] || '';
+    let visibleCount = 0;
+    items.forEach(btn => {
+      const name = (btn.title || '').toLowerCase();
+      const groups = btn.dataset.ocClipartGroups ? btn.dataset.ocClipartGroups.split('||').filter(Boolean) : [];
+      const matchesSearch = !term || name.includes(term);
+      const matchesCategory = !category || groups.includes(category);
+      const visible = matchesSearch && matchesCategory;
+      btn.style.display = visible ? '' : 'none';
+      if (visible) {
+        visibleCount++;
+      }
+    });
+    let noResults = grid.querySelector('.oc-clipart-no-results');
+    if (visibleCount === 0) {
+      if (!noResults) {
+        noResults = document.createElement('p');
+        noResults.className = 'oc-clipart-no-results';
+        noResults.textContent = 'No clipart matches your search.';
+        grid.appendChild(noResults);
+      }
+      noResults.style.display = '';
+    } else if (noResults) {
+      noResults.style.display = 'none';
+    }
+    this.refreshClipartCarousel(layerId);
+  },
+  setupClipartCarousels() {
+    document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
+      const layerId = parseInt(carousel.dataset.ocClipartCarousel, 10);
+      const grid = carousel.querySelector('.oc-clipart-grid--carousel');
+      if (!layerId || !grid) {
+        return;
+      }
+      carousel.querySelector('[data-oc-clipart-prev]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, -1));
+      carousel.querySelector('[data-oc-clipart-next]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, 1));
+      grid.addEventListener('scroll', () => this.updateClipartCarouselDots(layerId), {
+        passive: true
+      });
+      this.refreshClipartCarousel(layerId);
+    });
+  },
+  visibleClipartItems(grid) {
+    return Array.from(grid.querySelectorAll('.oc-clipart-item')).filter(item => item.style.display !== 'none');
+  },
+  clipartCarouselPageCount(grid) {
+    const visibleItems = this.visibleClipartItems(grid);
+    if (!visibleItems.length || !grid.clientWidth) {
+      return 1;
+    }
+    return Math.max(1, Math.ceil(grid.scrollWidth / grid.clientWidth));
+  },
+  scrollClipartCarousel(layerId, direction) {
+    const grid = document.querySelector(`.oc-clipart-grid--carousel[data-oc-clipart-grid="${layerId}"]`);
+    if (!grid) {
+      return;
+    }
+    const page = Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth)) + direction;
+    const maxPage = this.clipartCarouselPageCount(grid) - 1;
+    grid.scrollTo({
+      left: Math.max(0, Math.min(maxPage, page)) * grid.clientWidth,
+      behavior: 'smooth'
+    });
+  },
+  refreshClipartCarousel(layerId) {
+    const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
+    const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
+    const dots = carousel?.querySelector('[data-oc-clipart-dots]');
+    if (!carousel || !grid || !dots) {
+      return;
+    }
+    const pageCount = this.clipartCarouselPageCount(grid);
+    const maxLeft = Math.max(0, (pageCount - 1) * grid.clientWidth);
+    if (grid.scrollLeft > maxLeft) {
+      grid.scrollLeft = maxLeft;
+    }
+    dots.innerHTML = '';
+    for (let i = 0; i < pageCount; i++) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'oc-clipart-carousel-dot';
+      dot.setAttribute('aria-label', `Go to clipart page ${i + 1}`);
+      dot.addEventListener('click', () => grid.scrollTo({
+        left: i * grid.clientWidth,
+        behavior: 'smooth'
+      }));
+      dots.appendChild(dot);
+    }
+    carousel.classList.toggle('oc-clipart-carousel--single-page', pageCount <= 1);
+    this.updateClipartCarouselDots(layerId);
+  },
+  updateClipartCarouselDots(layerId) {
+    const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
+    const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
+    if (!carousel || !grid) {
+      return;
+    }
+    const pageCount = this.clipartCarouselPageCount(grid);
+    const page = Math.max(0, Math.min(pageCount - 1, Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth))));
+    carousel.querySelectorAll('.oc-clipart-carousel-dot').forEach((dot, i) => {
+      dot.classList.toggle('oc-active', i === page);
+      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
+    });
+    carousel.querySelector('[data-oc-clipart-prev]')?.toggleAttribute('disabled', page <= 0);
+    carousel.querySelector('[data-oc-clipart-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (clipartMethods);
+
+/***/ },
+
+/***/ "./src/frontend/customiser/design-variants.js"
+/*!****************************************************!*\
+  !*** ./src/frontend/customiser/design-variants.js ***!
+  \****************************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var fabric__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! fabric */ "./node_modules/fabric/dist/index.min.mjs");
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../shared/render-math */ "./src/shared/render-math.js");
+/**
+ * Design variant carousel, thumbnails, and state switching.
+ */
+
+/* eslint-disable no-console */
+
+
+
+const designVariantMethods = {
+  setupDesignVariantOptions() {
+    if (!this.designVariants.length) {
+      return;
+    }
+    document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
+        if (!variant || variant.id === this.selectedDesignVariant) {
+          return;
+        }
+        this.switchDesignVariant(variant.id);
+      });
+    });
+  },
+  setupDesignVariantCarousel() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    if (!carousel || !track || carousel.dataset.ocCarouselReady === '1') {
+      return;
+    }
+    carousel.dataset.ocCarouselReady = '1';
+    carousel.querySelector('[data-oc-design-variant-prev]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(-1));
+    carousel.querySelector('[data-oc-design-variant-next]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(1));
+    track.addEventListener('scroll', () => this.updateDesignVariantCarouselDots(), {
+      passive: true
+    });
+    this.refreshDesignVariantCarousel();
+  },
+  designVariantCarouselPageCount(track) {
+    if (!track || !track.clientWidth) {
+      return 1;
+    }
+    return Math.max(1, Math.ceil(track.scrollWidth / track.clientWidth));
+  },
+  scrollDesignVariantCarousel(direction) {
+    const track = document.querySelector('[data-oc-design-variant-track]');
+    if (!track) {
+      return;
+    }
+    const page = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + direction;
+    const maxPage = this.designVariantCarouselPageCount(track) - 1;
+    track.scrollTo({
+      left: Math.max(0, Math.min(maxPage, page)) * track.clientWidth,
+      behavior: 'smooth'
+    });
+  },
+  refreshDesignVariantCarousel() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    const dots = carousel?.querySelector('[data-oc-design-variant-dots]');
+    if (!carousel || !track || !dots) {
+      return;
+    }
+    const pageCount = this.designVariantCarouselPageCount(track);
+    const maxLeft = Math.max(0, (pageCount - 1) * track.clientWidth);
+    if (track.scrollLeft > maxLeft) {
+      track.scrollLeft = maxLeft;
+    }
+    dots.innerHTML = '';
+    for (let i = 0; i < pageCount; i++) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'oc-design-variant-carousel-dot';
+      dot.setAttribute('aria-label', `Go to artwork option page ${i + 1}`);
+      dot.addEventListener('click', () => track.scrollTo({
+        left: i * track.clientWidth,
+        behavior: 'smooth'
+      }));
+      dots.appendChild(dot);
+    }
+    carousel.classList.toggle('oc-design-variant-carousel--single-page', pageCount <= 1);
+    this.updateDesignVariantCarouselDots();
+  },
+  updateDesignVariantCarouselDots() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    if (!carousel || !track) {
+      return;
+    }
+    const pageCount = this.designVariantCarouselPageCount(track);
+    const page = Math.max(0, Math.min(pageCount - 1, Math.round(track.scrollLeft / Math.max(1, track.clientWidth))));
+    carousel.querySelectorAll('.oc-design-variant-carousel-dot').forEach((dot, i) => {
+      dot.classList.toggle('oc-active', i === page);
+      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
+    });
+    carousel.querySelector('[data-oc-design-variant-prev]')?.toggleAttribute('disabled', page <= 0);
+    carousel.querySelector('[data-oc-design-variant-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
+  },
+  async renderDesignVariantThumbnails() {
+    const canvases = Array.from(document.querySelectorAll('[data-oc-design-variant-thumb]'));
+    if (!canvases.length) {
+      return;
+    }
+    for (const canvasEl of canvases) {
+      if (canvasEl.dataset.ocThumbRendered === '1') {
+        continue;
+      }
+      const variantId = canvasEl.dataset.ocDesignVariantThumb;
+      const state = this.data.designVariantStates?.[variantId];
+      if (!state?.areas?.length) {
+        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
+        continue;
+      }
+      try {
+        const rendered = await this.renderDesignVariantThumbnailCanvas(canvasEl, state);
+        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
+        if (rendered) {
+          canvasEl.dataset.ocThumbRendered = '1';
+          canvasEl.closest('.oc-design-variant-option')?.classList.add('oc-thumb-rendered');
+        }
+      } catch (err) {
+        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
+        console.warn('[OC] Design variant thumbnail failed:', variantId, err);
+      }
+    }
+  },
+  async renderDesignVariantThumbnailCanvas(canvasEl, state) {
+    const area = state.areas?.[0];
+    if (!area) {
+      return;
+    }
+    const sourceBounds = this.areaBounds(area);
+    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayBounds)(sourceBounds);
+    const size = 320;
+    canvasEl.width = size;
+    canvasEl.height = size;
+    const canvas = new fabric__WEBPACK_IMPORTED_MODULE_0__.StaticCanvas(canvasEl, {
+      width: size,
+      height: size,
+      backgroundColor: 'rgba(255,255,255,0)'
+    });
+    const scale = Math.min(size / Math.max(1, bounds.w || 1), size / Math.max(1, bounds.h || 1));
+    const offsetX = (size - (bounds.w || 1) * scale) / 2;
+    const offsetY = (size - (bounds.h || 1) * scale) / 2;
+    canvas.setViewportTransform([1, 0, 0, 1, offsetX - Number(bounds.x || 0) * scale, offsetY - Number(bounds.y || 0) * scale]);
+    canvas._ocScaleX = scale;
+    const previousFonts = this.fonts;
+    this.fonts = state.fonts || this.fonts || [];
+    try {
+      const thumbArea = {
+        ...area,
+        printMethod: 'uv'
+      };
+      for (const layer of area.layers || []) {
+        const input = {
+          ...(state.layerInputs?.[layer.id] || {})
+        };
+        if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
+          input.value = layer.settings?.default_text || layer.label || '';
+        }
+        await this.renderLayer(canvas, layer, input, thumbArea);
+      }
+    } finally {
+      this.fonts = previousFonts;
+    }
+    canvas.renderAll();
+    return canvas.getObjects().some(object => object._ocContent === true) && this.canvasHasVisiblePixels(canvasEl);
+  },
+  canvasHasVisiblePixels(canvasEl) {
+    const context = canvasEl.getContext('2d', {
+      willReadFrequently: true
+    });
+    if (!context) {
+      return false;
+    }
+    const {
+      width,
+      height
+    } = canvasEl;
+    if (!width || !height) {
+      return false;
+    }
+    const data = context.getImageData(0, 0, width, height).data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 8) {
+        return true;
+      }
+    }
+    return false;
+  },
+  async switchDesignVariant(variantId) {
+    const state = this.data.designVariantStates?.[variantId];
+    if (!state?.panelHtml) {
+      return;
+    }
+    await this.applyDesignState(state, variantId, true);
+  },
+  async applyDesignState(state, variantId, preserveCurrentState = true) {
+    if (!state?.panelHtml) {
+      return;
+    }
+    if (preserveCurrentState) {
+      this.syncInputsFromDOM();
+      const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
+      if (currentState) {
+        currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+      }
+    }
+    Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
+    this.canvases = {};
+    this._previewUrl = null;
+    this.activeArea = 0;
+    this.selectedDesignVariant = variantId;
+    const currentPanel = document.getElementById('oc-customiser-panel');
+    if (currentPanel) {
+      currentPanel.outerHTML = state.panelHtml;
+    }
+    this.data.designId = state.designId;
+    this.data.designName = state.designName;
+    this.data.flatRate = state.flatRate;
+    this.data.areas = state.areas || [];
+    this.data.layerInputs = state.layerInputs || {};
+    this.data.clipartByLayer = state.clipartByLayer || {};
+    this.data.clipartGroups = state.clipartGroups || [];
+    this.data.designVariants = state.designVariants || this.designVariants;
+    this.data.designVariantStates = state.designVariantStates || this.data.designVariantStates || {};
+    this.data.selectedDesignVariant = variantId;
+    this.areas = this.data.areas || [];
+    this.designVariants = this.data.designVariants || [];
+    this.layersById = {};
+    this.areas.forEach(area => (area.layers || []).forEach(layer => {
+      this.layersById[layer.id] = layer;
+    }));
+    this.inputs = {};
+    Object.entries(this.data.layerInputs || {}).forEach(([k, v]) => {
+      const layerId = parseInt(k, 10);
+      this.inputs[layerId] = {
+        ...v
+      };
+      this.clampLayerInputValue(layerId);
+    });
+    this.preflightRoot = document.getElementById('oc-preflight-messages');
+    this.mobileCartPreviewDialog = null;
+    this.setupInputListeners();
+    this.setupDesignVariantOptions();
+    this.setupDesignVariantCarousel();
+    this.renderDesignVariantThumbnails();
+    this.setupUploadZones();
+    this.setupVariationGalleryHandoff();
+    this.applyInputsToDOM();
+    this.updateHiddenField();
+    await this.initAllCanvases();
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (designVariantMethods);
+
+/***/ },
+
 /***/ "./src/frontend/customiser/gallery-preview.js"
 /*!****************************************************!*\
   !*** ./src/frontend/customiser/gallery-preview.js ***!
@@ -5606,6 +6352,8 @@ __webpack_require__.r(__webpack_exports__);
 /**
  * Product gallery preview integration for the frontend customiser.
  */
+
+/* eslint-disable no-console, no-undef */
 
 const GALLERY_IMAGE_SELECTORS = [
 // True Video Product Gallery (Swiper): prefer active non-video slide.
@@ -5741,9 +6489,1008 @@ const galleryPreviewMethods = {
       }
     }
     return true;
+  },
+  setPanelPreviewHandoff(isActive) {
+    const panel = document.getElementById('oc-customiser-panel');
+    if (panel) {
+      panel.classList.toggle('oc-gallery-preview-active', isActive);
+    }
+  },
+  mountPreviewInGallery() {
+    const canvasWrap = document.getElementById('oc-canvas-wrap');
+    if (!canvasWrap) {
+      return false;
+    }
+    const gallery = document.querySelector('.product-gallery, .product-images, .woocommerce-product-gallery, .product .images');
+    if (!gallery) {
+      canvasWrap.classList.add('oc-preview-visible');
+      return false;
+    }
+    if (canvasWrap.parentElement !== gallery) {
+      gallery.prepend(canvasWrap);
+    }
+    canvasWrap.classList.add('oc-gallery-mounted-preview', 'oc-preview-visible');
+    return true;
+  },
+  stopTVPGAutoScroll(...swipers) {
+    swipers.forEach(swiper => swiper?.autoplay?.stop?.());
+  },
+  releaseTVPGPreviewLock(resumeAutoplay = false) {
+    this._focusPreviewSlide = false;
+    this._tvpgPreviewLocked = false;
+    if (!resumeAutoplay) {
+      return;
+    }
+    const mainSwiper = document.querySelector('.tvpg-main-slider')?.swiper;
+    const thumbSwiper = document.querySelector('.tvpg-thumb-slider')?.swiper;
+    [mainSwiper, thumbSwiper].forEach(swiper => swiper?.autoplay?.start?.());
+  },
+  setupCartGalleryUnlock() {
+    if (this._cartGalleryUnlockBound) {
+      return;
+    }
+    this._cartGalleryUnlockBound = true;
+    window.jQuery?.(document.body).on?.('added_to_cart', () => this.releaseTVPGPreviewLock(true));
+  },
+  lockTVPGPreviewSlide(swiper, slide) {
+    if (!swiper || !slide) {
+      return;
+    }
+    const previewIndex = Array.from(swiper.slides || []).indexOf(slide);
+    if (previewIndex < 0) {
+      return;
+    }
+    swiper._ocPreviewSlideIndex = previewIndex;
+    if (swiper._ocPreviewLockBound) {
+      return;
+    }
+    const keepPreviewActive = () => {
+      if (!this._tvpgPreviewLocked || swiper._ocPreviewLocking) {
+        return;
+      }
+      const targetIndex = swiper._ocPreviewSlideIndex;
+      if (targetIndex === undefined || swiper.activeIndex === targetIndex) {
+        return;
+      }
+      swiper._ocPreviewLocking = true;
+      requestAnimationFrame(() => {
+        swiper.slideTo?.(targetIndex, 0, false);
+        swiper._ocPreviewLocking = false;
+      });
+    };
+    swiper.on?.('activeIndexChange slideChange transitionStart', keepPreviewActive);
+    swiper._ocPreviewLockBound = true;
+  },
+  applyTVPGOverlayPreview(dataUrl, dimensions = null) {
+    const mainSliderEl = document.querySelector('.tvpg-main-slider');
+    const mainWrapper = mainSliderEl?.querySelector('.swiper-wrapper');
+    if (!mainSliderEl || !mainWrapper) {
+      return false;
+    }
+    const realSlides = mainWrapper.querySelectorAll('.swiper-slide:not(.oc-live-preview-slide)');
+    if (realSlides.length <= 1) {
+      return false;
+    }
+    let mainPreviewSlide = mainWrapper.querySelector('.swiper-slide.oc-live-preview-slide');
+    if (!mainPreviewSlide) {
+      mainPreviewSlide = document.createElement('div');
+      mainPreviewSlide.className = 'swiper-slide oc-live-preview-slide';
+      mainPreviewSlide.innerHTML = '<div class="woocommerce-product-gallery__image">' + '<img class="oc-live-preview-image" alt="Custom preview">' + '</div>';
+      mainWrapper.appendChild(mainPreviewSlide);
+    }
+    const mainImg = mainPreviewSlide.querySelector('img.oc-live-preview-image');
+    if (mainImg) {
+      this.applyPreviewToImage(mainImg, dataUrl, dimensions);
+    }
+    const thumbSliderEl = document.querySelector('.tvpg-thumb-slider');
+    const thumbWrapper = thumbSliderEl?.querySelector('.swiper-wrapper');
+    if (thumbWrapper) {
+      let thumbPreviewSlide = thumbWrapper.querySelector('.swiper-slide.oc-live-preview-thumb-slide');
+      if (!thumbPreviewSlide) {
+        thumbPreviewSlide = document.createElement('div');
+        thumbPreviewSlide.className = 'swiper-slide oc-live-preview-thumb-slide';
+        thumbPreviewSlide.innerHTML = '<img class="oc-live-preview-thumb-image" alt="Custom preview thumbnail">';
+        thumbWrapper.appendChild(thumbPreviewSlide);
+      }
+      const thumbImg = thumbPreviewSlide.querySelector('img.oc-live-preview-thumb-image');
+      if (thumbImg) {
+        this.applyPreviewToImage(thumbImg, dataUrl, dimensions);
+      }
+    }
+
+    // Swiper attaches instances to the root element; update so the new last slide is navigable.
+    const mainSwiper = mainSliderEl.swiper;
+    const thumbSwiper = thumbSliderEl?.swiper;
+    this.stopTVPGAutoScroll(mainSwiper, thumbSwiper);
+    mainSwiper?.update?.();
+    thumbSwiper?.update?.();
+    this.lockTVPGPreviewSlide(mainSwiper, mainPreviewSlide);
+    this.lockTVPGPreviewSlide(thumbSwiper, thumbWrapper?.querySelector('.swiper-slide.oc-live-preview-thumb-slide'));
+    if (this._focusPreviewSlide && mainSwiper?.slides?.length) {
+      this._tvpgPreviewLocked = true;
+      const previewIndex = mainSwiper._ocPreviewSlideIndex ?? mainSwiper.slides.length - 1;
+      const thumbIndex = thumbSwiper?._ocPreviewSlideIndex ?? previewIndex;
+      mainSwiper.slideTo(previewIndex);
+      thumbSwiper?.slideTo?.(thumbIndex);
+    }
+    this._focusPreviewSlide = false;
+    return true;
+  },
+  pushToGallery(canvas) {
+    this.findGalleryImage();
+    let dataUrl;
+    try {
+      dataUrl = canvas.toDataURL({
+        format: 'jpeg',
+        quality: 0.92
+      });
+    } catch (e) {
+      console.warn('[OC] toDataURL failed - image may be cross-origin:', e.message);
+      return;
+    }
+    const dimensions = {
+      width: Math.round(canvas.getWidth?.() || canvas.width || 0),
+      height: Math.round(canvas.getHeight?.() || canvas.height || 0)
+    };
+    const previewImg = document.getElementById('oc-canvas-preview');
+    if (previewImg) {
+      previewImg.src = dataUrl;
+      previewImg.srcset = '';
+      if (dimensions.width && dimensions.height) {
+        previewImg.width = dimensions.width;
+        previewImg.height = dimensions.height;
+      }
+    }
+    if (!this._hasCustomerPersonalisation) {
+      return;
+    }
+    if (this.applyTVPGOverlayPreview(dataUrl, dimensions)) {
+      this.setPanelPreviewHandoff(true);
+      this._focusPreviewSlide = false;
+      return;
+    }
+    if (this.applyFlatsomeOverlayPreview(dataUrl, dimensions)) {
+      this.setPanelPreviewHandoff(true);
+      this._focusPreviewSlide = false;
+      return;
+    }
+    const targets = new Set();
+    if (this.galleryImg) {
+      targets.add(this.galleryImg);
+    }
+    ['.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .slide img', '.product-gallery-slider .slide img', '.product-gallery-slider img', '.product-thumbnails img', '.product-gallery .woocommerce-product-gallery__image img', '.product-images .woocommerce-product-gallery__image img', '.product-image-wrap .woocommerce-product-gallery__image img', '.woocommerce-product-gallery .woocommerce-product-gallery__image img'].forEach(selector => {
+      document.querySelectorAll(selector).forEach(img => targets.add(img));
+    });
+    const applyTargets = () => targets.forEach(img => this.applyPreviewToImage(img, dataUrl, dimensions));
+    applyTargets();
+    if (document.querySelector('.product-gallery-slider')) {
+      this.refreshFlatsomeGallery();
+      requestAnimationFrame(applyTargets);
+      setTimeout(applyTargets, 250);
+    }
+    this.setPanelPreviewHandoff(targets.size > 0 || this.mountPreviewInGallery());
+    this._focusPreviewSlide = false;
+  },
+  requestPreviewFocus() {
+    this._hasCustomerPersonalisation = true;
+    this._focusPreviewSlide = true;
+  },
+  setupVariationGalleryHandoff() {
+    const form = document.querySelector('form.variations_form, form.cart');
+    if (!form || form._ocVariationGalleryHandoffBound) {
+      return;
+    }
+    form._ocVariationGalleryHandoffBound = true;
+    const getSelectedVariationId = () => parseInt(form.querySelector('input.variation_id')?.value || '0', 10) || 0;
+    const releasePreviewLock = () => this.releaseTVPGPreviewLock();
+    const handleVariationChange = variation => {
+      releasePreviewLock();
+      this.switchProductVariation(parseInt(variation?.variation_id || getSelectedVariationId(), 10) || 0);
+    };
+    form.addEventListener('change', event => {
+      if (event.target.closest('.variations, [name^="attribute_"]')) {
+        releasePreviewLock();
+        setTimeout(() => this.switchProductVariation(getSelectedVariationId()), 0);
+      }
+    });
+    window.jQuery?.(form).on?.('woocommerce_variation_select_change', releasePreviewLock);
+    window.jQuery?.(form).on?.('reset_data', () => {
+      releasePreviewLock();
+      this.switchProductVariation(0);
+    });
+    window.jQuery?.(form).on?.('found_variation show_variation', (event, variation) => handleVariationChange(variation));
+    const initialVariationId = getSelectedVariationId();
+    if (initialVariationId) {
+      this.switchProductVariation(initialVariationId);
+    }
+  },
+  async switchProductVariation(variationId) {
+    if (this.editMode) {
+      return;
+    }
+    const key = String(Math.max(0, parseInt(variationId, 10) || 0));
+    const requestSeq = ++this._variationRequestSeq;
+    let state = this.productVariationStates[key];
+    if (!state) {
+      const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
+      const url = new URL(designUrl, window.location.origin);
+      url.searchParams.set('variant_id', key);
+      try {
+        const response = await fetch(url.toString(), {
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json'
+          }
+        });
+        if (!response.ok) {
+          throw new Error(`Variation design request failed (${response.status})`);
+        }
+        state = await response.json();
+        this.productVariationStates[key] = state;
+      } catch (err) {
+        console.warn('[OC] Variation design load failed:', err);
+        return;
+      }
+    }
+    if (requestSeq !== this._variationRequestSeq || !state?.active || !state?.panelHtml) {
+      return;
+    }
+    await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (galleryPreviewMethods);
+
+/***/ },
+
+/***/ "./src/frontend/customiser/preflight.js"
+/*!**********************************************!*\
+  !*** ./src/frontend/customiser/preflight.js ***!
+  \**********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* eslint-disable no-undef */
+
+/**
+ * Preflight validation and validation message rendering.
+ */
+
+const INVALID_SPOTIFY_STATUSES = ['invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited'];
+const preflightMethods = {
+  getLayerInputEl(layer) {
+    if (!layer?.id) {
+      return null;
+    }
+    switch (layer.type) {
+      case 'text':
+      case 'textarea':
+        return document.querySelector(`[data-oc-layer-text="${layer.id}"]`);
+      case 'spotify':
+        return document.querySelector(`[data-oc-layer-spotify="${layer.id}"]`);
+      case 'image':
+      case 'clipmask':
+        return document.querySelector(`[data-oc-upload-zone="${layer.id}"]`);
+      case 'clipart':
+        return document.querySelector(`[data-oc-layer-clipart="${layer.id}"]`);
+      default:
+        return null;
+    }
+  },
+  clearPreflightMessages() {
+    if (this.preflightRoot) {
+      this.preflightRoot.innerHTML = '';
+      this.preflightRoot.hidden = true;
+    }
+    document.querySelectorAll('.oc-preflight-field-error').forEach(el => {
+      el.classList.remove('oc-preflight-field-error');
+    });
+    document.querySelectorAll('[data-oc-layer-text], [data-oc-layer-spotify]').forEach(el => {
+      el.setCustomValidity('');
+      el.setAttribute('aria-invalid', 'false');
+    });
+  },
+  renderPreflightMessages(errors = [], warnings = []) {
+    if (!this.preflightRoot) {
+      return;
+    }
+    if (!errors.length && !warnings.length) {
+      this.clearPreflightMessages();
+      return;
+    }
+    const box = document.createElement('div');
+    box.className = 'oc-preflight-box';
+    box.setAttribute('role', 'alert');
+    box.setAttribute('aria-live', 'assertive');
+    const appendTitle = text => {
+      const title = document.createElement('p');
+      title.className = 'oc-preflight-title';
+      title.textContent = text;
+      box.appendChild(title);
+    };
+    const appendList = (items, cls) => {
+      if (!items.length) {
+        return;
+      }
+      const list = document.createElement('ul');
+      list.className = cls;
+      items.forEach(msg => {
+        const item = document.createElement('li');
+        item.textContent = String(msg);
+        list.appendChild(item);
+      });
+      box.appendChild(list);
+    };
+    this.preflightRoot.innerHTML = '';
+    if (errors.length) {
+      appendTitle('Please fix these issues before checkout:');
+      appendList(errors, 'oc-preflight-errors');
+    }
+    if (warnings.length) {
+      appendTitle('Quality warnings:');
+      appendList(warnings, 'oc-preflight-warnings');
+    }
+    this.preflightRoot.appendChild(box);
+    this.preflightRoot.hidden = false;
+    this.preflightRoot.scrollIntoView({
+      behavior: 'smooth',
+      block: 'start'
+    });
+  },
+  async getImageMeta(url) {
+    if (!url) {
+      return null;
+    }
+    return new Promise(resolve => {
+      const img = new Image();
+      img.onload = () => resolve({
+        width: img.naturalWidth || 0,
+        height: img.naturalHeight || 0
+      });
+      img.onerror = () => resolve(null);
+      img.src = url;
+    });
+  },
+  async runPreflight() {
+    this.clearPreflightMessages();
+    const errors = [];
+    const warnings = [];
+    const spotifyValidated = new Set();
+    for (const area of this.areas) {
+      for (const layer of area.layers || []) {
+        if (layer.locked) {
+          continue;
+        }
+        const input = this.inputs[layer.id] || {};
+        const settings = layer.settings || {};
+        const required = Boolean(settings.required);
+        const label = layer.label || layer.type;
+        const fieldEl = this.getLayerInputEl(layer);
+        let value = '';
+        switch (layer.type) {
+          case 'text':
+          case 'textarea':
+            value = String(input.value || '').trim();
+            if (required && !value) {
+              errors.push(`${label} is required.`);
+              fieldEl?.classList.add('oc-preflight-field-error');
+              if (fieldEl) {
+                fieldEl.setCustomValidity('This field is required.');
+                fieldEl.setAttribute('aria-invalid', 'true');
+              }
+            }
+            if (value) {
+              const charLimit = parseInt(settings.char_limit, 10) || 0;
+              if (charLimit > 0 && this.textLength(value) > charLimit) {
+                errors.push(`${label} exceeds the ${charLimit} character limit.`);
+                fieldEl?.classList.add('oc-preflight-field-error');
+                if (fieldEl) {
+                  fieldEl.setCustomValidity(`Maximum ${charLimit} characters.`);
+                  fieldEl.setAttribute('aria-invalid', 'true');
+                }
+              }
+            }
+            break;
+          case 'image':
+          case 'clipmask':
+            if (required && !input.attachmentId) {
+              errors.push(`${label} needs an uploaded image.`);
+              fieldEl?.classList.add('oc-preflight-field-error');
+            }
+            if (input.attachmentUrl) {
+              let imageMeta = input.imageMeta || null;
+              if (!imageMeta) {
+                imageMeta = await this.getImageMeta(input.attachmentUrl);
+                if (imageMeta && this.inputs[layer.id]) {
+                  this.inputs[layer.id].imageMeta = imageMeta;
+                }
+              }
+              if (imageMeta && imageMeta.width > 0 && imageMeta.height > 0 && (imageMeta.width < layer.w || imageMeta.height < layer.h)) {
+                warnings.push(`${label} may print soft (${imageMeta.width}x${imageMeta.height}px for a ${layer.w}x${layer.h}px print area).`);
+              }
+            }
+            break;
+          case 'clipart':
+            if (required && !input.clipartId) {
+              errors.push(`${label} requires a clipart selection.`);
+              fieldEl?.classList.add('oc-preflight-field-error');
+            }
+            break;
+          case 'lineart':
+            value = String(input.colorHex || '').trim();
+            if (required && !value) {
+              errors.push(`${label} requires a line-art colour.`);
+              fieldEl?.classList.add('oc-preflight-field-error');
+              if (fieldEl) {
+                fieldEl.setCustomValidity('Please choose a line-art colour.');
+                fieldEl.setAttribute('aria-invalid', 'true');
+              }
+            }
+            break;
+          case 'spotify':
+            value = String(input.value || '').trim();
+            if (required && !value) {
+              errors.push(`${label} requires a Spotify link.`);
+              fieldEl?.classList.add('oc-preflight-field-error');
+              if (fieldEl) {
+                fieldEl.setCustomValidity('Please provide a Spotify link.');
+                fieldEl.setAttribute('aria-invalid', 'true');
+              }
+              break;
+            }
+            if (value && !spotifyValidated.has(layer.id)) {
+              await this.validateSpotifyLayer(layer.id, value, fieldEl);
+              spotifyValidated.add(layer.id);
+            }
+            if (value) {
+              const status = String(this.inputs[layer.id]?.spotifyStatus || '');
+              if (INVALID_SPOTIFY_STATUSES.includes(status)) {
+                errors.push(`${label} has an invalid or unavailable Spotify link.`);
+                fieldEl?.classList.add('oc-preflight-field-error');
+                if (fieldEl) {
+                  fieldEl.setCustomValidity('Spotify link is invalid or unavailable.');
+                  fieldEl.setAttribute('aria-invalid', 'true');
+                }
+              }
+            }
+            break;
+        }
+      }
+    }
+    return {
+      errors,
+      warnings,
+      ok: errors.length === 0
+    };
+  },
+  runImmediateBlockingPreflight() {
+    this.clearPreflightMessages();
+    const errors = [];
+    for (const area of this.areas) {
+      for (const layer of area.layers || []) {
+        if (layer.locked) {
+          continue;
+        }
+        const input = this.inputs[layer.id] || {};
+        const settings = layer.settings || {};
+        const label = layer.label || layer.type;
+        const fieldEl = this.getLayerInputEl(layer);
+        if (!settings.required) {
+          continue;
+        }
+        let filled = true;
+        switch (layer.type) {
+          case 'text':
+          case 'textarea':
+          case 'spotify':
+            filled = String(input.value || '').trim() !== '';
+            break;
+          case 'image':
+          case 'clipmask':
+            filled = Boolean(input.attachmentId);
+            break;
+          case 'clipart':
+            filled = Boolean(input.clipartId);
+            break;
+          default:
+            filled = true;
+        }
+        if (!filled) {
+          errors.push(`${label} is required.`);
+          fieldEl?.classList.add('oc-preflight-field-error');
+          if (fieldEl) {
+            fieldEl.setCustomValidity('This field is required.');
+            fieldEl.setAttribute('aria-invalid', 'true');
+          }
+        }
+      }
+    }
+    return {
+      errors,
+      warnings: [],
+      ok: errors.length === 0
+    };
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (preflightMethods);
+
+/***/ },
+
+/***/ "./src/frontend/customiser/spotify.js"
+/*!********************************************!*\
+  !*** ./src/frontend/customiser/spotify.js ***!
+  \********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/**
+ * Spotify modal, URI parsing, code URL building, and validation.
+ */
+
+/* eslint-disable no-console, no-undef */
+
+const SPOTIFY_LINK_SYNC_KEYS = ['value', 'spotifyStatus', 'spotifyUri'];
+const spotifyMethods = {
+  extractSpotifyUri(inputValue) {
+    const raw = String(inputValue || '').trim();
+    if (!raw) {
+      return '';
+    }
+    if (/^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(raw)) {
+      return raw;
+    }
+    let parsed;
+    try {
+      parsed = new URL(raw);
+    } catch {
+      return '';
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (host !== 'open.spotify.com' && host !== 'play.spotify.com') {
+      return '';
+    }
+    const parts = parsed.pathname.split('/').filter(Boolean).filter(p => !/^intl-[a-z]{2}$/i.test(p));
+    if (!parts.length) {
+      return '';
+    }
+    const validTypes = ['track', 'album', 'artist', 'playlist', 'episode', 'show'];
+    const typeIndex = parts.findIndex(p => validTypes.includes(p));
+    if (typeIndex < 0 || !parts[typeIndex + 1]) {
+      return '';
+    }
+    const type = parts[typeIndex];
+    const id = parts[typeIndex + 1];
+    if (!/^[A-Za-z0-9]+$/.test(id)) {
+      return '';
+    }
+    return `spotify:${type}:${id}`;
+  },
+  buildSpotifyCodeUrl(inputValue, isEngraving, engravingPalette = null) {
+    const spotifyUri = this.extractSpotifyUri(inputValue);
+    if (!spotifyUri) {
+      return '';
+    }
+
+    // Official Spotify scannable-code endpoint.
+    // Endpoint shape:
+    // /uri/plain/{format}/{background-hex}/{bar-colour}/{size}/{spotify-uri}
+    // We request SVG and then strip white in-canvas for transparent compositing.
+    const format = 'svg';
+    const bgHex = isEngraving ? engravingPalette?.bg || 'F5F2EF' : 'FFFFFF';
+    const bar = isEngraving ? 'black' : 'black';
+    const size = 640;
+    return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
+  },
+  setupSpotifyModal() {
+    const dialog = document.getElementById('oc-spotify-share-dialog');
+    if (!dialog) {
+      return;
+    }
+    document.querySelectorAll('.oc-spotify-modal-trigger').forEach(trigger => {
+      trigger.addEventListener('click', event => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.openSpotifyModal();
+      });
+    });
+    dialog.querySelectorAll('[data-oc-spotify-modal-close]').forEach(closeBtn => {
+      closeBtn.addEventListener('click', () => this.closeSpotifyModal());
+    });
+    dialog.addEventListener('click', event => {
+      const rect = dialog.getBoundingClientRect();
+      const inDialog = rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
+      if (!inDialog) {
+        this.closeSpotifyModal();
+      }
+    });
+    dialog.addEventListener('close', () => {
+      dialog.classList.remove('is-visible');
+      document.body.style.overflow = '';
+    });
+  },
+  openSpotifyModal() {
+    const dialog = document.getElementById('oc-spotify-share-dialog');
+    if (!dialog || dialog.open) {
+      return;
+    }
+    clearTimeout(this.spotifyModalCloseTimer);
+    dialog.showModal();
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        dialog.classList.add('is-visible');
+      });
+    });
+    document.body.style.overflow = 'hidden';
+  },
+  closeSpotifyModal() {
+    const dialog = document.getElementById('oc-spotify-share-dialog');
+    if (!dialog || !dialog.open) {
+      return;
+    }
+    dialog.classList.remove('is-visible');
+    clearTimeout(this.spotifyModalCloseTimer);
+    this.spotifyModalCloseTimer = setTimeout(() => {
+      if (dialog.open) {
+        dialog.close();
+      }
+      document.body.style.overflow = '';
+    }, 300);
+  },
+  setSpotifyError(layerId, message, inputEl = null) {
+    const msg = String(message || '');
+    const el = document.querySelector(`[data-oc-spotify-error="${layerId}"]`);
+    if (el) {
+      el.textContent = msg;
+      el.style.display = msg ? '' : 'none';
+    }
+    if (inputEl) {
+      inputEl.setCustomValidity(msg);
+      inputEl.setAttribute('aria-invalid', msg ? 'true' : 'false');
+    }
+  },
+  clearSpotifyLayerStatus(layerId, inputEl = null) {
+    this.inputs[layerId].spotifyStatus = '';
+    this.inputs[layerId].spotifyUri = '';
+    this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
+    this.setSpotifyError(layerId, '', inputEl);
+    this.scheduleRedraw(this.areaIndexForLayer(layerId));
+    this.updateHiddenField();
+  },
+  setSpotifyValidationResult(layerId, status, uri, message, inputEl = null) {
+    this.inputs[layerId].spotifyStatus = status;
+    this.inputs[layerId].spotifyUri = uri;
+    this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
+    this.setSpotifyError(layerId, message, inputEl);
+    this.scheduleRedraw(this.areaIndexForLayer(layerId));
+    this.updateHiddenField();
+  },
+  async validateSpotifyLayer(layerId, rawValue, inputEl = null) {
+    const value = String(rawValue || '').trim();
+    if (!this.inputs[layerId]) {
+      this.inputs[layerId] = {};
+    }
+    const token = (this.spotifyValidateTokens[layerId] || 0) + 1;
+    this.spotifyValidateTokens[layerId] = token;
+    if (!value) {
+      this.clearSpotifyLayerStatus(layerId, inputEl);
+      return;
+    }
+    const localUri = this.extractSpotifyUri(value);
+    if (!localUri) {
+      this.setSpotifyValidationResult(layerId, 'invalid_format', '', 'Invalid Spotify link format.', inputEl);
+      return;
+    }
+    if (!this.data.validateSpotifyUrl) {
+      this.setSpotifyValidationResult(layerId, 'ok', localUri, '', inputEl);
+      return;
+    }
+    try {
+      const res = await fetch(this.data.validateSpotifyUrl, {
+        method: 'POST',
+        headers: this.restHeaders({
+          'Content-Type': 'application/json'
+        }),
+        body: JSON.stringify({
+          url: value
+        })
+      });
+      const isJson = res.headers.get('content-type')?.includes('application/json');
+      let json = null;
+      let text = '';
+      if (isJson) {
+        try {
+          json = await res.json();
+        } catch (err) {
+          console.warn('[OC] Spotify validation JSON parse failed:', err);
+        }
+      } else {
+        text = await res.text();
+      }
+      if (this.spotifyValidateTokens[layerId] !== token) {
+        return;
+      }
+      if (!res.ok) {
+        const statusReason = json?.code === 'rate_limited' || res.status === 429 ? 'rate_limited' : 'unreachable';
+        const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
+        this.setSpotifyValidationResult(layerId, statusReason, '', statusMessage, inputEl);
+        return;
+      }
+      if (!json) {
+        this.setSpotifyValidationResult(layerId, 'unreachable', '', 'Could not validate Spotify right now. Please try again.', inputEl);
+        return;
+      }
+      if (Boolean(json?.valid)) {
+        this.inputs[layerId].spotifyStatus = 'ok';
+        this.inputs[layerId].spotifyUri = json.spotifyUri || localUri;
+        this.setSpotifyError(layerId, '', inputEl);
+      } else {
+        this.inputs[layerId].spotifyStatus = json?.reason || 'invalid_or_unavailable';
+        this.inputs[layerId].spotifyUri = '';
+        this.setSpotifyError(layerId, json?.message || 'Spotify link is invalid or unavailable.', inputEl);
+      }
+    } catch {
+      if (this.spotifyValidateTokens[layerId] !== token) {
+        return;
+      }
+      this.inputs[layerId].spotifyStatus = 'unreachable';
+      this.inputs[layerId].spotifyUri = '';
+      this.setSpotifyError(layerId, 'Could not validate Spotify right now. Please try again.', inputEl);
+    }
+    this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
+    this.scheduleRedraw(this.areaIndexForLayer(layerId));
+    this.updateHiddenField();
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (spotifyMethods);
+
+/***/ },
+
+/***/ "./src/frontend/customiser/uploads.js"
+/*!********************************************!*\
+  !*** ./src/frontend/customiser/uploads.js ***!
+  \********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+"use strict";
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
+/* harmony export */ });
+/* harmony import */ var _uppy_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @uppy/core */ "./node_modules/@uppy/core/lib/Uppy.js");
+/* harmony import */ var _uppy_drag_drop__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @uppy/drag-drop */ "./node_modules/@uppy/drag-drop/lib/DragDrop.js");
+/* harmony import */ var _uppy_xhr_upload__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @uppy/xhr-upload */ "./node_modules/@uppy/xhr-upload/lib/index.js");
+/**
+ * Uppy upload zone setup and upload UI helpers.
+ */
+
+/* eslint-disable no-console */
+
+
+
+
+const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
+const DEFAULT_UPLOAD_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.svg', '.pdf', '.webp'];
+const uploadMethods = {
+  setupUploadZones() {
+    document.querySelectorAll('[data-oc-upload-zone]').forEach(zoneEl => {
+      const lid = parseInt(zoneEl.dataset.ocUploadZone, 10);
+      if (!lid) {
+        return;
+      }
+      const uploadUrl = this.data?.uploadUrl || '';
+      if (!uploadUrl) {
+        this.showUploadError(zoneEl, 'Uploads are unavailable right now.');
+        return;
+      }
+
+      // Find the layer's per-layer settings; fall back to global defaults.
+      let layer = null;
+      for (const area of this.areas) {
+        layer = (area.layers || []).find(l => l.id === lid);
+        if (layer) {
+          break;
+        }
+      }
+      if (!layer) {
+        console.warn('[OC] Upload zone has no matching layer:', lid);
+        return;
+      }
+      const layerFormats = Array.isArray(layer?.settings?.formats) ? layer.settings.formats : [];
+      const globalFormats = Array.isArray(this.data.allowedFormats) ? this.data.allowedFormats : [];
+      const effective = (layerFormats.length ? layerFormats : globalFormats).map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => SERVER_UPLOAD_FORMATS.includes(ext));
+      const allowedExt = effective.length ? effective.map(ext => `.${ext}`) : DEFAULT_UPLOAD_EXTENSIONS;
+      const layerMaxMb = parseInt(layer?.settings?.max_size_mb, 10);
+      const globalMaxMb = parseInt(this.data.maxUploadSizeMb, 10);
+      let maxMb = 10;
+      if (layerMaxMb > 0) {
+        maxMb = layerMaxMb;
+      } else if (globalMaxMb > 0) {
+        maxMb = globalMaxMb;
+      }
+      const uppy = new _uppy_core__WEBPACK_IMPORTED_MODULE_0__["default"]({
+        autoProceed: true,
+        onBeforeFileAdded: () => {
+          uppy.getFiles().forEach(existingFile => uppy.removeFile(existingFile.id));
+          this.setUploadZoneState(zoneEl, '');
+          const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
+          if (warnEl) {
+            warnEl.style.display = 'none';
+          }
+          this.setUploadProgress(zoneEl, 0, 'Starting upload...');
+          this.showUploadError(zoneEl, '');
+          return true;
+        },
+        restrictions: {
+          maxNumberOfFiles: 1,
+          maxFileSize: maxMb * 1024 * 1024,
+          allowedFileTypes: allowedExt
+        }
+      });
+      uppy.use(_uppy_drag_drop__WEBPACK_IMPORTED_MODULE_1__["default"], {
+        target: zoneEl,
+        note: 'We accept ' + (allowedExt.length ? allowedExt.map(e => e.replace('.', '').toUpperCase()).join(', ') : 'JPG, PNG, PDF, EPS') + ' and other common image types.',
+        locale: {
+          strings: {
+            dropHereOr: '%{browse}',
+            browse: 'Tap / click here to upload your image'
+          }
+        }
+      });
+      uppy.use(_uppy_xhr_upload__WEBPACK_IMPORTED_MODULE_2__["default"], {
+        endpoint: this.uploadEndpoint(uploadUrl, lid),
+        formData: true,
+        fieldName: 'artwork'
+      });
+      uppy.on('upload-progress', (file, progress) => {
+        const percent = progress?.bytesTotal ? Math.round(progress.bytesUploaded / progress.bytesTotal * 100) : 0;
+        this.setUploadProgress(zoneEl, percent, `Uploading ${percent}%`);
+      });
+      uppy.on('upload-success', async (file, res) => {
+        this.setUploadProgress(zoneEl, 100, '');
+        if (!res?.body) {
+          this.setUploadZoneState(zoneEl, 'error');
+          this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
+          return;
+        }
+        if (!this.inputs[lid]) {
+          this.inputs[lid] = {};
+        }
+        this.inputs[lid].attachmentId = res.body.attachment_id || 0;
+        this.inputs[lid].attachmentUrl = res.body.preview_url || '';
+        this.inputs[lid].imageMeta = null;
+        if (!this.inputs[lid].attachmentUrl) {
+          this.setUploadZoneState(zoneEl, 'error');
+          this.showUploadError(zoneEl, 'Server did not return a preview URL.');
+          return;
+        }
+        const meta = await this.getImageMeta(this.inputs[lid].attachmentUrl);
+        if (meta && this.inputs[lid]) {
+          this.inputs[lid].imageMeta = meta;
+          const thresholdW = Math.round(layer.w * (300 / 72));
+          const thresholdH = Math.round(layer.h * (300 / 72));
+          const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
+          if (warnEl) {
+            const belowThreshold = meta.width < thresholdW || meta.height < thresholdH;
+            const belowHalf = meta.width < thresholdW * 0.5 || meta.height < thresholdH * 0.5;
+            if (belowHalf) {
+              warnEl.className = 'oc-resolution-warning oc-res-error';
+              warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${thresholdW} x ${thresholdH} pixels.`;
+              warnEl.style.display = '';
+              this.inputs[lid].attachmentId = 0;
+              this.inputs[lid].attachmentUrl = '';
+              this.inputs[lid].imageMeta = null;
+              this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'imageMeta']);
+              this.setUploadZoneState(zoneEl, 'error');
+              this.showUploadError(zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
+              this.scheduleRedraw(this.areaIndexForLayer(lid));
+              this.updateHiddenField();
+              return;
+            } else if (belowThreshold) {
+              warnEl.className = 'oc-resolution-warning oc-res-warning';
+              warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${thresholdW} x ${thresholdH} pixels.`;
+              warnEl.style.display = '';
+            } else {
+              warnEl.style.display = 'none';
+            }
+          }
+        }
+        this.setUploadZoneState(zoneEl, 'uploaded');
+        this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'imageMeta']);
+        this.requestPreviewFocus();
+        this.scheduleRedraw(this.areaIndexForLayer(lid));
+        this.updateHiddenField();
+        this.showUploadError(zoneEl, '');
+      });
+      uppy.on('upload-error', (file, error, response) => {
+        let responseBody = response?.body || null;
+        if (!responseBody && response?.responseText) {
+          try {
+            responseBody = JSON.parse(response.responseText);
+          } catch {
+            responseBody = {
+              message: response.responseText
+            };
+          }
+        }
+        const msg = responseBody?.message || error?.message || 'Upload failed.';
+        console.warn('[OC] Upload error:', msg, response);
+        this.setUploadZoneState(zoneEl, 'error');
+        this.setUploadProgress(zoneEl, 0, '');
+        this.showUploadError(zoneEl, msg);
+      });
+      uppy.on('restriction-failed', (file, error) => {
+        this.setUploadZoneState(zoneEl, 'error');
+        this.setUploadProgress(zoneEl, 0, '');
+        this.showUploadError(zoneEl, error?.message || 'File not allowed.');
+      });
+    });
+  },
+  setUploadZoneState(zoneEl, state) {
+    zoneEl.classList.toggle('oc-upload-zone--uploaded', state === 'uploaded');
+    zoneEl.classList.toggle('oc-upload-zone--error', state === 'error');
+    const browse = zoneEl.querySelector('.uppy-DragDrop-browse');
+    const note = zoneEl.querySelector('.uppy-DragDrop-note');
+    if (browse) {
+      browse.textContent = state === 'uploaded' ? 'Image uploaded' : 'Tap / click here to upload your image';
+    }
+    if (note) {
+      if (!note.dataset.ocOriginalText) {
+        note.dataset.ocOriginalText = note.textContent;
+      }
+      note.textContent = state === 'uploaded' ? 'Click to replace image' : note.dataset.ocOriginalText || note.textContent;
+    }
+  },
+  setUploadProgress(zoneEl, percent, label) {
+    const wrap = zoneEl.closest('.oc-artwork-wrap');
+    if (!wrap) {
+      return;
+    }
+    let progressEl = wrap.querySelector('.oc-upload-progress');
+    if (!progressEl) {
+      progressEl = document.createElement('div');
+      progressEl.className = 'oc-upload-progress';
+      progressEl.innerHTML = '<div class="oc-upload-progress-label"></div><div class="oc-upload-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="oc-upload-progress-bar"></div></div>';
+      zoneEl.insertAdjacentElement('afterend', progressEl);
+    }
+    const safePercent = Math.max(0, Math.min(100, parseInt(percent, 10) || 0));
+    const labelEl = progressEl.querySelector('.oc-upload-progress-label');
+    const track = progressEl.querySelector('.oc-upload-progress-track');
+    const bar = progressEl.querySelector('.oc-upload-progress-bar');
+    if (labelEl) {
+      labelEl.textContent = label || '';
+    }
+    if (track) {
+      track.setAttribute('aria-valuenow', String(safePercent));
+    }
+    if (bar) {
+      bar.style.width = `${safePercent}%`;
+    }
+    progressEl.style.display = label ? '' : 'none';
+  },
+  showUploadError(zoneEl, message) {
+    const wrap = zoneEl.closest('.oc-artwork-wrap');
+    if (!wrap) {
+      return;
+    }
+    let err = wrap.querySelector('.oc-artwork-error');
+    if (!err) {
+      err = document.createElement('div');
+      err.className = 'oc-artwork-error';
+      err.style.cssText = 'color:#b32d2e;font-size:12px;margin-top:6px;';
+      wrap.appendChild(err);
+    }
+    err.textContent = message || '';
+    err.style.display = message ? '' : 'none';
+  }
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (uploadMethods);
 
 /***/ },
 
@@ -25245,14 +26992,17 @@ var __webpack_exports__ = {};
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var fabric__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! fabric */ "./node_modules/fabric/dist/index.min.mjs");
 /* harmony import */ var fonteditor_core__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! fonteditor-core */ "./node_modules/fonteditor-core/lib/main.esm.js");
-/* harmony import */ var _uppy_core__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @uppy/core */ "./node_modules/@uppy/core/lib/Uppy.js");
-/* harmony import */ var _uppy_drag_drop__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @uppy/drag-drop */ "./node_modules/@uppy/drag-drop/lib/DragDrop.js");
-/* harmony import */ var _uppy_xhr_upload__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! @uppy/xhr-upload */ "./node_modules/@uppy/xhr-upload/lib/index.js");
-/* harmony import */ var _uppy_core_css_style_min_css__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! @uppy/core/css/style.min.css */ "./node_modules/@uppy/core/dist/style.min.css");
-/* harmony import */ var _uppy_drag_drop_css_style_min_css__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! @uppy/drag-drop/css/style.min.css */ "./node_modules/@uppy/drag-drop/dist/style.min.css");
-/* harmony import */ var _customiser_app_scss__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./customiser-app.scss */ "./src/frontend/customiser-app.scss");
-/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
-/* harmony import */ var _customiser_gallery_preview__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! ./customiser/gallery-preview */ "./src/frontend/customiser/gallery-preview.js");
+/* harmony import */ var _uppy_core_css_style_min_css__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! @uppy/core/css/style.min.css */ "./node_modules/@uppy/core/dist/style.min.css");
+/* harmony import */ var _uppy_drag_drop_css_style_min_css__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! @uppy/drag-drop/css/style.min.css */ "./node_modules/@uppy/drag-drop/dist/style.min.css");
+/* harmony import */ var _customiser_app_scss__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./customiser-app.scss */ "./src/frontend/customiser-app.scss");
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
+/* harmony import */ var _customiser_design_variants__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./customiser/design-variants */ "./src/frontend/customiser/design-variants.js");
+/* harmony import */ var _customiser_gallery_preview__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./customiser/gallery-preview */ "./src/frontend/customiser/gallery-preview.js");
+/* harmony import */ var _customiser_clipart__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ./customiser/clipart */ "./src/frontend/customiser/clipart.js");
+/* harmony import */ var _customiser_preflight__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! ./customiser/preflight */ "./src/frontend/customiser/preflight.js");
+/* harmony import */ var _customiser_spotify__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(/*! ./customiser/spotify */ "./src/frontend/customiser/spotify.js");
+/* harmony import */ var _customiser_uploads__WEBPACK_IMPORTED_MODULE_11__ = __webpack_require__(/*! ./customiser/uploads */ "./src/frontend/customiser/uploads.js");
+/* harmony import */ var _customiser_checkout__WEBPACK_IMPORTED_MODULE_12__ = __webpack_require__(/*! ./customiser/checkout */ "./src/frontend/customiser/checkout.js");
 /**
  * Frontend Customiser — vanilla JS, no framework dependency.
  *
@@ -25262,7 +27012,10 @@ __webpack_require__.r(__webpack_exports__);
  * @package
  */
 
-/* eslint-disable no-console, no-alert, no-undef, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return */
+/* eslint-disable no-console, no-undef, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return */
+
+
+
 
 
 
@@ -25417,253 +27170,6 @@ class OCCustomiser {
 
     // Canvas init runs in background; calls redraw() when done.
     this.initAllCanvases();
-  }
-  setPanelPreviewHandoff(isActive) {
-    const panel = document.getElementById('oc-customiser-panel');
-    if (panel) {
-      panel.classList.toggle('oc-gallery-preview-active', isActive);
-    }
-  }
-  mountPreviewInGallery() {
-    const canvasWrap = document.getElementById('oc-canvas-wrap');
-    if (!canvasWrap) {
-      return false;
-    }
-    const gallery = document.querySelector('.product-gallery, .product-images, .woocommerce-product-gallery, .product .images');
-    if (!gallery) {
-      canvasWrap.classList.add('oc-preview-visible');
-      return false;
-    }
-    if (canvasWrap.parentElement !== gallery) {
-      gallery.prepend(canvasWrap);
-    }
-    canvasWrap.classList.add('oc-gallery-mounted-preview', 'oc-preview-visible');
-    return true;
-  }
-  stopTVPGAutoScroll(...swipers) {
-    swipers.forEach(swiper => swiper?.autoplay?.stop?.());
-  }
-  releaseTVPGPreviewLock(resumeAutoplay = false) {
-    this._focusPreviewSlide = false;
-    this._tvpgPreviewLocked = false;
-    if (!resumeAutoplay) {
-      return;
-    }
-    const mainSwiper = document.querySelector('.tvpg-main-slider')?.swiper;
-    const thumbSwiper = document.querySelector('.tvpg-thumb-slider')?.swiper;
-    [mainSwiper, thumbSwiper].forEach(swiper => swiper?.autoplay?.start?.());
-  }
-  setupCartGalleryUnlock() {
-    if (this._cartGalleryUnlockBound) {
-      return;
-    }
-    this._cartGalleryUnlockBound = true;
-    window.jQuery?.(document.body).on?.('added_to_cart', () => this.releaseTVPGPreviewLock(true));
-  }
-  lockTVPGPreviewSlide(swiper, slide) {
-    if (!swiper || !slide) {
-      return;
-    }
-    const previewIndex = Array.from(swiper.slides || []).indexOf(slide);
-    if (previewIndex < 0) {
-      return;
-    }
-    swiper._ocPreviewSlideIndex = previewIndex;
-    if (swiper._ocPreviewLockBound) {
-      return;
-    }
-    const keepPreviewActive = () => {
-      if (!this._tvpgPreviewLocked || swiper._ocPreviewLocking) {
-        return;
-      }
-      const targetIndex = swiper._ocPreviewSlideIndex;
-      if (targetIndex === undefined || swiper.activeIndex === targetIndex) {
-        return;
-      }
-      swiper._ocPreviewLocking = true;
-      requestAnimationFrame(() => {
-        swiper.slideTo?.(targetIndex, 0, false);
-        swiper._ocPreviewLocking = false;
-      });
-    };
-    swiper.on?.('activeIndexChange slideChange transitionStart', keepPreviewActive);
-    swiper._ocPreviewLockBound = true;
-  }
-  applyTVPGOverlayPreview(dataUrl, dimensions = null) {
-    const mainSliderEl = document.querySelector('.tvpg-main-slider');
-    const mainWrapper = mainSliderEl?.querySelector('.swiper-wrapper');
-    if (!mainSliderEl || !mainWrapper) {
-      return false;
-    }
-    const realSlides = mainWrapper.querySelectorAll('.swiper-slide:not(.oc-live-preview-slide)');
-    if (realSlides.length <= 1) {
-      return false;
-    }
-    let mainPreviewSlide = mainWrapper.querySelector('.swiper-slide.oc-live-preview-slide');
-    if (!mainPreviewSlide) {
-      mainPreviewSlide = document.createElement('div');
-      mainPreviewSlide.className = 'swiper-slide oc-live-preview-slide';
-      mainPreviewSlide.innerHTML = '<div class="woocommerce-product-gallery__image">' + '<img class="oc-live-preview-image" alt="Custom preview">' + '</div>';
-      mainWrapper.appendChild(mainPreviewSlide);
-    }
-    const mainImg = mainPreviewSlide.querySelector('img.oc-live-preview-image');
-    if (mainImg) {
-      this.applyPreviewToImage(mainImg, dataUrl, dimensions);
-    }
-    const thumbSliderEl = document.querySelector('.tvpg-thumb-slider');
-    const thumbWrapper = thumbSliderEl?.querySelector('.swiper-wrapper');
-    if (thumbWrapper) {
-      let thumbPreviewSlide = thumbWrapper.querySelector('.swiper-slide.oc-live-preview-thumb-slide');
-      if (!thumbPreviewSlide) {
-        thumbPreviewSlide = document.createElement('div');
-        thumbPreviewSlide.className = 'swiper-slide oc-live-preview-thumb-slide';
-        thumbPreviewSlide.innerHTML = '<img class="oc-live-preview-thumb-image" alt="Custom preview thumbnail">';
-        thumbWrapper.appendChild(thumbPreviewSlide);
-      }
-      const thumbImg = thumbPreviewSlide.querySelector('img.oc-live-preview-thumb-image');
-      if (thumbImg) {
-        this.applyPreviewToImage(thumbImg, dataUrl, dimensions);
-      }
-    }
-
-    // Swiper attaches instances to the root element; update so the new last slide is navigable.
-    const mainSwiper = mainSliderEl.swiper;
-    const thumbSwiper = thumbSliderEl?.swiper;
-    this.stopTVPGAutoScroll(mainSwiper, thumbSwiper);
-    mainSwiper?.update?.();
-    thumbSwiper?.update?.();
-    this.lockTVPGPreviewSlide(mainSwiper, mainPreviewSlide);
-    this.lockTVPGPreviewSlide(thumbSwiper, thumbWrapper?.querySelector('.swiper-slide.oc-live-preview-thumb-slide'));
-    if (this._focusPreviewSlide && mainSwiper?.slides?.length) {
-      this._tvpgPreviewLocked = true;
-      const previewIndex = mainSwiper._ocPreviewSlideIndex ?? mainSwiper.slides.length - 1;
-      const thumbIndex = thumbSwiper?._ocPreviewSlideIndex ?? previewIndex;
-      mainSwiper.slideTo(previewIndex);
-      thumbSwiper?.slideTo?.(thumbIndex);
-    }
-    this._focusPreviewSlide = false;
-    return true;
-  }
-  pushToGallery(canvas) {
-    this.findGalleryImage();
-    let dataUrl;
-    try {
-      dataUrl = canvas.toDataURL({
-        format: 'jpeg',
-        quality: 0.92
-      });
-    } catch (e) {
-      console.warn('[OC] toDataURL failed — image may be cross-origin:', e.message);
-      return;
-    }
-    const dimensions = {
-      width: Math.round(canvas.getWidth?.() || canvas.width || 0),
-      height: Math.round(canvas.getHeight?.() || canvas.height || 0)
-    };
-    const previewImg = document.getElementById('oc-canvas-preview');
-    if (previewImg) {
-      previewImg.src = dataUrl;
-      previewImg.srcset = '';
-      if (dimensions.width && dimensions.height) {
-        previewImg.width = dimensions.width;
-        previewImg.height = dimensions.height;
-      }
-    }
-    if (!this._hasCustomerPersonalisation) {
-      return;
-    }
-    if (this.applyTVPGOverlayPreview(dataUrl, dimensions)) {
-      this.setPanelPreviewHandoff(true);
-      this._focusPreviewSlide = false;
-      return;
-    }
-    if (this.applyFlatsomeOverlayPreview(dataUrl, dimensions)) {
-      this.setPanelPreviewHandoff(true);
-      this._focusPreviewSlide = false;
-      return;
-    }
-    const targets = new Set();
-    if (this.galleryImg) {
-      targets.add(this.galleryImg);
-    }
-    ['.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .slide img', '.product-gallery-slider .slide img', '.product-gallery-slider img', '.product-thumbnails img', '.product-gallery .woocommerce-product-gallery__image img', '.product-images .woocommerce-product-gallery__image img', '.product-image-wrap .woocommerce-product-gallery__image img', '.woocommerce-product-gallery .woocommerce-product-gallery__image img'].forEach(selector => {
-      document.querySelectorAll(selector).forEach(img => targets.add(img));
-    });
-    const applyTargets = () => targets.forEach(img => this.applyPreviewToImage(img, dataUrl, dimensions));
-    applyTargets();
-    if (document.querySelector('.product-gallery-slider')) {
-      this.refreshFlatsomeGallery();
-      requestAnimationFrame(applyTargets);
-      setTimeout(applyTargets, 250);
-    }
-    this.setPanelPreviewHandoff(targets.size > 0 || this.mountPreviewInGallery());
-    this._focusPreviewSlide = false;
-  }
-  requestPreviewFocus() {
-    this._hasCustomerPersonalisation = true;
-    this._focusPreviewSlide = true;
-  }
-  setupVariationGalleryHandoff() {
-    const form = document.querySelector('form.variations_form, form.cart');
-    if (!form || form._ocVariationGalleryHandoffBound) {
-      return;
-    }
-    form._ocVariationGalleryHandoffBound = true;
-    const getSelectedVariationId = () => parseInt(form.querySelector('input.variation_id')?.value || '0', 10) || 0;
-    const releasePreviewLock = () => this.releaseTVPGPreviewLock();
-    const handleVariationChange = variation => {
-      releasePreviewLock();
-      this.switchProductVariation(parseInt(variation?.variation_id || getSelectedVariationId(), 10) || 0);
-    };
-    form.addEventListener('change', event => {
-      if (event.target.closest('.variations, [name^="attribute_"]')) {
-        releasePreviewLock();
-        setTimeout(() => this.switchProductVariation(getSelectedVariationId()), 0);
-      }
-    });
-    window.jQuery?.(form).on?.('woocommerce_variation_select_change', releasePreviewLock);
-    window.jQuery?.(form).on?.('reset_data', () => {
-      releasePreviewLock();
-      this.switchProductVariation(0);
-    });
-    window.jQuery?.(form).on?.('found_variation show_variation', (event, variation) => handleVariationChange(variation));
-    const initialVariationId = getSelectedVariationId();
-    if (initialVariationId) {
-      this.switchProductVariation(initialVariationId);
-    }
-  }
-  async switchProductVariation(variationId) {
-    if (this.editMode) {
-      return;
-    }
-    const key = String(Math.max(0, parseInt(variationId, 10) || 0));
-    const requestSeq = ++this._variationRequestSeq;
-    let state = this.productVariationStates[key];
-    if (!state) {
-      const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
-      const url = new URL(designUrl, window.location.origin);
-      url.searchParams.set('variant_id', key);
-      try {
-        const response = await fetch(url.toString(), {
-          credentials: 'same-origin',
-          headers: {
-            Accept: 'application/json'
-          }
-        });
-        if (!response.ok) {
-          throw new Error(`Variation design request failed (${response.status})`);
-        }
-        state = await response.json();
-        this.productVariationStates[key] = state;
-      } catch (err) {
-        console.warn('[OC] Variation design load failed:', err);
-        return;
-      }
-    }
-    if (requestSeq !== this._variationRequestSeq || !state?.active || !state?.panelHtml) {
-      return;
-    }
-    await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
   }
 
   // ── Canvas initialisation ──────────────────────────────────────────────────
@@ -25837,8 +27343,8 @@ class OCCustomiser {
   async renderLayer(canvas, layer, input, area) {
     const scale = canvas._ocScaleX ?? 1;
     const areaBounds = this.areaBounds(area);
-    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(areaBounds);
-    const layerBox = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayLayer)(layer, areaBounds);
+    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayBounds)(areaBounds);
+    const layerBox = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayLayer)(layer, areaBounds);
     const rotation = Number(bounds.rotation) || 0;
     const contentClip = () => this.printAreaClipPath(bounds, scale, layerBox);
     const center = this.rotatedLayerCenter(layerBox, bounds, rotation);
@@ -25856,8 +27362,8 @@ class OCCustomiser {
     const clampFontSize = (size, settings) => {
       const minLimit = fontLimit(settings?.min_font_size);
       const maxLimit = fontLimit(settings?.max_font_size);
-      const min = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(minLimit, areaBounds, scale) : 0;
-      const max = maxLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(maxLimit, areaBounds, scale) : 0;
+      const min = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayFontSize)(minLimit, areaBounds, scale) : 0;
+      const max = maxLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayFontSize)(maxLimit, areaBounds, scale) : 0;
       if (max && (!min || min <= max)) {
         size = Math.min(size, max);
       }
@@ -25891,9 +27397,9 @@ class OCCustomiser {
             }
           }
           const minLimit = fontLimit(layer.settings?.min_font_size);
-          const minFontSize = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(minLimit, areaBounds, scale) : 0;
+          const minFontSize = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayFontSize)(minLimit, areaBounds, scale) : 0;
           const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
-          let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
+          let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.42)), layer.settings);
           let textPadding = this.textRenderPadding(fontSize);
           const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : isEngraving && engravingPalette.grainPattern ? this.woodEngravingPattern(fontSize) : color;
           const textClass = isSingleLineText ? fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText : fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox;
@@ -26310,8 +27816,8 @@ class OCCustomiser {
   textLayerFitsAtSize(layer, raw, font, fontSize) {
     const area = this.areas[this.areaIndexForLayer(layer?.id)];
     const bounds = area ? this.areaBounds(area) : null;
-    const layerBox = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayLayer)(layer, bounds) : layer;
-    const displaySize = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayFontSize)(fontSize, bounds) : fontSize;
+    const layerBox = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayLayer)(layer, bounds) : layer;
+    const displaySize = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayFontSize)(fontSize, bounds) : fontSize;
     return this.textFitsBox(raw, font, displaySize, layer?.settings || {}, Number(layerBox?.w || 0), Number(layerBox?.h || 0), layer?.type === 'textarea');
   }
   async maxFittingFontSize(layerId, upperLimit) {
@@ -26395,40 +27901,6 @@ class OCCustomiser {
       x,
       y
     };
-  }
-  extractSpotifyUri(inputValue) {
-    const raw = String(inputValue || '').trim();
-    if (!raw) {
-      return '';
-    }
-    if (/^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(raw)) {
-      return raw;
-    }
-    let parsed;
-    try {
-      parsed = new URL(raw);
-    } catch (e) {
-      return '';
-    }
-    const host = parsed.hostname.toLowerCase();
-    if (host !== 'open.spotify.com' && host !== 'play.spotify.com') {
-      return '';
-    }
-    const parts = parsed.pathname.split('/').filter(Boolean).filter(p => !/^intl-[a-z]{2}$/i.test(p));
-    if (!parts.length) {
-      return '';
-    }
-    const validTypes = ['track', 'album', 'artist', 'playlist', 'episode', 'show'];
-    const typeIndex = parts.findIndex(p => validTypes.includes(p));
-    if (typeIndex < 0 || !parts[typeIndex + 1]) {
-      return '';
-    }
-    const type = parts[typeIndex];
-    const id = parts[typeIndex + 1];
-    if (!/^[A-Za-z0-9]+$/.test(id)) {
-      return '';
-    }
-    return `spotify:${type}:${id}`;
   }
   engravingPalette(material = 'silver_metal') {
     const palettes = {
@@ -26609,22 +28081,6 @@ class OCCustomiser {
       g: parseInt(hex.slice(2, 4), 16),
       b: parseInt(hex.slice(4, 6), 16)
     };
-  }
-  buildSpotifyCodeUrl(inputValue, isEngraving, engravingPalette = null) {
-    const spotifyUri = this.extractSpotifyUri(inputValue);
-    if (!spotifyUri) {
-      return '';
-    }
-
-    // Official Spotify scannable-code endpoint.
-    // Endpoint shape:
-    // /uri/plain/{format}/{background-hex}/{bar-colour}/{size}/{spotify-uri}
-    // We request SVG and then strip white in-canvas for transparent compositing.
-    const format = 'svg';
-    const bgHex = isEngraving ? engravingPalette?.bg || 'F5F2EF' : 'FFFFFF';
-    const bar = isEngraving ? 'black' : 'black';
-    const size = 640;
-    return `https://scannables.scdn.co/uri/plain/${format}/${bgHex}/${bar}/${size}/${spotifyUri}`;
   }
   printAreaClipPath(bounds, scale) {
     if (!bounds || !bounds.w || !bounds.h) {
@@ -27272,9 +28728,11 @@ class OCCustomiser {
     input.value = selected.textContent.trim();
     input.style.fontFamily = selected.style.fontFamily || '';
     options?.forEach(option => {
+      option.hidden = false;
       const isSelected = option.dataset.ocFontOption === select.value;
       option.setAttribute('aria-selected', isSelected ? 'true' : 'false');
     });
+    combo.querySelector('[data-oc-font-empty]')?.setAttribute('hidden', '');
   }
   setupFontComboboxes() {
     document.querySelectorAll('[data-oc-layer-font]').forEach(select => {
@@ -27300,8 +28758,9 @@ class OCCustomiser {
         combo.classList.toggle('oc-open', isOpen);
         input.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
       };
-      const filterOptions = () => {
-        const query = input.value.trim().toLowerCase();
+      const selectedFontLabel = () => select.options[select.selectedIndex]?.textContent.trim() || '';
+      const filterOptions = (queryOverride = null) => {
+        const query = (queryOverride ?? input.value).trim().toLowerCase();
         let visibleCount = 0;
         options.forEach(option => {
           const isVisible = option.textContent.trim().toLowerCase().includes(query);
@@ -27334,10 +28793,18 @@ class OCCustomiser {
       this.updateFontCombobox(select);
       filterOptions();
       input.addEventListener('focus', () => {
-        scheduleFilterOptions();
+        if (input.value.trim() === selectedFontLabel()) {
+          filterOptions('');
+        } else {
+          scheduleFilterOptions();
+        }
         setOpen(true);
       });
       input.addEventListener('input', () => {
+        scheduleFilterOptions();
+        setOpen(true);
+      });
+      input.addEventListener('search', () => {
         scheduleFilterOptions();
         setOpen(true);
       });
@@ -27375,6 +28842,10 @@ class OCCustomiser {
         }, 120);
       });
       options.forEach(option => {
+        option.addEventListener('pointerdown', e => {
+          e.preventDefault();
+          selectFont(option.dataset.ocFontOption);
+        });
         option.addEventListener('click', () => selectFont(option.dataset.ocFontOption));
         option.addEventListener('keydown', e => {
           const visible = options.filter(item => !item.hidden);
@@ -27705,429 +29176,6 @@ class OCCustomiser {
       });
     });
   }
-  setupDesignVariantOptions() {
-    if (!this.designVariants.length) {
-      return;
-    }
-    document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
-        if (!variant || variant.id === this.selectedDesignVariant) {
-          return;
-        }
-        this.switchDesignVariant(variant.id);
-      });
-    });
-  }
-  setupDesignVariantCarousel() {
-    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
-    const track = carousel?.querySelector('[data-oc-design-variant-track]');
-    if (!carousel || !track || carousel.dataset.ocCarouselReady === '1') {
-      return;
-    }
-    carousel.dataset.ocCarouselReady = '1';
-    carousel.querySelector('[data-oc-design-variant-prev]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(-1));
-    carousel.querySelector('[data-oc-design-variant-next]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(1));
-    track.addEventListener('scroll', () => this.updateDesignVariantCarouselDots(), {
-      passive: true
-    });
-    this.refreshDesignVariantCarousel();
-  }
-  designVariantCarouselPageCount(track) {
-    if (!track || !track.clientWidth) {
-      return 1;
-    }
-    return Math.max(1, Math.ceil(track.scrollWidth / track.clientWidth));
-  }
-  scrollDesignVariantCarousel(direction) {
-    const track = document.querySelector('[data-oc-design-variant-track]');
-    if (!track) {
-      return;
-    }
-    const page = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + direction;
-    const maxPage = this.designVariantCarouselPageCount(track) - 1;
-    track.scrollTo({
-      left: Math.max(0, Math.min(maxPage, page)) * track.clientWidth,
-      behavior: 'smooth'
-    });
-  }
-  refreshDesignVariantCarousel() {
-    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
-    const track = carousel?.querySelector('[data-oc-design-variant-track]');
-    const dots = carousel?.querySelector('[data-oc-design-variant-dots]');
-    if (!carousel || !track || !dots) {
-      return;
-    }
-    const pageCount = this.designVariantCarouselPageCount(track);
-    const maxLeft = Math.max(0, (pageCount - 1) * track.clientWidth);
-    if (track.scrollLeft > maxLeft) {
-      track.scrollLeft = maxLeft;
-    }
-    dots.innerHTML = '';
-    for (let i = 0; i < pageCount; i++) {
-      const dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'oc-design-variant-carousel-dot';
-      dot.setAttribute('aria-label', `Go to artwork option page ${i + 1}`);
-      dot.addEventListener('click', () => track.scrollTo({
-        left: i * track.clientWidth,
-        behavior: 'smooth'
-      }));
-      dots.appendChild(dot);
-    }
-    carousel.classList.toggle('oc-design-variant-carousel--single-page', pageCount <= 1);
-    this.updateDesignVariantCarouselDots();
-  }
-  updateDesignVariantCarouselDots() {
-    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
-    const track = carousel?.querySelector('[data-oc-design-variant-track]');
-    if (!carousel || !track) {
-      return;
-    }
-    const pageCount = this.designVariantCarouselPageCount(track);
-    const page = Math.max(0, Math.min(pageCount - 1, Math.round(track.scrollLeft / Math.max(1, track.clientWidth))));
-    carousel.querySelectorAll('.oc-design-variant-carousel-dot').forEach((dot, i) => {
-      dot.classList.toggle('oc-active', i === page);
-      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
-    });
-    carousel.querySelector('[data-oc-design-variant-prev]')?.toggleAttribute('disabled', page <= 0);
-    carousel.querySelector('[data-oc-design-variant-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
-  }
-  async renderDesignVariantThumbnails() {
-    const canvases = Array.from(document.querySelectorAll('[data-oc-design-variant-thumb]'));
-    if (!canvases.length) {
-      return;
-    }
-    for (const canvasEl of canvases) {
-      if (canvasEl.dataset.ocThumbRendered === '1') {
-        continue;
-      }
-      const variantId = canvasEl.dataset.ocDesignVariantThumb;
-      const state = this.data.designVariantStates?.[variantId];
-      if (!state?.areas?.length) {
-        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
-        continue;
-      }
-      try {
-        const rendered = await this.renderDesignVariantThumbnailCanvas(canvasEl, state);
-        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
-        if (rendered) {
-          canvasEl.dataset.ocThumbRendered = '1';
-          canvasEl.closest('.oc-design-variant-option')?.classList.add('oc-thumb-rendered');
-        }
-      } catch (err) {
-        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
-        console.warn('[OC] Design variant thumbnail failed:', variantId, err);
-      }
-    }
-  }
-  async renderDesignVariantThumbnailCanvas(canvasEl, state) {
-    const area = state.areas?.[0];
-    if (!area) {
-      return;
-    }
-    const sourceBounds = this.areaBounds(area);
-    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(sourceBounds);
-    const size = 320;
-    canvasEl.width = size;
-    canvasEl.height = size;
-    const canvas = new fabric__WEBPACK_IMPORTED_MODULE_0__.StaticCanvas(canvasEl, {
-      width: size,
-      height: size,
-      backgroundColor: 'rgba(255,255,255,0)'
-    });
-    const scale = Math.min(size / Math.max(1, bounds.w || 1), size / Math.max(1, bounds.h || 1));
-    const offsetX = (size - (bounds.w || 1) * scale) / 2;
-    const offsetY = (size - (bounds.h || 1) * scale) / 2;
-    canvas.setViewportTransform([1, 0, 0, 1, offsetX - Number(bounds.x || 0) * scale, offsetY - Number(bounds.y || 0) * scale]);
-    canvas._ocScaleX = scale;
-    const previousFonts = this.fonts;
-    this.fonts = state.fonts || this.fonts || [];
-    try {
-      const thumbArea = {
-        ...area,
-        printMethod: 'uv'
-      };
-      for (const layer of area.layers || []) {
-        const input = {
-          ...(state.layerInputs?.[layer.id] || {})
-        };
-        if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
-          input.value = layer.settings?.default_text || layer.label || '';
-        }
-        await this.renderLayer(canvas, layer, input, thumbArea);
-      }
-    } finally {
-      this.fonts = previousFonts;
-    }
-    canvas.renderAll();
-    return canvas.getObjects().some(object => object._ocContent === true) && this.canvasHasVisiblePixels(canvasEl);
-  }
-  canvasHasVisiblePixels(canvasEl) {
-    const context = canvasEl.getContext('2d', {
-      willReadFrequently: true
-    });
-    if (!context) {
-      return false;
-    }
-    const {
-      width,
-      height
-    } = canvasEl;
-    if (!width || !height) {
-      return false;
-    }
-    const data = context.getImageData(0, 0, width, height).data;
-    for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 3] > 8) {
-        return true;
-      }
-    }
-    return false;
-  }
-  async switchDesignVariant(variantId) {
-    const state = this.data.designVariantStates?.[variantId];
-    if (!state?.panelHtml) {
-      return;
-    }
-    await this.applyDesignState(state, variantId, true);
-  }
-  async applyDesignState(state, variantId, preserveCurrentState = true) {
-    if (!state?.panelHtml) {
-      return;
-    }
-    if (preserveCurrentState) {
-      this.syncInputsFromDOM();
-      const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
-      if (currentState) {
-        currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
-      }
-    }
-    Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
-    this.canvases = {};
-    this._previewUrl = null;
-    this.activeArea = 0;
-    this.selectedDesignVariant = variantId;
-    const currentPanel = document.getElementById('oc-customiser-panel');
-    if (currentPanel) {
-      currentPanel.outerHTML = state.panelHtml;
-    }
-    this.data.designId = state.designId;
-    this.data.designName = state.designName;
-    this.data.flatRate = state.flatRate;
-    this.data.areas = state.areas || [];
-    this.data.layerInputs = state.layerInputs || {};
-    this.data.clipartByLayer = state.clipartByLayer || {};
-    this.data.clipartGroups = state.clipartGroups || [];
-    this.data.designVariants = state.designVariants || this.designVariants;
-    this.data.designVariantStates = state.designVariantStates || this.data.designVariantStates || {};
-    this.data.selectedDesignVariant = variantId;
-    this.areas = this.data.areas || [];
-    this.designVariants = this.data.designVariants || [];
-    this.layersById = {};
-    this.areas.forEach(area => (area.layers || []).forEach(layer => {
-      this.layersById[layer.id] = layer;
-    }));
-    this.inputs = {};
-    Object.entries(this.data.layerInputs || {}).forEach(([k, v]) => {
-      const layerId = parseInt(k, 10);
-      this.inputs[layerId] = {
-        ...v
-      };
-      this.clampLayerInputValue(layerId);
-    });
-    this.preflightRoot = document.getElementById('oc-preflight-messages');
-    this.mobileCartPreviewDialog = null;
-    this.setupInputListeners();
-    this.setupDesignVariantOptions();
-    this.setupDesignVariantCarousel();
-    this.renderDesignVariantThumbnails();
-    this.setupUploadZones();
-    this.setupVariationGalleryHandoff();
-    this.applyInputsToDOM();
-    this.updateHiddenField();
-    await this.initAllCanvases();
-  }
-  setupSpotifyModal() {
-    const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog) {
-      return;
-    }
-    document.querySelectorAll('.oc-spotify-modal-trigger').forEach(trigger => {
-      trigger.addEventListener('click', event => {
-        event.preventDefault();
-        event.stopPropagation();
-        this.openSpotifyModal();
-      });
-    });
-    dialog.querySelectorAll('[data-oc-spotify-modal-close]').forEach(closeBtn => {
-      closeBtn.addEventListener('click', () => this.closeSpotifyModal());
-    });
-    dialog.addEventListener('click', event => {
-      const rect = dialog.getBoundingClientRect();
-      const inDialog = rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
-      if (!inDialog) {
-        this.closeSpotifyModal();
-      }
-    });
-    dialog.addEventListener('close', () => {
-      dialog.classList.remove('is-visible');
-      document.body.style.overflow = '';
-    });
-  }
-  openSpotifyModal() {
-    const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog || dialog.open) {
-      return;
-    }
-    clearTimeout(this.spotifyModalCloseTimer);
-    dialog.showModal();
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        dialog.classList.add('is-visible');
-      });
-    });
-    document.body.style.overflow = 'hidden';
-  }
-  closeSpotifyModal() {
-    const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog || !dialog.open) {
-      return;
-    }
-    dialog.classList.remove('is-visible');
-    clearTimeout(this.spotifyModalCloseTimer);
-    this.spotifyModalCloseTimer = setTimeout(() => {
-      if (dialog.open) {
-        dialog.close();
-      }
-      document.body.style.overflow = '';
-    }, 300);
-  }
-  filterClipart(layerId) {
-    const grid = document.querySelector(`.oc-clipart-grid[data-oc-clipart-grid="${layerId}"]`) || document.querySelector(`[data-oc-clipart-search="${layerId}"]`)?.closest('.oc-layer-body')?.querySelector('.oc-clipart-grid');
-    if (!grid) {
-      return;
-    }
-    const items = grid.querySelectorAll('.oc-clipart-item');
-    const term = (this.clipartSearchTerms[layerId] || '').toLowerCase().trim();
-    const category = this.clipartCategoryFilters[layerId] || '';
-    let visibleCount = 0;
-    items.forEach(btn => {
-      const name = (btn.title || '').toLowerCase();
-      const groups = btn.dataset.ocClipartGroups ? btn.dataset.ocClipartGroups.split('||').filter(Boolean) : [];
-      const matchesSearch = !term || name.includes(term);
-      const matchesCategory = !category || groups.includes(category);
-      const visible = matchesSearch && matchesCategory;
-      btn.style.display = visible ? '' : 'none';
-      if (visible) {
-        visibleCount++;
-      }
-    });
-    let noResults = grid.querySelector('.oc-clipart-no-results');
-    if (visibleCount === 0) {
-      if (!noResults) {
-        noResults = document.createElement('p');
-        noResults.className = 'oc-clipart-no-results';
-        noResults.textContent = 'No clipart matches your search.';
-        grid.appendChild(noResults);
-      }
-      noResults.style.display = '';
-    } else if (noResults) {
-      noResults.style.display = 'none';
-    }
-    this.refreshClipartCarousel(layerId);
-  }
-  setupClipartCarousels() {
-    document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
-      const layerId = parseInt(carousel.dataset.ocClipartCarousel, 10);
-      const grid = carousel.querySelector('.oc-clipart-grid--carousel');
-      if (!layerId || !grid) {
-        return;
-      }
-      carousel.querySelector('[data-oc-clipart-prev]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, -1));
-      carousel.querySelector('[data-oc-clipart-next]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, 1));
-      grid.addEventListener('scroll', () => this.updateClipartCarouselDots(layerId), {
-        passive: true
-      });
-      this.refreshClipartCarousel(layerId);
-    });
-  }
-  visibleClipartItems(grid) {
-    return Array.from(grid.querySelectorAll('.oc-clipart-item')).filter(item => item.style.display !== 'none');
-  }
-  clipartCarouselPageCount(grid) {
-    const visibleItems = this.visibleClipartItems(grid);
-    if (!visibleItems.length || !grid.clientWidth) {
-      return 1;
-    }
-    return Math.max(1, Math.ceil(grid.scrollWidth / grid.clientWidth));
-  }
-  scrollClipartCarousel(layerId, direction) {
-    const grid = document.querySelector(`.oc-clipart-grid--carousel[data-oc-clipart-grid="${layerId}"]`);
-    if (!grid) {
-      return;
-    }
-    const page = Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth)) + direction;
-    const maxPage = this.clipartCarouselPageCount(grid) - 1;
-    grid.scrollTo({
-      left: Math.max(0, Math.min(maxPage, page)) * grid.clientWidth,
-      behavior: 'smooth'
-    });
-  }
-  refreshClipartCarousel(layerId) {
-    const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
-    const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
-    const dots = carousel?.querySelector('[data-oc-clipart-dots]');
-    if (!carousel || !grid || !dots) {
-      return;
-    }
-    const pageCount = this.clipartCarouselPageCount(grid);
-    const maxLeft = Math.max(0, (pageCount - 1) * grid.clientWidth);
-    if (grid.scrollLeft > maxLeft) {
-      grid.scrollLeft = maxLeft;
-    }
-    dots.innerHTML = '';
-    for (let i = 0; i < pageCount; i++) {
-      const dot = document.createElement('button');
-      dot.type = 'button';
-      dot.className = 'oc-clipart-carousel-dot';
-      dot.setAttribute('aria-label', `Go to clipart page ${i + 1}`);
-      dot.addEventListener('click', () => grid.scrollTo({
-        left: i * grid.clientWidth,
-        behavior: 'smooth'
-      }));
-      dots.appendChild(dot);
-    }
-    carousel.classList.toggle('oc-clipart-carousel--single-page', pageCount <= 1);
-    this.updateClipartCarouselDots(layerId);
-  }
-  updateClipartCarouselDots(layerId) {
-    const carousel = document.querySelector(`[data-oc-clipart-carousel="${layerId}"]`);
-    const grid = carousel?.querySelector('.oc-clipart-grid--carousel');
-    if (!carousel || !grid) {
-      return;
-    }
-    const pageCount = this.clipartCarouselPageCount(grid);
-    const page = Math.max(0, Math.min(pageCount - 1, Math.round(grid.scrollLeft / Math.max(1, grid.clientWidth))));
-    carousel.querySelectorAll('.oc-clipart-carousel-dot').forEach((dot, i) => {
-      dot.classList.toggle('oc-active', i === page);
-      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
-    });
-    carousel.querySelector('[data-oc-clipart-prev]')?.toggleAttribute('disabled', page <= 0);
-    carousel.querySelector('[data-oc-clipart-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
-  }
-  setSpotifyError(layerId, message, inputEl = null) {
-    const msg = String(message || '');
-    const el = document.querySelector(`[data-oc-spotify-error="${layerId}"]`);
-    if (el) {
-      el.textContent = msg;
-      el.style.display = msg ? '' : 'none';
-    }
-    if (inputEl) {
-      inputEl.setCustomValidity(msg);
-      inputEl.setAttribute('aria-invalid', msg ? 'true' : 'false');
-    }
-  }
   getLayerById(layerId) {
     return this.layersById[layerId] || null;
   }
@@ -28249,364 +29297,6 @@ class OCCustomiser {
       });
     }
   }
-  getLayerInputEl(layer) {
-    if (!layer?.id) {
-      return null;
-    }
-    switch (layer.type) {
-      case 'text':
-      case 'textarea':
-        return document.querySelector(`[data-oc-layer-text="${layer.id}"]`);
-      case 'spotify':
-        return document.querySelector(`[data-oc-layer-spotify="${layer.id}"]`);
-      case 'image':
-      case 'clipmask':
-        return document.querySelector(`[data-oc-upload-zone="${layer.id}"]`);
-      case 'clipart':
-        return document.querySelector(`[data-oc-layer-clipart="${layer.id}"]`);
-      default:
-        return null;
-    }
-  }
-  clearPreflightMessages() {
-    if (this.preflightRoot) {
-      this.preflightRoot.innerHTML = '';
-      this.preflightRoot.hidden = true;
-    }
-    document.querySelectorAll('.oc-preflight-field-error').forEach(el => {
-      el.classList.remove('oc-preflight-field-error');
-    });
-    document.querySelectorAll('[data-oc-layer-text], [data-oc-layer-spotify]').forEach(el => {
-      el.setCustomValidity('');
-      el.setAttribute('aria-invalid', 'false');
-    });
-  }
-  renderPreflightMessages(errors = [], warnings = []) {
-    if (!this.preflightRoot) {
-      return;
-    }
-    if (!errors.length && !warnings.length) {
-      this.clearPreflightMessages();
-      return;
-    }
-    const box = document.createElement('div');
-    box.className = 'oc-preflight-box';
-    box.setAttribute('role', 'alert');
-    box.setAttribute('aria-live', 'assertive');
-    const appendTitle = text => {
-      const title = document.createElement('p');
-      title.className = 'oc-preflight-title';
-      title.textContent = text;
-      box.appendChild(title);
-    };
-    const appendList = (items, cls) => {
-      if (!items.length) {
-        return;
-      }
-      const list = document.createElement('ul');
-      list.className = cls;
-      items.forEach(msg => {
-        const item = document.createElement('li');
-        item.textContent = String(msg);
-        list.appendChild(item);
-      });
-      box.appendChild(list);
-    };
-    this.preflightRoot.innerHTML = '';
-    if (errors.length) {
-      appendTitle('Please fix these issues before checkout:');
-      appendList(errors, 'oc-preflight-errors');
-    }
-    if (warnings.length) {
-      appendTitle('Quality warnings:');
-      appendList(warnings, 'oc-preflight-warnings');
-    }
-    this.preflightRoot.appendChild(box);
-    this.preflightRoot.hidden = false;
-    this.preflightRoot.scrollIntoView({
-      behavior: 'smooth',
-      block: 'start'
-    });
-  }
-  async getImageMeta(url) {
-    if (!url) {
-      return null;
-    }
-    return new Promise(resolve => {
-      const img = new Image();
-      img.onload = () => resolve({
-        width: img.naturalWidth || 0,
-        height: img.naturalHeight || 0
-      });
-      img.onerror = () => resolve(null);
-      img.src = url;
-    });
-  }
-  async runPreflight() {
-    this.clearPreflightMessages();
-    const errors = [];
-    const warnings = [];
-    const spotifyValidated = new Set();
-    const invalidSpotifyStatuses = ['invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited'];
-    for (const area of this.areas) {
-      for (const layer of area.layers || []) {
-        if (layer.locked) {
-          continue;
-        } // Locked layers skip preflight validation
-        const input = this.inputs[layer.id] || {};
-        const settings = layer.settings || {};
-        const required = Boolean(settings.required);
-        const label = layer.label || layer.type;
-        const fieldEl = this.getLayerInputEl(layer);
-        let value = '';
-        switch (layer.type) {
-          case 'text':
-          case 'textarea':
-            value = String(input.value || '').trim();
-            if (required && !value) {
-              errors.push(`${label} is required.`);
-              fieldEl?.classList.add('oc-preflight-field-error');
-              if (fieldEl) {
-                fieldEl.setCustomValidity('This field is required.');
-                fieldEl.setAttribute('aria-invalid', 'true');
-              }
-            }
-            if (value) {
-              const charLimit = parseInt(settings.char_limit, 10) || 0;
-              if (charLimit > 0 && this.textLength(value) > charLimit) {
-                errors.push(`${label} exceeds the ${charLimit} character limit.`);
-                fieldEl?.classList.add('oc-preflight-field-error');
-                if (fieldEl) {
-                  fieldEl.setCustomValidity(`Maximum ${charLimit} characters.`);
-                  fieldEl.setAttribute('aria-invalid', 'true');
-                }
-              }
-            }
-            break;
-          case 'image':
-          case 'clipmask':
-            if (required && !input.attachmentId) {
-              errors.push(`${label} needs an uploaded image.`);
-              fieldEl?.classList.add('oc-preflight-field-error');
-            }
-            if (input.attachmentUrl) {
-              let imageMeta = input.imageMeta || null;
-              if (!imageMeta) {
-                imageMeta = await this.getImageMeta(input.attachmentUrl);
-                if (imageMeta && this.inputs[layer.id]) {
-                  this.inputs[layer.id].imageMeta = imageMeta;
-                }
-              }
-              if (imageMeta && imageMeta.width > 0 && imageMeta.height > 0) {
-                if (imageMeta.width < layer.w || imageMeta.height < layer.h) {
-                  warnings.push(`${label} may print soft (${imageMeta.width}x${imageMeta.height}px for a ${layer.w}x${layer.h}px print area).`);
-                }
-              }
-            }
-            break;
-          case 'clipart':
-            if (required && !input.clipartId) {
-              errors.push(`${label} requires a clipart selection.`);
-              fieldEl?.classList.add('oc-preflight-field-error');
-            }
-            break;
-          case 'lineart':
-            value = String(input.colorHex || '').trim();
-            if (required && !value) {
-              errors.push(`${label} requires a line-art colour.`);
-              fieldEl?.classList.add('oc-preflight-field-error');
-              if (fieldEl) {
-                fieldEl.setCustomValidity('Please choose a line-art colour.');
-                fieldEl.setAttribute('aria-invalid', 'true');
-              }
-            }
-            break;
-          case 'spotify':
-            value = String(input.value || '').trim();
-            if (required && !value) {
-              errors.push(`${label} requires a Spotify link.`);
-              fieldEl?.classList.add('oc-preflight-field-error');
-              if (fieldEl) {
-                fieldEl.setCustomValidity('Please provide a Spotify link.');
-                fieldEl.setAttribute('aria-invalid', 'true');
-              }
-              break;
-            }
-            if (value && !spotifyValidated.has(layer.id)) {
-              await this.validateSpotifyLayer(layer.id, value, fieldEl);
-              spotifyValidated.add(layer.id);
-            }
-            if (value) {
-              const status = String(this.inputs[layer.id]?.spotifyStatus || '');
-              if (invalidSpotifyStatuses.includes(status)) {
-                errors.push(`${label} has an invalid or unavailable Spotify link.`);
-                fieldEl?.classList.add('oc-preflight-field-error');
-                if (fieldEl) {
-                  fieldEl.setCustomValidity('Spotify link is invalid or unavailable.');
-                  fieldEl.setAttribute('aria-invalid', 'true');
-                }
-              }
-            }
-            break;
-        }
-      }
-    }
-    return {
-      errors,
-      warnings,
-      ok: errors.length === 0
-    };
-  }
-  runImmediateBlockingPreflight() {
-    this.clearPreflightMessages();
-    const errors = [];
-    for (const area of this.areas) {
-      for (const layer of area.layers || []) {
-        if (layer.locked) {
-          continue;
-        }
-        const input = this.inputs[layer.id] || {};
-        const settings = layer.settings || {};
-        const label = layer.label || layer.type;
-        const fieldEl = this.getLayerInputEl(layer);
-        if (!settings.required) {
-          continue;
-        }
-        let filled = true;
-        switch (layer.type) {
-          case 'text':
-          case 'textarea':
-          case 'spotify':
-            filled = String(input.value || '').trim() !== '';
-            break;
-          case 'image':
-          case 'clipmask':
-            filled = Boolean(input.attachmentId);
-            break;
-          case 'clipart':
-            filled = Boolean(input.clipartId);
-            break;
-          default:
-            filled = true;
-        }
-        if (!filled) {
-          errors.push(`${label} is required.`);
-          fieldEl?.classList.add('oc-preflight-field-error');
-          if (fieldEl) {
-            fieldEl.setCustomValidity('This field is required.');
-            fieldEl.setAttribute('aria-invalid', 'true');
-          }
-        }
-      }
-    }
-    return {
-      errors,
-      warnings: [],
-      ok: errors.length === 0
-    };
-  }
-  async validateSpotifyLayer(layerId, rawValue, inputEl = null) {
-    const value = String(rawValue || '').trim();
-    if (!this.inputs[layerId]) {
-      this.inputs[layerId] = {};
-    }
-    const token = (this.spotifyValidateTokens[layerId] || 0) + 1;
-    this.spotifyValidateTokens[layerId] = token;
-    if (!value) {
-      this.inputs[layerId].spotifyStatus = '';
-      this.inputs[layerId].spotifyUri = '';
-      this.syncLinkedLayerInput(layerId, ['value', 'spotifyStatus', 'spotifyUri']);
-      this.setSpotifyError(layerId, '', inputEl);
-      this.scheduleRedraw(this.areaIndexForLayer(layerId));
-      this.updateHiddenField();
-      return;
-    }
-    const localUri = this.extractSpotifyUri(value);
-    if (!localUri) {
-      this.inputs[layerId].spotifyStatus = 'invalid_format';
-      this.inputs[layerId].spotifyUri = '';
-      this.syncLinkedLayerInput(layerId, ['value', 'spotifyStatus', 'spotifyUri']);
-      this.setSpotifyError(layerId, 'Invalid Spotify link format.', inputEl);
-      this.scheduleRedraw(this.areaIndexForLayer(layerId));
-      this.updateHiddenField();
-      return;
-    }
-    if (!this.data.validateSpotifyUrl) {
-      this.inputs[layerId].spotifyStatus = 'ok';
-      this.inputs[layerId].spotifyUri = localUri;
-      this.syncLinkedLayerInput(layerId, ['value', 'spotifyStatus', 'spotifyUri']);
-      this.setSpotifyError(layerId, '', inputEl);
-      this.scheduleRedraw(this.areaIndexForLayer(layerId));
-      this.updateHiddenField();
-      return;
-    }
-    try {
-      const res = await fetch(this.data.validateSpotifyUrl, {
-        method: 'POST',
-        headers: this.restHeaders({
-          'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify({
-          url: value
-        })
-      });
-      const isJson = res.headers.get('content-type')?.includes('application/json');
-      let json = null;
-      let text = '';
-      if (isJson) {
-        try {
-          json = await res.json();
-        } catch (err) {
-          console.warn('[OC] Spotify validation JSON parse failed:', err);
-        }
-      } else {
-        text = await res.text();
-      }
-      if (this.spotifyValidateTokens[layerId] !== token) {
-        return;
-      }
-      if (!res.ok) {
-        const statusReason = json?.code === 'rate_limited' || res.status === 429 ? 'rate_limited' : 'unreachable';
-        const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
-        this.inputs[layerId].spotifyStatus = statusReason;
-        this.inputs[layerId].spotifyUri = '';
-        this.syncLinkedLayerInput(layerId, ['value', 'spotifyStatus', 'spotifyUri']);
-        this.setSpotifyError(layerId, statusMessage, inputEl);
-        this.scheduleRedraw(this.areaIndexForLayer(layerId));
-        this.updateHiddenField();
-        return;
-      }
-      if (!json) {
-        this.inputs[layerId].spotifyStatus = 'unreachable';
-        this.inputs[layerId].spotifyUri = '';
-        this.syncLinkedLayerInput(layerId, ['value', 'spotifyStatus', 'spotifyUri']);
-        this.setSpotifyError(layerId, 'Could not validate Spotify right now. Please try again.', inputEl);
-        this.scheduleRedraw(this.areaIndexForLayer(layerId));
-        this.updateHiddenField();
-        return;
-      }
-      const valid = Boolean(json?.valid);
-      if (valid) {
-        this.inputs[layerId].spotifyStatus = 'ok';
-        this.inputs[layerId].spotifyUri = json.spotifyUri || localUri;
-        this.setSpotifyError(layerId, '', inputEl);
-      } else {
-        this.inputs[layerId].spotifyStatus = json?.reason || 'invalid_or_unavailable';
-        this.inputs[layerId].spotifyUri = '';
-        this.setSpotifyError(layerId, json?.message || 'Spotify link is invalid or unavailable.', inputEl);
-      }
-    } catch (e) {
-      if (this.spotifyValidateTokens[layerId] !== token) {
-        return;
-      }
-      this.inputs[layerId].spotifyStatus = 'unreachable';
-      this.inputs[layerId].spotifyUri = '';
-      this.setSpotifyError(layerId, 'Could not validate Spotify right now. Please try again.', inputEl);
-    }
-    this.syncLinkedLayerInput(layerId, ['value', 'spotifyStatus', 'spotifyUri']);
-    this.scheduleRedraw(this.areaIndexForLayer(layerId));
-    this.updateHiddenField();
-  }
 
   // ── Form submit — upload preview then proceed ──────────────────────────────
 
@@ -28696,324 +29386,6 @@ class OCCustomiser {
     });
     this.updateHiddenField();
   }
-  setupFormSubmit() {
-    if (this.formSubmitBound) {
-      return;
-    }
-    const form = document.querySelector('form.cart');
-    if (!form) {
-      return;
-    }
-    this.formSubmitBound = true;
-    if (this.editMode) {
-      form.addEventListener('submit', async e => {
-        this.closeFontComboboxes(true);
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        this.syncInputsFromDOM();
-        await this.flushRedraw();
-        const preflight = await this.runPreflight();
-        this.renderPreflightMessages(preflight.errors, preflight.warnings);
-        if (!preflight.ok) {
-          return;
-        }
-        if (preflight.warnings.length) {
-          const proceed = window.confirm('We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.');
-          if (!proceed) {
-            return;
-          }
-        }
-        await this.uploadPreview();
-        this.updateHiddenField();
-        const layers = {};
-        this.areas.forEach(area => {
-          (area.layers || []).forEach(layer => {
-            const inp = this.inputs[layer.id];
-            if (inp) {
-              layers[layer.id] = {
-                type: layer.type,
-                ...inp
-              };
-            }
-          });
-        });
-        const snapshots = await this.captureAreaSnapshots();
-        try {
-          const res = await fetch(this.data.updateCartItemUrl, {
-            method: 'POST',
-            headers: this.restHeaders({
-              'Content-Type': 'application/json'
-            }),
-            body: JSON.stringify({
-              cart_key: this.cartKey,
-              designId: this.data.designId,
-              layers,
-              snapshots,
-              previewUrl: this._previewUrl || ''
-            })
-          });
-          let json = null;
-          const isJson = res.headers.get('content-type')?.includes('application/json');
-          if (isJson) {
-            try {
-              json = await res.json();
-            } catch (err) {
-              console.warn('[OC] Cart update response parse failed:', err);
-            }
-          }
-          if (!res.ok) {
-            this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
-            return;
-          }
-          if (json?.success) {
-            window.location.href = window.wc_cart_params?.cart_url || '/cart/';
-          } else {
-            this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
-          }
-        } catch (err) {
-          console.error('[OC] Update cart item failed:', err);
-          this.renderPreflightMessages(['Failed to update customisation. Please try again.'], []);
-        }
-      }, true);
-      return;
-    }
-    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
-      button.addEventListener('click', e => {
-        this.closeFontComboboxes(true);
-        if (form._ocSubmitReady) {
-          return;
-        }
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        this.syncInputsFromDOM();
-        const preflight = this.runImmediateBlockingPreflight();
-        if (preflight.ok) {
-          if (form.requestSubmit) {
-            form.requestSubmit(button);
-          } else {
-            form.dispatchEvent(new Event('submit', {
-              bubbles: true,
-              cancelable: true
-            }));
-          }
-          return;
-        }
-        this.resetCartSubmitState(form);
-        this.renderPreflightMessages(preflight.errors, preflight.warnings);
-      }, true);
-    });
-    form.addEventListener('submit', async e => {
-      this.closeFontComboboxes(true);
-      if (this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        this.resetCartSubmitState(form);
-        return;
-      }
-      if (form._ocSubmitReady) {
-        form._ocSubmitReady = false;
-        return; // preview already saved — let submit through
-      }
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      this.syncInputsFromDOM();
-      await this.flushRedraw();
-      const preflight = await this.runPreflight();
-      this.renderPreflightMessages(preflight.errors, preflight.warnings);
-      if (!preflight.ok) {
-        this.resetCartSubmitState(form);
-        return;
-      }
-      if (preflight.warnings.length) {
-        const proceed = window.confirm('We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.');
-        if (!proceed) {
-          this.resetCartSubmitState(form);
-          return;
-        }
-      }
-      const acceptedPreview = await this.confirmMobileCartPreview();
-      if (!acceptedPreview) {
-        this.resetCartSubmitState(form);
-        return;
-      }
-      await this.uploadPreview();
-      await this.updateHiddenField(true);
-      form._ocSubmitReady = true;
-      // requestSubmit() re-triggers HTML5 validation before submitting.
-      if (form.requestSubmit) {
-        const submitter = form.querySelector('[type="submit"]') || undefined;
-        form.requestSubmit(submitter);
-      } else {
-        form.submit();
-      }
-    }, true);
-  }
-  resetCartSubmitState(form) {
-    form.classList.remove('loading', 'processing');
-    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
-      button.classList.remove('loading', 'processing');
-      button.disabled = false;
-      button.removeAttribute('disabled');
-      button.setAttribute('aria-disabled', 'false');
-    });
-  }
-  isMobileCartPreviewRequired() {
-    return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
-  }
-  getCurrentPreviewDataUrl() {
-    const canvas = this.canvases[this.activeArea];
-    if (canvas) {
-      try {
-        return canvas.toDataURL({
-          format: 'jpeg',
-          quality: 0.92
-        });
-      } catch (e) {
-        // Fall back to the already-rendered preview image below.
-      }
-    }
-    return document.getElementById('oc-canvas-preview')?.src || '';
-  }
-  getMobileCartPreviewDialog() {
-    if (this.mobileCartPreviewDialog) {
-      return this.mobileCartPreviewDialog;
-    }
-    let dialogRoot = document.getElementById('oc-cart-preview-root');
-    if (!dialogRoot) {
-      dialogRoot = document.createElement('div');
-      dialogRoot.id = 'oc-cart-preview-root';
-      dialogRoot.className = 'oc-customiser-panel oc-cart-preview-root';
-      document.body.appendChild(dialogRoot);
-    }
-    const dialog = document.createElement('dialog');
-    dialog.id = 'oc-cart-preview-dialog';
-    dialog.className = 'oc-cart-preview-dialog';
-    dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
-    dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
-    dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-image-wrap">' + '<img class="oc-cart-preview-image" alt="Customisation preview">' + '</div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
-    dialogRoot.appendChild(dialog);
-    this.mobileCartPreviewDialog = dialog;
-    return dialog;
-  }
-  confirmMobileCartPreview() {
-    if (!this.isMobileCartPreviewRequired()) {
-      return Promise.resolve(true);
-    }
-    this.closeFontComboboxes(true);
-    const previewUrl = this.getCurrentPreviewDataUrl();
-    const dialog = this.getMobileCartPreviewDialog();
-    dialog.ownerDocument.activeElement?.blur?.();
-    const img = dialog.querySelector('.oc-cart-preview-image');
-    if (img && previewUrl) {
-      img.src = previewUrl;
-    }
-    if (!dialog.showModal) {
-      return Promise.resolve(true);
-    }
-    return new Promise(resolve => {
-      const acceptBtn = dialog.querySelector('[data-oc-cart-preview-accept]');
-      const changeBtn = dialog.querySelector('[data-oc-cart-preview-change]');
-      const previousFocus = dialog.ownerDocument.activeElement;
-      const finish = accepted => {
-        if (!accepted) {
-          this.mobileCartPreviewDismissedAt = Date.now();
-        }
-        dialog.classList.remove('is-visible');
-        dialog.removeEventListener('click', onBackdropClick);
-        dialog.removeEventListener('cancel', onCancel);
-        acceptBtn?.removeEventListener('click', onAccept);
-        changeBtn?.removeEventListener('click', onChange);
-        if (dialog.open) {
-          dialog.close();
-        }
-        previousFocus?.focus?.();
-        resolve(accepted);
-      };
-      const stopModalAction = event => {
-        event?.preventDefault?.();
-        event?.stopPropagation?.();
-        event?.stopImmediatePropagation?.();
-      };
-      const onAccept = event => {
-        stopModalAction(event);
-        finish(true);
-      };
-      const onChange = event => {
-        stopModalAction(event);
-        finish(false);
-      };
-      const onBackdropClick = event => {
-        if (event.target === dialog) {
-          finish(false);
-        }
-      };
-      const onCancel = event => {
-        event.preventDefault();
-        finish(false);
-      };
-      acceptBtn?.addEventListener('click', onAccept);
-      changeBtn?.addEventListener('click', onChange);
-      dialog.addEventListener('click', onBackdropClick);
-      dialog.addEventListener('cancel', onCancel);
-      dialog.showModal();
-      window.requestAnimationFrame(() => dialog.classList.add('is-visible'));
-      acceptBtn?.focus?.();
-    });
-  }
-  async uploadPreview() {
-    if (!this.data.savePreviewUrl) {
-      return;
-    }
-    await this.flushRedraw();
-    let dataUrl;
-    try {
-      dataUrl = this.getCurrentPreviewDataUrl();
-    } catch (e) {
-      this._previewUrl = '';
-      this.updateHiddenField();
-      console.warn('[OC] Could not capture preview for cart:', e.message);
-      return;
-    }
-    try {
-      const res = await fetch(this.data.savePreviewUrl, {
-        method: 'POST',
-        headers: this.restHeaders({
-          'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify({
-          image: dataUrl
-        })
-      });
-      if (!res.ok) {
-        this._previewUrl = '';
-        this.updateHiddenField();
-        return;
-      }
-      let json = null;
-      const isJson = res.headers.get('content-type')?.includes('application/json');
-      if (isJson) {
-        try {
-          json = await res.json();
-        } catch (err) {
-          console.warn('[OC] Preview upload JSON parse failed:', err);
-        }
-      }
-      if (!json) {
-        this._previewUrl = '';
-        this.updateHiddenField();
-        return;
-      }
-      if (json.url) {
-        this._previewUrl = json.url;
-        this.updateHiddenField(); // embed previewUrl in the cart payload
-      }
-    } catch (e) {
-      this._previewUrl = '';
-      this.updateHiddenField();
-      // Non-fatal — cart submits without a preview image.
-      console.warn('[OC] Preview upload failed:', e.message);
-    }
-  }
   switchArea(index) {
     this.activeArea = index;
     document.querySelectorAll('.oc-area-tab').forEach((btn, i) => {
@@ -29040,216 +29412,6 @@ class OCCustomiser {
     }
   }
 
-  // ── Uppy upload zones ────────────────────────────────────────────────────────
-
-  setupUploadZones() {
-    document.querySelectorAll('[data-oc-upload-zone]').forEach(zoneEl => {
-      const lid = parseInt(zoneEl.dataset.ocUploadZone, 10);
-      if (!lid) {
-        return;
-      }
-      const uploadUrl = this.data?.uploadUrl || '';
-      if (!uploadUrl) {
-        this.showUploadError(zoneEl, 'Uploads are unavailable right now.');
-        return;
-      }
-
-      // Find the layer's per-layer settings; fall back to global defaults.
-      let layer = null;
-      for (const area of this.areas) {
-        layer = (area.layers || []).find(l => l.id === lid);
-        if (layer) {
-          break;
-        }
-      }
-      if (!layer) {
-        console.warn('[OC] Upload zone has no matching layer:', lid);
-        return;
-      }
-      const layerFormats = Array.isArray(layer?.settings?.formats) ? layer.settings.formats : [];
-      const globalFormats = Array.isArray(this.data.allowedFormats) ? this.data.allowedFormats : [];
-      const serverFormats = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
-      const effective = (layerFormats.length ? layerFormats : globalFormats).map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => serverFormats.includes(ext));
-      const allowedExt = effective.length ? effective.map(ext => `.${ext}`) : ['.jpg', '.jpeg', '.png', '.svg', '.pdf', '.webp'];
-      const layerMaxMb = parseInt(layer?.settings?.max_size_mb, 10);
-      const globalMaxMb = parseInt(this.data.maxUploadSizeMb, 10);
-      const maxMb = layerMaxMb > 0 ? layerMaxMb : globalMaxMb > 0 ? globalMaxMb : 10;
-      const uppy = new _uppy_core__WEBPACK_IMPORTED_MODULE_2__["default"]({
-        autoProceed: true,
-        onBeforeFileAdded: () => {
-          uppy.getFiles().forEach(existingFile => uppy.removeFile(existingFile.id));
-          this.setUploadZoneState(zoneEl, '');
-          const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
-          if (warnEl) {
-            warnEl.style.display = 'none';
-          }
-          this.setUploadProgress(zoneEl, 0, 'Starting upload...');
-          this.showUploadError(zoneEl, '');
-          return true;
-        },
-        restrictions: {
-          maxNumberOfFiles: 1,
-          maxFileSize: maxMb * 1024 * 1024,
-          allowedFileTypes: allowedExt
-        }
-      });
-      uppy.use(_uppy_drag_drop__WEBPACK_IMPORTED_MODULE_3__["default"], {
-        target: zoneEl,
-        note: 'We accept ' + (allowedExt.length ? allowedExt.map(e => e.replace('.', '').toUpperCase()).join(', ') : 'JPG, PNG, PDF, EPS') + ' and other common image types.',
-        locale: {
-          strings: {
-            dropHereOr: '%{browse}',
-            browse: 'Tap / click here to upload your image'
-          }
-        }
-      });
-      uppy.use(_uppy_xhr_upload__WEBPACK_IMPORTED_MODULE_4__["default"], {
-        endpoint: this.uploadEndpoint(uploadUrl, lid),
-        formData: true,
-        fieldName: 'artwork'
-      });
-      uppy.on('upload-progress', (file, progress) => {
-        const percent = progress?.bytesTotal ? Math.round(progress.bytesUploaded / progress.bytesTotal * 100) : 0;
-        this.setUploadProgress(zoneEl, percent, `Uploading ${percent}%`);
-      });
-      uppy.on('upload-success', async (file, res) => {
-        this.setUploadProgress(zoneEl, 100, '');
-        if (!res?.body) {
-          this.setUploadZoneState(zoneEl, 'error');
-          this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
-          return;
-        }
-        if (!this.inputs[lid]) {
-          this.inputs[lid] = {};
-        }
-        this.inputs[lid].attachmentId = res.body.attachment_id || 0;
-        this.inputs[lid].attachmentUrl = res.body.preview_url || '';
-        this.inputs[lid].imageMeta = null;
-        if (!this.inputs[lid].attachmentUrl) {
-          this.setUploadZoneState(zoneEl, 'error');
-          this.showUploadError(zoneEl, 'Server did not return a preview URL.');
-          return;
-        }
-        const meta = await this.getImageMeta(this.inputs[lid].attachmentUrl);
-        if (meta && this.inputs[lid]) {
-          this.inputs[lid].imageMeta = meta;
-          const thresholdW = Math.round(layer.w * (300 / 72));
-          const thresholdH = Math.round(layer.h * (300 / 72));
-          const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
-          if (warnEl) {
-            const belowThreshold = meta.width < thresholdW || meta.height < thresholdH;
-            const belowHalf = meta.width < thresholdW * 0.5 || meta.height < thresholdH * 0.5;
-            if (belowHalf) {
-              warnEl.className = 'oc-resolution-warning oc-res-error';
-              warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${thresholdW} x ${thresholdH} pixels.`;
-              warnEl.style.display = '';
-              this.inputs[lid].attachmentId = 0;
-              this.inputs[lid].attachmentUrl = '';
-              this.inputs[lid].imageMeta = null;
-              this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'imageMeta']);
-              this.setUploadZoneState(zoneEl, 'error');
-              this.showUploadError(zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
-              this.scheduleRedraw(this.areaIndexForLayer(lid));
-              this.updateHiddenField();
-              return;
-            } else if (belowThreshold) {
-              warnEl.className = 'oc-resolution-warning oc-res-warning';
-              warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${thresholdW} x ${thresholdH} pixels.`;
-              warnEl.style.display = '';
-            } else {
-              warnEl.style.display = 'none';
-            }
-          }
-        }
-        this.setUploadZoneState(zoneEl, 'uploaded');
-        this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'imageMeta']);
-        this.requestPreviewFocus();
-        this.scheduleRedraw(this.areaIndexForLayer(lid));
-        this.updateHiddenField();
-        this.showUploadError(zoneEl, '');
-      });
-      uppy.on('upload-error', (file, error, response) => {
-        let responseBody = response?.body || null;
-        if (!responseBody && response?.responseText) {
-          try {
-            responseBody = JSON.parse(response.responseText);
-          } catch (e) {
-            responseBody = {
-              message: response.responseText
-            };
-          }
-        }
-        const msg = responseBody?.message || error?.message || 'Upload failed.';
-        console.warn('[OC] Upload error:', msg, response);
-        this.setUploadZoneState(zoneEl, 'error');
-        this.setUploadProgress(zoneEl, 0, '');
-        this.showUploadError(zoneEl, msg);
-      });
-      uppy.on('restriction-failed', (file, error) => {
-        this.setUploadZoneState(zoneEl, 'error');
-        this.setUploadProgress(zoneEl, 0, '');
-        this.showUploadError(zoneEl, error?.message || 'File not allowed.');
-      });
-    });
-  }
-  setUploadZoneState(zoneEl, state) {
-    zoneEl.classList.toggle('oc-upload-zone--uploaded', state === 'uploaded');
-    zoneEl.classList.toggle('oc-upload-zone--error', state === 'error');
-    const browse = zoneEl.querySelector('.uppy-DragDrop-browse');
-    const note = zoneEl.querySelector('.uppy-DragDrop-note');
-    if (browse) {
-      browse.textContent = state === 'uploaded' ? 'Image uploaded' : 'Tap / click here to upload your image';
-    }
-    if (note) {
-      if (!note.dataset.ocOriginalText) {
-        note.dataset.ocOriginalText = note.textContent;
-      }
-      note.textContent = state === 'uploaded' ? 'Click to replace image' : note.dataset.ocOriginalText || note.textContent;
-    }
-  }
-  setUploadProgress(zoneEl, percent, label) {
-    const wrap = zoneEl.closest('.oc-artwork-wrap');
-    if (!wrap) {
-      return;
-    }
-    let progressEl = wrap.querySelector('.oc-upload-progress');
-    if (!progressEl) {
-      progressEl = document.createElement('div');
-      progressEl.className = 'oc-upload-progress';
-      progressEl.innerHTML = '<div class="oc-upload-progress-label"></div><div class="oc-upload-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="oc-upload-progress-bar"></div></div>';
-      zoneEl.insertAdjacentElement('afterend', progressEl);
-    }
-    const safePercent = Math.max(0, Math.min(100, parseInt(percent, 10) || 0));
-    const labelEl = progressEl.querySelector('.oc-upload-progress-label');
-    const track = progressEl.querySelector('.oc-upload-progress-track');
-    const bar = progressEl.querySelector('.oc-upload-progress-bar');
-    if (labelEl) {
-      labelEl.textContent = label || '';
-    }
-    if (track) {
-      track.setAttribute('aria-valuenow', String(safePercent));
-    }
-    if (bar) {
-      bar.style.width = `${safePercent}%`;
-    }
-    progressEl.style.display = label ? '' : 'none';
-  }
-  showUploadError(zoneEl, message) {
-    const wrap = zoneEl.closest('.oc-artwork-wrap');
-    if (!wrap) {
-      return;
-    }
-    let err = wrap.querySelector('.oc-artwork-error');
-    if (!err) {
-      err = document.createElement('div');
-      err.className = 'oc-artwork-error';
-      err.style.cssText = 'color:#b32d2e;font-size:12px;margin-top:6px;';
-      wrap.appendChild(err);
-    }
-    err.textContent = message || '';
-    err.style.display = message ? '' : 'none';
-  }
-
   // ── Cart serialisation ────────────────────────────────────────────────────────
 
   async captureAreaSnapshots() {
@@ -29257,7 +29419,7 @@ class OCCustomiser {
     for (const [areaIndex, area] of this.areas.entries()) {
       const canvas = this.canvases[areaIndex];
       const bounds = this.areaBounds(area);
-      const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_8__.displayBounds)(bounds);
+      const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_5__.displayBounds)(bounds);
       const scale = canvas?._ocScaleX || 1;
       if (!canvas || !display?.w || !display?.h || typeof canvas.toSVG !== 'function') {
         continue;
@@ -29651,7 +29813,13 @@ class OCCustomiser {
     el.value = JSON.stringify(payload);
   }
 }
-Object.assign(OCCustomiser.prototype, _customiser_gallery_preview__WEBPACK_IMPORTED_MODULE_9__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_design_variants__WEBPACK_IMPORTED_MODULE_6__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_gallery_preview__WEBPACK_IMPORTED_MODULE_7__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_clipart__WEBPACK_IMPORTED_MODULE_8__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_preflight__WEBPACK_IMPORTED_MODULE_9__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_spotify__WEBPACK_IMPORTED_MODULE_10__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_uploads__WEBPACK_IMPORTED_MODULE_11__["default"]);
+Object.assign(OCCustomiser.prototype, _customiser_checkout__WEBPACK_IMPORTED_MODULE_12__["default"]);
 })();
 
 /******/ })()

@@ -485,20 +485,11 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	/** Embed SVG artwork using a print-resolution raster fallback when TCPDF cannot render it faithfully. */
+	/** Embed SVG artwork as vector first, with a print-resolution raster fallback for unsupported SVGs. */
 	private static function draw_pdf_svg( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
-		$fallback_path = self::normalise_svg_for_tcpdf( $path, $w_mm, $h_mm );
-		if ( is_string( $fallback_path ) && '' !== $fallback_path ) {
-			try {
-				$pdf->Image( $fallback_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', false, 600 );
-			} finally {
-				@unlink( $fallback_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			}
-			return;
-		}
-
 		$vector_path = self::normalise_svg_intrinsic_size_for_tcpdf( $path );
 		$svg_path    = is_string( $vector_path ) && '' !== $vector_path ? $vector_path : $path;
+		$fallback_path = null;
 
 		try {
 			$pdf->ImageSVG( $svg_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
