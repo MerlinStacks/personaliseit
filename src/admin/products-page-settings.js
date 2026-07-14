@@ -217,6 +217,54 @@ export function createProductsPageSettings( deps ) {
 			'</div>'
 		);
 	}
+	function imageFilterChecks( filters, selected ) {
+		if ( ! filters.length ) {
+			return '<span class="oc-settings-empty">No image filters created yet.</span>';
+		}
+		return (
+			'<div class="oc-group-checks">' +
+			filters
+				.map(
+					( filter ) =>
+						'<label class="oc-group-check-item"><input type="checkbox" class="oc-if-check" value="' +
+						esc( filter.id ) +
+						'"' +
+						( selected.indexOf( Number( filter.id ) ) !== -1
+							? ' checked'
+							: '' ) +
+						' /><span>' +
+						esc( filter.name ) +
+						'</span></label>'
+				)
+				.join( '' ) +
+			'</div>'
+		);
+	}
+	function imageFilterOptions( filters, allowedIds, selectedId ) {
+		const allowed = Array.isArray( allowedIds )
+			? allowedIds.map( Number ).filter( Boolean )
+			: [];
+		const items = ( filters || [] ).filter( ( filter ) =>
+			allowed.includes( Number( filter.id ) )
+		);
+		return (
+			'<option value="0">Original</option>' +
+			items
+				.map(
+					( filter ) =>
+						'<option value="' +
+						esc( filter.id ) +
+						'"' +
+						( Number( filter.id ) === Number( selectedId || 0 )
+							? ' selected'
+							: '' ) +
+						'>' +
+						esc( filter.name ) +
+						'</option>'
+				)
+				.join( '' )
+		);
+	}
 	function linkGroupOptions( current ) {
 		const groups = [];
 		getAreas().forEach( ( area ) => {
@@ -563,6 +611,23 @@ export function createProductsPageSettings( deps ) {
 				return (
 					field( 'Default image', mediaDefaultField( s ) ) +
 					field(
+						'Image filters <span class="oc-hint">(customer choices)</span>',
+						imageFilterChecks(
+							data.imageFilters || [],
+							s.image_filter_ids || []
+						)
+					) +
+					field(
+						'Default filter',
+						'<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' +
+							imageFilterOptions(
+								data.imageFilters || [],
+								s.image_filter_ids || [],
+								s.default_image_filter_id || 0
+							) +
+							'</select>'
+					) +
+					field(
 						'Accepted formats',
 						formatChecks(
 							s.formats || [ 'png', 'jpg', 'svg', 'webp' ]
@@ -652,6 +717,11 @@ export function createProductsPageSettings( deps ) {
 							'Image',
 							'oc-set-allow-image-change',
 							s.allow_image_change !== false
+						) +
+						toggleField(
+							'Filter',
+							'oc-set-allow-image-filter-change',
+							s.allow_image_filter_change !== false
 						)
 					);
 				}
@@ -909,6 +979,28 @@ export function createProductsPageSettings( deps ) {
 				commitChange( { rightColumn: true } );
 			} );
 		} );
+		document.querySelectorAll( '.oc-if-check' ).forEach( ( cb ) => {
+			cb.addEventListener( 'change', () => {
+				s.image_filter_ids = [
+					...document.querySelectorAll( '.oc-if-check:checked' ),
+				].map( ( c ) => Number( c.value ) );
+				if (
+					s.default_image_filter_id &&
+					! s.image_filter_ids.includes(
+						Number( s.default_image_filter_id )
+					)
+				) {
+					s.default_image_filter_id = 0;
+				}
+				commitChange( { rightColumn: true } );
+			} );
+		} );
+		document
+			.getElementById( 'oc-set-default-image-filter' )
+			?.addEventListener( 'change', ( e ) => {
+				s.default_image_filter_id = parseInt( e.target.value, 10 ) || 0;
+				commitChange( { canvas: true } );
+			} );
 		document
 			.getElementById( 'oc-set-default-clipart' )
 			?.addEventListener( 'change', ( e ) => {
@@ -984,6 +1076,12 @@ export function createProductsPageSettings( deps ) {
 			.getElementById( 'oc-set-allow-image-change' )
 			?.addEventListener( 'change', ( e ) => {
 				s.allow_image_change = e.target.checked;
+				commitChange();
+			} );
+		document
+			.getElementById( 'oc-set-allow-image-filter-change' )
+			?.addEventListener( 'change', ( e ) => {
+				s.allow_image_filter_change = e.target.checked;
 				commitChange();
 			} );
 		document

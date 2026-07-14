@@ -124,9 +124,12 @@ function createProductsPageDataNormalisers(deps) {
           formats: ['png', 'jpg', 'svg', 'webp'],
           max_size_mb: 10,
           remove_background: false,
+          image_filter_ids: [],
+          default_image_filter_id: 0,
           default_attachment_id: 0,
           default_attachment_url: '',
           allow_image_change: true,
+          allow_image_filter_change: true,
           required: false,
           link_group: ''
         };
@@ -188,7 +191,13 @@ function createProductsPageDataNormalisers(deps) {
     if (type === 'image') {
       settings.default_attachment_id = Number(settings.default_attachment_id) || 0;
       settings.default_attachment_url = settings.default_attachment_url || '';
+      settings.image_filter_ids = Array.isArray(settings.image_filter_ids) ? settings.image_filter_ids.map(Number).filter(Boolean) : [];
+      settings.default_image_filter_id = Number(settings.default_image_filter_id) || 0;
+      if (settings.default_image_filter_id && !settings.image_filter_ids.includes(settings.default_image_filter_id)) {
+        settings.default_image_filter_id = 0;
+      }
       settings.allow_image_change = settings.allow_image_change !== false;
+      settings.allow_image_filter_change = settings.allow_image_filter_change !== false;
     }
     return settings;
   }
@@ -1399,6 +1408,34 @@ function createLayerPreviewRenderer(deps) {
     const fonts = (window.ocProductsData || {}).fonts || [];
     return fonts.find(f => Number(f.id) === Number(fontId)) || (!fontId ? fonts[0] : null);
   }
+  function imageFilterCss(filterId) {
+    filterId = Number(filterId) || 0;
+    if (!filterId) {
+      return '';
+    }
+    const data = window.ocProductsData || {};
+    const filter = (data.imageFilters || []).find(item => Number(item.id) === filterId);
+    if (!filter) {
+      return '';
+    }
+    const value = Number.isFinite(Number(filter.value)) ? Number(filter.value) : 1;
+    switch (filter.key) {
+      case 'grayscale':
+        return 'grayscale(1)';
+      case 'sepia':
+        return 'sepia(1)';
+      case 'brightness':
+        return 'brightness(' + Math.max(0, 1 + value) + ')';
+      case 'contrast':
+        return 'contrast(' + Math.max(0, 1 + value) + ')';
+      case 'saturation':
+        return 'saturate(' + Math.max(0, 1 + value) + ')';
+      case 'hue':
+        return 'hue-rotate(' + value * 360 + 'deg)';
+      default:
+        return '';
+    }
+  }
   function engravingTextColor() {
     return '#dadad6';
   }
@@ -1451,6 +1488,7 @@ function createLayerPreviewRenderer(deps) {
         img.className = 'oc-lp oc-lp-media';
         img.src = s.default_attachment_url;
         img.alt = '';
+        img.style.filter = imageFilterCss(s.default_image_filter_id);
         el.appendChild(img);
         return;
       }
@@ -1581,6 +1619,17 @@ function createProductsPageSettings(deps) {
     }
     return '<div class="oc-group-checks">' + groups.map(g => '<label class="oc-group-check-item"><input type="checkbox" class="' + cls + '" value="' + esc(g.id) + '"' + (selected.indexOf(Number(g.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(g.name) + '</span></label>').join('') + '</div>';
   }
+  function imageFilterChecks(filters, selected) {
+    if (!filters.length) {
+      return '<span class="oc-settings-empty">No image filters created yet.</span>';
+    }
+    return '<div class="oc-group-checks">' + filters.map(filter => '<label class="oc-group-check-item"><input type="checkbox" class="oc-if-check" value="' + esc(filter.id) + '"' + (selected.indexOf(Number(filter.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(filter.name) + '</span></label>').join('') + '</div>';
+  }
+  function imageFilterOptions(filters, allowedIds, selectedId) {
+    const allowed = Array.isArray(allowedIds) ? allowedIds.map(Number).filter(Boolean) : [];
+    const items = (filters || []).filter(filter => allowed.includes(Number(filter.id)));
+    return '<option value="0">Original</option>' + items.map(filter => '<option value="' + esc(filter.id) + '"' + (Number(filter.id) === Number(selectedId || 0) ? ' selected' : '') + '>' + esc(filter.name) + '</option>').join('');
+  }
   function linkGroupOptions(current) {
     const groups = [];
     getAreas().forEach(area => {
@@ -1708,7 +1757,7 @@ function createProductsPageSettings(deps) {
       case 'style':
         return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupIds.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
       case 'file':
-        return field('Default image', mediaDefaultField(s)) + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
+        return field('Default image', mediaDefaultField(s)) + field('Image filters <span class="oc-hint">(customer choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
       case 'mask':
         return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
       case 'appearance':
@@ -1723,7 +1772,7 @@ function createProductsPageSettings(deps) {
         return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
       case 'properties':
         if (layer.type === 'image') {
-          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Image', 'oc-set-allow-image-change', s.allow_image_change !== false);
+          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Image', 'oc-set-allow-image-change', s.allow_image_change !== false) + toggleField('Filter', 'oc-set-allow-image-filter-change', s.allow_image_filter_change !== false);
         }
         if (layer.type === 'clipart') {
           return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Clipart', 'oc-set-allow-clipart-change', s.allow_clipart_change !== false);
@@ -1903,6 +1952,23 @@ function createProductsPageSettings(deps) {
         });
       });
     });
+    document.querySelectorAll('.oc-if-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        s.image_filter_ids = [...document.querySelectorAll('.oc-if-check:checked')].map(c => Number(c.value));
+        if (s.default_image_filter_id && !s.image_filter_ids.includes(Number(s.default_image_filter_id))) {
+          s.default_image_filter_id = 0;
+        }
+        commitChange({
+          rightColumn: true
+        });
+      });
+    });
+    document.getElementById('oc-set-default-image-filter')?.addEventListener('change', e => {
+      s.default_image_filter_id = parseInt(e.target.value, 10) || 0;
+      commitChange({
+        canvas: true
+      });
+    });
     document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
       setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], [], area?.method || ''));
       commitChange({
@@ -1951,6 +2017,10 @@ function createProductsPageSettings(deps) {
     });
     document.getElementById('oc-set-allow-image-change')?.addEventListener('change', e => {
       s.allow_image_change = e.target.checked;
+      commitChange();
+    });
+    document.getElementById('oc-set-allow-image-filter-change')?.addEventListener('change', e => {
+      s.allow_image_filter_change = e.target.checked;
       commitChange();
     });
     document.getElementById('oc-set-allow-clipart-change')?.addEventListener('change', e => {

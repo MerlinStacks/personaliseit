@@ -238,6 +238,7 @@ class OC_Frontend {
 
 		$all_fonts   = OC_Font_Registry::get_fonts_for_js();
 		$all_colours = OC_DB::get_colours( true );
+		$image_filters = OC_DB::get_image_filters( true );
 
 		// Group layers by area ID.
 		$layers_by_area = [];
@@ -278,6 +279,11 @@ class OC_Frontend {
 				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
 				$default_attachment_id  = absint( $settings['default_attachment_id'] ?? 0 );
 				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
+				$default_image_filter_id = absint( $settings['default_image_filter_id'] ?? 0 );
+				$image_filter_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['image_filter_ids'] ?? null ) ? $settings['image_filter_ids'] : [] ) ) );
+				if ( $default_image_filter_id && ! in_array( $default_image_filter_id, $image_filter_ids, true ) ) {
+					$default_image_filter_id = 0;
+				}
 				if ( '' === $default_attachment_url && ! empty( $settings['default_attachment_url'] ) ) {
 					$default_attachment_url = esc_url_raw( (string) $settings['default_attachment_url'] );
 				}
@@ -312,6 +318,7 @@ class OC_Frontend {
 					'colorHex'      => $default_colour,
 					'attachmentId'  => 'image' === $layer->type ? $default_attachment_id : 0,
 					'attachmentUrl' => 'image' === $layer->type ? $default_attachment_url : '',
+					'imageFilterId' => 'image' === $layer->type ? $default_image_filter_id : 0,
 					'clipartId'     => 0,
 					'clipartUrl'    => '',
 					'clipartRecolourable' => false,
@@ -406,6 +413,14 @@ class OC_Frontend {
 			'areas'           => $areas_js,
 			'fonts'           => $all_fonts,
 			'colours'         => $colours_js,
+			'imageFilters'    => array_map( function ( $filter ) {
+				return [
+					'id'    => (int) $filter->id,
+					'name'  => (string) $filter->name,
+					'key'   => (string) $filter->filter_key,
+					'value' => (float) $filter->value,
+				];
+			}, $image_filters ),
 			'clipartByLayer'  => $clipart_by_layer,
 			'clipartGroups'   => $clipart_groups,
 			'layerInputs'     => $layer_inputs,

@@ -663,6 +663,10 @@ const canvasRendererMethods = {
 
 			case 'image':
 				if ( input.attachmentUrl ) {
+					const imageFilter = this.imageFilterForLayer(
+						layer,
+						input.imageFilterId
+					);
 					await this.renderFabricImg(
 						canvas,
 						input.attachmentUrl,
@@ -675,7 +679,10 @@ const canvasRendererMethods = {
 						false,
 						rotation,
 						engravingPalette,
-						contentClip()
+						contentClip(),
+						'contain',
+						'',
+						imageFilter ? { imageFilter } : {}
 					);
 				}
 				break;
@@ -2185,6 +2192,9 @@ const canvasRendererMethods = {
 					} )
 				);
 			}
+			if ( effects.imageFilter ) {
+				this.addConfiguredImageFilter( filters, effects.imageFilter );
+			}
 			if ( isEngraving && ! effects.preserveRecolouredPixels ) {
 				const palette = engravingPalette || this.engravingPalette();
 				filters.push(
@@ -2248,6 +2258,66 @@ const canvasRendererMethods = {
 		} catch ( e ) {
 			console.warn( '[OC] renderFabricImg error:', e, 'URL:', url );
 			return false;
+		}
+	},
+
+	imageFilterForLayer( layer, filterId ) {
+		filterId = parseInt( filterId, 10 ) || 0;
+		if ( ! filterId ) {
+			return null;
+		}
+		const allowedIds = Array.isArray( layer?.settings?.image_filter_ids )
+			? layer.settings.image_filter_ids.map( Number )
+			: [];
+		if ( ! allowedIds.includes( filterId ) ) {
+			return null;
+		}
+		return ( this.data?.imageFilters || [] ).find(
+			( filter ) => Number( filter.id ) === filterId
+		);
+	},
+
+	addConfiguredImageFilter( filters, config ) {
+		const key = String( config?.key || '' );
+		const value = Number( config?.value );
+		const amount = Number.isFinite( value ) ? value : 1;
+		switch ( key ) {
+			case 'grayscale':
+				if ( FabricFilters.Grayscale ) {
+					filters.push( new FabricFilters.Grayscale() );
+				}
+				break;
+			case 'sepia':
+				if ( FabricFilters.Sepia ) {
+					filters.push( new FabricFilters.Sepia() );
+				}
+				break;
+			case 'brightness':
+				if ( FabricFilters.Brightness ) {
+					filters.push(
+						new FabricFilters.Brightness( { brightness: amount } )
+					);
+				}
+				break;
+			case 'contrast':
+				if ( FabricFilters.Contrast ) {
+					filters.push( new FabricFilters.Contrast( { contrast: amount } ) );
+				}
+				break;
+			case 'saturation':
+				if ( FabricFilters.Saturation ) {
+					filters.push(
+						new FabricFilters.Saturation( { saturation: amount } )
+					);
+				}
+				break;
+			case 'hue':
+				if ( FabricFilters.HueRotation ) {
+					filters.push(
+						new FabricFilters.HueRotation( { rotation: amount } )
+					);
+				}
+				break;
 		}
 	},
 

@@ -156,6 +156,7 @@ foreach ( $layers as $layer ) {
 					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
+					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $s ) || ! empty( $s['allow_image_filter_change'] );
 					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
 					if ( 'clipart' === $layer->type && ! $allow_clipart_change ) continue;
 					$cg_ids    = $s['colour_groups'] ?? [];
@@ -163,6 +164,11 @@ foreach ( $layers as $layer ) {
 					$clipart_groups = $s['clipart_groups'] ?? [];
 					$clipart_group_ids = array_values( array_filter( array_map( 'absint', is_array( $clipart_groups ) ? $clipart_groups : [] ) ) );
 					$clipart_display = 'carousel' === (string) ( $s['clipart_display'] ?? 'grid' ) ? 'carousel' : 'grid';
+					$image_filter_ids = array_values( array_filter( array_map( 'absint', is_array( $s['image_filter_ids'] ?? null ) ? $s['image_filter_ids'] : [] ) ) );
+					$default_image_filter_id = absint( $s['default_image_filter_id'] ?? 0 );
+					if ( $default_image_filter_id && ! in_array( $default_image_filter_id, $image_filter_ids, true ) ) {
+						$default_image_filter_id = 0;
+					}
 
 					// Colour list for this layer.
 					$cg_ids = array_values( array_filter( array_map( 'absint', is_array( $cg_ids ) ? $cg_ids : [] ) ) );
@@ -246,7 +252,21 @@ foreach ( $layers as $layer ) {
 											data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 									</div>
 									<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
-									</div>
+									<?php if ( 'image' === $layer->type && ! empty( $image_filter_ids ) && $allow_image_filter_change ) : ?>
+										<?php $available_filters = array_filter( OC_DB::get_image_filters( true ), fn( $filter ) => in_array( (int) $filter->id, $image_filter_ids, true ) ); ?>
+										<?php if ( ! empty( $available_filters ) ) : ?>
+											<div class="oc-control-group oc-control-group--side-label" style="margin-top:10px;">
+												<label for="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></label>
+												<select id="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>" data-oc-layer-image-filter="<?php echo esc_attr( $layer->id ); ?>">
+													<option value="0" <?php selected( $default_image_filter_id, 0 ); ?>><?php esc_html_e( 'Original', 'overcustomise' ); ?></option>
+													<?php foreach ( $available_filters as $filter ) : ?>
+														<option value="<?php echo esc_attr( (int) $filter->id ); ?>" <?php selected( $default_image_filter_id, (int) $filter->id ); ?>><?php echo esc_html( $filter->name ); ?></option>
+													<?php endforeach; ?>
+												</select>
+											</div>
+										<?php endif; ?>
+									<?php endif; ?>
+								</div>
 								<?php else : ?>
 									<p class="oc-settings-empty"><?php esc_html_e( 'Image is fixed for this product.', 'overcustomise' ); ?></p>
 								<?php endif; ?>

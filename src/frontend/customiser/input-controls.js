@@ -551,6 +551,28 @@ const inputControlMethods = {
 
 		// Clipart items
 		document
+			.querySelectorAll( '[data-oc-layer-image-filter]' )
+			.forEach( ( el ) => {
+				const lid = parseInt( el.dataset.ocLayerImageFilter, 10 );
+				if ( ! this.inputs[ lid ] ) {
+					this.inputs[ lid ] = {};
+				}
+				this.inputs[ lid ].imageFilterId = parseInt( el.value, 10 ) || 0;
+				el.addEventListener( 'change', () => {
+					if ( ! this.inputs[ lid ] ) {
+						this.inputs[ lid ] = {};
+					}
+					this.inputs[ lid ].imageFilterId =
+						parseInt( el.value, 10 ) || 0;
+					this.syncLinkedLayerInput( lid, [ 'imageFilterId' ] );
+					this.requestPreviewFocus();
+					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+					this.updateHiddenField();
+				} );
+			} );
+
+		// Clipart items
+		document
 			.querySelectorAll( '[data-oc-layer-clipart]' )
 			.forEach( ( btn ) => {
 				btn.addEventListener( 'click', () => {
@@ -837,6 +859,13 @@ const inputControlMethods = {
 					);
 				} );
 		}
+		if ( keys.includes( 'imageFilterId' ) ) {
+			document
+				.querySelectorAll( `[data-oc-layer-image-filter="${ layerId }"]` )
+				.forEach( ( select ) => {
+					select.value = String( input.imageFilterId || 0 );
+				} );
+		}
 	},
 
 	// ── Form submit — upload preview then proceed ──────────────────────────────
@@ -912,7 +941,14 @@ const inputControlMethods = {
 					?.querySelectorAll( '.oc-clipart-item' )
 					.forEach( ( i ) =>
 						i.classList.toggle( 'oc-selected', i === clipartBtn )
-					);
+									);
+			}
+
+			const imageFilterEl = document.querySelector(
+				`[data-oc-layer-image-filter="${ layerId }"]`
+			);
+			if ( imageFilterEl ) {
+				imageFilterEl.value = String( inp.imageFilterId || 0 );
 			}
 		}
 
@@ -988,6 +1024,13 @@ const inputControlMethods = {
 						selectedClipart.dataset.ocClipartUrl || '';
 					input.clipartRecolourable =
 						selectedClipart.dataset.ocClipartRecolourable === '1';
+				}
+
+				const imageFilterEl = document.querySelector(
+					`[data-oc-layer-image-filter="${ layerId }"]`
+				);
+				if ( imageFilterEl ) {
+					input.imageFilterId = parseInt( imageFilterEl.value, 10 ) || 0;
 				}
 			} );
 		} );

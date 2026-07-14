@@ -281,6 +281,23 @@ class OC_Cart {
 						: sanitize_text_field( (string) $layer_data['value'] );
 				}
 
+				$image_filter_id = 0;
+				if ( 'image' === $type ) {
+					$image_filter_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['image_filter_ids'] ?? null ) ? $settings['image_filter_ids'] : [] ) ) );
+					$default_filter_id = absint( $settings['default_image_filter_id'] ?? 0 );
+					if ( $default_filter_id && ! in_array( $default_filter_id, $image_filter_ids, true ) ) {
+						$default_filter_id = 0;
+					}
+					if ( array_key_exists( 'allow_image_filter_change', $settings ) && empty( $settings['allow_image_filter_change'] ) ) {
+						$image_filter_id = $default_filter_id;
+					} else {
+						$posted_filter_id = absint( $layer_data['imageFilterId'] ?? 0 );
+						if ( $posted_filter_id && in_array( $posted_filter_id, $image_filter_ids, true ) ) {
+							$image_filter_id = $posted_filter_id;
+						}
+					}
+				}
+
 				$sanitised_layers[ $layer_key ] = [
 					'type'          => $type,
 					'value'         => $value,
@@ -288,6 +305,7 @@ class OC_Cart {
 					'fontSize'      => $font_size,
 					'colorHex'      => $color_hex,
 					'attachmentId'  => absint( $layer_data['attachmentId'] ?? 0 ),
+					'imageFilterId' => $image_filter_id,
 					'clipartId'     => $clipart_id,
 					'clipartUrl'    => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
 					'clipartRecolourable' => $clipart_recolourable,

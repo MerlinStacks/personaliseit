@@ -189,7 +189,6 @@ class OC_Admin_Products {
 	// ── Tab 1: Products ───────────────────────────────────────────────────────
 
 	private function render_products_tab(): void {
-		wp_enqueue_media();
 		$current_page      = $this->get_admin_page_number( 'product_page' );
 		$search            = $this->get_admin_search_term( 'product_search' );
 		$product_filter    = isset( $_GET['product_design_filter'] ) ? sanitize_key( wp_unslash( $_GET['product_design_filter'] ) ) : 'all';
@@ -197,8 +196,8 @@ class OC_Admin_Products {
 		$is_unassigned_tab = 'unassigned' === $product_filter;
 
 		// Load active designs for the assignment dropdown.
-		$designs    = OC_DB::get_designs( true );
-		$assign_map = OC_DB::get_all_assignments();
+		$designs       = OC_DB::get_designs( true );
+		$design_thumbs = $this->get_design_thumbnail_map( $designs );
 
 		// Load one page of published WC products.
 		$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );
@@ -215,6 +214,7 @@ class OC_Admin_Products {
 			'product_search'        => $search,
 			'product_design_filter' => $product_filter,
 		];
+		$assign_map = OC_DB::get_assignments_for_product_ids( array_map( static fn ( $product ): int => (int) $product->get_id(), $wc_products ) );
 
 		$nonce = wp_create_nonce( 'oc-products-nonce' );
 		?>
@@ -307,7 +307,7 @@ class OC_Admin_Products {
 											<?php $this->render_design_select( $designs, $pid, 0, (int) $parent_assignment['design_id'] ); ?>
 											<small style="color:var(--oc-gray-500);display:block;margin-top:3px;font-size:11px;"><?php esc_html_e( 'All variants (default)', 'overcustomise' ); ?></small>
 										</td>
-										<td><?php $this->render_design_variants_control( $designs, $pid, 0, $parent_assignment['design_variants'] ?? '' ); ?></td>
+										<td><?php $this->render_design_variants_control( $designs, $design_thumbs, $pid, 0, $parent_assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 									<!-- One row per variant -->
@@ -326,7 +326,7 @@ class OC_Admin_Products {
 											<td>
 												<?php $this->render_design_select( $designs, $pid, $vid, (int) $vassignment['design_id'] ); ?>
 											</td>
-											<td><?php $this->render_design_variants_control( $designs, $pid, $vid, $vassignment['design_variants'] ?? '' ); ?></td>
+											<td><?php $this->render_design_variants_control( $designs, $design_thumbs, $pid, $vid, $vassignment['design_variants'] ?? '' ); ?></td>
 											<td><span class="oc-assign-status" aria-live="polite"></span></td>
 										</tr>
 									<?php endforeach; ?>
@@ -341,7 +341,7 @@ class OC_Admin_Products {
 										<td>
 											<?php $this->render_design_select( $designs, $pid, 0, (int) $assignment['design_id'] ); ?>
 										</td>
-										<td><?php $this->render_design_variants_control( $designs, $pid, 0, $assignment['design_variants'] ?? '' ); ?></td>
+										<td><?php $this->render_design_variants_control( $designs, $design_thumbs, $pid, 0, $assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 								<?php endif; ?>
@@ -691,8 +691,43 @@ class OC_Admin_Products {
 		<?php
 	}
 
+	/** Build design ID => thumbnail URL once to avoid per-row print-area lookups. */
+	private function get_design_thumbnail_map( array $designs ): array {
+		$design_ids = array_values( array_unique( array_filter( array_map( static fn ( $design ): int => (int) $design->id, $designs ) ) ) );
+		if ( empty( $design_ids ) ) {
+			return [];
+		}
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $design_ids ), '%d' ) );
+		$rows         = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT design_id, mockup_attachment_id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id IN ($placeholders) AND mockup_attachment_id IS NOT NULL AND mockup_attachment_id > 0 ORDER BY design_id ASC, sort_order ASC",
+				...$design_ids
+			)
+		) ?: [];
+
+		$attachment_ids = [];
+		foreach ( $rows as $row ) {
+			$design_id = (int) $row->design_id;
+			if ( ! isset( $attachment_ids[ $design_id ] ) ) {
+				$attachment_ids[ $design_id ] = (int) $row->mockup_attachment_id;
+			}
+		}
+
+		$thumbs = array_fill_keys( $design_ids, '' );
+		foreach ( $designs as $design ) {
+			$design_id = (int) $design->id;
+			if ( ! empty( $attachment_ids[ $design_id ] ) ) {
+				$thumbs[ $design_id ] = wp_get_attachment_image_url( $attachment_ids[ $design_id ], 'thumbnail' ) ?: '';
+			}
+		}
+
+		return $thumbs;
+	}
+
 	/** Render per-assignment alternate design controls. */
-	private function render_design_variants_control( array $designs, int $product_id, int $variant_id, string $variants_json ): void {
+	private function render_design_variants_control( array $designs, array $design_thumbs, int $product_id, int $variant_id, string $variants_json ): void {
 		$variants = json_decode( $variants_json, true );
 		if ( ! is_array( $variants ) ) {
 			$variants = [];
@@ -704,9 +739,7 @@ class OC_Admin_Products {
 			if ( ! $design || ! (bool) $design->active ) {
 				return null;
 			}
-			$areas = OC_DB::get_design_print_areas( $design_id );
-			$area  = $areas[0] ?? null;
-			$thumb = $area && ! empty( $area->mockup_attachment_id ) ? wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) : '';
+			$thumb = $design_thumbs[ $design_id ] ?? '';
 			return [
 				'designId' => $design_id,
 				'label'    => sanitize_text_field( (string) ( $item['label'] ?? '' ) ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
@@ -720,9 +753,7 @@ class OC_Admin_Products {
 			<select class="oc-select oc-design-variant-design-select" style="max-width:180px;">
 				<option value="0"><?php esc_html_e( 'Choose design…', 'overcustomise' ); ?></option>
 				<?php foreach ( $designs as $design ) :
-					$areas = OC_DB::get_design_print_areas( (int) $design->id );
-					$area  = $areas[0] ?? null;
-					$thumb = $area && ! empty( $area->mockup_attachment_id ) ? wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) : '';
+					$thumb = $design_thumbs[ (int) $design->id ] ?? '';
 					?>
 					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ?: '' ); ?>">
 						<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
@@ -944,6 +975,7 @@ class OC_Admin_Products {
 			'fonts'        => OC_Font_Registry::get_fonts_for_js(),
 			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'fontIds' => array_map( 'intval', $g->font_ids ) ]; }, OC_DB::get_font_groups() ),
 			'colours'      => array_map( function ( $c ) { return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ]; }, OC_DB::get_colours( true ) ),
+			'imageFilters' => array_map( function ( $f ) { return [ 'id' => (int) $f->id, 'name' => $f->name, 'key' => $f->filter_key, 'value' => (float) $f->value ]; }, OC_DB::get_image_filters( true ) ),
 			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'colourIds' => array_map( 'intval', $g->colour_ids ) ]; }, OC_DB::get_colour_groups() ),
 			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, $clipart_groups ),
 			'clipartItems'  => array_map(

@@ -1,7 +1,5 @@
 /* eslint-disable no-undef, @wordpress/no-unused-vars-before-return */
 
-import { createFont } from 'fonteditor-core';
-
 import { displayBounds } from '../../shared/render-math';
 
 const cartSerializationMethods = {
@@ -326,17 +324,23 @@ const cartSerializationMethods = {
 			return this.outlineFontCache[ font.name ];
 		}
 
-		this.outlineFontCache[ font.name ] = fetch( font.url, {
-			credentials: 'same-origin',
-			cache: 'force-cache',
-		} )
-			.then( ( response ) => {
+		this.outlineFontCache[ font.name ] = Promise.all( [
+			import( 'fonteditor-core' ),
+			fetch( font.url, {
+				credentials: 'same-origin',
+				cache: 'force-cache',
+			} ),
+		] )
+			.then( ( [ fontEditor, response ] ) => {
 				if ( ! response.ok ) {
 					throw new Error( 'Font download failed.' );
 				}
-				return response.arrayBuffer();
+				return Promise.all( [
+					fontEditor.createFont,
+					response.arrayBuffer(),
+				] );
 			} )
-			.then( ( buffer ) => {
+			.then( ( [ createFont, buffer ] ) => {
 				const parsed = createFont( buffer, {
 					type: this.fontTypeFromUrl( font.url ),
 					compound2simple: true,

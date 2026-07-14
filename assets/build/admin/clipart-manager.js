@@ -1637,7 +1637,32 @@ function updateClipartGridUI() {
   }
   grid.style.display = '';
   grid.innerHTML = '';
-  clipart.forEach(c => grid.appendChild(buildClipartCardEl(c)));
+  clipart.forEach(c => {
+    const card = buildClipartCardEl(c);
+    grid.appendChild(card);
+    bindClipartCard(card);
+  });
+}
+function bindClipartCard(card) {
+  card.addEventListener('click', e => {
+    if (isCardActionEvent(e)) {
+      return;
+    }
+    openEditModal(Number(card.dataset.clipartId));
+  });
+  card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    convertClipartToSvg(Number(card.dataset.clipartId), e.currentTarget);
+  });
+  card.addEventListener('keydown', e => {
+    if (isCardActionEvent(e)) {
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      openEditModal(Number(card.dataset.clipartId));
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -1957,27 +1982,25 @@ function initEditModal() {
     }
   });
 
-  // Wire up server-rendered cards.
-  document.querySelectorAll('.oc-clipart-card').forEach(card => {
-    card.addEventListener('click', e => {
-      if (isCardActionEvent(e)) {
-        return;
-      }
-      openEditModal(Number(card.dataset.clipartId));
+  // Wire up server-rendered cards and append additional cards on demand.
+  document.querySelectorAll('.oc-clipart-card').forEach(bindClipartCard);
+  document.getElementById('oc-clipart-load-more')?.addEventListener('click', function () {
+    const grid = document.getElementById('oc-clipart-grid');
+    const offset = Number(this.dataset.offset || 0);
+    const step = Number(this.dataset.step || 60);
+    if (!grid) {
+      return;
+    }
+    clipart.slice(offset, offset + step).forEach(item => {
+      const card = buildClipartCardEl(item);
+      grid.appendChild(card);
+      bindClipartCard(card);
     });
-    card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
-      e.preventDefault();
-      e.stopPropagation();
-      convertClipartToSvg(Number(card.dataset.clipartId), e.currentTarget);
-    });
-    card.addEventListener('keydown', e => {
-      if (isCardActionEvent(e)) {
-        return;
-      }
-      if (e.key === 'Enter' || e.key === ' ') {
-        openEditModal(Number(card.dataset.clipartId));
-      }
-    });
+    const nextOffset = offset + step;
+    this.dataset.offset = String(nextOffset);
+    if (nextOffset >= clipart.length) {
+      this.parentElement?.remove();
+    }
   });
 }
 

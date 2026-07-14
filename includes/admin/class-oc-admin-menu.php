@@ -59,6 +59,16 @@ class OC_Admin_Menu {
 			[ new OC_Admin_Colours(), 'render' ]
 		);
 
+		// Image Filters.
+		add_submenu_page(
+			'overcustomise',
+			__( 'OC — Image Filters', 'overcustomise' ),
+			__( 'Image Filters', 'overcustomise' ),
+			'manage_woocommerce',
+			'overcustomise-image-filters',
+			[ new OC_Admin_Image_Filters(), 'render' ]
+		);
+
 		// Clipart Manager.
 		add_submenu_page(
 			'overcustomise',
@@ -116,6 +126,7 @@ class OC_Admin_Menu {
 			'overcustomise_page_overcustomise-products',
 			'overcustomise_page_overcustomise-fonts',
 			'overcustomise_page_overcustomise-colours',
+			'overcustomise_page_overcustomise-image-filters',
 			'overcustomise_page_overcustomise-clipart',
 			'overcustomise_page_overcustomise-customer-uploads',
 			'overcustomise_page_overcustomise-print-methods',
@@ -135,9 +146,6 @@ class OC_Admin_Menu {
 			[],
 			file_exists( $admin_css_path ) ? (string) filemtime( $admin_css_path ) : OC_VERSION
 		);
-
-		// WordPress media uploader (used on mockups and fonts pages).
-		wp_enqueue_media();
 
 		// Products page — bounds drag editor.
 		// Note: ocProductsData is localised by OC_Admin_Products::render_edit().

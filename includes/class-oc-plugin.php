@@ -69,6 +69,7 @@ class OC_Plugin {
 			require_once OC_PATH . 'includes/admin/class-oc-admin-products.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-fonts.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-colours.php';
+			require_once OC_PATH . 'includes/admin/class-oc-admin-image-filters.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-clipart.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-customer-uploads.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-print-queue.php';
@@ -108,6 +109,7 @@ class OC_Plugin {
 			OC_Admin_Products::register_ajax();
 			OC_Admin_Fonts::register_ajax();
 			OC_Admin_Colours::register_ajax();
+			OC_Admin_Image_Filters::register_ajax();
 			OC_Admin_Clipart::register_ajax();
 		}
 

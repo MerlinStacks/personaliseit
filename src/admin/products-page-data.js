@@ -104,9 +104,12 @@ export function createProductsPageDataNormalisers( deps ) {
 					formats: [ 'png', 'jpg', 'svg', 'webp' ],
 					max_size_mb: 10,
 					remove_background: false,
+					image_filter_ids: [],
+					default_image_filter_id: 0,
 					default_attachment_id: 0,
 					default_attachment_url: '',
 					allow_image_change: true,
+					allow_image_filter_change: true,
 					required: false,
 					link_group: '',
 				};
@@ -167,7 +170,24 @@ export function createProductsPageDataNormalisers( deps ) {
 				Number( settings.default_attachment_id ) || 0;
 			settings.default_attachment_url =
 				settings.default_attachment_url || '';
+			settings.image_filter_ids = Array.isArray(
+				settings.image_filter_ids
+			)
+				? settings.image_filter_ids.map( Number ).filter( Boolean )
+				: [];
+			settings.default_image_filter_id =
+				Number( settings.default_image_filter_id ) || 0;
+			if (
+				settings.default_image_filter_id &&
+				! settings.image_filter_ids.includes(
+					settings.default_image_filter_id
+				)
+			) {
+				settings.default_image_filter_id = 0;
+			}
 			settings.allow_image_change = settings.allow_image_change !== false;
+			settings.allow_image_filter_change =
+				settings.allow_image_filter_change !== false;
 		}
 		return settings;
 	}

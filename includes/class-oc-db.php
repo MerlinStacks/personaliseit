@@ -65,7 +65,8 @@ class OC_DB {
 			embroidery_suitable  TINYINT(1) NOT NULL DEFAULT 0,
 			active               TINYINT(1) NOT NULL DEFAULT 1,
 			created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (id)
+			PRIMARY KEY (id),
+			KEY active_name (active, name)
 		) $charset;" );
 
 		// ------------------------------------------------------------------
@@ -140,7 +141,8 @@ class OC_DB {
 			allowed_print_methods TEXT NULL,
 			active     TINYINT(1) NOT NULL DEFAULT 1,
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			PRIMARY KEY (id)
+			PRIMARY KEY (id),
+			KEY active_name (active, name)
 		) $charset;" );
 
 		// ------------------------------------------------------------------
@@ -205,7 +207,8 @@ class OC_DB {
 			visible              TINYINT(1) NOT NULL DEFAULT 1,
 			locked               TINYINT(1) NOT NULL DEFAULT 0,
 			PRIMARY KEY  (id),
-			KEY          design_id (design_id)
+			KEY          design_id (design_id),
+			KEY          design_sort (design_id, sort_order)
 		) $charset;" );
 
 		// ------------------------------------------------------------------
@@ -242,7 +245,8 @@ class OC_DB {
 			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY  (id),
 			KEY          design_id (design_id),
-			KEY          area_id (area_id)
+			KEY          area_id (area_id),
+			KEY          design_area_sort (design_id, area_id, sort_order)
 		) $charset;" );
 
 		// ------------------------------------------------------------------
@@ -323,7 +327,23 @@ class OC_DB {
 			processed_at   DATETIME DEFAULT NULL,
 			PRIMARY KEY (id),
 			KEY status (status),
+			KEY status_id (status, id),
+			KEY status_created (status, created_at),
 			KEY order_item_id (order_item_id)
+		) $charset;" );
+
+		// ------------------------------------------------------------------
+		// 21. Image filters available to upload layers
+		// ------------------------------------------------------------------
+		dbDelta( "CREATE TABLE {$wpdb->prefix}oc_image_filters (
+			id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			name        VARCHAR(100) NOT NULL,
+			filter_key  VARCHAR(30) NOT NULL DEFAULT 'grayscale',
+			value       DECIMAL(10,3) NOT NULL DEFAULT 1.000,
+			active      TINYINT(1) NOT NULL DEFAULT 1,
+			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (id),
+			KEY active (active)
 		) $charset;" );
 	}
 
@@ -468,6 +488,10 @@ class OC_DB {
 				}
 			}
 
+			if ( version_compare( $installed, '1.13.6', '<' ) ) {
+				self::create_tables();
+			}
+
 			update_option( 'oc_db_version', OC_DB_VERSION );
 		}
 	}
@@ -546,6 +570,38 @@ class OC_DB {
 		}
 		OC_Cache::set( $cache_key, $results );
 		return $results;
+	}
+
+	/** Fetch all image filters (optionally active-only). */
+	public static function get_image_filters( bool $active_only = true ): array {
+		$cache_key = 'image_filters_' . ( $active_only ? 'active' : 'all' );
+		$cached    = OC_Cache::get( $cache_key );
+		if ( null !== $cached ) {
+			return $cached;
+		}
+
+		global $wpdb;
+		if ( $active_only ) {
+			$results = $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_image_filters WHERE active = %d ORDER BY name ASC",
+					1
+				)
+			) ?: [];
+		} else {
+			$results = $wpdb->get_results(
+				"SELECT * FROM {$wpdb->prefix}oc_image_filters ORDER BY name ASC"
+			) ?: [];
+		}
+
+		OC_Cache::set( $cache_key, $results );
+		return $results;
+	}
+
+	/** Clear cached image filter query results. */
+	public static function clear_image_filter_cache(): void {
+		OC_Cache::delete( 'image_filters_active' );
+		OC_Cache::delete( 'image_filters_all' );
 	}
 
 	/** Fetch all colour groups with their associated colour IDs. */
@@ -1024,6 +1080,33 @@ class OC_DB {
 		return $map;
 	}
 
+	/** Fetch product design assignments for a specific set of parent product IDs. */
+	public static function get_assignments_for_product_ids( array $product_ids ): array {
+		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', $product_ids ) ) ) );
+		if ( empty( $product_ids ) ) {
+			return [];
+		}
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $product_ids ), '%d' ) );
+		$rows         = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT product_id, variant_id, design_id, design_variants FROM {$wpdb->prefix}oc_product_assignments WHERE product_id IN ($placeholders)",
+				...$product_ids
+			)
+		) ?: [];
+
+		$map = [];
+		foreach ( $rows as $row ) {
+			$map[ (int) $row->product_id ][ (int) $row->variant_id ] = [
+				'design_id'       => (int) $row->design_id,
+				'design_variants' => (string) ( $row->design_variants ?? '' ),
+			];
+		}
+
+		return $map;
+	}
+
 	/**
 	 * Resolve the design assignment for a product/variation.
 	 *
@@ -1411,6 +1494,7 @@ class OC_DB {
 
 		$tables = [
 			'oc_print_queue',
+			'oc_image_filters',
 			'oc_webhooks',
 			'oc_vdp_fields',
 			'oc_vdp_templates',

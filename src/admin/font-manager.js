@@ -1,5 +1,3 @@
-import { createFont } from 'fonteditor-core';
-
 /* eslint-disable no-console, no-alert, no-undef, no-unused-vars, @wordpress/no-unused-vars-before-return, jsdoc/require-param-type */
 
 /**
@@ -46,6 +44,7 @@ import { createFont } from 'fonteditor-core';
 	const embroCheck = document.getElementById( 'oc_font_embroidery' );
 	const uploadError = document.getElementById( 'oc-upload-error' );
 	const fontGrid = document.getElementById( 'oc-font-grid' );
+	const loadMoreFontsBtn = document.getElementById( 'oc-font-load-more' );
 	const fontsEmpty = document.getElementById( 'oc-fonts-empty' );
 	const fontsCount = document.getElementById( 'oc-fonts-count' );
 	const detailPanel = document.getElementById( 'oc-font-detail' );
@@ -615,6 +614,7 @@ import { createFont } from 'fonteditor-core';
 
 		const buffer = await response.arrayBuffer();
 		const sourceType = fontSourceType( font, buffer );
+		const { createFont } = await import( 'fonteditor-core' );
 		const source = createFont( buffer, {
 			type: sourceType,
 			compound2simple: true,
@@ -780,6 +780,19 @@ import { createFont } from 'fonteditor-core';
 	}
 
 	document.querySelectorAll( '.oc-font-card' ).forEach( bindCardClick );
+
+	if ( loadMoreFontsBtn ) {
+		loadMoreFontsBtn.addEventListener( 'click', function () {
+			const offset = Number( this.dataset.offset || 0 );
+			const step = Number( this.dataset.step || 60 );
+			fonts.slice( offset, offset + step ).forEach( addCardToGrid );
+			const nextOffset = offset + step;
+			this.dataset.offset = String( nextOffset );
+			if ( nextOffset >= fonts.length ) {
+				this.parentElement?.remove();
+			}
+		} );
+	}
 
 	document.addEventListener( 'click', function ( e ) {
 		const btn = e.target.closest( '.oc-font-convert-btn' );

@@ -11,6 +11,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_Admin_Fonts {
 
 	private const FONT_SUBDIR = 'overcustomise/fonts';
+	private const INITIAL_CARD_LIMIT = 60;
 
 	/** Clear cached font and font-group data after manager changes. */
 	private static function clear_font_cache(): void {
@@ -115,7 +116,7 @@ class OC_Admin_Fonts {
 						<div class="oc-font-grid" id="oc-font-grid" style="display:none;"></div>
 					<?php else : ?>
 						<div class="oc-font-grid" id="oc-font-grid">
-							<?php foreach ( $fonts as $font ) :
+							<?php foreach ( array_slice( $fonts, 0, self::INITIAL_CARD_LIMIT ) as $font ) :
 								$font_url   = self::get_font_url( $font->file_path );
 								$ext        = strtoupper( pathinfo( $font->file_path, PATHINFO_EXTENSION ) );
 								$can_convert = self::can_convert_for_print( (string) $font->file_path );
@@ -185,6 +186,13 @@ class OC_Admin_Fonts {
 								</div>
 							<?php endforeach; ?>
 						</div>
+						<?php if ( count( $fonts ) > self::INITIAL_CARD_LIMIT ) : ?>
+							<div style="padding:0 18px 18px;text-align:center;">
+								<button type="button" class="button" id="oc-font-load-more" data-offset="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>">
+									<?php esc_html_e( 'Load more fonts', 'overcustomise' ); ?>
+								</button>
+							</div>
+						<?php endif; ?>
 					<?php endif; ?>
 				</div>
 

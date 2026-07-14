@@ -50,6 +50,39 @@ export function createLayerPreviewRenderer( deps ) {
 		);
 	}
 
+	function imageFilterCss( filterId ) {
+		filterId = Number( filterId ) || 0;
+		if ( ! filterId ) {
+			return '';
+		}
+		const data = window.ocProductsData || {};
+		const filter = ( data.imageFilters || [] ).find(
+			( item ) => Number( item.id ) === filterId
+		);
+		if ( ! filter ) {
+			return '';
+		}
+		const value = Number.isFinite( Number( filter.value ) )
+			? Number( filter.value )
+			: 1;
+		switch ( filter.key ) {
+			case 'grayscale':
+				return 'grayscale(1)';
+			case 'sepia':
+				return 'sepia(1)';
+			case 'brightness':
+				return 'brightness(' + Math.max( 0, 1 + value ) + ')';
+			case 'contrast':
+				return 'contrast(' + Math.max( 0, 1 + value ) + ')';
+			case 'saturation':
+				return 'saturate(' + Math.max( 0, 1 + value ) + ')';
+			case 'hue':
+				return 'hue-rotate(' + value * 360 + 'deg)';
+			default:
+				return '';
+		}
+	}
+
 	function engravingTextColor() {
 		return '#dadad6';
 	}
@@ -160,6 +193,7 @@ export function createLayerPreviewRenderer( deps ) {
 				img.className = 'oc-lp oc-lp-media';
 				img.src = s.default_attachment_url;
 				img.alt = '';
+				img.style.filter = imageFilterCss( s.default_image_filter_id );
 				el.appendChild( img );
 				return;
 			}

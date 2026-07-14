@@ -1761,6 +1761,13 @@ abstract class OC_Print_Base {
 				}
 			}
 		}
+		if ( 'image' === (string) ( $layer['type'] ?? '' ) ) {
+			$filtered_path = self::build_filtered_image( $path, $layer, $input );
+			if ( is_string( $filtered_path ) && '' !== $filtered_path ) {
+				$temp_path = $filtered_path;
+				$path      = $filtered_path;
+			}
+		}
 
 		$draw_w = $w_mm;
 		$draw_h = $h_mm;
@@ -1964,6 +1971,121 @@ abstract class OC_Print_Base {
 			'gif' => @imagecreatefromgif( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			default => false,
 		};
+	}
+
+	private static function build_filtered_image( string $path, array $layer, array $input ): ?string {
+		$filter_id = absint( $input['imageFilterId'] ?? 0 );
+		if ( ! $filter_id || ! function_exists( 'imagefilter' ) ) {
+			return null;
+		}
+
+		$settings    = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+		$allowed_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['image_filter_ids'] ?? null ) ? $settings['image_filter_ids'] : [] ) ) );
+		if ( ! in_array( $filter_id, $allowed_ids, true ) ) {
+			return null;
+		}
+
+		$filter = null;
+		foreach ( OC_DB::get_image_filters( true ) as $candidate ) {
+			if ( (int) $candidate->id === $filter_id ) {
+				$filter = $candidate;
+				break;
+			}
+		}
+		if ( ! $filter ) {
+			return null;
+		}
+
+		$src = self::open_raster_resource( $path );
+		if ( ! $src ) {
+			return null;
+		}
+		imagealphablending( $src, false );
+		imagesavealpha( $src, true );
+
+		$key   = sanitize_key( (string) $filter->filter_key );
+		$value = (float) $filter->value;
+		$ok    = match ( $key ) {
+			'grayscale'  => imagefilter( $src, IMG_FILTER_GRAYSCALE ),
+			'sepia'      => imagefilter( $src, IMG_FILTER_GRAYSCALE ) && imagefilter( $src, IMG_FILTER_COLORIZE, 90, 45, 0 ),
+			'brightness' => imagefilter( $src, IMG_FILTER_BRIGHTNESS, max( -255, min( 255, (int) round( $value * 255 ) ) ) ),
+			'contrast'   => imagefilter( $src, IMG_FILTER_CONTRAST, max( -100, min( 100, (int) round( -100 * $value ) ) ) ),
+			'saturation' => self::adjust_raster_saturation( $src, $value ),
+			'hue'        => self::adjust_raster_hue( $src, $value ),
+			default      => false,
+		};
+
+		if ( ! $ok ) {
+			imagedestroy( $src );
+			return null;
+		}
+
+		$temp = self::temp_path_with_extension( 'oc-filtered-image-' . wp_generate_uuid4() . '.png', 'png' );
+		if ( ! is_string( $temp ) || '' === $temp ) {
+			imagedestroy( $src );
+			return null;
+		}
+
+		$result = imagepng( $src, $temp );
+		imagedestroy( $src );
+		if ( ! $result ) {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return null;
+		}
+
+		return $temp;
+	}
+
+	private static function adjust_raster_saturation( $img, float $amount ): bool {
+		$w      = imagesx( $img );
+		$h      = imagesy( $img );
+		$factor = max( 0.0, 1.0 + $amount );
+		for ( $y = 0; $y < $h; $y++ ) {
+			for ( $x = 0; $x < $w; $x++ ) {
+				$rgba  = imagecolorat( $img, $x, $y );
+				$a     = ( $rgba >> 24 ) & 0x7F;
+				$r     = ( $rgba >> 16 ) & 0xFF;
+				$g     = ( $rgba >> 8 ) & 0xFF;
+				$b     = $rgba & 0xFF;
+				$gray  = ( $r + $g + $b ) / 3;
+				$color = imagecolorallocatealpha(
+					$img,
+					self::clamp_rgb( $gray + ( $r - $gray ) * $factor ),
+					self::clamp_rgb( $gray + ( $g - $gray ) * $factor ),
+					self::clamp_rgb( $gray + ( $b - $gray ) * $factor ),
+					$a
+				);
+				imagesetpixel( $img, $x, $y, $color );
+			}
+		}
+		return true;
+	}
+
+	private static function adjust_raster_hue( $img, float $amount ): bool {
+		$w = imagesx( $img );
+		$h = imagesy( $img );
+		$angle = $amount * 2 * M_PI;
+		$cos = cos( $angle );
+		$sin = sin( $angle );
+		for ( $y = 0; $y < $h; $y++ ) {
+			for ( $x = 0; $x < $w; $x++ ) {
+				$rgba = imagecolorat( $img, $x, $y );
+				$a    = ( $rgba >> 24 ) & 0x7F;
+				$r    = ( $rgba >> 16 ) & 0xFF;
+				$g    = ( $rgba >> 8 ) & 0xFF;
+				$b    = $rgba & 0xFF;
+				$new_r = ( .213 + $cos * .787 - $sin * .213 ) * $r + ( .715 - $cos * .715 - $sin * .715 ) * $g + ( .072 - $cos * .072 + $sin * .928 ) * $b;
+				$new_g = ( .213 - $cos * .213 + $sin * .143 ) * $r + ( .715 + $cos * .285 + $sin * .140 ) * $g + ( .072 - $cos * .072 - $sin * .283 ) * $b;
+				$new_b = ( .213 - $cos * .213 - $sin * .787 ) * $r + ( .715 - $cos * .715 + $sin * .715 ) * $g + ( .072 + $cos * .928 + $sin * .072 ) * $b;
+				$color = imagecolorallocatealpha( $img, self::clamp_rgb( $new_r ), self::clamp_rgb( $new_g ), self::clamp_rgb( $new_b ), $a );
+				imagesetpixel( $img, $x, $y, $color );
+			}
+		}
+		return true;
+	}
+
+	private static function clamp_rgb( float $value ): int {
+		return max( 0, min( 255, (int) round( $value ) ) );
 	}
 
 	// -------------------------------------------------------------------------

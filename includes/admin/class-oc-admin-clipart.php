@@ -11,6 +11,7 @@ class OC_Admin_Clipart {
 
 	private const CLIPART_SUBDIR = 'overcustomise/clipart';
 	private const PRINT_METHODS = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+	private const INITIAL_CARD_LIMIT = 60;
 
 	/** Clear cached clipart and clipart-group data after manager changes. */
 	private static function clear_clipart_cache(): void {
@@ -143,7 +144,7 @@ class OC_Admin_Clipart {
 						<div class="oc-clipart-grid" id="oc-clipart-grid" style="display:none;"></div>
 					<?php else : ?>
 						<div class="oc-clipart-grid" id="oc-clipart-grid">
-							<?php foreach ( $clipart as $item ) :
+							<?php foreach ( array_slice( $clipart, 0, self::INITIAL_CARD_LIMIT ) as $item ) :
 								$item_url = self::get_clipart_url( $item->file_path );
 								?>
 								<div class="oc-clipart-card<?php echo $item->active ? '' : ' oc-clipart-card--inactive'; ?>"
@@ -191,6 +192,13 @@ class OC_Admin_Clipart {
 								</div>
 							<?php endforeach; ?>
 						</div>
+						<?php if ( count( $clipart ) > self::INITIAL_CARD_LIMIT ) : ?>
+							<div style="padding:0 18px 18px;text-align:center;">
+								<button type="button" class="button" id="oc-clipart-load-more" data-offset="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>">
+									<?php esc_html_e( 'Load more clipart', 'overcustomise' ); ?>
+								</button>
+							</div>
+						<?php endif; ?>
 					<?php endif; ?>
 				</div>
 			</div>

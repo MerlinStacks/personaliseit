@@ -10,6 +10,13 @@ defined( 'ABSPATH' ) || exit;
 class OC_Admin_Settings {
 
 	private const OPTION_KEY = 'oc_settings';
+	private const OPENROUTER_MODELS_TRANSIENT = 'oc_openrouter_image_models';
+
+	private const OPENROUTER_IMAGE_MODELS = [
+		'google/gemini-2.5-flash-image-preview' => 'Google Gemini 2.5 Flash Image Preview',
+		'google/gemini-2.0-flash-exp'           => 'Google Gemini 2.0 Flash Experimental',
+		'openai/gpt-image-1'                    => 'OpenAI GPT Image 1',
+	];
 
 	/** Return the full settings array with defaults applied. */
 	public static function get( string $key = '' ): mixed {
@@ -28,6 +35,10 @@ class OC_Admin_Settings {
 			'icc_engraving'          => 'GrayGamma2.2',
 			'icc_uv'                 => 'ISOcoated_v2_300_eci',
 			'icc_sublimation'        => 'ISOcoated_v2_300_eci',
+
+			// AI image filter generation.
+			'openrouter_api_key_enc' => '',
+			'openrouter_image_model' => 'google/gemini-2.5-flash-image-preview',
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
@@ -38,6 +49,85 @@ class OC_Admin_Settings {
 		}
 
 		return $all;
+	}
+
+	/** Return the decrypted OpenRouter API key for server-side API calls. */
+	public static function get_openrouter_api_key(): string {
+		$encrypted = (string) self::get( 'openrouter_api_key_enc' );
+		return self::decrypt_secret( $encrypted );
+	}
+
+	/** Return the configured OpenRouter image model. */
+	public static function get_openrouter_image_model(): string {
+		$model = (string) self::get( 'openrouter_image_model' );
+		$models = self::get_openrouter_image_models();
+		return isset( $models[ $model ] ) ? $model : 'google/gemini-2.5-flash-image-preview';
+	}
+
+	/** Return image-capable OpenRouter models, cached with a safe built-in fallback. */
+	public static function get_openrouter_image_models( bool $force_refresh = false ): array {
+		if ( ! $force_refresh ) {
+			$cached = get_transient( self::OPENROUTER_MODELS_TRANSIENT );
+			if ( is_array( $cached ) && ! empty( $cached ) ) {
+				return $cached;
+			}
+		}
+
+		$models = self::fetch_openrouter_image_models();
+		if ( empty( $models ) ) {
+			return self::OPENROUTER_IMAGE_MODELS;
+		}
+
+		set_transient( self::OPENROUTER_MODELS_TRANSIENT, $models, 6 * HOUR_IN_SECONDS );
+		return $models;
+	}
+
+	private static function fetch_openrouter_image_models(): array {
+		$headers = [
+			'Accept'       => 'application/json',
+			'HTTP-Referer' => home_url(),
+			'X-Title'      => 'OverCustomise',
+		];
+		$api_key = self::get_openrouter_api_key();
+		if ( '' !== $api_key ) {
+			$headers['Authorization'] = 'Bearer ' . $api_key;
+		}
+
+		$response = wp_remote_get(
+			'https://openrouter.ai/api/v1/models',
+			[
+				'timeout' => 15,
+				'headers' => $headers,
+			]
+		);
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return [];
+		}
+
+		$body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		if ( ! is_array( $body['data'] ?? null ) ) {
+			return [];
+		}
+
+		$models = [];
+		foreach ( $body['data'] as $model ) {
+			if ( ! is_array( $model ) || empty( $model['id'] ) ) {
+				continue;
+			}
+			$architecture = is_array( $model['architecture'] ?? null ) ? $model['architecture'] : [];
+			$outputs      = is_array( $architecture['output_modalities'] ?? null ) ? array_map( 'strtolower', $architecture['output_modalities'] ) : [];
+			$modality     = strtolower( (string) ( $architecture['modality'] ?? '' ) );
+			$model_id     = sanitize_text_field( (string) $model['id'] );
+
+			if ( ! in_array( 'image', $outputs, true ) && ! str_contains( $modality, 'image' ) && ! str_contains( strtolower( $model_id ), 'image' ) ) {
+				continue;
+			}
+
+			$models[ $model_id ] = sanitize_text_field( (string) ( $model['name'] ?? $model_id ) );
+		}
+
+		asort( $models, SORT_NATURAL | SORT_FLAG_CASE );
+		return $models;
 	}
 
 	public function render(): void {
@@ -51,10 +141,12 @@ class OC_Admin_Settings {
 		}
 
 		$s = self::get();
+		$image_models = self::get_openrouter_image_models();
 
 		$tabs = [
 			'general'    => __( 'General', 'overcustomise' ),
 			'files'      => __( 'File Management', 'overcustomise' ),
+			'ai'         => __( 'AI Image Filters', 'overcustomise' ),
 			'embroidery' => __( 'Embroidery', 'overcustomise' ),
 			'print'      => __( 'Print Defaults', 'overcustomise' ),
 		];
@@ -114,7 +206,7 @@ class OC_Admin_Settings {
 								<h2><?php esc_html_e( 'Quick Tips', 'overcustomise' ); ?></h2>
 							</div>
 							<div class="oc-card-body">
-								<p class="oc-form-help"><?php esc_html_e( 'Use tab links with #general, #files, #embroidery, or #print to open a section directly.', 'overcustomise' ); ?></p>
+								<p class="oc-form-help"><?php esc_html_e( 'Use tab links with #general, #files, #ai, #embroidery, or #print to open a section directly.', 'overcustomise' ); ?></p>
 								<p class="oc-form-help"><?php esc_html_e( 'Your last open tab is preserved when saving.', 'overcustomise' ); ?></p>
 							</div>
 						</div>
@@ -224,6 +316,60 @@ class OC_Admin_Settings {
 														</label>
 													<?php endforeach; ?>
 												</div>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<div
+							id="oc-settings-panel-ai"
+							class="oc-settings-tab-panel<?php echo $active_tab === 'ai' ? ' is-active' : ''; ?>"
+							data-tab-panel="ai"
+							role="tabpanel">
+							<div class="oc-card">
+								<div class="oc-card-header">
+									<h2><?php esc_html_e( 'AI Image Filters', 'overcustomise' ); ?></h2>
+								</div>
+								<div class="oc-card-body">
+									<div class="oc-form-grid">
+										<div class="oc-form-row">
+											<div class="oc-form-label">
+												<label for="oc_openrouter_api_key"><?php esc_html_e( 'OpenRouter API key', 'overcustomise' ); ?></label>
+											</div>
+											<div class="oc-form-field">
+												<input
+													type="password"
+													id="oc_openrouter_api_key"
+													name="oc_openrouter_api_key"
+													value=""
+													class="regular-text oc-input"
+													autocomplete="new-password"
+													placeholder="<?php echo '' !== (string) $s['openrouter_api_key_enc'] ? esc_attr__( 'API key saved. Enter a new key to replace it.', 'overcustomise' ) : esc_attr__( 'sk-or-v1-...', 'overcustomise' ); ?>" />
+												<p class="oc-form-help"><?php esc_html_e( 'Stored encrypted in the WordPress options table and only used server-side.', 'overcustomise' ); ?></p>
+												<?php if ( '' !== (string) $s['openrouter_api_key_enc'] ) : ?>
+													<label class="oc-checkbox-label" style="margin-top:8px;">
+														<input type="checkbox" name="oc_openrouter_api_key_clear" value="1" />
+														<?php esc_html_e( 'Clear saved API key', 'overcustomise' ); ?>
+													</label>
+												<?php endif; ?>
+											</div>
+										</div>
+
+										<div class="oc-form-row">
+											<div class="oc-form-label">
+												<label for="oc_openrouter_image_model"><?php esc_html_e( 'Image model', 'overcustomise' ); ?></label>
+											</div>
+											<div class="oc-form-field">
+												<select id="oc_openrouter_image_model" name="oc_openrouter_image_model" class="oc-select oc-select-wide">
+													<?php foreach ( $image_models as $model_id => $model_label ) : ?>
+														<option value="<?php echo esc_attr( $model_id ); ?>" <?php selected( $s['openrouter_image_model'], $model_id ); ?>>
+															<?php echo esc_html( $model_label ); ?>
+														</option>
+													<?php endforeach; ?>
+												</select>
+												<p class="oc-form-help"><?php esc_html_e( 'Fetched from OpenRouter and cached for 6 hours. Falls back to known image models if OpenRouter is unavailable.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 									</div>
@@ -498,6 +644,20 @@ class OC_Admin_Settings {
 		$posted_formats  = isset( $_POST['oc_allowed_upload_formats'] )
 			? array_intersect( (array) $_POST['oc_allowed_upload_formats'], $allowed_formats )
 			: [];
+		$current_settings = self::get();
+		$api_key_encrypted = (string) ( $current_settings['openrouter_api_key_enc'] ?? '' );
+		$posted_api_key = isset( $_POST['oc_openrouter_api_key'] ) ? trim( (string) wp_unslash( $_POST['oc_openrouter_api_key'] ) ) : '';
+		if ( ! empty( $_POST['oc_openrouter_api_key_clear'] ) ) {
+			$api_key_encrypted = '';
+		} elseif ( '' !== $posted_api_key ) {
+			$api_key_encrypted = self::encrypt_secret( $posted_api_key );
+		}
+
+		$model = sanitize_text_field( wp_unslash( $_POST['oc_openrouter_image_model'] ?? '' ) );
+		$image_models = self::get_openrouter_image_models();
+		if ( ! isset( $image_models[ $model ] ) ) {
+			$model = 'google/gemini-2.5-flash-image-preview';
+		}
 
 		$settings = [
 			'flat_rate_default'      => number_format( (float) ( $_POST['oc_flat_rate_default'] ?? 0 ), 2, '.', '' ),
@@ -511,9 +671,47 @@ class OC_Admin_Settings {
 			'icc_engraving'          => sanitize_text_field( $_POST['oc_icc_engraving'] ?? '' ),
 			'icc_uv'                 => sanitize_text_field( $_POST['oc_icc_uv'] ?? '' ),
 			'icc_sublimation'        => sanitize_text_field( $_POST['oc_icc_sublimation'] ?? '' ),
+			'openrouter_api_key_enc' => $api_key_encrypted,
+			'openrouter_image_model' => $model,
 		];
 
 		update_option( self::OPTION_KEY, $settings );
+		if ( '' !== $posted_api_key || ! empty( $_POST['oc_openrouter_api_key_clear'] ) ) {
+			delete_transient( self::OPENROUTER_MODELS_TRANSIENT );
+		}
 		add_settings_error( 'oc_settings', 'saved', __( 'Settings saved.', 'overcustomise' ), 'success' );
+	}
+
+	private static function encrypt_secret( string $secret ): string {
+		if ( '' === $secret || ! function_exists( 'openssl_encrypt' ) ) {
+			return '';
+		}
+
+		$iv = random_bytes( 16 );
+		$key = hash( 'sha256', wp_salt( 'auth' ), true );
+		$ciphertext = openssl_encrypt( $secret, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
+		if ( false === $ciphertext ) {
+			return '';
+		}
+
+		return 'v1:' . base64_encode( $iv . $ciphertext );
+	}
+
+	private static function decrypt_secret( string $encrypted ): string {
+		if ( '' === $encrypted || ! str_starts_with( $encrypted, 'v1:' ) || ! function_exists( 'openssl_decrypt' ) ) {
+			return '';
+		}
+
+		$raw = base64_decode( substr( $encrypted, 3 ), true );
+		if ( ! is_string( $raw ) || strlen( $raw ) <= 16 ) {
+			return '';
+		}
+
+		$iv = substr( $raw, 0, 16 );
+		$ciphertext = substr( $raw, 16 );
+		$key = hash( 'sha256', wp_salt( 'auth' ), true );
+		$plain = openssl_decrypt( $ciphertext, 'aes-256-cbc', $key, OPENSSL_RAW_DATA, $iv );
+
+		return is_string( $plain ) ? $plain : '';
 	}
 }
