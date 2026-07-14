@@ -21,6 +21,187 @@ __webpack_require__.r(__webpack_exports__);
 
 /***/ },
 
+/***/ "./src/admin/products-page-data.js"
+/*!*****************************************!*\
+  !*** ./src/admin/products-page-data.js ***!
+  \*****************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   createProductsPageDataNormalisers: () => (/* binding */ createProductsPageDataNormalisers)
+/* harmony export */ });
+function createProductsPageDataNormalisers(deps) {
+  const {
+    nextUid,
+    normaliseAspectRatio,
+    normaliseDpi,
+    normaliseRotation
+  } = deps;
+  function normaliseArea(a, i) {
+    const unit = ['px', 'mm', 'cm', 'in'].includes(a.unit) ? a.unit : 'px';
+    const material = ['glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood'].includes(a.material) ? a.material : 'silver_metal';
+    return {
+      _uid: nextUid(),
+      id: Number(a.id) || 0,
+      label: a.label || '',
+      method: a.method || 'uv',
+      material,
+      unit,
+      mockupId: Number(a.mockupId) || 0,
+      mockupUrl: a.mockupUrl || '',
+      x: Number(a.x) || 0,
+      y: Number(a.y) || 0,
+      w: Number(a.w) || 300,
+      h: Number(a.h) || 300,
+      dpi: normaliseDpi(a.dpi),
+      ratioLocked: !!a.ratioLocked,
+      aspectRatio: normaliseAspectRatio(a.aspectRatio, Number(a.w) || 300, Number(a.h) || 300),
+      rotation: normaliseRotation(a.rotation),
+      sortOrder: i,
+      visible: a.visible !== false && a.visible !== 0,
+      locked: !!a.locked
+    };
+  }
+  function normaliseLayer(l) {
+    const type = l.type || 'text';
+    return {
+      _uid: nextUid(),
+      id: Number(l.id) || 0,
+      type,
+      label: l.label || '',
+      x: Number(l.x) || 0,
+      y: Number(l.y) || 0,
+      w: Number(l.w) || 200,
+      h: Number(l.h) || 50,
+      sortOrder: Number(l.sortOrder) || 0,
+      visible: l.visible !== false && l.visible !== 0,
+      locked: !!l.locked,
+      settings: normaliseSettings(type, l.settings)
+    };
+  }
+  function defaultSettings(type) {
+    switch (type) {
+      case 'text':
+        return {
+          default_text: '',
+          char_limit: 0,
+          alignment: 'center',
+          default_font_id: 0,
+          default_font_size: 0,
+          default_color: '#000000',
+          min_font_size: 0,
+          max_font_size: 0,
+          font_groups: [],
+          colour_groups: [],
+          allow_font_change: true,
+          allow_colour_change: true,
+          allow_size_change: false,
+          required: false,
+          link_group: ''
+        };
+      case 'textarea':
+        return {
+          default_text: '',
+          char_limit: 0,
+          alignment: 'center',
+          line_alignment: 'top',
+          default_font_id: 0,
+          default_font_size: 0,
+          default_color: '#000000',
+          min_font_size: 0,
+          max_font_size: 0,
+          font_groups: [],
+          colour_groups: [],
+          allow_font_change: true,
+          allow_colour_change: true,
+          allow_size_change: false,
+          required: false,
+          link_group: ''
+        };
+      case 'image':
+        return {
+          formats: ['png', 'jpg', 'svg', 'webp'],
+          max_size_mb: 10,
+          remove_background: false,
+          default_attachment_id: 0,
+          default_attachment_url: '',
+          allow_image_change: true,
+          required: false,
+          link_group: ''
+        };
+      case 'clipmask':
+        return {
+          formats: ['png', 'jpg', 'webp'],
+          max_size_mb: 10,
+          remove_background: false,
+          mask_shape: 'circle',
+          required: false,
+          link_group: ''
+        };
+      case 'mask':
+        return {
+          required: false,
+          link_group: ''
+        };
+      case 'spotify':
+        return {
+          colour_groups: [],
+          required: false,
+          link_group: ''
+        };
+      case 'lineart':
+        return {
+          colour_groups: [],
+          required: false,
+          link_group: ''
+        };
+      case 'clipart':
+        return {
+          clipart_groups: [],
+          default_clipart_id: 0,
+          default_clipart_url: '',
+          default_clipart_recolourable: false,
+          allow_clipart_change: true,
+          required: false,
+          clipart_display: 'grid',
+          link_group: ''
+        };
+      default:
+        return {
+          required: false,
+          link_group: ''
+        };
+    }
+  }
+  function normaliseSettings(type, existing) {
+    const settings = Object.assign(defaultSettings(type), existing || {});
+    if (type === 'textarea' && !['top', 'center', 'bottom'].includes(settings.line_alignment)) {
+      settings.line_alignment = 'top';
+    }
+    if (type === 'clipart') {
+      settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
+      settings.default_clipart_id = Number(settings.default_clipart_id) || 0;
+      settings.default_clipart_recolourable = !!settings.default_clipart_recolourable;
+      settings.allow_clipart_change = settings.allow_clipart_change !== false;
+    }
+    if (type === 'image') {
+      settings.default_attachment_id = Number(settings.default_attachment_id) || 0;
+      settings.default_attachment_url = settings.default_attachment_url || '';
+      settings.allow_image_change = settings.allow_image_change !== false;
+    }
+    return settings;
+  }
+  return {
+    normaliseArea,
+    normaliseLayer,
+    defaultSettings,
+    normaliseSettings
+  };
+}
+
+/***/ },
+
 /***/ "./src/admin/products-page-editor.js"
 /*!*******************************************!*\
   !*** ./src/admin/products-page-editor.js ***!
@@ -29,281 +210,38 @@ __webpack_require__.r(__webpack_exports__);
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
-/**
- * Admin — Design Editor JS
- *
- * Features:
- *  - 3-column live editor (areas / canvas / layers)
- *  - Draw-to-create: click-drag on canvas to define new layer bounds
- *  - Multi-area navigation strip above the canvas
- *  - Layer type indicators on canvas ghosts and bounds box
- *  - Undo/redo (Ctrl+Z / Ctrl+Shift+Z) with 25-step history
- */
+/* harmony import */ var _products_page_settings__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./products-page-settings */ "./src/admin/products-page-settings.js");
+/* harmony import */ var _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./products-page-metadata */ "./src/admin/products-page-metadata.js");
+/* harmony import */ var _products_page_preview__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./products-page-preview */ "./src/admin/products-page-preview.js");
+/* harmony import */ var _products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./products-page-hidden-fields */ "./src/admin/products-page-hidden-fields.js");
+/* harmony import */ var _products_page_data__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./products-page-data */ "./src/admin/products-page-data.js");
+/* harmony import */ var _products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./products-page-mockup-picker */ "./src/admin/products-page-mockup-picker.js");
+/* eslint-disable no-console, no-alert, no-undef, no-shadow, no-unused-vars, @wordpress/no-unused-vars-before-return */
 
-/* eslint-disable no-console, no-alert, no-undef, no-shadow, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return, @wordpress/no-global-active-element, jsdoc/require-param-type */
+
+
+
+
 
 
 (function () {
   'use strict';
-
-  // ── Layer type metadata ────────────────────────────────────────────────────
-  const LAYER_TYPES = {
-    text: {
-      label: 'Text',
-      icon: 'Aa',
-      color: '#0284c7'
-    },
-    textarea: {
-      label: 'Text Area',
-      icon: '\u00b6',
-      color: '#7c3aed'
-    },
-    image: {
-      label: 'Image',
-      icon: '\ud83d\uddbc',
-      color: '#059669'
-    },
-    clipmask: {
-      label: 'Clipping Mask',
-      icon: '◯',
-      color: '#0d9488'
-    },
-    mask: {
-      label: 'Mask',
-      icon: '\u25a0',
-      color: '#64748b'
-    },
-    spotify: {
-      label: 'Spotify Code',
-      icon: '\u266b',
-      color: '#1db954'
-    },
-    lineart: {
-      label: 'Line Art',
-      icon: '\u270f',
-      color: '#d97706'
-    },
-    clipart: {
-      label: 'Clipart',
-      icon: '\u2726',
-      color: '#dc2626'
-    }
-  };
-  const LAYER_DEFAULTS = {
-    text: {
-      w: 300,
-      h: 50
-    },
-    textarea: {
-      w: 300,
-      h: 120
-    },
-    image: {
-      w: 200,
-      h: 200
-    },
-    clipmask: {
-      w: 200,
-      h: 200
-    },
-    mask: {
-      w: 200,
-      h: 200
-    },
-    spotify: {
-      w: 150,
-      h: 150
-    },
-    lineart: {
-      w: 200,
-      h: 200
-    },
-    clipart: {
-      w: 150,
-      h: 150
-    }
-  };
-  function layerIcon(t) {
-    return (LAYER_TYPES[t] || {}).icon || '?';
-  }
-  function layerColor(t) {
-    return (LAYER_TYPES[t] || {}).color || '#9ca3af';
-  }
-  function layerLabel(t) {
-    return (LAYER_TYPES[t] || {}).label || t;
-  }
-
-  // ── Layer action icons ─────────────────────────────────────────────────────
-
-  const ICO_EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8c0 0 2.5-5 7-5s7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></svg>';
-  const ICO_EYE_OFF = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8c0 0 2.5-5 7-5s7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/><line x1="2" y1="14" x2="14" y2="2"/></svg>';
-  const ICO_LOCK = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
-  const ICO_UNLOCK = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0"/></svg>';
-  const ICO_BIN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1.5" y1="4" x2="14.5" y2="4"/><path d="M6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4"/><path d="M3 4l.8 9.5a.5.5 0 0 0 .5.5h7.4a.5.5 0 0 0 .5-.5L13 4"/></svg>';
-
-  // ── Layer tabs ─────────────────────────────────────────────────────────────
-
-  const LAYER_TABS = {
-    text: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'content',
-      label: 'Content',
-      icon: 'T'
-    }, {
-      id: 'style',
-      label: 'Style',
-      icon: 'A'
-    }, {
-      id: 'properties',
-      label: 'Properties',
-      icon: '\u2699'
-    }],
-    textarea: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'content',
-      label: 'Content',
-      icon: 'T'
-    }, {
-      id: 'style',
-      label: 'Style',
-      icon: 'A'
-    }, {
-      id: 'properties',
-      label: 'Properties',
-      icon: '\u2699'
-    }],
-    image: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'file',
-      label: 'File',
-      icon: '\ud83d\uddbc'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
-    }, {
-      id: 'properties',
-      label: 'Properties',
-      icon: '\u2699'
-    }],
-    clipmask: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'file',
-      label: 'File',
-      icon: '\ud83d\uddbc'
-    }, {
-      id: 'mask',
-      label: 'Mask',
-      icon: '◯'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
-    }],
-    mask: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }],
-    spotify: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'appearance',
-      label: 'Appearance',
-      icon: '\u25d0'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
-    }],
-    lineart: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'colours',
-      label: 'Colours',
-      icon: '\u25cf'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
-    }],
-    clipart: [{
-      id: 'general',
-      label: 'General',
-      icon: 'G'
-    }, {
-      id: 'library',
-      label: 'Library',
-      icon: '\u2726'
-    }, {
-      id: 'validation',
-      label: 'Validation',
-      icon: '\u2713'
-    }, {
-      id: 'properties',
-      label: 'Properties',
-      icon: '\u2699'
-    }]
-  };
-
-  // ── Area colours ───────────────────────────────────────────────────────────
-
-  const AREA_COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#0284c7', '#7c3aed', '#db2777', '#ea580c'];
-  function areaColor(i) {
-    return AREA_COLORS[i % AREA_COLORS.length];
-  }
-
-  // ── State ──────────────────────────────────────────────────────────────────
 
   let areas = [];
   let selectedIndex = -1;
   let selectedLayerIndex = -1;
   let activeLayerTab = 'general';
   let uidCounter = 0;
-
-  // Canvas drag/resize
-  let drag = null;
   let layerDragSrc = -1;
-
-  // Draw-to-create
-  let drawState = null; // { startX, startY, startCX, startCY } natural-px + client
-  let drawEl = null; // preview DOM element
-
-  // Draw type picker
-  let drawPopup = null;
-
-  // Undo/redo
   const HISTORY_MAX = 25;
   let history = [];
   let historyIndex = -1;
-  let mediaFrame = null;
-
-  // ── Autosave ─────────────────────────────────────────────────────────────────
   let isDirty = false;
   let autosaveTimer = null;
   let lastSavedTime = null;
   let autosaveError = '';
   let designId = 0;
   const autosaveInterval = 30000;
-
-  // ── Undo / Redo ────────────────────────────────────────────────────────────
-
   function snapshot() {
     if (historyIndex < history.length - 1) {
       history = history.slice(0, historyIndex + 1);
@@ -342,7 +280,6 @@ __webpack_require__.r(__webpack_exports__);
       return;
     }
     areas = snapshot;
-    // Ensure uidCounter is above all restored _uid values to avoid collisions
     areas.forEach(a => {
       uidCounter = Math.max(uidCounter, a._uid || 0);
       (a.layers || []).forEach(l => {
@@ -369,9 +306,6 @@ __webpack_require__.r(__webpack_exports__);
       r.disabled = historyIndex >= history.length - 1;
     }
   }
-
-  // ── Autosave helpers ────────────────────────────────────────────────────────
-
   function markDirty() {
     isDirty = true;
     updateAutosaveIndicator();
@@ -508,9 +442,6 @@ __webpack_require__.r(__webpack_exports__);
       autosaveTimer = null;
     }
   }
-
-  // ── Init ───────────────────────────────────────────────────────────────────
-
   function init() {
     const data = window.ocProductsData || {};
     designId = Number(data.designId || 0);
@@ -571,198 +502,873 @@ __webpack_require__.r(__webpack_exports__);
     if (designId > 0) {
       startAutosavePoll();
     }
-
-    // Safety net: force hidden-field re-render immediately before submit,
-    // so the latest in-memory settings are always serialised into POST data.
     document.getElementById('oc-design-form')?.addEventListener('submit', () => {
       renderHiddenFields();
       stopAutosavePoll();
     });
   }
+  const {
+    normaliseArea,
+    normaliseLayer,
+    defaultSettings,
+    normaliseSettings
+  } = (0,_products_page_data__WEBPACK_IMPORTED_MODULE_5__.createProductsPageDataNormalisers)({
+    nextUid: () => ++uidCounter,
+    normaliseAspectRatio,
+    normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
+    normaliseRotation
+  });
+  function selectedArea() {
+    return areas[selectedIndex] || null;
+  }
+  function selectedLayer() {
+    const area = selectedArea();
+    return area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || null : null;
+  }
+  const applyLayerPreview = (0,_products_page_preview__WEBPACK_IMPORTED_MODULE_3__.createLayerPreviewRenderer)({
+    fontLimit,
+    layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
+    normaliseHex
+  });
+  const openMockupPicker = (0,_products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_6__.createMockupPicker)({
+    commitChange,
+    getSelectedIndex: () => selectedIndex,
+    selectedArea
+  });
+  const {
+    initInteractions,
+    addLayerWithBounds
+  } = createProductsPageInteractions({
+    addArea: area => areas.push(area),
+    commitChange,
+    getAreas: () => areas,
+    getSelectedIndex: () => selectedIndex,
+    getSelectedLayerIndex: () => selectedLayerIndex,
+    initCanvasInteractions,
+    markDirty,
+    normaliseArea,
+    normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
+    normaliseUnit: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit,
+    openMockupPicker,
+    renderAll,
+    renderGhosts,
+    renderRatioLockButton,
+    selectedArea,
+    setSelectedIndex: index => {
+      selectedIndex = index;
+    },
+    setSelectedLayerIndex: index => {
+      selectedLayerIndex = index;
+    },
+    snapshot,
+    syncBoundsFromInputs,
+    updateAspectRatio,
+    updateBoundsBox
+  });
+  const {
+    renderCanvas,
+    updateBoundsBox,
+    renderGhosts,
+    initCanvasInteractions,
+    syncBoundsFromInputs,
+    syncRightBounds
+  } = createProductsPageCanvas({
+    addLayerWithBounds,
+    applyLayerPreview,
+    clamp,
+    clampLayerToArea,
+    currentAspectRatio,
+    getAreas: () => areas,
+    getScale,
+    getSelectedIndex: () => selectedIndex,
+    getSelectedLayerIndex: () => selectedLayerIndex,
+    hexRgba,
+    markDirty,
+    normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
+    normaliseRotation,
+    renderAll,
+    renderHiddenFields,
+    renderRatioLockButton,
+    selectedArea,
+    selectedLayer,
+    setSelectedLayerIndex: index => {
+      selectedLayerIndex = index;
+    },
+    setVal,
+    snapshot,
+    updateAspectRatio
+  });
+  const {
+    buildTabContent,
+    bindSettingsHandlers
+  } = (0,_products_page_settings__WEBPACK_IMPORTED_MODULE_1__.createProductsPageSettings)({
+    commitChange,
+    esc,
+    fontLimit,
+    getAreas: () => areas,
+    layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
+    normaliseHex,
+    normaliseLinkGroup,
+    renderLayerList,
+    selectedArea,
+    syncBoundsFromInputs
+  });
+  function renderAll() {
+    renderAreasList();
+    renderAreaStrip();
+    renderLeftAreaProps();
+    renderCanvas();
+    renderRightColumn();
+    renderHiddenFields();
+  }
+  function commitChange(options = {}) {
+    if (options.all) {
+      renderAll();
+    } else {
+      if (options.areasList) {
+        renderAreasList();
+      }
+      if (options.areaStrip) {
+        renderAreaStrip();
+      }
+      if (options.canvas) {
+        renderCanvas();
+      }
+      if (options.rightColumn) {
+        renderRightColumn();
+      }
+      if (options.hiddenFields !== false) {
+        renderHiddenFields();
+      }
+    }
+    markDirty();
+  }
+  function renderAreaStrip() {
+    const strip = document.getElementById('oc-area-strip');
+    if (!strip) {
+      return;
+    }
+    if (areas.length === 0) {
+      strip.style.display = 'none';
+      return;
+    }
+    strip.style.display = '';
+    strip.innerHTML = '';
+    areas.forEach((area, i) => {
+      const card = document.createElement('div');
+      card.className = 'oc-area-strip-card' + (i === selectedIndex ? ' oc-area-strip-card--active' : '') + (!area.visible ? ' oc-area-strip-card--hidden' : '');
+      const thumb = document.createElement('div');
+      thumb.className = 'oc-area-strip-thumb';
+      if (area.mockupUrl) {
+        const img = new Image();
+        img.src = area.mockupUrl;
+        img.draggable = false;
+        thumb.appendChild(img);
+      } else {
+        thumb.style.background = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(i);
+      }
+      const lbl = document.createElement('span');
+      lbl.className = 'oc-area-strip-label';
+      lbl.textContent = area.label || 'Area ' + (i + 1);
+      card.appendChild(thumb);
+      card.appendChild(lbl);
+      card.addEventListener('click', () => {
+        if (area.locked) {
+          return;
+        } // locked areas can't be selected from strip
+        selectedIndex = i;
+        selectedLayerIndex = -1;
+        activeLayerTab = 'general';
+        renderAll();
+      });
+      strip.appendChild(card);
+    });
+  }
+  function renderAreasList() {
+    const list = document.getElementById('oc-areas-list');
+    const empty = document.getElementById('oc-areas-empty');
+    if (!list) {
+      return;
+    }
+    list.innerHTML = '';
+    if (areas.length === 0) {
+      if (empty) {
+        empty.style.display = '';
+      }
+      return;
+    }
+    if (empty) {
+      empty.style.display = 'none';
+    }
+    areas.forEach((area, i) => {
+      const item = document.createElement('div');
+      item.className = 'oc-area-item' + (i === selectedIndex ? ' oc-area-item--active' : '') + (!area.visible ? ' oc-layer--hidden' : '') + (area.locked ? ' oc-layer--locked' : '');
+      item.innerHTML = '<span class="oc-area-dot" style="background:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(i) + ';flex-shrink:0;"></span>' + '<span class="oc-area-item-name">' + esc(area.label || 'Print Area ' + (i + 1)) + '</span>' + '<span class="oc-area-item-method">' + esc(methodLabel(area.method)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!area.visible ? ' is-off' : '') + '" title="' + (area.visible ? 'Hide area' : 'Show area') + '">' + (area.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (area.locked ? ' is-on' : '') + '" title="' + (area.locked ? 'Unlock area' : 'Lock area') + '">' + (area.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete area">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
+      item.addEventListener('click', e => {
+        if (e.target.closest('.oc-layer-actions')) {
+          return;
+        }
+        if (area.locked) {
+          return;
+        } // locked areas can't be selected from list
+        selectedIndex = i;
+        selectedLayerIndex = -1;
+        activeLayerTab = 'general';
+        renderAll();
+      });
+      item.querySelector('.oc-layer-vis-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        area.visible = !area.visible;
+        snapshot();
+        renderAll();
+      });
+      item.querySelector('.oc-layer-lock-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        area.locked = !area.locked;
+        snapshot();
+        renderAll();
+      });
+      item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        if (!confirm('Remove this print area and all its layers?')) {
+          return;
+        }
+        areas.splice(i, 1);
+        if (selectedIndex === i) {
+          selectedIndex = areas.length > 0 ? Math.min(i, areas.length - 1) : -1;
+        } else if (selectedIndex > i) {
+          selectedIndex--;
+        }
+        selectedLayerIndex = -1;
+        snapshot();
+        renderAll();
+      });
+      list.appendChild(item);
+    });
+  }
+  function renderLeftAreaProps() {
+    const noSel = document.getElementById('oc-area-no-sel');
+    const inner = document.getElementById('oc-area-props-inner');
+    const area = selectedArea();
+    if (!area) {
+      if (noSel) {
+        noSel.style.display = '';
+      }
+      if (inner) {
+        inner.style.display = 'none';
+      }
+      return;
+    }
+    if (noSel) {
+      noSel.style.display = 'none';
+    }
+    if (inner) {
+      inner.style.display = '';
+    }
+    setVal('oc-prop-label', area.label);
+    setVal('oc-prop-method', area.method);
+    setVal('oc-prop-engraving-material', area.material || 'silver_metal');
+    setVal('oc-prop-unit', area.unit || 'px');
+    setVal('oc-prop-x', area.x);
+    setVal('oc-prop-y', area.y);
+    setVal('oc-prop-w', area.w);
+    setVal('oc-prop-h', area.h);
+    setVal('oc-prop-dpi', area.dpi || 300);
+    setVal('oc-prop-rotation', area.rotation);
+    renderRatioLockButton(area);
+    const thumb = document.getElementById('oc-mockup-thumb-img');
+    const noThumb = document.getElementById('oc-mockup-thumb-empty');
+    const removeBtn = document.getElementById('oc-remove-mockup-btn');
+    const chooseBtn = document.getElementById('oc-choose-mockup-btn');
+    const dot = document.getElementById('oc-right-area-color');
+    if (area.mockupUrl) {
+      if (thumb) {
+        thumb.src = area.mockupUrl;
+        thumb.style.display = '';
+      }
+      if (noThumb) {
+        noThumb.style.display = 'none';
+      }
+    } else {
+      if (thumb) {
+        thumb.style.display = 'none';
+      }
+      if (noThumb) {
+        noThumb.style.display = '';
+      }
+    }
+    if (removeBtn) {
+      removeBtn.style.display = area.mockupUrl ? '' : 'none';
+    }
+    if (chooseBtn) {
+      const chooseLabel = area.mockupUrl ? 'Change Mockup' : 'Choose Mockup';
+      chooseBtn.setAttribute('aria-label', chooseLabel);
+      chooseBtn.setAttribute('title', chooseLabel);
+    }
+    if (dot) {
+      dot.style.background = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(selectedIndex);
+    }
+    const materialWrap = document.getElementById('oc-prop-engraving-material-wrap');
+    if (materialWrap) {
+      materialWrap.style.display = area.method === 'engraving' ? '' : 'none';
+    }
+  }
+  function renderRatioLockButton(area) {
+    const btn = document.getElementById('oc-prop-ratio-lock');
+    if (!btn || !area) {
+      return;
+    }
+    btn.innerHTML = area.ratioLocked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK;
+    btn.classList.toggle('is-on', !!area.ratioLocked);
+    btn.setAttribute('aria-pressed', area.ratioLocked ? 'true' : 'false');
+    btn.setAttribute('aria-label', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio');
+    btn.setAttribute('title', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio');
+  }
+  function renderRightColumn() {
+    const area = selectedArea();
+    const layer = selectedLayer();
+    const hint = document.getElementById('oc-type-picker-hint');
+    if (hint) {
+      hint.style.display = area ? 'none' : '';
+    }
+    document.querySelectorAll('.oc-layer-type-btn').forEach(btn => {
+      btn.disabled = !area;
+      btn.style.opacity = area ? '' : '.4';
+    });
+    renderLayerList(area);
+    const noSel = document.getElementById('oc-layer-no-sel');
+    const inner = document.getElementById('oc-layer-props-inner');
+    if (!layer) {
+      if (noSel) {
+        noSel.style.display = '';
+      }
+      if (inner) {
+        inner.style.display = 'none';
+      }
+    } else {
+      if (noSel) {
+        noSel.style.display = 'none';
+      }
+      if (inner) {
+        inner.style.display = '';
+      }
+      renderLayerPanel(layer);
+    }
+  }
+  function renderLayerList(area) {
+    const listEl = document.getElementById('oc-layers-list');
+    const noArea = document.getElementById('oc-layers-no-area');
+    const emptyEl = document.getElementById('oc-layers-empty');
+    const countEl = document.getElementById('oc-layers-count');
+    if (!listEl) {
+      return;
+    }
+    listEl.innerHTML = '';
+    if (!area) {
+      if (noArea) {
+        noArea.style.display = '';
+      }
+      if (emptyEl) {
+        emptyEl.style.display = 'none';
+      }
+      if (countEl) {
+        countEl.textContent = '';
+      }
+      return;
+    }
+    if (noArea) {
+      noArea.style.display = 'none';
+    }
+    const layers = area.layers || [];
+    if (countEl) {
+      countEl.textContent = layers.length + (1 === layers.length ? ' layer' : ' layers');
+    }
+    if (layers.length === 0) {
+      if (emptyEl) {
+        emptyEl.style.display = '';
+      }
+      return;
+    }
+    if (emptyEl) {
+      emptyEl.style.display = 'none';
+    }
+    layers.forEach((layer, li) => {
+      const item = document.createElement('div');
+      item.className = 'oc-layer-item' + (li === selectedLayerIndex ? ' oc-layer-item--active' : '') + (!layer.visible ? ' oc-layer--hidden' : '') + (layer.locked ? ' oc-layer--locked' : '');
+      item.draggable = true;
+      item.dataset.layerIndex = li;
+      item.innerHTML = '<span class="oc-layer-drag-handle" title="Drag to reorder">\u22ee\u22ee</span>' + '<span class="oc-layer-icon" style="color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerColor)(layer.type) + ';">' + esc((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerIcon)(layer.type)) + '</span>' + '<span class="oc-layer-item-name">' + esc(layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(layer.type)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!layer.visible ? ' is-off' : '') + '" title="' + (layer.visible ? 'Hide layer' : 'Show layer') + '">' + (layer.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (layer.locked ? ' is-on' : '') + '" title="' + (layer.locked ? 'Unlock layer' : 'Lock layer') + '">' + (layer.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete layer">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
+      item.addEventListener('click', e => {
+        if (e.target.closest('.oc-layer-actions') || e.target.classList.contains('oc-layer-drag-handle')) {
+          return;
+        }
+        if (layer.locked) {
+          return;
+        } // locked layers can't be selected from list
+        selectedLayerIndex = li;
+        renderAll();
+      });
+      item.querySelector('.oc-layer-vis-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        layer.visible = !layer.visible;
+        snapshot();
+        renderAll();
+      });
+      item.querySelector('.oc-layer-lock-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        layer.locked = !layer.locked;
+        snapshot();
+        renderAll();
+      });
+      item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        if (!confirm('Remove this layer?')) {
+          return;
+        }
+        area.layers.splice(li, 1);
+        if (selectedLayerIndex === li) {
+          selectedLayerIndex = -1;
+        } else if (selectedLayerIndex > li) {
+          selectedLayerIndex--;
+        }
+        snapshot();
+        renderAll();
+      });
+      item.addEventListener('dragstart', e => {
+        layerDragSrc = li;
+        e.dataTransfer.effectAllowed = 'move';
+        setTimeout(() => item.classList.add('oc-layer-item--dragging'), 0);
+      });
+      item.addEventListener('dragend', () => {
+        layerDragSrc = -1;
+        listEl.querySelectorAll('.oc-layer-item--dragging, .oc-layer-item--drag-over').forEach(el => {
+          el.classList.remove('oc-layer-item--dragging', 'oc-layer-item--drag-over');
+        });
+      });
+      item.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        if (Number(item.dataset.layerIndex) !== layerDragSrc) {
+          listEl.querySelectorAll('.oc-layer-item--drag-over').forEach(el => el.classList.remove('oc-layer-item--drag-over'));
+          item.classList.add('oc-layer-item--drag-over');
+        }
+      });
+      item.addEventListener('drop', e => {
+        e.preventDefault();
+        const targetIdx = Number(item.dataset.layerIndex);
+        if (layerDragSrc < 0 || layerDragSrc === targetIdx) {
+          return;
+        }
+        const moved = area.layers.splice(layerDragSrc, 1)[0];
+        area.layers.splice(targetIdx, 0, moved);
+        if (selectedLayerIndex === layerDragSrc) {
+          selectedLayerIndex = targetIdx;
+        } else if (layerDragSrc < targetIdx && selectedLayerIndex > layerDragSrc && selectedLayerIndex <= targetIdx) {
+          selectedLayerIndex--;
+        } else if (layerDragSrc > targetIdx && selectedLayerIndex >= targetIdx && selectedLayerIndex < layerDragSrc) {
+          selectedLayerIndex++;
+        }
+        snapshot();
+        renderAll();
+      });
+      listEl.appendChild(item);
+    });
+  }
+  function renderLayerPanel(layer) {
+    const iconEl = document.getElementById('oc-layer-type-icon');
+    const lblEl = document.getElementById('oc-layer-type-label');
+    const dotEl = document.getElementById('oc-layer-color-dot');
+    if (iconEl) {
+      iconEl.textContent = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerIcon)(layer.type);
+    }
+    if (lblEl) {
+      lblEl.textContent = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(layer.type);
+    }
+    if (dotEl) {
+      dotEl.style.background = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerColor)(layer.type);
+    }
+    const tabs = _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.LAYER_TABS[layer.type] || _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.LAYER_TABS.text;
+    if (!tabs.some(t => t.id === activeLayerTab)) {
+      activeLayerTab = 'general';
+    }
+    const settingsEl = document.getElementById('oc-layer-settings');
+    if (!settingsEl) {
+      return;
+    }
+    let html = '<div class="oc-layer-tabs-bar">';
+    tabs.forEach(t => {
+      html += '<button type="button" class="oc-layer-tab' + (t.id === activeLayerTab ? ' oc-layer-tab--active' : '') + '" data-tab="' + t.id + '" title="' + esc(t.label) + '" aria-label="' + esc(t.label) + '"><span aria-hidden="true">' + esc(t.icon || t.label.charAt(0)) + '</span></button>';
+    });
+    html += '</div>';
+    tabs.forEach(t => {
+      html += '<div class="oc-layer-tab-panel' + (t.id === activeLayerTab ? ' oc-layer-tab-panel--active' : '') + '" data-panel="' + t.id + '">';
+      html += buildTabContent(t.id, layer);
+      html += '</div>';
+    });
+    settingsEl.innerHTML = html;
+    settingsEl.querySelectorAll('.oc-layer-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        activeLayerTab = btn.dataset.tab;
+        settingsEl.querySelectorAll('.oc-layer-tab').forEach(b => b.classList.toggle('oc-layer-tab--active', b.dataset.tab === activeLayerTab));
+        settingsEl.querySelectorAll('.oc-layer-tab-panel').forEach(p => p.classList.toggle('oc-layer-tab-panel--active', p.dataset.panel === activeLayerTab));
+      });
+    });
+    bindSettingsHandlers(layer);
+  }
+  function renderHiddenFields() {
+    (0,_products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_4__.renderProductsPageHiddenFields)(areas, esc);
+  }
+  document.addEventListener('DOMContentLoaded', init);
+})();
 
-  // ── Normalisers ────────────────────────────────────────────────────────────
+/***/ },
 
-  function normaliseArea(a, i) {
-    const unit = ['px', 'mm', 'cm', 'in'].includes(a.unit) ? a.unit : 'px';
-    const material = ['glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood'].includes(a.material) ? a.material : 'silver_metal';
-    return {
-      _uid: ++uidCounter,
-      id: Number(a.id) || 0,
-      label: a.label || '',
-      method: a.method || 'uv',
-      material,
-      unit,
-      mockupId: Number(a.mockupId) || 0,
-      mockupUrl: a.mockupUrl || '',
-      x: Number(a.x) || 0,
-      y: Number(a.y) || 0,
-      w: Number(a.w) || 300,
-      h: Number(a.h) || 300,
-      dpi: (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(a.dpi),
-      ratioLocked: !!a.ratioLocked,
-      aspectRatio: normaliseAspectRatio(a.aspectRatio, Number(a.w) || 300, Number(a.h) || 300),
-      rotation: normaliseRotation(a.rotation),
-      sortOrder: i,
-      visible: a.visible !== false && a.visible !== 0,
-      locked: !!a.locked
-    };
-  }
-  function normaliseLayer(l) {
-    const type = l.type || 'text';
-    return {
-      _uid: ++uidCounter,
-      id: Number(l.id) || 0,
-      type,
-      label: l.label || '',
-      x: Number(l.x) || 0,
-      y: Number(l.y) || 0,
-      w: Number(l.w) || 200,
-      h: Number(l.h) || 50,
-      sortOrder: Number(l.sortOrder) || 0,
-      visible: l.visible !== false && l.visible !== 0,
-      locked: !!l.locked,
-      settings: normaliseSettings(type, l.settings)
-    };
-  }
-  function defaultSettings(type) {
-    switch (type) {
-      case 'text':
-        return {
-          default_text: '',
-          char_limit: 0,
-          alignment: 'center',
-          default_font_id: 0,
-          default_font_size: 0,
-          default_color: '#000000',
-          min_font_size: 0,
-          max_font_size: 0,
-          font_groups: [],
-          colour_groups: [],
-          allow_font_change: true,
-          allow_colour_change: true,
-          allow_size_change: false,
-          required: false,
-          link_group: ''
-        };
-      case 'textarea':
-        return {
-          default_text: '',
-          char_limit: 0,
-          alignment: 'center',
-          line_alignment: 'top',
-          default_font_id: 0,
-          default_font_size: 0,
-          default_color: '#000000',
-          min_font_size: 0,
-          max_font_size: 0,
-          font_groups: [],
-          colour_groups: [],
-          allow_font_change: true,
-          allow_colour_change: true,
-          allow_size_change: false,
-          required: false,
-          link_group: ''
-        };
-      case 'image':
-        return {
-          formats: ['png', 'jpg', 'svg', 'webp'],
-          max_size_mb: 10,
-          remove_background: false,
-          default_attachment_id: 0,
-          default_attachment_url: '',
-          allow_image_change: true,
-          required: false,
-          link_group: ''
-        };
-      case 'clipmask':
-        return {
-          formats: ['png', 'jpg', 'webp'],
-          max_size_mb: 10,
-          remove_background: false,
-          mask_shape: 'circle',
-          required: false,
-          link_group: ''
-        };
-      case 'mask':
-        return {
-          required: false,
-          link_group: ''
-        };
-      case 'spotify':
-        return {
-          colour_groups: [],
-          required: false,
-          link_group: ''
-        };
-      case 'lineart':
-        return {
-          colour_groups: [],
-          required: false,
-          link_group: ''
-        };
-      case 'clipart':
-        return {
-          clipart_groups: [],
-          default_clipart_id: 0,
-          default_clipart_url: '',
-          default_clipart_recolourable: false,
-          allow_clipart_change: true,
-          required: false,
-          clipart_display: 'grid',
-          link_group: ''
-        };
-      default:
-        return {
-          required: false,
-          link_group: ''
-        };
-    }
-  }
-  function normaliseSettings(type, existing) {
-    const settings = Object.assign(defaultSettings(type), existing || {});
-    if (type === 'textarea' && !['top', 'center', 'bottom'].includes(settings.line_alignment)) {
-      settings.line_alignment = 'top';
-    }
-    if (type === 'clipart') {
-      settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
-      settings.default_clipart_id = Number(settings.default_clipart_id) || 0;
-      settings.default_clipart_recolourable = !!settings.default_clipart_recolourable;
-      settings.allow_clipart_change = settings.allow_clipart_change !== false;
-    }
-    if (type === 'image') {
-      settings.default_attachment_id = Number(settings.default_attachment_id) || 0;
-      settings.default_attachment_url = settings.default_attachment_url || '';
-      settings.allow_image_change = settings.allow_image_change !== false;
-    }
-    return settings;
-  }
+/***/ "./src/admin/products-page-hidden-fields.js"
+/*!**************************************************!*\
+  !*** ./src/admin/products-page-hidden-fields.js ***!
+  \**************************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 
-  // ── Utilities ──────────────────────────────────────────────────────────────
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   renderProductsPageHiddenFields: () => (/* binding */ renderProductsPageHiddenFields)
+/* harmony export */ });
+function renderProductsPageHiddenFields(areas, esc) {
+  const c = document.getElementById('oc-hidden-fields');
+  if (!c) {
+    return;
+  }
+  let html = '';
+  areas.forEach((area, i) => {
+    const p = 'oc_design_areas[' + i + ']';
+    html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[engraving_material]"   value="' + esc(area.material || 'silver_metal') + '">' + '<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc(area.unit || 'px') + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_dpi]"           value="' + esc(area.dpi || 300) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
+  });
+  let li = 0;
+  areas.forEach((area, areaIdx) => {
+    (area.layers || []).forEach((layer, sort) => {
+      const p = 'oc_layers[' + li + ']';
+      html += '<input type="hidden" name="' + p + '[id]"         value="' + esc(layer.id) + '">' + '<input type="hidden" name="' + p + '[area_index]" value="' + esc(areaIdx) + '">' + '<input type="hidden" name="' + p + '[type]"       value="' + esc(layer.type) + '">' + '<input type="hidden" name="' + p + '[label]"      value="' + esc(layer.label) + '">' + '<input type="hidden" name="' + p + '[x]"          value="' + esc(layer.x) + '">' + '<input type="hidden" name="' + p + '[y]"          value="' + esc(layer.y) + '">' + '<input type="hidden" name="' + p + '[w]"          value="' + esc(layer.w) + '">' + '<input type="hidden" name="' + p + '[h]"          value="' + esc(layer.h) + '">' + '<input type="hidden" name="' + p + '[sort_order]" value="' + esc(sort) + '">' + '<input type="hidden" name="' + p + '[visible]"    value="' + esc(layer.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"     value="' + esc(layer.locked ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[settings]"   value="' + esc(JSON.stringify(layer.settings || {})) + '">';
+      li++;
+    });
+  });
+  c.innerHTML = html;
+}
 
-  function esc(s) {
-    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/***/ },
+
+/***/ "./src/admin/products-page-metadata.js"
+/*!*********************************************!*\
+  !*** ./src/admin/products-page-metadata.js ***!
+  \*********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   AREA_COLORS: () => (/* binding */ AREA_COLORS),
+/* harmony export */   ICO_BIN: () => (/* binding */ ICO_BIN),
+/* harmony export */   ICO_EYE: () => (/* binding */ ICO_EYE),
+/* harmony export */   ICO_EYE_OFF: () => (/* binding */ ICO_EYE_OFF),
+/* harmony export */   ICO_LOCK: () => (/* binding */ ICO_LOCK),
+/* harmony export */   ICO_UNLOCK: () => (/* binding */ ICO_UNLOCK),
+/* harmony export */   LAYER_DEFAULTS: () => (/* binding */ LAYER_DEFAULTS),
+/* harmony export */   LAYER_TABS: () => (/* binding */ LAYER_TABS),
+/* harmony export */   LAYER_TYPES: () => (/* binding */ LAYER_TYPES),
+/* harmony export */   areaColor: () => (/* binding */ areaColor),
+/* harmony export */   layerColor: () => (/* binding */ layerColor),
+/* harmony export */   layerIcon: () => (/* binding */ layerIcon),
+/* harmony export */   layerLabel: () => (/* binding */ layerLabel)
+/* harmony export */ });
+const LAYER_TYPES = {
+  text: {
+    label: 'Text',
+    icon: 'Aa',
+    color: '#0284c7'
+  },
+  textarea: {
+    label: 'Text Area',
+    icon: '\u00b6',
+    color: '#7c3aed'
+  },
+  image: {
+    label: 'Image',
+    icon: '\ud83d\uddbc',
+    color: '#059669'
+  },
+  clipmask: {
+    label: 'Clipping Mask',
+    icon: '◯',
+    color: '#0d9488'
+  },
+  mask: {
+    label: 'Mask',
+    icon: '\u25a0',
+    color: '#64748b'
+  },
+  spotify: {
+    label: 'Spotify Code',
+    icon: '\u266b',
+    color: '#1db954'
+  },
+  lineart: {
+    label: 'Line Art',
+    icon: '\u270f',
+    color: '#d97706'
+  },
+  clipart: {
+    label: 'Clipart',
+    icon: '\u2726',
+    color: '#dc2626'
   }
-  function setVal(id, v) {
-    const el = document.getElementById(id);
-    if (el) {
-      el.value = v;
+};
+const LAYER_DEFAULTS = {
+  text: {
+    w: 300,
+    h: 50
+  },
+  textarea: {
+    w: 300,
+    h: 120
+  },
+  image: {
+    w: 200,
+    h: 200
+  },
+  clipmask: {
+    w: 200,
+    h: 200
+  },
+  mask: {
+    w: 200,
+    h: 200
+  },
+  spotify: {
+    w: 150,
+    h: 150
+  },
+  lineart: {
+    w: 200,
+    h: 200
+  },
+  clipart: {
+    w: 150,
+    h: 150
+  }
+};
+function layerIcon(type) {
+  return (LAYER_TYPES[type] || {}).icon || '?';
+}
+function layerColor(type) {
+  return (LAYER_TYPES[type] || {}).color || '#9ca3af';
+}
+function layerLabel(type) {
+  return (LAYER_TYPES[type] || {}).label || type;
+}
+const ICO_EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8c0 0 2.5-5 7-5s7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></svg>';
+const ICO_EYE_OFF = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8c0 0 2.5-5 7-5s7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/><line x1="2" y1="14" x2="14" y2="2"/></svg>';
+const ICO_LOCK = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
+const ICO_UNLOCK = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0"/></svg>';
+const ICO_BIN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1.5" y1="4" x2="14.5" y2="4"/><path d="M6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4"/><path d="M3 4l.8 9.5a.5.5 0 0 0 .5.5h7.4a.5.5 0 0 0 .5-.5L13 4"/></svg>';
+const LAYER_TABS = {
+  text: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'content',
+    label: 'Content',
+    icon: 'T'
+  }, {
+    id: 'style',
+    label: 'Style',
+    icon: 'A'
+  }, {
+    id: 'properties',
+    label: 'Properties',
+    icon: '\u2699'
+  }],
+  textarea: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'content',
+    label: 'Content',
+    icon: 'T'
+  }, {
+    id: 'style',
+    label: 'Style',
+    icon: 'A'
+  }, {
+    id: 'properties',
+    label: 'Properties',
+    icon: '\u2699'
+  }],
+  image: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'file',
+    label: 'File',
+    icon: '\ud83d\uddbc'
+  }, {
+    id: 'validation',
+    label: 'Validation',
+    icon: '\u2713'
+  }, {
+    id: 'properties',
+    label: 'Properties',
+    icon: '\u2699'
+  }],
+  clipmask: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'file',
+    label: 'File',
+    icon: '\ud83d\uddbc'
+  }, {
+    id: 'mask',
+    label: 'Mask',
+    icon: '◯'
+  }, {
+    id: 'validation',
+    label: 'Validation',
+    icon: '\u2713'
+  }],
+  mask: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }],
+  spotify: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'appearance',
+    label: 'Appearance',
+    icon: '\u25d0'
+  }, {
+    id: 'validation',
+    label: 'Validation',
+    icon: '\u2713'
+  }],
+  lineart: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'colours',
+    label: 'Colours',
+    icon: '\u25cf'
+  }, {
+    id: 'validation',
+    label: 'Validation',
+    icon: '\u2713'
+  }],
+  clipart: [{
+    id: 'general',
+    label: 'General',
+    icon: 'G'
+  }, {
+    id: 'library',
+    label: 'Library',
+    icon: '\u2726'
+  }, {
+    id: 'validation',
+    label: 'Validation',
+    icon: '\u2713'
+  }, {
+    id: 'properties',
+    label: 'Properties',
+    icon: '\u2699'
+  }]
+};
+const AREA_COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#0284c7', '#7c3aed', '#db2777', '#ea580c'];
+function areaColor(index) {
+  return AREA_COLORS[index % AREA_COLORS.length];
+}
+
+/***/ },
+
+/***/ "./src/admin/products-page-mockup-picker.js"
+/*!**************************************************!*\
+  !*** ./src/admin/products-page-mockup-picker.js ***!
+  \**************************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   createMockupPicker: () => (/* binding */ createMockupPicker)
+/* harmony export */ });
+/* eslint-disable no-alert, no-undef */
+
+function createMockupPicker(deps) {
+  const {
+    commitChange,
+    getSelectedIndex,
+    selectedArea
+  } = deps;
+  let mediaFrame = null;
+  function openMockupPicker() {
+    if (getSelectedIndex() < 0) {
+      return;
     }
+    if (!window.wp || !window.wp.media) {
+      alert('Media library is not available.');
+      return;
+    }
+    if (!mediaFrame) {
+      const data = window.ocProductsData || {};
+      mediaFrame = wp.media({
+        title: data.mediaTitle || 'Select Mockup Image',
+        button: {
+          text: data.mediaBtn || 'Use as Mockup'
+        },
+        library: {
+          type: 'image'
+        },
+        multiple: false
+      });
+      mediaFrame.on('select', () => {
+        const att = mediaFrame.state().get('selection').first().toJSON();
+        const area = selectedArea();
+        if (area) {
+          area.mockupId = att.id;
+          area.mockupUrl = att.sizes && att.sizes.large && att.sizes.large.url || att.url;
+          commitChange({
+            all: true
+          });
+        }
+      });
+    }
+    mediaFrame.open();
   }
-  function getScale(img) {
-    return img && img.naturalWidth ? img.clientWidth / img.naturalWidth : 0;
-  }
-  function clamp(v, lo, hi) {
-    return Math.min(Math.max(v, lo), hi);
-  }
-  function fontLimit(value) {
-    return Math.max(0, parseInt(value, 10) || 0);
-  }
-  function normaliseHex(value) {
-    return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#000000';
-  }
-  function normaliseLinkGroup(value) {
-    return String(value || '').trim();
-  }
+  return openMockupPicker;
+}
+
+/***/ },
+
+/***/ "./src/admin/products-page-preview.js"
+/*!********************************************!*\
+  !*** ./src/admin/products-page-preview.js ***!
+  \********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   createLayerPreviewRenderer: () => (/* binding */ createLayerPreviewRenderer)
+/* harmony export */ });
+/* eslint-disable no-undef, no-nested-ternary */
+
+function createLayerPreviewRenderer(deps) {
+  const {
+    fontLimit,
+    layerLabel,
+    normaliseHex
+  } = deps;
   function clampFontSize(size, settings, scale) {
     const min = fontLimit(settings?.min_font_size) * scale;
     const max = fontLimit(settings?.max_font_size) * scale;
@@ -793,62 +1399,9 @@ __webpack_require__.r(__webpack_exports__);
     const fonts = (window.ocProductsData || {}).fonts || [];
     return fonts.find(f => Number(f.id) === Number(fontId)) || (!fontId ? fonts[0] : null);
   }
-  function normaliseRotation(value) {
-    const angle = Number(value) || 0;
-    return Math.round((angle % 360 + 360) % 360);
-  }
-  function normaliseAspectRatio(value, w, h) {
-    const ratio = Number(value) || (Number(w) && Number(h) ? Number(w) / Number(h) : 1);
-    return ratio > 0 ? ratio : 1;
-  }
-  function currentAspectRatio(entity) {
-    return normaliseAspectRatio(entity?.aspectRatio, entity?.w, entity?.h);
-  }
-  function selectedArea() {
-    return areas[selectedIndex] || null;
-  }
-  function selectedLayer() {
-    const area = selectedArea();
-    return area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || null : null;
-  }
-  function updateAspectRatio(entity) {
-    if (entity?.w && entity?.h) {
-      entity.aspectRatio = normaliseAspectRatio(0, entity.w, entity.h);
-    }
-  }
-  function clampLayerToArea(layer, area) {
-    if (!layer || !area) {
-      return;
-    }
-    const maxW = Math.max(1, area.w);
-    const maxH = Math.max(1, area.h);
-    layer.w = clamp(Math.round(layer.w), 1, maxW);
-    layer.h = clamp(Math.round(layer.h), 1, maxH);
-    layer.x = clamp(Math.round(layer.x), area.x, area.x + area.w - layer.w);
-    layer.y = clamp(Math.round(layer.y), area.y, area.y + area.h - layer.h);
-  }
-  function hexRgba(hex, a) {
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
-  }
-  function methodLabel(m) {
-    return ((window.ocProductsData || {}).methodLabels || {})[m] || m;
-  }
   function engravingTextColor() {
     return '#dadad6';
   }
-
-  /**
-   * Apply rich visual content to a layer container element
-   * @param layer
-   * @param el
-   * @param renderedW
-   * @param renderedH
-   * @param isGhost
-   * @param isEngraving
-   */
   function applyLayerPreview(layer, el, renderedW, renderedH, isGhost, isEngraving) {
     // Remove any existing preview children
     el.querySelectorAll('.oc-lp').forEach(c => c.remove());
@@ -941,12 +1494,36 @@ __webpack_require__.r(__webpack_exports__);
       el.appendChild(d);
     }
   }
+  return applyLayerPreview;
+}
 
-  // ── Settings HTML helpers ──────────────────────────────────────────────────
+/***/ },
 
-  function sectionHdr(label) {
-    return '<p class="oc-settings-section-hdr">' + label + '</p>';
-  }
+/***/ "./src/admin/products-page-settings.js"
+/*!*********************************************!*\
+  !*** ./src/admin/products-page-settings.js ***!
+  \*********************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   createProductsPageSettings: () => (/* binding */ createProductsPageSettings)
+/* harmony export */ });
+/* eslint-disable no-unused-vars, no-nested-ternary */
+
+function createProductsPageSettings(deps) {
+  const {
+    commitChange,
+    esc,
+    fontLimit,
+    getAreas,
+    layerLabel,
+    normaliseHex,
+    normaliseLinkGroup,
+    renderLayerList,
+    selectedArea,
+    syncBoundsFromInputs
+  } = deps;
   function field(label, inputHtml) {
     return '<div class="oc-editor-field"><label class="oc-settings-label">' + label + '</label>' + inputHtml + '</div>';
   }
@@ -1006,7 +1583,7 @@ __webpack_require__.r(__webpack_exports__);
   }
   function linkGroupOptions(current) {
     const groups = [];
-    areas.forEach(area => {
+    getAreas().forEach(area => {
       (area.layers || []).forEach(layer => {
         const group = normaliseLinkGroup(layer.settings?.link_group);
         if (group && groups.indexOf(group) === -1) {
@@ -1381,1302 +1958,11 @@ __webpack_require__.r(__webpack_exports__);
       commitChange();
     });
   }
-
-  // ── Render ─────────────────────────────────────────────────────────────────
-
-  function renderAll() {
-    renderAreasList();
-    renderAreaStrip();
-    renderLeftAreaProps();
-    renderCanvas();
-    renderRightColumn();
-    renderHiddenFields();
-  }
-  function commitChange(options = {}) {
-    if (options.all) {
-      renderAll();
-    } else {
-      if (options.areasList) {
-        renderAreasList();
-      }
-      if (options.areaStrip) {
-        renderAreaStrip();
-      }
-      if (options.canvas) {
-        renderCanvas();
-      }
-      if (options.rightColumn) {
-        renderRightColumn();
-      }
-      if (options.hiddenFields !== false) {
-        renderHiddenFields();
-      }
-    }
-    markDirty();
-  }
-
-  // ── Feature 3: Multi-area navigation strip ─────────────────────────────────
-
-  function renderAreaStrip() {
-    const strip = document.getElementById('oc-area-strip');
-    if (!strip) {
-      return;
-    }
-    if (areas.length === 0) {
-      strip.style.display = 'none';
-      return;
-    }
-    strip.style.display = '';
-    strip.innerHTML = '';
-    areas.forEach((area, i) => {
-      const card = document.createElement('div');
-      card.className = 'oc-area-strip-card' + (i === selectedIndex ? ' oc-area-strip-card--active' : '') + (!area.visible ? ' oc-area-strip-card--hidden' : '');
-      const thumb = document.createElement('div');
-      thumb.className = 'oc-area-strip-thumb';
-      if (area.mockupUrl) {
-        const img = new Image();
-        img.src = area.mockupUrl;
-        img.draggable = false;
-        thumb.appendChild(img);
-      } else {
-        thumb.style.background = areaColor(i);
-      }
-      const lbl = document.createElement('span');
-      lbl.className = 'oc-area-strip-label';
-      lbl.textContent = area.label || 'Area ' + (i + 1);
-      card.appendChild(thumb);
-      card.appendChild(lbl);
-      card.addEventListener('click', () => {
-        if (area.locked) {
-          return;
-        } // locked areas can't be selected from strip
-        selectedIndex = i;
-        selectedLayerIndex = -1;
-        activeLayerTab = 'general';
-        renderAll();
-      });
-      strip.appendChild(card);
-    });
-  }
-
-  // ── Left panel ─────────────────────────────────────────────────────────────
-
-  function renderAreasList() {
-    const list = document.getElementById('oc-areas-list');
-    const empty = document.getElementById('oc-areas-empty');
-    if (!list) {
-      return;
-    }
-    list.innerHTML = '';
-    if (areas.length === 0) {
-      if (empty) {
-        empty.style.display = '';
-      }
-      return;
-    }
-    if (empty) {
-      empty.style.display = 'none';
-    }
-    areas.forEach((area, i) => {
-      const item = document.createElement('div');
-      item.className = 'oc-area-item' + (i === selectedIndex ? ' oc-area-item--active' : '') + (!area.visible ? ' oc-layer--hidden' : '') + (area.locked ? ' oc-layer--locked' : '');
-      item.innerHTML = '<span class="oc-area-dot" style="background:' + areaColor(i) + ';flex-shrink:0;"></span>' + '<span class="oc-area-item-name">' + esc(area.label || 'Print Area ' + (i + 1)) + '</span>' + '<span class="oc-area-item-method">' + esc(methodLabel(area.method)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!area.visible ? ' is-off' : '') + '" title="' + (area.visible ? 'Hide area' : 'Show area') + '">' + (area.visible ? ICO_EYE : ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (area.locked ? ' is-on' : '') + '" title="' + (area.locked ? 'Unlock area' : 'Lock area') + '">' + (area.locked ? ICO_LOCK : ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete area">' + ICO_BIN + '</button>' + '</div>';
-      item.addEventListener('click', e => {
-        if (e.target.closest('.oc-layer-actions')) {
-          return;
-        }
-        if (area.locked) {
-          return;
-        } // locked areas can't be selected from list
-        selectedIndex = i;
-        selectedLayerIndex = -1;
-        activeLayerTab = 'general';
-        renderAll();
-      });
-      item.querySelector('.oc-layer-vis-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        area.visible = !area.visible;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-lock-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        area.locked = !area.locked;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        if (!confirm('Remove this print area and all its layers?')) {
-          return;
-        }
-        areas.splice(i, 1);
-        if (selectedIndex === i) {
-          selectedIndex = areas.length > 0 ? Math.min(i, areas.length - 1) : -1;
-        } else if (selectedIndex > i) {
-          selectedIndex--;
-        }
-        selectedLayerIndex = -1;
-        snapshot();
-        renderAll();
-      });
-      list.appendChild(item);
-    });
-  }
-  function renderLeftAreaProps() {
-    const noSel = document.getElementById('oc-area-no-sel');
-    const inner = document.getElementById('oc-area-props-inner');
-    const area = selectedArea();
-    if (!area) {
-      if (noSel) {
-        noSel.style.display = '';
-      }
-      if (inner) {
-        inner.style.display = 'none';
-      }
-      return;
-    }
-    if (noSel) {
-      noSel.style.display = 'none';
-    }
-    if (inner) {
-      inner.style.display = '';
-    }
-    setVal('oc-prop-label', area.label);
-    setVal('oc-prop-method', area.method);
-    setVal('oc-prop-engraving-material', area.material || 'silver_metal');
-    setVal('oc-prop-unit', area.unit || 'px');
-    setVal('oc-prop-x', area.x);
-    setVal('oc-prop-y', area.y);
-    setVal('oc-prop-w', area.w);
-    setVal('oc-prop-h', area.h);
-    setVal('oc-prop-dpi', area.dpi || 300);
-    setVal('oc-prop-rotation', area.rotation);
-    renderRatioLockButton(area);
-    const thumb = document.getElementById('oc-mockup-thumb-img');
-    const noThumb = document.getElementById('oc-mockup-thumb-empty');
-    const removeBtn = document.getElementById('oc-remove-mockup-btn');
-    const chooseBtn = document.getElementById('oc-choose-mockup-btn');
-    const dot = document.getElementById('oc-right-area-color');
-    if (area.mockupUrl) {
-      if (thumb) {
-        thumb.src = area.mockupUrl;
-        thumb.style.display = '';
-      }
-      if (noThumb) {
-        noThumb.style.display = 'none';
-      }
-    } else {
-      if (thumb) {
-        thumb.style.display = 'none';
-      }
-      if (noThumb) {
-        noThumb.style.display = '';
-      }
-    }
-    if (removeBtn) {
-      removeBtn.style.display = area.mockupUrl ? '' : 'none';
-    }
-    if (chooseBtn) {
-      const chooseLabel = area.mockupUrl ? 'Change Mockup' : 'Choose Mockup';
-      chooseBtn.setAttribute('aria-label', chooseLabel);
-      chooseBtn.setAttribute('title', chooseLabel);
-    }
-    if (dot) {
-      dot.style.background = areaColor(selectedIndex);
-    }
-    const materialWrap = document.getElementById('oc-prop-engraving-material-wrap');
-    if (materialWrap) {
-      materialWrap.style.display = area.method === 'engraving' ? '' : 'none';
-    }
-  }
-  function renderRatioLockButton(area) {
-    const btn = document.getElementById('oc-prop-ratio-lock');
-    if (!btn || !area) {
-      return;
-    }
-    btn.innerHTML = area.ratioLocked ? ICO_LOCK : ICO_UNLOCK;
-    btn.classList.toggle('is-on', !!area.ratioLocked);
-    btn.setAttribute('aria-pressed', area.ratioLocked ? 'true' : 'false');
-    btn.setAttribute('aria-label', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio');
-    btn.setAttribute('title', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio');
-  }
-
-  // ── Right column ───────────────────────────────────────────────────────────
-
-  function renderRightColumn() {
-    const area = selectedArea();
-    const layer = selectedLayer();
-    const hint = document.getElementById('oc-type-picker-hint');
-    if (hint) {
-      hint.style.display = area ? 'none' : '';
-    }
-    document.querySelectorAll('.oc-layer-type-btn').forEach(btn => {
-      btn.disabled = !area;
-      btn.style.opacity = area ? '' : '.4';
-    });
-    renderLayerList(area);
-    const noSel = document.getElementById('oc-layer-no-sel');
-    const inner = document.getElementById('oc-layer-props-inner');
-    if (!layer) {
-      if (noSel) {
-        noSel.style.display = '';
-      }
-      if (inner) {
-        inner.style.display = 'none';
-      }
-    } else {
-      if (noSel) {
-        noSel.style.display = 'none';
-      }
-      if (inner) {
-        inner.style.display = '';
-      }
-      renderLayerPanel(layer);
-    }
-  }
-  function renderLayerList(area) {
-    const listEl = document.getElementById('oc-layers-list');
-    const noArea = document.getElementById('oc-layers-no-area');
-    const emptyEl = document.getElementById('oc-layers-empty');
-    const countEl = document.getElementById('oc-layers-count');
-    if (!listEl) {
-      return;
-    }
-    listEl.innerHTML = '';
-    if (!area) {
-      if (noArea) {
-        noArea.style.display = '';
-      }
-      if (emptyEl) {
-        emptyEl.style.display = 'none';
-      }
-      if (countEl) {
-        countEl.textContent = '';
-      }
-      return;
-    }
-    if (noArea) {
-      noArea.style.display = 'none';
-    }
-    const layers = area.layers || [];
-    if (countEl) {
-      countEl.textContent = layers.length + (1 === layers.length ? ' layer' : ' layers');
-    }
-    if (layers.length === 0) {
-      if (emptyEl) {
-        emptyEl.style.display = '';
-      }
-      return;
-    }
-    if (emptyEl) {
-      emptyEl.style.display = 'none';
-    }
-    layers.forEach((layer, li) => {
-      const item = document.createElement('div');
-      item.className = 'oc-layer-item' + (li === selectedLayerIndex ? ' oc-layer-item--active' : '') + (!layer.visible ? ' oc-layer--hidden' : '') + (layer.locked ? ' oc-layer--locked' : '');
-      item.draggable = true;
-      item.dataset.layerIndex = li;
-      item.innerHTML = '<span class="oc-layer-drag-handle" title="Drag to reorder">\u22ee\u22ee</span>' + '<span class="oc-layer-icon" style="color:' + layerColor(layer.type) + ';">' + esc(layerIcon(layer.type)) + '</span>' + '<span class="oc-layer-item-name">' + esc(layer.label || layerLabel(layer.type)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!layer.visible ? ' is-off' : '') + '" title="' + (layer.visible ? 'Hide layer' : 'Show layer') + '">' + (layer.visible ? ICO_EYE : ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (layer.locked ? ' is-on' : '') + '" title="' + (layer.locked ? 'Unlock layer' : 'Lock layer') + '">' + (layer.locked ? ICO_LOCK : ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete layer">' + ICO_BIN + '</button>' + '</div>';
-      item.addEventListener('click', e => {
-        if (e.target.closest('.oc-layer-actions') || e.target.classList.contains('oc-layer-drag-handle')) {
-          return;
-        }
-        if (layer.locked) {
-          return;
-        } // locked layers can't be selected from list
-        selectedLayerIndex = li;
-        renderAll();
-      });
-      item.querySelector('.oc-layer-vis-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        layer.visible = !layer.visible;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-lock-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        layer.locked = !layer.locked;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        if (!confirm('Remove this layer?')) {
-          return;
-        }
-        area.layers.splice(li, 1);
-        if (selectedLayerIndex === li) {
-          selectedLayerIndex = -1;
-        } else if (selectedLayerIndex > li) {
-          selectedLayerIndex--;
-        }
-        snapshot();
-        renderAll();
-      });
-
-      // Drag-to-reorder
-      item.addEventListener('dragstart', e => {
-        layerDragSrc = li;
-        e.dataTransfer.effectAllowed = 'move';
-        setTimeout(() => item.classList.add('oc-layer-item--dragging'), 0);
-      });
-      item.addEventListener('dragend', () => {
-        layerDragSrc = -1;
-        listEl.querySelectorAll('.oc-layer-item--dragging, .oc-layer-item--drag-over').forEach(el => {
-          el.classList.remove('oc-layer-item--dragging', 'oc-layer-item--drag-over');
-        });
-      });
-      item.addEventListener('dragover', e => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (Number(item.dataset.layerIndex) !== layerDragSrc) {
-          listEl.querySelectorAll('.oc-layer-item--drag-over').forEach(el => el.classList.remove('oc-layer-item--drag-over'));
-          item.classList.add('oc-layer-item--drag-over');
-        }
-      });
-      item.addEventListener('drop', e => {
-        e.preventDefault();
-        const targetIdx = Number(item.dataset.layerIndex);
-        if (layerDragSrc < 0 || layerDragSrc === targetIdx) {
-          return;
-        }
-        const moved = area.layers.splice(layerDragSrc, 1)[0];
-        area.layers.splice(targetIdx, 0, moved);
-        if (selectedLayerIndex === layerDragSrc) {
-          selectedLayerIndex = targetIdx;
-        } else if (layerDragSrc < targetIdx && selectedLayerIndex > layerDragSrc && selectedLayerIndex <= targetIdx) {
-          selectedLayerIndex--;
-        } else if (layerDragSrc > targetIdx && selectedLayerIndex >= targetIdx && selectedLayerIndex < layerDragSrc) {
-          selectedLayerIndex++;
-        }
-        snapshot();
-        renderAll();
-      });
-      listEl.appendChild(item);
-    });
-  }
-  function renderLayerPanel(layer) {
-    const iconEl = document.getElementById('oc-layer-type-icon');
-    const lblEl = document.getElementById('oc-layer-type-label');
-    const dotEl = document.getElementById('oc-layer-color-dot');
-    if (iconEl) {
-      iconEl.textContent = layerIcon(layer.type);
-    }
-    if (lblEl) {
-      lblEl.textContent = layerLabel(layer.type);
-    }
-    if (dotEl) {
-      dotEl.style.background = layerColor(layer.type);
-    }
-    const tabs = LAYER_TABS[layer.type] || LAYER_TABS.text;
-    if (!tabs.some(t => t.id === activeLayerTab)) {
-      activeLayerTab = 'general';
-    }
-    const settingsEl = document.getElementById('oc-layer-settings');
-    if (!settingsEl) {
-      return;
-    }
-    let html = '<div class="oc-layer-tabs-bar">';
-    tabs.forEach(t => {
-      html += '<button type="button" class="oc-layer-tab' + (t.id === activeLayerTab ? ' oc-layer-tab--active' : '') + '" data-tab="' + t.id + '" title="' + esc(t.label) + '" aria-label="' + esc(t.label) + '"><span aria-hidden="true">' + esc(t.icon || t.label.charAt(0)) + '</span></button>';
-    });
-    html += '</div>';
-    tabs.forEach(t => {
-      html += '<div class="oc-layer-tab-panel' + (t.id === activeLayerTab ? ' oc-layer-tab-panel--active' : '') + '" data-panel="' + t.id + '">';
-      html += buildTabContent(t.id, layer);
-      html += '</div>';
-    });
-    settingsEl.innerHTML = html;
-    settingsEl.querySelectorAll('.oc-layer-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        activeLayerTab = btn.dataset.tab;
-        settingsEl.querySelectorAll('.oc-layer-tab').forEach(b => b.classList.toggle('oc-layer-tab--active', b.dataset.tab === activeLayerTab));
-        settingsEl.querySelectorAll('.oc-layer-tab-panel').forEach(p => p.classList.toggle('oc-layer-tab-panel--active', p.dataset.panel === activeLayerTab));
-      });
-    });
-    bindSettingsHandlers(layer);
-  }
-
-  // ── Canvas ─────────────────────────────────────────────────────────────────
-
-  function renderCanvas() {
-    const stage = document.getElementById('oc-canvas-stage');
-    const noMockup = document.getElementById('oc-canvas-no-mockup');
-    const coords = document.getElementById('oc-canvas-coords');
-    const noMsg = document.getElementById('oc-canvas-no-mockup-msg');
-    if (!stage) {
-      return;
-    }
-    const area = selectedArea();
-    if (!area || !area.mockupUrl) {
-      stage.style.display = 'none';
-      noMockup.style.display = '';
-      if (coords) {
-        coords.style.display = 'none';
-      }
-      if (noMsg) {
-        noMsg.textContent = areas.length === 0 ? 'Click \u201c+ Add\u201d on the left to create a print area.' : 'Select a print area and choose its mockup image.';
-      }
-      return;
-    }
-    noMockup.style.display = 'none';
-    stage.style.display = '';
-    if (coords) {
-      coords.style.display = '';
-    }
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    if (img.getAttribute('src') !== area.mockupUrl) {
-      img.src = area.mockupUrl;
-      img.onload = () => {
-        updateBoundsBox();
-        renderGhosts();
-      };
-    } else {
-      updateBoundsBox();
-      renderGhosts();
-    }
-    const entity = selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || area : area;
-    updateCoordsReadout(entity);
-  }
-  function updateBoundsBox() {
-    const box = document.getElementById('oc-bounds-box');
-    const img = document.getElementById('oc-canvas-mockup-img');
-    const area = selectedArea();
-    if (!box || !img || !area) {
-      if (box) {
-        box.style.display = 'none';
-      }
-      return;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    const layer = selectedLayer();
-    const entity = layer || area;
-    const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(entity, layer ? area : null);
-    const color = layer ? layerColor(layer.type) : areaColor(selectedIndex);
-    const isHidden = layer ? !layer.visible : !area.visible;
-    const isLocked = layer ? layer.locked : area.locked;
-
-    // Hide bounds box entirely when the area (not a layer) is locked, so the
-    // locked area doesn't look "selected" on canvas while mockup + ghosts still render.
-    const hideForLocked = !layer && area.locked;
-    box.style.display = isHidden || hideForLocked ? 'none' : '';
-    box.style.opacity = '';
-    pos(box, display, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area) : null);
-    box.style.borderColor = color;
-    box.style.background = hexRgba(color, 0.12);
-    box.classList.toggle('oc-bounds-box--locked', isLocked);
-    box.classList.toggle('oc-bounds-box--rotatable', !layer);
-    box.querySelectorAll('.oc-bounds-handle').forEach(h => {
-      h.style.borderColor = color;
-    });
-    box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
-      h.style.borderColor = color;
-      h.style.color = color;
-      h.style.display = layer ? 'none' : '';
-    });
-
-    // Layer content preview inside bounds box
-    box.querySelectorAll('.oc-bounds-box-pill').forEach(el => el.remove());
-    const renderedW = Math.round(display.w * scale);
-    const renderedH = Math.round(display.h * scale);
-    applyLayerPreview(layer, box, renderedW, renderedH, false, area.method === 'engraving');
-    if (layer) {
-      const pill = document.createElement('div');
-      pill.className = 'oc-bounds-box-pill';
-      pill.style.background = color;
-      pill.textContent = layerIcon(layer.type) + ' ' + layerLabel(layer.type);
-      box.appendChild(pill);
-    }
-  }
-  function renderGhosts() {
-    const ghosts = document.getElementById('oc-canvas-ghosts');
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!ghosts || !img) {
-      return;
-    }
-    ghosts.innerHTML = '';
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    const area = selectedArea();
-    const activeMockup = area ? area.mockupUrl : '';
-    areas.forEach((a, i) => {
-      if (i === selectedIndex || a.mockupUrl !== activeMockup || !activeMockup || !a.visible) {
-        return;
-      }
-      const g = ghost(a, areaColor(i), 0.06);
-      g.appendChild(ghostLabel(a.label || 'Area ' + (i + 1), areaColor(i)));
-      pos(g, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(a), scale, normaliseRotation(a.rotation));
-      ghosts.appendChild(g);
-    });
-    if (!area) {
-      return;
-    }
-    if (selectedLayerIndex >= 0) {
-      const outline = document.createElement('div');
-      outline.className = 'oc-canvas-area-outline';
-      pos(outline, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area), scale, normaliseRotation(area.rotation));
-      ghosts.appendChild(outline);
-    }
-    (area.layers || []).forEach((layer, li) => {
-      if (li === selectedLayerIndex || !layer.visible) {
-        return;
-      }
-      const displayLayer = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layer, area);
-      const g = ghost(layer, layerColor(layer.type), 0.1);
-      g.classList.add('oc-canvas-layer-ghost');
-      g.appendChild(ghostLabel(layerIcon(layer.type) + ' ' + (layer.label || layerLabel(layer.type)), layerColor(layer.type)));
-      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, area.method === 'engraving');
-      pos(g, displayLayer, scale, normaliseRotation(area.rotation), (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area));
-      if (layer.locked) {
-        g.style.cursor = 'not-allowed';
-        g.style.opacity = '0.5';
-      } else {
-        g.style.cursor = 'pointer';
-        g.addEventListener('click', () => {
-          selectedLayerIndex = li;
-          renderAll();
-        });
-      }
-      ghosts.appendChild(g);
-    });
-  }
-  function ghost(entity, color, bgAlpha) {
-    const g = document.createElement('div');
-    g.className = 'oc-canvas-ghost';
-    g.style.borderColor = color;
-    g.style.background = hexRgba(color, bgAlpha);
-    return g;
-  }
-  function ghostLabel(text, color) {
-    const l = document.createElement('span');
-    l.className = 'oc-canvas-ghost-label';
-    l.textContent = text;
-    l.style.color = color;
-    return l;
-  }
-  function pos(el, entity, scale, rotation = 0, area = null) {
-    let cx = entity.x + entity.w / 2;
-    let cy = entity.y + entity.h / 2;
-    if (area && rotation) {
-      const acx = area.x + area.w / 2;
-      const acy = area.y + area.h / 2;
-      const rad = rotation * Math.PI / 180;
-      const dx = cx - acx;
-      const dy = cy - acy;
-      cx = acx + dx * Math.cos(rad) - dy * Math.sin(rad);
-      cy = acy + dx * Math.sin(rad) + dy * Math.cos(rad);
-    }
-    el.style.left = Math.round((cx - entity.w / 2) * scale) + 'px';
-    el.style.top = Math.round((cy - entity.h / 2) * scale) + 'px';
-    el.style.width = Math.round(entity.w * scale) + 'px';
-    el.style.height = Math.round(entity.h * scale) + 'px';
-    el.style.transform = rotation ? 'rotate(' + rotation + 'deg)' : '';
-    el.style.transformOrigin = 'center center';
-  }
-  function updateCoordsReadout(entity) {
-    const el = document.getElementById('oc-coords-text');
-    if (el && entity) {
-      el.textContent = 'X\u2009' + entity.x + '\u2002 Y\u2009' + entity.y + '\u2002 W\u2009' + entity.w + '\u2002 H\u2009' + entity.h + (entity.rotation ? '\u2002 R\u2009' + entity.rotation + '\u00b0' : '');
-    }
-  }
-
-  // ── Hidden fields ──────────────────────────────────────────────────────────
-
-  function renderHiddenFields() {
-    const c = document.getElementById('oc-hidden-fields');
-    if (!c) {
-      return;
-    }
-    let html = '';
-    areas.forEach((area, i) => {
-      const p = 'oc_design_areas[' + i + ']';
-      html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[engraving_material]"   value="' + esc(area.material || 'silver_metal') + '">' + '<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc(area.unit || 'px') + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_dpi]"           value="' + esc(area.dpi || 300) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
-    });
-    let li = 0;
-    areas.forEach((area, areaIdx) => {
-      (area.layers || []).forEach((layer, sort) => {
-        const p = 'oc_layers[' + li + ']';
-        html += '<input type="hidden" name="' + p + '[id]"         value="' + esc(layer.id) + '">' + '<input type="hidden" name="' + p + '[area_index]" value="' + esc(areaIdx) + '">' + '<input type="hidden" name="' + p + '[type]"       value="' + esc(layer.type) + '">' + '<input type="hidden" name="' + p + '[label]"      value="' + esc(layer.label) + '">' + '<input type="hidden" name="' + p + '[x]"          value="' + esc(layer.x) + '">' + '<input type="hidden" name="' + p + '[y]"          value="' + esc(layer.y) + '">' + '<input type="hidden" name="' + p + '[w]"          value="' + esc(layer.w) + '">' + '<input type="hidden" name="' + p + '[h]"          value="' + esc(layer.h) + '">' + '<input type="hidden" name="' + p + '[sort_order]" value="' + esc(sort) + '">' + '<input type="hidden" name="' + p + '[visible]"    value="' + esc(layer.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"     value="' + esc(layer.locked ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[settings]"   value="' + esc(JSON.stringify(layer.settings || {})) + '">';
-        li++;
-      });
-    });
-    c.innerHTML = html;
-  }
-
-  // ── Interactions ───────────────────────────────────────────────────────────
-
-  function initInteractions() {
-    // Add area
-    document.getElementById('oc-add-area-btn')?.addEventListener('click', () => {
-      const currentArea = areas[selectedIndex] || areas[0] || {};
-      areas.push({
-        ...normaliseArea({
-          id: 0,
-          label: 'Print Area ' + (areas.length + 1),
-          method: currentArea.method,
-          material: currentArea.material,
-          unit: currentArea.unit,
-          mockupId: currentArea.mockupId,
-          mockupUrl: currentArea.mockupUrl,
-          dpi: currentArea.dpi,
-          visible: true,
-          locked: false
-        }, areas.length),
-        layers: []
-      });
-      selectedIndex = areas.length - 1;
-      selectedLayerIndex = -1;
-      snapshot();
-      renderAll();
-    });
-
-    // Type picker buttons → add layer
-    document.querySelectorAll('.oc-layer-type-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (selectedIndex >= 0 && btn.dataset.type) {
-          addLayer(btn.dataset.type);
-        }
-      });
-    });
-
-    // Area prop inputs
-    document.getElementById('oc-prop-label')?.addEventListener('input', () => {
-      const area = selectedArea();
-      if (area) {
-        area.label = document.getElementById('oc-prop-label').value;
-        commitChange({
-          areasList: true,
-          areaStrip: true
-        });
-      }
-    });
-    document.getElementById('oc-prop-method')?.addEventListener('change', () => {
-      const area = selectedArea();
-      if (area) {
-        area.method = document.getElementById('oc-prop-method').value;
-        if (area.method === 'engraving' && !area.material) {
-          area.material = 'silver_metal';
-        }
-        // Re-render everything so layer panels reflect method-dependent UI (e.g. hide colour picks under engraving).
-        commitChange({
-          all: true
-        });
-      }
-    });
-    document.getElementById('oc-prop-engraving-material')?.addEventListener('change', () => {
-      const area = selectedArea();
-      if (area) {
-        area.material = document.getElementById('oc-prop-engraving-material').value;
-        commitChange();
-      }
-    });
-    document.getElementById('oc-prop-unit')?.addEventListener('change', () => {
-      const area = selectedArea();
-      if (area) {
-        area.unit = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit)(document.getElementById('oc-prop-unit').value);
-        updateBoundsBox();
-        renderGhosts();
-        commitChange();
-      }
-    });
-    document.getElementById('oc-prop-dpi')?.addEventListener('input', () => {
-      const area = selectedArea();
-      if (area) {
-        area.dpi = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(document.getElementById('oc-prop-dpi').value);
-        updateBoundsBox();
-        renderGhosts();
-        commitChange();
-      }
-    });
-    document.getElementById('oc-prop-ratio-lock')?.addEventListener('click', () => {
-      const area = selectedArea();
-      if (area) {
-        area.ratioLocked = !area.ratioLocked;
-        updateAspectRatio(area);
-        renderRatioLockButton(area);
-        markDirty();
-      }
-    });
-    ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => {
-        syncBoundsFromInputs(id);
-        markDirty();
-      });
-    });
-    ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
-    });
-
-    // Mockup
-    document.getElementById('oc-choose-mockup-btn')?.addEventListener('click', openMockupPicker);
-    document.getElementById('oc-remove-mockup-btn')?.addEventListener('click', () => {
-      const area = selectedArea();
-      if (area) {
-        area.mockupId = 0;
-        area.mockupUrl = '';
-        commitChange({
-          all: true
-        });
-      }
-    });
-
-    // Undo/Redo buttons
-    document.getElementById('oc-undo-btn')?.addEventListener('click', undo);
-    document.getElementById('oc-redo-btn')?.addEventListener('click', redo);
-
-    // Canvas background click → deselect layer
-    document.getElementById('oc-canvas-stage')?.addEventListener('click', e => {
-      if (e.target === document.getElementById('oc-canvas-stage') || e.target === document.getElementById('oc-canvas-mockup-img') || e.target === document.getElementById('oc-canvas-ghosts')) {
-        if (selectedLayerIndex >= 0) {
-          selectedLayerIndex = -1;
-          renderAll();
-        }
-      }
-    });
-
-    // Keyboard shortcuts
-    document.addEventListener('keydown', e => {
-      const tag = document.activeElement?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-        return;
-      }
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'z' && !e.shiftKey) {
-          e.preventDefault();
-          undo();
-        }
-        if (e.key === 'z' && e.shiftKey) {
-          e.preventDefault();
-          redo();
-        }
-        if (e.key === 'y') {
-          e.preventDefault();
-          redo();
-        }
-      }
-    });
-    window.addEventListener('resize', () => {
-      if (selectedIndex >= 0) {
-        updateBoundsBox();
-        renderGhosts();
-      }
-    });
-    document.getElementById('oc-canvas-mockup-img')?.addEventListener('load', () => {
-      updateBoundsBox();
-      renderGhosts();
-    });
-    initCanvasInteractions();
-  }
-  function addLayer(type) {
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    const def = LAYER_DEFAULTS[type] || {
-      w: 200,
-      h: 100
-    };
-    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
-    const lw = Math.max(1, Math.round(def.w / px));
-    const lh = Math.max(1, Math.round(def.h / px));
-    const lx = area.x + Math.max(0, Math.round((area.w - lw) / 2));
-    const ly = area.y + Math.max(0, Math.round((area.h - lh) / 2));
-    addLayerWithBounds(type, lx, ly, lw, lh);
-  }
-  function createLayer(type, area, x, y, w, h) {
-    const layer = {
-      _uid: ++uidCounter,
-      id: 0,
-      type,
-      label: layerLabel(type) + ' ' + (area.layers.length + 1),
-      x,
-      y,
-      w,
-      h,
-      visible: true,
-      locked: false,
-      settings: defaultSettings(type),
-      sortOrder: area.layers.length
-    };
-    clampLayerToArea(layer, area);
-    return layer;
-  }
-  function addLayerWithBounds(type, x, y, w, h) {
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    area.layers.push(createLayer(type, area, x, y, w, h));
-    selectedLayerIndex = area.layers.length - 1;
-    snapshot();
-    renderAll();
-  }
-
-  // ── Feature 2: Draw-to-create ─────────────────────────────────────────────
-
-  function initCanvasInteractions() {
-    const box = document.getElementById('oc-bounds-box');
-    if (box) {
-      box.addEventListener('mousedown', e => {
-        if (e.target !== box) {
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        startDrag(e, 'move', '');
-      });
-      box.querySelectorAll('.oc-bounds-handle').forEach(h => {
-        h.addEventListener('mousedown', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          startDrag(e, 'resize', h.dataset.dir);
-        });
-      });
-      box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
-        h.addEventListener('mousedown', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          startDrag(e, 'rotate', '');
-        });
-      });
-    }
-
-    // Draw-to-create: mousedown on the image itself (not covered by bounds/ghosts)
-    document.getElementById('oc-canvas-mockup-img')?.addEventListener('mousedown', e => {
-      const area = selectedArea();
-      if (!area || area.locked || selectedLayerIndex >= 0) {
-        return;
-      }
-      e.preventDefault();
-      startDrawRect(e);
-    });
-    document.addEventListener('mousemove', e => {
-      if (drag) {
-        onDragMove(e);
-        return;
-      }
-      if (drawState) {
-        onDrawMove(e);
-      }
-    });
-    document.addEventListener('mouseup', e => {
-      if (drag) {
-        onDragEnd();
-        return;
-      }
-      if (drawState) {
-        onDrawEnd(e);
-      }
-    });
-  }
-  function startDrawRect(e) {
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    const rect = img.getBoundingClientRect();
-    const sx = clamp(Math.round((e.clientX - rect.left) / scale), area.x, area.x + area.w);
-    const sy = clamp(Math.round((e.clientY - rect.top) / scale), area.y, area.y + area.h);
-    drawState = {
-      startX: sx,
-      startY: sy,
-      curX: sx,
-      curY: sy,
-      startClientX: e.clientX,
-      startClientY: e.clientY
-    };
-    drawEl = document.createElement('div');
-    drawEl.className = 'oc-canvas-draw-preview';
-    document.getElementById('oc-canvas-stage')?.appendChild(drawEl);
-    updateDrawEl();
-  }
-  function onDrawMove(e) {
-    if (!drawState) {
-      return;
-    }
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    const scale = getScale(img);
-    const rect = img.getBoundingClientRect();
-    drawState.curX = clamp(Math.round((e.clientX - rect.left) / scale), area.x, area.x + area.w);
-    drawState.curY = clamp(Math.round((e.clientY - rect.top) / scale), area.y, area.y + area.h);
-    updateDrawEl();
-  }
-  function updateDrawEl() {
-    if (!drawEl || !drawState) {
-      return;
-    }
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    const scale = getScale(img);
-    const x = Math.min(drawState.startX, drawState.curX);
-    const y = Math.min(drawState.startY, drawState.curY);
-    const w = Math.abs(drawState.curX - drawState.startX);
-    const h = Math.abs(drawState.curY - drawState.startY);
-    drawEl.style.left = Math.round(x * scale) + 'px';
-    drawEl.style.top = Math.round(y * scale) + 'px';
-    drawEl.style.width = Math.round(w * scale) + 'px';
-    drawEl.style.height = Math.round(h * scale) + 'px';
-  }
-  function onDrawEnd(e) {
-    if (!drawState) {
-      return;
-    }
-    const state = drawState;
-    drawState = null;
-    if (drawEl) {
-      drawEl.remove();
-      drawEl = null;
-    }
-    const x = Math.min(state.startX, state.curX);
-    const y = Math.min(state.startY, state.curY);
-    const w = Math.abs(state.curX - state.startX);
-    const h = Math.abs(state.curY - state.startY);
-    if (w < 10 || h < 10) {
-      return;
-    } // too small — treat as click miss
-
-    // Show floating type picker
-    showDrawTypePicker(x, y, w, h, e.clientX, e.clientY);
-  }
-  function showDrawTypePicker(natX, natY, natW, natH, clientX, clientY) {
-    closeDrawTypePicker();
-    const backdrop = document.createElement('div');
-    backdrop.className = 'oc-draw-popup-backdrop';
-    const popup = document.createElement('div');
-    popup.className = 'oc-draw-type-popup';
-    popup.id = 'oc-draw-type-popup';
-    Object.keys(LAYER_TYPES).forEach(type => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'oc-draw-type-btn';
-      btn.innerHTML = '<span style="font-size:18px;color:' + layerColor(type) + ';">' + layerIcon(type) + '</span><span>' + layerLabel(type) + '</span>';
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        addLayerAt(type, natX, natY, natW, natH);
-        closeDrawTypePicker();
-      });
-      popup.appendChild(btn);
-    });
-
-    // Position near mouse, keep on screen
-    document.body.appendChild(backdrop);
-    document.body.appendChild(popup);
-    drawPopup = {
-      popup,
-      backdrop
-    };
-
-    // Position after appending so we know the size
-    requestAnimationFrame(() => {
-      const pw = popup.offsetWidth,
-        ph = popup.offsetHeight;
-      const vw = window.innerWidth,
-        vh = window.innerHeight;
-      let left = clientX + 8;
-      let top = clientY + 8;
-      if (left + pw > vw - 8) {
-        left = clientX - pw - 8;
-      }
-      if (top + ph > vh - 8) {
-        top = clientY - ph - 8;
-      }
-      popup.style.left = Math.max(8, left) + 'px';
-      popup.style.top = Math.max(8, top) + 'px';
-    });
-
-    // Close on backdrop click or Escape
-    backdrop.addEventListener('click', closeDrawTypePicker);
-    document.addEventListener('keydown', onDrawPickerKey);
-  }
-  function onDrawPickerKey(e) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closeDrawTypePicker();
-    }
-  }
-  function closeDrawTypePicker() {
-    if (drawPopup) {
-      drawPopup.popup.remove();
-      drawPopup.backdrop.remove();
-      drawPopup = null;
-    }
-    document.removeEventListener('keydown', onDrawPickerKey);
-  }
-  function addLayerAt(type, x, y, w, h) {
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
-    addLayerWithBounds(type, area.x + Math.round((x - area.x) / px), area.y + Math.round((y - area.y) / px), Math.max(1, Math.round(w / px)), Math.max(1, Math.round(h / px)));
-  }
-
-  // ── Canvas drag/resize ─────────────────────────────────────────────────────
-
-  function activeEntity() {
-    const area = selectedArea();
-    if (!area) {
-      return null;
-    }
-    const layer = selectedLayer();
-    return layer || area;
-  }
-  function startDrag(e, type, dir) {
-    const entity = activeEntity();
-    if (!entity) {
-      return;
-    }
-    const area = selectedArea();
-    const layer = selectedLayer();
-    if (layer ? layer.locked : area && area.locked) {
-      return;
-    }
-    drag = {
-      type,
-      dir,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      startX: entity.x,
-      startY: entity.y,
-      startW: entity.w,
-      startH: entity.h,
-      startRotation: normaliseRotation(entity.rotation)
-    };
-  }
-  function onDragMove(e) {
-    if (!drag) {
-      return;
-    }
-    const entity = activeEntity();
-    const img = document.getElementById('oc-canvas-mockup-img');
-    const area = selectedArea();
-    const layer = selectedLayer();
-    if (!entity || !img) {
-      return;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    if (drag.type === 'rotate') {
-      const rect = img.getBoundingClientRect();
-      const displayArea = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area);
-      const cx = rect.left + (displayArea.x + displayArea.w / 2) * scale;
-      const cy = rect.top + (displayArea.y + displayArea.h / 2) * scale;
-      entity.rotation = normaliseRotation(Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90);
-      updateBoundsBox();
-      renderGhosts();
-      updateCoordsReadout(entity);
-      syncRightBounds(entity);
-      renderHiddenFields();
-      return;
-    }
-    const unitScale = layer || drag.type !== 'move' ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area) : 1;
-    const dx = Math.round((e.clientX - drag.startClientX) / scale / unitScale);
-    const dy = Math.round((e.clientY - drag.startClientY) / scale / unitScale);
-    const natW = img.naturalWidth || 2000;
-    const natH = img.naturalHeight || 2000;
-    const d = drag.dir;
-    const minX = layer ? area.x : 0;
-    const minY = layer ? area.y : 0;
-    const maxX = layer ? area.x + area.w : natW;
-    const maxY = layer ? area.y + area.h : natH;
-    const maxW = layer ? maxX - entity.x : (maxX - entity.x) / unitScale;
-    const maxH = layer ? maxY - entity.y : (maxY - entity.y) / unitScale;
-    if (drag.type === 'move') {
-      entity.x = clamp(drag.startX + dx, minX, maxX - entity.w);
-      entity.y = clamp(drag.startY + dy, minY, maxY - entity.h);
-    } else {
-      let nx = drag.startX,
-        ny = drag.startY,
-        nw = drag.startW,
-        nh = drag.startH;
-      if (d.includes('e')) {
-        nw = Math.max(1, drag.startW + dx);
-      }
-      if (d.includes('s')) {
-        nh = Math.max(1, drag.startH + dy);
-      }
-      if (d.includes('w')) {
-        nw = Math.max(1, drag.startW - dx);
-        nx = drag.startX + drag.startW - nw;
-      }
-      if (d.includes('n')) {
-        nh = Math.max(1, drag.startH - dy);
-        ny = drag.startY + drag.startH - nh;
-      }
-      if (!layer && area.ratioLocked) {
-        const ratio = currentAspectRatio(area);
-        if (d === 'n' || d === 's') {
-          nw = Math.max(1, nh * ratio);
-        } else {
-          nh = Math.max(1, nw / ratio);
-        }
-        if (d.includes('w')) {
-          nx = drag.startX + drag.startW - nw;
-        }
-        if (d.includes('n')) {
-          ny = drag.startY + drag.startH - nh;
-        }
-      }
-      entity.x = clamp(nx, minX, maxX);
-      entity.y = clamp(ny, minY, maxY);
-      entity.w = Math.min(nw, maxW);
-      entity.h = Math.min(nh, maxH);
-      if (!layer && area.ratioLocked) {
-        const ratio = currentAspectRatio(area);
-        if (d === 'n' || d === 's') {
-          entity.w = Math.min(maxW, Math.max(1, Math.round(entity.h * ratio)));
-        } else {
-          entity.h = Math.min(maxH, Math.max(1, Math.round(entity.w / ratio)));
-        }
-      }
-      if (!layer && !area.ratioLocked) {
-        updateAspectRatio(area);
-      }
-    }
-    updateBoundsBox();
-    renderGhosts();
-    updateCoordsReadout(entity);
-    syncRightBounds(entity);
-    renderHiddenFields();
-  }
-  function onDragEnd() {
-    if (drag) {
-      snapshot();
-    } // snapshot after every move/resize
-    drag = null;
-  }
-  function syncBoundsFromInputs(changedId = '') {
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    const layer = changedId.startsWith('oc-layer-') && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] : null;
-    const entity = layer || area;
-    const inputPrefix = layer ? 'oc-layer' : 'oc-prop';
-    const readInt = (id, fallback) => {
-      const value = parseInt(document.getElementById(id)?.value || fallback, 10);
-      return Number.isFinite(value) ? value : fallback;
-    };
-    if (changedId === inputPrefix + '-x') {
-      entity.x = readInt(changedId, entity.x || 0);
-    }
-    if (changedId === inputPrefix + '-y') {
-      entity.y = readInt(changedId, entity.y || 0);
-    }
-    if (changedId === inputPrefix + '-w') {
-      entity.w = Math.max(1, readInt(changedId, entity.w || 1));
-      if (!layer && area.ratioLocked) {
-        entity.h = Math.max(1, Math.round(entity.w / currentAspectRatio(area)));
-      }
-    }
-    if (changedId === inputPrefix + '-h') {
-      entity.h = Math.max(1, readInt(changedId, entity.h || 1));
-      if (!layer && area.ratioLocked) {
-        entity.w = Math.max(1, Math.round(entity.h * currentAspectRatio(area)));
-      }
-    }
-    if (!layer && !area.ratioLocked && (changedId === 'oc-prop-w' || changedId === 'oc-prop-h')) {
-      updateAspectRatio(area);
-    }
-    if (!layer && changedId === 'oc-prop-dpi') {
-      entity.dpi = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi)(readInt(changedId, entity.dpi || 300));
-    }
-    if (!layer && changedId === 'oc-prop-rotation') {
-      entity.rotation = normaliseRotation(readInt(changedId, entity.rotation || 0));
-    }
-    if (layer) {
-      clampLayerToArea(layer, area);
-    }
-    updateBoundsBox();
-    renderGhosts();
-    updateCoordsReadout(entity);
-    renderHiddenFields();
-    markDirty();
-  }
-  function syncRightBounds(entity) {
-    const area = selectedArea();
-    const layer = selectedLayer();
-    const prefix = entity === layer ? 'oc-layer' : 'oc-prop';
-    setVal(prefix + '-x', entity.x);
-    setVal(prefix + '-y', entity.y);
-    setVal(prefix + '-w', entity.w);
-    setVal(prefix + '-h', entity.h);
-    if (entity === area) {
-      setVal('oc-prop-dpi', entity.dpi || 300);
-    }
-    if (entity === area) {
-      renderRatioLockButton(entity);
-    }
-    if (entity === area) {
-      setVal('oc-prop-rotation', normaliseRotation(entity.rotation));
-    }
-  }
-  function openMockupPicker() {
-    if (selectedIndex < 0) {
-      return;
-    }
-    if (!window.wp || !window.wp.media) {
-      alert('Media library is not available.');
-      return;
-    }
-    if (!mediaFrame) {
-      const data = window.ocProductsData || {};
-      mediaFrame = wp.media({
-        title: data.mediaTitle || 'Select Mockup Image',
-        button: {
-          text: data.mediaBtn || 'Use as Mockup'
-        },
-        library: {
-          type: 'image'
-        },
-        multiple: false
-      });
-      mediaFrame.on('select', () => {
-        const att = mediaFrame.state().get('selection').first().toJSON();
-        const area = selectedArea();
-        if (area) {
-          area.mockupId = att.id;
-          area.mockupUrl = att.sizes && att.sizes.large && att.sizes.large.url || att.url;
-          renderAll();
-          markDirty();
-        }
-      });
-    }
-    mediaFrame.open();
-  }
-
-  // ── Boot ───────────────────────────────────────────────────────────────────
-
-  document.addEventListener('DOMContentLoaded', init);
-})();
+  return {
+    buildTabContent,
+    bindSettingsHandlers
+  };
+}
 
 /***/ },
 

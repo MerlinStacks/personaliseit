@@ -381,6 +381,24 @@
 		clip-path: inset(50%);
 	}
 
+	@media (max-width: 639px) and (hover: none) and (pointer: coarse) {
+		select.oc-font-native-select {
+			position: static;
+			width: 100%;
+			height: auto;
+			margin: 0;
+			padding: 9px 40px 9px 12px;
+			border: 1px solid var(--oc-border-strong);
+			overflow: visible;
+			clip: auto;
+			clip-path: none;
+		}
+
+		.oc-font-combobox {
+			display: none;
+		}
+	}
+
 	.oc-font-combobox {
 		position: relative;
 	}
