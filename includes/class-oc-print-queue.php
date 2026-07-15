@@ -22,25 +22,48 @@ class OC_Print_Queue {
 		add_action( 'oc_process_print_queue_now', [ $this, 'process' ] );
 	}
 
-	public function enqueue( int $order_id, int $item_id, int $print_area_id, array $area_data, string $print_method ): int {
+	public function enqueue( int $order_id, int $item_id, int $print_area_id, array $area_data, string $print_method, int $print_file_id = 0, string $area_source = 'unknown', int $row_index = 0 ): int {
 		global $wpdb;
 
-		$wpdb->insert(
-			$wpdb->prefix . 'oc_print_queue',
-			[
-				'order_id'      => $order_id,
-				'order_item_id' => $item_id,
-				'print_area_id' => $print_area_id,
-				'area_data'     => wp_json_encode( $area_data ),
-				'print_method'  => $print_method,
-				'status'        => 'pending',
-			],
-			[ '%d', '%d', '%d', '%s', '%s', '%s' ]
-		);
+		$table = $wpdb->prefix . 'oc_print_queue';
+		if ( $print_file_id > 0 ) {
+			$wpdb->query( $wpdb->prepare(
+				"INSERT IGNORE INTO {$table}
+				 (print_file_id, order_id, order_item_id, print_area_id, area_source, row_index, area_data, print_method, status)
+				 VALUES (%d, %d, %d, %d, %s, %d, %s, %s, 'pending')",
+				$print_file_id,
+				$order_id,
+				$item_id,
+				$print_area_id,
+				$area_source,
+				$row_index,
+				wp_json_encode( $area_data ),
+				$print_method
+			) );
+			$queue_id = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$table} WHERE print_file_id = %d LIMIT 1",
+				$print_file_id
+			) );
+		} else {
+			$wpdb->insert(
+				$table,
+				[
+					'order_id'      => $order_id,
+					'order_item_id' => $item_id,
+					'print_area_id' => $print_area_id,
+					'area_source'   => $area_source,
+					'row_index'     => $row_index,
+					'area_data'     => wp_json_encode( $area_data ),
+					'print_method'  => $print_method,
+					'status'        => 'pending',
+				]
+			);
+			$queue_id = (int) $wpdb->insert_id;
+		}
 
 		$this->schedule_processing();
 
-		return (int) $wpdb->insert_id;
+		return $queue_id;
 	}
 
 	/** Schedule a near-immediate queue run for newly inserted jobs. */
@@ -62,25 +85,11 @@ class OC_Print_Queue {
 
 	public function process_one( int $job_id ): void {
 		global $wpdb;
-		$job = OC_DB::get_queue_job( $job_id );
+		$job = OC_DB::claim_queue_job( $job_id, self::MAX_ATTEMPTS );
 
 		if ( ! $job ) {
 			return;
 		}
-
-		if ( 'processing' === $job->status ) {
-			return;
-		}
-
-		if ( 'failed' === $job->status && (int) $job->attempts >= self::MAX_ATTEMPTS ) {
-			return;
-		}
-
-		OC_DB::update_queue_job( $job_id, [
-			'status'       => 'processing',
-			'attempts'     => (int) $job->attempts + 1,
-			'processed_at' => current_time( 'mysql', true ),
-		] );
 
 		$area      = null;
 		$area_data = null;
@@ -109,34 +118,23 @@ class OC_Print_Queue {
 				return;
 			}
 
-			$area = $wpdb->get_row( $wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_design_print_areas WHERE id = %d LIMIT 1",
-				$job->print_area_id
-			) );
-
-			$is_v2_area = (bool) $area;
-
+			$print_file = ! empty( $job->print_file_id ) ? OC_DB::get_print_file( (int) $job->print_file_id ) : null;
+			$area       = $this->area_from_snapshot( $print_file );
 			if ( ! $area ) {
-				$area = $wpdb->get_row( $wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_print_areas WHERE id = %d LIMIT 1",
-					$job->print_area_id
-				) );
+				$area = $this->get_print_area_for_job( (int) $job->print_area_id, (string) $job->area_source );
 			}
 
 			if ( ! $area ) {
 				throw new \RuntimeException( "Print area #{$job->print_area_id} not found." );
 			}
 
-			if ( $is_v2_area ) {
+			if ( 'design' === (string) $job->area_source ) {
 				$area = OC_Print_Generator::area_object_for_generation( $area, $area_data );
 			}
 
-			$print_file = $wpdb->get_row( $wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d ORDER BY id DESC LIMIT 1",
-				$job->order_id,
-				$job->order_item_id,
-				$job->print_area_id
-			) );
+			if ( ! $print_file ) {
+				$print_file = $this->get_print_file_for_area( (int) $job->order_id, (int) $job->order_item_id, (int) $job->print_area_id, (string) $job->area_source, (int) $job->row_index );
+			}
 
 			if ( ! $print_file ) {
 				throw new \RuntimeException( 'No matching print file record found for queue job.' );
@@ -146,14 +144,15 @@ class OC_Print_Queue {
 			$now            = current_time( 'mysql', true );
 			$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
-			OC_DB::update_print_file( (int) $print_file->id, [
-				'file_status'  => 'generating',
-				'generated_at' => $now,
-				'expires_at'   => $expires_at,
-				'file_path'    => null,
-			] );
-
-			$result = OC_Print_Generator::generate_for_area( $order, (int) $job->order_item_id, $area, $area_data );
+			$result = OC_Print_Generator::with_output_lock(
+				(int) $job->order_id,
+				(int) $job->order_item_id,
+				static function () use ( $order, $job, $area, $area_data, $print_file ): array {
+					$result = OC_Print_Generator::generate_for_area( $order, (int) $job->order_item_id, $area, $area_data );
+					$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_file->id );
+					return $result;
+				}
+			);
 
 			$thumb_path = null;
 			$ext = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
@@ -170,6 +169,8 @@ class OC_Print_Queue {
 				'file_path'      => $result['file_path'],
 				'file_status'    => $result['status'],
 				'thumbnail_path' => $thumb_path,
+				'generated_at'   => $now,
+				'expires_at'     => $expires_at,
 			] );
 
 			OC_DB::update_queue_job( $job_id, [
@@ -189,18 +190,16 @@ class OC_Print_Queue {
 			OC_Logger::error( sprintf(
 				'Queue job #%d failed (attempt %d): %s',
 				$job_id,
-				(int) $job->attempts + 1,
+				(int) $job->attempts,
 				$error_msg
 			) );
 
-			if ( (int) $job->attempts + 1 >= self::MAX_ATTEMPTS ) {
+			if ( (int) $job->attempts >= self::MAX_ATTEMPTS ) {
 				OC_DB::update_queue_job( $job_id, [
 					'status'        => 'failed',
 					'error_message' => $error_msg,
 					'processed_at'  => current_time( 'mysql', true ),
 				] );
-
-				$this->mark_job_print_files_pending( $job, $area_data );
 
 				$order = wc_get_order( (int) $job->order_id );
 				if ( $order instanceof \WC_Order ) {
@@ -219,8 +218,6 @@ class OC_Print_Queue {
 					'error_message' => $error_msg,
 					'processed_at'  => $retry_at,
 				] );
-
-				$this->mark_job_print_files_pending( $job, $area_data );
 			}
 		}
 	}
@@ -238,17 +235,24 @@ class OC_Print_Queue {
 				continue;
 			}
 
-			$area_id = (int) $entry['areaId'];
-			$area    = $this->get_print_area_for_job( $area_id );
+			$area_id     = (int) $entry['areaId'];
+			$area_source = (string) ( $entry['areaSource'] ?? $job->area_source ?? 'unknown' );
+			$print_file  = ! empty( $entry['printFileId'] ) ? OC_DB::get_print_file( (int) $entry['printFileId'] ) : null;
+			$area        = $this->area_from_snapshot( $print_file );
+			if ( ! $area ) {
+				$area = $this->get_print_area_for_job( $area_id, $area_source );
+			}
 			if ( ! $area ) {
 				throw new \RuntimeException( "Print area #{$area_id} not found." );
 			}
 
-			if ( $this->is_v2_print_area( $area_id ) ) {
+			if ( 'design' === $area_source ) {
 				$area = OC_Print_Generator::area_object_for_generation( $area, $entry['areaData'] );
 			}
 
-			$print_file = $this->get_print_file_for_area( (int) $job->order_id, (int) $job->order_item_id, $area_id );
+			if ( ! $print_file ) {
+				$print_file = $this->get_print_file_for_area( (int) $job->order_id, (int) $job->order_item_id, $area_id, $area_source, (int) ( $entry['rowIndex'] ?? $job->row_index ?? 0 ) );
+			}
 			if ( ! $print_file ) {
 				throw new \RuntimeException( "No matching print file record found for combined print area #{$area_id}." );
 			}
@@ -268,16 +272,15 @@ class OC_Print_Queue {
 		$now            = current_time( 'mysql', true );
 		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
-		foreach ( $print_files as $print_file ) {
-			OC_DB::update_print_file( (int) $print_file->id, [
-				'file_status'  => 'generating',
-				'generated_at' => $now,
-				'expires_at'   => $expires_at,
-				'file_path'    => null,
-			] );
-		}
-
-		$result = OC_Print_Generator::generate_for_areas( $order, (int) $job->order_item_id, (string) $job->print_method, $areas );
+		$result = OC_Print_Generator::with_output_lock(
+			(int) $job->order_id,
+			(int) $job->order_item_id,
+			static function () use ( $order, $job, $areas, $print_files ): array {
+				$result = OC_Print_Generator::generate_for_areas( $order, (int) $job->order_item_id, (string) $job->print_method, $areas );
+				$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_files[0]->id );
+				return $result;
+			}
+		);
 		$thumb_path = null;
 		$ext = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
 		if ( 'pdf' === $ext && file_exists( $result['file_path'] ) ) {
@@ -294,6 +297,8 @@ class OC_Print_Queue {
 				'file_path'      => $result['file_path'],
 				'file_status'    => $result['status'],
 				'thumbnail_path' => $thumb_path,
+				'generated_at'   => $now,
+				'expires_at'     => $expires_at,
 			] );
 		}
 
@@ -309,58 +314,43 @@ class OC_Print_Queue {
 		}
 	}
 
-	private function get_print_area_for_job( int $area_id ): ?object {
+	private function get_print_area_for_job( int $area_id, string $area_source ): ?object {
 		global $wpdb;
-		$area = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_design_print_areas WHERE id = %d LIMIT 1",
-			$area_id
-		) );
+		$table = match ( $area_source ) {
+			'design' => $wpdb->prefix . 'oc_design_print_areas',
+			'legacy' => $wpdb->prefix . 'oc_print_areas',
+			default  => '',
+		};
 
-		if ( $area ) {
-			return $area;
+		if ( '' === $table ) {
+			return null;
 		}
 
 		return $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_print_areas WHERE id = %d LIMIT 1",
+			"SELECT * FROM {$table} WHERE id = %d LIMIT 1",
 			$area_id
 		) ) ?: null;
 	}
 
-	private function is_v2_print_area( int $area_id ): bool {
-		global $wpdb;
-		return (bool) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_design_print_areas WHERE id = %d LIMIT 1",
-			$area_id
-		) );
+	private function area_from_snapshot( ?object $print_file ): ?object {
+		if ( ! $print_file || empty( $print_file->area_snapshot ) ) {
+			return null;
+		}
+
+		$snapshot = json_decode( (string) $print_file->area_snapshot, true );
+		return is_array( $snapshot ) && ! empty( $snapshot ) ? (object) $snapshot : null;
 	}
 
-	private function get_print_file_for_area( int $order_id, int $item_id, int $area_id ): ?object {
+	private function get_print_file_for_area( int $order_id, int $item_id, int $area_id, string $area_source, int $row_index ): ?object {
 		global $wpdb;
 		return $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d ORDER BY id DESC LIMIT 1",
+			"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d AND area_source = %s AND row_index = %d ORDER BY id DESC LIMIT 1",
 			$order_id,
 			$item_id,
-			$area_id
+			$area_id,
+			$area_source,
+			$row_index
 		) ) ?: null;
-	}
-
-	private function mark_job_print_files_pending( object $job, mixed $area_data ): void {
-		$area_ids = [ (int) $job->print_area_id ];
-		if ( is_array( $area_data ) && OC_Print_Generator::is_combined_area_data( $area_data ) ) {
-			$area_ids = [];
-			foreach ( $area_data['__combined_print_areas'] as $entry ) {
-				if ( is_array( $entry ) && ! empty( $entry['areaId'] ) ) {
-					$area_ids[] = (int) $entry['areaId'];
-				}
-			}
-		}
-
-		foreach ( array_unique( $area_ids ) as $area_id ) {
-			$print_file = $this->get_print_file_for_area( (int) $job->order_id, (int) $job->order_item_id, $area_id );
-			if ( $print_file ) {
-				OC_DB::update_print_file( (int) $print_file->id, [ 'file_status' => 'pending' ] );
-			}
-		}
 	}
 
 	/** Return true when an order has no pending or processing print jobs left. */
@@ -406,6 +396,21 @@ class OC_Print_Queue {
 
 		if ( is_array( $queue_status ) ) {
 			foreach ( $queue_status as $q ) {
+				if ( ! empty( $q->print_file_id ) && (int) $q->print_file_id !== (int) $file->id ) {
+					$area_data = json_decode( (string) ( $q->area_data ?? '' ), true );
+					$contains_file = false;
+					if ( is_array( $area_data ) && OC_Print_Generator::is_combined_area_data( $area_data ) ) {
+						foreach ( $area_data['__combined_print_areas'] as $entry ) {
+							if ( is_array( $entry ) && (int) ( $entry['printFileId'] ?? 0 ) === (int) $file->id ) {
+								$contains_file = true;
+								break;
+							}
+						}
+					}
+					if ( ! $contains_file ) {
+						continue;
+					}
+				}
 				if ( ! $this->queue_job_contains_print_area( $q, (int) $file->print_area_id ) ) {
 					continue;
 				}

@@ -337,14 +337,25 @@ const designVariantMethods = {
 				);
 			}
 		}
+		this._designGeneration += 1;
+		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
+			this.uploadGenerations[ layerId ] += 1;
+		} );
+		Object.keys( this.spotifyValidateTokens ).forEach( ( layerId ) =>
+			this.invalidateSpotifyValidation( layerId )
+		);
 
 		Object.values( this.canvases || {} ).forEach( ( canvas ) =>
 			canvas?.dispose?.()
 		);
+		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
+			this._redrawGenerations[ areaIndex ] += 1;
+		} );
 		this.canvases = {};
 		this._previewUrl = null;
 		this.activeArea = 0;
 		this.selectedDesignVariant = variantId;
+		this._customisationActive = true;
 
 		const currentPanel = document.getElementById( 'oc-customiser-panel' );
 		if ( currentPanel ) {
@@ -381,9 +392,11 @@ const designVariantMethods = {
 		this.preflightRoot = document.getElementById( 'oc-preflight-messages' );
 		this.mobileCartPreviewDialog = null;
 		this.setupInputListeners();
+		this.seedTemplateImageDefaults();
 		this.setupDesignVariantOptions();
 		this.setupDesignVariantCarousel();
 		this.renderDesignVariantThumbnails();
+		this.setupClipartCarousels();
 		this.setupUploadZones();
 		this.setupVariationGalleryHandoff();
 		this.applyInputsToDOM();

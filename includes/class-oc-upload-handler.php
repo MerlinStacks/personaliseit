@@ -18,6 +18,8 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Upload_Handler {
+	private const MAX_IMAGE_DIMENSION = 12000;
+	private const MAX_IMAGE_PIXELS = 40000000;
 
 	/** Nonce action used to authenticate upload requests. */
 	public const NONCE_ACTION = 'oc_upload_artwork';
@@ -63,7 +65,7 @@ class OC_Upload_Handler {
 	 * @return array{attachment_id:int,preview_url:string,original_url:string,file_type:string}
 	 * @throws \RuntimeException On validation or processing failure.
 	 */
-	public static function process( array $_file, ?array $overrides = null ): array {
+	public static function process( array $_file, ?array $overrides = null, array $context = [] ): array {
 		self::validate( $_file, $overrides );
 
 		$mime     = self::detect_mime( $_file['tmp_name'], $_file['name'] );
@@ -86,7 +88,53 @@ class OC_Upload_Handler {
 			$result = apply_filters( 'oc_upload_remove_background', $result, $_file, $type_key );
 		}
 
+		self::record_ownership( (int) $result['attachment_id'], $context );
+
 		return $result;
+	}
+
+	/** Verify that customer artwork belongs to this customer and exact layer context. */
+	public static function attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token = '' ): bool {
+		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) return false;
+		$path = get_attached_file( $attachment_id );
+		if ( ! is_string( $path ) || ! file_exists( $path ) || ! is_file( $path ) ) return false;
+		$mime          = (string) get_post_mime_type( $attachment_id );
+		$detected_mime = self::detect_mime( $path, basename( $path ) );
+		if ( ! isset( self::SUPPORTED_TYPES[ $mime ], self::SUPPORTED_TYPES[ $detected_mime ] ) || self::SUPPORTED_TYPES[ $mime ] !== self::SUPPORTED_TYPES[ $detected_mime ] ) return false;
+		$actual   = array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) );
+		if ( 4 !== count( $actual ) || $product_id !== $actual[0] || ! in_array( $actual[1], [ 0, $variation_id ], true ) || $design_id !== $actual[2] || $layer_id !== $actual[3] ) return false;
+		$user_id = (int) get_post_meta( $attachment_id, '_oc_artwork_user_id', true );
+		if ( $user_id > 0 ) return $user_id === get_current_user_id();
+		$stored_token = (string) get_post_meta( $attachment_id, '_oc_artwork_token', true );
+		if ( '' !== $stored_token && '' !== $token && hash_equals( $stored_token, hash( 'sha256', $token ) ) ) return true;
+		$stored_session = (string) get_post_meta( $attachment_id, '_oc_artwork_session', true );
+		return '' !== $stored_session && hash_equals( $stored_session, self::session_hash() );
+	}
+
+	/** Admin-configured defaults are immutable and need validity, not customer ownership. */
+	public static function admin_default_attachment_is_valid( int $attachment_id ): bool {
+		$path = get_attached_file( $attachment_id );
+		if ( ! is_string( $path ) || ! is_file( $path ) ) return false;
+		$stored   = (string) get_post_mime_type( $attachment_id );
+		$detected = self::detect_mime( $path, basename( $path ) );
+		return isset( self::SUPPORTED_TYPES[ $stored ], self::SUPPORTED_TYPES[ $detected ] ) && self::SUPPORTED_TYPES[ $stored ] === self::SUPPORTED_TYPES[ $detected ];
+	}
+
+	private static function record_ownership( int $attachment_id, array $context ): void {
+		update_post_meta( $attachment_id, '_oc_artwork_context', [
+			absint( $context['product_id'] ?? 0 ), absint( $context['variation_id'] ?? 0 ),
+			absint( $context['design_id'] ?? 0 ), absint( $context['layer_id'] ?? 0 ),
+		] );
+		update_post_meta( $attachment_id, '_oc_artwork_user_id', get_current_user_id() );
+		update_post_meta( $attachment_id, '_oc_artwork_session', self::session_hash() );
+		update_post_meta( $attachment_id, '_oc_artwork_token', sanitize_text_field( (string) ( $context['token_hash'] ?? '' ) ) );
+		update_post_meta( $attachment_id, '_oc_artwork_owner_secret', wp_generate_password( 64, false, false ) );
+	}
+
+	private static function session_hash(): string {
+		$session = function_exists( 'WC' ) && WC() ? WC()->session ?? null : null;
+		$id      = $session && method_exists( $session, 'get_customer_id' ) ? (string) $session->get_customer_id() : '';
+		return '' !== $id ? hash_hmac( 'sha256', $id, wp_salt( 'auth' ) ) : '';
 	}
 
 	// -------------------------------------------------------------------------
@@ -129,11 +177,14 @@ class OC_Upload_Handler {
 			);
 		}
 
-		$allowed_formats = ! empty( $overrides['formats'] ) && is_array( $overrides['formats'] )
+		$allowed_formats = isset( $overrides['formats'] ) && is_array( $overrides['formats'] )
 			? $overrides['formats']
 			: (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
 		$allowed_formats = array_values( array_filter( array_map( [ self::class, 'normalise_extension' ], $allowed_formats ) ) );
 		$ext             = self::normalise_extension( pathinfo( $name, PATHINFO_EXTENSION ) );
+		if ( isset( $overrides['formats'] ) && empty( $allowed_formats ) ) {
+			throw new \RuntimeException( __( 'This layer does not allow artwork file formats.', 'overcustomise' ) );
+		}
 
 		if ( '' === $ext ) {
 			throw new \RuntimeException( __( 'File has no extension.', 'overcustomise' ) );
@@ -325,6 +376,7 @@ class OC_Upload_Handler {
 			OC_Logger::warning( 'Image validation failed: ' . ( $err['message'] ?? 'unknown error' ) );
 			throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 		}
+		self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
 
 		$mime          = $image_info['mime'];
 		$attachment_id = self::save_to_media_library(
@@ -355,8 +407,12 @@ class OC_Upload_Handler {
 	private static function convert_via_imagick( string $source, string $dest ): bool {
 		try {
 			$im = new \Imagick();
+			$im->setResourceLimit( \Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024 );
+			$im->setResourceLimit( \Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024 );
+			$im->setResourceLimit( \Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024 );
 			$im->setResolution( 150, 150 );
 			$im->readImage( $source . '[0]' ); // First page only.
+			self::validate_image_dimensions( $im->getImageWidth(), $im->getImageHeight() );
 			$im->setImageFormat( 'png' );
 			$im->setImageAlphaChannel( \Imagick::ALPHACHANNEL_REMOVE );
 			$im->setImageBackgroundColor( 'white' );
@@ -383,11 +439,15 @@ class OC_Upload_Handler {
 				$binary,
 				'-dNOPAUSE',
 				'-dBATCH',
+				'-dSAFER',
+				'-dQUIET',
+				'-dMaxBitmap=40000000',
 				'-dFirstPage=1',
 				'-dLastPage=1',
 				'-sDEVICE=png16m',
 				'-r150',
-				'-dFITALL',
+				'-g2400x2400',
+				'-dPDFFitPage',
 				'-sOutputFile=' . $dest,
 				$source,
 			] );
@@ -401,7 +461,17 @@ class OC_Upload_Handler {
 			return false;
 		}
 
-		return file_exists( $dest );
+		if ( ! file_exists( $dest ) ) return false;
+		$info = @getimagesize( $dest );
+		if ( ! is_array( $info ) ) { @unlink( $dest ); return false; }
+		try { self::validate_image_dimensions( (int) $info[0], (int) $info[1] ); } catch ( \RuntimeException $e ) { @unlink( $dest ); return false; }
+		return true;
+	}
+
+	private static function validate_image_dimensions( int $width, int $height ): void {
+		if ( $width <= 0 || $height <= 0 || $width > self::MAX_IMAGE_DIMENSION || $height > self::MAX_IMAGE_DIMENSION || $width * $height > self::MAX_IMAGE_PIXELS ) {
+			throw new \RuntimeException( __( 'Image dimensions exceed the safe processing limit.', 'overcustomise' ) );
+		}
 	}
 
 	/** Detect a usable Ghostscript binary for the host platform. */
@@ -468,8 +538,10 @@ class OC_Upload_Handler {
 			}
 		}
 
-		// Unique destination filename.
-		$dest_filename = wp_unique_filename( $subdir, $filename );
+		// Do not expose customer-supplied names in predictable public URLs.
+		$extension     = self::normalise_extension( pathinfo( $filename, PATHINFO_EXTENSION ) );
+		$random_name   = 'artwork-' . strtolower( wp_generate_password( 32, false, false ) );
+		$dest_filename = wp_unique_filename( $subdir, $random_name . ( $extension ? '.' . $extension : '' ) );
 		$dest_path     = $subdir . '/' . $dest_filename;
 
 		// Copy file to upload directory (don't move — tmp file still needed).

@@ -155,6 +155,45 @@ class Test_DB extends WP_UnitTestCase {
 		}
 	}
 
+	#[Test]
+	public function print_file_identity_insert_is_atomic_and_distinguishes_source_and_vdp_row(): void {
+		$base = [
+			'order_id'      => 7001,
+			'order_item_id' => 7002,
+			'print_area_id' => 42,
+			'area_source'   => 'design',
+			'row_index'     => 1,
+			'row_key'       => 'row-one',
+			'file_type'     => 'uv',
+			'file_status'   => 'pending',
+		];
+
+		$first = OC_DB::insert_print_file( $base );
+		$this->assertSame( $first, OC_DB::insert_print_file( $base ) );
+		$this->assertNotSame( $first, OC_DB::insert_print_file( array_merge( $base, [ 'row_index' => 2 ] ) ) );
+		$this->assertNotSame( $first, OC_DB::insert_print_file( array_merge( $base, [ 'area_source' => 'legacy' ] ) ) );
+	}
+
+	#[Test]
+	public function queue_job_can_only_be_claimed_once(): void {
+		global $wpdb;
+		$wpdb->insert( $wpdb->prefix . 'oc_print_queue', [
+			'order_id'      => 8001,
+			'order_item_id' => 8002,
+			'print_area_id' => 1,
+			'area_source'   => 'legacy',
+			'row_index'     => 0,
+			'area_data'     => '{}',
+			'print_method'  => 'uv',
+			'status'        => 'pending',
+		] );
+		$id = (int) $wpdb->insert_id;
+
+		$this->assertNotNull( OC_DB::claim_queue_job( $id, 3 ) );
+		$this->assertNull( OC_DB::claim_queue_job( $id, 3 ) );
+		$this->assertSame( 1, (int) OC_DB::get_queue_job( $id )->attempts );
+	}
+
 	// ── oc_fonts ──────────────────────────────────────────────────────────────
 
 	#[Test]

@@ -7,6 +7,13 @@
 const SPOTIFY_LINK_SYNC_KEYS = [ 'value', 'spotifyStatus', 'spotifyUri' ];
 
 const spotifyMethods = {
+	invalidateSpotifyValidation( layerId ) {
+		this.spotifyValidateTokens[ layerId ] =
+			( this.spotifyValidateTokens[ layerId ] || 0 ) + 1;
+		this.spotifyAbortControllers[ layerId ]?.abort();
+		delete this.spotifyAbortControllers[ layerId ];
+	},
+
 	extractSpotifyUri( inputValue ) {
 		const raw = String( inputValue || '' ).trim();
 		if ( ! raw ) {
@@ -196,7 +203,8 @@ const spotifyMethods = {
 		if ( ! this.inputs[ layerId ] ) {
 			this.inputs[ layerId ] = {};
 		}
-		const token = ( this.spotifyValidateTokens[ layerId ] || 0 ) + 1;
+		this.invalidateSpotifyValidation( layerId );
+		const token = this.spotifyValidateTokens[ layerId ];
 		this.spotifyValidateTokens[ layerId ] = token;
 
 		if ( ! value ) {
@@ -227,6 +235,8 @@ const spotifyMethods = {
 			return;
 		}
 
+		const controller = new AbortController();
+		this.spotifyAbortControllers[ layerId ] = controller;
 		try {
 			const res = await fetch( this.data.validateSpotifyUrl, {
 				method: 'POST',
@@ -234,6 +244,7 @@ const spotifyMethods = {
 					'Content-Type': 'application/json',
 				} ),
 				body: JSON.stringify( { url: value } ),
+				signal: controller.signal,
 			} );
 			const isJson = res.headers
 				.get( 'content-type' )
@@ -252,7 +263,12 @@ const spotifyMethods = {
 			} else {
 				text = await res.text();
 			}
-			if ( this.spotifyValidateTokens[ layerId ] !== token ) {
+			if (
+				this.spotifyValidateTokens[ layerId ] !== token ||
+				String( this.inputs[ layerId ]?.value || '' ).trim() !==
+					value ||
+				( inputEl && String( inputEl.value || '' ).trim() !== value )
+			) {
 				return;
 			}
 			if ( ! res.ok ) {
@@ -299,7 +315,10 @@ const spotifyMethods = {
 					inputEl
 				);
 			}
-		} catch {
+		} catch ( error ) {
+			if ( error?.name === 'AbortError' ) {
+				return;
+			}
 			if ( this.spotifyValidateTokens[ layerId ] !== token ) {
 				return;
 			}
@@ -315,6 +334,9 @@ const spotifyMethods = {
 		this.syncLinkedLayerInput( layerId, SPOTIFY_LINK_SYNC_KEYS );
 		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 		this.updateHiddenField();
+		if ( this.spotifyAbortControllers[ layerId ] === controller ) {
+			delete this.spotifyAbortControllers[ layerId ];
+		}
 	},
 };
 

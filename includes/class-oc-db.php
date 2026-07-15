@@ -257,6 +257,11 @@ class OC_DB {
 			order_id       BIGINT UNSIGNED NOT NULL,
 			order_item_id  BIGINT UNSIGNED NOT NULL,
 			print_area_id  BIGINT UNSIGNED NOT NULL,
+			area_source    VARCHAR(20) NOT NULL DEFAULT 'unknown',
+			row_index      INT UNSIGNED NOT NULL DEFAULT 0,
+			row_key        VARCHAR(191) NOT NULL DEFAULT '',
+			identity_key   CHAR(64) DEFAULT NULL,
+			area_snapshot  LONGTEXT DEFAULT NULL,
 			file_type      VARCHAR(20)  NOT NULL DEFAULT '',
 			file_path      VARCHAR(500) DEFAULT NULL,
 			thumbnail_path VARCHAR(500) DEFAULT NULL,
@@ -264,6 +269,7 @@ class OC_DB {
 			generated_at   DATETIME DEFAULT NULL,
 			expires_at     DATETIME DEFAULT NULL,
 			PRIMARY KEY (id),
+			UNIQUE KEY identity_key (identity_key),
 			KEY order_id      (order_id),
 			KEY order_item_id (order_item_id),
 			KEY file_status   (file_status),
@@ -315,9 +321,12 @@ class OC_DB {
 		// ------------------------------------------------------------------
 		dbDelta( "CREATE TABLE {$wpdb->prefix}oc_print_queue (
 			id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			print_file_id  BIGINT UNSIGNED DEFAULT NULL,
 			order_id       BIGINT UNSIGNED NOT NULL,
 			order_item_id  BIGINT UNSIGNED NOT NULL,
 			print_area_id  BIGINT UNSIGNED NOT NULL,
+			area_source    VARCHAR(20) NOT NULL DEFAULT 'unknown',
+			row_index      INT UNSIGNED NOT NULL DEFAULT 0,
 			area_data      TEXT NOT NULL,
 			print_method   VARCHAR(20) NOT NULL DEFAULT '',
 			status         ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
@@ -326,6 +335,7 @@ class OC_DB {
 			created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			processed_at   DATETIME DEFAULT NULL,
 			PRIMARY KEY (id),
+			UNIQUE KEY print_file_id (print_file_id),
 			KEY status (status),
 			KEY status_id (status, id),
 			KEY status_created (status, created_at),
@@ -351,7 +361,16 @@ class OC_DB {
 	public static function maybe_upgrade(): void {
 		$installed = get_option( 'oc_db_version', '0' );
 
-		if ( version_compare( $installed, OC_DB_VERSION, '<' ) ) {
+		if ( version_compare( $installed, OC_DB_VERSION, '<' ) || ! self::print_pipeline_schema_ready() ) {
+			$lock_name = 'oc_db_upgrade_lock';
+			$locked_at = (int) get_option( $lock_name, 0 );
+			if ( $locked_at > 0 && $locked_at < time() - 300 ) {
+				delete_option( $lock_name );
+			}
+			if ( ! add_option( $lock_name, time(), '', false ) ) {
+				return;
+			}
+
 			self::create_tables();
 
 			global $wpdb;
@@ -492,8 +511,118 @@ class OC_DB {
 				self::create_tables();
 			}
 
-			update_option( 'oc_db_version', OC_DB_VERSION );
+			self::backfill_print_pipeline_schema();
+
+			if ( self::print_pipeline_schema_ready() ) {
+				update_option( 'oc_db_version', OC_DB_VERSION );
+			} else {
+				OC_Logger::error( 'Print pipeline database upgrade is incomplete; the database version was not advanced.' );
+			}
+
+			delete_option( $lock_name );
 		}
+	}
+
+	/** Confirm every column required by the print pipeline is present. */
+	private static function print_pipeline_schema_ready(): bool {
+		global $wpdb;
+
+		$required = [
+			$wpdb->prefix . 'oc_print_files' => [ 'area_source', 'row_index', 'row_key', 'identity_key', 'area_snapshot' ],
+			$wpdb->prefix . 'oc_print_queue' => [ 'print_file_id', 'area_source', 'row_index' ],
+		];
+
+		foreach ( $required as $table => $columns ) {
+			foreach ( $columns as $column ) {
+				if ( ! self::column_exists( $table, $column ) ) {
+					return false;
+				}
+			}
+		}
+
+		return self::unique_index_exists( $wpdb->prefix . 'oc_print_files', 'identity_key' )
+			&& self::unique_index_exists( $wpdb->prefix . 'oc_print_queue', 'print_file_id' );
+	}
+
+	/** Check for a named unique index. */
+	private static function unique_index_exists( string $table_name, string $index_name ): bool {
+		global $wpdb;
+
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			'SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s AND NON_UNIQUE = 0',
+			$table_name,
+			$index_name
+		) );
+	}
+
+	/** Backfill only area sources that can be established without guessing. */
+	private static function backfill_print_pipeline_schema(): void {
+		global $wpdb;
+
+		if ( ! self::print_pipeline_schema_ready() ) {
+			return;
+		}
+
+		$files = $wpdb->prefix . 'oc_print_files';
+		$queue = $wpdb->prefix . 'oc_print_queue';
+		$legacy = $wpdb->prefix . 'oc_print_areas';
+		$design = $wpdb->prefix . 'oc_design_print_areas';
+		$order_itemmeta = $wpdb->prefix . 'woocommerce_order_itemmeta';
+
+		// Order-time customisation data is authoritative when both area tables share an ID.
+		$wpdb->query(
+			"UPDATE {$files} pf
+			 JOIN {$order_itemmeta} oim ON oim.order_item_id = pf.order_item_id AND oim.meta_key = '_oc_customisation'
+			 SET pf.area_source = CASE
+				 WHEN oim.meta_value LIKE '%s:1:\"v\";i:2;%' OR oim.meta_value LIKE '%\"v\":2%' THEN 'design'
+				 ELSE 'legacy'
+			 END
+			 WHERE pf.area_source = 'unknown'"
+		);
+
+		$wpdb->query(
+			"UPDATE {$files} pf
+			 SET area_source = CASE
+				 WHEN EXISTS (SELECT 1 FROM {$design} da WHERE da.id = pf.print_area_id)
+				  AND NOT EXISTS (SELECT 1 FROM {$legacy} la WHERE la.id = pf.print_area_id) THEN 'design'
+				 WHEN EXISTS (SELECT 1 FROM {$legacy} la WHERE la.id = pf.print_area_id)
+				  AND NOT EXISTS (SELECT 1 FROM {$design} da WHERE da.id = pf.print_area_id) THEN 'legacy'
+				 ELSE 'unknown'
+			 END
+			 WHERE area_source = 'unknown'"
+		);
+
+		// Give the oldest copy of each existing identity the unique key. Historical
+		// duplicates remain readable but cannot cause more duplicate generation.
+		$wpdb->query(
+			"UPDATE {$files} pf
+			 LEFT JOIN {$files} earlier ON earlier.order_id = pf.order_id
+				AND earlier.order_item_id = pf.order_item_id
+				AND earlier.print_area_id = pf.print_area_id
+				AND earlier.area_source = pf.area_source
+				AND earlier.row_index = pf.row_index
+				AND earlier.id < pf.id
+			 SET pf.identity_key = SHA2(CONCAT(pf.order_id, ':', pf.order_item_id, ':', pf.area_source, ':', pf.print_area_id, ':', pf.row_index), 256)
+			 WHERE pf.identity_key IS NULL AND pf.area_source <> 'unknown' AND earlier.id IS NULL"
+		);
+
+		$wpdb->query(
+			"UPDATE {$queue} q
+			 JOIN {$files} pf ON pf.id = (
+				 SELECT candidate.id FROM {$files} candidate
+				 WHERE candidate.order_id = q.order_id
+				 AND candidate.order_item_id = q.order_item_id
+				 AND candidate.print_area_id = q.print_area_id
+				 ORDER BY candidate.id DESC LIMIT 1
+			 )
+			 SET q.print_file_id = pf.id, q.area_source = pf.area_source, q.row_index = pf.row_index
+			 WHERE q.print_file_id IS NULL
+			 AND pf.area_source <> 'unknown'
+			 AND (SELECT COUNT(*) FROM {$files} matches
+				 WHERE matches.order_id = q.order_id
+				 AND matches.order_item_id = q.order_item_id
+				 AND matches.print_area_id = q.print_area_id) = 1"
+		);
 	}
 
 	private static function column_exists( string $table_name, string $column_name ): bool {
@@ -842,11 +971,40 @@ class OC_DB {
 	 */
 	public static function insert_print_file( array $data ): int {
 		global $wpdb;
-		$wpdb->insert( $wpdb->prefix . 'oc_print_files', $data );
+		$table = $wpdb->prefix . 'oc_print_files';
+
+		if ( isset( $data['area_source'], $data['row_index'] ) ) {
+			$allowed_columns = [ 'order_id', 'order_item_id', 'print_area_id', 'area_source', 'row_index', 'row_key', 'identity_key', 'area_snapshot', 'file_type', 'file_path', 'thumbnail_path', 'file_status', 'generated_at', 'expires_at' ];
+			$data = array_intersect_key( $data, array_flip( $allowed_columns ) );
+			$identity = implode( ':', [
+				(int) ( $data['order_id'] ?? 0 ),
+				(int) ( $data['order_item_id'] ?? 0 ),
+				(string) $data['area_source'],
+				(int) ( $data['print_area_id'] ?? 0 ),
+				(int) $data['row_index'],
+			] );
+			$data['identity_key'] = hash( 'sha256', $identity );
+			$columns = array_keys( $data );
+			$values  = array_values( $data );
+			$formats = array_map(
+				static fn ( mixed $value ): string => is_int( $value ) ? '%d' : ( is_float( $value ) ? '%f' : '%s' ),
+				$values
+			);
+			$sql = 'INSERT IGNORE INTO ' . $table
+				. ' (`' . implode( '`,`', $columns ) . '`) VALUES (' . implode( ',', $formats ) . ')';
+			$wpdb->query( $wpdb->prepare( $sql, ...$values ) );
+			$id = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$table} WHERE identity_key = %s LIMIT 1",
+				$data['identity_key']
+			) );
+		} else {
+			$wpdb->insert( $table, $data );
+			$id = (int) $wpdb->insert_id;
+		}
 		if ( ! empty( $data['order_item_id'] ) ) {
 			OC_Cache::delete( 'print_files_item_' . (int) $data['order_item_id'] );
 		}
-		return (int) $wpdb->insert_id;
+		return $id;
 	}
 
 	/**
@@ -1262,6 +1420,25 @@ class OC_DB {
 		) ?: [];
 	}
 
+	/** Atomically claim one due queue job and return its post-claim state. */
+	public static function claim_queue_job( int $id, int $max_attempts ): ?object {
+		global $wpdb;
+		$now = current_time( 'mysql', true );
+
+		$claimed = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->prefix}oc_print_queue
+			 SET status = 'processing', attempts = attempts + 1, processed_at = %s
+			 WHERE id = %d AND status = 'pending' AND attempts < %d
+			 AND (processed_at IS NULL OR processed_at <= %s)",
+			$now,
+			$id,
+			$max_attempts,
+			$now
+		) );
+
+		return 1 === $claimed ? self::get_queue_job( $id ) : null;
+	}
+
 	/** Fetch queue jobs for admin management. */
 	public static function get_queue_jobs( string $status = '', int $limit = 50, int $offset = 0 ): array {
 		global $wpdb;
@@ -1332,9 +1509,12 @@ class OC_DB {
 		return $wpdb->get_results( $wpdb->prepare(
 			"SELECT pf.* FROM {$wpdb->prefix}oc_print_files pf
 			 LEFT JOIN {$wpdb->prefix}oc_print_queue pq
-			 ON pq.order_id = pf.order_id
+			 ON (pq.print_file_id = pf.id OR (pq.print_file_id IS NULL
+			 AND pq.order_id = pf.order_id
 			 AND pq.order_item_id = pf.order_item_id
 			 AND pq.print_area_id = pf.print_area_id
+			 AND pq.area_source = pf.area_source
+			 AND pq.row_index = pf.row_index))
 			 AND pq.status IN ('pending','processing')
 			 WHERE pf.file_status = 'generating'
 			 AND pq.id IS NULL
@@ -1351,9 +1531,12 @@ class OC_DB {
 		return (int) $wpdb->get_var(
 			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files pf
 			 LEFT JOIN {$wpdb->prefix}oc_print_queue pq
-			 ON pq.order_id = pf.order_id
+			 ON (pq.print_file_id = pf.id OR (pq.print_file_id IS NULL
+			 AND pq.order_id = pf.order_id
 			 AND pq.order_item_id = pf.order_item_id
 			 AND pq.print_area_id = pf.print_area_id
+			 AND pq.area_source = pf.area_source
+			 AND pq.row_index = pf.row_index))
 			 AND pq.status IN ('pending','processing')
 			 WHERE pf.file_status = 'generating'
 			 AND pq.id IS NULL"
@@ -1415,9 +1598,9 @@ class OC_DB {
 	}
 
 	/** Insert or update a VDP template. */
-	public static function upsert_vdp_template( array $data ): void {
+	public static function upsert_vdp_template( array $data ): bool {
 		global $wpdb;
-		$wpdb->query( $wpdb->prepare(
+		$result = $wpdb->query( $wpdb->prepare(
 			"INSERT INTO {$wpdb->prefix}oc_vdp_templates (design_id, csv_file_path, active)
 			 VALUES (%d, %s, %d)
 			 ON DUPLICATE KEY UPDATE csv_file_path = VALUES(csv_file_path), active = VALUES(active)",
@@ -1425,20 +1608,26 @@ class OC_DB {
 			$data['csv_file_path'] ?? null,
 			$data['active'] ?? 0
 		) );
+
+		return false !== $result;
 	}
 
 	/** Delete a VDP template and its fields. */
-	public static function delete_vdp_template( int $design_id ): void {
+	public static function delete_vdp_template( int $design_id ): bool {
 		global $wpdb;
 		$template = self::get_vdp_template( $design_id );
 		if ( $template ) {
-			self::delete_vdp_fields( (int) $template->id );
+			if ( ! self::delete_vdp_fields( (int) $template->id ) ) {
+				return false;
+			}
 		}
-		$wpdb->delete(
+		$result = $wpdb->delete(
 			"{$wpdb->prefix}oc_vdp_templates",
 			[ 'design_id' => $design_id ],
 			[ '%d' ]
 		);
+
+		return false !== $result;
 	}
 
 	/** Insert a single VDP field. */
@@ -1457,13 +1646,15 @@ class OC_DB {
 	}
 
 	/** Delete all VDP fields for a template. */
-	public static function delete_vdp_fields( int $template_id ): void {
+	public static function delete_vdp_fields( int $template_id ): bool {
 		global $wpdb;
-		$wpdb->delete(
+		$result = $wpdb->delete(
 			"{$wpdb->prefix}oc_vdp_fields",
 			[ 'template_id' => $template_id ],
 			[ '%d' ]
 		);
+
+		return false !== $result;
 	}
 
 	// -------------------------------------------------------------------------

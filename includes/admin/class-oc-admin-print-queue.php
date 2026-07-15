@@ -238,7 +238,7 @@ class OC_Admin_Print_Queue {
 	private function render_orphan_row( object $file ): void {
 		$order_url = $this->order_url( (int) $file->order_id );
 		$regen_url = wp_nonce_url(
-			add_query_arg( [ 'oc_regenerate' => (int) $file->id ], admin_url( 'post.php?post=' . (int) $file->order_id . '&action=edit' ) ),
+			add_query_arg( [ 'oc_regenerate' => (int) $file->id ], $order_url ?: admin_url( 'admin.php?page=wc-orders' ) ),
 			'oc_regenerate_' . (int) $file->id
 		);
 		?>
@@ -335,8 +335,11 @@ class OC_Admin_Print_Queue {
 
 	/** Return edit URL for an order. */
 	private function order_url( int $order_id ): string {
-		if ( function_exists( 'wc_get_order' ) && wc_get_order( $order_id ) ) {
-			return (string) admin_url( 'post.php?post=' . $order_id . '&action=edit' );
+		if ( function_exists( 'wc_get_order' ) ) {
+			$order = wc_get_order( $order_id );
+			if ( $order instanceof \WC_Order ) {
+				return $order->get_edit_order_url();
+			}
 		}
 
 		return '';

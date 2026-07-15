@@ -280,6 +280,7 @@ if ( $_oc_wp_tests_dir && is_dir( $_oc_wp_tests_dir ) ) {
 	require_once OC_PATH . 'includes/print/class-oc-print-uv.php';
 	require_once OC_PATH . 'includes/print/class-oc-print-sublimation.php';
 	require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
+	require_once OC_PATH . 'includes/class-oc-print-queue.php';
 	require_once OC_PATH . 'includes/class-oc-print-generator.php';
 	require_once OC_PATH . 'includes/class-oc-file-cleanup.php';
 

@@ -316,8 +316,8 @@ class OC_Frontend {
 					'fontId'        => absint( $settings['default_font_id'] ?? 0 ),
 					'fontSize'      => absint( $settings['default_font_size'] ?? 0 ),
 					'colorHex'      => $default_colour,
-					'attachmentId'  => 'image' === $layer->type ? $default_attachment_id : 0,
-					'attachmentUrl' => 'image' === $layer->type ? $default_attachment_url : '',
+					'attachmentId'  => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_id : 0,
+					'attachmentUrl' => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_url : '',
 					'imageFilterId' => 'image' === $layer->type ? $default_image_filter_id : 0,
 					'clipartId'     => 0,
 					'clipartUrl'    => '',
@@ -966,6 +966,9 @@ class OC_Frontend {
 		} else {
 			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 		}
+		if ( ! $assignment ) {
+			return $passed;
+		}
 
 		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
 
@@ -981,8 +984,6 @@ class OC_Frontend {
 		}
 
 		$posted_design_id = absint( $data['designId'] ?? 0 );
-		$validation_layers = $layers;
-		$validation_areas  = $areas;
 		if ( $posted_design_id && $posted_design_id !== (int) $design->id ) {
 			$allowed_design_ids = array_map( fn( $variant ) => absint( $variant['designId'] ?? 0 ), $this->design_variants );
 			$is_allowed_design = in_array( $posted_design_id, $allowed_design_ids, true )
@@ -992,154 +993,21 @@ class OC_Frontend {
 				wc_add_notice( __( 'Invalid design option selected. Please refresh and try again.', 'overcustomise' ), 'error' );
 				return false;
 			}
-			$validation_layers = OC_DB::get_design_layers( $posted_design_id );
-			$validation_areas  = OC_DB::get_design_print_areas( $posted_design_id );
 		}
 
-		$print_methods_by_area = [];
-		foreach ( $validation_areas as $area ) {
-			$print_methods_by_area[ (int) $area->id ] = sanitize_key( (string) ( $area->print_method ?? '' ) );
-		}
-
-		// Check layer requirements and hard validation rules before cart insert.
-		$layer_inputs = is_array( $data['layers'] ?? null ) ? $data['layers'] : [];
-		foreach ( $validation_layers as $layer ) {
-			// Ignore hidden layers: they are not user-editable in the frontend panel.
-			if ( ! (bool) ( $layer->visible ?? true ) ) {
-				continue;
-			}
-
-			// Ignore locked layers: they use admin-set defaults and have no customer input.
-			if ( ! empty( $layer->locked ) ) {
-				continue;
-			}
-
-			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			if ( ! is_array( $settings ) ) {
-				$settings = [];
-			}
-
-			$required = ! empty( $settings['required'] );
-			$input    = is_array( $layer_inputs[ (int) $layer->id ] ?? null ) ? $layer_inputs[ (int) $layer->id ] : [];
-			$filled   = false;
-			$label    = $layer->label ?: ucfirst( (string) $layer->type );
-
-			switch ( $layer->type ) {
-				case 'text':
-				case 'textarea':
-					$value  = trim( (string) ( $input['value'] ?? '' ) );
-					$filled = '' !== $value;
-
-					$char_limit = absint( $settings['char_limit'] ?? 0 );
-					if ( $char_limit > 0 && $this->string_length( $value ) > $char_limit ) {
-						wc_add_notice(
-							sprintf(
-								/* translators: 1: layer label, 2: max chars */
-								__( '"%1$s" exceeds the maximum of %2$d characters.', 'overcustomise' ),
-								$label,
-								$char_limit
-							),
-							'error'
-						);
-						return false;
-					}
-					break;
-
-				case 'image':
-				case 'clipmask':
-					$filled = ! empty( $input['attachmentId'] );
-					break;
-
-				case 'clipart':
-					$filled = ! empty( $input['clipartId'] );
-					if ( $filled && ! $this->clipart_allowed_for_print_method( absint( $input['clipartId'] ), $print_methods_by_area[ (int) $layer->area_id ] ?? '' ) ) {
-						wc_add_notice(
-							sprintf( __( 'Please choose a compatible clipart for "%s".', 'overcustomise' ), $label ),
-							'error'
-						);
-						return false;
-					}
-					break;
-
-				case 'spotify':
-					$spotify_value = trim( (string) ( $input['value'] ?? '' ) );
-					$filled        = '' !== $spotify_value;
-
-					$char_limit = absint( $settings['char_limit'] ?? 0 );
-					if ( $char_limit > 0 && $this->string_length( $spotify_value ) > $char_limit ) {
-						wc_add_notice(
-							sprintf(
-								/* translators: 1: layer label, 2: max chars */
-								__( '"%1$s" exceeds the maximum of %2$d characters.', 'overcustomise' ),
-								$label,
-								$char_limit
-							),
-							'error'
-						);
-						return false;
-					}
-
-					if ( $filled ) {
-						$status = sanitize_key( (string) ( $input['spotifyStatus'] ?? '' ) );
-						if ( in_array( $status, [ 'invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited' ], true ) ) {
-							wc_add_notice(
-								sprintf( __( 'The Spotify link in "%s" could not be validated. Please use a valid public Spotify link.', 'overcustomise' ), $label ),
-								'error'
-							);
-							return false;
-						}
-					}
-					break;
-
-				default:
-					$filled = true;
-			}
-
-			if ( $required && ! $filled ) {
-				return false;
-			}
-
-			$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
-			$uses_colour_input = in_array( $layer->type, [ 'text', 'textarea', 'lineart' ], true );
-			if ( $uses_colour_input && ! empty( $colour_group_ids ) ) {
-				if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && array_key_exists( 'allow_colour_change', $settings ) && empty( $settings['allow_colour_change'] ) ) {
-					continue;
-				}
-
-				$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
-				$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
-				$input_hex       = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) ) ?: '';
-
-				if ( empty( $allowed_hexes ) || ! in_array( strtolower( $input_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
-					wc_add_notice(
-						sprintf( __( 'Please choose an available colour for "%s".', 'overcustomise' ), $label ),
-						'error'
-					);
-					return false;
-				}
-			}
-		}
-
-		return $passed;
-	}
-
-	private function clipart_allowed_for_print_method( int $clipart_id, string $print_method ): bool {
-		if ( $clipart_id <= 0 ) {
-			return true;
-		}
-
-		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT allowed_print_methods FROM {$wpdb->prefix}oc_clipart WHERE id = %d AND active = 1 LIMIT 1",
-			$clipart_id
-		) );
-
-		if ( ! $row ) {
+		$normalised = OC_Cart::normalise_v2_layers(
+			$product_id,
+			$variation_id,
+			$posted_design_id ?: (int) $design->id,
+			is_array( $data['layers'] ?? null ) ? $data['layers'] : [],
+			is_string( $data['uploadToken'] ?? null ) ? $data['uploadToken'] : ''
+		);
+		if ( is_wp_error( $normalised ) ) {
+			wc_add_notice( $normalised->get_error_message(), 'error' );
 			return false;
 		}
 
-		$allowed = self::normalise_clipart_print_methods( (string) ( $row->allowed_print_methods ?? '' ) );
-		return empty( $allowed ) || in_array( sanitize_key( $print_method ), $allowed, true );
+		return $passed;
 	}
 
 	/** Return UTF-8 character length when mbstring is available. */

@@ -5,32 +5,34 @@
  * fall-throughs to common WP/Woo CSS variables. Override any of the
  * `--oc-*` custom properties from your theme to retheme without forking.
  */
+/* stylelint-disable no-descending-specificity */
+/* stylelint-disable scss/at-extend-no-missing-placeholder */
 
 .oc-customiser-panel {
 	// ── Design tokens (all theme-overridable) ─────────────────────────────
-	--oc-accent:        var(--wp--preset--color--primary, var(--wp-admin-theme-color, currentColor));
-	--oc-accent-ink:    var(--wp--preset--color--base, #fff);
-	--oc-fg:            currentColor;
-	--oc-fg-muted:      color-mix(in srgb, currentColor 60%, transparent);
-	--oc-border:        color-mix(in srgb, currentColor 18%, transparent);
-	--oc-border-strong: color-mix(in srgb, currentColor 35%, transparent);
-	--oc-surface:       color-mix(in srgb, currentColor 4%, transparent);
-	--oc-surface-2:     color-mix(in srgb, currentColor 7%, transparent);
-	--oc-danger:        #c0392b;
+	--oc-accent: var(--wp--preset--color--primary, var(--wp-admin-theme-color, currentColor));
+	--oc-accent-ink: var(--wp--preset--color--base, #fff);
+	--oc-fg: currentcolor;
+	--oc-fg-muted: color-mix(in srgb, currentcolor 60%, transparent);
+	--oc-border: color-mix(in srgb, currentcolor 18%, transparent);
+	--oc-border-strong: color-mix(in srgb, currentcolor 35%, transparent);
+	--oc-surface: color-mix(in srgb, currentcolor 4%, transparent);
+	--oc-surface-2: color-mix(in srgb, currentcolor 7%, transparent);
+	--oc-danger: #c0392b;
 
 	--oc-radius-sm: 6px;
-	--oc-radius:    10px;
+	--oc-radius: 10px;
 	--oc-radius-lg: 14px;
 
 	--oc-gap-xs: 6px;
 	--oc-gap-sm: 10px;
-	--oc-gap:    16px;
+	--oc-gap: 16px;
 	--oc-gap-lg: 24px;
 
 	--oc-tap: 44px; // minimum touch target
 
 	--oc-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.06);
-	--oc-shadow:    0 4px 16px rgb(0 0 0 / 0.08);
+	--oc-shadow: 0 4px 16px rgb(0 0 0 / 0.08);
 
 	font: inherit;
 	color: inherit;
@@ -46,7 +48,9 @@
 
 	*,
 	*::before,
-	*::after { box-sizing: border-box; }
+	*::after {
+		box-sizing: border-box;
+	}
 
 	// ── Area tabs ─────────────────────────────────────────────────────────
 	.oc-area-tabs {
@@ -60,7 +64,9 @@
 		padding-inline: var(--oc-gap);
 		scrollbar-width: none;
 
-		&::-webkit-scrollbar { display: none; }
+		&::-webkit-scrollbar {
+			display: none;
+		}
 	}
 
 	.oc-area-tab {
@@ -75,10 +81,16 @@
 		font: inherit;
 		font-weight: 500;
 		cursor: pointer;
-		transition: background .15s ease, border-color .15s ease, color .15s ease, transform .05s ease;
+		transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.05s ease;
 
-		&:hover { background: var(--oc-surface); }
-		&:active { transform: scale(.98); }
+		&:hover {
+			background: var(--oc-surface);
+		}
+
+		&:active {
+			transform: scale(0.98);
+		}
+
 		&:focus-visible {
 			outline: 2px solid var(--oc-accent);
 			outline-offset: 2px;
@@ -108,9 +120,9 @@
 		gap: 6px;
 		margin-bottom: var(--oc-gap-xs);
 		color: var(--oc-fg-muted);
-		font-size: .72em;
+		font-size: 0.72em;
 		font-weight: 800;
-		letter-spacing: .08em;
+		letter-spacing: 0.08em;
 		line-height: 1.2;
 		text-transform: uppercase;
 
@@ -141,6 +153,10 @@
 		display: flex;
 		flex-direction: column;
 		gap: 12px;
+
+		&[hidden] {
+			display: none;
+		}
 	}
 
 	.oc-layer-controls {
@@ -163,16 +179,18 @@
 		align-items: center;
 		gap: var(--oc-gap-xs);
 		font-weight: 600;
-		font-size: .95em;
+		font-size: 0.95em;
 
-		> span:first-child { flex: 1; }
+		> span:first-child {
+			flex: 1;
+		}
 	}
 
 	.oc-layer-type-badge {
-		font-size: .7em;
+		font-size: 0.7em;
 		font-weight: 600;
 		text-transform: uppercase;
-		letter-spacing: .04em;
+		letter-spacing: 0.04em;
 		padding: 3px 8px;
 		border-radius: 999px;
 		background: var(--oc-surface-2);
@@ -180,7 +198,7 @@
 	}
 
 	.oc-layer-required {
-		font-size: .75em;
+		font-size: 0.75em;
 		color: var(--oc-danger);
 		font-weight: 500;
 	}
@@ -198,10 +216,10 @@
 		gap: var(--oc-gap-xs);
 
 		> label {
-			font-size: .85em;
+			font-size: 0.85em;
 			font-weight: 600;
 			color: var(--oc-fg-muted);
-			letter-spacing: .01em;
+			letter-spacing: 0.01em;
 
 			.oc-range-value {
 				float: right;
@@ -271,9 +289,11 @@
 			background: var(--oc-accent-ink, #fff);
 			border: 1px solid var(--oc-border-strong);
 			border-radius: var(--oc-radius);
-			transition: border-color .15s ease, box-shadow .15s ease;
+			transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
-			&::placeholder { color: var(--oc-fg-muted); }
+			&::placeholder {
+				color: var(--oc-fg-muted);
+			}
 
 			&:focus,
 			&:focus-visible {
@@ -299,8 +319,9 @@
 		select {
 			appearance: none;
 			-webkit-appearance: none;
-			background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
-			                  linear-gradient(135deg, currentColor 50%, transparent 50%);
+			background-image:
+				linear-gradient(45deg, transparent 50%, currentcolor 50%),
+				linear-gradient(135deg, currentcolor 50%, transparent 50%);
 			background-position: calc(100% - 18px) 50%, calc(100% - 12px) 50%;
 			background-size: 6px 6px, 6px 6px;
 			background-repeat: no-repeat;
@@ -382,6 +403,7 @@
 	}
 
 	@media (max-width: 639px) and (hover: none) and (pointer: coarse) {
+
 		select.oc-font-native-select {
 			position: static;
 			width: 100%;
@@ -520,12 +542,17 @@
 		aspect-ratio: 1;
 		min-width: 36px;
 		cursor: pointer;
-		transition: transform .1s ease, border-color .15s ease, box-shadow .15s ease;
+		transition: transform 0.1s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 		box-shadow: var(--oc-shadow-sm);
 
-		span { display: none; }
+		span {
+			display: none;
+		}
 
-		&:hover { transform: scale(1.08); }
+		&:hover {
+			transform: scale(1.08);
+		}
+
 		&:focus-visible {
 			outline: none;
 			border-color: var(--oc-accent);
@@ -542,7 +569,7 @@
 
 	.oc-colour-swatches--labels .oc-colour-swatch {
 		border-width: 1px;
-		border-color: color-mix(in srgb, currentColor 22%, transparent);
+		border-color: color-mix(in srgb, currentcolor 22%, transparent);
 		border-radius: 5px;
 		aspect-ratio: auto;
 		width: auto;
@@ -556,9 +583,13 @@
 		line-height: 1.1;
 		text-align: center;
 
-		span { display: block; }
+		span {
+			display: block;
+		}
 
-		&:hover { transform: translateY(-1px); }
+		&:hover {
+			transform: translateY(-1px);
+		}
 
 		&.oc-active,
 		&.oc-selected,
@@ -595,9 +626,11 @@
 		background: var(--oc-accent-ink, #fff);
 		border: 1px solid var(--oc-border-strong);
 		border-radius: var(--oc-radius);
-		transition: border-color .15s ease, box-shadow .15s ease;
+		transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
-		&::placeholder { color: var(--oc-fg-muted); }
+		&::placeholder {
+			color: var(--oc-fg-muted);
+		}
 
 		&:focus,
 		&:focus-visible {
@@ -612,20 +645,21 @@
 		min-height: var(--oc-tap);
 		padding: 10px 36px 10px 14px;
 		font: inherit;
-		font-size: .85em;
+		font-size: 0.85em;
 		color: inherit;
 		background: var(--oc-accent-ink, #fff);
 		border: 1px solid var(--oc-border-strong);
 		border-radius: var(--oc-radius);
 		appearance: none;
 		-webkit-appearance: none;
-		background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
-		                  linear-gradient(135deg, currentColor 50%, transparent 50%);
+		background-image:
+			linear-gradient(45deg, transparent 50%, currentcolor 50%),
+			linear-gradient(135deg, currentcolor 50%, transparent 50%);
 		background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
 		background-size: 5px 5px, 5px 5px;
 		background-repeat: no-repeat;
 		cursor: pointer;
-		transition: border-color .15s ease, box-shadow .15s ease;
+		transition: border-color 0.15s ease, box-shadow 0.15s ease;
 
 		&:focus,
 		&:focus-visible {
@@ -639,7 +673,7 @@
 		grid-column: 1 / -1;
 		text-align: center;
 		color: var(--oc-fg-muted);
-		font-size: .9em;
+		font-size: 0.9em;
 		padding: var(--oc-gap);
 		margin: 0;
 	}
@@ -674,7 +708,9 @@
 		-webkit-overflow-scrolling: touch;
 		scrollbar-width: none;
 
-		&::-webkit-scrollbar { display: none; }
+		&::-webkit-scrollbar {
+			display: none;
+		}
 
 		.oc-clipart-item {
 			flex: 0 0 calc((100% - 12.5px) / 3.5);
@@ -696,7 +732,7 @@
 		cursor: pointer;
 		box-shadow: none;
 		padding: 0;
-		transition: color .15s ease, opacity .15s ease, transform .1s ease;
+		transition: color 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
 
 		&:hover:not(:disabled) {
 			color: var(--oc-accent);
@@ -704,14 +740,19 @@
 		}
 
 		&:disabled {
-			opacity: .28;
+			opacity: 0.28;
 			cursor: default;
 			box-shadow: none;
 		}
 	}
 
-	.oc-clipart-carousel-arrow--prev { grid-area: prev; }
-	.oc-clipart-carousel-arrow--next { grid-area: next; }
+	.oc-clipart-carousel-arrow--prev {
+		grid-area: prev;
+	}
+
+	.oc-clipart-carousel-arrow--next {
+		grid-area: next;
+	}
 
 	.oc-clipart-carousel-dots {
 		grid-area: dots;
@@ -732,11 +773,11 @@
 		padding: 0;
 		border: 0;
 		border-radius: 999px;
-		background: color-mix(in srgb, currentColor 26%, transparent);
+		background: color-mix(in srgb, currentcolor 26%, transparent);
 		cursor: pointer;
 		appearance: none;
 		line-height: 0;
-		transition: background .15s ease, transform .15s ease;
+		transition: background 0.15s ease, transform 0.15s ease;
 
 		&.oc-active {
 			background: var(--oc-accent);
@@ -745,12 +786,14 @@
 	}
 
 	@media (max-width: 639px) {
+
 		.oc-clipart-grid--carousel .oc-clipart-item {
 			flex-basis: calc((100% - 17.5px) / 4.5);
 		}
 	}
 
 	.oc-clipart-carousel--single-page {
+
 		.oc-clipart-carousel-arrow,
 		.oc-clipart-carousel-dots {
 			display: none;
@@ -772,7 +815,7 @@
 		align-items: center;
 		justify-content: center;
 		cursor: pointer;
-		transition: border-color .15s ease, transform .1s ease, box-shadow .15s ease;
+		transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
 
 		img {
 			max-width: 100%;
@@ -785,6 +828,7 @@
 			transform: translateY(-1px);
 			box-shadow: none;
 		}
+
 		&:focus-visible {
 			outline: none;
 			box-shadow: 0 0 0 2px color-mix(in srgb, var(--oc-accent) 35%, transparent);
@@ -802,7 +846,7 @@
 		grid-column: 1 / -1;
 		text-align: center;
 		color: var(--oc-fg-muted);
-		font-size: .9em;
+		font-size: 0.9em;
 		padding: var(--oc-gap);
 	}
 
@@ -822,6 +866,7 @@
 	}
 
 	.oc-upload-zone {
+
 		.uppy-DragDrop-container {
 			border-radius: 8px;
 			border: 0;
@@ -829,7 +874,7 @@
 			min-height: 0;
 			height: auto;
 			padding: 0;
-			transition: border-color .15s ease, background .15s ease;
+			transition: border-color 0.15s ease, background 0.15s ease;
 
 			&:hover,
 			&.uppy-DragDrop--isDraggingOver {
@@ -847,12 +892,14 @@
 			text-align: left;
 			border: 1px dashed var(--oc-border-strong);
 			border-radius: 8px;
-			transition: border-color .15s ease, background .15s ease;
+			transition: border-color 0.15s ease, background 0.15s ease;
 		}
 
 		&.oc-upload-zone--error {
+
 			.uppy-DragDrop-inner {
 				border-color: color-mix(in srgb, var(--oc-danger) 45%, transparent);
+				/* stylelint-disable-next-line @stylistic/max-line-length */
 				background: color-mix(in srgb, var(--oc-danger) 7%, var(--oc-accent-ink, #fff));
 			}
 		}
@@ -882,15 +929,15 @@
 			grid-column: 2;
 			color: inherit;
 			font: inherit;
-			font-size: .86em;
+			font-size: 0.86em;
 			font-weight: 700;
 			text-transform: uppercase;
-			letter-spacing: .03em;
+			letter-spacing: 0.03em;
 			margin: 0;
 			line-height: 1.3;
 		}
 
-		// "Browse" span carries the headline copy — let it look the same as the label.
+		// Keep Uppy’s “Browse” headline visually aligned with the upload label.
 		.uppy-DragDrop-browse {
 			color: inherit;
 			font: inherit;
@@ -901,16 +948,17 @@
 		.uppy-DragDrop-note {
 			grid-column: 2;
 			color: var(--oc-fg-muted);
-			font-size: .68em;
+			font-size: 0.68em;
 			font-weight: 600;
 			text-transform: uppercase;
-			letter-spacing: .04em;
+			letter-spacing: 0.04em;
 			line-height: 1.4;
 			margin: 0;
 			display: block;
 		}
 
 		&.oc-upload-zone--uploaded {
+
 			.uppy-DragDrop-container {
 				padding: 0;
 				background: transparent;
@@ -931,20 +979,20 @@
 
 			.uppy-DragDrop-label {
 				display: block;
-				font-size: .78em;
+				font-size: 0.78em;
 				line-height: 1.25;
 				color: #24573d;
 			}
 
 			.uppy-DragDrop-browse {
 				font-weight: 800;
-				letter-spacing: .04em;
+				letter-spacing: 0.04em;
 			}
 
 			.uppy-DragDrop-note {
 				display: block;
 				margin-top: 3px;
-				font-size: .72em;
+				font-size: 0.72em;
 				font-weight: 700;
 				color: color-mix(in srgb, #24573d 78%, transparent);
 				text-transform: uppercase;
@@ -961,9 +1009,9 @@
 
 	.oc-upload-progress-label {
 		color: var(--oc-fg-muted);
-		font-size: .78em;
+		font-size: 0.78em;
 		font-weight: 700;
-		letter-spacing: .04em;
+		letter-spacing: 0.04em;
 		line-height: 1.3;
 		text-transform: uppercase;
 	}
@@ -980,7 +1028,7 @@
 		width: 0;
 		border-radius: inherit;
 		background: var(--oc-accent);
-		transition: width .18s ease;
+		transition: width 0.18s ease;
 	}
 
 	// ── Generic help tooltip ──────────────────────────────────────────────────
@@ -1000,12 +1048,12 @@
 		background: var(--oc-accent-ink, #fff);
 		color: var(--oc-fg-muted);
 		font: inherit;
-		font-size: .75em;
+		font-size: 0.75em;
 		font-weight: 700;
 		line-height: 1;
 		cursor: help;
 		padding: 0;
-		transition: color .15s ease, border-color .15s ease, background-color .15s ease;
+		transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
 
 		&:hover {
 			color: var(--oc-accent);
@@ -1027,7 +1075,7 @@
 		border: 1px solid var(--oc-border-strong);
 		background: var(--oc-accent-ink, #fff);
 		box-shadow: var(--oc-shadow-sm);
-		font-size: .75em;
+		font-size: 0.75em;
 		font-weight: 500;
 		line-height: 1.45;
 		color: var(--oc-fg-muted);
@@ -1035,7 +1083,7 @@
 		overflow-wrap: break-word;
 		opacity: 0;
 		transform: translateY(-4px);
-		transition: opacity .2s ease, transform .2s ease;
+		transition: opacity 0.2s ease, transform 0.2s ease;
 		pointer-events: none;
 	}
 
@@ -1055,9 +1103,11 @@
 	}
 
 	@media (hover: none) and (pointer: coarse) {
+
 		.oc-help-tooltip:hover .oc-help-hint {
 			display: none;
 		}
+
 		.oc-help-tooltip:focus-within .oc-help-hint,
 		.oc-help-tooltip.oc-open .oc-help-hint {
 			display: block;
@@ -1069,14 +1119,17 @@
 
 	// Legacy Spotify tooltip aliases (backward compatibility).
 	.oc-spotify-help {
+
 		@extend .oc-help-tooltip;
 	}
 
 	.oc-spotify-help-toggle {
+
 		@extend .oc-help-toggle;
 	}
 
 	.oc-spotify-hint {
+
 		@extend .oc-help-hint;
 	}
 
@@ -1309,6 +1362,7 @@
 	}
 
 	@media (min-width: 768px) {
+
 		.oc-sp-modal-card {
 			flex-direction: row;
 		}
@@ -1335,10 +1389,12 @@
 	// Inline upload error message (set via JS)
 	.oc-upload-error {
 		color: var(--oc-danger);
-		font-size: .85em;
+		font-size: 0.85em;
 		margin-top: 4px;
 
-		&:empty { display: none; }
+		&:empty {
+			display: none;
+		}
 	}
 
 	// Font preview
@@ -1351,7 +1407,7 @@
 		background: var(--oc-surface-2);
 		border-radius: var(--oc-radius-sm);
 		opacity: 0;
-		transition: opacity .2s ease;
+		transition: opacity 0.2s ease;
 
 		&:not(:empty) {
 			opacity: 1;
@@ -1362,10 +1418,10 @@
 	.oc-resolution-warning {
 		padding: 10px 12px;
 		border-radius: var(--oc-radius-sm);
-		font-size: .82em;
+		font-size: 0.82em;
 		line-height: 1.45;
 		position: relative;
-		transition: background .2s ease, color .2s ease;
+		transition: background 0.2s ease, color 0.2s ease;
 
 		&.oc-res-warning {
 			background: color-mix(in srgb, var(--oc-danger) 8%, var(--oc-accent-ink, #fff));
@@ -1386,14 +1442,18 @@
 			right: 10px;
 			cursor: pointer;
 			font-size: 1em;
-			opacity: .6;
-			transition: opacity .15s ease;
+			opacity: 0.6;
+			transition: opacity 0.15s ease;
 
-			&:hover { opacity: 1; }
+			&:hover {
+				opacity: 1;
+			}
 		}
 	}
 
-	.oc-preflight-messages { margin-bottom: var(--oc-gap-sm); }
+	.oc-preflight-messages {
+		margin-bottom: var(--oc-gap-sm);
+	}
 
 	.oc-preflight-box {
 		border: 1px solid color-mix(in srgb, var(--oc-danger) 35%, transparent);
@@ -1404,7 +1464,7 @@
 
 	.oc-preflight-title {
 		margin: 0 0 6px;
-		font-size: .92em;
+		font-size: 0.92em;
 		font-weight: 700;
 	}
 
@@ -1412,7 +1472,7 @@
 	.oc-preflight-warnings {
 		margin: 0 0 8px 18px;
 		padding: 0;
-		font-size: .88em;
+		font-size: 0.88em;
 		line-height: 1.45;
 	}
 
@@ -1435,12 +1495,12 @@
 		background: transparent;
 		color: inherit;
 		opacity: 0;
-		transform: translateY(18px) scale(.96);
-		transition: opacity .18s ease, transform .18s ease;
+		transform: translateY(18px) scale(0.96);
+		transition: opacity 0.18s ease, transform 0.18s ease;
 	}
 
 	.oc-cart-preview-dialog::backdrop {
-		background: rgb(0 0 0 / .62);
+		background: rgb(0 0 0 / 0.62);
 		backdrop-filter: blur(3px);
 	}
 
@@ -1457,7 +1517,7 @@
 		border: 1px solid var(--oc-border);
 		border-radius: 18px;
 		background: var(--oc-accent-ink, #fff);
-		box-shadow: 0 22px 55px rgb(0 0 0 / .25);
+		box-shadow: 0 22px 55px rgb(0 0 0 / 0.25);
 	}
 
 	.oc-cart-preview-copy h2 {
@@ -1469,7 +1529,7 @@
 	.oc-cart-preview-copy p {
 		margin: 0;
 		color: var(--oc-fg-muted);
-		font-size: .9rem;
+		font-size: 0.9rem;
 		line-height: 1.45;
 	}
 
@@ -1478,6 +1538,30 @@
 		border: 1px solid var(--oc-border);
 		border-radius: var(--oc-radius-lg);
 		background: var(--oc-surface);
+	}
+
+	.oc-cart-preview-tabs {
+		display: flex;
+		gap: var(--oc-gap-xs);
+		overflow-x: auto;
+	}
+
+	.oc-cart-preview-tab {
+		flex: 0 0 auto;
+		min-height: 40px;
+		padding: 8px 14px;
+		border: 1px solid var(--oc-border);
+		border-radius: 999px;
+		background: transparent;
+		color: inherit;
+		font: inherit;
+		cursor: pointer;
+
+		&[aria-selected="true"] {
+			border-color: var(--oc-accent);
+			background: var(--oc-accent);
+			color: var(--oc-accent-ink);
+		}
 	}
 
 	.oc-cart-preview-image {
@@ -1520,7 +1604,7 @@
 	@media (max-width: 639px) {
 		gap: var(--oc-gap-sm);
 		margin-block: var(--oc-gap);
-		padding-bottom: env(safe-area-inset-bottom, 0px);
+		padding-bottom: env(safe-area-inset-bottom, 0);
 
 		.oc-area-tabs {
 			gap: var(--oc-gap-xs);
@@ -1531,7 +1615,7 @@
 			min-width: 44px;
 			min-height: 44px;
 			padding: 8px 14px;
-			font-size: .9em;
+			font-size: 0.9em;
 			touch-action: manipulation;
 			-webkit-tap-highlight-color: transparent;
 		}
@@ -1561,8 +1645,9 @@
 		}
 
 		.oc-control-group {
+
 			> label {
-				font-size: .8em;
+				font-size: 0.8em;
 			}
 
 			&:has(> input[type="text"]),
@@ -1679,17 +1764,18 @@
 		.oc-spotify-help-toggle {
 			min-width: 32px;
 			min-height: 32px;
-			font-size: .9em;
+			font-size: 0.9em;
 			touch-action: manipulation;
 		}
 
 		.oc-help-hint,
 		.oc-spotify-hint {
 			width: min(300px, 90vw);
-			font-size: .82em;
+			font-size: 0.82em;
 		}
 
 		.oc-upload-zone {
+
 			.uppy-DragDrop-container {
 				min-height: 100px;
 			}
@@ -1700,7 +1786,7 @@
 			}
 
 			.uppy-DragDrop-label {
-				font-size: .9em;
+				font-size: 0.9em;
 			}
 		}
 
@@ -1709,17 +1795,18 @@
 		}
 
 		.oc-preflight-title {
-			font-size: .88em;
+			font-size: 0.88em;
 		}
 
 		.oc-preflight-errors,
 		.oc-preflight-warnings {
-			font-size: .84em;
+			font-size: 0.84em;
 		}
 	}
 
 	// ── Tablet+ layout tweaks ─────────────────────────────────────────────
 	@media (min-width: 720px) {
+
 		.oc-font-size-row {
 			display: grid;
 			grid-template-columns: minmax(0, 1fr) minmax(160px, 0.72fr);
@@ -1743,7 +1830,9 @@
 			grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
 		}
 
-		.oc-layer-section { padding: var(--oc-gap-sm) var(--oc-gap-lg); }
+		.oc-layer-section {
+			padding: var(--oc-gap-sm) var(--oc-gap-lg);
+		}
 
 		.oc-canvas-wrap {
 			display: none !important;

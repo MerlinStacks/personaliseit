@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.14.0 - 2026-07-15
+
+### Security
+- Bound customer uploads to their WooCommerce session and exact product, design, variation, and layer context.
+- Hardened SVG URL sanitisation, webhook destination validation, font uploads, and external converter limits.
+
+### Fixed
+- Made print queue claims atomic and gave legacy, design, and VDP print files unambiguous identities.
+- Preserved valid print files during failed regeneration and retained immutable area snapshots for historical orders.
+- Unified add-to-cart and cart-edit validation for locked layers, required fields, fonts, colours, clipart, and uploads.
+- Fixed stale frontend redraws, uploads, Spotify checks, variation state, repeated submissions, and multi-area navigation.
+- Made design, VDP, group membership, and autosave persistence transactional and concurrency-safe.
+- Cleaned up expired thumbnails, previews, and unreferenced customer artwork.
+
 ## 1.13.4 - 2026-07-10
 
 ### Changed

@@ -76,7 +76,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
-	public function artwork_attachment_id_is_sanitised_to_int(): void {
+	public function legacy_artwork_attachment_id_without_context_is_rejected(): void {
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'front' => [
 				'text'                => 'Test',
@@ -90,7 +90,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$cart_item = WC()->cart->get_cart_item( $key );
 
 		$attachment_id = $cart_item['_oc_customisation']['front']['artworkAttachmentId'] ?? null;
-		$this->assertSame( 42, $attachment_id );
+		$this->assertSame( 0, $attachment_id );
 	}
 
 	#[Test]

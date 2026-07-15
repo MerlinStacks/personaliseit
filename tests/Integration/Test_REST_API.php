@@ -134,6 +134,19 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 		$this->assertSame( 400, $response->get_status() );
 	}
 
+	#[Test]
+	public function upload_artwork_requires_layer_context(): void {
+		$token = OC_Rest_API::issue_public_token();
+		$request = new WP_REST_Request( 'POST', '/overcustomise/v1/upload-artwork' );
+		$request->set_header( 'X-OC-Token', $token );
+		$request->set_file_params( [ 'artwork' => [ 'name' => 'x.png', 'tmp_name' => '/tmp/not-uploaded', 'size' => 1, 'error' => UPLOAD_ERR_OK ] ] );
+
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'invalid_context', $response->get_data()['code'] );
+	}
+
 	// ── /regenerate-files ─────────────────────────────────────────────────────
 
 	#[Test]

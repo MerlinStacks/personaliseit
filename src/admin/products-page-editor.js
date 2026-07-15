@@ -37,10 +37,14 @@ import { createMockupPicker } from './products-page-mockup-picker';
 	let history = [];
 	let historyIndex = -1;
 	let isDirty = false;
+	let hasUnsavedChanges = false;
 	let autosaveTimer = null;
 	let lastSavedTime = null;
 	let autosaveError = '';
 	let designId = 0;
+	let dirtyRevision = 0;
+	let autosaveInFlight = false;
+	let isSubmitting = false;
 	const autosaveInterval = 30000;
 	function snapshot() {
 		if ( historyIndex < history.length - 1 ) {
@@ -95,6 +99,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 		}
 		renderAll();
 		updateUndoRedoBtns();
+		markDirty();
 	}
 	function updateUndoRedoBtns() {
 		const u = document.getElementById( 'oc-undo-btn' );
@@ -108,6 +113,8 @@ import { createMockupPicker } from './products-page-mockup-picker';
 	}
 	function markDirty() {
 		isDirty = true;
+		hasUnsavedChanges = true;
+		dirtyRevision++;
 		updateAutosaveIndicator();
 	}
 	function updateAutosaveIndicator() {
@@ -125,7 +132,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 			const diff = Math.round( ( Date.now() - lastSavedTime ) / 1000 );
 			const label =
 				diff < 60 ? diff + 's ago' : Math.floor( diff / 60 ) + 'm ago';
-			el.textContent = 'Saved ' + label;
+			el.textContent = 'Autosaved ' + label;
 			el.className = 'oc-autosave-indicator oc-autosave-indicator--saved';
 		} else {
 			el.textContent = '';
@@ -173,19 +180,9 @@ import { createMockupPicker } from './products-page-mockup-picker';
 		};
 	}
 	function applyAutosavedState( savedState ) {
-		const layersByAreaId = {};
-		( savedState.areas || [] ).forEach( function ( a ) {
-			( a.layers || [] ).forEach( function ( l ) {
-				const aid = Number( l.areaId || 0 );
-				if ( ! layersByAreaId[ aid ] ) {
-					layersByAreaId[ aid ] = [];
-				}
-				layersByAreaId[ aid ].push( normaliseLayer( l ) );
-			} );
-		} );
 		areas = ( savedState.areas || [] ).map( function ( a, i ) {
 			return Object.assign( normaliseArea( a, i ), {
-				layers: layersByAreaId[ Number( a.id ) ] || [],
+				layers: ( a.layers || [] ).map( normaliseLayer ),
 			} );
 		} );
 		selectedIndex = areas.length > 0 ? 0 : -1;
@@ -197,14 +194,17 @@ import { createMockupPicker } from './products-page-mockup-picker';
 		renderAll();
 	}
 	function doAutosave() {
-		if ( ! isDirty || ! designId ) {
+		if ( ! isDirty || ! designId || autosaveInFlight ) {
 			return;
 		}
+		autosaveInFlight = true;
+		const revision = dirtyRevision;
 		const state = collectState();
 		const body = new URLSearchParams( {
 			action: 'oc_autosave_design',
 			nonce: ocProductsData.nonce,
 			design_id: designId,
+			revision,
 			state: JSON.stringify( state ),
 		} );
 		fetch( ocProductsData.ajaxUrl, { method: 'POST', body } )
@@ -215,12 +215,16 @@ import { createMockupPicker } from './products-page-mockup-picker';
 				return r.json();
 			} )
 			.then( function ( json ) {
-				if ( json.success ) {
+				if (
+					json.success &&
+					Number( json.data?.revision ) === revision &&
+					dirtyRevision === revision
+				) {
 					isDirty = false;
 					lastSavedTime = Date.now();
 					autosaveError = '';
 					updateAutosaveIndicator();
-				} else {
+				} else if ( ! json.success ) {
 					autosaveError = 'Autosave failed';
 					updateAutosaveIndicator();
 				}
@@ -229,6 +233,12 @@ import { createMockupPicker } from './products-page-mockup-picker';
 				console.warn( '[OC] Autosave failed:', err );
 				autosaveError = 'Autosave failed';
 				updateAutosaveIndicator();
+			} )
+			.finally( function () {
+				autosaveInFlight = false;
+				if ( isDirty && dirtyRevision > revision ) {
+					doAutosave();
+				}
 			} );
 	}
 	function startAutosavePoll() {
@@ -246,6 +256,19 @@ import { createMockupPicker } from './products-page-mockup-picker';
 	function init() {
 		const data = window.ocProductsData || {};
 		designId = Number( data.designId || 0 );
+		document
+			.getElementById( 'oc-design-form' )
+			?.addEventListener( 'submit', () => {
+				isSubmitting = true;
+				renderHiddenFields();
+				stopAutosavePoll();
+			} );
+		window.addEventListener( 'beforeunload', ( event ) => {
+			if ( hasUnsavedChanges && ! isSubmitting ) {
+				event.preventDefault();
+				event.returnValue = '';
+			}
+		} );
 		if ( designId > 0 ) {
 			const body = new URLSearchParams( {
 				action: 'oc_restore_autosave',
@@ -306,16 +329,11 @@ import { createMockupPicker } from './products-page-mockup-picker';
 		renderAll();
 		snapshot(); // seed initial history state
 		isDirty = false; // reset after seed
+		hasUnsavedChanges = false;
 		initInteractions();
 		if ( designId > 0 ) {
 			startAutosavePoll();
 		}
-		document
-			.getElementById( 'oc-design-form' )
-			?.addEventListener( 'submit', () => {
-				renderHiddenFields();
-				stopAutosavePoll();
-			} );
 	}
 	const {
 		normaliseArea,

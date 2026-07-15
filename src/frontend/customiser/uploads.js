@@ -92,9 +92,13 @@ const uploadMethods = {
 				maxMb = globalMaxMb;
 			}
 
+			let activeGeneration = this.uploadGenerations[ lid ] || 0;
+			const fileGenerations = new Map();
 			const uppy = new Uppy( {
 				autoProceed: true,
 				onBeforeFileAdded: () => {
+					activeGeneration += 1;
+					this.uploadGenerations[ lid ] = activeGeneration;
 					uppy.getFiles().forEach( ( existingFile ) =>
 						uppy.removeFile( existingFile.id )
 					);
@@ -114,6 +118,9 @@ const uploadMethods = {
 					maxFileSize: maxMb * 1024 * 1024,
 					allowedFileTypes: allowedExt,
 				},
+			} );
+			uppy.on( 'file-added', ( file ) => {
+				fileGenerations.set( file.id, activeGeneration );
 			} );
 			uppy.use( DragDrop, {
 				target: zoneEl,
@@ -141,6 +148,12 @@ const uploadMethods = {
 			} );
 
 			uppy.on( 'upload-progress', ( file, progress ) => {
+				if (
+					fileGenerations.get( file?.id ) !==
+					this.uploadGenerations[ lid ]
+				) {
+					return;
+				}
 				const percent = progress?.bytesTotal
 					? Math.round(
 							( progress.bytesUploaded / progress.bytesTotal ) *
@@ -155,6 +168,10 @@ const uploadMethods = {
 			} );
 
 			uppy.on( 'upload-success', async ( file, res ) => {
+				const generation = fileGenerations.get( file?.id );
+				if ( generation !== this.uploadGenerations[ lid ] ) {
+					return;
+				}
 				this.setUploadProgress( zoneEl, 100, '' );
 				if ( ! res?.body ) {
 					this.setUploadZoneState( zoneEl, 'error' );
@@ -181,6 +198,9 @@ const uploadMethods = {
 				const meta = await this.getImageMeta(
 					this.inputs[ lid ].attachmentUrl
 				);
+				if ( generation !== this.uploadGenerations[ lid ] ) {
+					return;
+				}
 				if ( meta && this.inputs[ lid ] ) {
 					this.inputs[ lid ].imageMeta = meta;
 					const thresholdW = Math.round( layer.w * ( 300 / 72 ) );
@@ -240,6 +260,12 @@ const uploadMethods = {
 			} );
 
 			uppy.on( 'upload-error', ( file, error, response ) => {
+				if (
+					fileGenerations.get( file?.id ) !==
+					this.uploadGenerations[ lid ]
+				) {
+					return;
+				}
 				let responseBody = response?.body || null;
 				if ( ! responseBody && response?.responseText ) {
 					try {
@@ -256,6 +282,13 @@ const uploadMethods = {
 				this.showUploadError( zoneEl, msg );
 			} );
 			uppy.on( 'restriction-failed', ( file, error ) => {
+				if (
+					file?.id &&
+					fileGenerations.get( file.id ) !==
+						this.uploadGenerations[ lid ]
+				) {
+					return;
+				}
 				this.setUploadZoneState( zoneEl, 'error' );
 				this.setUploadProgress( zoneEl, 0, '' );
 				this.showUploadError(

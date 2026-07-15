@@ -30,6 +30,9 @@ class OC_Font_Registry {
 
 	/** Add font MIME types to WordPress allowed uploads. */
 	public function allow_font_mimes( array $mimes ): array {
+		if ( ! $this->is_authorised_font_request() ) {
+			return $mimes;
+		}
 		foreach ( self::MIME_TYPES as $ext => $mime ) {
 			$mimes[ $ext ] = $mime;
 		}
@@ -39,11 +42,30 @@ class OC_Font_Registry {
 	/** Fix MIME type detection for font files (WP's finfo can misidentify them). */
 	public function fix_font_mime( array $data, string $file, string $filename, ?array $mimes ): array {
 		$ext = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
-		if ( isset( self::MIME_TYPES[ $ext ] ) ) {
+		if ( $this->is_authorised_font_request() && isset( self::MIME_TYPES[ $ext ] ) && self::has_valid_font_magic( $file, $ext ) ) {
 			$data['ext']  = $ext;
 			$data['type'] = self::MIME_TYPES[ $ext ];
 		}
 		return $data;
+	}
+
+	/** Validate the container signature before WordPress accepts a font MIME override. */
+	public static function has_valid_font_magic( string $file, string $ext ): bool {
+		if ( ! is_file( $file ) ) return false;
+		$magic = file_get_contents( $file, false, null, 0, 4 );
+		if ( false === $magic || 4 !== strlen( $magic ) ) return false;
+		return match ( strtolower( $ext ) ) {
+			'ttf'   => in_array( $magic, [ "\x00\x01\x00\x00", 'true' ], true ),
+			'otf'   => 'OTTO' === $magic,
+			'woff'  => 'wOFF' === $magic,
+			'woff2' => 'wOF2' === $magic,
+			default => false,
+		};
+	}
+
+	private function is_authorised_font_request(): bool {
+		$action = isset( $_REQUEST['action'] ) ? sanitize_key( wp_unslash( $_REQUEST['action'] ) ) : '';
+		return wp_doing_ajax() && current_user_can( 'manage_woocommerce' ) && in_array( $action, [ 'oc_font_upload', 'oc_font_replace_print' ], true );
 	}
 
 	/** Output @font-face declarations for all active fonts. */

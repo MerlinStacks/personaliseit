@@ -101,38 +101,17 @@ class OC_Webhooks {
 	}
 
 	private function deliver( int $webhook_id, string $url, string $secret, string $body, string $event ): void {
-		if ( filter_var( $url, FILTER_VALIDATE_URL ) === false ) {
-			$this->update_delivery_status( $webhook_id, 'failed', 0, 'Invalid webhook URL.' );
+		if ( ! self::is_safe_webhook_url( $url ) ) {
+			$this->update_delivery_status( $webhook_id, 'failed', 0, 'Webhook URL resolves to a blocked address.' );
 			return;
 		}
 
-		$parsed = wp_parse_url( $url );
-
-		if ( ! is_array( $parsed ) || ! isset( $parsed['scheme'] ) || ! in_array( strtolower( $parsed['scheme'] ), [ 'http', 'https' ], true ) ) {
-			$this->update_delivery_status( $webhook_id, 'failed', 0, 'Invalid webhook URL scheme.' );
-			return;
-		}
-
-		$signature = hash_hmac( 'sha256', $body, $secret );
-
-		$response = wp_remote_post( $url, [
-			'method'      => 'POST',
-			'timeout'     => 10,
-			'blocking'    => true,
-			'sslverify'   => true,
-			'redirection' => 0,
-			'body'        => $body,
-			'headers'     => [
-				'Content-Type'   => 'application/json',
-				'X-OC-Event'     => $event,
-				'X-OC-Signature' => 'sha256=' . $signature,
-				'X-OC-Timestamp' => (string) time(),
-			],
-		] );
+		$delivery_id = wp_generate_uuid4();
+		$response    = self::post( $url, $secret, $body, $event, $delivery_id, 10 );
 
 		if ( is_wp_error( $response ) ) {
 			$this->update_delivery_status( $webhook_id, 'failed', 0, $response->get_error_message() );
-			$this->schedule_retry( $webhook_id, $body, $event, 0 );
+			$this->schedule_retry( $webhook_id, $body, $event, 0, $delivery_id );
 			return;
 		}
 
@@ -143,12 +122,12 @@ class OC_Webhooks {
 		} else {
 			$this->update_delivery_status( $webhook_id, 'failed', $status, (string) wp_remote_retrieve_body( $response ) );
 			if ( in_array( $status, [ 408, 429 ], true ) || $status >= 500 || 0 === $status ) {
-				$this->schedule_retry( $webhook_id, $body, $event, 0 );
+				$this->schedule_retry( $webhook_id, $body, $event, 0, $delivery_id );
 			}
 		}
 	}
 
-	private function schedule_retry( int $webhook_id, string $body, string $event, int $attempt = 0 ): void {
+	private function schedule_retry( int $webhook_id, string $body, string $event, int $attempt = 0, string $delivery_id = '' ): void {
 		if ( $attempt >= self::MAX_RETRIES ) {
 			OC_Logger::error( "Webhook #{$webhook_id} exceeded max retries for event {$event}." );
 			return;
@@ -161,6 +140,7 @@ class OC_Webhooks {
 			'body'    => $body,
 			'event'   => $event,
 			'attempt' => $attempt + 1,
+			'delivery_id' => $delivery_id ?: wp_generate_uuid4(),
 		], DAY_IN_SECONDS );
 
 		$scheduled = wp_schedule_single_event( time() + $delay, 'oc_webhook_retry', [ $webhook_id, $retry_key ] );
@@ -186,29 +166,17 @@ class OC_Webhooks {
 		$body    = $retry_data['body'] ?? '';
 		$event   = $retry_data['event'] ?? '';
 		$attempt = (int) ( $retry_data['attempt'] ?? 1 );
+		$delivery_id = (string) ( $retry_data['delivery_id'] ?? wp_generate_uuid4() );
 
-		$signature = hash_hmac( 'sha256', $body, $webhook->secret ?? '' );
-
-		$response = wp_remote_post( $webhook->url, [
-			'method'      => 'POST',
-			'timeout'     => 10,
-			'blocking'    => true,
-			'sslverify'   => true,
-			'redirection' => 0,
-			'body'        => $body,
-			'headers'     => [
-				'Content-Type'   => 'application/json',
-				'X-OC-Event'     => $event,
-				'X-OC-Signature' => 'sha256=' . $signature,
-				'X-OC-Timestamp' => (string) time(),
-			],
-		] );
+		$response = self::is_safe_webhook_url( (string) $webhook->url )
+			? self::post( (string) $webhook->url, (string) ( $webhook->secret ?? '' ), (string) $body, (string) $event, $delivery_id, 10 )
+			: new \WP_Error( 'http_request_not_executed', 'Webhook URL resolves to a blocked address.' );
 
 		delete_transient( $retry_key );
 
 		if ( is_wp_error( $response ) ) {
 			$this->update_delivery_status( $webhook_id, 'failed', 0, $response->get_error_message() );
-			$this->schedule_retry( $webhook_id, $body, $event, $attempt );
+			$this->schedule_retry( $webhook_id, $body, $event, $attempt, $delivery_id );
 			return;
 		}
 
@@ -220,7 +188,7 @@ class OC_Webhooks {
 		} else {
 			$this->update_delivery_status( $webhook_id, 'failed', $status, (string) wp_remote_retrieve_body( $response ) );
 			if ( in_array( $status, [ 408, 429 ], true ) || $status >= 500 || 0 === $status ) {
-				$this->schedule_retry( $webhook_id, $body, $event, $attempt );
+				$this->schedule_retry( $webhook_id, $body, $event, $attempt, $delivery_id );
 			}
 		}
 	}
@@ -244,14 +212,8 @@ class OC_Webhooks {
 		$url    = (string) $webhook->url;
 		$secret = (string) $webhook->secret;
 
-		if ( filter_var( $url, FILTER_VALIDATE_URL ) === false ) {
-			return [ 'success' => false, 'message' => 'Invalid URL.' ];
-		}
-
-		$parsed = wp_parse_url( $url );
-
-		if ( ! is_array( $parsed ) || ! isset( $parsed['scheme'] ) || ! in_array( strtolower( $parsed['scheme'] ), [ 'http', 'https' ], true ) ) {
-			return [ 'success' => false, 'message' => 'Invalid URL scheme.' ];
+		if ( ! self::is_safe_webhook_url( $url ) ) {
+			return [ 'success' => false, 'message' => 'URL resolves to a blocked address.' ];
 		}
 
 		$body = wp_json_encode( [
@@ -259,22 +221,7 @@ class OC_Webhooks {
 			'payload' => [ 'test' => true, 'timestamp' => current_time( 'mysql', true ) ],
 		] );
 
-		$signature = hash_hmac( 'sha256', $body, $secret );
-
-		$response = wp_remote_post( $url, [
-			'method'      => 'POST',
-			'timeout'     => 15,
-			'blocking'    => true,
-			'sslverify'   => true,
-			'redirection' => 0,
-			'body'        => $body,
-			'headers'     => [
-				'Content-Type'   => 'application/json',
-				'X-OC-Event'     => $event,
-				'X-OC-Signature' => 'sha256=' . $signature,
-				'X-OC-Timestamp' => (string) time(),
-			],
-		] );
+		$response = self::post( $url, $secret, $body, $event, wp_generate_uuid4(), 15 );
 
 		if ( is_wp_error( $response ) ) {
 			return [ 'success' => false, 'message' => $response->get_error_message() ];
@@ -298,5 +245,43 @@ class OC_Webhooks {
 			'response'    => substr( $body, 0, 500 ),
 			'message'     => "Received status {$status}.",
 		];
+	}
+
+	private static function post( string $url, string $secret, string $body, string $event, string $delivery_id, int $timeout ): array|\WP_Error {
+		$timestamp = (string) time();
+		$signature = hash_hmac( 'sha256', $timestamp . '.' . $event . '.' . $body, $secret );
+		return wp_safe_remote_post( $url, [
+			'timeout' => $timeout, 'blocking' => true, 'sslverify' => true, 'redirection' => 0, 'reject_unsafe_urls' => true,
+			'body' => $body,
+			'headers' => [ 'Content-Type' => 'application/json', 'X-OC-Event' => $event, 'X-OC-Signature' => 'sha256=' . $signature, 'X-OC-Timestamp' => $timestamp, 'X-OC-Delivery-ID' => $delivery_id ],
+		] );
+	}
+
+	/** Reject local, private, reserved, loopback, and link-local destinations. */
+	public static function is_safe_webhook_url( string $url ): bool {
+		if ( false === filter_var( $url, FILTER_VALIDATE_URL ) ) return false;
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || ! in_array( strtolower( (string) ( $parts['scheme'] ?? '' ) ), [ 'http', 'https' ], true ) || empty( $parts['host'] ) ) return false;
+		$host = strtolower( rtrim( (string) $parts['host'], '.' ) );
+		if ( 'localhost' === $host || str_ends_with( $host, '.localhost' ) ) return false;
+		$ips = [];
+		if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+			$ips[] = $host;
+		} else {
+			$records = function_exists( 'dns_get_record' ) ? @dns_get_record( $host, DNS_A | DNS_AAAA ) : [];
+			foreach ( is_array( $records ) ? $records : [] as $record ) {
+				if ( ! empty( $record['ip'] ) ) $ips[] = $record['ip'];
+				if ( ! empty( $record['ipv6'] ) ) $ips[] = $record['ipv6'];
+			}
+		}
+		if ( empty( $ips ) ) return false;
+		foreach ( array_unique( $ips ) as $ip ) {
+			if ( str_starts_with( strtolower( $ip ), '::ffff:' ) ) {
+				$mapped = substr( $ip, 7 );
+				$ip = filter_var( $mapped, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ? $mapped : $ip;
+			}
+			if ( false === filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) return false;
+		}
+		return true;
 	}
 }

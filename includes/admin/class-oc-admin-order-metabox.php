@@ -201,7 +201,7 @@ class OC_Admin_Order_Metabox {
 						$regen_url = add_query_arg( [
 							'oc_regenerate' => $file->id,
 							'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . $file->id ),
-						], admin_url( 'post.php?post=' . $order->get_id() . '&action=edit' ) );
+						], $order->get_edit_order_url() );
 						printf(
 							' &nbsp;<a href="%s" class="button button-small">%s</a>',
 							esc_url( $regen_url ),

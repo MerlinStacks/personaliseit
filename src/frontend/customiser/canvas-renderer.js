@@ -22,7 +22,11 @@ const canvasRendererMethods = {
 	// ── Canvas initialisation ──────────────────────────────────────────────────
 
 	async initAllCanvases() {
+		const designGeneration = this._designGeneration;
 		for ( let i = 0; i < this.areas.length; i++ ) {
+			if ( designGeneration !== this._designGeneration ) {
+				return;
+			}
 			const el = document.getElementById( `oc-canvas-${ i }` );
 			if ( el ) {
 				await this.initCanvas( el, i );
@@ -33,12 +37,16 @@ const canvasRendererMethods = {
 	},
 
 	async initCanvas( canvasEl, areaIndex ) {
+		const designGeneration = this._designGeneration;
 		const area = this.areas[ areaIndex ];
 		const bounds = this.areaBounds( area );
 
 		// Use mockup natural width when available (works even when canvas is visually hidden).
 		// Cap at 1200px for performance; fall back to element width or 600px.
 		await new Promise( ( r ) => requestAnimationFrame( r ) );
+		if ( designGeneration !== this._designGeneration ) {
+			return;
+		}
 		const displayW = area.mockupW
 			? Math.min( area.mockupW, 1200 )
 			: Math.max( canvasEl.parentElement?.offsetWidth || 0, 600 );
@@ -65,6 +73,9 @@ const canvasRendererMethods = {
 				),
 			] );
 		} catch ( e ) {
+			if ( designGeneration !== this._designGeneration ) {
+				return;
+			}
 			console.warn(
 				'[OC] Mockup failed to load:',
 				area.mockupUrl,
@@ -92,6 +103,10 @@ const canvasRendererMethods = {
 			width: displayW,
 			height: displayH,
 		} );
+		if ( designGeneration !== this._designGeneration ) {
+			canvas.dispose();
+			return;
+		}
 
 		mockupImg.set( {
 			left: 0,
@@ -210,62 +225,93 @@ const canvasRendererMethods = {
 	},
 
 	scheduleRedraw( areaIndex = this.activeArea ) {
-		clearTimeout( this._redrawTimer );
+		clearTimeout( this._redrawTimers[ areaIndex ] );
 		this.focusPreviewArea( areaIndex );
-		this._redrawTimer = setTimeout(
-			() => this.redraw( this.activeArea ),
+		this._redrawTimers[ areaIndex ] = setTimeout(
+			() => this.redraw( areaIndex ),
 			120
 		);
 	},
 
 	async flushRedraw() {
-		clearTimeout( this._redrawTimer );
+		Object.values( this._redrawTimers ).forEach( clearTimeout );
+		this._redrawTimers = {};
+		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
+			this._redrawGenerations[ areaIndex ] += 1;
+		} );
+		await Promise.allSettled( Object.values( this._redrawPromises ) );
 		await this.redraw( this.activeArea );
 	},
 
-	async redraw( areaIndex, options = {} ) {
+	redraw( areaIndex, options = {} ) {
 		const canvas = this.canvases[ areaIndex ];
 		if ( ! canvas ) {
-			return;
+			return Promise.resolve();
 		} // canvas not ready yet — will redraw after initCanvas
+		const generation = ( this._redrawGenerations[ areaIndex ] || 0 ) + 1;
+		this._redrawGenerations[ areaIndex ] = generation;
+		const isCurrent = () =>
+			this._redrawGenerations[ areaIndex ] === generation &&
+			this.canvases[ areaIndex ] === canvas &&
+			this._customisationActive;
 
-		// Remove previously added content objects.
-		[ ...canvas.getObjects() ]
-			.filter( ( o ) => o._ocContent === true )
-			.forEach( ( o ) => canvas.remove( o ) );
+		const task = ( async () => {
+			[ ...canvas.getObjects() ]
+				.filter( ( o ) => o._ocContent === true )
+				.forEach( ( o ) => canvas.remove( o ) );
 
-		const groupIndexes =
-			options.renderGroup === false
-				? [ areaIndex ]
-				: this.areaCanvasGroupIndexes( areaIndex );
-		for ( const groupIndex of groupIndexes ) {
-			const area = this.areas[ groupIndex ];
-			for ( const layer of area?.layers ?? [] ) {
-				// PHP already filters to visible-only layers — no client-side check needed.
-				try {
-					await this.renderLayer(
-						canvas,
-						layer,
-						this.inputs[ layer.id ] || {},
-						area
-					);
-				} catch ( err ) {
-					console.warn( '[OC] Layer render failed:', layer?.id, err );
+			const groupIndexes =
+				options.renderGroup === false
+					? [ areaIndex ]
+					: this.areaCanvasGroupIndexes( areaIndex );
+			for ( const groupIndex of groupIndexes ) {
+				const area = this.areas[ groupIndex ];
+				for ( const layer of area?.layers ?? [] ) {
+					if ( ! isCurrent() ) {
+						return;
+					}
+					try {
+						await this.renderLayer(
+							canvas,
+							layer,
+							this.inputs[ layer.id ] || {},
+							area,
+							isCurrent
+						);
+					} catch ( err ) {
+						console.warn(
+							'[OC] Layer render failed:',
+							layer?.id,
+							err
+						);
+					}
 				}
 			}
-		}
 
-		canvas.renderAll();
-		if (
-			options.pushGallery !== false &&
-			areaIndex === this.activeArea &&
-			! canvas._ocMissingMockup
-		) {
-			this.pushToGallery( canvas );
-		}
+			if ( ! isCurrent() ) {
+				return;
+			}
+			canvas.renderAll();
+			if (
+				options.pushGallery !== false &&
+				areaIndex === this.activeArea &&
+				! canvas._ocMissingMockup
+			) {
+				this.pushToGallery( canvas );
+			}
+		} )();
+		this._redrawPromises[ areaIndex ] = task;
+		return task.finally( () => {
+			if ( this._redrawPromises[ areaIndex ] === task ) {
+				delete this._redrawPromises[ areaIndex ];
+			}
+		} );
 	},
 
-	async renderLayer( canvas, layer, input, area ) {
+	async renderLayer( canvas, layer, input, area, isCurrent = () => true ) {
+		if ( ! isCurrent() ) {
+			return;
+		}
 		const scale = canvas._ocScaleX ?? 1;
 		const areaBounds = this.areaBounds( area );
 		const bounds = displayBounds( areaBounds );
@@ -354,6 +400,9 @@ const canvasRendererMethods = {
 						);
 						font = null;
 					}
+				}
+				if ( ! isCurrent() ) {
+					return;
 				}
 
 				const minLimit = fontLimit( layer.settings?.min_font_size );
@@ -682,7 +731,8 @@ const canvasRendererMethods = {
 						contentClip(),
 						'contain',
 						'',
-						imageFilter ? { imageFilter } : {}
+						imageFilter ? { imageFilter } : {},
+						isCurrent
 					);
 				}
 				break;
@@ -709,7 +759,10 @@ const canvasRendererMethods = {
 							rotation,
 							layer.settings
 						),
-						'cover'
+						'cover',
+						'',
+						{},
+						isCurrent
 					);
 				}
 				break;
@@ -762,7 +815,8 @@ const canvasRendererMethods = {
 						contentClip(),
 						'contain',
 						'',
-						clipartEffects
+						clipartEffects,
+						isCurrent
 					);
 				}
 				break;
@@ -847,7 +901,11 @@ const canvasRendererMethods = {
 						true,
 						rotation,
 						engravingPalette,
-						contentClip()
+						contentClip(),
+						'contain',
+						'',
+						{},
+						isCurrent
 					);
 					if ( ! rendered ) {
 						rendered = await this.renderFabricImg(
@@ -862,12 +920,19 @@ const canvasRendererMethods = {
 							true,
 							rotation,
 							engravingPalette,
-							contentClip()
+							contentClip(),
+							'contain',
+							'',
+							{},
+							isCurrent
 						);
 					}
 					if ( rendered ) {
 						break;
 					}
+				}
+				if ( ! isCurrent() ) {
+					return;
 				}
 
 				const fallback = new FabricText(
@@ -2143,11 +2208,15 @@ const canvasRendererMethods = {
 		clipPath = null,
 		fit = 'contain',
 		tintColor = '',
-		effects = {}
+		effects = {},
+		isCurrent = () => true
 	) {
 		try {
 			const imgLoadOpts = crossOrigin ? { crossOrigin } : {};
 			const img = await FabricImage.fromURL( url, imgLoadOpts );
+			if ( ! isCurrent() ) {
+				return false;
+			}
 			if ( ! img || ! img.width ) {
 				console.warn(
 					'[OC] Image failed to load or has zero dimensions:',
@@ -2253,6 +2322,9 @@ const canvasRendererMethods = {
 			img._ocSourceUrl = url;
 			img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
 			this.applyContentClip( img, clipPath );
+			if ( ! isCurrent() ) {
+				return false;
+			}
 			canvas.add( img );
 			return true;
 		} catch ( e ) {
@@ -2301,7 +2373,9 @@ const canvasRendererMethods = {
 				break;
 			case 'contrast':
 				if ( FabricFilters.Contrast ) {
-					filters.push( new FabricFilters.Contrast( { contrast: amount } ) );
+					filters.push(
+						new FabricFilters.Contrast( { contrast: amount } )
+					);
 				}
 				break;
 			case 'saturation':

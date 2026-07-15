@@ -124,6 +124,25 @@ class Test_Print_Generator extends WC_Unit_Test_Case {
 		( new OC_Print_Generator() )->regenerate( 999999 );
 	}
 
+	#[Test]
+	public function completed_outputs_receive_distinct_print_file_id_paths(): void {
+		$uploads = wp_upload_dir();
+		wp_mkdir_p( $uploads['basedir'] );
+		$first_source = tempnam( $uploads['basedir'], 'oc_output_' );
+		file_put_contents( $first_source, 'first' );
+		$first = OC_Print_Generator::finalise_generated_output( $first_source, 101 );
+
+		$second_source = tempnam( $uploads['basedir'], 'oc_output_' );
+		file_put_contents( $second_source, 'second' );
+		$second = OC_Print_Generator::finalise_generated_output( $second_source, 102 );
+
+		$this->assertNotSame( $first, $second );
+		$this->assertFileExists( $first );
+		$this->assertFileExists( $second );
+		@unlink( $first );
+		@unlink( $second );
+	}
+
 	// ── Engraving driver produces a file ─────────────────────────────────────
 
 	#[Test]

@@ -84,12 +84,12 @@ class OC_Admin_Products {
 		}
 
 		$design_id = (int) ( $_POST['design_id'] ?? 0 );
-		if ( ! $design_id ) {
+		if ( ! $design_id || ! OC_DB::get_design( $design_id ) ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid design.', 'overcustomise' ) ] );
 		}
 
 		$state_raw = wp_unslash( $_POST['state'] ?? '' );
-		if ( ! is_string( $state_raw ) || ! $state_raw ) {
+		if ( ! is_string( $state_raw ) || ! $state_raw || strlen( $state_raw ) > 1048576 ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid state.', 'overcustomise' ) ] );
 		}
 		$state = json_decode( $state_raw, true );
@@ -97,9 +97,10 @@ class OC_Admin_Products {
 			wp_send_json_error( [ 'message' => __( 'Invalid state.', 'overcustomise' ) ] );
 		}
 
-		$ok = OC_Autosave::store( $design_id, $state );
+		$revision = max( 0, (int) ( $_POST['revision'] ?? 0 ) );
+		$ok       = OC_Autosave::store( $design_id, $state, $revision );
 		if ( $ok ) {
-			wp_send_json_success( [ 'timestamp' => time() ] );
+			wp_send_json_success( [ 'timestamp' => time(), 'revision' => $revision ] );
 		} else {
 			wp_send_json_error( [ 'message' => __( 'Autosave failed.', 'overcustomise' ) ] );
 		}
@@ -112,6 +113,9 @@ class OC_Admin_Products {
 		}
 
 		$design_id = (int) ( $_POST['design_id'] ?? 0 );
+		if ( ! $design_id || ! OC_DB::get_design( $design_id ) ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid design.', 'overcustomise' ) ] );
+		}
 		$data = OC_Autosave::restore( $design_id );
 
 		if ( $data ) {
@@ -1248,6 +1252,35 @@ class OC_Admin_Products {
 			wp_die( esc_html__( 'Design name is required.', 'overcustomise' ) );
 		}
 
+		$posted_areas  = $_POST['oc_design_areas'] ?? [];
+		$posted_layers = $_POST['oc_layers'] ?? [];
+		if ( ! is_array( $posted_areas ) || ! is_array( $posted_layers ) ) {
+			wp_die( esc_html__( 'Invalid design data.', 'overcustomise' ) );
+		}
+
+		$submitted_existing_ids = [];
+		$valid_area_indexes      = [];
+		foreach ( $posted_areas as $area_index => $area_data ) {
+			if ( ! is_array( $area_data ) ) {
+				wp_die( esc_html__( 'Invalid print area data.', 'overcustomise' ) );
+			}
+			if ( sanitize_text_field( $area_data['label'] ?? '' ) ) {
+				$valid_area_indexes[ (int) $area_index ] = true;
+			}
+			$area_id = (int) ( $area_data['id'] ?? 0 );
+			if ( $area_id > 0 ) {
+				if ( 0 === $design_id || in_array( $area_id, $submitted_existing_ids, true ) ) {
+					wp_die( esc_html__( 'A submitted print area is stale or invalid. Reload the design and try again.', 'overcustomise' ) );
+				}
+				$submitted_existing_ids[] = $area_id;
+			}
+		}
+		foreach ( $posted_layers as $layer_data ) {
+			if ( ! is_array( $layer_data ) || ! isset( $valid_area_indexes[ (int) ( $layer_data['area_index'] ?? -1 ) ] ) ) {
+				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
+			}
+		}
+
 		$data = [
 			'name'        => $name,
 			'custom_type' => $custom_type,
@@ -1256,120 +1289,160 @@ class OC_Admin_Products {
 		];
 		$fmt = [ '%s', '%s', '%s', '%d' ];
 
-		if ( $design_id > 0 ) {
-			$data['clone_priority'] = 0;
-			$fmt[]                  = '%d';
-			$wpdb->update( "{$wpdb->prefix}oc_designs", $data, [ 'id' => $design_id ], $fmt, [ '%d' ] );
-		} else {
-			$wpdb->insert( "{$wpdb->prefix}oc_designs", $data, $fmt );
-			$design_id = (int) $wpdb->insert_id;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_die( esc_html__( 'Could not start the design save transaction.', 'overcustomise' ) );
 		}
 
-		// Save print areas — also build index→DB id map for layer saving.
-		$posted_areas  = $_POST['oc_design_areas'] ?? [];
-		$submitted_ids = [];
-		$area_id_map   = []; // area_index (0,1,2…) → DB id
+		try {
+			$existing_ids = [];
+			if ( $design_id > 0 ) {
+				$locked_design = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
+				if ( ! $locked_design ) {
+					throw new RuntimeException( 'Design not found.' );
+				}
+				$existing_ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) );
+				if ( array_diff( $submitted_existing_ids, $existing_ids ) ) {
+					throw new RuntimeException( 'Submitted area does not belong to this design.' );
+				}
 
-		foreach ( $posted_areas as $area_index => $area_data ) {
-			$area_id    = (int) ( $area_data['id'] ?? 0 );
-			$label      = sanitize_text_field( $area_data['label'] ?? '' );
-			if ( ! $label ) continue;
-
-			$area_key   = sanitize_key( $label );
-			$method     = in_array( $area_data['print_method'] ?? '', [ 'engraving', 'uv', 'embroidery', 'sublimation' ], true )
-				? sanitize_key( $area_data['print_method'] )
-				: 'uv';
-			$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood' ], true )
-				? sanitize_key( $area_data['engraving_material'] )
-				: 'silver_metal';
-			$unit       = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
-				? sanitize_key( $area_data['canvas_unit'] )
-				: 'px';
-			$mockup_id  = (int) ( $area_data['mockup_attachment_id'] ?? 0 );
-			$canvas_x   = max( 0, (int) ( $area_data['canvas_x'] ?? 0 ) );
-			$canvas_y   = max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) );
-			$canvas_w   = max( 1, (int) ( $area_data['canvas_w'] ?? 300 ) );
-			$canvas_h   = max( 1, (int) ( $area_data['canvas_h'] ?? 300 ) );
-			$canvas_dpi = min( 1200, max( 1, (int) ( $area_data['canvas_dpi'] ?? 300 ) ) );
-			$rotation   = (int) ( $area_data['canvas_rotation'] ?? 0 );
-			$rotation   = ( ( $rotation % 360 ) + 360 ) % 360;
-			$sort_order = (int) ( $area_data['sort_order'] ?? 0 );
-
-			$row = [
-				'design_id'            => $design_id,
-				'area_key'             => $area_key,
-				'label'                => $label,
-				'print_method'         => $method,
-				'engraving_material'   => $material,
-				'canvas_unit'          => $unit,
-				'mockup_attachment_id' => $mockup_id ?: null,
-				'canvas_x'             => $canvas_x,
-				'canvas_y'             => $canvas_y,
-				'canvas_w'             => $canvas_w,
-				'canvas_h'             => $canvas_h,
-				'canvas_dpi'           => $canvas_dpi,
-				'canvas_rotation'      => $rotation,
-				'sort_order'           => $sort_order,
-				'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
-				'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
-			];
-			$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
-
-			if ( $area_id > 0 ) {
-				$wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id ], $row_fmt, [ '%d' ] );
-				$db_area_id = $area_id;
+				$data['clone_priority'] = 0;
+				$fmt[]                  = '%d';
+				if ( false === $wpdb->update( "{$wpdb->prefix}oc_designs", $data, [ 'id' => $design_id ], $fmt, [ '%d' ] ) ) {
+					throw new RuntimeException( 'Could not update design.' );
+				}
 			} else {
-				$wpdb->insert( "{$wpdb->prefix}oc_design_print_areas", $row, $row_fmt );
-				$db_area_id = (int) $wpdb->insert_id;
+				if ( false === $wpdb->insert( "{$wpdb->prefix}oc_designs", $data, $fmt ) ) {
+					throw new RuntimeException( 'Could not create design.' );
+				}
+				$design_id = (int) $wpdb->insert_id;
+				if ( $design_id <= 0 ) {
+					throw new RuntimeException( 'Could not identify created design.' );
+				}
 			}
 
-			$submitted_ids[]                  = $db_area_id;
-			$area_id_map[ (int) $area_index ] = $db_area_id;
-		}
+			// Save print areas and build the submitted index to database ID map.
+			$submitted_ids = [];
+			$area_id_map   = [];
 
-		// Delete removed areas.
-		$existing_ids = array_column( OC_DB::get_design_print_areas( $design_id ), 'id' );
-		foreach ( array_diff( $existing_ids, $submitted_ids ) as $del_id ) {
-			$wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'id' => (int) $del_id ], [ '%d' ] );
-		}
+			foreach ( $posted_areas as $area_index => $area_data ) {
+				$area_id = (int) ( $area_data['id'] ?? 0 );
+				$label   = sanitize_text_field( $area_data['label'] ?? '' );
+				if ( ! $label ) {
+					continue;
+				}
 
-		// Save layers — delete all and re-insert from POST.
-		$wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $design_id ], [ '%d' ] );
+				$area_key   = sanitize_key( $label );
+				$method     = in_array( $area_data['print_method'] ?? '', [ 'engraving', 'uv', 'embroidery', 'sublimation' ], true )
+					? sanitize_key( $area_data['print_method'] )
+					: 'uv';
+				$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood' ], true )
+					? sanitize_key( $area_data['engraving_material'] )
+					: 'silver_metal';
+				$unit       = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
+					? sanitize_key( $area_data['canvas_unit'] )
+					: 'px';
+				$mockup_id  = (int) ( $area_data['mockup_attachment_id'] ?? 0 );
+				$canvas_x   = max( 0, (int) ( $area_data['canvas_x'] ?? 0 ) );
+				$canvas_y   = max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) );
+				$canvas_w   = max( 1, (int) ( $area_data['canvas_w'] ?? 300 ) );
+				$canvas_h   = max( 1, (int) ( $area_data['canvas_h'] ?? 300 ) );
+				$canvas_dpi = min( 1200, max( 1, (int) ( $area_data['canvas_dpi'] ?? 300 ) ) );
+				$rotation   = (int) ( $area_data['canvas_rotation'] ?? 0 );
+				$rotation   = ( ( $rotation % 360 ) + 360 ) % 360;
+				$sort_order = (int) ( $area_data['sort_order'] ?? 0 );
 
-		$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
-		foreach ( (array) ( $_POST['oc_layers'] ?? [] ) as $sort => $layer_data ) {
-			$area_index = (int) ( $layer_data['area_index'] ?? 0 );
-			$area_db_id = $area_id_map[ $area_index ] ?? 0;
-			if ( ! $area_db_id ) continue;
+				$row = [
+					'design_id'            => $design_id,
+					'area_key'             => $area_key,
+					'label'                => $label,
+					'print_method'         => $method,
+					'engraving_material'   => $material,
+					'canvas_unit'          => $unit,
+					'mockup_attachment_id' => $mockup_id ?: null,
+					'canvas_x'             => $canvas_x,
+					'canvas_y'             => $canvas_y,
+					'canvas_w'             => $canvas_w,
+					'canvas_h'             => $canvas_h,
+					'canvas_dpi'           => $canvas_dpi,
+					'canvas_rotation'      => $rotation,
+					'sort_order'           => $sort_order,
+					'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
+					'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
+				];
+				$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
 
-			$type     = in_array( $layer_data['type'] ?? '', $valid_types, true )
-				? sanitize_key( $layer_data['type'] )
-				: 'text';
-			$label    = sanitize_text_field( $layer_data['label']    ?? '' );
-			// WordPress slashes $_POST, so unslash before json_decode — otherwise the
-			// escaped quotes make it invalid JSON and settings get silently dropped.
-			$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
-			$decoded      = json_decode( is_string( $settings_raw ) ? $settings_raw : '{}', true );
-			$settings     = wp_json_encode( is_array( $decoded ) ? $decoded : [] );
+				if ( $area_id > 0 ) {
+					if ( false === $wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id, 'design_id' => $design_id ], $row_fmt, [ '%d', '%d' ] ) ) {
+						throw new RuntimeException( 'Could not update print area.' );
+					}
+					$db_area_id = $area_id;
+				} else {
+					if ( false === $wpdb->insert( "{$wpdb->prefix}oc_design_print_areas", $row, $row_fmt ) ) {
+						throw new RuntimeException( 'Could not create print area.' );
+					}
+					$db_area_id = (int) $wpdb->insert_id;
+					if ( $db_area_id <= 0 ) {
+						throw new RuntimeException( 'Could not identify created print area.' );
+					}
+				}
 
-			$wpdb->insert(
-				"{$wpdb->prefix}oc_design_layers",
-				[
-					'design_id'  => $design_id,
-					'area_id'    => $area_db_id,
-					'type'       => $type,
-					'label'      => $label,
-					'x'          => max( 0, (int) ( $layer_data['x']       ?? 0 ) ),
-					'y'          => max( 0, (int) ( $layer_data['y']       ?? 0 ) ),
-					'w'          => max( 1, (int) ( $layer_data['w']       ?? 200 ) ),
-					'h'          => max( 1, (int) ( $layer_data['h']       ?? 50  ) ),
-					'sort_order' => (int) $sort,
-					'visible'    => isset( $layer_data['visible'] ) && $layer_data['visible'] !== '0' ? 1 : 0,
-					'locked'     => ! empty( $layer_data['locked'] ) && $layer_data['locked'] !== '0' ? 1 : 0,
-					'settings'   => $settings ?: '{}',
-				],
-				[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
-			);
+				$submitted_ids[]                  = $db_area_id;
+				$area_id_map[ (int) $area_index ] = $db_area_id;
+			}
+
+			// Replace layers before deleting removed areas so no stale area references remain.
+			if ( false === $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $design_id ], [ '%d' ] ) ) {
+				throw new RuntimeException( 'Could not replace design layers.' );
+			}
+			foreach ( array_diff( $existing_ids, $submitted_ids ) as $del_id ) {
+				if ( 1 !== $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'id' => (int) $del_id, 'design_id' => $design_id ], [ '%d', '%d' ] ) ) {
+					throw new RuntimeException( 'Could not remove print area.' );
+				}
+			}
+
+			$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
+			foreach ( $posted_layers as $sort => $layer_data ) {
+				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
+				$area_db_id = $area_id_map[ $area_index ] ?? 0;
+
+				$type  = in_array( $layer_data['type'] ?? '', $valid_types, true )
+					? sanitize_key( $layer_data['type'] )
+					: 'text';
+				$label = sanitize_text_field( $layer_data['label'] ?? '' );
+				// WordPress slashes $_POST, so unslash before decoding settings.
+				$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
+				$decoded      = json_decode( is_string( $settings_raw ) ? $settings_raw : '{}', true );
+				$settings     = wp_json_encode( is_array( $decoded ) ? $decoded : [] );
+
+				$inserted = $wpdb->insert(
+					"{$wpdb->prefix}oc_design_layers",
+					[
+						'design_id'  => $design_id,
+						'area_id'    => $area_db_id,
+						'type'       => $type,
+						'label'      => $label,
+						'x'          => max( 0, (int) ( $layer_data['x'] ?? 0 ) ),
+						'y'          => max( 0, (int) ( $layer_data['y'] ?? 0 ) ),
+						'w'          => max( 1, (int) ( $layer_data['w'] ?? 200 ) ),
+						'h'          => max( 1, (int) ( $layer_data['h'] ?? 50 ) ),
+						'sort_order' => (int) $sort,
+						'visible'    => isset( $layer_data['visible'] ) && $layer_data['visible'] !== '0' ? 1 : 0,
+						'locked'     => ! empty( $layer_data['locked'] ) && $layer_data['locked'] !== '0' ? 1 : 0,
+						'settings'   => $settings ?: '{}',
+					],
+					[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
+				);
+				if ( false === $inserted ) {
+					throw new RuntimeException( 'Could not save design layer.' );
+				}
+			}
+
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new RuntimeException( 'Could not commit design.' );
+			}
+		} catch ( Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_die( esc_html__( 'Could not save design. No changes were applied.', 'overcustomise' ) );
 		}
 
 		OC_Autosave::clear( $design_id );
@@ -1397,10 +1470,49 @@ class OC_Admin_Products {
 		}
 
 		global $wpdb;
-		$wpdb->delete( "{$wpdb->prefix}oc_design_print_areas",  [ 'design_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_design_layers",       [ 'design_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_product_assignments",  [ 'design_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_designs",              [ 'id'        => $id ], [ '%d' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_die( esc_html__( 'Could not start the design deletion transaction.', 'overcustomise' ) );
+		}
+
+		$csv_path = '';
+		try {
+			$design_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $id ) );
+			if ( ! $design_exists ) {
+				throw new RuntimeException( 'Design not found.' );
+			}
+
+			$template = $wpdb->get_row( $wpdb->prepare( "SELECT id, csv_file_path FROM {$wpdb->prefix}oc_vdp_templates WHERE design_id = %d FOR UPDATE", $id ) );
+			if ( $template ) {
+				$csv_path = (string) $template->csv_file_path;
+				if ( false === $wpdb->delete( "{$wpdb->prefix}oc_vdp_fields", [ 'template_id' => (int) $template->id ], [ '%d' ] ) ) {
+					throw new RuntimeException( 'Could not delete VDP fields.' );
+				}
+			}
+			$deleted_template   = $wpdb->delete( "{$wpdb->prefix}oc_vdp_templates", [ 'design_id' => $id ], [ '%d' ] );
+			$deleted_layers     = $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $id ], [ '%d' ] );
+			$deleted_areas      = $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'design_id' => $id ], [ '%d' ] );
+			$deleted_assignments = $wpdb->delete( "{$wpdb->prefix}oc_product_assignments", [ 'design_id' => $id ], [ '%d' ] );
+			$deleted_design     = $wpdb->delete( "{$wpdb->prefix}oc_designs", [ 'id' => $id ], [ '%d' ] );
+			if ( false === $deleted_template || false === $deleted_layers || false === $deleted_areas || false === $deleted_assignments || 1 !== $deleted_design ) {
+				throw new RuntimeException( 'Could not delete design records.' );
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new RuntimeException( 'Could not commit design deletion.' );
+			}
+		} catch ( Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_die( esc_html__( 'Could not delete design. No changes were applied.', 'overcustomise' ) );
+		}
+
+		if ( '' !== $csv_path && file_exists( $csv_path ) ) {
+			$upload   = wp_upload_dir();
+			$vdp_root = realpath( trailingslashit( $upload['basedir'] ) . 'overcustomise/vdp' );
+			$csv_real = realpath( $csv_path );
+			if ( $vdp_root && $csv_real && 0 === strpos( $csv_real, trailingslashit( $vdp_root ) ) ) {
+				wp_delete_file( $csv_real );
+			}
+		}
+		OC_Autosave::clear( $id );
 		OC_Cache::delete( 'all_assignments_v2' );
 		OC_Cache::flush_pattern( 'assignment_' );
 		$this->clear_design_cache( $id );

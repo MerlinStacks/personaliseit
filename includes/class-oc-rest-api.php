@@ -300,39 +300,54 @@ class OC_Rest_API {
 			return new \WP_Error( 'no_file', __( 'No file received.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		// Optional per-layer override: if a layer_id is supplied, use that layer's
-		// formats/max_size so the server enforces the same restriction as the UI.
-		$layer_overrides = null;
+		// Uploads are always scoped to an assigned product/design/layer context.
+		$layer_overrides = [];
 		$layer_id        = absint( $request->get_param( 'layer_id' ) );
+		$design_id       = absint( $request->get_param( 'design_id' ) );
+		$product_id      = absint( $request->get_param( 'product_id' ) );
+		$variation_id    = absint( $request->get_param( 'variation_id' ) );
+		if ( ! $layer_id || ! $design_id || ! $product_id ) {
+			return new \WP_Error( 'invalid_context', __( 'Product, design, and layer are required for artwork uploads.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
 		if ( $layer_id ) {
 			global $wpdb;
-			$design_id = absint( $request->get_param( 'design_id' ) );
-			$product_id = absint( $request->get_param( 'product_id' ) );
-			if ( ! $design_id || ! $product_id ) {
-				return new \WP_Error( 'invalid_layer', __( 'Invalid upload layer.', 'overcustomise' ), [ 'status' => 400 ] );
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id, true );
+			if ( ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) && 0 === $variation_id ) {
+				$candidates = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d", $product_id ) ) ?: [];
+				foreach ( $candidates as $candidate ) {
+					if ( OC_DB::assignment_allows_design( $candidate, $design_id ) ) {
+						$assignment = $candidate;
+						break;
+					}
+				}
 			}
-
-			$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
 			if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
 				return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ), [ 'status' => 400 ] );
 			}
 
 			$row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT settings FROM {$wpdb->prefix}oc_design_layers WHERE id = %d AND design_id = %d LIMIT 1",
+				"SELECT type, settings FROM {$wpdb->prefix}oc_design_layers WHERE id = %d AND design_id = %d LIMIT 1",
 				$layer_id,
 				$design_id
 			) );
 			if ( ! $row ) {
 				return new \WP_Error( 'invalid_layer', __( 'Invalid upload layer.', 'overcustomise' ), [ 'status' => 400 ] );
 			}
+			if ( ! in_array( (string) $row->type, [ 'image', 'clipmask' ], true ) ) {
+				return new \WP_Error( 'invalid_layer', __( 'This layer does not accept artwork uploads.', 'overcustomise' ), [ 'status' => 400 ] );
+			}
 			if ( $row && $row->settings ) {
 				$s = json_decode( $row->settings, true );
 				if ( is_array( $s ) ) {
 					$formats     = isset( $s['formats'] ) && is_array( $s['formats'] ) ? array_values( array_filter( $s['formats'] ) ) : [];
 					$max_size_mb = isset( $s['max_size_mb'] ) ? (int) $s['max_size_mb'] : 0;
+					$global_formats = array_map( 'strtolower', (array) OC_Admin_Settings::get( 'allowed_upload_formats' ) );
+					$formats = $formats ? array_values( array_intersect( $global_formats, array_map( 'strtolower', $formats ) ) ) : $global_formats;
+					$global_max = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
 					$layer_overrides = [
-						'formats'           => ! empty( $formats ) ? array_map( 'strtolower', $formats ) : null,
-						'max_size_mb'       => $max_size_mb > 0 ? $max_size_mb : null,
+						'formats'           => $formats,
+						'max_size_mb'       => $max_size_mb > 0 ? min( $global_max, $max_size_mb ) : $global_max,
 						'remove_background' => ! empty( $s['remove_background'] ),
 					];
 				}
@@ -340,7 +355,22 @@ class OC_Rest_API {
 		}
 
 		try {
-			$result = OC_Upload_Handler::process( $files['artwork'], $layer_overrides );
+			$token = (string) ( $request->get_header( 'X-OC-Token' ) ?: $request->get_param( 'oc_token' ) );
+			$result = OC_Upload_Handler::process( $files['artwork'], $layer_overrides, [
+				'product_id'   => $product_id,
+				'variation_id' => $variation_id,
+				'design_id'    => $design_id,
+				'layer_id'     => $layer_id,
+				'token_hash'   => $token ? hash( 'sha256', $token ) : '',
+			] );
+			if ( $token ) {
+				$key = self::public_token_key( $token );
+				$ctx = get_transient( $key );
+				if ( is_array( $ctx ) ) {
+					$ctx['attachments'][ (int) $result['attachment_id'] ] = [ $product_id, $variation_id, $design_id, $layer_id ];
+					set_transient( $key, $ctx, self::PUBLIC_TOKEN_TTL );
+				}
+			}
 		} catch ( \RuntimeException $e ) {
 			OC_Logger::warning( 'Artwork upload failed: ' . $e->getMessage() );
 			return new \WP_Error( 'upload_failed', $e->getMessage(), [ 'status' => 422 ] );
@@ -399,6 +429,11 @@ class OC_Rest_API {
 			$err = error_get_last();
 			OC_Logger::warning( 'Preview image validation failed: ' . ( $err['message'] ?? 'unknown error' ) );
 			return new \WP_Error( 'invalid_image', __( 'Invalid image format.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$width  = (int) ( $image_info[0] ?? 0 );
+		$height = (int) ( $image_info[1] ?? 0 );
+		if ( $width <= 0 || $height <= 0 || $width > 12000 || $height > 12000 || $width * $height > 40000000 ) {
+			return new \WP_Error( 'invalid_dimensions', __( 'Preview image dimensions exceed the safe limit.', 'overcustomise' ), [ 'status' => 413 ] );
 		}
 
 		$upload = wp_upload_dir();
@@ -652,14 +687,15 @@ class OC_Rest_API {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create VDP directory.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
 
-		$filename = 'vdp-' . $design_id . '-' . time() . '.csv';
+		$filename = 'vdp-' . $design_id . '-' . wp_generate_uuid4() . '.csv';
 		$filepath = $dir . '/' . $filename;
 
 		if ( false === move_uploaded_file( $files['csv']['tmp_name'], $filepath ) ) {
 			return new \WP_Error( 'save_failed', __( 'Could not save CSV file.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
 
-		$vdp = new OC_VDP();
+		$old_filepath = '';
+		$vdp          = new OC_VDP();
 		$csv_data = $vdp->parse_csv( $filepath );
 
 		if ( empty( $csv_data['headers'] ) ) {
@@ -667,39 +703,58 @@ class OC_Rest_API {
 			return new \WP_Error( 'empty_csv', __( 'CSV file is empty or unreadable.', 'overcustomise' ), [ 'status' => 422 ] );
 		}
 
-		// Delete existing template and fields for this design.
-		OC_DB::delete_vdp_template( $design_id );
+		global $wpdb;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			self::delete_vdp_file( $filepath );
+			return new \WP_Error( 'db_error', __( 'Could not start the VDP update.', 'overcustomise' ), [ 'status' => 500 ] );
+		}
+		try {
+			// Serialize replacements for this design, including its first template.
+			$wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
+			$old_template = OC_DB::get_vdp_template( $design_id );
+			$old_filepath = $old_template ? (string) $old_template->csv_file_path : '';
+			if ( ! OC_DB::delete_vdp_template( $design_id ) ) {
+				throw new \RuntimeException( 'Could not remove the previous VDP template.' );
+			}
+			if ( ! OC_DB::upsert_vdp_template( [
+				'design_id'     => $design_id,
+				'csv_file_path' => $filepath,
+				'active'        => 1,
+			] ) ) {
+				throw new \RuntimeException( 'Could not create the VDP template.' );
+			}
 
-		// Upsert template.
-		OC_DB::upsert_vdp_template( [
-			'design_id'     => $design_id,
-			'csv_file_path' => $filepath,
-			'active'        => 1,
-		] );
+			$template = OC_DB::get_vdp_template( $design_id );
+			if ( ! $template ) {
+				throw new \RuntimeException( 'Could not reload the VDP template.' );
+			}
 
-		$template = OC_DB::get_vdp_template( $design_id );
-		if ( ! $template ) {
-			@unlink( $filepath );
-			return new \WP_Error( 'db_error', __( 'Could not create VDP template.', 'overcustomise' ), [ 'status' => 500 ] );
+			$all_layers = OC_DB::get_design_layers( $design_id );
+			$layer_ids  = array_values( array_map( static fn( $layer ) => (int) $layer->id, $all_layers ) );
+			foreach ( $csv_data['headers'] as $index => $header ) {
+				$inserted = OC_DB::insert_vdp_field( [
+					'template_id' => (int) $template->id,
+					'field_name'  => $header,
+					'layer_id'    => $layer_ids[ $index ] ?? 0,
+					'sort_order'  => $index,
+				] );
+				if ( $inserted <= 0 ) {
+					throw new \RuntimeException( 'Could not save VDP fields.' );
+				}
+			}
+
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new \RuntimeException( 'Could not commit the VDP template.' );
+			}
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			self::delete_vdp_file( $filepath );
+			OC_Logger::error( 'VDP replacement failed: ' . $e->getMessage() );
+			return new \WP_Error( 'db_error', __( 'Could not save the VDP template.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
 
-		// Insert fields from CSV headers.
-		$all_layers = OC_DB::get_design_layers( $design_id );
-		$layer_ids  = array_values( array_map( static fn( $l ) => (int) $l->id, $all_layers ) );
-
-		foreach ( $csv_data['headers'] as $index => $header ) {
-			$layer_id = $layer_ids[ $index ] ?? 0;
-			$inserted = OC_DB::insert_vdp_field( [
-				'template_id' => (int) $template->id,
-				'field_name'  => $header,
-				'layer_id'    => $layer_id,
-				'sort_order'  => $index,
-			] );
-			if ( $inserted <= 0 ) {
-				OC_DB::delete_vdp_template( $design_id );
-				@unlink( $filepath );
-				return new \WP_Error( 'db_error', __( 'Could not save VDP fields.', 'overcustomise' ), [ 'status' => 500 ] );
-			}
+		if ( '' !== $old_filepath && $old_filepath !== $filepath ) {
+			self::delete_vdp_file( $old_filepath );
 		}
 
 		return rest_ensure_response( [
@@ -709,6 +764,16 @@ class OC_Rest_API {
 			'row_count'  => count( $csv_data['rows'] ),
 			'file_path'  => $filepath,
 		] );
+	}
+
+	/** Delete a VDP CSV only when it resolves inside the plugin's VDP upload directory. */
+	private static function delete_vdp_file( string $filepath ): void {
+		$uploads = wp_upload_dir();
+		$base    = realpath( (string) ( $uploads['basedir'] ?? '' ) . '/overcustomise/vdp' );
+		$real    = realpath( $filepath );
+		if ( $base && $real && str_starts_with( $real, rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR ) ) {
+			wp_delete_file( $real );
+		}
 	}
 
 	/** Return customisation data for a cart item so it can be edited. */
@@ -763,164 +828,23 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_data', __( 'Invalid customisation data.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$design_id = absint( $body['designId'] );
+		$design_id  = absint( $body['designId'] );
 		$raw_layers = $body['layers'];
 
 		if ( ! is_array( $raw_layers ) || empty( $raw_layers ) ) {
 			return new \WP_Error( 'invalid_data', __( 'No layers provided.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$design = OC_DB::get_design( $design_id );
-		if ( ! $design || ! (bool) $design->active ) {
-			return new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ), [ 'status' => 400 ] );
-		}
-
-		$product_id   = absint( $cart_item['variation_id'] ?? 0 ) ?: absint( $cart_item['product_id'] ?? 0 );
+		$product_id   = absint( $cart_item['product_id'] ?? 0 );
 		$variation_id = absint( $cart_item['variation_id'] ?? 0 );
-		$assignment   = OC_DB::get_assignment_for_product( $product_id, $variation_id );
-		if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
-			return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ), [ 'status' => 400 ] );
+		$upload_token = (string) ( $request->get_header( 'X-OC-Token' ) ?: ( $body['uploadToken'] ?? '' ) );
+		$normalised   = OC_Cart::normalise_v2_layers( $product_id, $variation_id, $design_id, $raw_layers, $upload_token );
+		if ( is_wp_error( $normalised ) ) {
+			$normalised->add_data( [ 'status' => 400 ] );
+			return $normalised;
 		}
-
-		$design_layers = [];
-		$print_methods_by_area = [];
-		foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
-			$print_methods_by_area[ absint( $area->id ?? 0 ) ] = sanitize_key( (string) ( $area->print_method ?? '' ) );
-		}
-		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
-			$layer_id = isset( $layer->id ) ? absint( $layer->id ) : 0;
-			if ( ! $layer_id ) continue;
-			$layer_type = isset( $layer->type ) ? sanitize_key( (string) $layer->type ) : '';
-			if ( '' === $layer_type ) continue;
-			$settings = $layer->settings ? json_decode( (string) $layer->settings, true ) : [];
-			$design_layers[ $layer_id ] = [
-				'type'     => $layer_type,
-				'printMethod' => $print_methods_by_area[ absint( $layer->area_id ?? 0 ) ] ?? '',
-				'settings' => is_array( $settings ) ? $settings : [],
-			];
-		}
-
-		if ( empty( $design_layers ) ) {
-			return new \WP_Error( 'invalid_design', __( 'Design has no layers.', 'overcustomise' ), [ 'status' => 400 ] );
-		}
-
-		$valid_layer_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
-
-		$sanitised_layers = [];
-		$fallback_font_id = OC_DB::get_first_active_font_id();
-		foreach ( $raw_layers as $layer_id => $layer_data ) {
-			if ( ! is_array( $layer_data ) ) continue;
-
-			$layer_key = absint( $layer_id );
-			if ( ! $layer_key ) continue;
-			if ( ! isset( $design_layers[ $layer_key ] ) ) continue;
-
-			$type     = $design_layers[ $layer_key ]['type'];
-			$settings = $design_layers[ $layer_key ]['settings'];
-			if ( ! in_array( $type, $valid_layer_types, true ) ) continue;
-
-			$font_id   = absint( $layer_data['fontId'] ?? 0 );
-			$font_size = absint( $layer_data['fontSize'] ?? 0 );
-			$color_hex = sanitize_hex_color( is_string( $layer_data['colorHex'] ?? null ) ? $layer_data['colorHex'] : '#000000' ) ?: '#000000';
-			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
-				$default_font_id = absint( $settings['default_font_id'] ?? 0 );
-				if ( ! $font_id ) {
-					$font_id = $default_font_id ?: $fallback_font_id;
-				}
-				if ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) {
-					$font_id = $default_font_id;
-				}
-
-				$font_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['font_groups'] ?? null ) ? $settings['font_groups'] : [] ) ) );
-				if ( ! empty( $font_group_ids ) ) {
-					$allowed_font_ids = OC_DB::get_font_ids_for_groups( $font_group_ids );
-					if ( empty( $allowed_font_ids ) ) {
-						$font_id = 0;
-					} elseif ( ! in_array( $font_id, $allowed_font_ids, true ) ) {
-						$font_id = in_array( $default_font_id, $allowed_font_ids, true ) ? $default_font_id : $allowed_font_ids[0];
-					}
-				}
-				if ( empty( $settings['allow_size_change'] ) ) {
-					$font_size = absint( $settings['default_font_size'] ?? 0 );
-				}
-				if ( array_key_exists( 'allow_colour_change', $settings ) && empty( $settings['allow_colour_change'] ) ) {
-					$color_hex = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
-				}
-			}
-
-			$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
-			$should_restrict_colour = ! empty( $colour_group_ids ) && ( in_array( $type, [ 'lineart', 'clipart' ], true ) || ( in_array( $type, [ 'text', 'textarea' ], true ) && ( ! array_key_exists( 'allow_colour_change', $settings ) || ! empty( $settings['allow_colour_change'] ) ) ) );
-			if ( $should_restrict_colour ) {
-				$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
-				$allowed_hexes   = array_values( array_filter( array_map( fn( $colour ) => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ), $allowed_colours ) ) );
-				if ( empty( $allowed_hexes ) ) {
-					$color_hex = '#000000';
-				} elseif ( ! in_array( strtolower( $color_hex ), array_map( 'strtolower', $allowed_hexes ), true ) ) {
-					$color_hex = $allowed_hexes[0];
-				}
-			}
-
-			$clipart_id = absint( $layer_data['clipartId'] ?? 0 );
-			$clipart_recolourable = false;
-			if ( 'clipart' === $type && $clipart_id > 0 ) {
-				global $wpdb;
-				$clipart_row = $wpdb->get_row( $wpdb->prepare(
-					"SELECT file_type, colour_changeable, allowed_print_methods FROM {$wpdb->prefix}oc_clipart WHERE id = %d AND active = 1 LIMIT 1",
-					$clipart_id
-				) );
-				if ( $clipart_row ) {
-					$allowed_methods = self::normalise_clipart_print_methods( (string) ( $clipart_row->allowed_print_methods ?? '' ) );
-					$print_method = $design_layers[ $layer_key ]['printMethod'] ?? '';
-					if ( ! empty( $allowed_methods ) && ! in_array( $print_method, $allowed_methods, true ) ) {
-						return new \WP_Error( 'invalid_clipart', __( 'Selected clipart is not available for this print method.', 'overcustomise' ), [ 'status' => 400 ] );
-					}
-					$clipart_recolourable = ( ! property_exists( $clipart_row, 'colour_changeable' ) || (bool) $clipart_row->colour_changeable ) && 'svg' === strtolower( (string) $clipart_row->file_type );
-				}
-			}
-
-			$value = '';
-			if ( is_scalar( $layer_data['value'] ?? null ) ) {
-				$value = 'textarea' === $type && function_exists( 'sanitize_textarea_field' )
-					? sanitize_textarea_field( (string) $layer_data['value'] )
-					: sanitize_text_field( (string) $layer_data['value'] );
-			}
-
-			$image_filter_id = 0;
-			if ( 'image' === $type ) {
-				$image_filter_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['image_filter_ids'] ?? null ) ? $settings['image_filter_ids'] : [] ) ) );
-				$default_filter_id = absint( $settings['default_image_filter_id'] ?? 0 );
-				if ( $default_filter_id && ! in_array( $default_filter_id, $image_filter_ids, true ) ) {
-					$default_filter_id = 0;
-				}
-				if ( array_key_exists( 'allow_image_filter_change', $settings ) && empty( $settings['allow_image_filter_change'] ) ) {
-					$image_filter_id = $default_filter_id;
-				} else {
-					$posted_filter_id = absint( $layer_data['imageFilterId'] ?? 0 );
-					if ( $posted_filter_id && in_array( $posted_filter_id, $image_filter_ids, true ) ) {
-						$image_filter_id = $posted_filter_id;
-					}
-				}
-			}
-
-			$sanitised_layers[ $layer_key ] = [
-				'type'         => $type,
-				'value'        => $value,
-				'fontId'       => $font_id,
-				'fontSize'     => $font_size,
-				'colorHex'     => $color_hex,
-				'attachmentId' => absint( $layer_data['attachmentId'] ?? 0 ),
-				'imageFilterId' => $image_filter_id,
-				'clipartId'    => $clipart_id,
-				'clipartUrl'   => is_string( $layer_data['clipartUrl'] ?? null ) ? esc_url_raw( $layer_data['clipartUrl'] ) : '',
-				'clipartRecolourable' => $clipart_recolourable,
-			];
-		}
-
-		if ( empty( $sanitised_layers ) ) {
-			return new \WP_Error( 'invalid_data', __( 'No valid layers provided.', 'overcustomise' ), [ 'status' => 400 ] );
-		}
-
-		$old_preview = (string) ( $cart_item['_oc_preview_url'] ?? '' );
+		$design           = $normalised['design'];
+		$sanitised_layers = $normalised['layers'];
 
 		$snapshots = OC_DB::sanitise_area_snapshots( is_array( $body['snapshots'] ?? null ) ? $body['snapshots'] : [] );
 
@@ -951,22 +875,6 @@ class OC_Rest_API {
 
 		if ( method_exists( $cart, 'update_totals_after_cart_modification' ) ) {
 			$cart->update_totals_after_cart_modification();
-		}
-
-		$new_preview = (string) ( $cart->cart_contents[ $cart_key ]['_oc_preview_url'] ?? '' );
-		if ( $old_preview && $old_preview !== $new_preview ) {
-			$path = wp_parse_url( $old_preview, PHP_URL_PATH );
-			if ( is_string( $path ) && '' !== $path ) {
-				$filename = basename( $path );
-				$uploads  = wp_upload_dir();
-				$basedir  = isset( $uploads['basedir'] ) ? (string) $uploads['basedir'] : '';
-				if ( '' !== $filename && '' !== $basedir ) {
-					$filepath = $basedir . '/overcustomise/previews/' . $filename;
-					if ( file_exists( $filepath ) ) {
-						@unlink( $filepath );
-					}
-				}
-			}
 		}
 
 		return rest_ensure_response( [ 'success' => true ] );

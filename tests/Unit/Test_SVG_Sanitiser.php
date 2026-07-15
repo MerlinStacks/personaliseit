@@ -114,6 +114,34 @@ class Test_SVG_Sanitiser extends TestCase {
 		$this->assertStringNotContainsString( 'data:', $result );
 	}
 
+	#[Test]
+	public function it_removes_obfuscated_protocols_and_non_fragment_urls(): void {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg">'
+			. '<a href="java&#x09;script:alert(1)"><text>bad</text></a>'
+			. '<image href="file:///etc/passwd"/><image href="ftp://example.com/a.png"/>'
+			. '<image href="images/local.png"/><use href="ftp://example.com/sprite.svg#local"/>'
+			. '</svg>';
+
+		$result = OC_SVG_Sanitiser::sanitise( $svg );
+
+		$this->assertStringNotContainsString( 'javascript', strtolower( preg_replace( '/\s+/', '', $result ) ) );
+		$this->assertStringNotContainsString( 'file:', $result );
+		$this->assertStringNotContainsString( 'ftp:', $result );
+		$this->assertStringNotContainsString( 'images/local.png', $result );
+		$this->assertStringNotContainsString( '<use', $result );
+	}
+
+	#[Test]
+	public function it_allows_only_fragment_css_urls_after_whitespace_normalisation(): void {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"/></defs>'
+			. '<rect style="fill:url( #g );stroke:url(data:image/svg+xml,bad)"/>'
+			. '</svg>';
+		$result = OC_SVG_Sanitiser::sanitise( $svg );
+
+		$this->assertStringContainsString( 'url(#g)', $result );
+		$this->assertStringNotContainsString( 'data:', $result );
+	}
+
 	// ── Blocked element removal ───────────────────────────────────────────
 
 	#[Test]

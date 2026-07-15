@@ -17,15 +17,17 @@
  * fall-throughs to common WP/Woo CSS variables. Override any of the
  * `--oc-*` custom properties from your theme to retheme without forking.
  */
+/* stylelint-disable no-descending-specificity */
+/* stylelint-disable scss/at-extend-no-missing-placeholder */
 .oc-customiser-panel {
   --oc-accent: var(--wp--preset--color--primary, var(--wp-admin-theme-color, currentColor));
   --oc-accent-ink: var(--wp--preset--color--base, #fff);
-  --oc-fg: currentColor;
-  --oc-fg-muted: color-mix(in srgb, currentColor 60%, transparent);
-  --oc-border: color-mix(in srgb, currentColor 18%, transparent);
-  --oc-border-strong: color-mix(in srgb, currentColor 35%, transparent);
-  --oc-surface: color-mix(in srgb, currentColor 4%, transparent);
-  --oc-surface-2: color-mix(in srgb, currentColor 7%, transparent);
+  --oc-fg: currentcolor;
+  --oc-fg-muted: color-mix(in srgb, currentcolor 60%, transparent);
+  --oc-border: color-mix(in srgb, currentcolor 18%, transparent);
+  --oc-border-strong: color-mix(in srgb, currentcolor 35%, transparent);
+  --oc-surface: color-mix(in srgb, currentcolor 4%, transparent);
+  --oc-surface-2: color-mix(in srgb, currentcolor 7%, transparent);
   --oc-danger: #c0392b;
   --oc-radius-sm: 6px;
   --oc-radius: 10px;
@@ -139,6 +141,9 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.oc-customiser-panel .oc-area-controls[hidden] {
+  display: none;
 }
 .oc-customiser-panel .oc-layer-controls {
   display: flex;
@@ -284,7 +289,7 @@
 .oc-customiser-panel .oc-control-group select {
   appearance: none;
   -webkit-appearance: none;
-  background-image: linear-gradient(-45deg, transparent 50%, currentColor 50%), linear-gradient(-135deg, currentColor 50%, transparent 50%);
+  background-image: linear-gradient(-45deg, transparent 50%, currentcolor 50%), linear-gradient(-135deg, currentcolor 50%, transparent 50%);
   background-position: calc(100% - (100% - 18px)) 50%, calc(100% - (100% - 12px)) 50%;
   background-size: 6px 6px, 6px 6px;
   background-repeat: no-repeat;
@@ -491,7 +496,7 @@
 }
 .oc-customiser-panel .oc-colour-swatches--labels .oc-colour-swatch {
   border-width: 1px;
-  border-color: color-mix(in srgb, currentColor 22%, transparent);
+  border-color: color-mix(in srgb, currentcolor 22%, transparent);
   border-radius: 5px;
   aspect-ratio: auto;
   width: auto;
@@ -561,7 +566,7 @@
   border-radius: var(--oc-radius);
   appearance: none;
   -webkit-appearance: none;
-  background-image: linear-gradient(-45deg, transparent 50%, currentColor 50%), linear-gradient(-135deg, currentColor 50%, transparent 50%);
+  background-image: linear-gradient(-45deg, transparent 50%, currentcolor 50%), linear-gradient(-135deg, currentcolor 50%, transparent 50%);
   background-position: calc(100% - (100% - 14px)) 50%, calc(100% - (100% - 9px)) 50%;
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
@@ -671,7 +676,7 @@
   padding: 0;
   border: 0;
   border-radius: 999px;
-  background: color-mix(in srgb, currentColor 26%, transparent);
+  background: color-mix(in srgb, currentcolor 26%, transparent);
   cursor: pointer;
   appearance: none;
   line-height: 0;
@@ -769,6 +774,7 @@
 }
 .oc-customiser-panel .oc-upload-zone.oc-upload-zone--error .uppy-DragDrop-inner {
   border-color: color-mix(in srgb, var(--oc-danger) 45%, transparent);
+  /* stylelint-disable-next-line @stylistic/max-line-length */
   background: color-mix(in srgb, var(--oc-danger) 7%, var(--oc-accent-ink, #fff));
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container:hover .uppy-DragDrop-inner,
@@ -1308,6 +1314,27 @@
   border-radius: var(--oc-radius-lg);
   background: var(--oc-surface);
 }
+.oc-customiser-panel .oc-cart-preview-tabs {
+  display: flex;
+  gap: var(--oc-gap-xs);
+  overflow-x: auto;
+}
+.oc-customiser-panel .oc-cart-preview-tab {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 1px solid var(--oc-border);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.oc-customiser-panel .oc-cart-preview-tab[aria-selected=true] {
+  border-color: var(--oc-accent);
+  background: var(--oc-accent);
+  color: var(--oc-accent-ink);
+}
 .oc-customiser-panel .oc-cart-preview-image {
   display: block;
   width: 100%;
@@ -1343,7 +1370,7 @@
   .oc-customiser-panel {
     gap: var(--oc-gap-sm);
     margin-block: var(--oc-gap);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0);
   }
   .oc-customiser-panel .oc-area-tabs {
     gap: var(--oc-gap-xs);

@@ -486,14 +486,29 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
-		$wpdb->insert( "{$wpdb->prefix}oc_font_groups", [ 'name' => $name ], [ '%s' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not create font group.', 'overcustomise' ) ] );
+		}
+		$inserted = $wpdb->insert( "{$wpdb->prefix}oc_font_groups", [ 'name' => $name ], [ '%s' ] );
 		$id = (int) $wpdb->insert_id;
+		if ( false === $inserted || $id <= 0 ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not create font group.', 'overcustomise' ) ] );
+		}
 		foreach ( $font_ids as $order => $font_id ) {
-			$wpdb->insert(
+			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_font_group_items",
 				[ 'group_id' => $id, 'font_id' => $font_id, 'sort_order' => $order ],
 				[ '%d', '%d', '%d' ]
 			);
+			if ( false === $inserted ) {
+				$wpdb->query( 'ROLLBACK' );
+				wp_send_json_error( [ 'message' => __( 'Could not save font group items.', 'overcustomise' ) ] );
+			}
+		}
+		if ( false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not create font group.', 'overcustomise' ) ] );
 		}
 		self::clear_font_cache();
 
@@ -517,21 +532,45 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
-		$wpdb->update(
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not update font group.', 'overcustomise' ) ] );
+		}
+		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_font_groups WHERE id = %d FOR UPDATE", $id ) );
+		if ( ! $group_exists ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Font group not found.', 'overcustomise' ) ] );
+		}
+		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_font_groups",
 			[ 'name' => $name ],
 			[ 'id'   => $id ],
 			[ '%s' ], [ '%d' ]
 		);
+		if ( false === $updated ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not update font group.', 'overcustomise' ) ] );
+		}
 
 		// Replace members.
-		$wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'group_id' => $id ], [ '%d' ] );
+		$deleted = $wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'group_id' => $id ], [ '%d' ] );
+		if ( false === $deleted ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not update font group items.', 'overcustomise' ) ] );
+		}
 		foreach ( array_values( $font_ids ) as $order => $font_id ) {
-			$wpdb->insert(
+			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_font_group_items",
 				[ 'group_id' => $id, 'font_id' => $font_id, 'sort_order' => $order ],
 				[ '%d', '%d', '%d' ]
 			);
+			if ( false === $inserted ) {
+				$wpdb->query( 'ROLLBACK' );
+				wp_send_json_error( [ 'message' => __( 'Could not save font group items.', 'overcustomise' ) ] );
+			}
+		}
+		if ( false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not update font group.', 'overcustomise' ) ] );
 		}
 		self::clear_font_cache();
 
@@ -586,6 +625,9 @@ class OC_Admin_Fonts {
 
 		if ( ! in_array( $ext, $allowed, true ) ) {
 			return new \WP_Error( 'bad_ext', __( 'Invalid file type. Allowed: TTF, OTF, WOFF, WOFF2.', 'overcustomise' ) );
+		}
+		if ( ! OC_Font_Registry::has_valid_font_magic( (string) $file['tmp_name'], $ext ) ) {
+			return new \WP_Error( 'bad_font', __( 'The uploaded file is not a valid font container.', 'overcustomise' ) );
 		}
 
 		$upload   = wp_upload_dir();
@@ -739,8 +781,7 @@ class OC_Admin_Fonts {
 			return new \WP_Error( 'too_large', __( 'Converted font file exceeds the size limit.', 'overcustomise' ) );
 		}
 
-		$signature = file_get_contents( (string) $file['tmp_name'], false, null, 0, 4 );
-		if ( false === $signature || ! in_array( bin2hex( $signature ), [ '00010000', '74727565' ], true ) ) {
+		if ( ! OC_Font_Registry::has_valid_font_magic( (string) $file['tmp_name'], 'ttf' ) ) {
 			return new \WP_Error( 'bad_font', __( 'The converted file is not a TrueType-outline font.', 'overcustomise' ) );
 		}
 

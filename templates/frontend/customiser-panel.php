@@ -124,12 +124,27 @@ foreach ( $layers as $layer ) {
 	</div>
 
 	<!-- Controls (one block per area) -->
+	<?php if ( $has_multiple_areas ) : ?>
+		<div class="oc-area-tabs" role="tablist" aria-label="<?php esc_attr_e( 'Customisation areas', 'overcustomise' ); ?>">
+			<?php foreach ( $areas as $i => $area ) : ?>
+				<button type="button"
+					class="oc-area-tab<?php echo 0 === $i ? ' oc-active' : ''; ?>"
+					id="oc-area-tab-<?php echo esc_attr( $i ); ?>"
+					role="tab"
+					aria-selected="<?php echo 0 === $i ? 'true' : 'false'; ?>"
+					aria-controls="oc-area-panel-<?php echo esc_attr( $i ); ?>"
+					tabindex="<?php echo 0 === $i ? '0' : '-1'; ?>"
+					data-area-index="<?php echo esc_attr( $i ); ?>">
+					<?php echo esc_html( $area->label ?? sprintf( __( 'Area %d', 'overcustomise' ), $i + 1 ) ); ?>
+				</button>
+			<?php endforeach; ?>
+		</div>
+	<?php endif; ?>
 	<?php $rendered_link_groups = []; ?>
 	<?php foreach ( $areas as $i => $area ) :
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
-		if ( empty( $area_layers ) ) continue;
 		?>
-		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>">
+		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" role="tabpanel" <?php echo $has_multiple_areas ? 'aria-labelledby="oc-area-tab-' . esc_attr( $i ) . '"' : ''; ?> data-area-index="<?php echo esc_attr( $i ); ?>" <?php echo 0 === $i ? '' : 'hidden'; ?>>
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
@@ -196,8 +211,16 @@ foreach ( $layers as $layer ) {
 					$inline_label_types = [ 'text', 'textarea', 'image', 'clipmask', 'clipart', 'spotify' ];
 					$show_header_label  = ! in_array( $layer->type, $inline_label_types, true );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
+					$default_attachment_id = absint( $s['default_attachment_id'] ?? 0 );
+					$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
+					if ( '' === $default_attachment_url && ! empty( $s['default_attachment_url'] ) ) {
+						$default_attachment_url = esc_url_raw( (string) $s['default_attachment_url'] );
+					}
 					?>
 					<div class="oc-layer-section">
+						<?php if ( in_array( $layer->type, [ 'image', 'clipmask' ], true ) && $default_attachment_url ) : ?>
+							<span hidden data-oc-default-image="<?php echo esc_attr( $layer->id ); ?>" data-oc-default-image-id="<?php echo esc_attr( $default_attachment_id ); ?>" data-oc-default-image-url="<?php echo esc_url( $default_attachment_url ); ?>"></span>
+						<?php endif; ?>
 						<?php if ( $show_header_label || $show_required_in_header ) : ?>
 						<div class="oc-layer-header">
 							<?php if ( $show_header_label ) : ?>

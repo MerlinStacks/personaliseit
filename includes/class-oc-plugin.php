@@ -156,6 +156,7 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/admin/class-oc-admin-mockups.php';
 		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
 		OC_DB::create_tables();
+		OC_DB::maybe_upgrade();
 
 		// Register mockup taxonomy before flushing rules.
 		OC_Admin_Mockups::register_taxonomy();
@@ -169,7 +170,6 @@ class OC_Plugin {
 			wp_schedule_event( time(), 'oc_every_minute', 'oc_process_print_queue' );
 		}
 
-		update_option( 'oc_db_version', OC_DB_VERSION );
 	}
 
 	public static function deactivate(): void {

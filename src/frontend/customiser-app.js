@@ -60,6 +60,9 @@ class OCCustomiser {
 		this.editMode = !! ( data.editMode && data.cartKey );
 		this.cartKey = this.editMode ? data.cartKey : '';
 		this.canvases = {}; // areaIndex → Fabric StaticCanvas
+		this._redrawTimers = {};
+		this._redrawGenerations = {};
+		this._redrawPromises = {};
 		this.fontCache = {}; // fontName  → load Promise
 		this.outlineFontCache = {}; // fontName  → parsed font Promise
 		this.clipartSvgCache = {};
@@ -68,10 +71,14 @@ class OCCustomiser {
 		this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
 		this._hasCustomerPersonalisation = this.editMode;
 		this._tvpgPreviewLocked = false;
+		this._galleryPreviewGeneration = 0;
 		this.productVariationStates = {};
 		this._variationRequestSeq = 0;
+		this._designGeneration = 0;
 		this.spotifyValidateTimers = {};
 		this.spotifyValidateTokens = {};
+		this.spotifyAbortControllers = {};
+		this.uploadGenerations = {};
 		this.preflightRoot = null;
 		this.clipartByGroup = {};
 		this.clipartSearchTimers = {};
@@ -81,6 +88,8 @@ class OCCustomiser {
 		this.mobileCartPreviewDialog = null;
 		this.formSubmitBound = false;
 		this.fontComboboxDocumentClickBound = false;
+		this._customisationActive = true;
+		this._submitInProgress = false;
 
 		if ( this.editMode ) {
 			Object.entries( data.layerInputs || {} ).forEach( ( [ k, v ] ) => {
@@ -165,6 +174,7 @@ class OCCustomiser {
 
 		// Wire up controls IMMEDIATELY — don't block on canvas.
 		this.setupInputListeners();
+		this.seedTemplateImageDefaults();
 		this.setupVariationGalleryHandoff();
 		this.setupCartGalleryUnlock();
 		this.setupDesignVariantOptions();

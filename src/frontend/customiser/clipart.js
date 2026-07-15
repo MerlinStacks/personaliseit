@@ -67,6 +67,11 @@ const clipartMethods = {
 				if ( ! layerId || ! grid ) {
 					return;
 				}
+				if ( carousel.dataset.ocCarouselReady === '1' ) {
+					this.refreshClipartCarousel( layerId );
+					return;
+				}
+				carousel.dataset.ocCarouselReady = '1';
 
 				carousel
 					.querySelector( '[data-oc-clipart-prev]' )

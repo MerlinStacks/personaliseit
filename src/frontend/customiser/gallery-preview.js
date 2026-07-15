@@ -29,6 +29,45 @@ const GALLERY_IMAGE_SELECTORS = [
 ];
 
 const galleryPreviewMethods = {
+	captureGalleryNodeState( node ) {
+		if ( ! node || node._ocOriginalPreviewState ) {
+			return;
+		}
+		node._ocOriginalPreviewState = {
+			attributes: Array.from( node.attributes || [] ).map(
+				( attribute ) => [ attribute.name, attribute.value ]
+			),
+		};
+	},
+
+	restoreProductGallery() {
+		this._galleryPreviewGeneration += 1;
+		document
+			.querySelectorAll(
+				'.oc-live-preview-slide, .oc-live-preview-thumb-slide'
+			)
+			.forEach( ( slide ) => slide.remove() );
+		document.querySelectorAll( '*' ).forEach( ( node ) => {
+			const state = node._ocOriginalPreviewState;
+			if ( ! state ) {
+				return;
+			}
+			Array.from( node.attributes ).forEach( ( attribute ) =>
+				node.removeAttribute( attribute.name )
+			);
+			state.attributes.forEach( ( [ name, value ] ) =>
+				node.setAttribute( name, value )
+			);
+			delete node._ocOriginalPreviewState;
+		} );
+		this.releaseTVPGPreviewLock( true );
+		this.setPanelPreviewHandoff( false );
+		this.findGalleryImage();
+		document.querySelector( '.tvpg-main-slider' )?.swiper?.update?.();
+		document.querySelector( '.tvpg-thumb-slider' )?.swiper?.update?.();
+		this.refreshFlatsomeGallery();
+	},
+
 	findGalleryImage() {
 		for ( const sel of GALLERY_IMAGE_SELECTORS ) {
 			const img = document.querySelector( sel );
@@ -44,6 +83,7 @@ const galleryPreviewMethods = {
 		if ( ! img ) {
 			return;
 		}
+		this.captureGalleryNodeState( img );
 		const hasDimensions = dimensions?.width && dimensions?.height;
 		const aspectRatio = hasDimensions
 			? `${ dimensions.width } / ${ dimensions.height }`
@@ -71,6 +111,7 @@ const galleryPreviewMethods = {
 		// Update zoom / lightbox href if wrapped in <a>.
 		const a = img.closest( 'a' );
 		if ( a ) {
+			this.captureGalleryNodeState( a );
 			a.href = dataUrl;
 			a.setAttribute( 'data-src', dataUrl );
 		}
@@ -90,6 +131,7 @@ const galleryPreviewMethods = {
 			'.woocommerce-product-gallery__image, .product-gallery-slider .slide'
 		);
 		if ( galleryItem ) {
+			this.captureGalleryNodeState( galleryItem );
 			galleryItem.setAttribute( 'data-thumb', dataUrl );
 			if (
 				hasDimensions &&
@@ -388,6 +430,10 @@ const galleryPreviewMethods = {
 	},
 
 	pushToGallery( canvas ) {
+		if ( ! this._customisationActive ) {
+			return;
+		}
+		const generation = ++this._galleryPreviewGeneration;
 		this.findGalleryImage();
 
 		let dataUrl;
@@ -453,10 +499,17 @@ const galleryPreviewMethods = {
 				.forEach( ( img ) => targets.add( img ) );
 		} );
 
-		const applyTargets = () =>
+		const applyTargets = () => {
+			if (
+				generation !== this._galleryPreviewGeneration ||
+				! this._customisationActive
+			) {
+				return;
+			}
 			targets.forEach( ( img ) =>
 				this.applyPreviewToImage( img, dataUrl, dimensions )
 			);
+		};
 		applyTargets();
 
 		if ( document.querySelector( '.product-gallery-slider' ) ) {
@@ -539,6 +592,17 @@ const galleryPreviewMethods = {
 
 		const key = String( Math.max( 0, parseInt( variationId, 10 ) || 0 ) );
 		const requestSeq = ++this._variationRequestSeq;
+		if ( this._activeVariationKey && this._customisationActive ) {
+			this.syncInputsFromDOM();
+			const previousState =
+				this.productVariationStates[ this._activeVariationKey ];
+			if ( previousState ) {
+				previousState.layerInputs = JSON.parse(
+					JSON.stringify( this.inputs || {} )
+				);
+			}
+		}
+		this.deactivateCustomisation();
 		let state = this.productVariationStates[ key ];
 
 		if ( ! state ) {
@@ -570,11 +634,12 @@ const galleryPreviewMethods = {
 			}
 		}
 
-		if (
-			requestSeq !== this._variationRequestSeq ||
-			! state?.active ||
-			! state?.panelHtml
-		) {
+		if ( requestSeq !== this._variationRequestSeq ) {
+			return;
+		}
+		if ( ! state?.active || ! state?.panelHtml ) {
+			this.deactivateCustomisation();
+			this._activeVariationKey = key;
 			return;
 		}
 
@@ -584,6 +649,36 @@ const galleryPreviewMethods = {
 				`design-${ state.designId || state.design_id }`,
 			false
 		);
+		if ( requestSeq === this._variationRequestSeq ) {
+			this._activeVariationKey = key;
+		}
+	},
+
+	deactivateCustomisation() {
+		this._customisationActive = false;
+		this._designGeneration += 1;
+		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
+			this.uploadGenerations[ layerId ] += 1;
+		} );
+		Object.keys( this.spotifyValidateTokens ).forEach( ( layerId ) =>
+			this.invalidateSpotifyValidation( layerId )
+		);
+		this._previewUrl = null;
+		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
+			this._redrawGenerations[ areaIndex ] += 1;
+		} );
+		const panel = document.getElementById( 'oc-customiser-panel' );
+		if ( panel ) {
+			panel.hidden = true;
+			panel.setAttribute( 'aria-hidden', 'true' );
+			panel
+				.querySelectorAll( 'input, select, textarea, button' )
+				.forEach( ( control ) => {
+					control.disabled = true;
+				} );
+		}
+		this.updateHiddenField();
+		this.restoreProductGallery();
 	},
 };
 

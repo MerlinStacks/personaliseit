@@ -151,7 +151,7 @@ class OC_SVG_Sanitiser {
 				if ( 'use' === $tag ) {
 					$href = $child->getAttribute( 'href' )
 						?: $child->getAttributeNS( 'http://www.w3.org/1999/xlink', 'href' );
-					if ( $href && ! str_starts_with( ltrim( $href ), '#' ) ) {
+					if ( self::is_dangerous_url( $href ) ) {
 						$to_remove[] = $child;
 						continue;
 					}
@@ -221,18 +221,11 @@ class OC_SVG_Sanitiser {
 
 	/** Return true if a URL value is unsafe (data:, javascript:, external http). */
 	private static function is_dangerous_url( string $value ): bool {
-		$value = trim( $value );
-		$lower = strtolower( $value );
+		$value = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$value = preg_replace( '/[\x00-\x20\x7F]+/u', '', $value ) ?? '';
 
-		if ( str_starts_with( $lower, 'javascript:' ) ) return true;
-		if ( str_starts_with( $lower, 'data:' ) )       return true;
-		if ( str_starts_with( $lower, 'vbscript:' ) )   return true;
-
-		// External absolute URLs in SVG attributes (allow relative and #anchor).
-		if ( preg_match( '/^https?:\/\//i', $value ) )  return true;
-		if ( str_starts_with( $value, '//' ) )           return true;
-
-		return false;
+		// SVG resources may reference definitions in this document only.
+		return ! preg_match( '/^#[A-Za-z_][A-Za-z0-9_.:-]*$/D', $value );
 	}
 
 	/** Strip CSS constructs that can execute script or fetch external resources. */
@@ -241,9 +234,10 @@ class OC_SVG_Sanitiser {
 		$css = preg_replace_callback(
 			'/url\s*\(\s*(["\']?)(.*?)\1\s*\)/i',
 			static function ( array $matches ): string {
-				$url = trim( html_entity_decode( (string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+				$url = html_entity_decode( (string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$url = preg_replace( '/[\x00-\x20\x7F]+/u', '', $url ) ?? '';
 
-				return str_starts_with( $url, '#' ) ? 'url(' . $url . ')' : 'none';
+				return preg_match( '/^#[A-Za-z_][A-Za-z0-9_.:-]*$/D', $url ) ? 'url(' . $url . ')' : 'none';
 			},
 			$css
 		) ?? '';

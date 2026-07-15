@@ -560,8 +560,12 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not create clipart group.', 'overcustomise' ) ] );
+		}
 		$inserted = $wpdb->insert( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ '%s' ] );
-		if ( false === $inserted ) {
+		if ( false === $inserted || (int) $wpdb->insert_id <= 0 ) {
+			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not create clipart group.', 'overcustomise' ) ] );
 		}
 		$id = (int) $wpdb->insert_id;
@@ -572,11 +576,13 @@ class OC_Admin_Clipart {
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
-				$wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
-				$wpdb->delete( "{$wpdb->prefix}oc_clipart_groups", [ 'id' => $id ], [ '%d' ] );
-				self::clear_clipart_cache();
+				$wpdb->query( 'ROLLBACK' );
 				wp_send_json_error( [ 'message' => __( 'Could not save clipart group items.', 'overcustomise' ) ] );
 			}
+		}
+		if ( false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not create clipart group.', 'overcustomise' ) ] );
 		}
 		self::clear_clipart_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => $clipart_ids ] );
@@ -599,12 +605,22 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not update clipart group.', 'overcustomise' ) ] );
+		}
+		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart_groups WHERE id = %d FOR UPDATE", $id ) );
+		if ( ! $group_exists ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Clipart group not found.', 'overcustomise' ) ] );
+		}
 		$updated = $wpdb->update( "{$wpdb->prefix}oc_clipart_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
 		if ( false === $updated ) {
+			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not update clipart group.', 'overcustomise' ) ] );
 		}
 		$deleted = $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
 		if ( false === $deleted ) {
+			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not update clipart group items.', 'overcustomise' ) ] );
 		}
 		foreach ( array_values( $clipart_ids ) as $order => $clipart_id ) {
@@ -614,9 +630,13 @@ class OC_Admin_Clipart {
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
-				self::clear_clipart_cache();
+				$wpdb->query( 'ROLLBACK' );
 				wp_send_json_error( [ 'message' => __( 'Could not save clipart group items.', 'overcustomise' ) ] );
 			}
+		}
+		if ( false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not update clipart group.', 'overcustomise' ) ] );
 		}
 		self::clear_clipart_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => array_values( $clipart_ids ) ] );

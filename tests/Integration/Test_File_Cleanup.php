@@ -44,7 +44,9 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 	}
 
 	private function make_tmp_file(): string {
-		$path = tempnam( sys_get_temp_dir(), 'oc_cleanup_test_' );
+		$uploads = wp_upload_dir();
+		wp_mkdir_p( $uploads['basedir'] );
+		$path = tempnam( $uploads['basedir'], 'oc_cleanup_test_' );
 		file_put_contents( $path, 'test content' );
 		$this->tmp_files[] = $path;
 		return $path;
@@ -140,5 +142,40 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		$record = OC_DB::get_print_file( $id );
 		// 'pending' status is not in the cleanup query — should be untouched.
 		$this->assertSame( 'pending', $record->file_status );
+	}
+
+	#[Test]
+	public function cleanup_removes_thumbnail_and_shared_output_only_after_all_references_expire(): void {
+		$file  = $this->make_tmp_file();
+		$thumb = $this->make_tmp_file();
+		$past  = gmdate( 'Y-m-d H:i:s', strtotime( '-1 day' ) );
+		$future = gmdate( 'Y-m-d H:i:s', strtotime( '+1 day' ) );
+
+		$expired_id = $this->insert_print_file( 'files_ready', $past, $file );
+		OC_DB::update_print_file( $expired_id, [ 'thumbnail_path' => $thumb ] );
+		$active_id = $this->insert_print_file( 'files_ready', $future, $file );
+		OC_DB::update_print_file( $active_id, [ 'thumbnail_path' => $thumb ] );
+
+		OC_File_Cleanup::run();
+		$this->assertFileExists( $file );
+		$this->assertFileExists( $thumb );
+		$this->assertSame( 'expired', OC_DB::get_print_file( $expired_id )->file_status );
+
+		OC_DB::update_print_file( $active_id, [ 'expires_at' => $past ] );
+		OC_File_Cleanup::run();
+		$this->assertFileDoesNotExist( $file );
+		$this->assertFileDoesNotExist( $thumb );
+	}
+
+	#[Test]
+	public function cleanup_does_not_delete_existing_file_outside_uploads(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc_cleanup_outside_' );
+		$this->tmp_files[] = $path;
+		$id = $this->insert_print_file( 'files_ready', gmdate( 'Y-m-d H:i:s', strtotime( '-1 day' ) ), $path );
+
+		OC_File_Cleanup::run();
+
+		$this->assertFileExists( $path );
+		$this->assertSame( 'files_ready', OC_DB::get_print_file( $id )->file_status );
 	}
 }

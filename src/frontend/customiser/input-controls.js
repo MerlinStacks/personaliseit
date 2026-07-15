@@ -349,6 +349,7 @@ const inputControlMethods = {
 				}
 
 				el.addEventListener( 'input', () => {
+					this.invalidateSpotifyValidation( lid );
 					if ( ! this.inputs[ lid ] ) {
 						this.inputs[ lid ] = {};
 					}
@@ -411,11 +412,16 @@ const inputControlMethods = {
 					}
 				} );
 			} );
-		document.addEventListener( 'click', ( e ) => {
-			if ( ! e.target.closest( '.oc-help-tooltip, .oc-spotify-help' ) ) {
-				closeHelpTooltips();
-			}
-		} );
+		if ( ! this.helpTooltipDocumentClickBound ) {
+			this.helpTooltipDocumentClickBound = true;
+			document.addEventListener( 'click', ( e ) => {
+				if (
+					! e.target.closest( '.oc-help-tooltip, .oc-spotify-help' )
+				) {
+					closeHelpTooltips();
+				}
+			} );
+		}
 
 		this.setupSpotifyModal();
 
@@ -557,7 +563,8 @@ const inputControlMethods = {
 				if ( ! this.inputs[ lid ] ) {
 					this.inputs[ lid ] = {};
 				}
-				this.inputs[ lid ].imageFilterId = parseInt( el.value, 10 ) || 0;
+				this.inputs[ lid ].imageFilterId =
+					parseInt( el.value, 10 ) || 0;
 				el.addEventListener( 'change', () => {
 					if ( ! this.inputs[ lid ] ) {
 						this.inputs[ lid ] = {};
@@ -608,16 +615,19 @@ const inputControlMethods = {
 				} );
 			} );
 
-		window.addEventListener( 'resize', () => {
-			this.refreshDesignVariantCarousel();
-			document
-				.querySelectorAll( '[data-oc-clipart-carousel]' )
-				.forEach( ( carousel ) => {
-					this.refreshClipartCarousel(
-						parseInt( carousel.dataset.ocClipartCarousel, 10 )
-					);
-				} );
-		} );
+		if ( ! this.carouselResizeBound ) {
+			this.carouselResizeBound = true;
+			window.addEventListener( 'resize', () => {
+				this.refreshDesignVariantCarousel();
+				document
+					.querySelectorAll( '[data-oc-clipart-carousel]' )
+					.forEach( ( carousel ) => {
+						this.refreshClipartCarousel(
+							parseInt( carousel.dataset.ocClipartCarousel, 10 )
+						);
+					} );
+			} );
+		}
 
 		// Clipart search (debounced 200ms)
 		document
@@ -663,6 +673,26 @@ const inputControlMethods = {
 
 	getLayerById( layerId ) {
 		return this.layersById[ layerId ] || null;
+	},
+
+	seedTemplateImageDefaults() {
+		document
+			.querySelectorAll( '[data-oc-default-image]' )
+			.forEach( ( el ) => {
+				const layerId = parseInt( el.dataset.ocDefaultImage, 10 );
+				const url = el.dataset.ocDefaultImageUrl || '';
+				if ( ! layerId || ! url ) {
+					return;
+				}
+				if ( ! this.inputs[ layerId ] ) {
+					this.inputs[ layerId ] = {};
+				}
+				if ( ! this.inputs[ layerId ].attachmentUrl ) {
+					this.inputs[ layerId ].attachmentId =
+						parseInt( el.dataset.ocDefaultImageId, 10 ) || 0;
+					this.inputs[ layerId ].attachmentUrl = url;
+				}
+			} );
 	},
 
 	charLimitForLayer( layerId ) {
@@ -861,7 +891,9 @@ const inputControlMethods = {
 		}
 		if ( keys.includes( 'imageFilterId' ) ) {
 			document
-				.querySelectorAll( `[data-oc-layer-image-filter="${ layerId }"]` )
+				.querySelectorAll(
+					`[data-oc-layer-image-filter="${ layerId }"]`
+				)
 				.forEach( ( select ) => {
 					select.value = String( input.imageFilterId || 0 );
 				} );
@@ -941,7 +973,7 @@ const inputControlMethods = {
 					?.querySelectorAll( '.oc-clipart-item' )
 					.forEach( ( i ) =>
 						i.classList.toggle( 'oc-selected', i === clipartBtn )
-									);
+					);
 			}
 
 			const imageFilterEl = document.querySelector(
@@ -1030,7 +1062,8 @@ const inputControlMethods = {
 					`[data-oc-layer-image-filter="${ layerId }"]`
 				);
 				if ( imageFilterEl ) {
-					input.imageFilterId = parseInt( imageFilterEl.value, 10 ) || 0;
+					input.imageFilterId =
+						parseInt( imageFilterEl.value, 10 ) || 0;
 				}
 			} );
 		} );
@@ -1046,8 +1079,9 @@ const inputControlMethods = {
 			btn.setAttribute( 'tabindex', i === index ? '0' : '-1' );
 		} );
 		document.querySelectorAll( '.oc-area-controls' ).forEach( ( el ) => {
-			el.style.display =
-				parseInt( el.dataset.areaIndex, 10 ) === index ? '' : 'none';
+			const isActive = parseInt( el.dataset.areaIndex, 10 ) === index;
+			el.hidden = ! isActive;
+			el.setAttribute( 'aria-hidden', isActive ? 'false' : 'true' );
 		} );
 		this.redraw( index );
 		document

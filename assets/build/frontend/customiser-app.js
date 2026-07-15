@@ -22,7 +22,11 @@ const canvasRendererMethods = {
   // ── Canvas initialisation ──────────────────────────────────────────────────
 
   async initAllCanvases() {
+    const designGeneration = this._designGeneration;
     for (let i = 0; i < this.areas.length; i++) {
+      if (designGeneration !== this._designGeneration) {
+        return;
+      }
       const el = document.getElementById(`oc-canvas-${i}`);
       if (el) {
         await this.initCanvas(el, i);
@@ -32,12 +36,16 @@ const canvasRendererMethods = {
     }
   },
   async initCanvas(canvasEl, areaIndex) {
+    const designGeneration = this._designGeneration;
     const area = this.areas[areaIndex];
     const bounds = this.areaBounds(area);
 
     // Use mockup natural width when available (works even when canvas is visually hidden).
     // Cap at 1200px for performance; fall back to element width or 600px.
     await new Promise(r => requestAnimationFrame(r));
+    if (designGeneration !== this._designGeneration) {
+      return;
+    }
     const displayW = area.mockupW ? Math.min(area.mockupW, 1200) : Math.max(canvasEl.parentElement?.offsetWidth || 0, 600);
     if (!area.mockupUrl) {
       this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'No mockup set. Add one in the Design Editor.');
@@ -50,6 +58,9 @@ const canvasRendererMethods = {
       // and CORS headers aren't sent, which would taint the canvas and break toDataURL.
       mockupImg = await Promise.race([fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(area.mockupUrl), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))]);
     } catch (e) {
+      if (designGeneration !== this._designGeneration) {
+        return;
+      }
       console.warn('[OC] Mockup failed to load:', area.mockupUrl, e.message);
       this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'Mockup image could not load.');
       return;
@@ -65,6 +76,10 @@ const canvasRendererMethods = {
       width: displayW,
       height: displayH
     });
+    if (designGeneration !== this._designGeneration) {
+      canvas.dispose();
+      return;
+    }
     mockupImg.set({
       left: 0,
       top: 0,
@@ -153,40 +168,62 @@ const canvasRendererMethods = {
     });
   },
   scheduleRedraw(areaIndex = this.activeArea) {
-    clearTimeout(this._redrawTimer);
+    clearTimeout(this._redrawTimers[areaIndex]);
     this.focusPreviewArea(areaIndex);
-    this._redrawTimer = setTimeout(() => this.redraw(this.activeArea), 120);
+    this._redrawTimers[areaIndex] = setTimeout(() => this.redraw(areaIndex), 120);
   },
   async flushRedraw() {
-    clearTimeout(this._redrawTimer);
+    Object.values(this._redrawTimers).forEach(clearTimeout);
+    this._redrawTimers = {};
+    Object.keys(this._redrawGenerations).forEach(areaIndex => {
+      this._redrawGenerations[areaIndex] += 1;
+    });
+    await Promise.allSettled(Object.values(this._redrawPromises));
     await this.redraw(this.activeArea);
   },
-  async redraw(areaIndex, options = {}) {
+  redraw(areaIndex, options = {}) {
     const canvas = this.canvases[areaIndex];
     if (!canvas) {
-      return;
+      return Promise.resolve();
     } // canvas not ready yet — will redraw after initCanvas
-
-    // Remove previously added content objects.
-    [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(o => canvas.remove(o));
-    const groupIndexes = options.renderGroup === false ? [areaIndex] : this.areaCanvasGroupIndexes(areaIndex);
-    for (const groupIndex of groupIndexes) {
-      const area = this.areas[groupIndex];
-      for (const layer of area?.layers ?? []) {
-        // PHP already filters to visible-only layers — no client-side check needed.
-        try {
-          await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area);
-        } catch (err) {
-          console.warn('[OC] Layer render failed:', layer?.id, err);
+    const generation = (this._redrawGenerations[areaIndex] || 0) + 1;
+    this._redrawGenerations[areaIndex] = generation;
+    const isCurrent = () => this._redrawGenerations[areaIndex] === generation && this.canvases[areaIndex] === canvas && this._customisationActive;
+    const task = (async () => {
+      [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(o => canvas.remove(o));
+      const groupIndexes = options.renderGroup === false ? [areaIndex] : this.areaCanvasGroupIndexes(areaIndex);
+      for (const groupIndex of groupIndexes) {
+        const area = this.areas[groupIndex];
+        for (const layer of area?.layers ?? []) {
+          if (!isCurrent()) {
+            return;
+          }
+          try {
+            await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area, isCurrent);
+          } catch (err) {
+            console.warn('[OC] Layer render failed:', layer?.id, err);
+          }
         }
       }
-    }
-    canvas.renderAll();
-    if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) {
-      this.pushToGallery(canvas);
-    }
+      if (!isCurrent()) {
+        return;
+      }
+      canvas.renderAll();
+      if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) {
+        this.pushToGallery(canvas);
+      }
+    })();
+    this._redrawPromises[areaIndex] = task;
+    return task.finally(() => {
+      if (this._redrawPromises[areaIndex] === task) {
+        delete this._redrawPromises[areaIndex];
+      }
+    });
   },
-  async renderLayer(canvas, layer, input, area) {
+  async renderLayer(canvas, layer, input, area, isCurrent = () => true) {
+    if (!isCurrent()) {
+      return;
+    }
     const scale = canvas._ocScaleX ?? 1;
     const areaBounds = this.areaBounds(area);
     const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayBounds)(areaBounds);
@@ -241,6 +278,9 @@ const canvasRendererMethods = {
               console.warn('[OC] Font load failed, falling back to sans-serif:', err);
               font = null;
             }
+          }
+          if (!isCurrent()) {
+            return;
           }
           const minLimit = fontLimit(layer.settings?.min_font_size);
           const minFontSize = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayFontSize)(minLimit, areaBounds, scale) : 0;
@@ -485,12 +525,12 @@ const canvasRendererMethods = {
           const imageFilter = this.imageFilterForLayer(layer, input.imageFilterId);
           await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageFilter ? {
             imageFilter
-          } : {});
+          } : {}, isCurrent);
         }
         break;
       case 'clipmask':
         if (input.attachmentUrl) {
-          await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover');
+          await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover', '', {}, isCurrent);
         }
         break;
       case 'clipart':
@@ -505,7 +545,7 @@ const canvasRendererMethods = {
           } : shouldRecolourClipart ? {
             preserveRecolouredPixels: true
           } : {};
-          await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects);
+          await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects, isCurrent);
         }
         break;
       case 'lineart':
@@ -562,13 +602,16 @@ const canvasRendererMethods = {
           if (spotifyCodeUrl) {
             // Try CORS-safe load first; if Spotify CDN blocks CORS for this origin,
             // retry without crossOrigin so users still see the scannable in live preview.
-            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette, contentClip());
+            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette, contentClip(), 'contain', '', {}, isCurrent);
             if (!rendered) {
-              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette, contentClip());
+              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette, contentClip(), 'contain', '', {}, isCurrent);
             }
             if (rendered) {
               break;
             }
+          }
+          if (!isCurrent()) {
+            return;
           }
           const fallback = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText('\u266b Spotify code unavailable', {
             left: lcX,
@@ -1434,12 +1477,15 @@ const canvasRendererMethods = {
     const normalised = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
     return ['#fff', '#ffffff', 'white', 'rgb(255,255,255)', 'rgba(255,255,255,1)'].includes(normalised);
   },
-  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '', effects = {}) {
+  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '', effects = {}, isCurrent = () => true) {
     try {
       const imgLoadOpts = crossOrigin ? {
         crossOrigin
       } : {};
       const img = await fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(url, imgLoadOpts);
+      if (!isCurrent()) {
+        return false;
+      }
       if (!img || !img.width) {
         console.warn('[OC] Image failed to load or has zero dimensions:', url);
         return false;
@@ -1524,6 +1570,9 @@ const canvasRendererMethods = {
       img._ocSourceUrl = url;
       img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
       this.applyContentClip(img, clipPath);
+      if (!isCurrent()) {
+        return false;
+      }
       canvas.add(img);
       return true;
     } catch (e) {
@@ -2096,6 +2145,12 @@ const cartSerializationMethods = {
     if (!el) {
       return;
     }
+    if (!this._customisationActive) {
+      el.value = '';
+      el.disabled = true;
+      return;
+    }
+    el.disabled = false;
     const layers = {};
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
@@ -2112,7 +2167,8 @@ const cartSerializationMethods = {
     const payload = {
       v: 2,
       designId: this.data.designId,
-      layers
+      layers,
+      uploadToken: this.data.requestToken || ''
     };
     if (this.selectedDesignVariant) {
       const variant = this.designVariants.find(item => item.id === this.selectedDesignVariant);
@@ -2155,6 +2211,18 @@ __webpack_require__.r(__webpack_exports__);
 
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const checkoutMethods = {
+  acquireCartSubmitGuard(form) {
+    if (this._submitInProgress || !this._customisationActive) {
+      return false;
+    }
+    this._submitInProgress = true;
+    form.classList.add('processing');
+    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
+      button.disabled = true;
+      button.setAttribute('aria-disabled', 'true');
+    });
+    return true;
+  },
   setupFormSubmit() {
     if (this.formSubmitBound) {
       return;
@@ -2169,69 +2237,77 @@ const checkoutMethods = {
         this.closeFontComboboxes(true);
         e.preventDefault();
         e.stopImmediatePropagation();
-        this.syncInputsFromDOM();
-        await this.flushRedraw();
-        const preflight = await this.runPreflight();
-        this.renderPreflightMessages(preflight.errors, preflight.warnings);
-        if (!preflight.ok) {
+        if (!this.acquireCartSubmitGuard(form)) {
           return;
         }
-        if (preflight.warnings.length) {
-          const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
-          if (!proceed) {
-            return;
-          }
-        }
-        await this.uploadPreview();
-        this.updateHiddenField();
-        const layers = {};
-        this.areas.forEach(area => {
-          (area.layers || []).forEach(layer => {
-            const inp = this.inputs[layer.id];
-            if (inp) {
-              layers[layer.id] = {
-                type: layer.type,
-                ...inp
-              };
-            }
-          });
-        });
-        const snapshots = await this.captureAreaSnapshots();
         try {
-          const res = await fetch(this.data.updateCartItemUrl, {
-            method: 'POST',
-            headers: this.restHeaders({
-              'Content-Type': 'application/json'
-            }),
-            body: JSON.stringify({
-              cart_key: this.cartKey,
-              designId: this.data.designId,
-              layers,
-              snapshots,
-              previewUrl: this._previewUrl || ''
-            })
-          });
-          let json = null;
-          const isJson = res.headers.get('content-type')?.includes('application/json');
-          if (isJson) {
-            try {
-              json = await res.json();
-            } catch (err) {
-              console.warn('[OC] Cart update response parse failed:', err);
-            }
-          }
-          if (!res.ok) {
-            this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
+          this.syncInputsFromDOM();
+          await this.flushRedraw();
+          const preflight = await this.runPreflight();
+          this.renderPreflightMessages(preflight.errors, preflight.warnings);
+          if (!preflight.ok) {
             return;
           }
-          if (json?.success) {
-            window.location.href = window.wc_cart_params?.cart_url || '/cart/';
-          } else {
-            this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
+          if (preflight.warnings.length) {
+            const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
+            if (!proceed) {
+              return;
+            }
           }
-        } catch (err) {
-          console.error('[OC] Update cart item failed:', err);
-          this.renderPreflightMessages(['Failed to update customisation. Please try again.'], []);
+          await this.uploadPreview();
+          this.updateHiddenField();
+          const layers = {};
+          this.areas.forEach(area => {
+            (area.layers || []).forEach(layer => {
+              const inp = this.inputs[layer.id];
+              if (inp) {
+                layers[layer.id] = {
+                  type: layer.type,
+                  ...inp
+                };
+              }
+            });
+          });
+          const snapshots = await this.captureAreaSnapshots();
+          try {
+            const res = await fetch(this.data.updateCartItemUrl, {
+              method: 'POST',
+              headers: this.restHeaders({
+                'Content-Type': 'application/json'
+              }),
+              body: JSON.stringify({
+                cart_key: this.cartKey,
+                designId: this.data.designId,
+                layers,
+                uploadToken: this.data.requestToken || '',
+                snapshots,
+                previewUrl: this._previewUrl || ''
+              })
+            });
+            let json = null;
+            const isJson = res.headers.get('content-type')?.includes('application/json');
+            if (isJson) {
+              try {
+                json = await res.json();
+              } catch (err) {
+                console.warn('[OC] Cart update response parse failed:', err);
+              }
+            }
+            if (!res.ok) {
+              this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
+              return;
+            }
+            if (json?.success) {
+              window.location.href = window.wc_cart_params?.cart_url || '/cart/';
+            } else {
+              this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
+            }
+          } catch (err) {
+            console.error('[OC] Update cart item failed:', err);
+            this.renderPreflightMessages(['Failed to update customisation. Please try again.'], []);
+          }
+        } finally {
+          this.resetCartSubmitState(form);
         }
       }, true);
       return;
@@ -2242,13 +2318,24 @@ const checkoutMethods = {
         if (form._ocSubmitReady) {
           return;
         }
+        if (!this._customisationActive) {
+          this.updateHiddenField();
+          return;
+        }
+        if (!form.checkValidity()) {
+          return;
+        }
         e.preventDefault();
         e.stopImmediatePropagation();
+        if (!this.acquireCartSubmitGuard(form)) {
+          return;
+        }
+        form._ocGuardFromClick = true;
         this.syncInputsFromDOM();
         const preflight = this.runImmediateBlockingPreflight();
         if (preflight.ok) {
           if (form.requestSubmit) {
-            form.requestSubmit(button);
+            form.requestSubmit();
           } else {
             form.dispatchEvent(new Event('submit', {
               bubbles: true,
@@ -2263,6 +2350,10 @@ const checkoutMethods = {
     });
     form.addEventListener('submit', async e => {
       this.closeFontComboboxes(true);
+      if (!this._customisationActive) {
+        this.updateHiddenField();
+        return;
+      }
       if (this.mobileCartPreviewDismissedAt && Date.now() - this.mobileCartPreviewDismissedAt < 750) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -2271,43 +2362,58 @@ const checkoutMethods = {
       }
       if (form._ocSubmitReady) {
         form._ocSubmitReady = false;
+        this.resetCartSubmitState(form);
         return; // preview already saved, let submit through
       }
       e.preventDefault();
       e.stopImmediatePropagation();
-      this.syncInputsFromDOM();
-      await this.flushRedraw();
-      const preflight = await this.runPreflight();
-      this.renderPreflightMessages(preflight.errors, preflight.warnings);
-      if (!preflight.ok) {
-        this.resetCartSubmitState(form);
+      if (form._ocGuardFromClick) {
+        form._ocGuardFromClick = false;
+      } else if (!this.acquireCartSubmitGuard(form)) {
         return;
       }
-      if (preflight.warnings.length) {
-        const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
-        if (!proceed) {
+      try {
+        this.syncInputsFromDOM();
+        await this.flushRedraw();
+        const preflight = await this.runPreflight();
+        this.renderPreflightMessages(preflight.errors, preflight.warnings);
+        if (!preflight.ok) {
           this.resetCartSubmitState(form);
           return;
         }
-      }
-      const acceptedPreview = await this.confirmMobileCartPreview();
-      if (!acceptedPreview) {
+        if (preflight.warnings.length) {
+          const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
+          if (!proceed) {
+            this.resetCartSubmitState(form);
+            return;
+          }
+        }
+        const acceptedPreview = await this.confirmMobileCartPreview();
+        if (!acceptedPreview) {
+          this.resetCartSubmitState(form);
+          return;
+        }
+        await this.uploadPreview();
+        await this.updateHiddenField(true);
+        form._ocSubmitReady = true;
         this.resetCartSubmitState(form);
-        return;
-      }
-      await this.uploadPreview();
-      await this.updateHiddenField(true);
-      form._ocSubmitReady = true;
-      // requestSubmit() re-triggers HTML5 validation before submitting.
-      if (form.requestSubmit) {
-        const submitter = form.querySelector('[type="submit"]') || undefined;
-        form.requestSubmit(submitter);
-      } else {
-        form.submit();
+        // requestSubmit() re-triggers HTML5 validation before submitting.
+        if (form.requestSubmit) {
+          const submitter = form.querySelector('[type="submit"]') || undefined;
+          form.requestSubmit(submitter);
+        } else {
+          form.submit();
+        }
+      } catch (error) {
+        console.error('[OC] Cart submission failed:', error);
+        this.renderPreflightMessages(['Could not prepare your customisation. Please try again.'], []);
+        this.resetCartSubmitState(form);
       }
     }, true);
   },
   resetCartSubmitState(form) {
+    this._submitInProgress = false;
+    form._ocGuardFromClick = false;
     form.classList.remove('loading', 'processing');
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.classList.remove('loading', 'processing');
@@ -2333,6 +2439,33 @@ const checkoutMethods = {
     }
     return document.getElementById('oc-canvas-preview')?.src || '';
   },
+  async getMobileCartPreviewAreas() {
+    const activeArea = this.activeArea;
+    const previews = [];
+    for (let index = 0; index < this.areas.length; index++) {
+      await this.redraw(index, {
+        pushGallery: false
+      });
+      const canvas = this.canvases[index];
+      if (!canvas) {
+        continue;
+      }
+      try {
+        previews.push({
+          index,
+          label: this.areas[index]?.name || `Area ${index + 1}`,
+          url: canvas.toDataURL({
+            format: 'jpeg',
+            quality: 0.92
+          })
+        });
+      } catch {
+        // Omit an area only when its canvas cannot be safely exported.
+      }
+    }
+    await this.redraw(activeArea);
+    return previews;
+  },
   getMobileCartPreviewDialog() {
     if (this.mobileCartPreviewDialog) {
       return this.mobileCartPreviewDialog;
@@ -2349,30 +2482,85 @@ const checkoutMethods = {
     dialog.className = 'oc-cart-preview-dialog';
     dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
     dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
-    dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-image-wrap">' + '<img class="oc-cart-preview-image" alt="Customisation preview">' + '</div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
+    dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-tabs" role="tablist" aria-label="Preview areas"></div>' + '<div class="oc-cart-preview-panels"></div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
     dialogRoot.appendChild(dialog);
     this.mobileCartPreviewDialog = dialog;
     return dialog;
   },
-  confirmMobileCartPreview() {
+  async confirmMobileCartPreview() {
     if (!this.isMobileCartPreviewRequired()) {
-      return Promise.resolve(true);
+      return true;
     }
+    const customiserPanel = document.getElementById('oc-customiser-panel');
+    const previousFocus = customiserPanel?.ownerDocument.activeElement;
     this.closeFontComboboxes(true);
-    const previewUrl = this.getCurrentPreviewDataUrl();
+    const previews = await this.getMobileCartPreviewAreas();
     const dialog = this.getMobileCartPreviewDialog();
     dialog.ownerDocument.activeElement?.blur?.();
-    const img = dialog.querySelector('.oc-cart-preview-image');
-    if (img && previewUrl) {
-      img.src = previewUrl;
-    }
+    const tabs = dialog.querySelector('.oc-cart-preview-tabs');
+    const panels = dialog.querySelector('.oc-cart-preview-panels');
+    tabs.replaceChildren();
+    panels.replaceChildren();
+    previews.forEach((preview, position) => {
+      const tab = document.createElement('button');
+      tab.type = 'button';
+      tab.id = `oc-cart-preview-tab-${preview.index}`;
+      tab.className = 'oc-cart-preview-tab';
+      tab.role = 'tab';
+      tab.textContent = preview.label;
+      tab.dataset.ocPreviewPosition = String(position);
+      tab.setAttribute('aria-selected', position === 0 ? 'true' : 'false');
+      tab.setAttribute('aria-controls', `oc-cart-preview-panel-${preview.index}`);
+      tab.tabIndex = position === 0 ? 0 : -1;
+      const panel = document.createElement('div');
+      panel.id = `oc-cart-preview-panel-${preview.index}`;
+      panel.className = 'oc-cart-preview-image-wrap';
+      panel.role = 'tabpanel';
+      panel.setAttribute('aria-labelledby', tab.id);
+      panel.hidden = position !== 0;
+      const img = document.createElement('img');
+      img.className = 'oc-cart-preview-image';
+      img.alt = `${preview.label} customisation preview`;
+      img.src = preview.url;
+      panel.appendChild(img);
+      tabs.appendChild(tab);
+      panels.appendChild(panel);
+    });
+    const previewTabs = Array.from(tabs.querySelectorAll('[role="tab"]'));
+    const selectPreview = (position, focus = false) => {
+      previewTabs.forEach((tab, index) => {
+        const selected = index === position;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+        panels.children[index].hidden = !selected;
+      });
+      if (focus) {
+        previewTabs[position]?.focus();
+      }
+    };
+    previewTabs.forEach((tab, position) => {
+      tab.addEventListener('click', () => selectPreview(position));
+      tab.addEventListener('keydown', event => {
+        if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+          return;
+        }
+        event.preventDefault();
+        let next = event.key === 'Home' ? 0 : previewTabs.length - 1;
+        if (event.key === 'ArrowLeft') {
+          next = (position - 1 + previewTabs.length) % previewTabs.length;
+        }
+        if (event.key === 'ArrowRight') {
+          next = (position + 1) % previewTabs.length;
+        }
+        selectPreview(next, true);
+      });
+    });
     if (!dialog.showModal) {
-      return Promise.resolve(true);
+      return true;
     }
     return new Promise(resolve => {
       const acceptBtn = dialog.querySelector('[data-oc-cart-preview-accept]');
       const changeBtn = dialog.querySelector('[data-oc-cart-preview-change]');
-      const previousFocus = dialog.ownerDocument.activeElement;
       const finish = accepted => {
         if (!accepted) {
           this.mobileCartPreviewDismissedAt = Date.now();
@@ -2385,7 +2573,7 @@ const checkoutMethods = {
         if (dialog.open) {
           dialog.close();
         }
-        previousFocus?.focus?.();
+        window.setTimeout(() => previousFocus?.focus?.(), 0);
         resolve(accepted);
       };
       const stopModalAction = event => {
@@ -2534,6 +2722,11 @@ const clipartMethods = {
       if (!layerId || !grid) {
         return;
       }
+      if (carousel.dataset.ocCarouselReady === '1') {
+        this.refreshClipartCarousel(layerId);
+        return;
+      }
+      carousel.dataset.ocCarouselReady = '1';
       carousel.querySelector('[data-oc-clipart-prev]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, -1));
       carousel.querySelector('[data-oc-clipart-next]')?.addEventListener('click', () => this.scrollClipartCarousel(layerId, 1));
       grid.addEventListener('scroll', () => this.updateClipartCarouselDots(layerId), {
@@ -2830,11 +3023,20 @@ const designVariantMethods = {
         currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
       }
     }
+    this._designGeneration += 1;
+    Object.keys(this.uploadGenerations).forEach(layerId => {
+      this.uploadGenerations[layerId] += 1;
+    });
+    Object.keys(this.spotifyValidateTokens).forEach(layerId => this.invalidateSpotifyValidation(layerId));
     Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
+    Object.keys(this._redrawGenerations).forEach(areaIndex => {
+      this._redrawGenerations[areaIndex] += 1;
+    });
     this.canvases = {};
     this._previewUrl = null;
     this.activeArea = 0;
     this.selectedDesignVariant = variantId;
+    this._customisationActive = true;
     const currentPanel = document.getElementById('oc-customiser-panel');
     if (currentPanel) {
       currentPanel.outerHTML = state.panelHtml;
@@ -2866,9 +3068,11 @@ const designVariantMethods = {
     this.preflightRoot = document.getElementById('oc-preflight-messages');
     this.mobileCartPreviewDialog = null;
     this.setupInputListeners();
+    this.seedTemplateImageDefaults();
     this.setupDesignVariantOptions();
     this.setupDesignVariantCarousel();
     this.renderDesignVariantThumbnails();
+    this.setupClipartCarousels();
     this.setupUploadZones();
     this.setupVariationGalleryHandoff();
     this.applyInputsToDOM();
@@ -2908,6 +3112,33 @@ const GALLERY_IMAGE_SELECTORS = [
 // Broad fallback.
 '.woocommerce-product-gallery .wp-post-image', '.wp-post-image'];
 const galleryPreviewMethods = {
+  captureGalleryNodeState(node) {
+    if (!node || node._ocOriginalPreviewState) {
+      return;
+    }
+    node._ocOriginalPreviewState = {
+      attributes: Array.from(node.attributes || []).map(attribute => [attribute.name, attribute.value])
+    };
+  },
+  restoreProductGallery() {
+    this._galleryPreviewGeneration += 1;
+    document.querySelectorAll('.oc-live-preview-slide, .oc-live-preview-thumb-slide').forEach(slide => slide.remove());
+    document.querySelectorAll('*').forEach(node => {
+      const state = node._ocOriginalPreviewState;
+      if (!state) {
+        return;
+      }
+      Array.from(node.attributes).forEach(attribute => node.removeAttribute(attribute.name));
+      state.attributes.forEach(([name, value]) => node.setAttribute(name, value));
+      delete node._ocOriginalPreviewState;
+    });
+    this.releaseTVPGPreviewLock(true);
+    this.setPanelPreviewHandoff(false);
+    this.findGalleryImage();
+    document.querySelector('.tvpg-main-slider')?.swiper?.update?.();
+    document.querySelector('.tvpg-thumb-slider')?.swiper?.update?.();
+    this.refreshFlatsomeGallery();
+  },
   findGalleryImage() {
     for (const sel of GALLERY_IMAGE_SELECTORS) {
       const img = document.querySelector(sel);
@@ -2922,6 +3153,7 @@ const galleryPreviewMethods = {
     if (!img) {
       return;
     }
+    this.captureGalleryNodeState(img);
     const hasDimensions = dimensions?.width && dimensions?.height;
     const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
     const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
@@ -2944,6 +3176,7 @@ const galleryPreviewMethods = {
     // Update zoom / lightbox href if wrapped in <a>.
     const a = img.closest('a');
     if (a) {
+      this.captureGalleryNodeState(a);
       a.href = dataUrl;
       a.setAttribute('data-src', dataUrl);
     }
@@ -2960,6 +3193,7 @@ const galleryPreviewMethods = {
     img.removeAttribute('data-o_src');
     const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
     if (galleryItem) {
+      this.captureGalleryNodeState(galleryItem);
       galleryItem.setAttribute('data-thumb', dataUrl);
       if (hasDimensions && !img.closest('.product-thumbnails, .tvpg-thumb-slider')) {
         galleryItem.classList.add('oc-live-preview-frame');
@@ -3158,6 +3392,10 @@ const galleryPreviewMethods = {
     return true;
   },
   pushToGallery(canvas) {
+    if (!this._customisationActive) {
+      return;
+    }
+    const generation = ++this._galleryPreviewGeneration;
     this.findGalleryImage();
     let dataUrl;
     try {
@@ -3202,7 +3440,12 @@ const galleryPreviewMethods = {
     ['.tvpg-main-slider .swiper-slide .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .woocommerce-product-gallery__image img', '.product-gallery-slider .flickity-slider .slide img', '.product-gallery-slider .slide img', '.product-gallery-slider img', '.product-thumbnails img', '.product-gallery .woocommerce-product-gallery__image img', '.product-images .woocommerce-product-gallery__image img', '.product-image-wrap .woocommerce-product-gallery__image img', '.woocommerce-product-gallery .woocommerce-product-gallery__image img'].forEach(selector => {
       document.querySelectorAll(selector).forEach(img => targets.add(img));
     });
-    const applyTargets = () => targets.forEach(img => this.applyPreviewToImage(img, dataUrl, dimensions));
+    const applyTargets = () => {
+      if (generation !== this._galleryPreviewGeneration || !this._customisationActive) {
+        return;
+      }
+      targets.forEach(img => this.applyPreviewToImage(img, dataUrl, dimensions));
+    };
     applyTargets();
     if (document.querySelector('.product-gallery-slider')) {
       this.refreshFlatsomeGallery();
@@ -3251,6 +3494,14 @@ const galleryPreviewMethods = {
     }
     const key = String(Math.max(0, parseInt(variationId, 10) || 0));
     const requestSeq = ++this._variationRequestSeq;
+    if (this._activeVariationKey && this._customisationActive) {
+      this.syncInputsFromDOM();
+      const previousState = this.productVariationStates[this._activeVariationKey];
+      if (previousState) {
+        previousState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+      }
+    }
+    this.deactivateCustomisation();
     let state = this.productVariationStates[key];
     if (!state) {
       const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
@@ -3273,10 +3524,40 @@ const galleryPreviewMethods = {
         return;
       }
     }
-    if (requestSeq !== this._variationRequestSeq || !state?.active || !state?.panelHtml) {
+    if (requestSeq !== this._variationRequestSeq) {
+      return;
+    }
+    if (!state?.active || !state?.panelHtml) {
+      this.deactivateCustomisation();
+      this._activeVariationKey = key;
       return;
     }
     await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
+    if (requestSeq === this._variationRequestSeq) {
+      this._activeVariationKey = key;
+    }
+  },
+  deactivateCustomisation() {
+    this._customisationActive = false;
+    this._designGeneration += 1;
+    Object.keys(this.uploadGenerations).forEach(layerId => {
+      this.uploadGenerations[layerId] += 1;
+    });
+    Object.keys(this.spotifyValidateTokens).forEach(layerId => this.invalidateSpotifyValidation(layerId));
+    this._previewUrl = null;
+    Object.keys(this._redrawGenerations).forEach(areaIndex => {
+      this._redrawGenerations[areaIndex] += 1;
+    });
+    const panel = document.getElementById('oc-customiser-panel');
+    if (panel) {
+      panel.hidden = true;
+      panel.setAttribute('aria-hidden', 'true');
+      panel.querySelectorAll('input, select, textarea, button').forEach(control => {
+        control.disabled = true;
+      });
+    }
+    this.updateHiddenField();
+    this.restoreProductGallery();
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (galleryPreviewMethods);
@@ -3567,6 +3848,7 @@ const inputControlMethods = {
         return;
       }
       el.addEventListener('input', () => {
+        this.invalidateSpotifyValidation(lid);
         if (!this.inputs[lid]) {
           this.inputs[lid] = {};
         }
@@ -3611,11 +3893,14 @@ const inputControlMethods = {
         }
       });
     });
-    document.addEventListener('click', e => {
-      if (!e.target.closest('.oc-help-tooltip, .oc-spotify-help')) {
-        closeHelpTooltips();
-      }
-    });
+    if (!this.helpTooltipDocumentClickBound) {
+      this.helpTooltipDocumentClickBound = true;
+      document.addEventListener('click', e => {
+        if (!e.target.closest('.oc-help-tooltip, .oc-spotify-help')) {
+          closeHelpTooltips();
+        }
+      });
+    }
     this.setupSpotifyModal();
 
     // Font selects — also reflect the picked font in the closed select.
@@ -3768,12 +4053,15 @@ const inputControlMethods = {
         this.updateHiddenField();
       });
     });
-    window.addEventListener('resize', () => {
-      this.refreshDesignVariantCarousel();
-      document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
-        this.refreshClipartCarousel(parseInt(carousel.dataset.ocClipartCarousel, 10));
+    if (!this.carouselResizeBound) {
+      this.carouselResizeBound = true;
+      window.addEventListener('resize', () => {
+        this.refreshDesignVariantCarousel();
+        document.querySelectorAll('[data-oc-clipart-carousel]').forEach(carousel => {
+          this.refreshClipartCarousel(parseInt(carousel.dataset.ocClipartCarousel, 10));
+        });
       });
-    });
+    }
 
     // Clipart search (debounced 200ms)
     document.querySelectorAll('[data-oc-clipart-search]').forEach(input => {
@@ -3809,6 +4097,22 @@ const inputControlMethods = {
   },
   getLayerById(layerId) {
     return this.layersById[layerId] || null;
+  },
+  seedTemplateImageDefaults() {
+    document.querySelectorAll('[data-oc-default-image]').forEach(el => {
+      const layerId = parseInt(el.dataset.ocDefaultImage, 10);
+      const url = el.dataset.ocDefaultImageUrl || '';
+      if (!layerId || !url) {
+        return;
+      }
+      if (!this.inputs[layerId]) {
+        this.inputs[layerId] = {};
+      }
+      if (!this.inputs[layerId].attachmentUrl) {
+        this.inputs[layerId].attachmentId = parseInt(el.dataset.ocDefaultImageId, 10) || 0;
+        this.inputs[layerId].attachmentUrl = url;
+      }
+    });
   },
   charLimitForLayer(layerId) {
     return Math.max(0, parseInt(this.getLayerById(layerId)?.settings?.char_limit, 10) || 0);
@@ -4037,7 +4341,9 @@ const inputControlMethods = {
       btn.setAttribute('tabindex', i === index ? '0' : '-1');
     });
     document.querySelectorAll('.oc-area-controls').forEach(el => {
-      el.style.display = parseInt(el.dataset.areaIndex, 10) === index ? '' : 'none';
+      const isActive = parseInt(el.dataset.areaIndex, 10) === index;
+      el.hidden = !isActive;
+      el.setAttribute('aria-hidden', isActive ? 'false' : 'true');
     });
     this.redraw(index);
     document.querySelectorAll('.oc-area-controls[data-area-index="' + index + '"] [data-oc-clipart-carousel]').forEach(carousel => {
@@ -4353,6 +4659,11 @@ __webpack_require__.r(__webpack_exports__);
 
 const SPOTIFY_LINK_SYNC_KEYS = ['value', 'spotifyStatus', 'spotifyUri'];
 const spotifyMethods = {
+  invalidateSpotifyValidation(layerId) {
+    this.spotifyValidateTokens[layerId] = (this.spotifyValidateTokens[layerId] || 0) + 1;
+    this.spotifyAbortControllers[layerId]?.abort();
+    delete this.spotifyAbortControllers[layerId];
+  },
   extractSpotifyUri(inputValue) {
     const raw = String(inputValue || '').trim();
     if (!raw) {
@@ -4491,7 +4802,8 @@ const spotifyMethods = {
     if (!this.inputs[layerId]) {
       this.inputs[layerId] = {};
     }
-    const token = (this.spotifyValidateTokens[layerId] || 0) + 1;
+    this.invalidateSpotifyValidation(layerId);
+    const token = this.spotifyValidateTokens[layerId];
     this.spotifyValidateTokens[layerId] = token;
     if (!value) {
       this.clearSpotifyLayerStatus(layerId, inputEl);
@@ -4506,6 +4818,8 @@ const spotifyMethods = {
       this.setSpotifyValidationResult(layerId, 'ok', localUri, '', inputEl);
       return;
     }
+    const controller = new AbortController();
+    this.spotifyAbortControllers[layerId] = controller;
     try {
       const res = await fetch(this.data.validateSpotifyUrl, {
         method: 'POST',
@@ -4514,7 +4828,8 @@ const spotifyMethods = {
         }),
         body: JSON.stringify({
           url: value
-        })
+        }),
+        signal: controller.signal
       });
       const isJson = res.headers.get('content-type')?.includes('application/json');
       let json = null;
@@ -4528,7 +4843,7 @@ const spotifyMethods = {
       } else {
         text = await res.text();
       }
-      if (this.spotifyValidateTokens[layerId] !== token) {
+      if (this.spotifyValidateTokens[layerId] !== token || String(this.inputs[layerId]?.value || '').trim() !== value || inputEl && String(inputEl.value || '').trim() !== value) {
         return;
       }
       if (!res.ok) {
@@ -4550,7 +4865,10 @@ const spotifyMethods = {
         this.inputs[layerId].spotifyUri = '';
         this.setSpotifyError(layerId, json?.message || 'Spotify link is invalid or unavailable.', inputEl);
       }
-    } catch {
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        return;
+      }
       if (this.spotifyValidateTokens[layerId] !== token) {
         return;
       }
@@ -4561,6 +4879,9 @@ const spotifyMethods = {
     this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
     this.scheduleRedraw(this.areaIndexForLayer(layerId));
     this.updateHiddenField();
+    if (this.spotifyAbortControllers[layerId] === controller) {
+      delete this.spotifyAbortControllers[layerId];
+    }
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (spotifyMethods);
@@ -4633,9 +4954,13 @@ const uploadMethods = {
       } else if (globalMaxMb > 0) {
         maxMb = globalMaxMb;
       }
+      let activeGeneration = this.uploadGenerations[lid] || 0;
+      const fileGenerations = new Map();
       const uppy = new Uppy({
         autoProceed: true,
         onBeforeFileAdded: () => {
+          activeGeneration += 1;
+          this.uploadGenerations[lid] = activeGeneration;
           uppy.getFiles().forEach(existingFile => uppy.removeFile(existingFile.id));
           this.setUploadZoneState(zoneEl, '');
           const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
@@ -4651,6 +4976,9 @@ const uploadMethods = {
           maxFileSize: maxMb * 1024 * 1024,
           allowedFileTypes: allowedExt
         }
+      });
+      uppy.on('file-added', file => {
+        fileGenerations.set(file.id, activeGeneration);
       });
       uppy.use(DragDrop, {
         target: zoneEl,
@@ -4668,10 +4996,17 @@ const uploadMethods = {
         fieldName: 'artwork'
       });
       uppy.on('upload-progress', (file, progress) => {
+        if (fileGenerations.get(file?.id) !== this.uploadGenerations[lid]) {
+          return;
+        }
         const percent = progress?.bytesTotal ? Math.round(progress.bytesUploaded / progress.bytesTotal * 100) : 0;
         this.setUploadProgress(zoneEl, percent, `Uploading ${percent}%`);
       });
       uppy.on('upload-success', async (file, res) => {
+        const generation = fileGenerations.get(file?.id);
+        if (generation !== this.uploadGenerations[lid]) {
+          return;
+        }
         this.setUploadProgress(zoneEl, 100, '');
         if (!res?.body) {
           this.setUploadZoneState(zoneEl, 'error');
@@ -4690,6 +5025,9 @@ const uploadMethods = {
           return;
         }
         const meta = await this.getImageMeta(this.inputs[lid].attachmentUrl);
+        if (generation !== this.uploadGenerations[lid]) {
+          return;
+        }
         if (meta && this.inputs[lid]) {
           this.inputs[lid].imageMeta = meta;
           const thresholdW = Math.round(layer.w * (300 / 72));
@@ -4728,6 +5066,9 @@ const uploadMethods = {
         this.showUploadError(zoneEl, '');
       });
       uppy.on('upload-error', (file, error, response) => {
+        if (fileGenerations.get(file?.id) !== this.uploadGenerations[lid]) {
+          return;
+        }
         let responseBody = response?.body || null;
         if (!responseBody && response?.responseText) {
           try {
@@ -4745,6 +5086,9 @@ const uploadMethods = {
         this.showUploadError(zoneEl, msg);
       });
       uppy.on('restriction-failed', (file, error) => {
+        if (file?.id && fileGenerations.get(file.id) !== this.uploadGenerations[lid]) {
+          return;
+        }
         this.setUploadZoneState(zoneEl, 'error');
         this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, error?.message || 'File not allowed.');
@@ -5768,6 +6112,9 @@ class OCCustomiser {
     this.editMode = !!(data.editMode && data.cartKey);
     this.cartKey = this.editMode ? data.cartKey : '';
     this.canvases = {}; // areaIndex → Fabric StaticCanvas
+    this._redrawTimers = {};
+    this._redrawGenerations = {};
+    this._redrawPromises = {};
     this.fontCache = {}; // fontName  → load Promise
     this.outlineFontCache = {}; // fontName  → parsed font Promise
     this.clipartSvgCache = {};
@@ -5776,10 +6123,14 @@ class OCCustomiser {
     this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
     this._hasCustomerPersonalisation = this.editMode;
     this._tvpgPreviewLocked = false;
+    this._galleryPreviewGeneration = 0;
     this.productVariationStates = {};
     this._variationRequestSeq = 0;
+    this._designGeneration = 0;
     this.spotifyValidateTimers = {};
     this.spotifyValidateTokens = {};
+    this.spotifyAbortControllers = {};
+    this.uploadGenerations = {};
     this.preflightRoot = null;
     this.clipartByGroup = {};
     this.clipartSearchTimers = {};
@@ -5789,6 +6140,8 @@ class OCCustomiser {
     this.mobileCartPreviewDialog = null;
     this.formSubmitBound = false;
     this.fontComboboxDocumentClickBound = false;
+    this._customisationActive = true;
+    this._submitInProgress = false;
     if (this.editMode) {
       Object.entries(data.layerInputs || {}).forEach(([k, v]) => {
         const key = parseInt(k, 10);
@@ -5858,6 +6211,7 @@ class OCCustomiser {
 
     // Wire up controls IMMEDIATELY — don't block on canvas.
     this.setupInputListeners();
+    this.seedTemplateImageDefaults();
     this.setupVariationGalleryHandoff();
     this.setupCartGalleryUnlock();
     this.setupDesignVariantOptions();

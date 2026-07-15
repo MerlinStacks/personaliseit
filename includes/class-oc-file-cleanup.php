@@ -23,6 +23,7 @@ class OC_File_Cleanup {
 
 		if ( empty( $expired ) ) {
 			self::cleanup_preview_images();
+			self::cleanup_customer_artwork();
 			return;
 		}
 
@@ -35,53 +36,73 @@ class OC_File_Cleanup {
 
 		$uploads_base = wp_upload_dir()['basedir'] ?? '';
 		$base_real     = $uploads_base ? realpath( $uploads_base ) : false;
-		$deleted_paths = [];
+		$handled_paths = [];
 
 		foreach ( $expired as $record ) {
-			$deleted = false;
-			if ( ! empty( $record->file_path ) ) {
-				$abs      = (string) $record->file_path;
-				$deleted  = isset( $deleted_paths[ $abs ] );
-				$abs_real = realpath( $abs );
+			$file_handled  = self::cleanup_record_path( $record, 'file_path', $base_real, $wp_filesystem, $handled_paths );
+			$thumb_handled = self::cleanup_record_path( $record, 'thumbnail_path', $base_real, $wp_filesystem, $handled_paths );
 
-				if ( ! $deleted ) {
-					// Only delete files that live under wp-content/uploads.
-					$inside_uploads = $abs_real && $base_real && 0 === strpos( $abs_real, $base_real );
-
-					if ( $inside_uploads ) {
-						if ( $wp_filesystem && method_exists( $wp_filesystem, 'exists' ) ) {
-							if ( $wp_filesystem->exists( $abs ) ) {
-								$deleted = (bool) $wp_filesystem->delete( $abs );
-							}
-						} elseif ( file_exists( $abs ) ) {
-							// Fallback when WP_Filesystem isn't available.
-							$deleted = @unlink( $abs ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-						}
-					} else {
-						OC_Logger::warning( 'File cleanup skipped suspicious path: ' . $abs );
-					}
-				}
-
-				if ( $deleted ) {
-					$deleted_paths[ $abs ] = true;
-				}
-			}
-
-			if ( $deleted || empty( $record->file_path ) ) {
+			if ( $file_handled && $thumb_handled ) {
 				$wpdb->update(
 					"{$wpdb->prefix}oc_print_files",
-					[ 'file_status' => 'expired', 'file_path' => null ],
+					[ 'file_status' => 'expired', 'file_path' => null, 'thumbnail_path' => null ],
 					[ 'id' => $record->id ],
-					[ '%s', '%s' ],
+					[ '%s', '%s', '%s' ],
 					[ '%d' ]
 				);
 			} else {
-				OC_Logger::warning( 'File cleanup failed to delete: ' . (string) $record->file_path );
+				OC_Logger::warning( 'File cleanup could not safely expire print file #' . (int) $record->id );
 			}
 		}
 
 		OC_Logger::info( sprintf( 'File cleanup: expired %d print file records.', count( $expired ) ) );
 		self::cleanup_preview_images();
+		self::cleanup_customer_artwork();
+	}
+
+	/** Delete one path when safe, retaining shared files needed by active records. */
+	private static function cleanup_record_path( object $record, string $column, string|false $base_real, mixed $wp_filesystem, array &$handled_paths ): bool {
+		global $wpdb;
+		$path = (string) ( $record->{$column} ?? '' );
+		if ( '' === $path || isset( $handled_paths[ $path ] ) ) {
+			return true;
+		}
+
+		if ( ! file_exists( $path ) ) {
+			$handled_paths[ $path ] = true;
+			return true;
+		}
+
+		$real = realpath( $path );
+		$base = $base_real ? rtrim( $base_real, '/\\' ) . DIRECTORY_SEPARATOR : '';
+		if ( ! $real || '' === $base || ! str_starts_with( $real, $base ) ) {
+			OC_Logger::warning( 'File cleanup skipped suspicious path: ' . $path );
+			return false;
+		}
+
+		$shared_active = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files
+			 WHERE {$column} = %s AND id <> %d AND file_status <> 'expired'
+			 AND NOT (file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
+			 AND expires_at IS NOT NULL AND expires_at < %s)",
+			$path,
+			(int) $record->id,
+			current_time( 'mysql', true )
+		) );
+		if ( $shared_active > 0 ) {
+			return true;
+		}
+
+		$deleted = $wp_filesystem && method_exists( $wp_filesystem, 'delete' )
+			? (bool) $wp_filesystem->delete( $path )
+			: @unlink( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+
+		if ( $deleted || ! file_exists( $path ) ) {
+			$handled_paths[ $path ] = true;
+			return true;
+		}
+
+		return false;
 	}
 
 	/**
@@ -109,7 +130,8 @@ class OC_File_Cleanup {
 		foreach ( $files as $file ) {
 			$real = realpath( $file );
 			$base = realpath( $dir );
-			if ( ! $real || ! $base || 0 !== strpos( $real, $base ) ) {
+			$base = $base ? rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR : '';
+			if ( ! $real || '' === $base || ! str_starts_with( $real, $base ) ) {
 				continue;
 			}
 			$mtime = @filemtime( $real );
@@ -123,6 +145,35 @@ class OC_File_Cleanup {
 
 		if ( $deleted > 0 ) {
 			OC_Logger::info( sprintf( 'File cleanup: removed %d stale preview images.', $deleted ) );
+		}
+	}
+
+	/** Delete expired customer artwork that has never been persisted on an order. */
+	private static function cleanup_customer_artwork(): void {
+		$retention_days = max( 1, (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90 );
+		$attachments    = get_posts( [
+			'post_type'      => 'attachment',
+			'post_status'    => 'inherit',
+			'posts_per_page' => 100,
+			'fields'         => 'ids',
+			'date_query'     => [ [ 'before' => gmdate( 'Y-m-d H:i:s', time() - ( $retention_days * DAY_IN_SECONDS ) ) ] ],
+			'meta_query'     => [ [ 'key' => '_oc_artwork', 'value' => '1' ] ],
+		] );
+		if ( empty( $attachments ) ) {
+			return;
+		}
+
+		global $wpdb;
+		foreach ( array_map( 'absint', $attachments ) as $attachment_id ) {
+			$referenced = (bool) $wpdb->get_var( $wpdb->prepare(
+				"SELECT meta_id FROM {$wpdb->prefix}woocommerce_order_itemmeta
+				 WHERE meta_key = '_oc_customisation' AND (meta_value LIKE %s OR meta_value LIKE %s) LIMIT 1",
+				'%' . $wpdb->esc_like( 's:12:"attachmentId";i:' . $attachment_id . ';' ) . '%',
+				'%' . $wpdb->esc_like( '"attachmentId":' . $attachment_id ) . '%'
+			) );
+			if ( ! $referenced ) {
+				wp_delete_attachment( $attachment_id, true );
+			}
 		}
 	}
 }

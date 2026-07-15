@@ -722,6 +722,12 @@ const cartSerializationMethods = {
 		if ( ! el ) {
 			return;
 		}
+		if ( ! this._customisationActive ) {
+			el.value = '';
+			el.disabled = true;
+			return;
+		}
+		el.disabled = false;
 		const layers = {};
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
@@ -735,7 +741,12 @@ const cartSerializationMethods = {
 				}
 			} );
 		} );
-		const payload = { v: 2, designId: this.data.designId, layers };
+		const payload = {
+			v: 2,
+			designId: this.data.designId,
+			layers,
+			uploadToken: this.data.requestToken || '',
+		};
 		if ( this.selectedDesignVariant ) {
 			const variant = this.designVariants.find(
 				( item ) => item.id === this.selectedDesignVariant
