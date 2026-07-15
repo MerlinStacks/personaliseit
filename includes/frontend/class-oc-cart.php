@@ -643,19 +643,26 @@ class OC_Cart {
 			return;
 		}
 
-		echo '<div class="oc-order-item-meta" style="margin-top:8px;padding:8px 10px;background:#f9f9f9;border-radius:4px;font-size:12px;line-height:1.5;">';
+		echo '<div class="oc-order-item-meta" style="margin-top:10px;padding:12px;background:#fff;border:1px solid #dcdcde;border-radius:6px;font-size:12px;line-height:1.45;box-shadow:0 1px 2px rgba(0,0,0,0.04);max-width:560px;">';
+		echo '<div style="display:flex;gap:14px;align-items:flex-start;">';
 
 		// ── Preview image ─────────────────────────────────────────────────────
 		if ( $preview_url ) {
-			echo '<a href="' . esc_url( $preview_url ) . '" class="thickbox" style="display:inline-block;margin-bottom:8px;">'
+			echo '<div style="flex:0 0 auto;">'
+			   . '<a href="' . esc_url( $preview_url ) . '" class="thickbox" style="display:inline-block;">'
 			   . '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
-			   . 'style="display:block;max-width:120px;max-height:120px;object-fit:contain;border:1px solid #e0e0e0;border-radius:3px;cursor:zoom-in;" />'
-			   . '</a>';
+			   . 'style="display:block;width:120px;height:120px;object-fit:contain;border:1px solid #dcdcde;border-radius:5px;background:#f6f7f7;cursor:zoom-in;" />'
+			   . '</a>'
+			   . '<div style="margin-top:4px;color:#646970;font-size:11px;text-align:center;">' . esc_html__( 'Preview', 'overcustomise' ) . '</div>'
+			   . '</div>';
 		}
+
+		echo '<div style="flex:1 1 auto;min-width:0;">';
+		echo '<div style="margin:0 0 8px;font-weight:600;color:#1d2327;">' . esc_html__( 'Customisation', 'overcustomise' ) . '</div>';
 
 		if ( empty( $customisation ) || ! is_array( $customisation ) ) {
 			$this->render_admin_print_files( $item_id, $print_files, true, $order );
-			echo '</div>';
+			echo '</div></div>';
 			return;
 		}
 
@@ -678,11 +685,14 @@ class OC_Cart {
 				$label = $layer ? ( $layer->label ?: ucfirst( $layer->type ) ) : ucfirst( $layer_data['type'] ?? 'Layer' );
 				$value = $this->layer_display_value( $layer_data, $layer );
 				if ( ! $value ) continue;
-				echo '<div><strong>' . esc_html( $label ) . ':</strong> ' . $value . '</div>';
+				echo '<div style="display:grid;grid-template-columns:minmax(110px,38%) 1fr;gap:8px;align-items:start;margin:0 0 6px;">'
+					. '<div style="color:#646970;font-weight:600;">' . esc_html( $label ) . '</div>'
+					. '<div style="color:#1d2327;word-break:break-word;">' . $value . '</div>'
+					. '</div>';
 			}
 
 			$this->render_admin_print_files( $item_id, $print_files, true, $order );
-			echo '</div>';
+			echo '</div></div>';
 			return;
 		}
 
@@ -693,7 +703,9 @@ class OC_Cart {
 			$has_artwork = ! empty( $area_data['artworkAttachmentId'] );
 			if ( ! $has_text && ! $has_artwork ) continue;
 
-			echo '<div><strong>' . esc_html( ucwords( str_replace( '-', ' ', $area_key ) ) ) . ':</strong> ';
+			echo '<div style="display:grid;grid-template-columns:minmax(110px,38%) 1fr;gap:8px;align-items:start;margin:0 0 6px;">'
+				. '<div style="color:#646970;font-weight:600;">' . esc_html( ucwords( str_replace( '-', ' ', $area_key ) ) ) . '</div>'
+				. '<div style="color:#1d2327;word-break:break-word;">';
 
 			if ( $has_text ) {
 				echo esc_html( $area_data['text'] );
@@ -718,11 +730,11 @@ class OC_Cart {
 					[ 'style' => 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;' ] );
 				echo $thumb ?: ' ' . esc_html__( '[Artwork]', 'overcustomise' );
 			}
-			echo '</div>';
+			echo '</div></div>';
 		}
 
 		$this->render_admin_print_files( $item_id, $print_files, true, $order );
-		echo '</div>';
+		echo '</div></div>';
 	}
 
 	/** Display the same useful OverCustomise block in WooCommerce's admin item editor. */
@@ -807,10 +819,16 @@ class OC_Cart {
 			return '';
 		}
 
+		global $wpdb;
+		$colour_name = (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) LIMIT 1",
+			$colour
+		) );
+
 		return sprintf(
 			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
 			esc_attr( $colour ),
-			esc_html( $colour )
+			esc_html( '' !== $colour_name ? $colour_name : $colour )
 		);
 	}
 
@@ -864,14 +882,16 @@ class OC_Cart {
 			}
 
 			if ( $show_empty ) {
-				echo '<div style="margin-top:6px;"><strong>' . esc_html__( 'Print Files:', 'overcustomise' ) . '</strong> '
-					. esc_html__( 'No print files generated yet. They will be queued automatically when printable customisation data is available.', 'overcustomise' )
+				echo '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #dcdcde;">'
+					. '<div style="margin:0 0 5px;font-weight:600;color:#1d2327;">' . esc_html__( 'Print Files', 'overcustomise' ) . '</div>'
+					. '<div style="color:#646970;">' . esc_html__( 'No print files generated yet. They will be queued automatically when printable customisation data is available.', 'overcustomise' ) . '</div>'
 					. '</div>';
 			}
 			return;
 		}
 
-		echo '<div style="margin-top:6px;"><strong>' . esc_html__( 'Print Files:', 'overcustomise' ) . '</strong></div>';
+		echo '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #dcdcde;">';
+		echo '<div style="margin:0 0 6px;font-weight:600;color:#1d2327;">' . esc_html__( 'Print Files', 'overcustomise' ) . '</div>';
 		foreach ( $print_files as $file ) {
 			$status_label = ucfirst( str_replace( '_', ' ', (string) $file->file_status ) );
 			$queue_info   = OC_Print_Queue::instance()->get_status( (int) $file->id );
@@ -882,19 +902,22 @@ class OC_Cart {
 				],
 				admin_url( 'post.php?post=' . ( $order instanceof WC_Order ? $order->get_id() : 0 ) . '&action=edit' )
 			);
-			echo '<div style="margin-top:3px;">';
-			echo esc_html( ucfirst( str_replace( '_', ' ', (string) $file->file_type ) ) . ': ' . $status_label );
+			echo '<div style="margin-top:6px;padding:8px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;">';
+			echo '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">';
+			echo '<div><span style="font-weight:600;color:#1d2327;">' . esc_html( ucfirst( str_replace( '_', ' ', (string) $file->file_type ) ) ) . '</span> '
+				. '<span style="display:inline-block;margin-left:4px;padding:1px 7px;border-radius:999px;background:#e7f5ea;color:#1b7e34;font-size:11px;font-weight:600;">' . esc_html( $status_label ) . '</span></div>';
+			echo '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">';
 
 			if ( ! empty( $queue_info['is_processing'] ) ) {
-				echo ' <em style="color:#9e6c00;">' . esc_html__( 'Processing now.', 'overcustomise' ) . '</em>';
+				echo '<em style="color:#9e6c00;">' . esc_html__( 'Processing now.', 'overcustomise' ) . '</em>';
 			} elseif ( ! empty( $queue_info['has_failed_job'] ) ) {
-				echo ' <em style="color:#b32d2e;">' . esc_html__( 'Queue job failed.', 'overcustomise' ) . '</em>';
+				echo '<em style="color:#b32d2e;">' . esc_html__( 'Queue job failed.', 'overcustomise' ) . '</em>';
 				if ( ! empty( $queue_info['error_message'] ) ) {
 					echo '<div style="margin:3px 0 0 16px;color:#b32d2e;"><strong>' . esc_html__( 'Error:', 'overcustomise' ) . '</strong> '
 						. esc_html( (string) $queue_info['error_message'] ) . '</div>';
 				}
 			} elseif ( ! empty( $queue_info['in_queue'] ) ) {
-				echo ' <em style="color:#666;">' . esc_html__( 'Waiting in queue.', 'overcustomise' ) . '</em>';
+				echo '<em style="color:#666;">' . esc_html__( 'Waiting in queue.', 'overcustomise' ) . '</em>';
 			}
 
 			if ( 'files_ready' === $file->file_status && ! empty( $file->file_path ) && file_exists( $file->file_path ) ) {
@@ -905,26 +928,28 @@ class OC_Cart {
 					],
 					admin_url()
 				);
-				echo ' <a href="' . esc_url( $download_url ) . '" class="button button-small" style="margin-left:6px;">'
+				echo '<a href="' . esc_url( $download_url ) . '" class="button button-small">'
 					. esc_html__( 'Download Print File', 'overcustomise' ) . '</a>';
-				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+				echo '<a href="' . esc_url( $regen_url ) . '" class="button button-small">'
 					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			} elseif ( 'files_ready' === $file->file_status ) {
-				echo ' <em style="color:#888;">' . esc_html__( 'File missing on disk.', 'overcustomise' ) . '</em>';
-				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+				echo '<em style="color:#888;">' . esc_html__( 'File missing on disk.', 'overcustomise' ) . '</em>';
+				echo '<a href="' . esc_url( $regen_url ) . '" class="button button-small">'
 					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			} elseif ( 'pending' === $file->file_status ) {
-				echo ' <em style="color:#666;">' . esc_html__( 'Queued automatically.', 'overcustomise' ) . '</em>';
-				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+				echo '<em style="color:#666;">' . esc_html__( 'Queued automatically.', 'overcustomise' ) . '</em>';
+				echo '<a href="' . esc_url( $regen_url ) . '" class="button button-small">'
 					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			} elseif ( 'generating' === $file->file_status && empty( $queue_info['is_processing'] ) && empty( $queue_info['in_queue'] ) ) {
-				echo ' <em style="color:#b32d2e;">' . esc_html__( 'No active queue job.', 'overcustomise' ) . '</em>';
-				echo ' <a href="' . esc_url( $regen_url ) . '" class="button button-small" style="margin-left:6px;">'
+				echo '<em style="color:#b32d2e;">' . esc_html__( 'No active queue job.', 'overcustomise' ) . '</em>';
+				echo '<a href="' . esc_url( $regen_url ) . '" class="button button-small">'
 					. esc_html__( 'Regenerate Print File', 'overcustomise' ) . '</a>';
 			}
 
+			echo '</div></div>';
 			echo '</div>';
 		}
+		echo '</div>';
 	}
 
 	private static function normalise_clipart_print_methods( string $raw ): array {

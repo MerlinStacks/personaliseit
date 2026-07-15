@@ -329,10 +329,16 @@ class OC_Admin_Order_Metabox {
 			return '';
 		}
 
+		global $wpdb;
+		$colour_name = (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) LIMIT 1",
+			$colour
+		) );
+
 		return sprintf(
 			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
 			esc_attr( $colour ),
-			esc_html( $colour )
+			esc_html( '' !== $colour_name ? $colour_name : $colour )
 		);
 	}
 
