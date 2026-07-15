@@ -244,8 +244,11 @@ class OC_Admin_Order_Metabox {
 
 			$type       = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : 'layer';
 			$layer_obj  = $layer_map[ (int) $layer_id ] ?? null;
+			if ( $this->is_fixed_clipart_layer( $layer_obj, $layer_data ) ) {
+				continue;
+			}
 			$label      = $layer_obj ? ( $layer_obj->label ?: ucfirst( $layer_obj->type ) ) : ucfirst( $type );
-			$value_html = $this->v2_layer_display_value( $layer_data );
+			$value_html = $this->v2_layer_display_value( $layer_data, $layer_obj );
 
 			if ( '' === $value_html ) {
 				continue;
@@ -260,13 +263,12 @@ class OC_Admin_Order_Metabox {
 		echo '</ul>';
 	}
 
-	private function v2_layer_display_value( array $layer_data ): string {
+	private function v2_layer_display_value( array $layer_data, ?object $layer = null ): string {
 		$type = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
 
 		if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) ) {
 			$value     = trim( (string) ( $layer_data['value'] ?? '' ) );
 			$font_name = '';
-			$color     = '';
 			if ( ! empty( $layer_data['fontId'] ) ) {
 				global $wpdb;
 				$font_name = (string) $wpdb->get_var( $wpdb->prepare(
@@ -274,23 +276,17 @@ class OC_Admin_Order_Metabox {
 					(int) $layer_data['fontId']
 				) );
 			}
-			if ( ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] ) ) {
-				$color = sanitize_hex_color( $layer_data['colorHex'] ) ?: '';
-			}
 			if ( '' === $value ) {
 				return '';
 			}
 
 			$html = esc_html( $value );
-			if ( '' !== $font_name ) {
+			if ( '' !== $font_name && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
 				$html .= ' &mdash; ' . esc_html( $font_name );
 			}
-			if ( '' !== $color ) {
-				$html .= sprintf(
-					' &mdash; <span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
-					esc_attr( $color ),
-					esc_html( $color )
-				);
+			$colour_html = $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+			if ( '' !== $colour_html ) {
+				$html .= ' &mdash; ' . $colour_html;
 			}
 			return $html;
 		}
@@ -307,10 +303,65 @@ class OC_Admin_Order_Metabox {
 
 		if ( 'clipart' === $type ) {
 			$has_clipart = ! empty( $layer_data['clipartId'] ) || ! empty( $layer_data['clipartUrl'] );
-			return $has_clipart ? esc_html__( '[Clipart selected]', 'overcustomise' ) : '';
+			if ( ! $has_clipart ) {
+				return '';
+			}
+
+			$html        = esc_html__( '[Clipart selected]', 'overcustomise' );
+			$colour_html = $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+			return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
+		}
+
+		if ( 'lineart' === $type ) {
+			return $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 		}
 
 		return '';
+	}
+
+	/** Return an escaped colour swatch and hex value for order admin summaries. */
+	private function colour_display_value( array $layer_data ): string {
+		$colour = ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] )
+			? sanitize_hex_color( $layer_data['colorHex'] )
+			: '';
+
+		if ( '' === $colour ) {
+			return '';
+		}
+
+		return sprintf(
+			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
+			esc_attr( $colour ),
+			esc_html( $colour )
+		);
+	}
+
+	/** Layer settings default to customer-changeable unless explicitly disabled. */
+	private function customer_can_change_layer_setting( ?object $layer, string $setting_key ): bool {
+		if ( ! $layer || empty( $layer->settings ) ) {
+			return true;
+		}
+
+		$settings = json_decode( (string) $layer->settings, true );
+		if ( ! is_array( $settings ) || ! array_key_exists( $setting_key, $settings ) ) {
+			return true;
+		}
+
+		return ! empty( $settings[ $setting_key ] );
+	}
+
+	/** Do not show fixed default clipart as customer-selected order data. */
+	private function is_fixed_clipart_layer( ?object $layer, array $layer_data ): bool {
+		if ( 'clipart' !== ( $layer_data['type'] ?? '' ) || empty( $layer_data['clipartId'] ) || ! $layer ) {
+			return false;
+		}
+
+		$settings = ! empty( $layer->settings ) ? json_decode( (string) $layer->settings, true ) : [];
+		if ( ! is_array( $settings ) ) {
+			return false;
+		}
+
+		return array_key_exists( 'allow_clipart_change', $settings ) && empty( $settings['allow_clipart_change'] );
 	}
 
 	private function resolve_area_label(

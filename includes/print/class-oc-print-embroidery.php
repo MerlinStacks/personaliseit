@@ -1024,11 +1024,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 
 		if ( 'svg' === $ext ) {
-			if ( self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
+			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
 				return;
 			}
 
-			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
+			if ( self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
 				return;
 			}
 
@@ -1423,8 +1423,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = sprintf( '%.8F %.8F scale', $draw_w / $vb_w, -$draw_h / $vb_h );
 		$lines[] = sprintf( '%.4F %.4F translate', -$vb_x, -$vb_y );
 		$context = [
-			'css' => self::svg_css_rules( $dom ),
-			'ids' => self::svg_id_map( $dom ),
+			'css'      => self::svg_css_rules( $dom ),
+			'ids'      => self::svg_id_map( $dom ),
+			'view_box' => [ $vb_x, $vb_y, $vb_w, $vb_h ],
 		];
 		self::append_svg_element_eps( $lines, $dom->documentElement, [], $context );
 		$lines[] = 'grestore';
@@ -1455,6 +1456,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$style = self::svg_style_for_element( $element, $style, $context['css'] ?? [] );
 		$name  = strtolower( $element->localName );
 		if ( in_array( $name, [ 'defs', 'style', 'metadata', 'title', 'desc' ], true ) || ( 'symbol' === $name && empty( $context['from_use'] ) ) ) {
+			return;
+		}
+		if ( 'rect' === $name && self::is_svg_background_rect( $element, $style, $context['view_box'] ?? null ) ) {
 			return;
 		}
 		$has_transform = $element->hasAttribute( 'transform' ) && '' !== trim( $element->getAttribute( 'transform' ) );
@@ -1892,6 +1896,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_svg_paint_eps( array &$lines, array $commands, array $style ): void {
 		$fill   = self::svg_colour( (string) ( $style['fill'] ?? '#000000' ) );
 		$stroke = self::svg_colour( (string) ( $style['stroke'] ?? 'none' ) );
+		$opacity = self::svg_opacity( (string) ( $style['opacity'] ?? '1' ) );
+		if ( $opacity <= 0.0 ) {
+			return;
+		}
+		if ( self::svg_opacity( (string) ( $style['fill-opacity'] ?? '1' ) ) <= 0.0 ) {
+			$fill = null;
+		}
+		if ( self::svg_opacity( (string) ( $style['stroke-opacity'] ?? '1' ) ) <= 0.0 ) {
+			$stroke = null;
+		}
 		if ( $fill && $stroke && self::same_rgb( $fill, $stroke ) ) {
 			$stroke = null;
 		}
@@ -1931,6 +1945,54 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return [ min( 255, (int) $matches[1] ) / 255, min( 255, (int) $matches[2] ) / 255, min( 255, (int) $matches[3] ) / 255 ];
 		}
 		return [ 0.0, 0.0, 0.0 ];
+	}
+
+	private static function svg_opacity( string $value ): float {
+		$value = trim( $value );
+		if ( '' === $value ) {
+			return 1.0;
+		}
+
+		if ( str_ends_with( $value, '%' ) ) {
+			return max( 0.0, min( 1.0, (float) rtrim( $value, '%' ) / 100 ) );
+		}
+
+		return max( 0.0, min( 1.0, (float) $value ) );
+	}
+
+	private static function is_svg_background_rect( \DOMElement $element, array $style, mixed $view_box ): bool {
+		if ( ! is_array( $view_box ) || count( $view_box ) < 4 ) {
+			return false;
+		}
+
+		$fill = trim( (string) ( $style['fill'] ?? '' ) );
+		if ( self::svg_opacity( (string) ( $style['opacity'] ?? '1' ) ) <= 0.0 ) {
+			return true;
+		}
+		if ( self::svg_opacity( (string) ( $style['fill-opacity'] ?? '1' ) ) <= 0.0 ) {
+			return true;
+		}
+		if ( ! self::is_svg_white( $fill ) ) {
+			return false;
+		}
+
+		$stroke = trim( (string) ( $style['stroke'] ?? 'none' ) );
+		if ( '' !== $stroke && 'none' !== strtolower( $stroke ) && ! self::is_svg_white( $stroke ) ) {
+			return false;
+		}
+
+		$x = self::svg_number( $element->getAttribute( 'x' ) );
+		$y = self::svg_number( $element->getAttribute( 'y' ) );
+		$w = self::svg_number( $element->getAttribute( 'width' ) );
+		$h = self::svg_number( $element->getAttribute( 'height' ) );
+		[ $vb_x, $vb_y, $vb_w, $vb_h ] = array_map( 'floatval', array_slice( $view_box, 0, 4 ) );
+		$tolerance = 0.01;
+
+		return $w > 0.0 && $h > 0.0
+			&& $x <= $vb_x + $tolerance
+			&& $y <= $vb_y + $tolerance
+			&& $x + $w >= $vb_x + $vb_w - $tolerance
+			&& $y + $h >= $vb_y + $vb_h - $tolerance;
 	}
 
 	private static function same_rgb( array $a, array $b ): bool {

@@ -34,28 +34,36 @@ class OC_File_Cleanup {
 		}
 
 		$uploads_base = wp_upload_dir()['basedir'] ?? '';
-		$base_real    = $uploads_base ? realpath( $uploads_base ) : false;
+		$base_real     = $uploads_base ? realpath( $uploads_base ) : false;
+		$deleted_paths = [];
 
 		foreach ( $expired as $record ) {
 			$deleted = false;
 			if ( ! empty( $record->file_path ) ) {
-				$abs        = (string) $record->file_path;
-				$abs_real   = realpath( $abs );
+				$abs      = (string) $record->file_path;
+				$deleted  = isset( $deleted_paths[ $abs ] );
+				$abs_real = realpath( $abs );
 
-				// Only delete files that live under wp-content/uploads.
-				$inside_uploads = $abs_real && $base_real && 0 === strpos( $abs_real, $base_real );
+				if ( ! $deleted ) {
+					// Only delete files that live under wp-content/uploads.
+					$inside_uploads = $abs_real && $base_real && 0 === strpos( $abs_real, $base_real );
 
-				if ( $inside_uploads ) {
-					if ( $wp_filesystem && method_exists( $wp_filesystem, 'exists' ) ) {
-						if ( $wp_filesystem->exists( $abs ) ) {
-							$deleted = (bool) $wp_filesystem->delete( $abs );
+					if ( $inside_uploads ) {
+						if ( $wp_filesystem && method_exists( $wp_filesystem, 'exists' ) ) {
+							if ( $wp_filesystem->exists( $abs ) ) {
+								$deleted = (bool) $wp_filesystem->delete( $abs );
+							}
+						} elseif ( file_exists( $abs ) ) {
+							// Fallback when WP_Filesystem isn't available.
+							$deleted = @unlink( $abs ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 						}
-					} elseif ( file_exists( $abs ) ) {
-						// Fallback when WP_Filesystem isn't available.
-						$deleted = @unlink( $abs ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					} else {
+						OC_Logger::warning( 'File cleanup skipped suspicious path: ' . $abs );
 					}
-				} else {
-					OC_Logger::warning( 'File cleanup skipped suspicious path: ' . $abs );
+				}
+
+				if ( $deleted ) {
+					$deleted_paths[ $abs ] = true;
 				}
 			}
 

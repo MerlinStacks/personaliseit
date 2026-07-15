@@ -30,6 +30,7 @@ class OC_Print_Generator {
 		add_action( 'admin_init', [ $this, 'handle_admin_regenerate' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_generate_missing' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_process_queue' ] );
+		add_action( 'admin_notices', [ $this, 'render_admin_notices' ] );
 	}
 
 	// -------------------------------------------------------------------------
@@ -98,6 +99,11 @@ class OC_Print_Generator {
 			throw new \RuntimeException( "No customisation data for area '{$area->area_key}'." );
 		}
 
+		$combined_entries = self::combined_entries_for_regeneration( $record, $customisation, $area, $is_v2_area );
+		if ( count( $combined_entries ) > 1 && self::supports_combined_print_file( (string) $area->print_method ) ) {
+			return $this->regenerate_combined( $record, $order, $combined_entries );
+		}
+
 		// Delete the old file if it still exists.
 		if ( ! empty( $record->file_path ) && file_exists( $record->file_path ) ) {
 			@unlink( $record->file_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -115,7 +121,11 @@ class OC_Print_Generator {
 			'file_path'    => null,
 		] );
 
-		$result = self::generate_for_area( $order, (int) $record->order_item_id, $area, $area_data );
+		$warning = self::regeneration_snapshot_warning( $area, $area_data );
+		$result  = self::generate_for_area( $order, (int) $record->order_item_id, $area, $area_data );
+		if ( '' !== $warning ) {
+			$result['warning'] = $warning;
+		}
 
 		$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
 
@@ -124,6 +134,67 @@ class OC_Print_Generator {
 			'file_status'    => $result['status'],
 			'thumbnail_path' => $thumb_path,
 		] );
+
+		return $result;
+	}
+
+	/**
+	 * @param array<int,array{area:object,area_data:array}> $combined_entries
+	 * @return array{file_path:string,status:string}
+	 */
+	private function regenerate_combined( object $record, \WC_Order $order, array $combined_entries ): array {
+		$area_ids = array_map(
+			static fn ( array $entry ): int => (int) ( $entry['area']->id ?? 0 ),
+			$combined_entries
+		);
+		$area_ids = array_values( array_filter( array_unique( $area_ids ) ) );
+
+		$records = self::get_print_file_records_for_areas(
+			(int) $record->order_id,
+			(int) $record->order_item_id,
+			$area_ids
+		);
+
+		if ( empty( $records ) ) {
+			throw new \RuntimeException( 'No print file records found for combined regeneration.' );
+		}
+
+		$old_paths = [];
+		foreach ( $records as $print_file ) {
+			if ( ! empty( $print_file->file_path ) ) {
+				$old_paths[] = (string) $print_file->file_path;
+			}
+		}
+
+		foreach ( array_unique( $old_paths ) as $old_path ) {
+			if ( file_exists( $old_path ) ) {
+				@unlink( $old_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+
+		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90;
+		$now            = current_time( 'mysql', true );
+		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
+
+		foreach ( $records as $print_file ) {
+			OC_DB::update_print_file( (int) $print_file->id, [
+				'file_status'  => 'generating',
+				'generated_at' => $now,
+				'expires_at'   => $expires_at,
+				'file_path'    => null,
+			] );
+		}
+
+		$result = self::generate_for_areas( $order, (int) $record->order_item_id, (string) $record->file_type, $combined_entries );
+		$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
+
+		foreach ( $records as $print_file ) {
+			OC_DB::update_print_file( (int) $print_file->id, [
+				'file_path'      => $result['file_path'],
+				'file_status'    => $result['status'],
+				'thumbnail_path' => $thumb_path,
+			] );
+		}
 
 		return $result;
 	}
@@ -250,7 +321,8 @@ class OC_Print_Generator {
 					}
 				}
 
-				$areas = OC_DB::get_design_print_areas( $design_id );
+				$areas      = OC_DB::get_design_print_areas( $design_id );
+				$print_jobs = [];
 				foreach ( $areas as $area ) {
 					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
 					$area      = self::area_object_for_generation( $area, $area_data );
@@ -272,15 +344,14 @@ class OC_Print_Generator {
 						'expires_at'    => $expires_at,
 					] );
 
-					OC_Print_Queue::instance()->enqueue(
-						(int) $order->get_id(),
-						(int) $item_id,
-						(int) $area->id,
-						$area_data,
-						(string) $area->print_method
-					);
+					$print_jobs[] = [
+						'area_id'      => (int) $area->id,
+						'area_data'    => $area_data,
+						'print_method' => (string) $area->print_method,
+					];
 					$created_count++;
 				}
+				self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
 				continue;
 			}
 
@@ -292,7 +363,8 @@ class OC_Print_Generator {
 				continue;
 			}
 
-			$areas = OC_DB::get_print_areas( (int) $config->id );
+			$areas      = OC_DB::get_print_areas( (int) $config->id );
+			$print_jobs = [];
 
 			foreach ( $areas as $area ) {
 				$area_data = $customisation[ $area->area_key ] ?? null;
@@ -314,15 +386,14 @@ class OC_Print_Generator {
 					'expires_at'    => $expires_at,
 				] );
 
-				OC_Print_Queue::instance()->enqueue(
-					(int) $order->get_id(),
-					(int) $item_id,
-					(int) $area->id,
-					$area_data,
-					(string) $area->print_method
-				);
+				$print_jobs[] = [
+					'area_id'      => (int) $area->id,
+					'area_data'    => $area_data,
+					'print_method' => (string) $area->print_method,
+				];
 				$created_count++;
 			}
+			self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
 		}
 
 		if ( $created_count > 0 ) {
@@ -359,6 +430,164 @@ class OC_Print_Generator {
 			$item_id,
 			$print_area_id
 		) );
+	}
+
+	/**
+	 * @return array<int,object>
+	 */
+	private static function get_print_file_records_for_areas( int $order_id, int $item_id, array $area_ids ): array {
+		$area_ids = array_values( array_filter( array_map( 'absint', $area_ids ) ) );
+		if ( empty( $area_ids ) ) {
+			return [];
+		}
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $area_ids ), '%d' ) );
+		$params       = array_merge( [ $order_id, $item_id ], $area_ids );
+
+		return $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id IN ({$placeholders}) ORDER BY id ASC",
+			...$params
+		) ) ?: [];
+	}
+
+	/**
+	 * @return array<int,array{area:object,area_data:array}>
+	 */
+	private static function combined_entries_for_regeneration( object $record, array $customisation, object $target_area, bool $is_v2_area ): array {
+		$method = sanitize_key( (string) ( $target_area->print_method ?? $record->file_type ?? '' ) );
+		if ( ! self::supports_combined_print_file( $method ) ) {
+			return [];
+		}
+
+		$entries = [];
+		if ( $is_v2_area ) {
+			$design_id = (int) ( $target_area->design_id ?? $customisation['designId'] ?? 0 );
+			if ( ! $design_id ) {
+				return [];
+			}
+
+			foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
+				if ( sanitize_key( (string) $area->print_method ) !== $method ) {
+					continue;
+				}
+
+				$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
+				if ( ! self::area_has_printable_data( $area_data ) ) {
+					continue;
+				}
+
+				if ( ! self::print_file_exists( (int) $record->order_id, (int) $record->order_item_id, (int) $area->id ) ) {
+					continue;
+				}
+
+				$entries[] = [
+					'area'      => self::area_object_for_generation( $area, $area_data ),
+					'area_data' => $area_data,
+				];
+			}
+			return $entries;
+		}
+
+		$config_id = (int) ( $target_area->config_id ?? 0 );
+		if ( ! $config_id ) {
+			return [];
+		}
+
+		foreach ( OC_DB::get_print_areas( $config_id ) as $area ) {
+			if ( sanitize_key( (string) $area->print_method ) !== $method ) {
+				continue;
+			}
+
+			$area_data = $customisation[ $area->area_key ] ?? null;
+			if ( ! is_array( $area_data ) ) {
+				continue;
+			}
+
+			if ( ! self::print_file_exists( (int) $record->order_id, (int) $record->order_item_id, (int) $area->id ) ) {
+				continue;
+			}
+
+			$entries[] = [
+				'area'      => $area,
+				'area_data' => $area_data,
+			];
+		}
+
+		return $entries;
+	}
+
+	/**
+	 * Queue compatible same-method print areas together without changing the per-area DB records.
+	 *
+	 * @param array<int,array{area_id:int,area_data:array,print_method:string}> $print_jobs
+	 */
+	private static function enqueue_print_jobs_grouped( int $order_id, int $item_id, array $print_jobs ): void {
+		$groups = [];
+
+		foreach ( $print_jobs as $job ) {
+			$method = sanitize_key( (string) ( $job['print_method'] ?? '' ) );
+			if ( '' === $method ) {
+				continue;
+			}
+
+			$key = self::supports_combined_print_file( $method ) ? $method : $method . ':' . (int) ( $job['area_id'] ?? 0 );
+			if ( empty( $groups[ $key ] ) ) {
+				$groups[ $key ] = [];
+			}
+			$groups[ $key ][] = $job;
+		}
+
+		foreach ( $groups as $jobs ) {
+			$first = $jobs[0] ?? null;
+			if ( ! is_array( $first ) ) {
+				continue;
+			}
+
+			$area_data = $first['area_data'];
+			if ( count( $jobs ) > 1 ) {
+				$area_data = [
+					'__combined_print_areas' => array_map(
+						static fn ( array $job ): array => [
+							'areaId'   => (int) $job['area_id'],
+							'areaData' => $job['area_data'],
+						],
+						$jobs
+					),
+				];
+			}
+
+			OC_Print_Queue::instance()->enqueue(
+				$order_id,
+				$item_id,
+				(int) $first['area_id'],
+				$area_data,
+				(string) $first['print_method']
+			);
+		}
+	}
+
+	public static function supports_combined_print_file( string $print_method ): bool {
+		return in_array( sanitize_key( $print_method ), [ 'uv', 'sublimation', 'engraving' ], true );
+	}
+
+	public static function is_combined_area_data( array $area_data ): bool {
+		return ! empty( $area_data['__combined_print_areas'] ) && is_array( $area_data['__combined_print_areas'] );
+	}
+
+	private static function regeneration_snapshot_warning( object $area, array $area_data ): string {
+		$print_method = sanitize_key( (string) ( $area->print_method ?? '' ) );
+		if ( ! in_array( $print_method, [ 'uv', 'sublimation' ], true ) ) {
+			return '';
+		}
+
+		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
+		$svg      = is_string( $snapshot['svg'] ?? null ) ? trim( (string) $snapshot['svg'] ) : '';
+		if ( '' !== $svg && str_contains( $svg, '<svg' ) && ! preg_match( '/<image\b/i', $svg ) ) {
+			return '';
+		}
+
+		return __( 'Warning: this order does not contain a usable browser-rendered vector snapshot for this print area. The regenerated UV/sublimation file used the older layer renderer and may not exactly match the customer preview, especially SVG placement or text sizing.', 'overcustomise' );
 	}
 
 	/**
@@ -468,6 +697,30 @@ class OC_Print_Generator {
 		};
 	}
 
+	/**
+	 * Generate one print file for multiple same-method print areas.
+	 *
+	 * @param array<int,array{area:object,area_data:array}> $areas
+	 * @return array{file_path:string, status:string}
+	 */
+	public static function generate_for_areas( \WC_Order $order, int $item_id, string $print_method, array $areas ): array {
+		return match ( sanitize_key( $print_method ) ) {
+			'engraving'   => [
+				'file_path' => OC_Print_Engraving::generate_combined( $order, $item_id, $areas ),
+				'status'    => 'files_ready',
+			],
+			'uv'          => [
+				'file_path' => OC_Print_UV::generate_combined( $order, $item_id, $areas ),
+				'status'    => 'files_ready',
+			],
+			'sublimation' => [
+				'file_path' => OC_Print_Sublimation::generate_combined( $order, $item_id, $areas ),
+				'status'    => 'files_ready',
+			],
+			default       => throw new \RuntimeException( "Cannot combine print method: {$print_method}" ),
+		};
+	}
+
 	// -------------------------------------------------------------------------
 	// Admin GET handlers
 	// -------------------------------------------------------------------------
@@ -496,8 +749,17 @@ class OC_Print_Generator {
 			wp_die( esc_html__( 'Print file record not found.', 'overcustomise' ), 404 );
 		}
 
+		$has_snapshot_warning = false;
+
 		try {
-			$this->regenerate( $file_id );
+			$result = $this->regenerate( $file_id );
+			if ( ! empty( $result['warning'] ) ) {
+				$has_snapshot_warning = true;
+				$order = wc_get_order( (int) $record->order_id );
+				if ( $order instanceof \WC_Order ) {
+					$order->add_order_note( (string) $result['warning'] );
+				}
+			}
 		} catch ( \Throwable $e ) {
 			OC_DB::update_print_file( $file_id, [ 'file_status' => 'pending' ] );
 			OC_Logger::error( 'Admin regenerate failed for file #' . $file_id . ': ' . $e->getMessage() );
@@ -505,8 +767,22 @@ class OC_Print_Generator {
 
 		// Redirect back to the order edit screen.
 		$redirect = admin_url( 'post.php?post=' . (int) $record->order_id . '&action=edit' );
+		if ( $has_snapshot_warning ) {
+			$redirect = add_query_arg( 'oc_regenerate_snapshot_warning', '1', $redirect );
+		}
 		wp_safe_redirect( $redirect );
 		exit;
+	}
+
+	public function render_admin_notices(): void {
+		if ( empty( $_GET['oc_regenerate_snapshot_warning'] ) || ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		printf(
+			'<div class="notice notice-warning is-dismissible"><p>%s</p></div>',
+			esc_html__( 'OverCustomise regenerated this file without a usable browser-rendered vector snapshot. The file used the older layer renderer and may not exactly match the customer preview, especially SVG placement or text sizing.', 'overcustomise' )
+		);
 	}
 
 	/** Handle the admin "Generate Print Files" link for orders missing file rows. */

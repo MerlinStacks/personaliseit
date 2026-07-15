@@ -95,6 +95,68 @@ class OC_Print_Engraving extends OC_Print_Base {
 		return $output_path;
 	}
 
+	/**
+	 * Generate one engraving PDF containing multiple print areas as separate pages.
+	 *
+	 * @param array<int,array{area:object,area_data:array}> $areas
+	 */
+	public static function generate_combined( \WC_Order $order, int $item_id, array $areas ): string {
+		self::require_tcpdf();
+
+		$first = reset( $areas );
+		if ( ! is_array( $first ) || ! isset( $first['area'], $first['area_data'] ) ) {
+			throw new \RuntimeException( __( 'No engraving print areas supplied for combined file.', 'overcustomise' ) );
+		}
+
+		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
+		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, 0.0 );
+		$pdf->SetTitle( sprintf( 'Engraving - Order #%d - Combined', $order->get_id() ) );
+
+		foreach ( $areas as $entry ) {
+			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
+				continue;
+			}
+
+			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
+			$pdf->AddPage( $w_mm > $h_mm ? 'L' : 'P', [ $w_mm, $h_mm ] );
+
+			if ( self::has_layer_payload( $entry['area_data'] ) ) {
+				self::render_layer_payload( $pdf, $area, $entry['area_data'], 0.0, 0.0, 'engraving' );
+				continue;
+			}
+
+			$artwork_path = self::resolve_artwork_path( $entry['area_data'] );
+			$temp_artwork = null;
+			if ( $artwork_path ) {
+				$profile      = self::resolve_profile();
+				$temp_artwork = self::build_engraving_raster( $artwork_path, $profile );
+				$render_path  = $temp_artwork ?: $artwork_path;
+				self::draw_pdf_image( $pdf, $render_path, 0, 0, $w_mm, $h_mm );
+			}
+
+			$text = self::normalise_engraving_text( trim( $entry['area_data']['text'] ?? '' ) );
+			if ( '' !== $text ) {
+				$font_name = self::resolve_font( (int) ( $entry['area_data']['fontId'] ?? 0 ), $pdf );
+				[ $min_font_size, $max_font_size ] = self::font_size_bounds( $entry['area_data'] );
+				$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
+				$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
+				$pdf->SetFont( $font_name, '', $font_size );
+				self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
+			}
+
+			if ( is_string( $temp_artwork ) && '' !== $temp_artwork && file_exists( $temp_artwork ) ) {
+				@unlink( $temp_artwork );
+			}
+		}
+
+		$output_dir  = self::ensure_output_dir( $order->get_id() );
+		$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $first_area, 'pdf' );
+
+		self::write_pdf_file( $pdf, $output_path );
+
+		return $output_path;
+	}
+
 	/** @return array<string,mixed> */
 	private static function resolve_profile(): array {
 		$profile = self::DEFAULT_PROFILE;

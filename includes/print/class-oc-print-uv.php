@@ -58,6 +58,55 @@ class OC_Print_UV extends OC_Print_Base {
 		return $output_path;
 	}
 
+	/**
+	 * Generate one UV PDF containing multiple print areas as separate artboard pages.
+	 *
+	 * @param array<int,array{area:object,area_data:array}> $areas
+	 */
+	public static function generate_combined( \WC_Order $order, int $item_id, array $areas ): string {
+		self::require_tcpdf();
+
+		$first = reset( $areas );
+		if ( ! is_array( $first ) || ! isset( $first['area'], $first['area_data'] ) ) {
+			throw new \RuntimeException( __( 'No UV print areas supplied for combined file.', 'overcustomise' ) );
+		}
+
+		$bleed = (float) OC_Admin_Settings::get( 'bleed_mm' ) ?: 3.0;
+		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
+		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed );
+		$pdf->SetTitle( sprintf( 'UV Print - Order #%d - Combined', $order->get_id() ) );
+
+		$methods_settings = get_option( 'oc_print_methods', [] );
+		$add_white_page   = ! empty( $methods_settings['uv']['white_ink_layer'] );
+		$white_spot_name  = $add_white_page ? self::resolve_white_spot_name( $methods_settings ) : '';
+
+		foreach ( $areas as $entry ) {
+			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
+				continue;
+			}
+
+			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
+			$page_w = $w_mm + $bleed * 2;
+			$page_h = $h_mm + $bleed * 2;
+			$pdf->AddPage( $page_w > $page_h ? 'L' : 'P', [ $page_w, $page_h ] );
+			self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $bleed, $entry['area_data'] );
+			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+
+			if ( $add_white_page ) {
+				$pdf->AddPage( $page_w > $page_h ? 'L' : 'P', [ $page_w, $page_h ] );
+				self::render_white_ink_page( $pdf, $w_mm, $h_mm, $bleed, $white_spot_name, $entry['area_data'] );
+				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+			}
+		}
+
+		$output_dir  = self::ensure_output_dir( $order->get_id() );
+		$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $first_area, 'pdf' );
+
+		self::write_pdf_file( $pdf, $output_path );
+
+		return $output_path;
+	}
+
 	// ── Private helpers ───────────────────────────────────────────────────────
 
 	private static function render_colour_page(

@@ -674,8 +674,9 @@ class OC_Cart {
 			foreach ( $layers as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) continue;
 				$layer = $layer_map[ (int) $layer_id ] ?? null;
+				if ( is_admin() && $this->is_fixed_clipart_layer( $layer, $layer_data ) ) continue;
 				$label = $layer ? ( $layer->label ?: ucfirst( $layer->type ) ) : ucfirst( $layer_data['type'] ?? 'Layer' );
-				$value = $this->layer_display_value( $layer_data );
+				$value = $this->layer_display_value( $layer_data, $layer );
 				if ( ! $value ) continue;
 				echo '<div><strong>' . esc_html( $label ) . ':</strong> ' . $value . '</div>';
 			}
@@ -740,13 +741,35 @@ class OC_Cart {
 	 * Return a safe display string for a single v2 layer input array.
 	 * Returns empty string if there's nothing to show.
 	 */
-	private function layer_display_value( array $layer_data ): string {
+	private function layer_display_value( array $layer_data, ?object $layer = null ): string {
 		switch ( $layer_data['type'] ?? '' ) {
 			case 'text':
 			case 'textarea':
 			case 'spotify':
 				$val = trim( $layer_data['value'] ?? '' );
-				return $val ? esc_html( $val ) : '';
+				if ( ! $val ) {
+					return '';
+				}
+
+				$html = esc_html( $val );
+				if ( is_admin() && in_array( $layer_data['type'] ?? '', [ 'text', 'textarea' ], true ) && ! empty( $layer_data['fontId'] ) && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
+					global $wpdb;
+					$font_name = (string) $wpdb->get_var( $wpdb->prepare(
+						"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
+						(int) $layer_data['fontId']
+					) );
+					if ( '' !== $font_name ) {
+						$html .= ' &mdash; ' . esc_html( $font_name );
+					}
+				}
+				if ( is_admin() && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
+					$colour_html = $this->colour_display_value( $layer_data );
+					if ( '' !== $colour_html ) {
+						$html .= ' &mdash; ' . $colour_html;
+					}
+				}
+
+				return $html;
 
 			case 'image':
 			case 'clipmask':
@@ -758,11 +781,65 @@ class OC_Cart {
 				return '';
 
 			case 'clipart':
-				return ! empty( $layer_data['clipartId'] ) ? esc_html__( '[Clipart selected]', 'overcustomise' ) : '';
+				if ( empty( $layer_data['clipartId'] ) ) {
+					return '';
+				}
+
+				$html = esc_html__( '[Clipart selected]', 'overcustomise' );
+				$colour_html = is_admin() && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+				return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
+
+			case 'lineart':
+				return is_admin() && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 
 			default:
 				return '';
 		}
+	}
+
+	/** Return an escaped colour swatch and hex value for order admin summaries. */
+	private function colour_display_value( array $layer_data ): string {
+		$colour = ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] )
+			? sanitize_hex_color( $layer_data['colorHex'] )
+			: '';
+
+		if ( '' === $colour ) {
+			return '';
+		}
+
+		return sprintf(
+			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
+			esc_attr( $colour ),
+			esc_html( $colour )
+		);
+	}
+
+	/** Layer settings default to customer-changeable unless explicitly disabled. */
+	private function customer_can_change_layer_setting( ?object $layer, string $setting_key ): bool {
+		if ( ! $layer || empty( $layer->settings ) ) {
+			return true;
+		}
+
+		$settings = json_decode( (string) $layer->settings, true );
+		if ( ! is_array( $settings ) || ! array_key_exists( $setting_key, $settings ) ) {
+			return true;
+		}
+
+		return ! empty( $settings[ $setting_key ] );
+	}
+
+	/** Do not show fixed default clipart as customer-selected order data. */
+	private function is_fixed_clipart_layer( ?object $layer, array $layer_data ): bool {
+		if ( 'clipart' !== ( $layer_data['type'] ?? '' ) || empty( $layer_data['clipartId'] ) || ! $layer ) {
+			return false;
+		}
+
+		$settings = ! empty( $layer->settings ) ? json_decode( (string) $layer->settings, true ) : [];
+		if ( ! is_array( $settings ) ) {
+			return false;
+		}
+
+		return array_key_exists( 'allow_clipart_change', $settings ) && empty( $settings['allow_clipart_change'] );
 	}
 
 	/**

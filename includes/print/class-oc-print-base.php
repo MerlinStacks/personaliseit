@@ -447,8 +447,18 @@ abstract class OC_Print_Base {
 			throw new \RuntimeException( 'TCPDF returned an empty PDF document.' );
 		}
 
+		self::log_pdf_preflight_warnings( $raw, $output_path );
+
 		if ( false === file_put_contents( $output_path, $raw ) ) {
 			throw new \RuntimeException( sprintf( 'Could not write print PDF to %s', $output_path ) );
+		}
+	}
+
+	/** Log lightweight generated-PDF checks before the file is written. */
+	private static function log_pdf_preflight_warnings( string $raw, string $output_path ): void {
+		$mode = self::pdf_conformance_mode();
+		if ( '' !== $mode && ! str_contains( $raw, '/GTS_PDFX' ) ) {
+			OC_Logger::warning( sprintf( 'Generated print PDF is missing the expected PDF/X output intent (%s): %s', $mode, basename( $output_path ) ) );
 		}
 	}
 
@@ -974,7 +984,18 @@ abstract class OC_Print_Base {
 		$page_h = $h_mm + $bleed * 2;
 
 		$orientation = $page_w > $page_h ? 'L' : 'P';
-		$pdf = new class( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8' ) extends \TCPDF {
+		$pdf_mode = self::pdf_conformance_mode();
+		$pdf = new class( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8', false, $pdf_mode ) extends \TCPDF {
+			/** Allow the legacy TCPDF facade to initialise tc-lib-pdf in PDF/X mode. */
+			protected function normalizePdfaMode( mixed $pdfa ): string {
+				$mode = strtolower( trim( (string) $pdfa ) );
+				if ( preg_match( '/^pdfx(?:1a|3|4|5)?$/', $mode ) ) {
+					return $mode;
+				}
+
+				return parent::normalizePdfaMode( $pdfa );
+			}
+
 			/** Include WordPress uploads in TCPDF 7's local file allowlist. */
 			protected function fileAllowedPaths(): array {
 				$paths      = parent::fileAllowedPaths();
@@ -999,12 +1020,22 @@ abstract class OC_Print_Base {
 		};
 		$pdf->SetCreator( 'OverCustomise' );
 		$pdf->SetAuthor( 'Custom Kings' );
+		$pdf->SetSubject( 'Production print artwork' );
+		$pdf->SetKeywords( 'print,production,customisation,PDF/X' );
 		$pdf->SetMargins( $bleed, $bleed, $bleed );
 		$pdf->SetAutoPageBreak( false, 0 );
 		$pdf->setPrintHeader( false );
 		$pdf->setPrintFooter( false );
 
 		return $pdf;
+	}
+
+	/** Return the PDF conformance mode for generated print PDFs. */
+	protected static function pdf_conformance_mode(): string {
+		$mode = apply_filters( 'oc_print_pdf_conformance_mode', 'pdfx4' );
+		$mode = strtolower( trim( is_string( $mode ) ? $mode : '' ) );
+
+		return preg_match( '/^pdfx(?:1a|3|4|5)?$/', $mode ) ? $mode : '';
 	}
 
 	// -------------------------------------------------------------------------

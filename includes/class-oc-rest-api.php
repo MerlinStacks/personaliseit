@@ -603,6 +603,7 @@ class OC_Rest_API {
 			'file_id'   => $file_id,
 			'file_path' => basename( (string) ( $result['file_path'] ?? '' ) ),
 			'status'    => $result['status'] ?? '',
+			'warning'   => (string) ( $result['warning'] ?? '' ),
 		] );
 	}
 
