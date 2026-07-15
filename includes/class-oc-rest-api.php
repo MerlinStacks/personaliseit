@@ -310,18 +310,22 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_context', __( 'Product, design, and layer are required for artwork uploads.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
+		$product = wc_get_product( $product_id );
+		if ( ! $product || $product->is_type( 'variation' ) ) {
+			return new \WP_Error( 'invalid_product', __( 'Invalid product for artwork upload.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		if ( $variation_id ) {
+			$variation = wc_get_product( $variation_id );
+			if ( ! $variation || ! $variation->is_type( 'variation' ) || $product_id !== (int) $variation->get_parent_id() ) {
+				return new \WP_Error( 'invalid_variation', __( 'The selected variation is not valid for this product.', 'overcustomise' ), [ 'status' => 400 ] );
+			}
+		} elseif ( $product->is_type( 'variable' ) ) {
+			return new \WP_Error( 'invalid_variation', __( 'Please select a product variation before uploading artwork.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
 		if ( $layer_id ) {
 			global $wpdb;
-			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id, true );
-			if ( ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) && 0 === $variation_id ) {
-				$candidates = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d", $product_id ) ) ?: [];
-				foreach ( $candidates as $candidate ) {
-					if ( OC_DB::assignment_allows_design( $candidate, $design_id ) ) {
-						$assignment = $candidate;
-						break;
-					}
-				}
-			}
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 			if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
 				return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ), [ 'status' => 400 ] );
 			}
@@ -838,7 +842,17 @@ class OC_Rest_API {
 		$product_id   = absint( $cart_item['product_id'] ?? 0 );
 		$variation_id = absint( $cart_item['variation_id'] ?? 0 );
 		$upload_token = (string) ( $request->get_header( 'X-OC-Token' ) ?: ( $body['uploadToken'] ?? '' ) );
-		$normalised   = OC_Cart::normalise_v2_layers( $product_id, $variation_id, $design_id, $raw_layers, $upload_token );
+		$allowed_existing_attachments = [];
+		if ( isset( $customisation['v'], $customisation['designId'], $customisation['layers'] )
+			&& 2 === (int) $customisation['v'] && $design_id === absint( $customisation['designId'] ) && is_array( $customisation['layers'] )
+		) {
+			foreach ( $customisation['layers'] as $layer_id => $layer_data ) {
+				if ( is_array( $layer_data ) && ! empty( $layer_data['attachmentId'] ) ) {
+					$allowed_existing_attachments[ absint( $layer_id ) ] = absint( $layer_data['attachmentId'] );
+				}
+			}
+		}
+		$normalised = OC_Cart::normalise_v2_layers( $product_id, $variation_id, $design_id, $raw_layers, $upload_token, $allowed_existing_attachments );
 		if ( is_wp_error( $normalised ) ) {
 			$normalised->add_data( [ 'status' => 400 ] );
 			return $normalised;

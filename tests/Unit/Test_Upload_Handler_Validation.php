@@ -45,6 +45,33 @@ class UploadHandlerReflector {
 }
 
 class Test_Upload_Handler_Validation extends TestCase {
+	private array $temporary_files = [];
+
+	protected function tearDown(): void {
+		foreach ( $this->temporary_files as $file ) {
+			@unlink( $file );
+		}
+		$GLOBALS['oc_test_post_meta']       = [];
+		$GLOBALS['oc_test_attached_files']  = [];
+		$GLOBALS['oc_test_post_mime_types'] = [];
+		parent::tearDown();
+	}
+
+	private function create_test_artwork( int $attachment_id, array $context = [], string $token = '' ): void {
+		$file = tempnam( sys_get_temp_dir(), 'oc_artwork_' ) . '.png';
+		file_put_contents( $file, base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true ) );
+		$this->temporary_files[] = $file;
+
+		$GLOBALS['oc_test_attached_files'][ $attachment_id ]  = $file;
+		$GLOBALS['oc_test_post_mime_types'][ $attachment_id ] = 'image/png';
+		$GLOBALS['oc_test_post_meta'][ $attachment_id ] = [
+			'_oc_artwork'         => 1,
+			'_oc_artwork_context' => $context,
+			'_oc_artwork_user_id' => 0,
+			'_oc_artwork_token'   => '' !== $token ? hash( 'sha256', $token ) : '',
+			'_oc_artwork_session' => '',
+		];
+	}
 
 	// ── NONCE_ACTION constant ─────────────────────────────────────────────
 
@@ -140,6 +167,36 @@ class Test_Upload_Handler_Validation extends TestCase {
 	public function type_from_extension_handles_jpeg_alias(): void {
 		$this->assertSame( 'jpg', UploadHandlerReflector::type_from_extension( 'jpeg' ) );
 		$this->assertSame( 'jpg', UploadHandlerReflector::type_from_extension( 'jpg' ) );
+	}
+
+	#[Test]
+	public function customer_artwork_requires_the_exact_variation_context(): void {
+		$this->create_test_artwork( 41, [ 10, 12, 20, 30 ], 'owner-token' );
+
+		$this->assertTrue( OC_Upload_Handler::attachment_is_accepted( 41, 10, 12, 20, 30, 'owner-token' ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 41, 10, 0, 20, 30, 'owner-token' ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 41, 10, 13, 20, 30, 'owner-token' ) );
+	}
+
+	#[Test]
+	public function existing_cart_allowlist_accepts_only_a_valid_oc_artwork_file(): void {
+		$this->create_test_artwork( 42 );
+
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 42, 10, 12, 20, 30 ) );
+		$this->assertTrue( OC_Upload_Handler::existing_cart_attachment_is_valid( 42 ) );
+
+		$GLOBALS['oc_test_post_meta'][42]['_oc_artwork'] = 0;
+		$this->assertFalse( OC_Upload_Handler::existing_cart_attachment_is_valid( 42 ) );
+	}
+
+	#[Test]
+	public function legacy_artwork_requires_owned_exact_product_context(): void {
+		$this->create_test_artwork( 43, [ 10, 12, 0, 0 ], 'legacy-token' );
+
+		$this->assertTrue( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 12, 'legacy-token' ) );
+		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 0, 'legacy-token' ) );
+		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 11, 12, 'legacy-token' ) );
+		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 12, 'wrong-token' ) );
 	}
 
 	// ── process() — missing file throws ──────────────────────────────────

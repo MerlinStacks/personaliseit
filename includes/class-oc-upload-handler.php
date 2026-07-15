@@ -95,20 +95,41 @@ class OC_Upload_Handler {
 
 	/** Verify that customer artwork belongs to this customer and exact layer context. */
 	public static function attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token = '' ): bool {
-		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) return false;
-		$path = get_attached_file( $attachment_id );
-		if ( ! is_string( $path ) || ! file_exists( $path ) || ! is_file( $path ) ) return false;
-		$mime          = (string) get_post_mime_type( $attachment_id );
-		$detected_mime = self::detect_mime( $path, basename( $path ) );
-		if ( ! isset( self::SUPPORTED_TYPES[ $mime ], self::SUPPORTED_TYPES[ $detected_mime ] ) || self::SUPPORTED_TYPES[ $mime ] !== self::SUPPORTED_TYPES[ $detected_mime ] ) return false;
+		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;
 		$actual   = array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) );
-		if ( 4 !== count( $actual ) || $product_id !== $actual[0] || ! in_array( $actual[1], [ 0, $variation_id ], true ) || $design_id !== $actual[2] || $layer_id !== $actual[3] ) return false;
+		if ( 4 !== count( $actual ) || $product_id !== $actual[0] || $variation_id !== $actual[1] || $design_id !== $actual[2] || $layer_id !== $actual[3] ) return false;
+		return self::attachment_owner_matches( $attachment_id, $token );
+	}
+
+	/** Validate an attachment already stored in the current cart item. */
+	public static function existing_cart_attachment_is_valid( int $attachment_id ): bool {
+		return self::artwork_file_is_valid( $attachment_id );
+	}
+
+	/** Verify ownership of artwork posted by the legacy product customiser. */
+	public static function legacy_attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, string $token = '' ): bool {
+		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;
+		$actual = array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) );
+		if ( 4 !== count( $actual ) || $product_id !== $actual[0] || $variation_id !== $actual[1] ) return false;
+		return self::attachment_owner_matches( $attachment_id, $token );
+	}
+
+	private static function attachment_owner_matches( int $attachment_id, string $token ): bool {
 		$user_id = (int) get_post_meta( $attachment_id, '_oc_artwork_user_id', true );
 		if ( $user_id > 0 ) return $user_id === get_current_user_id();
 		$stored_token = (string) get_post_meta( $attachment_id, '_oc_artwork_token', true );
 		if ( '' !== $stored_token && '' !== $token && hash_equals( $stored_token, hash( 'sha256', $token ) ) ) return true;
 		$stored_session = (string) get_post_meta( $attachment_id, '_oc_artwork_session', true );
 		return '' !== $stored_session && hash_equals( $stored_session, self::session_hash() );
+	}
+
+	private static function artwork_file_is_valid( int $attachment_id ): bool {
+		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) return false;
+		$path = get_attached_file( $attachment_id );
+		if ( ! is_string( $path ) || ! file_exists( $path ) || ! is_file( $path ) ) return false;
+		$mime          = (string) get_post_mime_type( $attachment_id );
+		$detected_mime = self::detect_mime( $path, basename( $path ) );
+		return isset( self::SUPPORTED_TYPES[ $mime ], self::SUPPORTED_TYPES[ $detected_mime ] ) && self::SUPPORTED_TYPES[ $mime ] === self::SUPPORTED_TYPES[ $detected_mime ];
 	}
 
 	/** Admin-configured defaults are immutable and need validity, not customer ownership. */

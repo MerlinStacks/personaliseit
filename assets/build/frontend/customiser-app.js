@@ -2212,7 +2212,7 @@ __webpack_require__.r(__webpack_exports__);
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const checkoutMethods = {
   acquireCartSubmitGuard(form) {
-    if (this._submitInProgress || !this._customisationActive) {
+    if (this._submitInProgress || !this._customisationActive || this._variationSwitchPending || this._variationSwitchFailed) {
       return false;
     }
     this._submitInProgress = true;
@@ -2318,6 +2318,11 @@ const checkoutMethods = {
         if (form._ocSubmitReady) {
           return;
         }
+        if (this._variationSwitchPending || this._variationSwitchFailed) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          return;
+        }
         if (!this._customisationActive) {
           this.updateHiddenField();
           return;
@@ -2327,15 +2332,11 @@ const checkoutMethods = {
         }
         e.preventDefault();
         e.stopImmediatePropagation();
-        if (!this.acquireCartSubmitGuard(form)) {
-          return;
-        }
-        form._ocGuardFromClick = true;
         this.syncInputsFromDOM();
         const preflight = this.runImmediateBlockingPreflight();
         if (preflight.ok) {
           if (form.requestSubmit) {
-            form.requestSubmit();
+            form.requestSubmit(button);
           } else {
             form.dispatchEvent(new Event('submit', {
               bubbles: true,
@@ -2350,6 +2351,12 @@ const checkoutMethods = {
     });
     form.addEventListener('submit', async e => {
       this.closeFontComboboxes(true);
+      if (this._variationSwitchPending || this._variationSwitchFailed) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        this.resetCartSubmitState(form);
+        return;
+      }
       if (!this._customisationActive) {
         this.updateHiddenField();
         return;
@@ -2367,9 +2374,7 @@ const checkoutMethods = {
       }
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (form._ocGuardFromClick) {
-        form._ocGuardFromClick = false;
-      } else if (!this.acquireCartSubmitGuard(form)) {
+      if (!this.acquireCartSubmitGuard(form)) {
         return;
       }
       try {
@@ -2441,6 +2446,7 @@ const checkoutMethods = {
   },
   async getMobileCartPreviewAreas() {
     const activeArea = this.activeArea;
+    const fallbackUrl = this.getCurrentPreviewDataUrl();
     const previews = [];
     for (let index = 0; index < this.areas.length; index++) {
       await this.redraw(index, {
@@ -2464,6 +2470,13 @@ const checkoutMethods = {
       }
     }
     await this.redraw(activeArea);
+    if (!previews.length && fallbackUrl) {
+      previews.push({
+        index: activeArea,
+        label: this.areas[activeArea]?.name || `Area ${activeArea + 1}`,
+        url: fallbackUrl
+      });
+    }
     return previews;
   },
   getMobileCartPreviewDialog() {
@@ -2495,6 +2508,9 @@ const checkoutMethods = {
     const previousFocus = customiserPanel?.ownerDocument.activeElement;
     this.closeFontComboboxes(true);
     const previews = await this.getMobileCartPreviewAreas();
+    if (!previews.length) {
+      return false;
+    }
     const dialog = this.getMobileCartPreviewDialog();
     dialog.ownerDocument.activeElement?.blur?.();
     const tabs = dialog.querySelector('.oc-cart-preview-tabs');
@@ -3113,25 +3129,57 @@ const GALLERY_IMAGE_SELECTORS = [
 '.woocommerce-product-gallery .wp-post-image', '.wp-post-image'];
 const galleryPreviewMethods = {
   captureGalleryNodeState(node) {
-    if (!node || node._ocOriginalPreviewState) {
+    if (!node) {
+      return null;
+    }
+    return new Map(Array.from(node.attributes || []).map(attribute => [attribute.name, attribute.value]));
+  },
+  recordGalleryNodeState(node, before) {
+    if (!node || !before) {
       return;
     }
-    node._ocOriginalPreviewState = {
-      attributes: Array.from(node.attributes || []).map(attribute => [attribute.name, attribute.value])
-    };
+    const after = this.captureGalleryNodeState(node);
+    const names = new Set([...before.keys(), ...after.keys()]);
+    const state = node._ocOriginalPreviewState || new Map();
+    names.forEach(name => {
+      const beforeValue = before.has(name) ? before.get(name) : null;
+      const afterValue = after.has(name) ? after.get(name) : null;
+      if (beforeValue === afterValue) {
+        return;
+      }
+      const previous = state.get(name);
+      state.set(name, {
+        original: previous && previous.preview === beforeValue ? previous.original : beforeValue,
+        preview: afterValue
+      });
+    });
+    if (state.size) {
+      node._ocOriginalPreviewState = state;
+      this._galleryPreviewNodes.add(node);
+    }
   },
   restoreProductGallery() {
     this._galleryPreviewGeneration += 1;
     document.querySelectorAll('.oc-live-preview-slide, .oc-live-preview-thumb-slide').forEach(slide => slide.remove());
-    document.querySelectorAll('*').forEach(node => {
+    this._galleryPreviewNodes.forEach(node => {
       const state = node._ocOriginalPreviewState;
       if (!state) {
         return;
       }
-      Array.from(node.attributes).forEach(attribute => node.removeAttribute(attribute.name));
-      state.attributes.forEach(([name, value]) => node.setAttribute(name, value));
+      state.forEach((values, name) => {
+        const current = node.hasAttribute(name) ? node.getAttribute(name) : null;
+        if (current !== values.preview) {
+          return;
+        }
+        if (values.original === null) {
+          node.removeAttribute(name);
+        } else {
+          node.setAttribute(name, values.original);
+        }
+      });
       delete node._ocOriginalPreviewState;
     });
+    this._galleryPreviewNodes.clear();
     this.releaseTVPGPreviewLock(true);
     this.setPanelPreviewHandoff(false);
     this.findGalleryImage();
@@ -3153,7 +3201,7 @@ const galleryPreviewMethods = {
     if (!img) {
       return;
     }
-    this.captureGalleryNodeState(img);
+    const imageState = this.captureGalleryNodeState(img);
     const hasDimensions = dimensions?.width && dimensions?.height;
     const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
     const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
@@ -3176,9 +3224,10 @@ const galleryPreviewMethods = {
     // Update zoom / lightbox href if wrapped in <a>.
     const a = img.closest('a');
     if (a) {
-      this.captureGalleryNodeState(a);
+      const linkState = this.captureGalleryNodeState(a);
       a.href = dataUrl;
       a.setAttribute('data-src', dataUrl);
+      this.recordGalleryNodeState(a, linkState);
     }
 
     // WooCommerce zoom/lightbox compatibility attributes.
@@ -3191,9 +3240,10 @@ const galleryPreviewMethods = {
     img.removeAttribute('data-lazy-srcset');
     img.removeAttribute('data-o_srcset');
     img.removeAttribute('data-o_src');
+    this.recordGalleryNodeState(img, imageState);
     const galleryItem = img.closest('.woocommerce-product-gallery__image, .product-gallery-slider .slide');
     if (galleryItem) {
-      this.captureGalleryNodeState(galleryItem);
+      const galleryItemState = this.captureGalleryNodeState(galleryItem);
       galleryItem.setAttribute('data-thumb', dataUrl);
       if (hasDimensions && !img.closest('.product-thumbnails, .tvpg-thumb-slider')) {
         galleryItem.classList.add('oc-live-preview-frame');
@@ -3203,13 +3253,16 @@ const galleryPreviewMethods = {
         galleryItem.style.paddingBottom = ratioPadding;
         const link = img.closest('a');
         if (link && galleryItem.contains(link)) {
+          const linkState = this.captureGalleryNodeState(link);
           link.classList.add('oc-live-preview-frame');
           link.style.aspectRatio = aspectRatio;
           link.style.height = 'auto';
           link.style.paddingTop = '0';
           link.style.paddingBottom = ratioPadding;
+          this.recordGalleryNodeState(link, linkState);
         }
       }
+      this.recordGalleryNodeState(galleryItem, galleryItemState);
     }
   },
   refreshFlatsomeGallery() {
@@ -3485,7 +3538,14 @@ const galleryPreviewMethods = {
     window.jQuery?.(form).on?.('found_variation show_variation', (event, variation) => handleVariationChange(variation));
     const initialVariationId = getSelectedVariationId();
     if (initialVariationId) {
-      this.switchProductVariation(initialVariationId);
+      const key = String(initialVariationId);
+      this._activeVariationKey = key;
+      this.productVariationStates[key] = {
+        ...this.data,
+        active: true,
+        panelHtml: document.getElementById('oc-customiser-panel')?.outerHTML || '',
+        layerInputs: JSON.parse(JSON.stringify(this.inputs || {}))
+      };
     }
   },
   async switchProductVariation(variationId) {
@@ -3494,14 +3554,20 @@ const galleryPreviewMethods = {
     }
     const key = String(Math.max(0, parseInt(variationId, 10) || 0));
     const requestSeq = ++this._variationRequestSeq;
-    if (this._activeVariationKey && this._customisationActive) {
+    this._variationSwitchPending = true;
+    this._variationSwitchFailed = false;
+    let initialLayerInputs = null;
+    if (this._customisationActive) {
       this.syncInputsFromDOM();
-      const previousState = this.productVariationStates[this._activeVariationKey];
-      if (previousState) {
-        previousState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+      if (this._activeVariationKey) {
+        const previousState = this.productVariationStates[this._activeVariationKey];
+        if (previousState) {
+          previousState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
+        }
+      } else {
+        initialLayerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
       }
     }
-    this.deactivateCustomisation();
     let state = this.productVariationStates[key];
     if (!state) {
       const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
@@ -3521,13 +3587,21 @@ const galleryPreviewMethods = {
         this.productVariationStates[key] = state;
       } catch (err) {
         console.warn('[OC] Variation design load failed:', err);
+        if (requestSeq === this._variationRequestSeq) {
+          this._variationSwitchPending = false;
+          this._variationSwitchFailed = true;
+        }
         return;
       }
     }
     if (requestSeq !== this._variationRequestSeq) {
       return;
     }
+    if (initialLayerInputs && state?.active && parseInt(state.designId || state.design_id, 10) === parseInt(this.data.designId, 10)) {
+      state.layerInputs = initialLayerInputs;
+    }
     if (!state?.active || !state?.panelHtml) {
+      this._variationSwitchPending = false;
       this.deactivateCustomisation();
       this._activeVariationKey = key;
       return;
@@ -3535,6 +3609,8 @@ const galleryPreviewMethods = {
     await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
     if (requestSeq === this._variationRequestSeq) {
       this._activeVariationKey = key;
+      this._variationSwitchPending = false;
+      this._variationSwitchFailed = false;
     }
   },
   deactivateCustomisation() {
@@ -4905,7 +4981,6 @@ __webpack_require__.r(__webpack_exports__);
 /* eslint-disable no-console */
 
 const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
-const DEFAULT_UPLOAD_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.svg', '.pdf', '.webp'];
 const uploadMethods = {
   async setupUploadZones() {
     const zoneEls = Array.from(document.querySelectorAll('[data-oc-upload-zone]'));
@@ -4944,15 +5019,18 @@ const uploadMethods = {
       }
       const layerFormats = Array.isArray(layer?.settings?.formats) ? layer.settings.formats : [];
       const globalFormats = Array.isArray(this.data.allowedFormats) ? this.data.allowedFormats : [];
-      const effective = (layerFormats.length ? layerFormats : globalFormats).map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => SERVER_UPLOAD_FORMATS.includes(ext));
-      const allowedExt = effective.length ? effective.map(ext => `.${ext}`) : DEFAULT_UPLOAD_EXTENSIONS;
+      const normalisedGlobalFormats = globalFormats.map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => SERVER_UPLOAD_FORMATS.includes(ext));
+      const effective = layerFormats.length ? layerFormats.map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => normalisedGlobalFormats.includes(ext)) : normalisedGlobalFormats;
+      const allowedExt = [...new Set(effective)].map(ext => `.${ext}`);
+      if (!allowedExt.length) {
+        this.showUploadError(zoneEl, 'This layer does not allow artwork file formats.');
+        return;
+      }
       const layerMaxMb = parseInt(layer?.settings?.max_size_mb, 10);
       const globalMaxMb = parseInt(this.data.maxUploadSizeMb, 10);
-      let maxMb = 10;
+      let maxMb = globalMaxMb > 0 ? globalMaxMb : 10;
       if (layerMaxMb > 0) {
-        maxMb = layerMaxMb;
-      } else if (globalMaxMb > 0) {
-        maxMb = globalMaxMb;
+        maxMb = Math.min(maxMb, layerMaxMb);
       }
       let activeGeneration = this.uploadGenerations[lid] || 0;
       const fileGenerations = new Map();
@@ -6124,8 +6202,11 @@ class OCCustomiser {
     this._hasCustomerPersonalisation = this.editMode;
     this._tvpgPreviewLocked = false;
     this._galleryPreviewGeneration = 0;
+    this._galleryPreviewNodes = new Set();
     this.productVariationStates = {};
     this._variationRequestSeq = 0;
+    this._variationSwitchPending = false;
+    this._variationSwitchFailed = false;
     this._designGeneration = 0;
     this.spotifyValidateTimers = {};
     this.spotifyValidateTokens = {};
@@ -6174,10 +6255,12 @@ class OCCustomiser {
     return headers;
   }
   uploadEndpoint(uploadUrl, layerId) {
+    const variationId = parseInt(document.querySelector('form.cart input.variation_id')?.value || '0', 10) || 0;
     const params = new URLSearchParams({
       layer_id: String(layerId),
       design_id: String(this.data.designId || ''),
-      product_id: String(this.data.productId || '')
+      product_id: String(this.data.productId || ''),
+      variation_id: String(variationId)
     });
     if (this.data.uploadNonce) {
       params.set('_wpnonce', this.data.uploadNonce);

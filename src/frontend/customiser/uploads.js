@@ -14,15 +14,6 @@ const SERVER_UPLOAD_FORMATS = [
 	'webp',
 ];
 
-const DEFAULT_UPLOAD_EXTENSIONS = [
-	'.jpg',
-	'.jpeg',
-	'.png',
-	'.svg',
-	'.pdf',
-	'.webp',
-];
-
 const uploadMethods = {
 	async setupUploadZones() {
 		const zoneEls = Array.from(
@@ -74,22 +65,34 @@ const uploadMethods = {
 			const globalFormats = Array.isArray( this.data.allowedFormats )
 				? this.data.allowedFormats
 				: [];
-			const effective = (
-				layerFormats.length ? layerFormats : globalFormats
-			)
+			const normalisedGlobalFormats = globalFormats
 				.map( ( f ) => String( f ).toLowerCase().replace( /^\./, '' ) )
 				.filter( ( ext ) => SERVER_UPLOAD_FORMATS.includes( ext ) );
-			const allowedExt = effective.length
-				? effective.map( ( ext ) => `.${ ext }` )
-				: DEFAULT_UPLOAD_EXTENSIONS;
+			const effective = layerFormats.length
+				? layerFormats
+						.map( ( f ) =>
+							String( f ).toLowerCase().replace( /^\./, '' )
+						)
+						.filter( ( ext ) =>
+							normalisedGlobalFormats.includes( ext )
+						)
+				: normalisedGlobalFormats;
+			const allowedExt = [ ...new Set( effective ) ].map(
+				( ext ) => `.${ ext }`
+			);
+			if ( ! allowedExt.length ) {
+				this.showUploadError(
+					zoneEl,
+					'This layer does not allow artwork file formats.'
+				);
+				return;
+			}
 
 			const layerMaxMb = parseInt( layer?.settings?.max_size_mb, 10 );
 			const globalMaxMb = parseInt( this.data.maxUploadSizeMb, 10 );
-			let maxMb = 10;
+			let maxMb = globalMaxMb > 0 ? globalMaxMb : 10;
 			if ( layerMaxMb > 0 ) {
-				maxMb = layerMaxMb;
-			} else if ( globalMaxMb > 0 ) {
-				maxMb = globalMaxMb;
+				maxMb = Math.min( maxMb, layerMaxMb );
 			}
 
 			let activeGeneration = this.uploadGenerations[ lid ] || 0;

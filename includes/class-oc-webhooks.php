@@ -248,12 +248,20 @@ class OC_Webhooks {
 	}
 
 	private static function post( string $url, string $secret, string $body, string $event, string $delivery_id, int $timeout ): array|\WP_Error {
-		$timestamp = (string) time();
-		$signature = hash_hmac( 'sha256', $timestamp . '.' . $event . '.' . $body, $secret );
+		$timestamp    = (string) time();
+		$signature_v1 = hash_hmac( 'sha256', $body, $secret );
+		$signature_v2 = hash_hmac( 'sha256', $timestamp . '.' . $event . '.' . $body, $secret );
 		return wp_safe_remote_post( $url, [
 			'timeout' => $timeout, 'blocking' => true, 'sslverify' => true, 'redirection' => 0, 'reject_unsafe_urls' => true,
 			'body' => $body,
-			'headers' => [ 'Content-Type' => 'application/json', 'X-OC-Event' => $event, 'X-OC-Signature' => 'sha256=' . $signature, 'X-OC-Timestamp' => $timestamp, 'X-OC-Delivery-ID' => $delivery_id ],
+			'headers' => [
+				'Content-Type'       => 'application/json',
+				'X-OC-Event'        => $event,
+				'X-OC-Signature'    => 'sha256=' . $signature_v1,
+				'X-OC-Signature-V2' => 'sha256=' . $signature_v2,
+				'X-OC-Timestamp'    => $timestamp,
+				'X-OC-Delivery-ID'  => $delivery_id,
+			],
 		] );
 	}
 

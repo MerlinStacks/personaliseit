@@ -205,6 +205,15 @@ if ( ! function_exists( 'get_attached_file' ) ) {
 		return $oc_test_attached_files[ $id ] ?? '';
 	}
 }
+if ( ! function_exists( 'get_post_mime_type' ) ) {
+	function get_post_mime_type( int $id ): string {
+		global $oc_test_post_mime_types;
+		return $oc_test_post_mime_types[ $id ] ?? '';
+	}
+}
+if ( ! function_exists( 'get_current_user_id' ) ) {
+	function get_current_user_id(): int { return 0; }
+}
 if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 	function wp_get_attachment_url( int $id ): string { return ''; }
 }

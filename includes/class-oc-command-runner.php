@@ -11,7 +11,7 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Command_Runner {
-	private const TIMEOUT_SECONDS = 30;
+	private const TIMEOUT_SECONDS = 120;
 	private const MAX_OUTPUT_BYTES = 1048576;
 
 	/**
@@ -48,7 +48,7 @@ class OC_Command_Runner {
 		);
 
 		if ( ! function_exists( 'proc_open' ) ) {
-			throw new \InvalidArgumentException( 'Safe process execution is not available.' );
+			return self::run_with_exec( $cmd );
 		}
 
 		$descriptors = [ 0 => [ 'pipe', 'r' ], 1 => [ 'pipe', 'w' ], 2 => [ 'pipe', 'w' ] ];
@@ -57,6 +57,10 @@ class OC_Command_Runner {
 		fclose( $pipes[0] );
 		stream_set_blocking( $pipes[1], false );
 		stream_set_blocking( $pipes[2], false );
+		$timeout = function_exists( 'apply_filters' )
+			? (int) apply_filters( 'oc_command_timeout_seconds', self::TIMEOUT_SECONDS, $parts )
+			: self::TIMEOUT_SECONDS;
+		$timeout = max( 1, min( 900, $timeout ) );
 		$started = microtime( true );
 		$buffer  = '';
 		$code    = -1;
@@ -69,7 +73,7 @@ class OC_Command_Runner {
 			}
 			$status = proc_get_status( $process );
 			if ( ! $status['running'] ) { $code = (int) $status['exitcode']; break; }
-			if ( microtime( true ) - $started >= self::TIMEOUT_SECONDS ) {
+			if ( microtime( true ) - $started >= $timeout ) {
 				proc_terminate( $process, 9 );
 				$buffer .= "\n[command timed out]";
 				break;
@@ -85,6 +89,27 @@ class OC_Command_Runner {
 		return [
 			'code'    => (int) $code,
 			'output'  => array_values( $output ),
+			'command' => $cmd,
+		];
+	}
+
+	/** Use the previous escaped exec path when proc_open is unavailable. */
+	private static function run_with_exec( string $cmd ): array {
+		if ( ! function_exists( 'exec' ) ) {
+			throw new \InvalidArgumentException( 'Safe process execution is not available.' );
+		}
+
+		$output = [];
+		$code   = -1;
+		exec( $cmd . ' 2>&1', $output, $code ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec
+		$buffer = implode( "\n", array_map( 'strval', $output ) );
+		if ( strlen( $buffer ) > self::MAX_OUTPUT_BYTES ) {
+			$buffer = substr( $buffer, 0, self::MAX_OUTPUT_BYTES ) . "\n[output truncated]";
+		}
+
+		return [
+			'code'    => (int) $code,
+			'output'  => '' === $buffer ? [] : ( preg_split( '/\R/', $buffer ) ?: [] ),
 			'command' => $cmd,
 		];
 	}

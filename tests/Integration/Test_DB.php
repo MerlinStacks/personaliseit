@@ -194,6 +194,74 @@ class Test_DB extends WP_UnitTestCase {
 		$this->assertSame( 1, (int) OC_DB::get_queue_job( $id )->attempts );
 	}
 
+	#[Test]
+	public function stale_queue_jobs_are_retried_or_failed_based_on_attempt_count(): void {
+		global $wpdb;
+		$ids = [];
+		foreach ( [ 2, 3 ] as $attempts ) {
+			$wpdb->insert( $wpdb->prefix . 'oc_print_queue', [
+				'order_id'      => 8101,
+				'order_item_id' => 8102 + $attempts,
+				'print_area_id' => 1,
+				'area_source'   => 'legacy',
+				'row_index'     => 0,
+				'area_data'     => '{}',
+				'print_method'  => 'uv',
+				'status'        => 'processing',
+				'attempts'      => $attempts,
+				'processed_at'  => gmdate( 'Y-m-d H:i:s', strtotime( '-1 hour' ) ),
+			] );
+			$ids[ $attempts ] = (int) $wpdb->insert_id;
+		}
+
+		$this->assertSame( 2, OC_Print_Queue::instance()->reset_stale_processing_jobs() );
+		$this->assertSame( 'pending', OC_DB::get_queue_job( $ids[2] )->status );
+		$this->assertSame( 'failed', OC_DB::get_queue_job( $ids[3] )->status );
+		$this->assertNotEmpty( OC_DB::get_queue_job( $ids[3] )->error_message );
+	}
+
+	#[Test]
+	public function print_pipeline_writes_are_deferred_while_migration_is_locked(): void {
+		add_option( 'oc_db_upgrade_lock', time(), '', false );
+		try {
+			$id = OC_DB::insert_print_file( [
+				'order_id'      => 8201,
+				'order_item_id' => 8202,
+				'print_area_id' => 1,
+				'area_source'   => 'design',
+				'row_index'     => 0,
+				'file_status'   => 'pending',
+			] );
+			$this->assertSame( 0, $id );
+		} finally {
+			delete_option( 'oc_db_upgrade_lock' );
+		}
+	}
+
+	#[Test]
+	public function unknown_area_source_preserves_design_then_legacy_lookup(): void {
+		global $wpdb;
+		$area_id = 987654;
+		$wpdb->insert( $wpdb->prefix . 'oc_design_print_areas', [
+			'id'           => $area_id,
+			'design_id'    => 1,
+			'area_key'     => 'design-first',
+			'label'        => 'Design',
+			'print_method' => 'uv',
+		] );
+		$wpdb->insert( $wpdb->prefix . 'oc_print_areas', [
+			'id'           => $area_id,
+			'config_id'    => 1,
+			'area_key'     => 'legacy-second',
+			'label'        => 'Legacy',
+			'print_method' => 'uv',
+		] );
+
+		$method = new ReflectionMethod( OC_Print_Queue::class, 'get_print_area_for_job' );
+		$area   = $method->invoke( OC_Print_Queue::instance(), $area_id, 'unknown' );
+		$this->assertSame( 'design-first', $area->area_key );
+	}
+
 	// ── oc_fonts ──────────────────────────────────────────────────────────────
 
 	#[Test]

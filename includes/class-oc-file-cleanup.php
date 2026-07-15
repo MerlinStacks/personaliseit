@@ -9,6 +9,8 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_File_Cleanup {
 
+	private const ARTWORK_DELETE_GRACE_SECONDS = DAY_IN_SECONDS;
+
 	/** Called by WP Cron daily. */
 	public static function run(): void {
 		global $wpdb;
@@ -148,7 +150,7 @@ class OC_File_Cleanup {
 		}
 	}
 
-	/** Delete expired customer artwork that has never been persisted on an order. */
+	/** Delete expired customer artwork that is no longer referenced by an order or cart. */
 	private static function cleanup_customer_artwork(): void {
 		$retention_days = max( 1, (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90 );
 		$attachments    = get_posts( [
@@ -165,15 +167,81 @@ class OC_File_Cleanup {
 
 		global $wpdb;
 		foreach ( array_map( 'absint', $attachments ) as $attachment_id ) {
-			$referenced = (bool) $wpdb->get_var( $wpdb->prepare(
-				"SELECT meta_id FROM {$wpdb->prefix}woocommerce_order_itemmeta
-				 WHERE meta_key = '_oc_customisation' AND (meta_value LIKE %s OR meta_value LIKE %s) LIMIT 1",
-				'%' . $wpdb->esc_like( 's:12:"attachmentId";i:' . $attachment_id . ';' ) . '%',
-				'%' . $wpdb->esc_like( '"attachmentId":' . $attachment_id ) . '%'
-			) );
-			if ( ! $referenced ) {
+			if ( self::customer_artwork_is_referenced( $attachment_id ) ) {
+				delete_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since' );
+				continue;
+			}
+
+			// Require two cleanup passes so a cart being persisted concurrently with
+			// this cron run cannot immediately lose its newly uploaded artwork.
+			$unreferenced_since = (int) get_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since', true );
+			if ( $unreferenced_since <= 0 ) {
+				update_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since', time() );
+				continue;
+			}
+			if ( $unreferenced_since > time() - self::ARTWORK_DELETE_GRACE_SECONDS ) {
+				continue;
+			}
+
+			// Recheck immediately before deletion. False positives are preferable to
+			// deleting customer data that has just reached checkout.
+			if ( ! self::customer_artwork_is_referenced( $attachment_id ) ) {
 				wp_delete_attachment( $attachment_id, true );
 			}
 		}
+	}
+
+	/** Check orders, active WC sessions, and persistent customer carts. */
+	private static function customer_artwork_is_referenced( int $attachment_id ): bool {
+		global $wpdb;
+
+		$patterns = self::artwork_reference_patterns( $attachment_id );
+		$clauses  = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
+		$found    = $wpdb->get_var( $wpdb->prepare(
+			"SELECT meta_id FROM {$wpdb->prefix}woocommerce_order_itemmeta
+			 WHERE meta_key = '_oc_customisation' AND ({$clauses}) LIMIT 1",
+			...$patterns
+		) );
+		if ( $found ) {
+			return true;
+		}
+
+		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sessions_table ) ) === $sessions_table ) {
+			$session_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'session_value LIKE %s' ) );
+			$session_args    = array_merge( [ time() ], $patterns );
+			$found           = $wpdb->get_var( $wpdb->prepare(
+				"SELECT session_id FROM {$sessions_table}
+				 WHERE session_expiry >= %d AND ({$session_clauses}) LIMIT 1",
+				...$session_args
+			) );
+			if ( $found ) {
+				return true;
+			}
+		}
+
+		$persistent_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
+		$persistent_key     = $wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%';
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			"SELECT umeta_id FROM {$wpdb->usermeta}
+			 WHERE meta_key LIKE %s AND ({$persistent_clauses}) LIMIT 1",
+			$persistent_key,
+			...$patterns
+		) );
+	}
+
+	/** Build exact common PHP-serialization and JSON reference forms. */
+	private static function artwork_reference_patterns( int $attachment_id ): array {
+		global $wpdb;
+
+		$id = (string) $attachment_id;
+		return [
+			'%' . $wpdb->esc_like( 's:12:"attachmentId";i:' . $id . ';' ) . '%',
+			'%' . $wpdb->esc_like( 's:12:"attachmentId";s:' . strlen( $id ) . ':"' . $id . '";' ) . '%',
+			'%' . $wpdb->esc_like( '"attachmentId":' . $id ) . '%',
+			'%' . $wpdb->esc_like( '"attachmentId": ' . $id ) . '%',
+			'%' . $wpdb->esc_like( '"attachmentId":"' . $id . '"' ) . '%',
+			'%' . $wpdb->esc_like( '"attachmentId": "' . $id . '"' ) . '%',
+		];
 	}
 }

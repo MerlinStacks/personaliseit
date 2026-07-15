@@ -24,6 +24,9 @@ class OC_Print_Queue {
 
 	public function enqueue( int $order_id, int $item_id, int $print_area_id, array $area_data, string $print_method, int $print_file_id = 0, string $area_source = 'unknown', int $row_index = 0 ): int {
 		global $wpdb;
+		if ( ! OC_DB::print_pipeline_available() ) {
+			return 0;
+		}
 
 		$table = $wpdb->prefix . 'oc_print_queue';
 		if ( $print_file_id > 0 ) {
@@ -74,6 +77,10 @@ class OC_Print_Queue {
 	}
 
 	public function process(): void {
+		if ( ! OC_DB::print_pipeline_available() ) {
+			return;
+		}
+
 		$this->reset_stale_processing_jobs();
 
 		$jobs = OC_DB::get_pending_queue_jobs( self::BATCH_SIZE );
@@ -84,6 +91,10 @@ class OC_Print_Queue {
 	}
 
 	public function process_one( int $job_id ): void {
+		if ( ! OC_DB::print_pipeline_available() ) {
+			return;
+		}
+
 		global $wpdb;
 		$job = OC_DB::claim_queue_job( $job_id, self::MAX_ATTEMPTS );
 
@@ -128,7 +139,7 @@ class OC_Print_Queue {
 				throw new \RuntimeException( "Print area #{$job->print_area_id} not found." );
 			}
 
-			if ( 'design' === (string) $job->area_source ) {
+			if ( 'design' === (string) $job->area_source || ( 'unknown' === (string) $job->area_source && isset( $area->design_id ) ) ) {
 				$area = OC_Print_Generator::area_object_for_generation( $area, $area_data );
 			}
 
@@ -246,7 +257,7 @@ class OC_Print_Queue {
 				throw new \RuntimeException( "Print area #{$area_id} not found." );
 			}
 
-			if ( 'design' === $area_source ) {
+			if ( 'design' === $area_source || ( 'unknown' === $area_source && isset( $area->design_id ) ) ) {
 				$area = OC_Print_Generator::area_object_for_generation( $area, $entry['areaData'] );
 			}
 
@@ -316,6 +327,21 @@ class OC_Print_Queue {
 
 	private function get_print_area_for_job( int $area_id, string $area_source ): ?object {
 		global $wpdb;
+		if ( 'unknown' === $area_source ) {
+			// Historical jobs resolved colliding IDs design-first. Preserve that
+			// behaviour for rows whose source could not be established safely.
+			foreach ( [ 'oc_design_print_areas', 'oc_print_areas' ] as $suffix ) {
+				$area = $wpdb->get_row( $wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}{$suffix} WHERE id = %d LIMIT 1",
+					$area_id
+				) );
+				if ( $area ) {
+					return $area;
+				}
+			}
+			return null;
+		}
+
 		$table = match ( $area_source ) {
 			'design' => $wpdb->prefix . 'oc_design_print_areas',
 			'legacy' => $wpdb->prefix . 'oc_print_areas',
@@ -363,21 +389,59 @@ class OC_Print_Queue {
 		) );
 	}
 
-	/** Return timed-out processing jobs to the queue so cron can recover after fatal errors. */
+	/** Recover timed-out jobs, failing those that have exhausted their attempts. */
 	public function reset_stale_processing_jobs(): int {
 		global $wpdb;
 
 		$cutoff = gmdate( 'Y-m-d H:i:s', time() - self::STALE_PROCESSING_SECONDS );
+		$stale_at_limit = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_print_queue
+			 WHERE status = 'processing' AND attempts >= %d
+			 AND (processed_at IS NULL OR processed_at <= %s)",
+			self::MAX_ATTEMPTS,
+			$cutoff
+		) ) ?: [];
+		$updated = 0;
+		$message = __( 'Job failed after being stuck in processing at the maximum attempt count.', 'overcustomise' );
+		foreach ( $stale_at_limit as $job ) {
+			$result = $wpdb->query( $wpdb->prepare(
+				"UPDATE {$wpdb->prefix}oc_print_queue
+				 SET status = 'failed', error_message = %s, processed_at = %s
+				 WHERE id = %d AND status = 'processing' AND attempts >= %d
+				 AND (processed_at IS NULL OR processed_at <= %s)",
+				$message,
+				current_time( 'mysql', true ),
+				(int) $job->id,
+				self::MAX_ATTEMPTS,
+				$cutoff
+			) );
+			if ( 1 !== $result ) {
+				continue;
+			}
+			$updated++;
+
+			$order = wc_get_order( (int) $job->order_id );
+			if ( $order instanceof \WC_Order ) {
+				$area = (object) [
+					'area_key'     => '',
+					'print_method' => (string) $job->print_method,
+				];
+				do_action( 'oc_print_file_failed', $order, (int) $job->order_item_id, $area, new \RuntimeException( $message ) );
+			}
+		}
+
 		$result = $wpdb->query( $wpdb->prepare(
 			"UPDATE {$wpdb->prefix}oc_print_queue
 			 SET status = 'pending', error_message = %s, processed_at = NULL
 			 WHERE status = 'processing'
+			 AND attempts < %d
 			 AND (processed_at IS NULL OR processed_at <= %s)",
 			__( 'Job was reset after being stuck in processing.', 'overcustomise' ),
+			self::MAX_ATTEMPTS,
 			$cutoff
 		) );
 
-		return false === $result ? 0 : (int) $result;
+		return $updated + ( false === $result ? 0 : (int) $result );
 	}
 
 	public function get_status( int $file_id ): array {

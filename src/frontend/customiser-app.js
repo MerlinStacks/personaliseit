@@ -72,8 +72,11 @@ class OCCustomiser {
 		this._hasCustomerPersonalisation = this.editMode;
 		this._tvpgPreviewLocked = false;
 		this._galleryPreviewGeneration = 0;
+		this._galleryPreviewNodes = new Set();
 		this.productVariationStates = {};
 		this._variationRequestSeq = 0;
+		this._variationSwitchPending = false;
+		this._variationSwitchFailed = false;
 		this._designGeneration = 0;
 		this.spotifyValidateTimers = {};
 		this.spotifyValidateTokens = {};
@@ -132,10 +135,17 @@ class OCCustomiser {
 	}
 
 	uploadEndpoint( uploadUrl, layerId ) {
+		const variationId =
+			parseInt(
+				document.querySelector( 'form.cart input.variation_id' )
+					?.value || '0',
+				10
+			) || 0;
 		const params = new URLSearchParams( {
 			layer_id: String( layerId ),
 			design_id: String( this.data.designId || '' ),
 			product_id: String( this.data.productId || '' ),
+			variation_id: String( variationId ),
 		} );
 		if ( this.data.uploadNonce ) {
 			params.set( '_wpnonce', this.data.uploadNonce );

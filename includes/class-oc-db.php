@@ -523,6 +523,16 @@ class OC_DB {
 		}
 	}
 
+	/** Return whether requests may safely use the current print-pipeline schema. */
+	public static function print_pipeline_available(): bool {
+		if ( get_option( 'oc_db_upgrade_lock', 0 ) ) {
+			return false;
+		}
+
+		$installed = get_option( 'oc_db_version', '0' );
+		return ! version_compare( $installed, OC_DB_VERSION, '<' ) || self::print_pipeline_schema_ready();
+	}
+
 	/** Confirm every column required by the print pipeline is present. */
 	private static function print_pipeline_schema_ready(): bool {
 		global $wpdb;
@@ -604,6 +614,13 @@ class OC_DB {
 				AND earlier.id < pf.id
 			 SET pf.identity_key = SHA2(CONCAT(pf.order_id, ':', pf.order_item_id, ':', pf.area_source, ':', pf.print_area_id, ':', pf.row_index), 256)
 			 WHERE pf.identity_key IS NULL AND pf.area_source <> 'unknown' AND earlier.id IS NULL"
+		);
+
+		$wpdb->query(
+			"UPDATE {$queue} q
+			 JOIN {$files} pf ON pf.id = q.print_file_id
+			 SET q.area_source = pf.area_source, q.row_index = pf.row_index
+			 WHERE q.area_source = 'unknown' AND pf.area_source <> 'unknown'"
 		);
 
 		$wpdb->query(
@@ -974,6 +991,11 @@ class OC_DB {
 		$table = $wpdb->prefix . 'oc_print_files';
 
 		if ( isset( $data['area_source'], $data['row_index'] ) ) {
+			if ( ! self::print_pipeline_available() ) {
+				OC_Logger::warning( 'Print file creation deferred while the database schema is being upgraded.' );
+				return 0;
+			}
+
 			$allowed_columns = [ 'order_id', 'order_item_id', 'print_area_id', 'area_source', 'row_index', 'row_key', 'identity_key', 'area_snapshot', 'file_type', 'file_path', 'thumbnail_path', 'file_status', 'generated_at', 'expires_at' ];
 			$data = array_intersect_key( $data, array_flip( $allowed_columns ) );
 			$identity = implode( ':', [

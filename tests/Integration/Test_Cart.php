@@ -19,6 +19,9 @@ class Test_Cart extends WC_Unit_Test_Case {
 	/** @var int Config ID in oc_product_configs. */
 	private int $config_id;
 
+	/** @var int[] */
+	private array $attachment_ids = [];
+
 	public function setUp(): void {
 		parent::setUp();
 
@@ -46,7 +49,28 @@ class Test_Cart extends WC_Unit_Test_Case {
 		if ( isset( $this->product ) ) {
 			$this->product->delete( true );
 		}
+		foreach ( $this->attachment_ids as $attachment_id ) {
+			wp_delete_attachment( $attachment_id, true );
+		}
 		parent::tearDown();
+	}
+
+	private function create_artwork_attachment( array $context, string $token = '' ): int {
+		$bytes  = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$upload = wp_upload_bits( 'oc-cart-artwork-' . wp_generate_uuid4() . '.png', null, $bytes );
+		$this->assertEmpty( $upload['error'] );
+
+		$attachment_id = wp_insert_attachment( [
+			'post_mime_type' => 'image/png',
+			'post_title'     => 'Cart artwork',
+			'post_status'    => 'inherit',
+		], $upload['file'] );
+		$this->attachment_ids[] = $attachment_id;
+		update_post_meta( $attachment_id, '_oc_artwork', 1 );
+		update_post_meta( $attachment_id, '_oc_artwork_context', $context );
+		update_post_meta( $attachment_id, '_oc_artwork_user_id', 0 );
+		update_post_meta( $attachment_id, '_oc_artwork_token', '' !== $token ? hash( 'sha256', $token ) : '' );
+		return $attachment_id;
 	}
 
 	// ── add_cart_item_data ────────────────────────────────────────────────────
@@ -76,7 +100,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
-	public function legacy_artwork_attachment_id_without_context_is_rejected(): void {
+	public function legacy_artwork_attachment_id_without_context_rejects_add_to_cart_visibly(): void {
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'front' => [
 				'text'                => 'Test',
@@ -86,11 +110,31 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
+
+		$this->assertFalse( $key );
+		$this->assertNotEmpty( wc_get_notices( 'error' ) );
+	}
+
+	#[Test]
+	public function legacy_owned_artwork_attachment_is_preserved(): void {
+		$token         = 'legacy-cart-owner-token';
+		$attachment_id = $this->create_artwork_attachment( [ $this->product->get_id(), 0, 0, 0 ], $token );
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'uploadToken' => $token,
+			'front'       => [
+				'text'                => 'Test',
+				'fontId'              => 1,
+				'color'               => '#000000',
+				'artworkAttachmentId' => $attachment_id,
+			],
+		] );
+
 		$key       = WC()->cart->add_to_cart( $this->product->get_id() );
 		$cart_item = WC()->cart->get_cart_item( $key );
 
-		$attachment_id = $cart_item['_oc_customisation']['front']['artworkAttachmentId'] ?? null;
-		$this->assertSame( 0, $attachment_id );
+		$this->assertNotFalse( $key );
+		$this->assertSame( $attachment_id, $cart_item['_oc_customisation']['front']['artworkAttachmentId'] );
 	}
 
 	#[Test]
@@ -225,6 +269,21 @@ class Test_Cart extends WC_Unit_Test_Case {
 			remove_filter( 'woocommerce_is_checkout', '__return_true' );
 			remove_filter( 'woocommerce_is_cart', '__return_false' );
 		}
+	}
+
+	#[Test]
+	public function store_api_preview_image_uses_the_expected_object_shape(): void {
+		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$images      = ( new OC_Cart() )->store_api_cart_item_images(
+			[],
+			[ '_oc_preview_url' => $preview_url ],
+			'cart-item-key'
+		);
+
+		$this->assertCount( 1, $images );
+		$this->assertIsObject( $images[0] );
+		$this->assertSame( $preview_url, $images[0]->src );
+		$this->assertSame( $preview_url, $images[0]->thumbnail );
 	}
 
 	#[Test]

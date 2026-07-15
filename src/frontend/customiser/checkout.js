@@ -9,7 +9,12 @@ const QUALITY_WARNING_MESSAGE =
 
 const checkoutMethods = {
 	acquireCartSubmitGuard( form ) {
-		if ( this._submitInProgress || ! this._customisationActive ) {
+		if (
+			this._submitInProgress ||
+			! this._customisationActive ||
+			this._variationSwitchPending ||
+			this._variationSwitchFailed
+		) {
 			return false;
 		}
 		this._submitInProgress = true;
@@ -170,6 +175,14 @@ const checkoutMethods = {
 					if ( form._ocSubmitReady ) {
 						return;
 					}
+					if (
+						this._variationSwitchPending ||
+						this._variationSwitchFailed
+					) {
+						e.preventDefault();
+						e.stopImmediatePropagation();
+						return;
+					}
 					if ( ! this._customisationActive ) {
 						this.updateHiddenField();
 						return;
@@ -180,16 +193,12 @@ const checkoutMethods = {
 
 					e.preventDefault();
 					e.stopImmediatePropagation();
-					if ( ! this.acquireCartSubmitGuard( form ) ) {
-						return;
-					}
-					form._ocGuardFromClick = true;
 
 					this.syncInputsFromDOM();
 					const preflight = this.runImmediateBlockingPreflight();
 					if ( preflight.ok ) {
 						if ( form.requestSubmit ) {
-							form.requestSubmit();
+							form.requestSubmit( button );
 						} else {
 							form.dispatchEvent(
 								new Event( 'submit', {
@@ -215,6 +224,15 @@ const checkoutMethods = {
 			'submit',
 			async ( e ) => {
 				this.closeFontComboboxes( true );
+				if (
+					this._variationSwitchPending ||
+					this._variationSwitchFailed
+				) {
+					e.preventDefault();
+					e.stopImmediatePropagation();
+					this.resetCartSubmitState( form );
+					return;
+				}
 				if ( ! this._customisationActive ) {
 					this.updateHiddenField();
 					return;
@@ -237,9 +255,7 @@ const checkoutMethods = {
 				}
 				e.preventDefault();
 				e.stopImmediatePropagation();
-				if ( form._ocGuardFromClick ) {
-					form._ocGuardFromClick = false;
-				} else if ( ! this.acquireCartSubmitGuard( form ) ) {
+				if ( ! this.acquireCartSubmitGuard( form ) ) {
 					return;
 				}
 				try {
@@ -337,6 +353,7 @@ const checkoutMethods = {
 
 	async getMobileCartPreviewAreas() {
 		const activeArea = this.activeArea;
+		const fallbackUrl = this.getCurrentPreviewDataUrl();
 		const previews = [];
 		for ( let index = 0; index < this.areas.length; index++ ) {
 			await this.redraw( index, { pushGallery: false } );
@@ -355,6 +372,15 @@ const checkoutMethods = {
 			}
 		}
 		await this.redraw( activeArea );
+		if ( ! previews.length && fallbackUrl ) {
+			previews.push( {
+				index: activeArea,
+				label:
+					this.areas[ activeArea ]?.name ||
+					`Area ${ activeArea + 1 }`,
+				url: fallbackUrl,
+			} );
+		}
 		return previews;
 	},
 
@@ -407,6 +433,9 @@ const checkoutMethods = {
 		this.closeFontComboboxes( true );
 
 		const previews = await this.getMobileCartPreviewAreas();
+		if ( ! previews.length ) {
+			return false;
+		}
 		const dialog = this.getMobileCartPreviewDialog();
 		dialog.ownerDocument.activeElement?.blur?.();
 		const tabs = dialog.querySelector( '.oc-cart-preview-tabs' );

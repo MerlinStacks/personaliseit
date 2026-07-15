@@ -178,4 +178,27 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		$this->assertFileExists( $path );
 		$this->assertSame( 'files_ready', OC_DB::get_print_file( $id )->file_status );
 	}
+
+	#[Test]
+	public function active_wc_session_and_persistent_cart_references_protect_artwork(): void {
+		global $wpdb;
+		$method = new ReflectionMethod( OC_File_Cleanup::class, 'customer_artwork_is_referenced' );
+		$session_table = $wpdb->prefix . 'woocommerce_sessions';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $session_table ) ) !== $session_table ) {
+			$this->markTestSkipped( 'WooCommerce sessions table is unavailable.' );
+		}
+
+		$wpdb->insert( $session_table, [
+			'session_key'    => 'oc-cleanup-test',
+			'session_value'  => serialize( [ 'cart' => [ [ 'attachmentId' => 45671 ] ] ] ),
+			'session_expiry' => time() + HOUR_IN_SECONDS,
+		] );
+		$this->assertTrue( $method->invoke( null, 45671 ) );
+
+		$user_id = self::factory()->user->create();
+		update_user_meta( $user_id, '_woocommerce_persistent_cart_1', [
+			'cart' => [ [ 'customisation' => [ 'attachmentId' => 45672 ] ] ],
+		] );
+		$this->assertTrue( $method->invoke( null, 45672 ) );
+	}
 }

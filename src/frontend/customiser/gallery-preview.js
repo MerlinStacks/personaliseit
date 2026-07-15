@@ -30,14 +30,43 @@ const GALLERY_IMAGE_SELECTORS = [
 
 const galleryPreviewMethods = {
 	captureGalleryNodeState( node ) {
-		if ( ! node || node._ocOriginalPreviewState ) {
+		if ( ! node ) {
+			return null;
+		}
+		return new Map(
+			Array.from( node.attributes || [] ).map( ( attribute ) => [
+				attribute.name,
+				attribute.value,
+			] )
+		);
+	},
+
+	recordGalleryNodeState( node, before ) {
+		if ( ! node || ! before ) {
 			return;
 		}
-		node._ocOriginalPreviewState = {
-			attributes: Array.from( node.attributes || [] ).map(
-				( attribute ) => [ attribute.name, attribute.value ]
-			),
-		};
+		const after = this.captureGalleryNodeState( node );
+		const names = new Set( [ ...before.keys(), ...after.keys() ] );
+		const state = node._ocOriginalPreviewState || new Map();
+		names.forEach( ( name ) => {
+			const beforeValue = before.has( name ) ? before.get( name ) : null;
+			const afterValue = after.has( name ) ? after.get( name ) : null;
+			if ( beforeValue === afterValue ) {
+				return;
+			}
+			const previous = state.get( name );
+			state.set( name, {
+				original:
+					previous && previous.preview === beforeValue
+						? previous.original
+						: beforeValue,
+				preview: afterValue,
+			} );
+		} );
+		if ( state.size ) {
+			node._ocOriginalPreviewState = state;
+			this._galleryPreviewNodes.add( node );
+		}
 	},
 
 	restoreProductGallery() {
@@ -47,19 +76,27 @@ const galleryPreviewMethods = {
 				'.oc-live-preview-slide, .oc-live-preview-thumb-slide'
 			)
 			.forEach( ( slide ) => slide.remove() );
-		document.querySelectorAll( '*' ).forEach( ( node ) => {
+		this._galleryPreviewNodes.forEach( ( node ) => {
 			const state = node._ocOriginalPreviewState;
 			if ( ! state ) {
 				return;
 			}
-			Array.from( node.attributes ).forEach( ( attribute ) =>
-				node.removeAttribute( attribute.name )
-			);
-			state.attributes.forEach( ( [ name, value ] ) =>
-				node.setAttribute( name, value )
-			);
+			state.forEach( ( values, name ) => {
+				const current = node.hasAttribute( name )
+					? node.getAttribute( name )
+					: null;
+				if ( current !== values.preview ) {
+					return;
+				}
+				if ( values.original === null ) {
+					node.removeAttribute( name );
+				} else {
+					node.setAttribute( name, values.original );
+				}
+			} );
 			delete node._ocOriginalPreviewState;
 		} );
+		this._galleryPreviewNodes.clear();
 		this.releaseTVPGPreviewLock( true );
 		this.setPanelPreviewHandoff( false );
 		this.findGalleryImage();
@@ -83,7 +120,7 @@ const galleryPreviewMethods = {
 		if ( ! img ) {
 			return;
 		}
-		this.captureGalleryNodeState( img );
+		const imageState = this.captureGalleryNodeState( img );
 		const hasDimensions = dimensions?.width && dimensions?.height;
 		const aspectRatio = hasDimensions
 			? `${ dimensions.width } / ${ dimensions.height }`
@@ -111,9 +148,10 @@ const galleryPreviewMethods = {
 		// Update zoom / lightbox href if wrapped in <a>.
 		const a = img.closest( 'a' );
 		if ( a ) {
-			this.captureGalleryNodeState( a );
+			const linkState = this.captureGalleryNodeState( a );
 			a.href = dataUrl;
 			a.setAttribute( 'data-src', dataUrl );
+			this.recordGalleryNodeState( a, linkState );
 		}
 
 		// WooCommerce zoom/lightbox compatibility attributes.
@@ -126,12 +164,14 @@ const galleryPreviewMethods = {
 		img.removeAttribute( 'data-lazy-srcset' );
 		img.removeAttribute( 'data-o_srcset' );
 		img.removeAttribute( 'data-o_src' );
+		this.recordGalleryNodeState( img, imageState );
 
 		const galleryItem = img.closest(
 			'.woocommerce-product-gallery__image, .product-gallery-slider .slide'
 		);
 		if ( galleryItem ) {
-			this.captureGalleryNodeState( galleryItem );
+			const galleryItemState =
+				this.captureGalleryNodeState( galleryItem );
 			galleryItem.setAttribute( 'data-thumb', dataUrl );
 			if (
 				hasDimensions &&
@@ -145,13 +185,16 @@ const galleryPreviewMethods = {
 
 				const link = img.closest( 'a' );
 				if ( link && galleryItem.contains( link ) ) {
+					const linkState = this.captureGalleryNodeState( link );
 					link.classList.add( 'oc-live-preview-frame' );
 					link.style.aspectRatio = aspectRatio;
 					link.style.height = 'auto';
 					link.style.paddingTop = '0';
 					link.style.paddingBottom = ratioPadding;
+					this.recordGalleryNodeState( link, linkState );
 				}
 			}
+			this.recordGalleryNodeState( galleryItem, galleryItemState );
 		}
 	},
 
@@ -581,7 +624,16 @@ const galleryPreviewMethods = {
 
 		const initialVariationId = getSelectedVariationId();
 		if ( initialVariationId ) {
-			this.switchProductVariation( initialVariationId );
+			const key = String( initialVariationId );
+			this._activeVariationKey = key;
+			this.productVariationStates[ key ] = {
+				...this.data,
+				active: true,
+				panelHtml:
+					document.getElementById( 'oc-customiser-panel' )
+						?.outerHTML || '',
+				layerInputs: JSON.parse( JSON.stringify( this.inputs || {} ) ),
+			};
 		}
 	},
 
@@ -592,17 +644,25 @@ const galleryPreviewMethods = {
 
 		const key = String( Math.max( 0, parseInt( variationId, 10 ) || 0 ) );
 		const requestSeq = ++this._variationRequestSeq;
-		if ( this._activeVariationKey && this._customisationActive ) {
+		this._variationSwitchPending = true;
+		this._variationSwitchFailed = false;
+		let initialLayerInputs = null;
+		if ( this._customisationActive ) {
 			this.syncInputsFromDOM();
-			const previousState =
-				this.productVariationStates[ this._activeVariationKey ];
-			if ( previousState ) {
-				previousState.layerInputs = JSON.parse(
+			if ( this._activeVariationKey ) {
+				const previousState =
+					this.productVariationStates[ this._activeVariationKey ];
+				if ( previousState ) {
+					previousState.layerInputs = JSON.parse(
+						JSON.stringify( this.inputs || {} )
+					);
+				}
+			} else {
+				initialLayerInputs = JSON.parse(
 					JSON.stringify( this.inputs || {} )
 				);
 			}
 		}
-		this.deactivateCustomisation();
 		let state = this.productVariationStates[ key ];
 
 		if ( ! state ) {
@@ -630,6 +690,10 @@ const galleryPreviewMethods = {
 				this.productVariationStates[ key ] = state;
 			} catch ( err ) {
 				console.warn( '[OC] Variation design load failed:', err );
+				if ( requestSeq === this._variationRequestSeq ) {
+					this._variationSwitchPending = false;
+					this._variationSwitchFailed = true;
+				}
 				return;
 			}
 		}
@@ -637,7 +701,16 @@ const galleryPreviewMethods = {
 		if ( requestSeq !== this._variationRequestSeq ) {
 			return;
 		}
+		if (
+			initialLayerInputs &&
+			state?.active &&
+			parseInt( state.designId || state.design_id, 10 ) ===
+				parseInt( this.data.designId, 10 )
+		) {
+			state.layerInputs = initialLayerInputs;
+		}
 		if ( ! state?.active || ! state?.panelHtml ) {
+			this._variationSwitchPending = false;
 			this.deactivateCustomisation();
 			this._activeVariationKey = key;
 			return;
@@ -651,6 +724,8 @@ const galleryPreviewMethods = {
 		);
 		if ( requestSeq === this._variationRequestSeq ) {
 			this._activeVariationKey = key;
+			this._variationSwitchPending = false;
+			this._variationSwitchFailed = false;
 		}
 	},
 

@@ -18,6 +18,7 @@ class OC_Cart {
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_admin_preview_modal' ] );
 
 		// Store customisation in the cart item.
+		add_filter( 'woocommerce_add_to_cart_validation', [ $this, 'validate_legacy_artwork' ], 20, 4 );
 		add_filter( 'woocommerce_add_cart_item_data', [ $this, 'add_cart_item_data' ], 10, 3 );
 
 		// Display summary lines in cart and checkout.
@@ -126,6 +127,42 @@ class OC_Cart {
 	// Add to cart
 	// -------------------------------------------------------------------------
 
+	/** Reject legacy artwork IDs unless the upload is owned in the exact product context. */
+	public function validate_legacy_artwork( bool $passed, int $product_id, int $quantity, int $variation_id = 0 ): bool {
+		if ( ! $passed ) {
+			return false;
+		}
+
+		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
+		if ( ! is_string( $raw ) || '' === trim( $raw ) || strlen( $raw ) > 1024 * 1024 ) {
+			return $passed;
+		}
+
+		$decoded = json_decode( $raw, true );
+		if ( ! is_array( $decoded ) || ( isset( $decoded['v'] ) && 2 === (int) $decoded['v'] ) ) {
+			return $passed;
+		}
+		$config = OC_DB::get_config_by_product( $product_id );
+		if ( ! $config || ! (int) $config->active ) {
+			return $passed;
+		}
+
+		$upload_token = is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : '';
+		foreach ( $decoded as $area_data ) {
+			if ( ! is_array( $area_data ) ) {
+				continue;
+			}
+
+			$attachment_id = absint( $area_data['artworkAttachmentId'] ?? 0 );
+			if ( $attachment_id && ! OC_Upload_Handler::legacy_attachment_is_accepted( $attachment_id, $product_id, $variation_id, $upload_token ) ) {
+				wc_add_notice( __( 'The uploaded artwork is no longer valid for this product. Please upload it again.', 'overcustomise' ), 'error' );
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	public function add_cart_item_data( array $cart_item_data, int $product_id, int $variation_id ): array {
 		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
 
@@ -218,17 +255,22 @@ class OC_Cart {
 		$config = OC_DB::get_config_by_product( $product_id );
 		if ( ! $config || ! (int) $config->active ) return $cart_item_data;
 
-		$sanitised = [];
+		$sanitised   = [];
+		$upload_token = is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : '';
 		foreach ( $decoded as $area_key => $area_data ) {
 			if ( ! is_array( $area_data ) ) continue;
 			$safe_key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
 			if ( '' === $safe_key ) continue;
+			$attachment_id = absint( $area_data['artworkAttachmentId'] ?? 0 );
+			if ( $attachment_id && ! OC_Upload_Handler::legacy_attachment_is_accepted( $attachment_id, $product_id, $variation_id, $upload_token ) ) {
+				wc_add_notice( __( 'The uploaded artwork is no longer valid for this product. Please upload it again.', 'overcustomise' ), 'error' );
+				return $cart_item_data;
+			}
 			$sanitised[ $safe_key ] = [
 				'text'               => is_scalar( $area_data['text'] ?? null ) ? sanitize_text_field( (string) $area_data['text'] ) : '',
 				'fontId'             => absint( $area_data['fontId'] ?? 0 ),
 				'color'              => sanitize_hex_color( is_string( $area_data['color'] ?? null ) ? $area_data['color'] : '#000000' ) ?: '#000000',
-				// Legacy payloads have no design/layer ownership context, so customer attachment IDs are not accepted.
-				'artworkAttachmentId' => 0,
+				'artworkAttachmentId' => $attachment_id,
 			];
 		}
 		if ( empty( $sanitised ) ) return $cart_item_data;
@@ -245,7 +287,7 @@ class OC_Cart {
 	 *
 	 * @return array{design:object,layers:array<int,array>}|\WP_Error
 	 */
-	public static function normalise_v2_layers( int $product_id, int $variation_id, int $design_id, array $raw_layers, string $upload_token = '' ): array|\WP_Error {
+	public static function normalise_v2_layers( int $product_id, int $variation_id, int $design_id, array $raw_layers, string $upload_token = '', array $allowed_existing_attachments = [] ): array|\WP_Error {
 		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 		if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
 			return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ) );
@@ -329,7 +371,12 @@ class OC_Cart {
 			if ( $attachment_id && $attachment_id === $default_attachment && ! OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
 				$attachment_id = 0;
 			}
-			if ( $attachment_id && $attachment_id !== $default_attachment && ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token ) ) {
+			$allowed_existing = absint( $allowed_existing_attachments[ $layer_id ] ?? 0 );
+			$existing_is_valid = $attachment_id > 0 && $attachment_id === $allowed_existing && OC_Upload_Handler::existing_cart_attachment_is_valid( $attachment_id );
+			if ( $attachment_id && $attachment_id !== $default_attachment
+				&& ! $existing_is_valid
+				&& ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token )
+			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The uploaded artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 
@@ -573,7 +620,7 @@ class OC_Cart {
 		}
 
 		return [
-			[
+			(object) [
 				'id'        => 0,
 				'src'       => $preview_url,
 				'full_src'  => $preview_url,
