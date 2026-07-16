@@ -2210,9 +2210,26 @@ __webpack_require__.r(__webpack_exports__);
 /* eslint-disable no-console, no-alert */
 
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
+const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
 const checkoutMethods = {
+  handleVariationSubmitBlock() {
+    if (this._variationSwitchPending) {
+      window.alert('Please wait while the personalisation options finish loading.');
+      return true;
+    }
+    if (!this._variationSwitchFailed) {
+      return false;
+    }
+    const variationId = parseInt(document.querySelector('form.cart input.variation_id')?.value || '0', 10) || 0;
+    window.alert('Retrying the personalisation options for this variation.');
+    this.switchProductVariation(variationId);
+    return true;
+  },
   acquireCartSubmitGuard(form) {
-    if (this._submitInProgress || !this._customisationActive || this._variationSwitchPending || this._variationSwitchFailed || this.aiFilterPending > 0 || Object.keys(this.aiFilterErrors || {}).length > 0) {
+    if (this.handleVariationSubmitBlock()) {
+      return false;
+    }
+    if (this._submitInProgress || !this._customisationActive || this.aiFilterPending > 0 || Object.keys(this.aiFilterErrors || {}).length > 0) {
       if (this.aiFilterPending > 0) {
         window.alert('Please wait for the AI image filter to finish.');
       } else if (Object.keys(this.aiFilterErrors || {}).length > 0) {
@@ -2285,6 +2302,8 @@ const checkoutMethods = {
                 designId: this.data.designId,
                 layers,
                 uploadToken: this.data.requestToken || '',
+                designVariant: this.selectedDesignVariant || '',
+                designVariantLabel: this.designVariants.find(item => item.id === this.selectedDesignVariant)?.label || '',
                 snapshots,
                 previewUrl: this._previewUrl || ''
               })
@@ -2323,7 +2342,7 @@ const checkoutMethods = {
         if (form._ocSubmitReady) {
           return;
         }
-        if (this._variationSwitchPending || this._variationSwitchFailed) {
+        if (this.handleVariationSubmitBlock()) {
           e.preventDefault();
           e.stopImmediatePropagation();
           return;
@@ -2356,7 +2375,7 @@ const checkoutMethods = {
     });
     form.addEventListener('submit', async e => {
       this.closeFontComboboxes(true);
-      if (this._variationSwitchPending || this._variationSwitchFailed) {
+      if (this.handleVariationSubmitBlock()) {
         e.preventDefault();
         e.stopImmediatePropagation();
         this.resetCartSubmitState(form);
@@ -2405,6 +2424,12 @@ const checkoutMethods = {
         }
         await this.uploadPreview();
         await this.updateHiddenField(true);
+        const payload = document.getElementById('oc-customisation-data')?.value;
+        if (payload && new Blob([payload]).size > MAX_CUSTOMISATION_BYTES) {
+          this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
+          this.resetCartSubmitState(form);
+          return;
+        }
         form._ocSubmitReady = true;
         this.resetCartSubmitState(form);
         // requestSubmit() re-triggers HTML5 validation before submitting.
@@ -3045,6 +3070,12 @@ const designVariantMethods = {
       }
     }
     this._designGeneration += 1;
+    Object.keys(this.aiFilterGenerations).forEach(layerId => {
+      this.aiFilterGenerations[layerId] += 1;
+    });
+    Object.values(this.aiFilterAbortControllers).forEach(controller => controller.abort());
+    this.aiFilterAbortControllers = {};
+    this.aiFilterErrors = {};
     Object.keys(this.uploadGenerations).forEach(layerId => {
       this.uploadGenerations[layerId] += 1;
     });
@@ -3095,6 +3126,7 @@ const designVariantMethods = {
     this.renderDesignVariantThumbnails();
     this.setupClipartCarousels();
     this.setupUploadZones();
+    this.applyInitialAiFilters();
     this.setupVariationGalleryHandoff();
     this.applyInputsToDOM();
     this.updateHiddenField();
@@ -3543,14 +3575,7 @@ const galleryPreviewMethods = {
     window.jQuery?.(form).on?.('found_variation show_variation', (event, variation) => handleVariationChange(variation));
     const initialVariationId = getSelectedVariationId();
     if (initialVariationId) {
-      const key = String(initialVariationId);
-      this._activeVariationKey = key;
-      this.productVariationStates[key] = {
-        ...this.data,
-        active: true,
-        panelHtml: document.getElementById('oc-customiser-panel')?.outerHTML || '',
-        layerInputs: JSON.parse(JSON.stringify(this.inputs || {}))
-      };
+      this.switchProductVariation(initialVariationId);
     }
   },
   async switchProductVariation(variationId) {
@@ -3595,6 +3620,7 @@ const galleryPreviewMethods = {
         if (requestSeq === this._variationRequestSeq) {
           this._variationSwitchPending = false;
           this._variationSwitchFailed = true;
+          this.renderPreflightMessages(['We could not load the personalisation options for this variation. Check your connection, then press Add to cart to retry.'], []);
         }
         return;
       }
@@ -3616,11 +3642,18 @@ const galleryPreviewMethods = {
       this._activeVariationKey = key;
       this._variationSwitchPending = false;
       this._variationSwitchFailed = false;
+      this.applyInitialAiFilters();
     }
   },
   deactivateCustomisation() {
     this._customisationActive = false;
     this._designGeneration += 1;
+    Object.keys(this.aiFilterGenerations).forEach(layerId => {
+      this.aiFilterGenerations[layerId] += 1;
+    });
+    Object.values(this.aiFilterAbortControllers).forEach(controller => controller.abort());
+    this.aiFilterAbortControllers = {};
+    this.aiFilterErrors = {};
     Object.keys(this.uploadGenerations).forEach(layerId => {
       this.uploadGenerations[layerId] += 1;
     });
@@ -4992,6 +5025,20 @@ __webpack_require__.r(__webpack_exports__);
 
 const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
 const uploadMethods = {
+  async applyInitialAiFilters() {
+    if (this._variationSwitchPending) {
+      return;
+    }
+    for (const [layerId, input] of Object.entries(this.inputs)) {
+      const filterId = Number(input?.imageFilterId || 0);
+      const sourceId = Number(input?.sourceAttachmentId || 0);
+      const attachmentId = Number(input?.attachmentId || 0);
+      const filter = (this.data?.imageFilters || []).find(item => Number(item.id) === filterId);
+      if (filter?.isAi && sourceId && attachmentId === sourceId) {
+        await this.applyAiImageFilter(Number(layerId), filterId);
+      }
+    }
+  },
   async setupUploadZones() {
     const zoneEls = Array.from(document.querySelectorAll('[data-oc-upload-zone]'));
     if (!zoneEls.length) {
@@ -5227,6 +5274,9 @@ const uploadMethods = {
     }
     const generation = (this.aiFilterGenerations[layerId] || 0) + 1;
     this.aiFilterGenerations[layerId] = generation;
+    this.aiFilterAbortControllers[layerId]?.abort();
+    const controller = new AbortController();
+    this.aiFilterAbortControllers[layerId] = controller;
     this.aiFilterPending += 1;
     delete this.aiFilterErrors[layerId];
     const targetZone = zoneEl || document.querySelector(`[data-oc-upload-zone="${layerId}"]`);
@@ -5238,6 +5288,7 @@ const uploadMethods = {
     try {
       const response = await fetch(this.data.applyImageFilterUrl, {
         method: 'POST',
+        signal: controller.signal,
         headers: this.restHeaders({
           'Content-Type': 'application/json'
         }),
@@ -5248,6 +5299,7 @@ const uploadMethods = {
           design_id: Number(this.data.designId || 0),
           product_id: Number(this.data.productId || 0),
           variation_id: variationId,
+          cart_key: this.editMode ? this.cartKey : '',
           oc_token: this.data.requestToken || ''
         })
       });
@@ -5283,6 +5335,9 @@ const uploadMethods = {
       return false;
     } finally {
       this.aiFilterPending = Math.max(0, this.aiFilterPending - 1);
+      if (this.aiFilterAbortControllers[layerId] === controller) {
+        delete this.aiFilterAbortControllers[layerId];
+      }
       if (targetZone) {
         this.setUploadProgress(targetZone, 0, '');
       }
@@ -6328,6 +6383,7 @@ class OCCustomiser {
     this.spotifyAbortControllers = {};
     this.uploadGenerations = {};
     this.aiFilterGenerations = {};
+    this.aiFilterAbortControllers = {};
     this.aiFilterPending = 0;
     this.aiFilterErrors = {};
     this.preflightRoot = null;
@@ -6418,6 +6474,7 @@ class OCCustomiser {
     this.setupDesignVariantOptions();
     this.setupClipartCarousels();
     this.setupUploadZones();
+    this.applyInitialAiFilters();
     if (this.editMode) {
       this.updateInputsFromDOM();
     }

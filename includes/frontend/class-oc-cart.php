@@ -45,7 +45,11 @@ class OC_Cart {
 
 	/** Ensure personalised previews are contained rather than cropped across classic, Blocks, and Mini Cart. */
 	public function enqueue_preview_styles(): void {
-		if ( ! is_cart() && ! is_checkout() && ! is_account_page() && ! $this->cart_has_customisation() ) {
+		$cart_has_customisation = self::cart_has_customisation();
+		if ( ( is_cart() || is_checkout() ) && ! $cart_has_customisation ) {
+			return;
+		}
+		if ( ! is_cart() && ! is_checkout() && ! is_account_page() && ! $cart_has_customisation ) {
 			return;
 		}
 
@@ -94,7 +98,7 @@ class OC_Cart {
 	}
 
 	/** Check whether global cart preview styles are needed for mini-cart rendering. */
-	private function cart_has_customisation(): bool {
+	public static function cart_has_customisation(): bool {
 		$cart = function_exists( 'WC' ) ? WC()->cart ?? null : null;
 		if ( ! $cart ) {
 			return false;
@@ -372,7 +376,13 @@ class OC_Cart {
 			if ( $attachment_id && $attachment_id === $default_attachment && ! OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
 				$attachment_id = 0;
 			}
-			$allowed_existing = absint( $allowed_existing_attachments[ $layer_id ] ?? 0 );
+			$allowed_existing_data = $allowed_existing_attachments[ $layer_id ] ?? 0;
+			$allowed_existing = is_array( $allowed_existing_data )
+				? absint( $allowed_existing_data['attachmentId'] ?? 0 )
+				: absint( $allowed_existing_data );
+			$allowed_existing_source = is_array( $allowed_existing_data )
+				? absint( $allowed_existing_data['sourceAttachmentId'] ?? 0 )
+				: 0;
 			$existing_is_valid = $attachment_id > 0 && $attachment_id === $allowed_existing && OC_Upload_Handler::existing_cart_attachment_is_valid( $attachment_id );
 			if ( $attachment_id && $attachment_id !== $default_attachment
 				&& ! $existing_is_valid
@@ -380,7 +390,9 @@ class OC_Cart {
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The uploaded artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
+			$existing_source_is_valid = $source_attachment_id > 0 && $source_attachment_id === $allowed_existing_source && OC_Upload_Handler::existing_cart_attachment_is_valid( $source_attachment_id );
 			if ( $source_attachment_id && $source_attachment_id !== $default_attachment
+				&& ! $existing_source_is_valid
 				&& ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
@@ -523,10 +535,10 @@ class OC_Cart {
 				$item_data[] = [ 'key' => $label, 'value' => $value ];
 			}
 
-			$cart_item_key = '';
+			$cart_item_key = sanitize_text_field( (string) ( $cart_item['key'] ?? '' ) );
 			if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
 				foreach ( WC()->cart->get_cart() as $key => $ci ) {
-					if ( isset( $ci['unique_key'] ) && isset( $cart_item['unique_key'] ) && $ci['unique_key'] === $cart_item['unique_key'] ) {
+					if ( isset( $ci['_oc_unique_key'], $cart_item['_oc_unique_key'] ) && hash_equals( (string) $ci['_oc_unique_key'], (string) $cart_item['_oc_unique_key'] ) ) {
 						$cart_item_key = $key;
 						break;
 					}
@@ -571,10 +583,10 @@ class OC_Cart {
 			];
 		}
 
-		$cart_item_key = '';
+		$cart_item_key = sanitize_text_field( (string) ( $cart_item['key'] ?? '' ) );
 		if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
 			foreach ( WC()->cart->get_cart() as $key => $ci ) {
-				if ( isset( $ci['unique_key'] ) && isset( $cart_item['unique_key'] ) && $ci['unique_key'] === $cart_item['unique_key'] ) {
+				if ( isset( $ci['_oc_unique_key'], $cart_item['_oc_unique_key'] ) && hash_equals( (string) $ci['_oc_unique_key'], (string) $cart_item['_oc_unique_key'] ) ) {
 					$cart_item_key = $key;
 					break;
 				}
@@ -684,12 +696,24 @@ class OC_Cart {
 			$fees[ $key ]['amount'] += $rate * $quantity;
 		}
 
+		$multiple_fee_groups = count( $fees ) > 1;
 		foreach ( $fees as $fee ) {
 			if ( $fee['amount'] <= 0 ) {
 				continue;
 			}
+			$fee_name = __( 'Personalisation Fee', 'overcustomise' );
+			if ( $multiple_fee_groups ) {
+				$rate_label = $fee['taxable']
+					? ( '' !== $fee['tax_class'] ? $fee['tax_class'] : __( 'standard rate', 'overcustomise' ) )
+					: __( 'non-taxable', 'overcustomise' );
+				$fee_name = sprintf(
+					/* translators: %s: tax class for this fee group. */
+					__( 'Personalisation Fee (%s)', 'overcustomise' ),
+					$rate_label
+				);
+			}
 			$cart->add_fee(
-				__( 'Personalisation Fee', 'overcustomise' ),
+				$fee_name,
 				$fee['amount'],
 				$fee['taxable'],
 				$fee['tax_class']

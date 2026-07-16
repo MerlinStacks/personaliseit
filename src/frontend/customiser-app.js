@@ -83,6 +83,7 @@ class OCCustomiser {
 		this.spotifyAbortControllers = {};
 		this.uploadGenerations = {};
 		this.aiFilterGenerations = {};
+		this.aiFilterAbortControllers = {};
 		this.aiFilterPending = 0;
 		this.aiFilterErrors = {};
 		this.preflightRoot = null;
@@ -193,6 +194,7 @@ class OCCustomiser {
 		this.setupDesignVariantOptions();
 		this.setupClipartCarousels();
 		this.setupUploadZones();
+		this.applyInitialAiFilters();
 		if ( this.editMode ) {
 			this.updateInputsFromDOM();
 		}

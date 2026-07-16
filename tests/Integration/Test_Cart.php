@@ -100,6 +100,21 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function cart_customisation_detection_ignores_plain_products(): void {
+		unset( $_POST['_oc_customisation'] );
+		$this->assertFalse( OC_Cart::cart_has_customisation() );
+
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key );
+		$this->assertFalse( OC_Cart::cart_has_customisation() );
+
+		WC()->cart->cart_contents[ $key ]['_oc_customisation'] = [
+			'front' => [ 'text' => 'Custom' ],
+		];
+		$this->assertTrue( OC_Cart::cart_has_customisation() );
+	}
+
+	#[Test]
 	public function legacy_artwork_attachment_id_without_context_rejects_add_to_cart_visibly(): void {
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'front' => [
@@ -153,6 +168,54 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$text = $item['_oc_customisation']['front']['text'] ?? '';
 
 		$this->assertStringNotContainsString( '<script>', $text );
+	}
+
+	#[Test]
+	public function customisation_item_data_contains_a_working_edit_link(): void {
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'front' => [
+				'text'                => 'Edit me',
+				'fontId'              => 0,
+				'color'               => '#000000',
+				'artworkAttachmentId' => 0,
+			],
+		] );
+
+		$key       = WC()->cart->add_to_cart( $this->product->get_id() );
+		$cart_item = WC()->cart->get_cart_item( $key );
+		$item_data = ( new OC_Cart() )->display_item_data( [], $cart_item );
+		$values    = array_column( $item_data, 'value' );
+
+		$this->assertNotFalse( $key );
+		$this->assertNotEmpty(
+			array_filter( $values, fn( $value ) => is_string( $value ) && str_contains( $value, 'oc_edit_cart_key=' . $key ) )
+		);
+	}
+
+	#[Test]
+	public function personalisation_fees_with_different_tax_classes_use_distinct_ids(): void {
+		$second_product = WC_Helper_Product::create_simple_product();
+		$second_product->set_tax_status( 'taxable' );
+		$second_product->set_tax_class( 'reduced-rate' );
+		$second_product->save();
+
+		try {
+			$first_key  = WC()->cart->add_to_cart( $this->product->get_id() );
+			$second_key = WC()->cart->add_to_cart( $second_product->get_id() );
+			WC()->cart->cart_contents[ $first_key ]['_oc_customisation'] = [ 'front' => [ 'text' => 'One' ] ];
+			WC()->cart->cart_contents[ $first_key ]['_oc_flat_rate'] = 2.0;
+			WC()->cart->cart_contents[ $second_key ]['_oc_customisation'] = [ 'front' => [ 'text' => 'Two' ] ];
+			WC()->cart->cart_contents[ $second_key ]['_oc_flat_rate'] = 3.0;
+			WC()->cart->fees_api()->remove_all_fees();
+
+			( new OC_Cart() )->add_flat_rate_fee( WC()->cart );
+			$fees = WC()->cart->get_fees();
+
+			$this->assertCount( 2, $fees );
+			$this->assertCount( 2, array_unique( array_map( fn( $fee ) => $fee->name, $fees ) ) );
+		} finally {
+			$second_product->delete( true );
+		}
 	}
 
 	#[Test]

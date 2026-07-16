@@ -444,7 +444,15 @@ class OC_Rest_API {
 		$token = (string) ( $request->get_header( 'X-OC-Token' ) ?: ( $body['oc_token'] ?? '' ) );
 		$default_attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
 		$source_is_default      = $source_attachment_id === $default_attachment_id && OC_Upload_Handler::admin_default_attachment_is_valid( $source_attachment_id );
-		if ( ! $source_is_default && ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token ) ) {
+		$source_is_existing     = false;
+		$cart_key               = sanitize_text_field( (string) ( $body['cart_key'] ?? '' ) );
+		$cart                   = function_exists( 'WC' ) && WC() ? WC()->cart ?? null : null;
+		if ( '' !== $cart_key && $cart && isset( $cart->cart_contents[ $cart_key ]['_oc_customisation']['layers'][ $layer_id ] ) ) {
+			$existing_layer = $cart->cart_contents[ $cart_key ]['_oc_customisation']['layers'][ $layer_id ];
+			$existing_source = is_array( $existing_layer ) ? absint( $existing_layer['sourceAttachmentId'] ?? $existing_layer['attachmentId'] ?? 0 ) : 0;
+			$source_is_existing = $source_attachment_id === $existing_source && OC_Upload_Handler::existing_cart_attachment_is_valid( $source_attachment_id );
+		}
+		if ( ! $source_is_default && ! $source_is_existing && ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token ) ) {
 			return new \WP_Error( 'invalid_attachment', __( 'The source image is not valid for this customisation.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
@@ -946,8 +954,11 @@ class OC_Rest_API {
 			&& 2 === (int) $customisation['v'] && $design_id === absint( $customisation['designId'] ) && is_array( $customisation['layers'] )
 		) {
 			foreach ( $customisation['layers'] as $layer_id => $layer_data ) {
-				if ( is_array( $layer_data ) && ! empty( $layer_data['attachmentId'] ) ) {
-					$allowed_existing_attachments[ absint( $layer_id ) ] = absint( $layer_data['attachmentId'] );
+				if ( is_array( $layer_data ) ) {
+					$allowed_existing_attachments[ absint( $layer_id ) ] = [
+						'attachmentId'       => absint( $layer_data['attachmentId'] ?? 0 ),
+						'sourceAttachmentId' => absint( $layer_data['sourceAttachmentId'] ?? $layer_data['attachmentId'] ?? 0 ),
+					];
 				}
 			}
 		}
@@ -961,17 +972,26 @@ class OC_Rest_API {
 
 		$snapshots = OC_DB::sanitise_area_snapshots( is_array( $body['snapshots'] ?? null ) ? $body['snapshots'] : [] );
 
-		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = [
+		$updated_customisation = [
 			'v'          => 2,
 			'designId'   => $design_id,
 			'layers'     => $sanitised_layers,
 			'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers, $snapshots ),
 		];
+		$design_variant = is_string( $body['designVariant'] ?? null ) ? sanitize_key( $body['designVariant'] ) : '';
+		$design_variant_label = is_string( $body['designVariantLabel'] ?? null ) ? sanitize_text_field( $body['designVariantLabel'] ) : '';
+		if ( '' === $design_variant && $design_id === absint( $customisation['designId'] ?? 0 ) ) {
+			$design_variant = sanitize_key( (string) ( $customisation['designVariant'] ?? '' ) );
+			$design_variant_label = sanitize_text_field( (string) ( $customisation['designVariantLabel'] ?? '' ) );
+		}
+		if ( '' !== $design_variant ) {
+			$updated_customisation['designVariant'] = $design_variant;
+			$updated_customisation['designVariantLabel'] = $design_variant_label;
+		}
+		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = $updated_customisation;
 		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
 		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
 		$cart->cart_contents[ $cart_key ]['_oc_unique_key']    = md5( wp_json_encode( $sanitised_layers ) . microtime() );
-
-		unset( $cart->cart_contents[ $cart_key ]['_oc_preview_url'] );
 
 		$preview_url = $body['previewUrl'] ?? '';
 		if ( is_string( $preview_url ) && '' !== $preview_url ) {

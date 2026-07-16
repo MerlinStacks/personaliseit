@@ -338,6 +338,14 @@ const designVariantMethods = {
 			}
 		}
 		this._designGeneration += 1;
+		Object.keys( this.aiFilterGenerations ).forEach( ( layerId ) => {
+			this.aiFilterGenerations[ layerId ] += 1;
+		} );
+		Object.values( this.aiFilterAbortControllers ).forEach(
+			( controller ) => controller.abort()
+		);
+		this.aiFilterAbortControllers = {};
+		this.aiFilterErrors = {};
 		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
 			this.uploadGenerations[ layerId ] += 1;
 		} );
@@ -398,6 +406,7 @@ const designVariantMethods = {
 		this.renderDesignVariantThumbnails();
 		this.setupClipartCarousels();
 		this.setupUploadZones();
+		this.applyInitialAiFilters();
 		this.setupVariationGalleryHandoff();
 		this.applyInputsToDOM();
 		this.updateHiddenField();

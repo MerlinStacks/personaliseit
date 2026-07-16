@@ -6,14 +6,40 @@
 
 const QUALITY_WARNING_MESSAGE =
 	'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
+const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
 
 const checkoutMethods = {
+	handleVariationSubmitBlock() {
+		if ( this._variationSwitchPending ) {
+			window.alert(
+				'Please wait while the personalisation options finish loading.'
+			);
+			return true;
+		}
+		if ( ! this._variationSwitchFailed ) {
+			return false;
+		}
+
+		const variationId =
+			parseInt(
+				document.querySelector( 'form.cart input.variation_id' )
+					?.value || '0',
+				10
+			) || 0;
+		window.alert(
+			'Retrying the personalisation options for this variation.'
+		);
+		this.switchProductVariation( variationId );
+		return true;
+	},
+
 	acquireCartSubmitGuard( form ) {
+		if ( this.handleVariationSubmitBlock() ) {
+			return false;
+		}
 		if (
 			this._submitInProgress ||
 			! this._customisationActive ||
-			this._variationSwitchPending ||
-			this._variationSwitchFailed ||
 			this.aiFilterPending > 0 ||
 			Object.keys( this.aiFilterErrors || {} ).length > 0
 		) {
@@ -112,6 +138,14 @@ const checkoutMethods = {
 										layers,
 										uploadToken:
 											this.data.requestToken || '',
+										designVariant:
+											this.selectedDesignVariant || '',
+										designVariantLabel:
+											this.designVariants.find(
+												( item ) =>
+													item.id ===
+													this.selectedDesignVariant
+											)?.label || '',
 										snapshots,
 										previewUrl: this._previewUrl || '',
 									} ),
@@ -186,10 +220,7 @@ const checkoutMethods = {
 					if ( form._ocSubmitReady ) {
 						return;
 					}
-					if (
-						this._variationSwitchPending ||
-						this._variationSwitchFailed
-					) {
+					if ( this.handleVariationSubmitBlock() ) {
 						e.preventDefault();
 						e.stopImmediatePropagation();
 						return;
@@ -235,10 +266,7 @@ const checkoutMethods = {
 			'submit',
 			async ( e ) => {
 				this.closeFontComboboxes( true );
-				if (
-					this._variationSwitchPending ||
-					this._variationSwitchFailed
-				) {
+				if ( this.handleVariationSubmitBlock() ) {
 					e.preventDefault();
 					e.stopImmediatePropagation();
 					this.resetCartSubmitState( form );
@@ -302,6 +330,22 @@ const checkoutMethods = {
 
 					await this.uploadPreview();
 					await this.updateHiddenField( true );
+					const payload = document.getElementById(
+						'oc-customisation-data'
+					)?.value;
+					if (
+						payload &&
+						new Blob( [ payload ] ).size > MAX_CUSTOMISATION_BYTES
+					) {
+						this.renderPreflightMessages(
+							[
+								'This personalisation is too large to add safely. Please simplify the design or contact us for help.',
+							],
+							[]
+						);
+						this.resetCartSubmitState( form );
+						return;
+					}
 					form._ocSubmitReady = true;
 					this.resetCartSubmitState( form );
 					// requestSubmit() re-triggers HTML5 validation before submitting.

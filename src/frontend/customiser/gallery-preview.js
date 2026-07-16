@@ -624,16 +624,7 @@ const galleryPreviewMethods = {
 
 		const initialVariationId = getSelectedVariationId();
 		if ( initialVariationId ) {
-			const key = String( initialVariationId );
-			this._activeVariationKey = key;
-			this.productVariationStates[ key ] = {
-				...this.data,
-				active: true,
-				panelHtml:
-					document.getElementById( 'oc-customiser-panel' )
-						?.outerHTML || '',
-				layerInputs: JSON.parse( JSON.stringify( this.inputs || {} ) ),
-			};
+			this.switchProductVariation( initialVariationId );
 		}
 	},
 
@@ -693,6 +684,12 @@ const galleryPreviewMethods = {
 				if ( requestSeq === this._variationRequestSeq ) {
 					this._variationSwitchPending = false;
 					this._variationSwitchFailed = true;
+					this.renderPreflightMessages(
+						[
+							'We could not load the personalisation options for this variation. Check your connection, then press Add to cart to retry.',
+						],
+						[]
+					);
 				}
 				return;
 			}
@@ -726,12 +723,21 @@ const galleryPreviewMethods = {
 			this._activeVariationKey = key;
 			this._variationSwitchPending = false;
 			this._variationSwitchFailed = false;
+			this.applyInitialAiFilters();
 		}
 	},
 
 	deactivateCustomisation() {
 		this._customisationActive = false;
 		this._designGeneration += 1;
+		Object.keys( this.aiFilterGenerations ).forEach( ( layerId ) => {
+			this.aiFilterGenerations[ layerId ] += 1;
+		} );
+		Object.values( this.aiFilterAbortControllers ).forEach(
+			( controller ) => controller.abort()
+		);
+		this.aiFilterAbortControllers = {};
+		this.aiFilterErrors = {};
 		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
 			this.uploadGenerations[ layerId ] += 1;
 		} );

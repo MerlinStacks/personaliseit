@@ -162,7 +162,7 @@ class OC_Blocks_Integration {
 	// ── Frontend script ───────────────────────────────────────────────────────
 
 	public function enqueue_blocks_script(): void {
-		if ( ! is_cart() && ! is_checkout() ) {
+		if ( ( ! is_cart() && ! is_checkout() ) || ! OC_Cart::cart_has_customisation() ) {
 			return;
 		}
 

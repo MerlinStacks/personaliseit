@@ -15,6 +15,23 @@ const SERVER_UPLOAD_FORMATS = [
 ];
 
 const uploadMethods = {
+	async applyInitialAiFilters() {
+		if ( this._variationSwitchPending ) {
+			return;
+		}
+		for ( const [ layerId, input ] of Object.entries( this.inputs ) ) {
+			const filterId = Number( input?.imageFilterId || 0 );
+			const sourceId = Number( input?.sourceAttachmentId || 0 );
+			const attachmentId = Number( input?.attachmentId || 0 );
+			const filter = ( this.data?.imageFilters || [] ).find(
+				( item ) => Number( item.id ) === filterId
+			);
+			if ( filter?.isAi && sourceId && attachmentId === sourceId ) {
+				await this.applyAiImageFilter( Number( layerId ), filterId );
+			}
+		}
+	},
+
 	async setupUploadZones() {
 		const zoneEls = Array.from(
 			document.querySelectorAll( '[data-oc-upload-zone]' )
@@ -362,6 +379,9 @@ const uploadMethods = {
 
 		const generation = ( this.aiFilterGenerations[ layerId ] || 0 ) + 1;
 		this.aiFilterGenerations[ layerId ] = generation;
+		this.aiFilterAbortControllers[ layerId ]?.abort();
+		const controller = new AbortController();
+		this.aiFilterAbortControllers[ layerId ] = controller;
 		this.aiFilterPending += 1;
 		delete this.aiFilterErrors[ layerId ];
 		const targetZone =
@@ -381,6 +401,7 @@ const uploadMethods = {
 		try {
 			const response = await fetch( this.data.applyImageFilterUrl, {
 				method: 'POST',
+				signal: controller.signal,
 				headers: this.restHeaders( {
 					'Content-Type': 'application/json',
 				} ),
@@ -391,6 +412,7 @@ const uploadMethods = {
 					design_id: Number( this.data.designId || 0 ),
 					product_id: Number( this.data.productId || 0 ),
 					variation_id: variationId,
+					cart_key: this.editMode ? this.cartKey : '',
 					oc_token: this.data.requestToken || '',
 				} ),
 			} );
@@ -433,6 +455,9 @@ const uploadMethods = {
 			return false;
 		} finally {
 			this.aiFilterPending = Math.max( 0, this.aiFilterPending - 1 );
+			if ( this.aiFilterAbortControllers[ layerId ] === controller ) {
+				delete this.aiFilterAbortControllers[ layerId ];
+			}
 			if ( targetZone ) {
 				this.setUploadProgress( targetZone, 0, '' );
 			}

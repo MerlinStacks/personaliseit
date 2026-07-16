@@ -984,6 +984,10 @@ class OC_Frontend {
 			wc_add_notice( __( 'Please complete your personalisation before adding to cart.', 'overcustomise' ), 'error' );
 			return false;
 		}
+		if ( strlen( $raw ) > 1024 * 1024 ) {
+			wc_add_notice( __( 'This personalisation is too large to add safely. Please simplify the design or contact us for help.', 'overcustomise' ), 'error' );
+			return false;
+		}
 
 		$data = json_decode( $raw, true );
 		if ( ! is_array( $data ) ) {
