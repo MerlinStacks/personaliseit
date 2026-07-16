@@ -49,6 +49,13 @@ class OC_Rest_API {
 			'permission_callback' => [ $this, 'public_write_permission' ],
 		] );
 
+		// Apply an AI prompt filter to previously uploaded artwork.
+		register_rest_route( self::NAMESPACE, '/apply-image-filter', [
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => [ $this, 'apply_image_filter' ],
+			'permission_callback' => [ $this, 'public_write_permission' ],
+		] );
+
 		// Design assignment for a specific product / variation (used by frontend JS).
 		register_rest_route( self::NAMESPACE, '/product-design/(?P<product_id>\d+)', [
 			'methods'             => \WP_REST_Server::READABLE,
@@ -344,6 +351,9 @@ class OC_Rest_API {
 			if ( $row && $row->settings ) {
 				$s = json_decode( $row->settings, true );
 				if ( is_array( $s ) ) {
+					if ( array_key_exists( 'allow_image_change', $s ) && empty( $s['allow_image_change'] ) ) {
+						return new \WP_Error( 'image_change_locked', __( 'The image is fixed for this design.', 'overcustomise' ), [ 'status' => 400 ] );
+					}
 					$formats     = isset( $s['formats'] ) && is_array( $s['formats'] ) ? array_values( array_filter( $s['formats'] ) ) : [];
 					$max_size_mb = isset( $s['max_size_mb'] ) ? (int) $s['max_size_mb'] : 0;
 					$global_formats = array_map( 'strtolower', (array) OC_Admin_Settings::get( 'allowed_upload_formats' ) );
@@ -380,6 +390,95 @@ class OC_Rest_API {
 			return new \WP_Error( 'upload_failed', $e->getMessage(), [ 'status' => 422 ] );
 		}
 
+		return rest_ensure_response( $result );
+	}
+
+	/** Apply an allowed AI filter and persist the result as owned artwork. */
+	public function apply_image_filter( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$auth = $this->verify_public_write_auth( $request );
+		if ( is_wp_error( $auth ) ) return $auth;
+
+		$rate_limit = $this->enforce_rate_limit( 'oc_ai_filter_rate_', 20, __( 'Too many AI filter requests. Try again later.', 'overcustomise' ) );
+		if ( is_wp_error( $rate_limit ) ) return $rate_limit;
+
+		$body                 = $request->get_json_params();
+		$body                 = is_array( $body ) ? $body : [];
+		$source_attachment_id = absint( $body['source_attachment_id'] ?? 0 );
+		$filter_id            = absint( $body['filter_id'] ?? 0 );
+		$layer_id             = absint( $body['layer_id'] ?? 0 );
+		$design_id            = absint( $body['design_id'] ?? 0 );
+		$product_id           = absint( $body['product_id'] ?? 0 );
+		$variation_id         = absint( $body['variation_id'] ?? 0 );
+		if ( ! $source_attachment_id || ! $filter_id || ! $layer_id || ! $design_id || ! $product_id ) {
+			return new \WP_Error( 'invalid_context', __( 'Image, filter, product, design, and layer are required.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+		if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
+			return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		global $wpdb;
+		$layer = $wpdb->get_row( $wpdb->prepare( "SELECT type, settings FROM {$wpdb->prefix}oc_design_layers WHERE id = %d AND design_id = %d LIMIT 1", $layer_id, $design_id ) );
+		if ( ! $layer || 'image' !== (string) $layer->type ) {
+			return new \WP_Error( 'invalid_layer', __( 'This layer does not support image filters.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$settings     = json_decode( (string) $layer->settings, true );
+		$settings     = is_array( $settings ) ? $settings : [];
+		$allowed_ids  = array_values( array_filter( array_map( 'absint', is_array( $settings['image_filter_ids'] ?? null ) ? $settings['image_filter_ids'] : [] ) ) );
+		$default_id   = absint( $settings['default_image_filter_id'] ?? 0 );
+		$can_change   = ! array_key_exists( 'allow_image_filter_change', $settings ) || ! empty( $settings['allow_image_filter_change'] );
+		$effective_id = $can_change ? $filter_id : $default_id;
+		if ( $effective_id !== $filter_id || ! in_array( $filter_id, $allowed_ids, true ) ) {
+			return new \WP_Error( 'filter_not_allowed', __( 'This filter is not available for the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$filter = null;
+		foreach ( OC_DB::get_image_filters( true ) as $candidate ) {
+			if ( (int) $candidate->id === $filter_id ) { $filter = $candidate; break; }
+		}
+		if ( ! $filter || 'ai' !== (string) $filter->filter_key || '' === trim( (string) ( $filter->prompt ?? '' ) ) ) {
+			return new \WP_Error( 'invalid_filter', __( 'This AI filter is unavailable.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$token = (string) ( $request->get_header( 'X-OC-Token' ) ?: ( $body['oc_token'] ?? '' ) );
+		$default_attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
+		$source_is_default      = $source_attachment_id === $default_attachment_id && OC_Upload_Handler::admin_default_attachment_is_valid( $source_attachment_id );
+		if ( ! $source_is_default && ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token ) ) {
+			return new \WP_Error( 'invalid_attachment', __( 'The source image is not valid for this customisation.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$generated = OC_AI_Image_Filter::generate( $source_attachment_id, (string) $filter->prompt );
+		if ( is_wp_error( $generated ) ) {
+			$generated->add_data( [ 'status' => 422 ] );
+			return $generated;
+		}
+
+		try {
+			$result = OC_Upload_Handler::save_generated_image(
+				$generated['bytes'],
+				$generated['mime'],
+				[
+					'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id,
+					'layer_id' => $layer_id, 'token_hash' => $token ? hash( 'sha256', $token ) : '',
+				],
+				[ 'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id, 'model' => $generated['model'] ]
+			);
+		} catch ( \RuntimeException $e ) {
+			return new \WP_Error( 'generated_image_save_failed', $e->getMessage(), [ 'status' => 422 ] );
+		}
+		if ( is_wp_error( $result ) ) {
+			$result->add_data( [ 'status' => 422 ] );
+			return $result;
+		}
+
+		if ( $token ) {
+			$key = self::public_token_key( $token ); $ctx = get_transient( $key );
+			if ( is_array( $ctx ) ) { $ctx['attachments'][ (int) $result['attachment_id'] ] = [ $product_id, $variation_id, $design_id, $layer_id ]; set_transient( $key, $ctx, self::PUBLIC_TOKEN_TTL ); }
+		}
+
+		$result['source_attachment_id'] = $source_attachment_id;
+		$result['filter_id']            = $filter_id;
 		return rest_ensure_response( $result );
 	}
 

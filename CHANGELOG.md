@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.15.0 - 2026-07-15
+
+### Added
+- Added OpenRouter-powered image-to-image filters with encrypted API-key storage and image-model selection.
+- Added reusable AI prompt management with an admin test-image workflow.
+- Added per-image-layer filter choices, default filters, and locked filters hidden from customers.
+- Persisted generated artwork and its source/filter provenance for deterministic cart and print output.
+
 ## 1.14.0 - 2026-07-15
 
 ### Security

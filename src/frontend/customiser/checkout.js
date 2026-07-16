@@ -13,8 +13,19 @@ const checkoutMethods = {
 			this._submitInProgress ||
 			! this._customisationActive ||
 			this._variationSwitchPending ||
-			this._variationSwitchFailed
+			this._variationSwitchFailed ||
+			this.aiFilterPending > 0 ||
+			Object.keys( this.aiFilterErrors || {} ).length > 0
 		) {
+			if ( this.aiFilterPending > 0 ) {
+				window.alert(
+					'Please wait for the AI image filter to finish.'
+				);
+			} else if ( Object.keys( this.aiFilterErrors || {} ).length > 0 ) {
+				window.alert(
+					'An AI image filter failed. Retry the filter before adding this product to your cart.'
+				);
+			}
 			return false;
 		}
 		this._submitInProgress = true;

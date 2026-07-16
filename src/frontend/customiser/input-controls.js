@@ -565,12 +565,18 @@ const inputControlMethods = {
 				}
 				this.inputs[ lid ].imageFilterId =
 					parseInt( el.value, 10 ) || 0;
-				el.addEventListener( 'change', () => {
+				el.addEventListener( 'change', async () => {
 					if ( ! this.inputs[ lid ] ) {
 						this.inputs[ lid ] = {};
 					}
 					this.inputs[ lid ].imageFilterId =
 						parseInt( el.value, 10 ) || 0;
+					el.disabled = true;
+					await this.applyAiImageFilter(
+						lid,
+						this.inputs[ lid ].imageFilterId
+					);
+					el.disabled = false;
 					this.syncLinkedLayerInput( lid, [ 'imageFilterId' ] );
 					this.requestPreviewFocus();
 					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
@@ -691,6 +697,9 @@ const inputControlMethods = {
 					this.inputs[ layerId ].attachmentId =
 						parseInt( el.dataset.ocDefaultImageId, 10 ) || 0;
 					this.inputs[ layerId ].attachmentUrl = url;
+					this.inputs[ layerId ].sourceAttachmentId =
+						this.inputs[ layerId ].attachmentId;
+					this.inputs[ layerId ].sourceAttachmentUrl = url;
 				}
 			} );
 	},

@@ -82,6 +82,9 @@ class OCCustomiser {
 		this.spotifyValidateTokens = {};
 		this.spotifyAbortControllers = {};
 		this.uploadGenerations = {};
+		this.aiFilterGenerations = {};
+		this.aiFilterPending = 0;
+		this.aiFilterErrors = {};
 		this.preflightRoot = null;
 		this.clipartByGroup = {};
 		this.clipartSearchTimers = {};

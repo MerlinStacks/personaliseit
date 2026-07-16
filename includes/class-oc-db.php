@@ -350,6 +350,7 @@ class OC_DB {
 			name        VARCHAR(100) NOT NULL,
 			filter_key  VARCHAR(30) NOT NULL DEFAULT 'grayscale',
 			value       DECIMAL(10,3) NOT NULL DEFAULT 1.000,
+			prompt      LONGTEXT DEFAULT NULL,
 			active      TINYINT(1) NOT NULL DEFAULT 1,
 			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),

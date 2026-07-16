@@ -611,7 +611,7 @@ export function createProductsPageSettings( deps ) {
 				return (
 					field( 'Default image', mediaDefaultField( s ) ) +
 					field(
-						'Image filters <span class="oc-hint">(customer choices)</span>',
+						'Enabled image filters <span class="oc-hint">(available choices)</span>',
 						imageFilterChecks(
 							data.imageFilters || [],
 							s.image_filter_ids || []
@@ -625,7 +625,7 @@ export function createProductsPageSettings( deps ) {
 								s.image_filter_ids || [],
 								s.default_image_filter_id || 0
 							) +
-							'</select>'
+							'</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>'
 					) +
 					field(
 						'Accepted formats',

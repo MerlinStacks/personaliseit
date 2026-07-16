@@ -93,6 +93,49 @@ class OC_Upload_Handler {
 		return $result;
 	}
 
+	/** Save an AI-generated raster image as owned customer artwork. */
+	public static function save_generated_image( string $bytes, string $mime, array $context, array $provenance = [] ): array|\WP_Error {
+		$extensions = [
+			'image/png'  => 'png',
+			'image/jpeg' => 'jpg',
+			'image/webp' => 'webp',
+		];
+		if ( ! isset( $extensions[ $mime ] ) || '' === $bytes ) {
+			return new \WP_Error( 'invalid_generated_image', __( 'The generated image is invalid.', 'overcustomise' ) );
+		}
+
+		$info = @getimagesizefromstring( $bytes );
+		if ( ! is_array( $info ) || (string) ( $info['mime'] ?? '' ) !== $mime ) {
+			return new \WP_Error( 'invalid_generated_image', __( 'The generated image is invalid.', 'overcustomise' ) );
+		}
+		self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+
+		$tmp = self::temp_path( 'oc-ai-image-' );
+		if ( false === $tmp || false === file_put_contents( $tmp, $bytes ) ) {
+			return new \WP_Error( 'generated_image_save_failed', __( 'Could not stage the generated image.', 'overcustomise' ) );
+		}
+
+		$attachment_id = self::save_to_media_library( $tmp, 'ai-filter.' . $extensions[ $mime ], $mime );
+		@unlink( $tmp );
+		if ( is_wp_error( $attachment_id ) ) {
+			return $attachment_id;
+		}
+
+		self::record_ownership( $attachment_id, $context );
+		update_post_meta( $attachment_id, '_oc_ai_filter', 1 );
+		update_post_meta( $attachment_id, '_oc_ai_filter_source_id', absint( $provenance['source_attachment_id'] ?? 0 ) );
+		update_post_meta( $attachment_id, '_oc_ai_filter_id', absint( $provenance['filter_id'] ?? 0 ) );
+		update_post_meta( $attachment_id, '_oc_ai_filter_model', sanitize_text_field( (string) ( $provenance['model'] ?? '' ) ) );
+
+		$url = (string) wp_get_attachment_url( $attachment_id );
+		return [
+			'attachment_id' => $attachment_id,
+			'preview_url'   => $url,
+			'original_url'  => $url,
+			'file_type'     => $extensions[ $mime ],
+		];
+	}
+
 	/** Verify that customer artwork belongs to this customer and exact layer context. */
 	public static function attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token = '' ): bool {
 		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;

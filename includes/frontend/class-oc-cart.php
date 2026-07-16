@@ -365,6 +365,7 @@ class OC_Cart {
 
 			$default_attachment = absint( $settings['default_attachment_id'] ?? 0 );
 			$attachment_id      = in_array( $type, [ 'image', 'clipmask' ], true ) ? absint( $source['attachmentId'] ?? $default_attachment ) : 0;
+			$source_attachment_id = in_array( $type, [ 'image', 'clipmask' ], true ) ? absint( $source['sourceAttachmentId'] ?? $attachment_id ) : 0;
 			if ( ! $editable ) {
 				$attachment_id = $default_attachment;
 			}
@@ -379,12 +380,29 @@ class OC_Cart {
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The uploaded artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
+			if ( $source_attachment_id && $source_attachment_id !== $default_attachment
+				&& ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token )
+			) {
+				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
+			}
 
 			$filter_ids = self::id_list( $settings['image_filter_ids'] ?? [] );
 			$default_filter = absint( $settings['default_image_filter_id'] ?? 0 );
 			$filter_id      = absint( $source['imageFilterId'] ?? $default_filter );
+			$can_filter_change = ! array_key_exists( 'allow_image_filter_change', $settings ) || ! empty( $settings['allow_image_filter_change'] );
 			if ( ! in_array( $default_filter, $filter_ids, true ) ) $default_filter = 0;
-			if ( ! $editable || empty( $settings['allow_image_filter_change'] ) || ! in_array( $filter_id, $filter_ids, true ) ) $filter_id = $default_filter;
+			if ( ! $editable || ! $can_filter_change || ! in_array( $filter_id, $filter_ids, true ) ) $filter_id = $default_filter;
+			$selected_filter = null;
+			foreach ( OC_DB::get_image_filters( true ) as $candidate ) {
+				if ( (int) $candidate->id === $filter_id ) { $selected_filter = $candidate; break; }
+			}
+			if ( $filter_id && $selected_filter && 'ai' === (string) $selected_filter->filter_key ) {
+				$generated_filter_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_id', true ) );
+				$generated_source_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_source_id', true ) );
+				if ( $generated_filter_id !== $filter_id || $generated_source_id !== $source_attachment_id ) {
+					return new \WP_Error( 'ai_filter_required', sprintf( __( 'The AI filter for "%s" has not finished.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
+				}
+			}
 
 			$default_clipart = absint( $settings['default_clipart_id'] ?? 0 );
 			$clipart_id      = 'clipart' === $type ? absint( $source['clipartId'] ?? $default_clipart ) : 0;
@@ -409,7 +427,7 @@ class OC_Cart {
 
 			$normalised[ $layer_id ] = [
 				'type' => $type, 'value' => $value, 'fontId' => $font_id, 'fontSize' => $font_size,
-				'colorHex' => $colour, 'attachmentId' => $attachment_id, 'imageFilterId' => $filter_id,
+				'colorHex' => $colour, 'attachmentId' => $attachment_id, 'sourceAttachmentId' => $source_attachment_id, 'imageFilterId' => $filter_id,
 				'clipartId' => $clipart_id,
 				'clipartUrl' => $clipart ? self::clipart_url( (string) $clipart->file_path ) : '',
 				'clipartRecolourable' => $clipart && (bool) $clipart->colour_changeable && 'svg' === strtolower( (string) $clipart->file_type ),

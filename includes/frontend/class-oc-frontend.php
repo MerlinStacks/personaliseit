@@ -172,6 +172,7 @@ class OC_Frontend {
 		$state['activeAreaIndex']       = 0;
 		$state['isLoading']             = false;
 		$state['uploadUrl']             = rest_url( 'overcustomise/v1/upload-artwork' );
+		$state['applyImageFilterUrl']   = rest_url( 'overcustomise/v1/apply-image-filter' );
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
 		$state['updateCartItemUrl']     = rest_url( 'overcustomise/v1/update-cart-item' );
@@ -318,6 +319,8 @@ class OC_Frontend {
 					'colorHex'      => $default_colour,
 					'attachmentId'  => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_id : 0,
 					'attachmentUrl' => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_url : '',
+					'sourceAttachmentId'  => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_id : 0,
+					'sourceAttachmentUrl' => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_url : '',
 					'imageFilterId' => 'image' === $layer->type ? $default_image_filter_id : 0,
 					'clipartId'     => 0,
 					'clipartUrl'    => '',
@@ -419,6 +422,7 @@ class OC_Frontend {
 					'name'  => (string) $filter->name,
 					'key'   => (string) $filter->filter_key,
 					'value' => (float) $filter->value,
+					'isAi'  => 'ai' === (string) $filter->filter_key,
 				];
 			}, $image_filters ),
 			'clipartByLayer'  => $clipart_by_layer,
@@ -433,6 +437,10 @@ class OC_Frontend {
 		foreach ( $saved_inputs as $lid => $ldata ) {
 			if ( ! is_array( $ldata ) || ! isset( $layer_inputs[ (int) $lid ] ) ) continue;
 			$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
+			$attachment_id = absint( $layer_inputs[ (int) $lid ]['attachmentId'] ?? 0 );
+			$source_id     = absint( $layer_inputs[ (int) $lid ]['sourceAttachmentId'] ?? $attachment_id );
+			if ( $attachment_id ) $layer_inputs[ (int) $lid ]['attachmentUrl'] = (string) wp_get_attachment_url( $attachment_id );
+			if ( $source_id ) $layer_inputs[ (int) $lid ]['sourceAttachmentUrl'] = (string) wp_get_attachment_url( $source_id );
 		}
 		return $layer_inputs;
 	}

@@ -222,6 +222,7 @@ if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
 require_once OC_PATH . 'includes/class-oc-command-runner.php';
 require_once OC_PATH . 'includes/class-oc-upload-handler.php';
+require_once OC_PATH . 'includes/class-oc-ai-image-filter.php';
 require_once OC_PATH . 'includes/class-oc-render-math.php';
 require_once OC_PATH . 'includes/class-oc-render-spec.php';
 require_once OC_PATH . 'includes/print/class-oc-print-base.php';

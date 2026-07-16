@@ -979,7 +979,7 @@ class OC_Admin_Products {
 			'fonts'        => OC_Font_Registry::get_fonts_for_js(),
 			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'fontIds' => array_map( 'intval', $g->font_ids ) ]; }, OC_DB::get_font_groups() ),
 			'colours'      => array_map( function ( $c ) { return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ]; }, OC_DB::get_colours( true ) ),
-			'imageFilters' => array_map( function ( $f ) { return [ 'id' => (int) $f->id, 'name' => $f->name, 'key' => $f->filter_key, 'value' => (float) $f->value ]; }, OC_DB::get_image_filters( true ) ),
+			'imageFilters' => array_map( function ( $f ) { return [ 'id' => (int) $f->id, 'name' => $f->name, 'key' => $f->filter_key, 'value' => (float) $f->value, 'isAi' => 'ai' === (string) $f->filter_key ]; }, OC_DB::get_image_filters( true ) ),
 			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'colourIds' => array_map( 'intval', $g->colour_ids ) ]; }, OC_DB::get_colour_groups() ),
 			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, $clipart_groups ),
 			'clipartItems'  => array_map(

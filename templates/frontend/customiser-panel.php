@@ -269,12 +269,15 @@ foreach ( $layers as $layer ) {
 								</div>
 
 							<?php elseif ( $layer->type === 'image' || $layer->type === 'clipmask' ) : ?>
-								<?php if ( $allow_image_change ) : ?>
 									<div class="oc-artwork-wrap">
+									<?php if ( $allow_image_change ) : ?>
 										<div class="oc-upload-zone"
 											data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 									</div>
 									<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
+									<?php else : ?>
+										<p class="oc-settings-empty"><?php esc_html_e( 'Image is fixed for this product.', 'overcustomise' ); ?></p>
+									<?php endif; ?>
 									<?php if ( 'image' === $layer->type && ! empty( $image_filter_ids ) && $allow_image_filter_change ) : ?>
 										<?php $available_filters = array_filter( OC_DB::get_image_filters( true ), fn( $filter ) => in_array( (int) $filter->id, $image_filter_ids, true ) ); ?>
 										<?php if ( ! empty( $available_filters ) ) : ?>
@@ -290,9 +293,6 @@ foreach ( $layers as $layer ) {
 										<?php endif; ?>
 									<?php endif; ?>
 								</div>
-								<?php else : ?>
-									<p class="oc-settings-empty"><?php esc_html_e( 'Image is fixed for this product.', 'overcustomise' ); ?></p>
-								<?php endif; ?>
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
 								<?php

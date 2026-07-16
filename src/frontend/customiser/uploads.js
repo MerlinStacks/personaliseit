@@ -189,6 +189,10 @@ const uploadMethods = {
 				}
 				this.inputs[ lid ].attachmentId = res.body.attachment_id || 0;
 				this.inputs[ lid ].attachmentUrl = res.body.preview_url || '';
+				this.inputs[ lid ].sourceAttachmentId =
+					res.body.attachment_id || 0;
+				this.inputs[ lid ].sourceAttachmentUrl =
+					res.body.preview_url || '';
 				this.inputs[ lid ].imageMeta = null;
 				if ( ! this.inputs[ lid ].attachmentUrl ) {
 					this.setUploadZoneState( zoneEl, 'error' );
@@ -206,6 +210,7 @@ const uploadMethods = {
 				}
 				if ( meta && this.inputs[ lid ] ) {
 					this.inputs[ lid ].imageMeta = meta;
+					this.inputs[ lid ].sourceImageMeta = meta;
 					const thresholdW = Math.round( layer.w * ( 300 / 72 ) );
 					const thresholdH = Math.round( layer.h * ( 300 / 72 ) );
 					const warnEl = document.querySelector(
@@ -225,6 +230,9 @@ const uploadMethods = {
 							this.inputs[ lid ].attachmentId = 0;
 							this.inputs[ lid ].attachmentUrl = '';
 							this.inputs[ lid ].imageMeta = null;
+							this.inputs[ lid ].sourceAttachmentId = 0;
+							this.inputs[ lid ].sourceAttachmentUrl = '';
+							this.inputs[ lid ].sourceImageMeta = null;
 							this.syncLinkedLayerInput( lid, [
 								'attachmentId',
 								'attachmentUrl',
@@ -250,7 +258,18 @@ const uploadMethods = {
 						}
 					}
 				}
-				this.setUploadZoneState( zoneEl, 'uploaded' );
+				const filterApplied = await this.applyAiImageFilter(
+					lid,
+					this.inputs[ lid ].imageFilterId || 0,
+					zoneEl
+				);
+				if ( generation !== this.uploadGenerations[ lid ] ) {
+					return;
+				}
+				this.setUploadZoneState(
+					zoneEl,
+					filterApplied ? 'uploaded' : 'error'
+				);
 				this.syncLinkedLayerInput( lid, [
 					'attachmentId',
 					'attachmentUrl',
@@ -259,7 +278,9 @@ const uploadMethods = {
 				this.requestPreviewFocus();
 				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
-				this.showUploadError( zoneEl, '' );
+				if ( filterApplied ) {
+					this.showUploadError( zoneEl, '' );
+				}
 			} );
 
 			uppy.on( 'upload-error', ( file, error, response ) => {
@@ -300,6 +321,122 @@ const uploadMethods = {
 				);
 			} );
 		} );
+	},
+
+	async applyAiImageFilter( layerId, filterId, zoneEl = null ) {
+		const input = this.inputs[ layerId ];
+		if ( ! input ) {
+			return false;
+		}
+		const sourceId = Number(
+			input.sourceAttachmentId || input.attachmentId || 0
+		);
+		const sourceUrl =
+			input.sourceAttachmentUrl || input.attachmentUrl || '';
+		if ( ! filterId ) {
+			if ( sourceId && sourceUrl ) {
+				input.attachmentId = sourceId;
+				input.attachmentUrl = sourceUrl;
+				input.imageMeta = input.sourceImageMeta || input.imageMeta;
+			}
+			delete this.aiFilterErrors[ layerId ];
+			return true;
+		}
+		const filter = ( this.data?.imageFilters || [] ).find(
+			( item ) => Number( item.id ) === Number( filterId )
+		);
+		if ( ! filter?.isAi ) {
+			if ( sourceId && sourceUrl ) {
+				input.attachmentId = sourceId;
+				input.attachmentUrl = sourceUrl;
+				input.imageMeta = input.sourceImageMeta || input.imageMeta;
+			}
+			delete this.aiFilterErrors[ layerId ];
+			return true;
+		}
+		if ( ! sourceId || ! sourceUrl || ! this.data?.applyImageFilterUrl ) {
+			this.aiFilterErrors[ layerId ] =
+				'Upload an image before applying this filter.';
+			return false;
+		}
+
+		const generation = ( this.aiFilterGenerations[ layerId ] || 0 ) + 1;
+		this.aiFilterGenerations[ layerId ] = generation;
+		this.aiFilterPending += 1;
+		delete this.aiFilterErrors[ layerId ];
+		const targetZone =
+			zoneEl ||
+			document.querySelector( `[data-oc-upload-zone="${ layerId }"]` );
+		if ( targetZone ) {
+			this.setUploadProgress( targetZone, 100, 'Creating AI preview...' );
+			this.showUploadError( targetZone, '' );
+		}
+
+		const variationId =
+			parseInt(
+				document.querySelector( 'form.cart input.variation_id' )
+					?.value || '0',
+				10
+			) || 0;
+		try {
+			const response = await fetch( this.data.applyImageFilterUrl, {
+				method: 'POST',
+				headers: this.restHeaders( {
+					'Content-Type': 'application/json',
+				} ),
+				body: JSON.stringify( {
+					source_attachment_id: sourceId,
+					filter_id: Number( filterId ),
+					layer_id: Number( layerId ),
+					design_id: Number( this.data.designId || 0 ),
+					product_id: Number( this.data.productId || 0 ),
+					variation_id: variationId,
+					oc_token: this.data.requestToken || '',
+				} ),
+			} );
+			const json = await response.json();
+			if (
+				! response.ok ||
+				! json?.attachment_id ||
+				! json?.preview_url
+			) {
+				throw new Error(
+					json?.message || 'The AI filter could not be applied.'
+				);
+			}
+			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+				return false;
+			}
+			input.attachmentId = Number( json.attachment_id );
+			input.attachmentUrl = json.preview_url;
+			input.imageFilterId = Number( filterId );
+			input.imageMeta = await this.getImageMeta( json.preview_url );
+			delete this.aiFilterErrors[ layerId ];
+			this.requestPreviewFocus();
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+			this.updateHiddenField();
+			return true;
+		} catch ( error ) {
+			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+				return false;
+			}
+			const message =
+				error?.message || 'The AI filter could not be applied.';
+			this.aiFilterErrors[ layerId ] = message;
+			input.attachmentId = sourceId;
+			input.attachmentUrl = sourceUrl;
+			if ( targetZone ) {
+				this.showUploadError( targetZone, message );
+			}
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+			this.updateHiddenField();
+			return false;
+		} finally {
+			this.aiFilterPending = Math.max( 0, this.aiFilterPending - 1 );
+			if ( targetZone ) {
+				this.setUploadProgress( targetZone, 0, '' );
+			}
+		}
 	},
 
 	setUploadZoneState( zoneEl, state ) {
