@@ -1217,7 +1217,7 @@ __webpack_require__.r(__webpack_exports__);
     getAreas: () => areas,
     getSelectedIndex: () => selectedIndex,
     getSelectedLayerIndex: () => selectedLayerIndex,
-    initCanvasInteractions,
+    initCanvasInteractions: (...args) => initCanvasInteractions(...args),
     markDirty,
     normaliseArea,
     normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
@@ -1226,7 +1226,7 @@ __webpack_require__.r(__webpack_exports__);
     openMockupPicker,
     redo,
     renderAll,
-    renderGhosts,
+    renderGhosts: (...args) => renderGhosts(...args),
     renderRatioLockButton,
     selectedArea,
     setSelectedIndex: index => {
@@ -1236,10 +1236,10 @@ __webpack_require__.r(__webpack_exports__);
       selectedLayerIndex = index;
     },
     snapshot,
-    syncBoundsFromInputs,
+    syncBoundsFromInputs: (...args) => syncBoundsFromInputs(...args),
     undo,
     updateAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.updateAspectRatio,
-    updateBoundsBox
+    updateBoundsBox: (...args) => updateBoundsBox(...args)
   });
   const {
     renderCanvas,

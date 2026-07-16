@@ -392,7 +392,8 @@ import {
 			getAreas: () => areas,
 			getSelectedIndex: () => selectedIndex,
 			getSelectedLayerIndex: () => selectedLayerIndex,
-			initCanvasInteractions,
+			initCanvasInteractions: ( ...args ) =>
+				initCanvasInteractions( ...args ),
 			markDirty,
 			normaliseArea,
 			normaliseDpi,
@@ -401,7 +402,7 @@ import {
 			openMockupPicker,
 			redo,
 			renderAll,
-			renderGhosts,
+			renderGhosts: ( ...args ) => renderGhosts( ...args ),
 			renderRatioLockButton,
 			selectedArea,
 			setSelectedIndex: ( index ) => {
@@ -411,10 +412,11 @@ import {
 				selectedLayerIndex = index;
 			},
 			snapshot,
-			syncBoundsFromInputs,
+			syncBoundsFromInputs: ( ...args ) =>
+				syncBoundsFromInputs( ...args ),
 			undo,
 			updateAspectRatio,
-			updateBoundsBox,
+			updateBoundsBox: ( ...args ) => updateBoundsBox( ...args ),
 		} );
 	const {
 		renderCanvas,
