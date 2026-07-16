@@ -1,4 +1,4 @@
-/* eslint-disable no-undef, no-nested-ternary */
+/* eslint-disable no-nested-ternary */
 
 export function createLayerPreviewRenderer( deps ) {
 	const { fontLimit, layerLabel, normaliseHex } = deps;
@@ -176,7 +176,7 @@ export function createLayerPreviewRenderer( deps ) {
 				? fontLimit( s.min_font_size ) * scale
 				: 4;
 			fitTextPreview( d, fs, minFontSize, isSingleLine );
-			requestAnimationFrame( () =>
+			window.requestAnimationFrame( () =>
 				fitTextPreview( d, fs, minFontSize, isSingleLine )
 			);
 			document.fonts?.ready?.then?.( () =>

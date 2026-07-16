@@ -1,4 +1,4 @@
-/* eslint-disable no-undef, @wordpress/no-unused-vars-before-return */
+/* eslint-disable @wordpress/no-unused-vars-before-return */
 
 import { displayEntity, unitPxScale } from '../shared/render-math';
 import {
@@ -483,7 +483,7 @@ export function createProductsPageCanvas( deps ) {
 		document.body.appendChild( backdrop );
 		document.body.appendChild( popup );
 		drawPopup = { popup, backdrop };
-		requestAnimationFrame( () => {
+		window.requestAnimationFrame( () => {
 			const pw = popup.offsetWidth,
 				ph = popup.offsetHeight;
 			const vw = window.innerWidth,

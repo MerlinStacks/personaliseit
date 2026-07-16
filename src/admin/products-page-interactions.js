@@ -1,4 +1,4 @@
-/* eslint-disable no-undef, @wordpress/no-global-active-element */
+/* eslint-disable @wordpress/no-global-active-element */
 
 import { unitPxScale } from '../shared/render-math';
 import { LAYER_DEFAULTS, layerLabel } from './products-page-metadata';
@@ -6,7 +6,9 @@ import { LAYER_DEFAULTS, layerLabel } from './products-page-metadata';
 export function createProductsPageInteractions( deps ) {
 	const {
 		addArea,
+		clampLayerToArea,
 		commitChange,
+		defaultSettings,
 		getAreas,
 		getSelectedIndex,
 		getSelectedLayerIndex,
@@ -15,7 +17,9 @@ export function createProductsPageInteractions( deps ) {
 		normaliseArea,
 		normaliseDpi,
 		normaliseUnit,
+		nextUid,
 		openMockupPicker,
+		redo,
 		renderAll,
 		renderGhosts,
 		renderRatioLockButton,
@@ -24,6 +28,7 @@ export function createProductsPageInteractions( deps ) {
 		setSelectedLayerIndex,
 		snapshot,
 		syncBoundsFromInputs,
+		undo,
 		updateAspectRatio,
 		updateBoundsBox,
 	} = deps;
@@ -241,7 +246,7 @@ export function createProductsPageInteractions( deps ) {
 
 	function createLayer( type, area, x, y, w, h ) {
 		const layer = {
-			_uid: ++uidCounter,
+			_uid: nextUid(),
 			id: 0,
 			type,
 			label: layerLabel( type ) + ' ' + ( area.layers.length + 1 ),

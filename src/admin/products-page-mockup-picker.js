@@ -1,4 +1,4 @@
-/* eslint-disable no-alert, no-undef */
+/* eslint-disable no-alert */
 
 export function createMockupPicker( deps ) {
 	const { commitChange, getSelectedIndex, selectedArea } = deps;
@@ -9,12 +9,12 @@ export function createMockupPicker( deps ) {
 			return;
 		}
 		if ( ! window.wp || ! window.wp.media ) {
-			alert( 'Media library is not available.' );
+			window.alert( 'Media library is not available.' );
 			return;
 		}
 		if ( ! mediaFrame ) {
 			const data = window.ocProductsData || {};
-			mediaFrame = wp.media( {
+			mediaFrame = window.wp.media( {
 				title: data.mediaTitle || 'Select Mockup Image',
 				button: { text: data.mediaBtn || 'Use as Mockup' },
 				library: { type: 'image' },

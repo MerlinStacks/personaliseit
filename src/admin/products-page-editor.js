@@ -1,4 +1,4 @@
-/* eslint-disable no-console, no-alert, no-undef, no-shadow, no-unused-vars, @wordpress/no-unused-vars-before-return */
+/* eslint-disable no-console, no-alert, no-shadow, no-unused-vars, @wordpress/no-unused-vars-before-return */
 import {
 	displayEntity,
 	normaliseDpi,
@@ -25,6 +25,24 @@ import { createLayerPreviewRenderer } from './products-page-preview';
 import { renderProductsPageHiddenFields } from './products-page-hidden-fields';
 import { createProductsPageDataNormalisers } from './products-page-data';
 import { createMockupPicker } from './products-page-mockup-picker';
+import { createProductsPageInteractions } from './products-page-interactions';
+import { createProductsPageCanvas } from './products-page-canvas';
+import {
+	clamp,
+	clampLayerToArea,
+	currentAspectRatio,
+	esc,
+	fontLimit,
+	getScale,
+	hexRgba,
+	methodLabel,
+	normaliseAspectRatio,
+	normaliseHex,
+	normaliseLinkGroup,
+	normaliseRotation,
+	setVal,
+	updateAspectRatio,
+} from './products-page-utils';
 ( function () {
 	'use strict';
 	let areas = [];
@@ -202,12 +220,12 @@ import { createMockupPicker } from './products-page-mockup-picker';
 		const state = collectState();
 		const body = new URLSearchParams( {
 			action: 'oc_autosave_design',
-			nonce: ocProductsData.nonce,
+			nonce: window.ocProductsData?.nonce || '',
 			design_id: designId,
 			revision,
 			state: JSON.stringify( state ),
 		} );
-		fetch( ocProductsData.ajaxUrl, { method: 'POST', body } )
+		fetch( window.ocProductsData?.ajaxUrl || '', { method: 'POST', body } )
 			.then( function ( r ) {
 				if ( ! r.ok ) {
 					throw new Error( 'HTTP ' + r.status );
@@ -295,7 +313,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 							' minute' +
 							( mins > 1 ? 's' : '' ) +
 							' ago. Restore?';
-						if ( confirm( msg ) ) {
+						if ( window.confirm( msg ) ) {
 							applyAutosavedState( json.data.state );
 							isDirty = true;
 							startAutosavePoll();
@@ -368,7 +386,9 @@ import { createMockupPicker } from './products-page-mockup-picker';
 	const { initInteractions, addLayerWithBounds } =
 		createProductsPageInteractions( {
 			addArea: ( area ) => areas.push( area ),
+			clampLayerToArea,
 			commitChange,
+			defaultSettings,
 			getAreas: () => areas,
 			getSelectedIndex: () => selectedIndex,
 			getSelectedLayerIndex: () => selectedLayerIndex,
@@ -377,7 +397,9 @@ import { createMockupPicker } from './products-page-mockup-picker';
 			normaliseArea,
 			normaliseDpi,
 			normaliseUnit,
+			nextUid: () => ++uidCounter,
 			openMockupPicker,
+			redo,
 			renderAll,
 			renderGhosts,
 			renderRatioLockButton,
@@ -390,6 +412,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 			},
 			snapshot,
 			syncBoundsFromInputs,
+			undo,
 			updateAspectRatio,
 			updateBoundsBox,
 		} );
@@ -489,7 +512,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 			const thumb = document.createElement( 'div' );
 			thumb.className = 'oc-area-strip-thumb';
 			if ( area.mockupUrl ) {
-				const img = new Image();
+				const img = new window.Image();
 				img.src = area.mockupUrl;
 				img.draggable = false;
 				thumb.appendChild( img );
@@ -600,7 +623,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 				( e ) => {
 					e.stopPropagation();
 					if (
-						! confirm(
+						! window.confirm(
 							'Remove this print area and all its layers?'
 						)
 					) {
@@ -854,7 +877,7 @@ import { createMockupPicker } from './products-page-mockup-picker';
 				'click',
 				( e ) => {
 					e.stopPropagation();
-					if ( ! confirm( 'Remove this layer?' ) ) {
+					if ( ! window.confirm( 'Remove this layer?' ) ) {
 						return;
 					}
 					area.layers.splice( li, 1 );

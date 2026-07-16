@@ -2,6 +2,649 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
+/***/ "./src/admin/products-page-canvas.js"
+/*!*******************************************!*\
+  !*** ./src/admin/products-page-canvas.js ***!
+  \*******************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   createProductsPageCanvas: () => (/* binding */ createProductsPageCanvas)
+/* harmony export */ });
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
+/* harmony import */ var _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./products-page-metadata */ "./src/admin/products-page-metadata.js");
+/* eslint-disable @wordpress/no-unused-vars-before-return */
+
+
+
+function createProductsPageCanvas(deps) {
+  const {
+    addLayerWithBounds,
+    applyLayerPreview,
+    clamp,
+    clampLayerToArea,
+    currentAspectRatio,
+    getAreas,
+    getScale,
+    getSelectedIndex,
+    getSelectedLayerIndex,
+    hexRgba,
+    markDirty,
+    normaliseDpi,
+    normaliseRotation,
+    renderAll,
+    renderHiddenFields,
+    renderRatioLockButton,
+    selectedArea,
+    selectedLayer,
+    setSelectedLayerIndex,
+    setVal,
+    snapshot,
+    updateAspectRatio
+  } = deps;
+  let drag = null;
+  let drawState = null;
+  let drawEl = null;
+  let drawPopup = null;
+  function renderCanvas() {
+    const stage = document.getElementById('oc-canvas-stage');
+    const noMockup = document.getElementById('oc-canvas-no-mockup');
+    const coords = document.getElementById('oc-canvas-coords');
+    const noMsg = document.getElementById('oc-canvas-no-mockup-msg');
+    if (!stage) {
+      return;
+    }
+    const area = selectedArea();
+    if (!area || !area.mockupUrl) {
+      stage.style.display = 'none';
+      noMockup.style.display = '';
+      if (coords) {
+        coords.style.display = 'none';
+      }
+      if (noMsg) {
+        noMsg.textContent = getAreas().length === 0 ? 'Click \u201c+ Add\u201d on the left to create a print area.' : 'Select a print area and choose its mockup image.';
+      }
+      return;
+    }
+    noMockup.style.display = 'none';
+    stage.style.display = '';
+    if (coords) {
+      coords.style.display = '';
+    }
+    const img = document.getElementById('oc-canvas-mockup-img');
+    if (!img) {
+      return;
+    }
+    if (img.getAttribute('src') !== area.mockupUrl) {
+      img.src = area.mockupUrl;
+      img.onload = () => {
+        updateBoundsBox();
+        renderGhosts();
+      };
+    } else {
+      updateBoundsBox();
+      renderGhosts();
+    }
+    const entity = getSelectedLayerIndex() >= 0 ? area.layers[getSelectedLayerIndex()] || area : area;
+    updateCoordsReadout(entity);
+  }
+  function updateBoundsBox() {
+    const box = document.getElementById('oc-bounds-box');
+    const img = document.getElementById('oc-canvas-mockup-img');
+    const area = selectedArea();
+    if (!box || !img || !area) {
+      if (box) {
+        box.style.display = 'none';
+      }
+      return;
+    }
+    const scale = getScale(img);
+    if (!scale) {
+      return;
+    }
+    const layer = selectedLayer();
+    const entity = layer || area;
+    const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(entity, layer ? area : null);
+    const color = layer ? (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type) : (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(getSelectedIndex());
+    const isHidden = layer ? !layer.visible : !area.visible;
+    const isLocked = layer ? layer.locked : area.locked;
+    const hideForLocked = !layer && area.locked;
+    box.style.display = isHidden || hideForLocked ? 'none' : '';
+    box.style.opacity = '';
+    pos(box, display, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area) : null);
+    box.style.borderColor = color;
+    box.style.background = hexRgba(color, 0.12);
+    box.classList.toggle('oc-bounds-box--locked', isLocked);
+    box.classList.toggle('oc-bounds-box--rotatable', !layer);
+    box.querySelectorAll('.oc-bounds-handle').forEach(h => {
+      h.style.borderColor = color;
+    });
+    box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
+      h.style.borderColor = color;
+      h.style.color = color;
+      h.style.display = layer ? 'none' : '';
+    });
+    box.querySelectorAll('.oc-bounds-box-pill').forEach(el => el.remove());
+    const renderedW = Math.round(display.w * scale);
+    const renderedH = Math.round(display.h * scale);
+    applyLayerPreview(layer, box, renderedW, renderedH, false, area.method === 'engraving');
+    if (layer) {
+      const pill = document.createElement('div');
+      pill.className = 'oc-bounds-box-pill';
+      pill.style.background = color;
+      pill.textContent = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(layer.type) + ' ' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(layer.type);
+      box.appendChild(pill);
+    }
+  }
+  function renderGhosts() {
+    const ghosts = document.getElementById('oc-canvas-ghosts');
+    const img = document.getElementById('oc-canvas-mockup-img');
+    if (!ghosts || !img) {
+      return;
+    }
+    ghosts.innerHTML = '';
+    const scale = getScale(img);
+    if (!scale) {
+      return;
+    }
+    const area = selectedArea();
+    const activeMockup = area ? area.mockupUrl : '';
+    getAreas().forEach((a, i) => {
+      if (i === getSelectedIndex() || a.mockupUrl !== activeMockup || !activeMockup || !a.visible) {
+        return;
+      }
+      const g = ghost(a, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(i), 0.06);
+      g.appendChild(ghostLabel(a.label || 'Area ' + (i + 1), (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(i)));
+      pos(g, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(a), scale, normaliseRotation(a.rotation));
+      ghosts.appendChild(g);
+    });
+    if (!area) {
+      return;
+    }
+    if (getSelectedLayerIndex() >= 0) {
+      const outline = document.createElement('div');
+      outline.className = 'oc-canvas-area-outline';
+      pos(outline, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area), scale, normaliseRotation(area.rotation));
+      ghosts.appendChild(outline);
+    }
+    (area.layers || []).forEach((layer, li) => {
+      if (li === getSelectedLayerIndex() || !layer.visible) {
+        return;
+      }
+      const displayLayer = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layer, area);
+      const g = ghost(layer, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type), 0.1);
+      g.classList.add('oc-canvas-layer-ghost');
+      g.appendChild(ghostLabel((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(layer.type) + ' ' + (layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(layer.type)), (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type)));
+      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, area.method === 'engraving');
+      pos(g, displayLayer, scale, normaliseRotation(area.rotation), (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area));
+      if (layer.locked) {
+        g.style.cursor = 'not-allowed';
+        g.style.opacity = '0.5';
+      } else {
+        g.style.cursor = 'pointer';
+        g.addEventListener('click', () => {
+          setSelectedLayerIndex(li);
+          renderAll();
+        });
+      }
+      ghosts.appendChild(g);
+    });
+  }
+  function ghost(entity, color, bgAlpha) {
+    const g = document.createElement('div');
+    g.className = 'oc-canvas-ghost';
+    g.style.borderColor = color;
+    g.style.background = hexRgba(color, bgAlpha);
+    return g;
+  }
+  function ghostLabel(text, color) {
+    const l = document.createElement('span');
+    l.className = 'oc-canvas-ghost-label';
+    l.textContent = text;
+    l.style.color = color;
+    return l;
+  }
+  function pos(el, entity, scale, rotation = 0, area = null) {
+    let cx = entity.x + entity.w / 2;
+    let cy = entity.y + entity.h / 2;
+    if (area && rotation) {
+      const acx = area.x + area.w / 2;
+      const acy = area.y + area.h / 2;
+      const rad = rotation * Math.PI / 180;
+      const dx = cx - acx;
+      const dy = cy - acy;
+      cx = acx + dx * Math.cos(rad) - dy * Math.sin(rad);
+      cy = acy + dx * Math.sin(rad) + dy * Math.cos(rad);
+    }
+    el.style.left = Math.round((cx - entity.w / 2) * scale) + 'px';
+    el.style.top = Math.round((cy - entity.h / 2) * scale) + 'px';
+    el.style.width = Math.round(entity.w * scale) + 'px';
+    el.style.height = Math.round(entity.h * scale) + 'px';
+    el.style.transform = rotation ? 'rotate(' + rotation + 'deg)' : '';
+    el.style.transformOrigin = 'center center';
+  }
+  function updateCoordsReadout(entity) {
+    const el = document.getElementById('oc-coords-text');
+    if (el && entity) {
+      el.textContent = 'X\u2009' + entity.x + '\u2002 Y\u2009' + entity.y + '\u2002 W\u2009' + entity.w + '\u2002 H\u2009' + entity.h + (entity.rotation ? '\u2002 R\u2009' + entity.rotation + '\u00b0' : '');
+    }
+  }
+  function initCanvasInteractions() {
+    const box = document.getElementById('oc-bounds-box');
+    if (box) {
+      box.addEventListener('mousedown', e => {
+        if (e.target !== box) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        startDrag(e, 'move', '');
+      });
+      box.querySelectorAll('.oc-bounds-handle').forEach(h => {
+        h.addEventListener('mousedown', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          startDrag(e, 'resize', h.dataset.dir);
+        });
+      });
+      box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
+        h.addEventListener('mousedown', e => {
+          e.preventDefault();
+          e.stopPropagation();
+          startDrag(e, 'rotate', '');
+        });
+      });
+    }
+    document.getElementById('oc-canvas-mockup-img')?.addEventListener('mousedown', e => {
+      const area = selectedArea();
+      if (!area || area.locked || getSelectedLayerIndex() >= 0) {
+        return;
+      }
+      e.preventDefault();
+      startDrawRect(e);
+    });
+    document.addEventListener('mousemove', e => {
+      if (drag) {
+        onDragMove(e);
+        return;
+      }
+      if (drawState) {
+        onDrawMove(e);
+      }
+    });
+    document.addEventListener('mouseup', e => {
+      if (drag) {
+        onDragEnd();
+        return;
+      }
+      if (drawState) {
+        onDrawEnd(e);
+      }
+    });
+  }
+  function startDrawRect(e) {
+    const img = document.getElementById('oc-canvas-mockup-img');
+    if (!img) {
+      return;
+    }
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    const scale = getScale(img);
+    if (!scale) {
+      return;
+    }
+    const rect = img.getBoundingClientRect();
+    const sx = clamp(Math.round((e.clientX - rect.left) / scale), area.x, area.x + area.w);
+    const sy = clamp(Math.round((e.clientY - rect.top) / scale), area.y, area.y + area.h);
+    drawState = {
+      startX: sx,
+      startY: sy,
+      curX: sx,
+      curY: sy,
+      startClientX: e.clientX,
+      startClientY: e.clientY
+    };
+    drawEl = document.createElement('div');
+    drawEl.className = 'oc-canvas-draw-preview';
+    document.getElementById('oc-canvas-stage')?.appendChild(drawEl);
+    updateDrawEl();
+  }
+  function onDrawMove(e) {
+    if (!drawState) {
+      return;
+    }
+    const img = document.getElementById('oc-canvas-mockup-img');
+    if (!img) {
+      return;
+    }
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    const scale = getScale(img);
+    const rect = img.getBoundingClientRect();
+    drawState.curX = clamp(Math.round((e.clientX - rect.left) / scale), area.x, area.x + area.w);
+    drawState.curY = clamp(Math.round((e.clientY - rect.top) / scale), area.y, area.y + area.h);
+    updateDrawEl();
+  }
+  function updateDrawEl() {
+    if (!drawEl || !drawState) {
+      return;
+    }
+    const img = document.getElementById('oc-canvas-mockup-img');
+    if (!img) {
+      return;
+    }
+    const scale = getScale(img);
+    const x = Math.min(drawState.startX, drawState.curX);
+    const y = Math.min(drawState.startY, drawState.curY);
+    const w = Math.abs(drawState.curX - drawState.startX);
+    const h = Math.abs(drawState.curY - drawState.startY);
+    drawEl.style.left = Math.round(x * scale) + 'px';
+    drawEl.style.top = Math.round(y * scale) + 'px';
+    drawEl.style.width = Math.round(w * scale) + 'px';
+    drawEl.style.height = Math.round(h * scale) + 'px';
+  }
+  function onDrawEnd(e) {
+    if (!drawState) {
+      return;
+    }
+    const state = drawState;
+    drawState = null;
+    if (drawEl) {
+      drawEl.remove();
+      drawEl = null;
+    }
+    const x = Math.min(state.startX, state.curX);
+    const y = Math.min(state.startY, state.curY);
+    const w = Math.abs(state.curX - state.startX);
+    const h = Math.abs(state.curY - state.startY);
+    if (w < 10 || h < 10) {
+      return;
+    } // too small — treat as click miss
+    showDrawTypePicker(x, y, w, h, e.clientX, e.clientY);
+  }
+  function showDrawTypePicker(natX, natY, natW, natH, clientX, clientY) {
+    closeDrawTypePicker();
+    const backdrop = document.createElement('div');
+    backdrop.className = 'oc-draw-popup-backdrop';
+    const popup = document.createElement('div');
+    popup.className = 'oc-draw-type-popup';
+    popup.id = 'oc-draw-type-popup';
+    Object.keys(_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_TYPES).forEach(type => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'oc-draw-type-btn';
+      btn.innerHTML = '<span style="font-size:18px;color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(type) + ';">' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(type) + '</span><span>' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(type) + '</span>';
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        addLayerAt(type, natX, natY, natW, natH);
+        closeDrawTypePicker();
+      });
+      popup.appendChild(btn);
+    });
+    document.body.appendChild(backdrop);
+    document.body.appendChild(popup);
+    drawPopup = {
+      popup,
+      backdrop
+    };
+    window.requestAnimationFrame(() => {
+      const pw = popup.offsetWidth,
+        ph = popup.offsetHeight;
+      const vw = window.innerWidth,
+        vh = window.innerHeight;
+      let left = clientX + 8;
+      let top = clientY + 8;
+      if (left + pw > vw - 8) {
+        left = clientX - pw - 8;
+      }
+      if (top + ph > vh - 8) {
+        top = clientY - ph - 8;
+      }
+      popup.style.left = Math.max(8, left) + 'px';
+      popup.style.top = Math.max(8, top) + 'px';
+    });
+    backdrop.addEventListener('click', closeDrawTypePicker);
+    document.addEventListener('keydown', onDrawPickerKey);
+  }
+  function onDrawPickerKey(e) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeDrawTypePicker();
+    }
+  }
+  function closeDrawTypePicker() {
+    if (drawPopup) {
+      drawPopup.popup.remove();
+      drawPopup.backdrop.remove();
+      drawPopup = null;
+    }
+    document.removeEventListener('keydown', onDrawPickerKey);
+  }
+  function addLayerAt(type, x, y, w, h) {
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
+    addLayerWithBounds(type, area.x + Math.round((x - area.x) / px), area.y + Math.round((y - area.y) / px), Math.max(1, Math.round(w / px)), Math.max(1, Math.round(h / px)));
+  }
+  function activeEntity() {
+    const area = selectedArea();
+    if (!area) {
+      return null;
+    }
+    const layer = selectedLayer();
+    return layer || area;
+  }
+  function startDrag(e, type, dir) {
+    const entity = activeEntity();
+    if (!entity) {
+      return;
+    }
+    const area = selectedArea();
+    const layer = selectedLayer();
+    if (layer ? layer.locked : area && area.locked) {
+      return;
+    }
+    drag = {
+      type,
+      dir,
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startX: entity.x,
+      startY: entity.y,
+      startW: entity.w,
+      startH: entity.h,
+      startRotation: normaliseRotation(entity.rotation)
+    };
+  }
+  function onDragMove(e) {
+    if (!drag) {
+      return;
+    }
+    const entity = activeEntity();
+    const img = document.getElementById('oc-canvas-mockup-img');
+    const area = selectedArea();
+    const layer = selectedLayer();
+    if (!entity || !img) {
+      return;
+    }
+    const scale = getScale(img);
+    if (!scale) {
+      return;
+    }
+    if (drag.type === 'rotate') {
+      const rect = img.getBoundingClientRect();
+      const displayArea = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area);
+      const cx = rect.left + (displayArea.x + displayArea.w / 2) * scale;
+      const cy = rect.top + (displayArea.y + displayArea.h / 2) * scale;
+      entity.rotation = normaliseRotation(Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90);
+      updateBoundsBox();
+      renderGhosts();
+      updateCoordsReadout(entity);
+      syncRightBounds(entity);
+      renderHiddenFields();
+      return;
+    }
+    const unitScale = layer || drag.type !== 'move' ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area) : 1;
+    const dx = Math.round((e.clientX - drag.startClientX) / scale / unitScale);
+    const dy = Math.round((e.clientY - drag.startClientY) / scale / unitScale);
+    const natW = img.naturalWidth || 2000;
+    const natH = img.naturalHeight || 2000;
+    const d = drag.dir;
+    const minX = layer ? area.x : 0;
+    const minY = layer ? area.y : 0;
+    const maxX = layer ? area.x + area.w : natW;
+    const maxY = layer ? area.y + area.h : natH;
+    const maxW = layer ? maxX - entity.x : (maxX - entity.x) / unitScale;
+    const maxH = layer ? maxY - entity.y : (maxY - entity.y) / unitScale;
+    if (drag.type === 'move') {
+      entity.x = clamp(drag.startX + dx, minX, maxX - entity.w);
+      entity.y = clamp(drag.startY + dy, minY, maxY - entity.h);
+    } else {
+      let nx = drag.startX,
+        ny = drag.startY,
+        nw = drag.startW,
+        nh = drag.startH;
+      if (d.includes('e')) {
+        nw = Math.max(1, drag.startW + dx);
+      }
+      if (d.includes('s')) {
+        nh = Math.max(1, drag.startH + dy);
+      }
+      if (d.includes('w')) {
+        nw = Math.max(1, drag.startW - dx);
+        nx = drag.startX + drag.startW - nw;
+      }
+      if (d.includes('n')) {
+        nh = Math.max(1, drag.startH - dy);
+        ny = drag.startY + drag.startH - nh;
+      }
+      if (!layer && area.ratioLocked) {
+        const ratio = currentAspectRatio(area);
+        if (d === 'n' || d === 's') {
+          nw = Math.max(1, nh * ratio);
+        } else {
+          nh = Math.max(1, nw / ratio);
+        }
+        if (d.includes('w')) {
+          nx = drag.startX + drag.startW - nw;
+        }
+        if (d.includes('n')) {
+          ny = drag.startY + drag.startH - nh;
+        }
+      }
+      entity.x = clamp(nx, minX, maxX);
+      entity.y = clamp(ny, minY, maxY);
+      entity.w = Math.min(nw, maxW);
+      entity.h = Math.min(nh, maxH);
+      if (!layer && area.ratioLocked) {
+        const ratio = currentAspectRatio(area);
+        if (d === 'n' || d === 's') {
+          entity.w = Math.min(maxW, Math.max(1, Math.round(entity.h * ratio)));
+        } else {
+          entity.h = Math.min(maxH, Math.max(1, Math.round(entity.w / ratio)));
+        }
+      }
+      if (!layer && !area.ratioLocked) {
+        updateAspectRatio(area);
+      }
+    }
+    updateBoundsBox();
+    renderGhosts();
+    updateCoordsReadout(entity);
+    syncRightBounds(entity);
+    renderHiddenFields();
+  }
+  function onDragEnd() {
+    if (drag) {
+      snapshot();
+    } // snapshot after every move/resize
+    drag = null;
+  }
+  function syncBoundsFromInputs(changedId = '') {
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    const layer = changedId.startsWith('oc-layer-') && getSelectedLayerIndex() >= 0 ? area.layers[getSelectedLayerIndex()] : null;
+    const entity = layer || area;
+    const inputPrefix = layer ? 'oc-layer' : 'oc-prop';
+    const readInt = (id, fallback) => {
+      const value = parseInt(document.getElementById(id)?.value || fallback, 10);
+      return Number.isFinite(value) ? value : fallback;
+    };
+    if (changedId === inputPrefix + '-x') {
+      entity.x = readInt(changedId, entity.x || 0);
+    }
+    if (changedId === inputPrefix + '-y') {
+      entity.y = readInt(changedId, entity.y || 0);
+    }
+    if (changedId === inputPrefix + '-w') {
+      entity.w = Math.max(1, readInt(changedId, entity.w || 1));
+      if (!layer && area.ratioLocked) {
+        entity.h = Math.max(1, Math.round(entity.w / currentAspectRatio(area)));
+      }
+    }
+    if (changedId === inputPrefix + '-h') {
+      entity.h = Math.max(1, readInt(changedId, entity.h || 1));
+      if (!layer && area.ratioLocked) {
+        entity.w = Math.max(1, Math.round(entity.h * currentAspectRatio(area)));
+      }
+    }
+    if (!layer && !area.ratioLocked && (changedId === 'oc-prop-w' || changedId === 'oc-prop-h')) {
+      updateAspectRatio(area);
+    }
+    if (!layer && changedId === 'oc-prop-dpi') {
+      entity.dpi = normaliseDpi(readInt(changedId, entity.dpi || 300));
+    }
+    if (!layer && changedId === 'oc-prop-rotation') {
+      entity.rotation = normaliseRotation(readInt(changedId, entity.rotation || 0));
+    }
+    if (layer) {
+      clampLayerToArea(layer, area);
+    }
+    updateBoundsBox();
+    renderGhosts();
+    updateCoordsReadout(entity);
+    renderHiddenFields();
+    markDirty();
+  }
+  function syncRightBounds(entity) {
+    const area = selectedArea();
+    const layer = selectedLayer();
+    const prefix = entity === layer ? 'oc-layer' : 'oc-prop';
+    setVal(prefix + '-x', entity.x);
+    setVal(prefix + '-y', entity.y);
+    setVal(prefix + '-w', entity.w);
+    setVal(prefix + '-h', entity.h);
+    if (entity === area) {
+      setVal('oc-prop-dpi', entity.dpi || 300);
+    }
+    if (entity === area) {
+      renderRatioLockButton(entity);
+    }
+    if (entity === area) {
+      setVal('oc-prop-rotation', normaliseRotation(entity.rotation));
+    }
+  }
+  return {
+    renderCanvas,
+    updateBoundsBox,
+    renderGhosts,
+    initCanvasInteractions,
+    syncBoundsFromInputs,
+    syncRightBounds
+  };
+}
+
+/***/ },
+
 /***/ "./src/admin/products-page-core.js"
 /*!*****************************************!*\
   !*** ./src/admin/products-page-core.js ***!
@@ -225,7 +868,13 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony import */ var _products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./products-page-hidden-fields */ "./src/admin/products-page-hidden-fields.js");
 /* harmony import */ var _products_page_data__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./products-page-data */ "./src/admin/products-page-data.js");
 /* harmony import */ var _products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./products-page-mockup-picker */ "./src/admin/products-page-mockup-picker.js");
-/* eslint-disable no-console, no-alert, no-undef, no-shadow, no-unused-vars, @wordpress/no-unused-vars-before-return */
+/* harmony import */ var _products_page_interactions__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./products-page-interactions */ "./src/admin/products-page-interactions.js");
+/* harmony import */ var _products_page_canvas__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ./products-page-canvas */ "./src/admin/products-page-canvas.js");
+/* harmony import */ var _products_page_utils__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! ./products-page-utils */ "./src/admin/products-page-utils.js");
+/* eslint-disable no-console, no-alert, no-shadow, no-unused-vars, @wordpress/no-unused-vars-before-return */
+
+
+
 
 
 
@@ -410,12 +1059,12 @@ __webpack_require__.r(__webpack_exports__);
     const state = collectState();
     const body = new URLSearchParams({
       action: 'oc_autosave_design',
-      nonce: ocProductsData.nonce,
+      nonce: window.ocProductsData?.nonce || '',
       design_id: designId,
       revision,
       state: JSON.stringify(state)
     });
-    fetch(ocProductsData.ajaxUrl, {
+    fetch(window.ocProductsData?.ajaxUrl || '', {
       method: 'POST',
       body
     }).then(function (r) {
@@ -490,7 +1139,7 @@ __webpack_require__.r(__webpack_exports__);
           const diff = Math.round((Date.now() - ts * 1000) / 1000);
           const mins = Math.max(1, Math.floor(diff / 60));
           const msg = 'You have unsaved changes from ' + mins + ' minute' + (mins > 1 ? 's' : '') + ' ago. Restore?';
-          if (confirm(msg)) {
+          if (window.confirm(msg)) {
             applyAutosavedState(json.data.state);
             isDirty = true;
             startAutosavePoll();
@@ -536,9 +1185,9 @@ __webpack_require__.r(__webpack_exports__);
     normaliseSettings
   } = (0,_products_page_data__WEBPACK_IMPORTED_MODULE_5__.createProductsPageDataNormalisers)({
     nextUid: () => ++uidCounter,
-    normaliseAspectRatio,
+    normaliseAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseAspectRatio,
     normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
-    normaliseRotation
+    normaliseRotation: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseRotation
   });
   function selectedArea() {
     return areas[selectedIndex] || null;
@@ -548,9 +1197,9 @@ __webpack_require__.r(__webpack_exports__);
     return area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || null : null;
   }
   const applyLayerPreview = (0,_products_page_preview__WEBPACK_IMPORTED_MODULE_3__.createLayerPreviewRenderer)({
-    fontLimit,
+    fontLimit: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.fontLimit,
     layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
-    normaliseHex
+    normaliseHex: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseHex
   });
   const openMockupPicker = (0,_products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_6__.createMockupPicker)({
     commitChange,
@@ -560,9 +1209,11 @@ __webpack_require__.r(__webpack_exports__);
   const {
     initInteractions,
     addLayerWithBounds
-  } = createProductsPageInteractions({
+  } = (0,_products_page_interactions__WEBPACK_IMPORTED_MODULE_7__.createProductsPageInteractions)({
     addArea: area => areas.push(area),
+    clampLayerToArea: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.clampLayerToArea,
     commitChange,
+    defaultSettings,
     getAreas: () => areas,
     getSelectedIndex: () => selectedIndex,
     getSelectedLayerIndex: () => selectedLayerIndex,
@@ -571,7 +1222,9 @@ __webpack_require__.r(__webpack_exports__);
     normaliseArea,
     normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
     normaliseUnit: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit,
+    nextUid: () => ++uidCounter,
     openMockupPicker,
+    redo,
     renderAll,
     renderGhosts,
     renderRatioLockButton,
@@ -584,7 +1237,8 @@ __webpack_require__.r(__webpack_exports__);
     },
     snapshot,
     syncBoundsFromInputs,
-    updateAspectRatio,
+    undo,
+    updateAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.updateAspectRatio,
     updateBoundsBox
   });
   const {
@@ -594,20 +1248,20 @@ __webpack_require__.r(__webpack_exports__);
     initCanvasInteractions,
     syncBoundsFromInputs,
     syncRightBounds
-  } = createProductsPageCanvas({
+  } = (0,_products_page_canvas__WEBPACK_IMPORTED_MODULE_8__.createProductsPageCanvas)({
     addLayerWithBounds,
     applyLayerPreview,
-    clamp,
-    clampLayerToArea,
-    currentAspectRatio,
+    clamp: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.clamp,
+    clampLayerToArea: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.clampLayerToArea,
+    currentAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.currentAspectRatio,
     getAreas: () => areas,
-    getScale,
+    getScale: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.getScale,
     getSelectedIndex: () => selectedIndex,
     getSelectedLayerIndex: () => selectedLayerIndex,
-    hexRgba,
+    hexRgba: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.hexRgba,
     markDirty,
     normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
-    normaliseRotation,
+    normaliseRotation: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseRotation,
     renderAll,
     renderHiddenFields,
     renderRatioLockButton,
@@ -616,21 +1270,21 @@ __webpack_require__.r(__webpack_exports__);
     setSelectedLayerIndex: index => {
       selectedLayerIndex = index;
     },
-    setVal,
+    setVal: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal,
     snapshot,
-    updateAspectRatio
+    updateAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.updateAspectRatio
   });
   const {
     buildTabContent,
     bindSettingsHandlers
   } = (0,_products_page_settings__WEBPACK_IMPORTED_MODULE_1__.createProductsPageSettings)({
     commitChange,
-    esc,
-    fontLimit,
+    esc: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc,
+    fontLimit: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.fontLimit,
     getAreas: () => areas,
     layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
-    normaliseHex,
-    normaliseLinkGroup,
+    normaliseHex: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseHex,
+    normaliseLinkGroup: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseLinkGroup,
     renderLayerList,
     selectedArea,
     syncBoundsFromInputs
@@ -682,7 +1336,7 @@ __webpack_require__.r(__webpack_exports__);
       const thumb = document.createElement('div');
       thumb.className = 'oc-area-strip-thumb';
       if (area.mockupUrl) {
-        const img = new Image();
+        const img = new window.Image();
         img.src = area.mockupUrl;
         img.draggable = false;
         thumb.appendChild(img);
@@ -725,7 +1379,7 @@ __webpack_require__.r(__webpack_exports__);
     areas.forEach((area, i) => {
       const item = document.createElement('div');
       item.className = 'oc-area-item' + (i === selectedIndex ? ' oc-area-item--active' : '') + (!area.visible ? ' oc-layer--hidden' : '') + (area.locked ? ' oc-layer--locked' : '');
-      item.innerHTML = '<span class="oc-area-dot" style="background:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(i) + ';flex-shrink:0;"></span>' + '<span class="oc-area-item-name">' + esc(area.label || 'Print Area ' + (i + 1)) + '</span>' + '<span class="oc-area-item-method">' + esc(methodLabel(area.method)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!area.visible ? ' is-off' : '') + '" title="' + (area.visible ? 'Hide area' : 'Show area') + '">' + (area.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (area.locked ? ' is-on' : '') + '" title="' + (area.locked ? 'Unlock area' : 'Lock area') + '">' + (area.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete area">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
+      item.innerHTML = '<span class="oc-area-dot" style="background:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(i) + ';flex-shrink:0;"></span>' + '<span class="oc-area-item-name">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)(area.label || 'Print Area ' + (i + 1)) + '</span>' + '<span class="oc-area-item-method">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)((0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.methodLabel)(area.method)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!area.visible ? ' is-off' : '') + '" title="' + (area.visible ? 'Hide area' : 'Show area') + '">' + (area.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (area.locked ? ' is-on' : '') + '" title="' + (area.locked ? 'Unlock area' : 'Lock area') + '">' + (area.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete area">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
       item.addEventListener('click', e => {
         if (e.target.closest('.oc-layer-actions')) {
           return;
@@ -752,7 +1406,7 @@ __webpack_require__.r(__webpack_exports__);
       });
       item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
         e.stopPropagation();
-        if (!confirm('Remove this print area and all its layers?')) {
+        if (!window.confirm('Remove this print area and all its layers?')) {
           return;
         }
         areas.splice(i, 1);
@@ -787,16 +1441,16 @@ __webpack_require__.r(__webpack_exports__);
     if (inner) {
       inner.style.display = '';
     }
-    setVal('oc-prop-label', area.label);
-    setVal('oc-prop-method', area.method);
-    setVal('oc-prop-engraving-material', area.material || 'silver_metal');
-    setVal('oc-prop-unit', area.unit || 'px');
-    setVal('oc-prop-x', area.x);
-    setVal('oc-prop-y', area.y);
-    setVal('oc-prop-w', area.w);
-    setVal('oc-prop-h', area.h);
-    setVal('oc-prop-dpi', area.dpi || 300);
-    setVal('oc-prop-rotation', area.rotation);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-label', area.label);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-method', area.method);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-engraving-material', area.material || 'silver_metal');
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-unit', area.unit || 'px');
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-x', area.x);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-y', area.y);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-w', area.w);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-h', area.h);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-dpi', area.dpi || 300);
+    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.setVal)('oc-prop-rotation', area.rotation);
     renderRatioLockButton(area);
     const thumb = document.getElementById('oc-mockup-thumb-img');
     const noThumb = document.getElementById('oc-mockup-thumb-empty');
@@ -919,7 +1573,7 @@ __webpack_require__.r(__webpack_exports__);
       item.className = 'oc-layer-item' + (li === selectedLayerIndex ? ' oc-layer-item--active' : '') + (!layer.visible ? ' oc-layer--hidden' : '') + (layer.locked ? ' oc-layer--locked' : '');
       item.draggable = true;
       item.dataset.layerIndex = li;
-      item.innerHTML = '<span class="oc-layer-drag-handle" title="Drag to reorder">\u22ee\u22ee</span>' + '<span class="oc-layer-icon" style="color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerColor)(layer.type) + ';">' + esc((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerIcon)(layer.type)) + '</span>' + '<span class="oc-layer-item-name">' + esc(layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(layer.type)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!layer.visible ? ' is-off' : '') + '" title="' + (layer.visible ? 'Hide layer' : 'Show layer') + '">' + (layer.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (layer.locked ? ' is-on' : '') + '" title="' + (layer.locked ? 'Unlock layer' : 'Lock layer') + '">' + (layer.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete layer">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
+      item.innerHTML = '<span class="oc-layer-drag-handle" title="Drag to reorder">\u22ee\u22ee</span>' + '<span class="oc-layer-icon" style="color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerColor)(layer.type) + ';">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerIcon)(layer.type)) + '</span>' + '<span class="oc-layer-item-name">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)(layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(layer.type)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!layer.visible ? ' is-off' : '') + '" title="' + (layer.visible ? 'Hide layer' : 'Show layer') + '">' + (layer.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (layer.locked ? ' is-on' : '') + '" title="' + (layer.locked ? 'Unlock layer' : 'Lock layer') + '">' + (layer.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete layer">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
       item.addEventListener('click', e => {
         if (e.target.closest('.oc-layer-actions') || e.target.classList.contains('oc-layer-drag-handle')) {
           return;
@@ -944,7 +1598,7 @@ __webpack_require__.r(__webpack_exports__);
       });
       item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
         e.stopPropagation();
-        if (!confirm('Remove this layer?')) {
+        if (!window.confirm('Remove this layer?')) {
           return;
         }
         area.layers.splice(li, 1);
@@ -1019,7 +1673,7 @@ __webpack_require__.r(__webpack_exports__);
     }
     let html = '<div class="oc-layer-tabs-bar">';
     tabs.forEach(t => {
-      html += '<button type="button" class="oc-layer-tab' + (t.id === activeLayerTab ? ' oc-layer-tab--active' : '') + '" data-tab="' + t.id + '" title="' + esc(t.label) + '" aria-label="' + esc(t.label) + '"><span aria-hidden="true">' + esc(t.icon || t.label.charAt(0)) + '</span></button>';
+      html += '<button type="button" class="oc-layer-tab' + (t.id === activeLayerTab ? ' oc-layer-tab--active' : '') + '" data-tab="' + t.id + '" title="' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)(t.label) + '" aria-label="' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)(t.label) + '"><span aria-hidden="true">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc)(t.icon || t.label.charAt(0)) + '</span></button>';
     });
     html += '</div>';
     tabs.forEach(t => {
@@ -1038,7 +1692,7 @@ __webpack_require__.r(__webpack_exports__);
     bindSettingsHandlers(layer);
   }
   function renderHiddenFields() {
-    (0,_products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_4__.renderProductsPageHiddenFields)(areas, esc);
+    (0,_products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_4__.renderProductsPageHiddenFields)(areas, _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc);
   }
   document.addEventListener('DOMContentLoaded', init);
 })();
@@ -1074,6 +1728,251 @@ function renderProductsPageHiddenFields(areas, esc) {
     });
   });
   c.innerHTML = html;
+}
+
+/***/ },
+
+/***/ "./src/admin/products-page-interactions.js"
+/*!*************************************************!*\
+  !*** ./src/admin/products-page-interactions.js ***!
+  \*************************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   createProductsPageInteractions: () => (/* binding */ createProductsPageInteractions)
+/* harmony export */ });
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
+/* harmony import */ var _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./products-page-metadata */ "./src/admin/products-page-metadata.js");
+/* eslint-disable @wordpress/no-global-active-element */
+
+
+
+function createProductsPageInteractions(deps) {
+  const {
+    addArea,
+    clampLayerToArea,
+    commitChange,
+    defaultSettings,
+    getAreas,
+    getSelectedIndex,
+    getSelectedLayerIndex,
+    initCanvasInteractions,
+    markDirty,
+    normaliseArea,
+    normaliseDpi,
+    normaliseUnit,
+    nextUid,
+    openMockupPicker,
+    redo,
+    renderAll,
+    renderGhosts,
+    renderRatioLockButton,
+    selectedArea,
+    setSelectedIndex,
+    setSelectedLayerIndex,
+    snapshot,
+    syncBoundsFromInputs,
+    undo,
+    updateAspectRatio,
+    updateBoundsBox
+  } = deps;
+  function initInteractions() {
+    document.getElementById('oc-add-area-btn')?.addEventListener('click', () => {
+      const currentArea = getAreas()[getSelectedIndex()] || getAreas()[0] || {};
+      addArea({
+        ...normaliseArea({
+          id: 0,
+          label: 'Print Area ' + (getAreas().length + 1),
+          method: currentArea.method,
+          material: currentArea.material,
+          unit: currentArea.unit,
+          mockupId: currentArea.mockupId,
+          mockupUrl: currentArea.mockupUrl,
+          dpi: currentArea.dpi,
+          visible: true,
+          locked: false
+        }, getAreas().length),
+        layers: []
+      });
+      setSelectedIndex(getAreas().length - 1);
+      setSelectedLayerIndex(-1);
+      snapshot();
+      renderAll();
+    });
+    document.querySelectorAll('.oc-layer-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (getSelectedIndex() >= 0 && btn.dataset.type) {
+          addLayer(btn.dataset.type);
+        }
+      });
+    });
+    document.getElementById('oc-prop-label')?.addEventListener('input', () => {
+      const area = selectedArea();
+      if (area) {
+        area.label = document.getElementById('oc-prop-label').value;
+        commitChange({
+          areasList: true,
+          areaStrip: true
+        });
+      }
+    });
+    document.getElementById('oc-prop-method')?.addEventListener('change', () => {
+      const area = selectedArea();
+      if (area) {
+        area.method = document.getElementById('oc-prop-method').value;
+        if (area.method === 'engraving' && !area.material) {
+          area.material = 'silver_metal';
+        }
+        commitChange({
+          all: true
+        });
+      }
+    });
+    document.getElementById('oc-prop-engraving-material')?.addEventListener('change', () => {
+      const area = selectedArea();
+      if (area) {
+        area.material = document.getElementById('oc-prop-engraving-material').value;
+        commitChange();
+      }
+    });
+    document.getElementById('oc-prop-unit')?.addEventListener('change', () => {
+      const area = selectedArea();
+      if (area) {
+        area.unit = normaliseUnit(document.getElementById('oc-prop-unit').value);
+        updateBoundsBox();
+        renderGhosts();
+        commitChange();
+      }
+    });
+    document.getElementById('oc-prop-dpi')?.addEventListener('input', () => {
+      const area = selectedArea();
+      if (area) {
+        area.dpi = normaliseDpi(document.getElementById('oc-prop-dpi').value);
+        updateBoundsBox();
+        renderGhosts();
+        commitChange();
+      }
+    });
+    document.getElementById('oc-prop-ratio-lock')?.addEventListener('click', () => {
+      const area = selectedArea();
+      if (area) {
+        area.ratioLocked = !area.ratioLocked;
+        updateAspectRatio(area);
+        renderRatioLockButton(area);
+        markDirty();
+      }
+    });
+    ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => {
+        syncBoundsFromInputs(id);
+        markDirty();
+      });
+    });
+    ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
+      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
+    });
+    document.getElementById('oc-choose-mockup-btn')?.addEventListener('click', openMockupPicker);
+    document.getElementById('oc-remove-mockup-btn')?.addEventListener('click', () => {
+      const area = selectedArea();
+      if (area) {
+        area.mockupId = 0;
+        area.mockupUrl = '';
+        commitChange({
+          all: true
+        });
+      }
+    });
+    document.getElementById('oc-undo-btn')?.addEventListener('click', undo);
+    document.getElementById('oc-redo-btn')?.addEventListener('click', redo);
+    document.getElementById('oc-canvas-stage')?.addEventListener('click', e => {
+      if (e.target === document.getElementById('oc-canvas-stage') || e.target === document.getElementById('oc-canvas-mockup-img') || e.target === document.getElementById('oc-canvas-ghosts')) {
+        if (getSelectedLayerIndex() >= 0) {
+          setSelectedLayerIndex(-1);
+          renderAll();
+        }
+      }
+    });
+    document.addEventListener('keydown', e => {
+      const tag = document.activeElement?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') {
+        return;
+      }
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          undo();
+        }
+        if (e.key === 'z' && e.shiftKey) {
+          e.preventDefault();
+          redo();
+        }
+        if (e.key === 'y') {
+          e.preventDefault();
+          redo();
+        }
+      }
+    });
+    window.addEventListener('resize', () => {
+      if (getSelectedIndex() >= 0) {
+        updateBoundsBox();
+        renderGhosts();
+      }
+    });
+    document.getElementById('oc-canvas-mockup-img')?.addEventListener('load', () => {
+      updateBoundsBox();
+      renderGhosts();
+    });
+    initCanvasInteractions();
+  }
+  function addLayer(type) {
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    const def = _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_DEFAULTS[type] || {
+      w: 200,
+      h: 100
+    };
+    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
+    const lw = Math.max(1, Math.round(def.w / px));
+    const lh = Math.max(1, Math.round(def.h / px));
+    const lx = area.x + Math.max(0, Math.round((area.w - lw) / 2));
+    const ly = area.y + Math.max(0, Math.round((area.h - lh) / 2));
+    addLayerWithBounds(type, lx, ly, lw, lh);
+  }
+  function createLayer(type, area, x, y, w, h) {
+    const layer = {
+      _uid: nextUid(),
+      id: 0,
+      type,
+      label: (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(type) + ' ' + (area.layers.length + 1),
+      x,
+      y,
+      w,
+      h,
+      visible: true,
+      locked: false,
+      settings: defaultSettings(type),
+      sortOrder: area.layers.length
+    };
+    clampLayerToArea(layer, area);
+    return layer;
+  }
+  function addLayerWithBounds(type, x, y, w, h) {
+    const area = selectedArea();
+    if (!area) {
+      return;
+    }
+    area.layers.push(createLayer(type, area, x, y, w, h));
+    setSelectedLayerIndex(area.layers.length - 1);
+    snapshot();
+    renderAll();
+  }
+  return {
+    initInteractions,
+    addLayerWithBounds
+  };
 }
 
 /***/ },
@@ -1325,7 +2224,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   createMockupPicker: () => (/* binding */ createMockupPicker)
 /* harmony export */ });
-/* eslint-disable no-alert, no-undef */
+/* eslint-disable no-alert */
 
 function createMockupPicker(deps) {
   const {
@@ -1339,12 +2238,12 @@ function createMockupPicker(deps) {
       return;
     }
     if (!window.wp || !window.wp.media) {
-      alert('Media library is not available.');
+      window.alert('Media library is not available.');
       return;
     }
     if (!mediaFrame) {
       const data = window.ocProductsData || {};
-      mediaFrame = wp.media({
+      mediaFrame = window.wp.media({
         title: data.mediaTitle || 'Select Mockup Image',
         button: {
           text: data.mediaBtn || 'Use as Mockup'
@@ -1383,7 +2282,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   createLayerPreviewRenderer: () => (/* binding */ createLayerPreviewRenderer)
 /* harmony export */ });
-/* eslint-disable no-undef, no-nested-ternary */
+/* eslint-disable no-nested-ternary */
 
 function createLayerPreviewRenderer(deps) {
   const {
@@ -1493,7 +2392,7 @@ function createLayerPreviewRenderer(deps) {
       el.appendChild(d);
       const minFontSize = fontLimit(s.min_font_size) ? fontLimit(s.min_font_size) * scale : 4;
       fitTextPreview(d, fs, minFontSize, isSingleLine);
-      requestAnimationFrame(() => fitTextPreview(d, fs, minFontSize, isSingleLine));
+      window.requestAnimationFrame(() => fitTextPreview(d, fs, minFontSize, isSingleLine));
       document.fonts?.ready?.then?.(() => fitTextPreview(d, parseFloat(d.style.fontSize) || fs, minFontSize, isSingleLine));
     } else if (layer.type === 'image' || layer.type === 'clipmask') {
       if (layer.type === 'image' && s.default_attachment_url) {
@@ -2045,6 +2944,92 @@ function createProductsPageSettings(deps) {
     buildTabContent,
     bindSettingsHandlers
   };
+}
+
+/***/ },
+
+/***/ "./src/admin/products-page-utils.js"
+/*!******************************************!*\
+  !*** ./src/admin/products-page-utils.js ***!
+  \******************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   clamp: () => (/* binding */ clamp),
+/* harmony export */   clampLayerToArea: () => (/* binding */ clampLayerToArea),
+/* harmony export */   currentAspectRatio: () => (/* binding */ currentAspectRatio),
+/* harmony export */   esc: () => (/* binding */ esc),
+/* harmony export */   fontLimit: () => (/* binding */ fontLimit),
+/* harmony export */   getScale: () => (/* binding */ getScale),
+/* harmony export */   hexRgba: () => (/* binding */ hexRgba),
+/* harmony export */   methodLabel: () => (/* binding */ methodLabel),
+/* harmony export */   normaliseAspectRatio: () => (/* binding */ normaliseAspectRatio),
+/* harmony export */   normaliseHex: () => (/* binding */ normaliseHex),
+/* harmony export */   normaliseLinkGroup: () => (/* binding */ normaliseLinkGroup),
+/* harmony export */   normaliseRotation: () => (/* binding */ normaliseRotation),
+/* harmony export */   setVal: () => (/* binding */ setVal),
+/* harmony export */   updateAspectRatio: () => (/* binding */ updateAspectRatio)
+/* harmony export */ });
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function setVal(id, v) {
+  const el = document.getElementById(id);
+  if (el) {
+    el.value = v;
+  }
+}
+function getScale(img) {
+  return img && img.naturalWidth ? img.clientWidth / img.naturalWidth : 0;
+}
+function clamp(v, lo, hi) {
+  return Math.min(Math.max(v, lo), hi);
+}
+function fontLimit(value) {
+  return Math.max(0, parseInt(value, 10) || 0);
+}
+function normaliseHex(value) {
+  return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#000000';
+}
+function normaliseLinkGroup(value) {
+  return String(value || '').trim();
+}
+function normaliseRotation(value) {
+  const angle = Number(value) || 0;
+  return Math.round((angle % 360 + 360) % 360);
+}
+function normaliseAspectRatio(value, w, h) {
+  const ratio = Number(value) || (Number(w) && Number(h) ? Number(w) / Number(h) : 1);
+  return ratio > 0 ? ratio : 1;
+}
+function currentAspectRatio(entity) {
+  return normaliseAspectRatio(entity?.aspectRatio, entity?.w, entity?.h);
+}
+function updateAspectRatio(entity) {
+  if (entity?.w && entity?.h) {
+    entity.aspectRatio = normaliseAspectRatio(0, entity.w, entity.h);
+  }
+}
+function clampLayerToArea(layer, area) {
+  if (!layer || !area) {
+    return;
+  }
+  const maxW = Math.max(1, area.w);
+  const maxH = Math.max(1, area.h);
+  layer.w = clamp(Math.round(layer.w), 1, maxW);
+  layer.h = clamp(Math.round(layer.h), 1, maxH);
+  layer.x = clamp(Math.round(layer.x), area.x, area.x + area.w - layer.w);
+  layer.y = clamp(Math.round(layer.y), area.y, area.y + area.h - layer.h);
+}
+function hexRgba(hex, a) {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
+}
+function methodLabel(m) {
+  return ((window.ocProductsData || {}).methodLabels || {})[m] || m;
 }
 
 /***/ },
