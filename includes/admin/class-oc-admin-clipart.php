@@ -35,10 +35,10 @@ class OC_Admin_Clipart {
 
 	public static function get_clipart_url( string $file_path ): string {
 		$upload_dir = wp_upload_dir();
-		$base_dir   = wp_normalize_path( $upload_dir['basedir'] );
+		$base_dir   = trailingslashit( wp_normalize_path( $upload_dir['basedir'] ) );
 		$norm_path  = wp_normalize_path( $file_path );
 		if ( str_starts_with( $norm_path, $base_dir ) ) {
-			return $upload_dir['baseurl'] . substr( $norm_path, strlen( $base_dir ) );
+			return trailingslashit( $upload_dir['baseurl'] ) . substr( $norm_path, strlen( $base_dir ) );
 		}
 		return '';
 	}
@@ -715,7 +715,8 @@ class OC_Admin_Clipart {
 			$upload    = wp_upload_dir();
 			$base_real = realpath( $upload['basedir'] );
 			$path_real = realpath( $row->file_path );
-			if ( $base_real && $path_real && 0 === strpos( $path_real, $base_real ) ) {
+			$base_prefix = $base_real ? rtrim( $base_real, '/\\' ) . DIRECTORY_SEPARATOR : '';
+			if ( $path_real && '' !== $base_prefix && str_starts_with( $path_real, $base_prefix ) && is_file( $path_real ) ) {
 				wp_delete_file( $path_real );
 			}
 		}

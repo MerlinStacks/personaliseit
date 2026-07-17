@@ -58,7 +58,9 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	private function create_test_artwork( int $attachment_id, array $context = [], string $token = '' ): void {
-		$file = tempnam( sys_get_temp_dir(), 'oc_artwork_' ) . '.png';
+		$directory = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/artwork';
+		wp_mkdir_p( $directory );
+		$file = tempnam( $directory, 'oc_artwork_' );
 		file_put_contents( $file, base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true ) );
 		$this->temporary_files[] = $file;
 

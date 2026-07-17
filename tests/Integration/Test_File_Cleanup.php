@@ -45,8 +45,9 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 
 	private function make_tmp_file(): string {
 		$uploads = wp_upload_dir();
-		wp_mkdir_p( $uploads['basedir'] );
-		$path = tempnam( $uploads['basedir'], 'oc_cleanup_test_' );
+		$directory = trailingslashit( $uploads['basedir'] ) . 'overcustomise/print-files/test';
+		wp_mkdir_p( $directory );
+		$path = tempnam( $directory, 'oc_cleanup_test_' );
 		file_put_contents( $path, 'test content' );
 		$this->tmp_files[] = $path;
 		return $path;
@@ -180,6 +181,19 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 	}
 
 	#[Test]
+	public function cleanup_does_not_delete_unrelated_upload_file(): void {
+		$uploads = wp_upload_dir();
+		$path    = tempnam( $uploads['basedir'], 'oc_cleanup_unrelated_' );
+		$this->tmp_files[] = $path;
+		$id = $this->insert_print_file( 'files_ready', gmdate( 'Y-m-d H:i:s', strtotime( '-1 day' ) ), $path );
+
+		OC_File_Cleanup::run();
+
+		$this->assertFileExists( $path );
+		$this->assertSame( 'files_ready', OC_DB::get_print_file( $id )->file_status );
+	}
+
+	#[Test]
 	public function active_wc_session_and_persistent_cart_references_protect_artwork(): void {
 		global $wpdb;
 		$method = new ReflectionMethod( OC_File_Cleanup::class, 'customer_artwork_is_referenced' );
@@ -190,14 +204,15 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 
 		$wpdb->insert( $session_table, [
 			'session_key'    => 'oc-cleanup-test',
-			'session_value'  => serialize( [ 'cart' => [ [ 'attachmentId' => 45671 ] ] ] ),
+			'session_value'  => serialize( [ 'cart' => [ [ 'sourceAttachmentId' => 45671 ] ] ] ),
 			'session_expiry' => time() + HOUR_IN_SECONDS,
 		] );
 		$this->assertTrue( $method->invoke( null, 45671 ) );
+		$this->assertFalse( $method->invoke( null, 4567 ) );
 
 		$user_id = self::factory()->user->create();
 		update_user_meta( $user_id, '_woocommerce_persistent_cart_1', [
-			'cart' => [ [ 'customisation' => [ 'attachmentId' => 45672 ] ] ],
+			'cart' => [ [ 'customisation' => [ 'previewAttachmentId' => 45672 ] ] ],
 		] );
 		$this->assertTrue( $method->invoke( null, 45672 ) );
 	}

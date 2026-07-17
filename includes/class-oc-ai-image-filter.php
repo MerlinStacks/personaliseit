@@ -10,7 +10,12 @@ defined( 'ABSPATH' ) || exit;
 class OC_AI_Image_Filter {
 
 	private const ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+	private const MAX_SOURCE_BYTES = 15728640;
 	private const MAX_RESULT_BYTES = 15728640;
+	private const MAX_RESPONSE_BYTES = 25165824;
+	private const MAX_IMAGE_DIMENSION = 12000;
+	private const MAX_IMAGE_PIXELS = 40000000;
+	private const MAX_PROMPT_BYTES = 16384;
 
 	/** Generate a filtered image from a raster attachment. */
 	public static function generate( int $source_attachment_id, string $prompt ): array|\WP_Error {
@@ -20,8 +25,8 @@ class OC_AI_Image_Filter {
 		}
 
 		$prompt = trim( $prompt );
-		if ( '' === $prompt ) {
-			return new \WP_Error( 'invalid_filter', __( 'This AI filter has no prompt.', 'overcustomise' ) );
+		if ( '' === $prompt || strlen( $prompt ) > self::MAX_PROMPT_BYTES ) {
+			return new \WP_Error( 'invalid_filter', __( 'This AI filter has an invalid prompt.', 'overcustomise' ) );
 		}
 
 		$path = get_attached_file( $source_attachment_id );
@@ -29,18 +34,48 @@ class OC_AI_Image_Filter {
 		if ( ! is_string( $path ) || ! is_file( $path ) || ! in_array( $mime, [ 'image/jpeg', 'image/png', 'image/webp' ], true ) ) {
 			return new \WP_Error( 'unsupported_source', __( 'AI filters currently require a JPG, PNG, or WebP image.', 'overcustomise' ) );
 		}
+		$source_size = filesize( $path );
+		$source_info = @getimagesize( $path );
+		if ( false === $source_size || $source_size <= 0 || $source_size > self::MAX_SOURCE_BYTES
+			|| ! is_array( $source_info ) || (string) ( $source_info['mime'] ?? '' ) !== $mime
+			|| (int) $source_info[0] <= 0 || (int) $source_info[1] <= 0
+			|| (int) $source_info[0] > self::MAX_IMAGE_DIMENSION || (int) $source_info[1] > self::MAX_IMAGE_DIMENSION
+			|| (int) $source_info[0] * (int) $source_info[1] > self::MAX_IMAGE_PIXELS
+		) {
+			return new \WP_Error( 'unsupported_source', __( 'The source image exceeds the safe AI processing limits.', 'overcustomise' ) );
+		}
 
 		$bytes = file_get_contents( $path );
 		if ( false === $bytes || '' === $bytes ) {
 			return new \WP_Error( 'source_unreadable', __( 'The uploaded image could not be read.', 'overcustomise' ) );
 		}
 
-		$model    = OC_Admin_Settings::get_openrouter_image_model();
+		$model = OC_Admin_Settings::get_openrouter_image_model();
+		$body  = wp_json_encode( [
+			'model'      => $model,
+			'modalities' => [ 'image', 'text' ],
+			'messages'   => [
+				[
+					'role'    => 'user',
+					'content' => [
+						[ 'type' => 'text', 'text' => $prompt ],
+						[ 'type' => 'image_url', 'image_url' => [ 'url' => 'data:' . $mime . ';base64,' . base64_encode( $bytes ) ] ],
+					],
+				],
+			],
+		] );
+		if ( ! is_string( $body ) ) {
+			return new \WP_Error( 'invalid_ai_request', __( 'The AI image request could not be encoded.', 'overcustomise' ) );
+		}
+
 		$response = wp_remote_post(
 			self::ENDPOINT,
 			[
 				'timeout'     => 120,
 				'redirection' => 0,
+				'limit_response_size' => self::MAX_RESPONSE_BYTES,
+				'reject_unsafe_urls'  => true,
+				'sslverify'            => true,
 				'headers'     => [
 					'Authorization' => 'Bearer ' . $api_key,
 					'Content-Type'  => 'application/json',
@@ -48,19 +83,7 @@ class OC_AI_Image_Filter {
 					'HTTP-Referer'  => home_url(),
 					'X-Title'       => 'OverCustomise',
 				],
-				'body'        => wp_json_encode( [
-					'model'      => $model,
-					'modalities' => [ 'image', 'text' ],
-					'messages'   => [
-						[
-							'role'    => 'user',
-							'content' => [
-								[ 'type' => 'text', 'text' => $prompt ],
-								[ 'type' => 'image_url', 'image_url' => [ 'url' => 'data:' . $mime . ';base64,' . base64_encode( $bytes ) ] ],
-							],
-						],
-					],
-				] ),
+				'body'        => $body,
 			],
 		);
 
@@ -69,10 +92,11 @@ class OC_AI_Image_Filter {
 			return new \WP_Error( 'openrouter_unavailable', __( 'The AI image service could not be reached. Please try again.', 'overcustomise' ) );
 		}
 
-		$status = (int) wp_remote_retrieve_response_code( $response );
-		$body   = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$status        = (int) wp_remote_retrieve_response_code( $response );
+		$response_body = (string) wp_remote_retrieve_body( $response );
+		$decoded_body  = strlen( $response_body ) <= self::MAX_RESPONSE_BYTES ? json_decode( $response_body, true ) : null;
 		if ( $status < 200 || $status >= 300 ) {
-			$message = is_array( $body ) ? sanitize_text_field( (string) ( $body['error']['message'] ?? '' ) ) : '';
+			$message = is_array( $decoded_body ) ? sanitize_text_field( (string) ( $decoded_body['error']['message'] ?? '' ) ) : '';
 			OC_Logger::warning( sprintf( 'OpenRouter image request returned HTTP %d: %s', $status, $message ) );
 			if ( 429 === $status ) {
 				return new \WP_Error( 'openrouter_rate_limited', __( 'The AI image service is busy. Please try again shortly.', 'overcustomise' ) );
@@ -80,7 +104,7 @@ class OC_AI_Image_Filter {
 			return new \WP_Error( 'openrouter_failed', $message ?: __( 'The AI image service could not process this image.', 'overcustomise' ) );
 		}
 
-		$image = self::extract_image( is_array( $body ) ? $body : [] );
+		$image = self::extract_image( is_array( $decoded_body ) ? $decoded_body : [] );
 		if ( is_wp_error( $image ) ) {
 			OC_Logger::warning( 'OpenRouter returned no usable image.' );
 			return $image;
@@ -125,12 +149,23 @@ class OC_AI_Image_Filter {
 		$mime  = '';
 		$bytes = false;
 		if ( preg_match( '#^data:(image/(?:png|jpeg|webp));base64,(.+)$#s', $url, $matches ) ) {
+			if ( strlen( $matches[2] ) > (int) ceil( self::MAX_RESULT_BYTES * 4 / 3 ) + 4 ) {
+				return new \WP_Error( 'invalid_ai_image', __( 'The AI model returned invalid image data.', 'overcustomise' ) );
+			}
 			$mime  = strtolower( $matches[1] );
 			$bytes = base64_decode( $matches[2], true );
 		} elseif ( wp_http_validate_url( $url ) && 'https' === wp_parse_url( $url, PHP_URL_SCHEME ) ) {
-			$response = wp_safe_remote_get( $url, [ 'timeout' => 60, 'limit_response_size' => self::MAX_RESULT_BYTES ] );
+			$response = wp_safe_remote_get( $url, [
+				'timeout'             => 60,
+				'limit_response_size' => self::MAX_RESULT_BYTES,
+				'redirection'         => 0,
+				'reject_unsafe_urls'  => true,
+				'sslverify'           => true,
+			] );
 			if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
 				$mime  = strtolower( trim( explode( ';', (string) wp_remote_retrieve_header( $response, 'content-type' ) )[0] ) );
+				$mime  = 'image/jpg' === $mime ? 'image/jpeg' : $mime;
+				$mime  = in_array( $mime, [ 'image/png', 'image/jpeg', 'image/webp' ], true ) ? $mime : '';
 				$bytes = wp_remote_retrieve_body( $response );
 			}
 		}
@@ -139,7 +174,13 @@ class OC_AI_Image_Filter {
 			return new \WP_Error( 'invalid_ai_image', __( 'The AI model returned invalid image data.', 'overcustomise' ) );
 		}
 		$info = @getimagesizefromstring( $bytes );
-		if ( ! is_array( $info ) || ! in_array( (string) ( $info['mime'] ?? '' ), [ 'image/png', 'image/jpeg', 'image/webp' ], true ) ) {
+		if ( ! is_array( $info )
+			|| ! in_array( (string) ( $info['mime'] ?? '' ), [ 'image/png', 'image/jpeg', 'image/webp' ], true )
+			|| ( '' !== $mime && $mime !== (string) ( $info['mime'] ?? '' ) )
+			|| (int) $info[0] <= 0 || (int) $info[1] <= 0
+			|| (int) $info[0] > self::MAX_IMAGE_DIMENSION || (int) $info[1] > self::MAX_IMAGE_DIMENSION
+			|| (int) $info[0] * (int) $info[1] > self::MAX_IMAGE_PIXELS
+		) {
 			return new \WP_Error( 'invalid_ai_image', __( 'The AI model returned an unsupported image.', 'overcustomise' ) );
 		}
 

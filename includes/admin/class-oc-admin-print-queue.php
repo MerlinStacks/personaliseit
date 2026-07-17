@@ -156,29 +156,11 @@ class OC_Admin_Print_Queue {
 
 			case 'retry':
 				if ( $job_id ) {
-					OC_DB::update_queue_job( $job_id, [
-						'status'        => 'pending',
-						'error_message' => null,
-						'processed_at'  => null,
-					] );
-					$this->redirect_with_notice( 'retry', $job_id );
+					$retried = OC_Print_Queue::instance()->retry_job( $job_id );
+					$this->redirect_with_notice( $retried ? 'retry' : 'retry_failed', $job_id );
 				}
 				break;
 
-			case 'delete':
-				if ( $job_id ) {
-					global $wpdb;
-					$wpdb->delete( $wpdb->prefix . 'oc_print_queue', [ 'id' => $job_id ], [ '%d' ] );
-					$this->redirect_with_notice( 'deleted', $job_id );
-				}
-				break;
-
-			case 'reset_file':
-				if ( $job_id ) {
-					OC_DB::update_print_file( $job_id, [ 'file_status' => 'pending' ] );
-					$this->redirect_with_notice( 'reset_file', $job_id );
-				}
-				break;
 		}
 	}
 
@@ -204,13 +186,10 @@ class OC_Admin_Print_Queue {
 				add_settings_error( 'oc_print_queue', 'retry', sprintf( __( 'Job #%d returned to pending.', 'overcustomise' ), $value ), 'success' );
 				break;
 
-			case 'deleted':
-				add_settings_error( 'oc_print_queue', 'deleted', sprintf( __( 'Deleted job #%d.', 'overcustomise' ), $value ), 'success' );
+			case 'retry_failed':
+				add_settings_error( 'oc_print_queue', 'retry_failed', sprintf( __( 'Job #%d could not be retried because its state changed.', 'overcustomise' ), $value ), 'error' );
 				break;
 
-			case 'reset_file':
-				add_settings_error( 'oc_print_queue', 'reset_file', sprintf( __( 'Reset print file #%d to pending.', 'overcustomise' ), $value ), 'success' );
-				break;
 		}
 	}
 
@@ -249,7 +228,6 @@ class OC_Admin_Print_Queue {
 			<td><?php echo esc_html( $this->format_date( $file->generated_at ) ); ?></td>
 			<td class="oc-queue-actions">
 				<a class="button button-small" href="<?php echo esc_url( $regen_url ); ?>"><?php esc_html_e( 'Regenerate', 'overcustomise' ); ?></a>
-				<?php $this->render_action_button( 'reset_file', (int) $file->id, __( 'Mark Pending', 'overcustomise' ), 'button button-small' ); ?>
 			</td>
 		</tr>
 		<?php
@@ -272,10 +250,9 @@ class OC_Admin_Print_Queue {
 				<?php if ( 'pending' === (string) $job->status ) : ?>
 					<?php $this->render_action_button( 'process_one', (int) $job->id, __( 'Process', 'overcustomise' ), 'button button-small' ); ?>
 				<?php endif; ?>
-				<?php if ( in_array( (string) $job->status, [ 'failed', 'processing' ], true ) ) : ?>
+				<?php if ( 'failed' === (string) $job->status ) : ?>
 					<?php $this->render_action_button( 'retry', (int) $job->id, __( 'Retry', 'overcustomise' ), 'button button-small' ); ?>
 				<?php endif; ?>
-				<?php $this->render_action_button( 'delete', (int) $job->id, __( 'Delete', 'overcustomise' ), 'button button-small', __( 'Delete this queue job?', 'overcustomise' ) ); ?>
 			</td>
 		</tr>
 		<?php

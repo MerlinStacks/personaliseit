@@ -197,7 +197,9 @@ class OC_Admin_Order_Metabox {
 						echo ' &nbsp;<em style="color:#888;">' . esc_html__( '(File missing on disk)', 'overcustomise' ) . '</em>';
 					}
 
-					if ( in_array( (string) $file->file_status, [ 'files_ready', 'expired', 'brief_ready', 'awaiting_dst_upload', 'generating', 'pending' ], true ) ) {
+					$can_regenerate = in_array( (string) $file->file_status, [ 'files_ready', 'expired', 'brief_ready', 'awaiting_dst_upload' ], true )
+						|| ( in_array( (string) $file->file_status, [ 'generating', 'pending' ], true ) && ! $queue_info['in_queue'] && ! $queue_info['is_processing'] );
+					if ( $can_regenerate ) {
 						$regen_url = add_query_arg( [
 							'oc_regenerate' => $file->id,
 							'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . $file->id ),
@@ -211,7 +213,7 @@ class OC_Admin_Order_Metabox {
 
 					// Inline thumbnail preview for files_ready.
 					if ( 'files_ready' === $file->file_status ) {
-						$this->render_thumbnail( $file, $order );
+						$this->render_thumbnail( $file );
 					}
 
 					echo '</div>';
@@ -291,13 +293,13 @@ class OC_Admin_Order_Metabox {
 			return $html;
 		}
 
-		if ( 'image' === $type && ! empty( $layer_data['attachmentId'] ) ) {
-			$thumb = wp_get_attachment_image(
-				(int) $layer_data['attachmentId'],
-				[ 48, 48 ],
-				false,
-				[ 'style' => 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' ]
-			);
+		if ( in_array( $type, [ 'image', 'clipmask' ], true ) && ! empty( $layer_data['attachmentId'] ) ) {
+			$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
+			$url           = OC_Upload_Handler::attachment_access_url( $attachment_id );
+			$thumb         = $url ? sprintf(
+				'<img src="%s" alt="" width="48" height="48" loading="lazy" style="vertical-align:middle;border:1px solid #ddd;border-radius:2px;" />',
+				esc_url( $url )
+			) : '';
 			return $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
 		}
 
@@ -389,11 +391,18 @@ class OC_Admin_Order_Metabox {
 		return '';
 	}
 
-	private function render_thumbnail( object $file, \WC_Order $order ): void {
+	private function render_thumbnail( object $file ): void {
 		$thumb_url = null;
 
 		if ( ! empty( $file->thumbnail_path ) && file_exists( $file->thumbnail_path ) ) {
-			$thumb_url = $this->get_protected_file_url( $file->thumbnail_path, $file->id, 'oc_download_' );
+			$thumb_url = add_query_arg(
+				[
+					'action'    => 'oc_serve_print_thumbnail',
+					'file_id'   => (int) $file->id,
+					'_wpnonce'  => wp_create_nonce( 'oc_thumbnail_' . (int) $file->id ),
+				],
+				admin_url( 'admin-ajax.php' )
+			);
 		}
 
 		echo '<div style="margin-top:6px;">';
@@ -415,19 +424,6 @@ class OC_Admin_Order_Metabox {
 		echo '</div>';
 	}
 
-	private function get_protected_file_url( string $file_path, int $file_id, string $nonce_action ): string {
-		$upload_dir = wp_upload_dir();
-		$base_url   = rtrim( $upload_dir['baseurl'], '/' );
-		$base_dir   = rtrim( $upload_dir['basedir'], '/' );
-
-		if ( strpos( realpath( $file_path ) ?: '', realpath( $base_dir ) ?: '' ) === 0 ) {
-			$relative = substr( $file_path, strlen( $base_dir ) + 1 );
-			return $base_url . '/' . $relative;
-		}
-
-		return admin_url( 'admin-ajax.php?action=oc_serve_thumb&file_id=' . $file_id . '&_wpnonce=' . wp_create_nonce( $nonce_action . $file_id ) );
-	}
-
 	private function get_status_label( string $status ): string {
 		$labels = [
 			'pending'               => __( 'Pending', 'overcustomise' ),
@@ -436,6 +432,7 @@ class OC_Admin_Order_Metabox {
 			'awaiting_dst_upload'   => __( 'Legacy DST Pending', 'overcustomise' ),
 			'files_ready'           => __( 'Files Ready', 'overcustomise' ),
 			'expired'               => __( 'Expired', 'overcustomise' ),
+			'failed'                => __( 'Failed', 'overcustomise' ),
 		];
 		return $labels[ $status ] ?? ucfirst( $status );
 	}
@@ -447,6 +444,7 @@ class OC_Admin_Order_Metabox {
 			'brief_ready'         => '#0073aa',
 			'generating'          => '#555',
 			'expired'             => '#b32d2e',
+			'failed'              => '#b32d2e',
 			default               => '#888',
 		};
 	}

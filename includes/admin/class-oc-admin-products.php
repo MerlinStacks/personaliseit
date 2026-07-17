@@ -97,10 +97,24 @@ class OC_Admin_Products {
 			wp_send_json_error( [ 'message' => __( 'Invalid state.', 'overcustomise' ) ] );
 		}
 
-		$revision = max( 0, (int) ( $_POST['revision'] ?? 0 ) );
-		$ok       = OC_Autosave::store( $design_id, $state, $revision );
-		if ( $ok ) {
-			wp_send_json_success( [ 'timestamp' => time(), 'revision' => $revision ] );
+		$revision          = max( 0, (int) ( $_POST['revision'] ?? 0 ) );
+		$expected_revision = max( 0, (int) ( $_POST['expected_revision'] ?? 0 ) );
+		$result            = OC_Autosave::store( $design_id, $state, $revision, $expected_revision );
+		if ( 'stored' === $result['status'] ) {
+			wp_send_json_success( [
+				'timestamp' => (int) $result['timestamp'],
+				'revision'  => (int) $result['revision'],
+			] );
+		} elseif ( 'conflict' === $result['status'] ) {
+			wp_send_json_error(
+				[
+					'code'      => 'autosave_conflict',
+					'message'   => __( 'A newer autosave exists from another tab. Reload this design before saving.', 'overcustomise' ),
+					'timestamp' => (int) $result['timestamp'],
+					'revision'  => (int) $result['revision'],
+				],
+				409
+			);
 		} else {
 			wp_send_json_error( [ 'message' => __( 'Autosave failed.', 'overcustomise' ) ] );
 		}
@@ -902,9 +916,11 @@ class OC_Admin_Products {
 			}
 		}
 
-		$id     = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
-		$design = $id > 0 ? OC_DB::get_design( $id ) : null;
-		$areas  = $id > 0 ? OC_DB::get_design_print_areas( $id ) : [];
+		$id                 = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
+		$design             = $id > 0 ? OC_DB::get_design( $id ) : null;
+		$areas              = $id > 0 ? OC_DB::get_design_print_areas( $id ) : [];
+		$design_custom_type = $design && in_array( $design->custom_type, [ 'text_only', 'photo_text' ], true ) ? $design->custom_type : 'text_only';
+		$design_flat_rate   = $design ? (float) $design->flat_rate : max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) );
 
 		// Build areas JSON for JS.
 		$areas_js = array_map( function ( $area ) {
@@ -1021,14 +1037,14 @@ class OC_Admin_Products {
 					<span id="oc-autosave-indicator" class="oc-autosave-indicator"></span>
 					<label class="oc-toggle-label" style="margin:0;font-size:12px;">
 						<span class="oc-toggle">
-							<input type="checkbox" name="oc_active" value="1" form="oc-design-form"
+							<input type="checkbox" name="oc_active" id="oc_active" value="1" form="oc-design-form"
 							       <?php checked( $design ? $design->active : 1, 1 ); ?> />
 							<span class="oc-toggle-slider"></span>
 						</span>
 						<?php esc_html_e( 'Active', 'overcustomise' ); ?>
 					</label>
 					<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>" class="oc-btn oc-btn-secondary"><?php esc_html_e( 'Cancel', 'overcustomise' ); ?></a>
-					<button type="submit" form="oc-design-form" class="oc-btn oc-btn-primary"><?php esc_html_e( 'Save Design', 'overcustomise' ); ?></button>
+					<button type="submit" form="oc-design-form" id="oc-save-design-btn" class="oc-btn oc-btn-primary" disabled aria-disabled="true"><?php esc_html_e( 'Save Design', 'overcustomise' ); ?></button>
 				</div>
 			</div>
 
@@ -1042,6 +1058,22 @@ class OC_Admin_Products {
 
 					<!-- LEFT: design settings + areas list -->
 					<div class="oc-editor-left">
+						<div class="oc-editor-section">
+							<div class="oc-editor-section-header">
+								<h3><?php esc_html_e( 'Design Settings', 'overcustomise' ); ?></h3>
+							</div>
+							<div class="oc-editor-field">
+								<label for="oc_custom_type"><?php esc_html_e( 'Customisation Type', 'overcustomise' ); ?></label>
+								<select id="oc_custom_type" name="oc_custom_type" class="oc-select" style="width:100%;">
+									<option value="text_only" <?php selected( $design_custom_type, 'text_only' ); ?>><?php esc_html_e( 'Text Only', 'overcustomise' ); ?></option>
+									<option value="photo_text" <?php selected( $design_custom_type, 'photo_text' ); ?>><?php esc_html_e( 'Photo + Text', 'overcustomise' ); ?></option>
+								</select>
+							</div>
+							<div class="oc-editor-field" style="margin-bottom:0;">
+								<label for="oc_flat_rate"><?php esc_html_e( 'Flat Rate (AUD)', 'overcustomise' ); ?></label>
+								<input type="number" id="oc_flat_rate" name="oc_flat_rate" class="oc-input" min="0" step="0.01" inputmode="decimal" value="<?php echo esc_attr( number_format( $design_flat_rate, 2, '.', '' ) ); ?>" style="width:100%;" />
+							</div>
+						</div>
 
 						<div class="oc-editor-section oc-editor-section--grow">
 							<div class="oc-editor-section-header">
@@ -1242,11 +1274,23 @@ class OC_Admin_Products {
 
 		$design_id   = (int) ( $_POST['oc_design_id'] ?? 0 );
 		$name        = sanitize_text_field( $_POST['oc_design_name'] ?? '' );
-		$custom_type = in_array( $_POST['oc_custom_type'] ?? '', [ 'text_only', 'photo_text' ], true )
-			? sanitize_key( $_POST['oc_custom_type'] )
-			: 'text_only';
-		$flat_rate   = number_format( max( 0, (float) ( $_POST['oc_flat_rate'] ?? 0 ) ), 2, '.', '' );
+		$custom_type = null;
+		$flat_rate   = null;
 		$active      = isset( $_POST['oc_active'] ) ? 1 : 0;
+
+		if ( array_key_exists( 'oc_custom_type', $_POST ) ) {
+			if ( ! in_array( $_POST['oc_custom_type'], [ 'text_only', 'photo_text' ], true ) ) {
+				wp_die( esc_html__( 'Invalid customisation type.', 'overcustomise' ) );
+			}
+			$custom_type = sanitize_key( $_POST['oc_custom_type'] );
+		}
+		if ( array_key_exists( 'oc_flat_rate', $_POST ) ) {
+			$flat_rate = number_format( max( 0, (float) $_POST['oc_flat_rate'] ), 2, '.', '' );
+		}
+		if ( 0 === $design_id ) {
+			$custom_type = $custom_type ?? 'text_only';
+			$flat_rate   = $flat_rate ?? number_format( max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) ), 2, '.', '' );
+		}
 
 		if ( ! $name ) {
 			wp_die( esc_html__( 'Design name is required.', 'overcustomise' ) );
@@ -1258,8 +1302,9 @@ class OC_Admin_Products {
 			wp_die( esc_html__( 'Invalid design data.', 'overcustomise' ) );
 		}
 
-		$submitted_existing_ids = [];
-		$valid_area_indexes      = [];
+		$submitted_existing_area_ids  = [];
+		$submitted_existing_layer_ids = [];
+		$valid_area_indexes            = [];
 		foreach ( $posted_areas as $area_index => $area_data ) {
 			if ( ! is_array( $area_data ) ) {
 				wp_die( esc_html__( 'Invalid print area data.', 'overcustomise' ) );
@@ -1269,40 +1314,61 @@ class OC_Admin_Products {
 			}
 			$area_id = (int) ( $area_data['id'] ?? 0 );
 			if ( $area_id > 0 ) {
-				if ( 0 === $design_id || in_array( $area_id, $submitted_existing_ids, true ) ) {
+				if ( 0 === $design_id || in_array( $area_id, $submitted_existing_area_ids, true ) ) {
 					wp_die( esc_html__( 'A submitted print area is stale or invalid. Reload the design and try again.', 'overcustomise' ) );
 				}
-				$submitted_existing_ids[] = $area_id;
+				$submitted_existing_area_ids[] = $area_id;
 			}
 		}
 		foreach ( $posted_layers as $layer_data ) {
 			if ( ! is_array( $layer_data ) || ! isset( $valid_area_indexes[ (int) ( $layer_data['area_index'] ?? -1 ) ] ) ) {
 				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
 			}
+			$layer_id = (int) ( $layer_data['id'] ?? 0 );
+			if ( $layer_id > 0 ) {
+				if ( 0 === $design_id || in_array( $layer_id, $submitted_existing_layer_ids, true ) ) {
+					wp_die( esc_html__( 'A submitted layer is stale or invalid. Reload the design and try again.', 'overcustomise' ) );
+				}
+				$submitted_existing_layer_ids[] = $layer_id;
+			}
 		}
 
 		$data = [
-			'name'        => $name,
-			'custom_type' => $custom_type,
-			'flat_rate'   => $flat_rate,
-			'active'      => $active,
+			'name'   => $name,
+			'active' => $active,
 		];
-		$fmt = [ '%s', '%s', '%s', '%d' ];
+		$fmt  = [ '%s', '%d' ];
+		if ( null !== $custom_type ) {
+			$data['custom_type'] = $custom_type;
+			$fmt[]               = '%s';
+		}
+		if ( null !== $flat_rate ) {
+			$data['flat_rate'] = $flat_rate;
+			$fmt[]             = '%s';
+		}
 
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_die( esc_html__( 'Could not start the design save transaction.', 'overcustomise' ) );
 		}
 
 		try {
-			$existing_ids = [];
+			$existing_area_ids       = [];
+			$existing_layer_area_ids = [];
 			if ( $design_id > 0 ) {
 				$locked_design = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
 				if ( ! $locked_design ) {
 					throw new RuntimeException( 'Design not found.' );
 				}
-				$existing_ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) );
-				if ( array_diff( $submitted_existing_ids, $existing_ids ) ) {
+				$existing_area_ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) );
+				if ( array_diff( $submitted_existing_area_ids, $existing_area_ids ) ) {
 					throw new RuntimeException( 'Submitted area does not belong to this design.' );
+				}
+				$existing_layers = $wpdb->get_results( $wpdb->prepare( "SELECT id, area_id FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d FOR UPDATE", $design_id ) ) ?: [];
+				foreach ( $existing_layers as $existing_layer ) {
+					$existing_layer_area_ids[ (int) $existing_layer->id ] = (int) $existing_layer->area_id;
+				}
+				if ( array_diff( $submitted_existing_layer_ids, array_keys( $existing_layer_area_ids ) ) ) {
+					throw new RuntimeException( 'Submitted layer does not belong to this design.' );
 				}
 
 				$data['clone_priority'] = 0;
@@ -1390,20 +1456,11 @@ class OC_Admin_Products {
 				$area_id_map[ (int) $area_index ] = $db_area_id;
 			}
 
-			// Replace layers before deleting removed areas so no stale area references remain.
-			if ( false === $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $design_id ], [ '%d' ] ) ) {
-				throw new RuntimeException( 'Could not replace design layers.' );
-			}
-			foreach ( array_diff( $existing_ids, $submitted_ids ) as $del_id ) {
-				if ( 1 !== $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'id' => (int) $del_id, 'design_id' => $design_id ], [ '%d', '%d' ] ) ) {
-					throw new RuntimeException( 'Could not remove print area.' );
-				}
-			}
-
 			$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
 			foreach ( $posted_layers as $sort => $layer_data ) {
 				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;
+				$layer_id   = (int) ( $layer_data['id'] ?? 0 );
 
 				$type  = in_array( $layer_data['type'] ?? '', $valid_types, true )
 					? sanitize_key( $layer_data['type'] )
@@ -1414,26 +1471,50 @@ class OC_Admin_Products {
 				$decoded      = json_decode( is_string( $settings_raw ) ? $settings_raw : '{}', true );
 				$settings     = wp_json_encode( is_array( $decoded ) ? $decoded : [] );
 
-				$inserted = $wpdb->insert(
-					"{$wpdb->prefix}oc_design_layers",
-					[
-						'design_id'  => $design_id,
-						'area_id'    => $area_db_id,
-						'type'       => $type,
-						'label'      => $label,
-						'x'          => max( 0, (int) ( $layer_data['x'] ?? 0 ) ),
-						'y'          => max( 0, (int) ( $layer_data['y'] ?? 0 ) ),
-						'w'          => max( 1, (int) ( $layer_data['w'] ?? 200 ) ),
-						'h'          => max( 1, (int) ( $layer_data['h'] ?? 50 ) ),
-						'sort_order' => (int) $sort,
-						'visible'    => isset( $layer_data['visible'] ) && $layer_data['visible'] !== '0' ? 1 : 0,
-						'locked'     => ! empty( $layer_data['locked'] ) && $layer_data['locked'] !== '0' ? 1 : 0,
-						'settings'   => $settings ?: '{}',
-					],
-					[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
-				);
-				if ( false === $inserted ) {
-					throw new RuntimeException( 'Could not save design layer.' );
+				$layer_row = [
+					'design_id'  => $design_id,
+					'area_id'    => $area_db_id,
+					'type'       => $type,
+					'label'      => $label,
+					'x'          => max( 0, (int) ( $layer_data['x'] ?? 0 ) ),
+					'y'          => max( 0, (int) ( $layer_data['y'] ?? 0 ) ),
+					'w'          => max( 1, (int) ( $layer_data['w'] ?? 200 ) ),
+					'h'          => max( 1, (int) ( $layer_data['h'] ?? 50 ) ),
+					'sort_order' => (int) ( $layer_data['sort_order'] ?? $sort ),
+					'visible'    => isset( $layer_data['visible'] ) && $layer_data['visible'] !== '0' ? 1 : 0,
+					'locked'     => ! empty( $layer_data['locked'] ) && $layer_data['locked'] !== '0' ? 1 : 0,
+					'settings'   => $settings ?: '{}',
+				];
+				$layer_fmt = [ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ];
+
+				if ( $layer_id > 0 ) {
+					if ( ( $existing_layer_area_ids[ $layer_id ] ?? 0 ) !== $area_db_id ) {
+						throw new RuntimeException( 'Submitted layer does not belong to this print area.' );
+					}
+					$updated = $wpdb->update(
+						"{$wpdb->prefix}oc_design_layers",
+						$layer_row,
+						[ 'id' => $layer_id, 'design_id' => $design_id, 'area_id' => $area_db_id ],
+						$layer_fmt,
+						[ '%d', '%d', '%d' ]
+					);
+					if ( false === $updated ) {
+						throw new RuntimeException( 'Could not update design layer.' );
+					}
+				} elseif ( false === $wpdb->insert( "{$wpdb->prefix}oc_design_layers", $layer_row, $layer_fmt ) ) {
+					throw new RuntimeException( 'Could not create design layer.' );
+				}
+			}
+
+			// Remove only records omitted by this submission, after all ownership checks pass.
+			foreach ( array_diff( array_keys( $existing_layer_area_ids ), $submitted_existing_layer_ids ) as $del_id ) {
+				if ( 1 !== $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'id' => (int) $del_id, 'design_id' => $design_id ], [ '%d', '%d' ] ) ) {
+					throw new RuntimeException( 'Could not remove design layer.' );
+				}
+			}
+			foreach ( array_diff( $existing_area_ids, $submitted_ids ) as $del_id ) {
+				if ( 1 !== $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'id' => (int) $del_id, 'design_id' => $design_id ], [ '%d', '%d' ] ) ) {
+					throw new RuntimeException( 'Could not remove print area.' );
 				}
 			}
 

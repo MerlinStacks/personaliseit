@@ -715,7 +715,8 @@ class OC_Admin_Fonts {
 		$source = trailingslashit( $upload['basedir'] ) . ltrim( (string) $font->file_path, '/' );
 		$real   = realpath( $source );
 		$base   = realpath( $upload['basedir'] );
-		if ( ! $real || ! $base || 0 !== strpos( $real, $base ) || ! file_exists( $real ) ) {
+		$base_prefix = $base ? rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR : '';
+		if ( ! $real || '' === $base_prefix || ! str_starts_with( $real, $base_prefix ) || ! is_file( $real ) ) {
 			return new \WP_Error( 'missing_file', __( 'Stored font file could not be found.', 'overcustomise' ) );
 		}
 
@@ -747,7 +748,10 @@ class OC_Admin_Fonts {
 					return new \WP_Error( 'copy_failed', __( 'Could not prepare this font for print.', 'overcustomise' ) );
 				}
 			} else {
-				rename( $source_for_print, $dest );
+				if ( ! rename( $source_for_print, $dest ) ) {
+					wp_delete_file( $source_for_print );
+					return new \WP_Error( 'move_failed', __( 'Could not prepare this font for print.', 'overcustomise' ) );
+				}
 			}
 		}
 
@@ -914,7 +918,8 @@ class OC_Admin_Fonts {
 			$path   = $upload['basedir'] . '/' . ltrim( (string) $font->file_path, '/' );
 			$base   = realpath( $upload['basedir'] );
 			$real   = realpath( $path );
-			if ( $base && $real && 0 === strpos( $real, $base ) && file_exists( $real ) ) {
+			$base_prefix = $base ? rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR : '';
+			if ( $real && '' !== $base_prefix && str_starts_with( $real, $base_prefix ) && is_file( $real ) ) {
 				wp_delete_file( $real );
 			}
 			$wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'font_id' => $id ], [ '%d' ] );

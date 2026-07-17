@@ -1,723 +1,129 @@
-/* eslint-disable no-undef, @wordpress/no-unused-vars-before-return */
-
-import { displayBounds } from '../../shared/render-math';
-
 const cartSerializationMethods = {
-	// ── Cart serialisation ────────────────────────────────────────────────────────
-
-	async captureAreaSnapshots() {
-		const snapshots = {};
-		for ( const [ areaIndex, area ] of this.areas.entries() ) {
-			const canvas = this.canvases[ areaIndex ];
-			const bounds = this.areaBounds( area );
-			const display = displayBounds( bounds );
-			const scale = canvas?._ocScaleX || 1;
-			if (
-				! canvas ||
-				! display?.w ||
-				! display?.h ||
-				typeof canvas.toSVG !== 'function'
-			) {
-				continue;
-			}
-
-			await this.redraw( areaIndex, {
-				renderGroup: false,
-				pushGallery: false,
-			} );
-
-			const objects = canvas.getObjects ? canvas.getObjects() : [];
-			const imageSources = objects
-				.filter(
-					( obj ) => obj._ocContent === true && obj._ocSourceUrl
-				)
-				.map( ( obj ) => ( {
-					url: obj._ocSourceUrl,
-					color: obj._ocSnapshotColor || '',
-				} ) );
-			const previousExportFlags = objects.map( ( obj ) => [
-				obj,
-				obj.excludeFromExport,
-			] );
-			objects.forEach( ( obj ) => {
-				obj.excludeFromExport = obj._ocContent !== true;
-			} );
-
-			try {
-				let svg = canvas.toSVG( {
-					width: Math.max(
-						1,
-						Math.round( Number( display.w ) * scale )
-					),
-					height: Math.max(
-						1,
-						Math.round( Number( display.h ) * scale )
-					),
-					viewBox: {
-						x: Number( display.x || 0 ) * scale,
-						y: Number( display.y || 0 ) * scale,
-						width: Math.max( 1, Number( display.w ) * scale ),
-						height: Math.max( 1, Number( display.h ) * scale ),
-					},
-				} );
-				svg = await this.outlineSnapshotText( svg );
-				svg = await this.inlineSnapshotSvgImages( svg, imageSources );
-				if ( svg && svg.includes( '<svg' ) ) {
-					snapshots[ area.id || area.areaId || areaIndex ] = {
-						format: 'fabric-svg-v1',
-						unit: 'mockup_px',
-						scale,
-						svg,
-					};
-				}
-			} catch {
-				// Snapshot export is best-effort; PHP generation keeps the layer fallback.
-			} finally {
-				previousExportFlags.forEach( ( [ obj, flag ] ) => {
-					obj.excludeFromExport = flag;
-				} );
-			}
-		}
-
-		await this.redraw( this.activeArea );
-
-		return snapshots;
+	cloneSubmissionInputs() {
+		return JSON.parse( JSON.stringify( this.inputs || {} ) );
 	},
 
-	async inlineSnapshotSvgImages( svg, imageSources = [] ) {
-		if ( ! svg || ! svg.includes( '<image' ) || ! imageSources.length ) {
-			return svg;
+	freezeSubmissionValue( value ) {
+		if (
+			! value ||
+			typeof value !== 'object' ||
+			Object.isFrozen( value )
+		) {
+			return value;
 		}
-
-		const doc = new DOMParser().parseFromString( svg, 'image/svg+xml' );
-		const svgEl = doc.documentElement;
-		if ( ! svgEl || svgEl.nodeName.toLowerCase() !== 'svg' ) {
-			return svg;
-		}
-
-		const imageNodes = Array.from( svgEl.querySelectorAll( 'image' ) );
-		for ( let index = 0; index < imageNodes.length; index++ ) {
-			const source = imageSources[ index ];
-			if ( ! source?.url ) {
-				continue;
-			}
-
-			let sourceSvg = '';
-			try {
-				sourceSvg = await this.svgSourceForSnapshotImage( source.url );
-			} catch {
-				continue;
-			}
-			if ( ! sourceSvg ) {
-				continue;
-			}
-
-			const sourceDoc = new DOMParser().parseFromString(
-				sourceSvg,
-				'image/svg+xml'
-			);
-			const sourceEl = sourceDoc.documentElement;
-			if ( ! sourceEl || sourceEl.nodeName.toLowerCase() !== 'svg' ) {
-				continue;
-			}
-
-			this.inlineSnapshotSvgPresentationStyles( sourceEl );
-			if ( source.color ) {
-				this.flattenSnapshotPatternPaint( sourceEl, source.color );
-			}
-			this.prefixSnapshotSvgIds( sourceEl, `oc-snapshot-${ index }-` );
-
-			const replacement = this.snapshotImageReplacementGroup(
-				doc,
-				imageNodes[ index ],
-				sourceEl
-			);
-			if ( replacement ) {
-				imageNodes[ index ].replaceWith( replacement );
-			}
-		}
-
-		return new XMLSerializer().serializeToString( svgEl );
+		Object.values( value ).forEach( ( child ) =>
+			this.freezeSubmissionValue( child )
+		);
+		return Object.freeze( value );
 	},
 
-	async svgSourceForSnapshotImage( url ) {
-		const value = String( url || '' );
-		if ( value.startsWith( 'data:image/svg+xml' ) ) {
-			const payload = value.slice( value.indexOf( ',' ) + 1 );
-			if ( /^data:image\/svg\+xml(?:;[^,]*)?;base64,/i.test( value ) ) {
-				const decoded = atob( payload );
-				if ( typeof TextDecoder !== 'undefined' ) {
-					return new TextDecoder().decode(
-						Uint8Array.from( decoded, ( char ) =>
-							char.charCodeAt( 0 )
-						)
-					);
+	serialiseLayers( inputs ) {
+		const layers = {};
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				const input = { ...( inputs[ layer.id ] || {} ) };
+				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+					if ( layer.locked ) {
+						input.value = layer.settings?.default_text || '';
+					} else if ( input.value !== undefined ) {
+						input.value = this.normaliseLayerTextValue(
+							layer.id,
+							input.value
+						);
+					}
 				}
 
-				return decoded;
-			}
-
-			return decodeURIComponent( payload );
-		}
-
-		const cleanUrl = value.split( '?' )[ 0 ].toLowerCase();
-		if ( ! cleanUrl.endsWith( '.svg' ) ) {
-			return '';
-		}
-
-		const response = await fetch( value, {
-			credentials: 'same-origin',
-			cache: 'force-cache',
-		} );
-		if ( ! response.ok ) {
-			return '';
-		}
-		return response.text();
-	},
-
-	inlineSnapshotSvgPresentationStyles( sourceEl ) {
-		const styleEls = Array.from( sourceEl.querySelectorAll( 'style' ) );
-		for ( const styleEl of styleEls ) {
-			const css = String( styleEl.textContent || '' ).replace(
-				/\/\*[\s\S]*?\*\//g,
-				''
-			);
-			const rulePattern = /([^{}@]+)\{([^{}]+)\}/g;
-			let match;
-			while ( ( match = rulePattern.exec( css ) ) ) {
-				const declarations = this.svgPresentationDeclarations(
-					match[ 2 ]
-				);
-				if ( ! Object.keys( declarations ).length ) {
-					continue;
-				}
-
-				String( match[ 1 ] )
-					.split( ',' )
-					.map( ( selector ) => selector.trim() )
-					.filter( Boolean )
-					.forEach( ( selector ) => {
-						let nodes = [];
-						try {
-							nodes = Array.from(
-								sourceEl.querySelectorAll( selector )
-							);
-						} catch {
-							nodes = [];
+				if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+					const canonicalId = this.canonicalLinkedLayerId( layer.id );
+					const canonicalInput = inputs[ canonicalId ] || {};
+					const sameAttachment =
+						canonicalId !== layer.id &&
+						layer.settings?.allow_image_change !== false &&
+						( ( Number( input.attachmentId || 0 ) > 0 &&
+							Number( input.attachmentId ) ===
+								Number( canonicalInput.attachmentId || 0 ) ) ||
+							( input.attachmentUrl &&
+								input.attachmentUrl ===
+									canonicalInput.attachmentUrl ) );
+					if ( sameAttachment ) {
+						[
+							'attachmentId',
+							'attachmentUrl',
+							'sourceAttachmentId',
+							'sourceAttachmentUrl',
+							'originalAttachmentUrl',
+							'sourceOriginalAttachmentUrl',
+							'artworkFileType',
+							'sourceArtworkFileType',
+							'previewAttachmentId',
+							'imageMeta',
+							'sourceImageMeta',
+						].forEach( ( key ) => delete input[ key ] );
+						input.linkedSourceLayerId = canonicalId;
+					}
+					if ( canonicalId === layer.id ) {
+						const linkedIds = this.linkedLayerIds( layer.id );
+						if ( linkedIds.length ) {
+							input.linkedLayerIds = linkedIds;
 						}
-						nodes.forEach( ( node ) => {
-							Object.entries( declarations ).forEach(
-								( [ attr, value ] ) => {
-									node.setAttribute( attr, value );
-								}
-							);
-						} );
-					} );
-			}
-		}
-
-		Array.from( sourceEl.querySelectorAll( '[style]' ) ).forEach(
-			( node ) => {
-				const declarations = this.svgPresentationDeclarations(
-					node.getAttribute( 'style' ) || ''
-				);
-				Object.entries( declarations ).forEach( ( [ attr, value ] ) => {
-					node.setAttribute( attr, value );
-				} );
-			}
-		);
-
-		// Keep original styles as a fallback for selectors we do not inline.
-	},
-
-	svgPresentationDeclarations( cssText ) {
-		const allowed = new Set( [
-			'fill',
-			'stroke',
-			'opacity',
-			'fill-opacity',
-			'stroke-opacity',
-			'stroke-width',
-			'stroke-linecap',
-			'stroke-linejoin',
-			'fill-rule',
-			'clip-rule',
-		] );
-		const declarations = {};
-		String( cssText || '' )
-			.split( ';' )
-			.map( ( declaration ) => declaration.trim() )
-			.filter( Boolean )
-			.forEach( ( declaration ) => {
-				const separator = declaration.indexOf( ':' );
-				if ( separator <= 0 ) {
-					return;
-				}
-				const property = declaration
-					.slice( 0, separator )
-					.trim()
-					.toLowerCase();
-				const value = declaration
-					.slice( separator + 1 )
-					.trim()
-					.replace( /\s*!important$/i, '' );
-				if ( allowed.has( property ) && value ) {
-					declarations[ property ] = value;
-				}
-			} );
-
-		return declarations;
-	},
-
-	flattenSnapshotPatternPaint( element, color ) {
-		Array.from( element.querySelectorAll( '[fill], [stroke]' ) ).forEach(
-			( node ) => {
-				[ 'fill', 'stroke' ].forEach( ( attr ) => {
-					const value = String(
-						node.getAttribute( attr ) || ''
-					).trim();
-					if ( /^url\(/i.test( value ) ) {
-						node.setAttribute( attr, color );
 					}
-				} );
-			}
-		);
-		Array.from( element.querySelectorAll( '[style]' ) ).forEach(
-			( node ) => {
-				node.setAttribute(
-					'style',
-					String( node.getAttribute( 'style' ) || '' ).replace(
-						/\b(fill|stroke)\s*:\s*url\([^;)]+\)/gi,
-						`$1:${ color }`
-					)
-				);
-			}
-		);
-	},
-
-	prefixSnapshotSvgIds( sourceEl, prefix ) {
-		const idMap = new Map();
-		[
-			sourceEl,
-			...Array.from( sourceEl.querySelectorAll( '[id]' ) ),
-		].forEach( ( node ) => {
-			const id = node.getAttribute( 'id' );
-			if ( ! id ) {
-				return;
-			}
-			if ( ! idMap.has( id ) ) {
-				idMap.set( id, `${ prefix }${ id }` );
-			}
-			node.setAttribute( 'id', idMap.get( id ) );
-		} );
-
-		if ( ! idMap.size ) {
-			return;
-		}
-
-		[ sourceEl, ...Array.from( sourceEl.querySelectorAll( '*' ) ) ].forEach(
-			( node ) => {
-				if ( node.localName?.toLowerCase() === 'style' ) {
-					node.textContent = this.rewriteSnapshotSvgIdReferences(
-						node.textContent || '',
-						idMap
-					);
 				}
-				Array.from( node.attributes || [] ).forEach( ( attr ) => {
-					const rewritten = this.rewriteSnapshotSvgIdReferences(
-						attr.value,
-						idMap
-					);
-					if ( rewritten !== attr.value ) {
-						node.setAttribute( attr.name, rewritten );
-					}
-				} );
-			}
-		);
-	},
 
-	rewriteSnapshotSvgIdReferences( value, idMap ) {
-		let output = String( value || '' );
-		idMap.forEach( ( replacement, id ) => {
-			const escaped = this.escapeRegExp( id );
-			output = output.replace(
-				new RegExp( `url\\(\\s*#${ escaped }\\s*\\)`, 'g' ),
-				`url(#${ replacement })`
-			);
-			if ( output === `#${ id }` ) {
-				output = `#${ replacement }`;
-			}
-		} );
-
-		return output;
-	},
-
-	escapeRegExp( value ) {
-		return String( value ).replace( /[.*+?^${}()|[\]\\]/g, '\\$&' );
-	},
-
-	snapshotImageReplacementGroup( doc, imageNode, sourceEl ) {
-		const viewBox = this.svgViewBoxValues( sourceEl );
-		if ( ! viewBox ) {
-			return null;
-		}
-
-		const [ vbX, vbY, vbW, vbH ] = viewBox;
-		const imageX = this.svgNumber( imageNode.getAttribute( 'x' ), 0 );
-		const imageY = this.svgNumber( imageNode.getAttribute( 'y' ), 0 );
-		const imageW = this.svgNumber( imageNode.getAttribute( 'width' ), vbW );
-		const imageH = this.svgNumber(
-			imageNode.getAttribute( 'height' ),
-			vbH
-		);
-		if ( vbW <= 0 || vbH <= 0 || imageW <= 0 || imageH <= 0 ) {
-			return null;
-		}
-
-		const ns = 'http://www.w3.org/2000/svg';
-		const outer = doc.createElementNS( ns, 'g' );
-		[ 'transform', 'opacity', 'clip-path' ].forEach( ( attr ) => {
-			if ( imageNode.hasAttribute( attr ) ) {
-				outer.setAttribute( attr, imageNode.getAttribute( attr ) );
-			}
-		} );
-
-		const inner = doc.createElementNS( ns, 'svg' );
-		inner.setAttribute( 'x', String( imageX ) );
-		inner.setAttribute( 'y', String( imageY ) );
-		inner.setAttribute( 'width', String( imageW ) );
-		inner.setAttribute( 'height', String( imageH ) );
-		inner.setAttribute( 'viewBox', `${ vbX } ${ vbY } ${ vbW } ${ vbH }` );
-		inner.setAttribute( 'overflow', 'hidden' );
-		inner.setAttribute(
-			'preserveAspectRatio',
-			imageNode.getAttribute( 'preserveAspectRatio' ) ||
-				sourceEl.getAttribute( 'preserveAspectRatio' ) ||
-				'xMidYMid meet'
-		);
-
-		Array.from( sourceEl.childNodes ).forEach( ( child ) => {
-			inner.appendChild( doc.importNode( child, true ) );
-		} );
-		outer.appendChild( inner );
-
-		return outer;
-	},
-
-	svgViewBoxValues( svgEl ) {
-		const viewBox = String( svgEl.getAttribute( 'viewBox' ) || '' ).trim();
-		if ( viewBox ) {
-			const parts = viewBox.split( /[\s,]+/ ).map( Number );
-			if ( parts.length >= 4 && parts.every( Number.isFinite ) ) {
-				return parts.slice( 0, 4 );
-			}
-		}
-
-		const width = this.svgNumber( svgEl.getAttribute( 'width' ), 0 );
-		const height = this.svgNumber( svgEl.getAttribute( 'height' ), 0 );
-		return width > 0 && height > 0 ? [ 0, 0, width, height ] : null;
-	},
-
-	async outlineSnapshotText( svg ) {
-		if ( ! svg || ! svg.includes( '<text' ) ) {
-			return svg;
-		}
-
-		const doc = new DOMParser().parseFromString( svg, 'image/svg+xml' );
-		const svgEl = doc.documentElement;
-		if ( ! svgEl || svgEl.nodeName.toLowerCase() !== 'svg' ) {
-			return svg;
-		}
-
-		const textNodes = Array.from( svgEl.querySelectorAll( 'text' ) );
-		for ( const textNode of textNodes ) {
-			const fontFamily = this.cleanSvgFontFamily(
-				textNode.getAttribute( 'font-family' ) ||
-					textNode.style?.fontFamily ||
-					''
-			);
-			const font = this.fonts.find(
-				( item ) => item.name === fontFamily
-			);
-			if ( ! font ) {
-				continue;
-			}
-
-			let outlineFont = null;
-			try {
-				outlineFont = await this.loadOutlineFont( font );
-			} catch {
-				continue;
-			}
-
-			const pathData = this.svgTextNodeToPathData(
-				textNode,
-				outlineFont
-			);
-			if ( ! pathData ) {
-				continue;
-			}
-
-			const path = doc.createElementNS(
-				'http://www.w3.org/2000/svg',
-				'path'
-			);
-			path.setAttribute( 'd', pathData );
-			[
-				'fill',
-				'stroke',
-				'stroke-width',
-				'opacity',
-				'fill-opacity',
-				'stroke-opacity',
-				'transform',
-			].forEach( ( attr ) => {
-				if ( textNode.hasAttribute( attr ) ) {
-					path.setAttribute( attr, textNode.getAttribute( attr ) );
-				}
-			} );
-			if ( ! path.hasAttribute( 'fill' ) ) {
-				path.setAttribute( 'fill', '#000000' );
-			}
-			textNode.replaceWith( path );
-		}
-
-		return new XMLSerializer().serializeToString( svgEl );
-	},
-
-	cleanSvgFontFamily( value ) {
-		return String( value || '' )
-			.split( ',' )[ 0 ]
-			.trim()
-			.replace( /^['"]|['"]$/g, '' );
-	},
-
-	async loadOutlineFont( font ) {
-		if ( ! font?.name || ! font?.url ) {
-			throw new Error( 'Missing font.' );
-		}
-		if ( this.outlineFontCache[ font.name ] ) {
-			return this.outlineFontCache[ font.name ];
-		}
-
-		this.outlineFontCache[ font.name ] = Promise.all( [
-			import( 'fonteditor-core' ),
-			fetch( font.url, {
-				credentials: 'same-origin',
-				cache: 'force-cache',
-			} ),
-		] )
-			.then( ( [ fontEditor, response ] ) => {
-				if ( ! response.ok ) {
-					throw new Error( 'Font download failed.' );
-				}
-				return Promise.all( [
-					fontEditor.createFont,
-					response.arrayBuffer(),
-				] );
-			} )
-			.then( ( [ createFont, buffer ] ) => {
-				const parsed = createFont( buffer, {
-					type: this.fontTypeFromUrl( font.url ),
-					compound2simple: true,
-				} ).get();
-				return {
-					font,
-					ttf: parsed,
-					unitsPerEm: Number( parsed?.head?.unitsPerEm ) || 1000,
-					glyphs: this.glyphMapForFont( parsed ),
-				};
-			} )
-			.catch( ( err ) => {
-				delete this.outlineFontCache[ font.name ];
-				throw err;
-			} );
-
-		return this.outlineFontCache[ font.name ];
-	},
-
-	fontTypeFromUrl( url ) {
-		const cleanUrl = String( url || '' )
-			.split( '?' )[ 0 ]
-			.toLowerCase();
-		const ext = cleanUrl.split( '.' ).pop();
-		return [ 'ttf', 'otf', 'woff', 'woff2', 'eot', 'svg' ].includes( ext )
-			? ext
-			: 'ttf';
-	},
-
-	glyphMapForFont( parsed ) {
-		const glyphs = {};
-		( parsed?.glyf || [] ).forEach( ( glyph ) => {
-			( glyph.unicode || [] ).forEach( ( code ) => {
-				glyphs[ code ] = glyph;
+				layers[ layer.id ] = { type: layer.type, ...input };
 			} );
 		} );
-		return glyphs;
+		return layers;
 	},
 
-	svgTextNodeToPathData( textNode, outlineFont ) {
-		const chunks = this.svgTextChunks( textNode );
-		if ( ! chunks.length ) {
-			return '';
-		}
-
-		return chunks
-			.map( ( chunk ) =>
-				this.textChunkToPathData( chunk, textNode, outlineFont )
-			)
-			.filter( Boolean )
-			.join( ' ' );
-	},
-
-	svgTextChunks( textNode ) {
-		const tspans = Array.from( textNode.querySelectorAll( 'tspan' ) );
-		if ( tspans.length ) {
-			return tspans
-				.map( ( tspan ) => ( {
-					text: tspan.textContent || '',
-					x: this.svgNumber(
-						tspan.getAttribute( 'x' ),
-						this.svgNumber( textNode.getAttribute( 'x' ), 0 )
-					),
-					y: this.svgNumber(
-						tspan.getAttribute( 'y' ),
-						this.svgNumber( textNode.getAttribute( 'y' ), 0 )
-					),
-					fontSize: this.svgNumber(
-						tspan.getAttribute( 'font-size' ),
-						this.svgNumber(
-							textNode.getAttribute( 'font-size' ),
-							16
-						)
-					),
-					anchor:
-						tspan.getAttribute( 'text-anchor' ) ||
-						textNode.getAttribute( 'text-anchor' ) ||
-						'start',
-				} ) )
-				.filter( ( chunk ) => chunk.text );
-		}
-
-		return [
-			{
-				text: textNode.textContent || '',
-				x: this.svgNumber( textNode.getAttribute( 'x' ), 0 ),
-				y: this.svgNumber( textNode.getAttribute( 'y' ), 0 ),
-				fontSize: this.svgNumber(
-					textNode.getAttribute( 'font-size' ),
-					16
-				),
-				anchor: textNode.getAttribute( 'text-anchor' ) || 'start',
-			},
-		].filter( ( chunk ) => chunk.text );
-	},
-
-	textChunkToPathData( chunk, textNode, outlineFont ) {
-		const scale = chunk.fontSize / outlineFont.unitsPerEm;
-		const advance =
-			this.textAdvanceWidth( chunk.text, outlineFont ) * scale;
-		let cursor = chunk.x;
-		const anchor = String( chunk.anchor || '' ).toLowerCase();
-		if ( anchor === 'middle' ) {
-			cursor -= advance / 2;
-		}
-		if ( anchor === 'end' ) {
-			cursor -= advance;
-		}
-
-		const parts = [];
-		for ( const char of Array.from( chunk.text ) ) {
-			const glyph = outlineFont.glyphs[ char.codePointAt( 0 ) ];
-			if ( glyph?.contours?.length ) {
-				parts.push(
-					this.glyphToSvgPath( glyph, cursor, chunk.y, scale )
-				);
-			}
-			cursor +=
-				( Number( glyph?.advanceWidth ) ||
-					outlineFont.unitsPerEm * 0.5 ) * scale;
-		}
-
-		return parts.filter( Boolean ).join( ' ' );
-	},
-
-	textAdvanceWidth( text, outlineFont ) {
-		return Array.from( text ).reduce( ( width, char ) => {
-			const glyph = outlineFont.glyphs[ char.codePointAt( 0 ) ];
-			return (
-				width +
-				( Number( glyph?.advanceWidth ) ||
-					outlineFont.unitsPerEm * 0.5 )
-			);
-		}, 0 );
-	},
-
-	glyphToSvgPath( glyph, x, baseline, scale ) {
-		return glyph.contours
-			.map( ( contour ) =>
-				this.contourToSvgPath( contour, x, baseline, scale )
-			)
-			.filter( Boolean )
-			.join( ' ' );
-	},
-
-	contourToSvgPath( contour, x, baseline, scale ) {
-		if ( ! contour?.length ) {
-			return '';
-		}
-		const pointAt = ( index ) =>
-			contour[ ( index + contour.length ) % contour.length ];
-		const mid = ( a, b ) => ( {
-			x: ( a.x + b.x ) / 2,
-			y: ( a.y + b.y ) / 2,
-			onCurve: true,
+	createSubmissionGeneration() {
+		const inputs = this.cloneSubmissionInputs();
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				if ( ! inputs[ layer.id ] ) {
+					inputs[ layer.id ] = {};
+				}
+				if (
+					layer.locked &&
+					[ 'text', 'textarea' ].includes( layer.type )
+				) {
+					inputs[ layer.id ].value =
+						layer.settings?.default_text || '';
+				}
+			} );
 		} );
-		const tx = ( point ) => Number( ( x + point.x * scale ).toFixed( 3 ) );
-		const ty = ( point ) =>
-			Number( ( baseline - point.y * scale ).toFixed( 3 ) );
-
-		let startIndex = 0;
-		let start = contour[ 0 ];
-		const last = contour[ contour.length - 1 ];
-		if ( ! start.onCurve ) {
-			if ( last.onCurve ) {
-				start = last;
-				startIndex = contour.length - 1;
-			} else {
-				start = mid( last, start );
-			}
-		}
-
-		const commands = [ `M${ tx( start ) } ${ ty( start ) }` ];
-		let i = startIndex + 1;
-		let processed = 0;
-		while ( processed < contour.length ) {
-			const p = pointAt( i );
-			if ( p.onCurve ) {
-				commands.push( `L${ tx( p ) } ${ ty( p ) }` );
-				i += 1;
-			} else {
-				const next = pointAt( i + 1 );
-				const end = next.onCurve ? next : mid( p, next );
-				commands.push(
-					`Q${ tx( p ) } ${ ty( p ) } ${ tx( end ) } ${ ty( end ) }`
-				);
-				i += next.onCurve ? 2 : 1;
-			}
-			processed = i - startIndex - 1;
-		}
-
-		commands.push( 'Z' );
-		return commands.join( ' ' );
+		const generation = {
+			designGeneration: this._designGeneration,
+			designId: this.data.designId,
+			designVariant: this.selectedDesignVariant || '',
+			designVariantLabel:
+				this.designVariants.find(
+					( item ) => item.id === this.selectedDesignVariant
+				)?.label || '',
+			layers: this.serialiseLayers( inputs ),
+		};
+		return this.freezeSubmissionValue( generation );
 	},
 
-	svgNumber( value, fallback = 0 ) {
-		const num = parseFloat( String( value || '' ).replace( /px$/i, '' ) );
-		return Number.isFinite( num ) ? num : fallback;
+	buildCustomisationPayload( generation, { previewUrl = '' } = {} ) {
+		const payload = {
+			v: 2,
+			designId: generation.designId,
+			layers: generation.layers,
+			uploadToken: this.data.requestToken || '',
+		};
+		if ( generation.designVariant ) {
+			payload.designVariant = generation.designVariant;
+			if ( generation.designVariantLabel ) {
+				payload.designVariantLabel = generation.designVariantLabel;
+			}
+		}
+		if ( previewUrl ) {
+			payload.previewUrl = previewUrl;
+		}
+		return payload;
 	},
 
-	async updateHiddenField( includeSnapshots = false ) {
+	updateHiddenField( options = {} ) {
 		const el = document.getElementById( 'oc-customisation-data' );
 		if ( ! el ) {
 			return;
@@ -728,44 +134,16 @@ const cartSerializationMethods = {
 			return;
 		}
 		el.disabled = false;
-		const layers = {};
-		this.areas.forEach( ( area ) => {
-			( area.layers || [] ).forEach( ( layer ) => {
-				const inp = this.inputs[ layer.id ];
-				if ( inp ) {
-					this.clampLayerInputValue( layer.id );
-					layers[ layer.id ] = {
-						type: layer.type,
-						...this.inputs[ layer.id ],
-					};
-				}
-			} );
+		const generation =
+			options.generation || this.createSubmissionGeneration();
+		const payload = this.buildCustomisationPayload( generation, {
+			previewUrl:
+				options.previewUrl === undefined
+					? this._previewUrl || ''
+					: options.previewUrl,
 		} );
-		const payload = {
-			v: 2,
-			designId: this.data.designId,
-			layers,
-			uploadToken: this.data.requestToken || '',
-		};
-		if ( this.selectedDesignVariant ) {
-			const variant = this.designVariants.find(
-				( item ) => item.id === this.selectedDesignVariant
-			);
-			payload.designVariant = this.selectedDesignVariant;
-			if ( variant?.label ) {
-				payload.designVariantLabel = variant.label;
-			}
-		}
-		if ( includeSnapshots ) {
-			const snapshots = await this.captureAreaSnapshots();
-			if ( Object.keys( snapshots ).length ) {
-				payload.snapshots = snapshots;
-			}
-		}
-		if ( this._previewUrl ) {
-			payload.previewUrl = this._previewUrl;
-		}
 		el.value = JSON.stringify( payload );
+		return payload;
 	},
 };
 

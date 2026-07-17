@@ -16,15 +16,55 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_SVG_Sanitiser {
+	private const MAX_ELEMENTS = 50000;
+	private const MAX_DEPTH = 128;
+	private const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
 	/** Dangerous element tag names (case-insensitive). */
 	private const BLOCKED_ELEMENTS = [
 		'script',
 		'foreignobject',
+		'iframe',
+		'object',
+		'embed',
+		'link',
+		'meta',
+		'audio',
+		'video',
 		'animate',
 		'set',
 		'animatetransform',
 		'animatemotion',
+	];
+
+	/** CSS properties that are useful for static SVG presentation. */
+	private const ALLOWED_STYLE_PROPERTIES = [
+		'clip-rule',
+		'color',
+		'display',
+		'dominant-baseline',
+		'fill',
+		'fill-opacity',
+		'fill-rule',
+		'font-family',
+		'font-size',
+		'font-style',
+		'font-weight',
+		'opacity',
+		'paint-order',
+		'stop-color',
+		'stop-opacity',
+		'stroke',
+		'stroke-dasharray',
+		'stroke-dashoffset',
+		'stroke-linecap',
+		'stroke-linejoin',
+		'stroke-miterlimit',
+		'stroke-opacity',
+		'stroke-width',
+		'text-anchor',
+		'vector-effect',
+		'visibility',
 	];
 
 	/**
@@ -88,8 +128,16 @@ class OC_SVG_Sanitiser {
 		if ( 'svg' !== strtolower( $dom->documentElement->localName ) ) {
 			throw new \InvalidArgumentException( 'Root element is not <svg>.' );
 		}
+		$root_namespace = (string) $dom->documentElement->namespaceURI;
+		if ( '' !== $root_namespace && self::SVG_NAMESPACE !== $root_namespace ) {
+			throw new \InvalidArgumentException( 'Root element is not in the SVG namespace.' );
+		}
+		if ( $dom->getElementsByTagName( '*' )->length > self::MAX_ELEMENTS ) {
+			throw new \InvalidArgumentException( 'SVG element count exceeds the safe limit.' );
+		}
 
-		self::clean_node( $dom->documentElement );
+		$element_count = 0;
+		self::clean_node( $dom->documentElement, 0, $element_count );
 
 		// Serialise back to string, stripping the XML declaration.
 		$output = $dom->saveXML( $dom->documentElement );
@@ -128,9 +176,17 @@ class OC_SVG_Sanitiser {
 	// -------------------------------------------------------------------------
 
 	/** Recursively clean a DOM node and all its descendants. */
-	private static function clean_node( \DOMNode $node ): void {
+	private static function clean_node( \DOMNode $node, int $depth, int &$element_count ): void {
+		if ( $depth > self::MAX_DEPTH ) {
+			throw new \InvalidArgumentException( 'SVG nesting exceeds the safe limit.' );
+		}
+
 		// Clean attributes on this node itself (critical for the root <svg> element).
 		if ( $node instanceof \DOMElement ) {
+			$element_count++;
+			if ( $element_count > self::MAX_ELEMENTS ) {
+				throw new \InvalidArgumentException( 'SVG element count exceeds the safe limit.' );
+			}
 			self::clean_attributes( $node );
 		}
 
@@ -139,10 +195,21 @@ class OC_SVG_Sanitiser {
 
 		foreach ( $node->childNodes as $child ) {
 			if ( $child instanceof \DOMElement ) {
-				$tag = strtolower( $child->localName );
+				$tag       = strtolower( $child->localName );
+				$namespace = (string) $child->namespaceURI;
+				if ( 'style' === $tag && ( '' === $namespace || self::SVG_NAMESPACE === $namespace ) ) {
+					$clean_stylesheet = self::clean_stylesheet( (string) $child->textContent );
+					if ( '' === $clean_stylesheet ) {
+						$to_remove[] = $child;
+					} else {
+						self::clean_attributes( $child );
+						$child->nodeValue = $clean_stylesheet;
+					}
+					continue;
+				}
 
-				// Blocked elements — schedule removal.
-				if ( in_array( $tag, self::BLOCKED_ELEMENTS, true ) ) {
+				// Remove active elements and content from foreign XML namespaces.
+				if ( in_array( $tag, self::BLOCKED_ELEMENTS, true ) || ( '' !== $namespace && self::SVG_NAMESPACE !== $namespace ) ) {
 					$to_remove[] = $child;
 					continue;
 				}
@@ -158,9 +225,7 @@ class OC_SVG_Sanitiser {
 				}
 
 				// Recurse — clean_attributes() is called at the top of each recursive call.
-				self::clean_node( $child );
-			} elseif ( XML_TEXT_NODE === $child->nodeType && $node instanceof \DOMElement && 'style' === strtolower( $node->localName ) ) {
-				$child->nodeValue = self::clean_css( (string) $child->nodeValue );
+				self::clean_node( $child, $depth + 1, $element_count );
 			}
 		}
 
@@ -177,6 +242,24 @@ class OC_SVG_Sanitiser {
 		foreach ( $el->attributes as $attr ) {
 			$name  = strtolower( $attr->localName );
 			$value = $attr->value;
+			$namespace = (string) $attr->namespaceURI;
+
+			$allowed_namespaces = [
+				'',
+				'http://www.w3.org/2000/xmlns/',
+				'http://www.w3.org/XML/1998/namespace',
+				'http://www.w3.org/1999/xlink',
+			];
+			if ( ! in_array( $namespace, $allowed_namespaces, true ) ) {
+				$to_remove[] = $attr;
+				continue;
+			}
+			if ( 'http://www.w3.org/2000/xmlns/' === $namespace ) {
+				if ( ! in_array( $name, [ 'xmlns', 'xlink' ], true ) ) {
+					$to_remove[] = $attr;
+				}
+				continue;
+			}
 
 			// Event handlers (on*) and xml:base (detected by localName + xml namespace).
 			$is_xml_base = 'base' === $name && 'http://www.w3.org/XML/1998/namespace' === $attr->namespaceURI;
@@ -210,7 +293,23 @@ class OC_SVG_Sanitiser {
 					$to_remove[] = $attr;
 					continue;
 				}
-				$el->setAttribute( $attr->name, $clean_css );
+				$attr->value = $clean_css;
+				continue;
+			}
+			$normalised_value = preg_replace( '/[\x00-\x20\x7F]+/u', '', html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) ?? '';
+			if ( preg_match( '/(?:\\\\|\/\*|(?:javascript|vbscript|data|file|https?|ftp):)/i', $normalised_value ) ) {
+				$to_remove[] = $attr;
+				continue;
+			}
+
+			// Presentation attributes may contain url(...); retain internal fragments only.
+			if ( preg_match( '/url\s*\(/i', $value ) ) {
+				$clean_value = self::clean_resource_urls( $value );
+				if ( null === $clean_value ) {
+					$to_remove[] = $attr;
+					continue;
+				}
+				$attr->value = $clean_value;
 			}
 		}
 
@@ -230,21 +329,75 @@ class OC_SVG_Sanitiser {
 
 	/** Strip CSS constructs that can execute script or fetch external resources. */
 	private static function clean_css( string $css ): string {
-		$css = preg_replace( '/@import\b[^;]*(?:;|$)/i', '', $css ) ?? '';
-		$css = preg_replace_callback(
+		if ( preg_match( '/(?:\\\\|@|[{}<>]|\/\*)/', $css ) ) {
+			return '';
+		}
+
+		$declarations = [];
+		foreach ( explode( ';', $css ) as $declaration ) {
+			$parts = explode( ':', $declaration, 2 );
+			if ( 2 !== count( $parts ) ) {
+				continue;
+			}
+			$property = strtolower( trim( $parts[0] ) );
+			$value    = trim( $parts[1] );
+			if ( ! in_array( $property, self::ALLOWED_STYLE_PROPERTIES, true ) || '' === $value ) {
+				continue;
+			}
+			if ( preg_match( '/(?:javascript|vbscript|data|file|https?|ftp)\s*:/i', preg_replace( '/[\x00-\x20\x7F]+/u', '', $value ) ?? '' ) ) {
+				continue;
+			}
+			$clean_value = self::clean_resource_urls( $value );
+			if ( null === $clean_value ) {
+				continue;
+			}
+			$declarations[] = $property . ':' . $clean_value;
+		}
+
+		return implode( ';', $declarations );
+	}
+
+	/** Normalise url(...) values, rejecting the whole attribute on any external reference. */
+	private static function clean_resource_urls( string $value ): ?string {
+		$invalid = false;
+		$output  = preg_replace_callback(
 			'/url\s*\(\s*(["\']?)(.*?)\1\s*\)/i',
-			static function ( array $matches ): string {
+			static function ( array $matches ) use ( &$invalid ): string {
 				$url = html_entity_decode( (string) $matches[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 				$url = preg_replace( '/[\x00-\x20\x7F]+/u', '', $url ) ?? '';
+				if ( ! preg_match( '/^#[A-Za-z_][A-Za-z0-9_.:-]*$/D', $url ) ) {
+					$invalid = true;
+					return '';
+				}
 
-				return preg_match( '/^#[A-Za-z_][A-Za-z0-9_.:-]*$/D', $url ) ? 'url(' . $url . ')' : 'none';
+				return 'url(' . $url . ')';
 			},
-			$css
-		) ?? '';
-		$css = preg_replace( '/expression\s*\([^)]*\)/i', '', $css ) ?? '';
-		$css = preg_replace( '/javascript\s*:/i', '', $css ) ?? '';
-		$css = preg_replace( '/vbscript\s*:/i', '', $css ) ?? '';
+			$value
+		);
 
-		return trim( $css );
+		return $invalid || ! is_string( $output ) ? null : trim( $output );
+	}
+
+	/** Keep simple static selector rules while dropping imports and malformed CSS. */
+	private static function clean_stylesheet( string $css ): string {
+		if ( preg_match( '/(?:\\\\|@|[<>]|\/\*)/', $css ) ) {
+			return '';
+		}
+
+		$rules = [];
+		if ( preg_match_all( '/([^{}]+)\{([^{}]*)\}/', $css, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $match ) {
+				$selector = trim( (string) $match[1] );
+				if ( '' === $selector || ! preg_match( '/^[A-Za-z0-9_.#,\s>+~*:\[\]="\'\-()]+$/D', $selector ) ) {
+					continue;
+				}
+				$declarations = self::clean_css( (string) $match[2] );
+				if ( '' !== $declarations ) {
+					$rules[] = $selector . '{' . $declarations . '}';
+				}
+			}
+		}
+
+		return implode( '', $rules );
 	}
 }

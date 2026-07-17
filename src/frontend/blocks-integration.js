@@ -47,7 +47,7 @@ const renderSummary = ( summary ) => {
 
 registerCheckoutFilters( 'overcustomise', {
 	cartItemClass: ( defaultValue, extensions ) => {
-		return getPreviewUrl( extensions ) || getSummary( extensions ).length
+		return getPreviewUrl( extensions )
 			? `${ defaultValue } oc-has-personalisation`.trim()
 			: defaultValue;
 	},

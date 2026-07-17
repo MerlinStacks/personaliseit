@@ -61,7 +61,13 @@ import {
 	let autosaveError = '';
 	let designId = 0;
 	let dirtyRevision = 0;
+	let autosaveRevision = 0;
 	let autosaveInFlight = false;
+	let autosaveConflict = false;
+	let isHydrated = false;
+	let interactionsInitialised = false;
+	let pendingSubmit = false;
+	let submitRevisionVerified = false;
 	let isSubmitting = false;
 	const autosaveInterval = 30000;
 	function snapshot() {
@@ -132,6 +138,7 @@ import {
 	function markDirty() {
 		isDirty = true;
 		hasUnsavedChanges = true;
+		submitRevisionVerified = false;
 		dirtyRevision++;
 		updateAutosaveIndicator();
 	}
@@ -140,7 +147,10 @@ import {
 		if ( ! el ) {
 			return;
 		}
-		if ( autosaveError ) {
+		if ( ! isHydrated ) {
+			el.textContent = 'Loading saved work\u2026';
+			el.className = 'oc-autosave-indicator';
+		} else if ( autosaveError ) {
 			el.textContent = autosaveError;
 			el.className = 'oc-autosave-indicator oc-autosave-indicator--error';
 		} else if ( isDirty ) {
@@ -158,13 +168,28 @@ import {
 		}
 	}
 	function collectState() {
+		const customType = document.getElementById( 'oc_custom_type' )?.value;
+		const flatRate = Number(
+			document.getElementById( 'oc_flat_rate' )?.value || 0
+		);
 		return {
+			design: {
+				name: document.getElementById( 'oc_design_name' )?.value || '',
+				customType: [ 'text_only', 'photo_text' ].includes( customType )
+					? customType
+					: 'text_only',
+				flatRate: Number.isFinite( flatRate )
+					? Math.max( 0, flatRate )
+					: 0,
+				active: !! document.getElementById( 'oc_active' )?.checked,
+			},
 			areas: areas.map( function ( a ) {
 				return {
 					id: a.id,
 					label: a.label,
 					method: a.method,
 					material: a.material,
+					unit: a.unit,
 					mockupId: a.mockupId,
 					mockupUrl: a.mockupUrl,
 					x: a.x,
@@ -198,6 +223,25 @@ import {
 		};
 	}
 	function applyAutosavedState( savedState ) {
+		const savedDesign = savedState.design || {};
+		if ( typeof savedDesign.name === 'string' ) {
+			setVal( 'oc_design_name', savedDesign.name );
+		}
+		if (
+			[ 'text_only', 'photo_text' ].includes( savedDesign.customType )
+		) {
+			setVal( 'oc_custom_type', savedDesign.customType );
+		}
+		if ( Number.isFinite( Number( savedDesign.flatRate ) ) ) {
+			setVal(
+				'oc_flat_rate',
+				Math.max( 0, Number( savedDesign.flatRate ) )
+			);
+		}
+		const active = document.getElementById( 'oc_active' );
+		if ( active && typeof savedDesign.active === 'boolean' ) {
+			active.checked = savedDesign.active;
+		}
 		areas = ( savedState.areas || [] ).map( function ( a, i ) {
 			return Object.assign( normaliseArea( a, i ), {
 				layers: ( a.layers || [] ).map( normaliseLayer ),
@@ -211,41 +255,67 @@ import {
 		snapshot();
 		renderAll();
 	}
-	function doAutosave() {
-		if ( ! isDirty || ! designId || autosaveInFlight ) {
+	function doAutosave( force = false ) {
+		if (
+			( ! force && ! isDirty ) ||
+			! designId ||
+			! isHydrated ||
+			autosaveInFlight ||
+			autosaveConflict ||
+			isSubmitting
+		) {
 			return;
 		}
 		autosaveInFlight = true;
-		const revision = dirtyRevision;
+		const localRevision = dirtyRevision;
+		const expectedRevision = autosaveRevision;
+		const revision = expectedRevision + 1;
 		const state = collectState();
+		let requestStored = false;
 		const body = new URLSearchParams( {
 			action: 'oc_autosave_design',
 			nonce: window.ocProductsData?.nonce || '',
 			design_id: designId,
 			revision,
+			expected_revision: expectedRevision,
 			state: JSON.stringify( state ),
 		} );
 		fetch( window.ocProductsData?.ajaxUrl || '', { method: 'POST', body } )
 			.then( function ( r ) {
-				if ( ! r.ok ) {
-					throw new Error( 'HTTP ' + r.status );
-				}
-				return r.json();
+				return r.json().then( function ( json ) {
+					return { json, ok: r.ok, status: r.status };
+				} );
 			} )
-			.then( function ( json ) {
+			.then( function ( response ) {
+				const json = response.json;
 				if (
-					json.success &&
-					Number( json.data?.revision ) === revision &&
-					dirtyRevision === revision
+					! json.success &&
+					json.data?.code === 'autosave_conflict'
 				) {
-					isDirty = false;
-					lastSavedTime = Date.now();
-					autosaveError = '';
+					autosaveConflict = true;
+					autosaveError =
+						json.data.message ||
+						'Newer changes exist in another tab. Reload to continue.';
+					setSubmitEnabled( false );
 					updateAutosaveIndicator();
-				} else if ( ! json.success ) {
-					autosaveError = 'Autosave failed';
-					updateAutosaveIndicator();
+					return;
 				}
+				if ( ! response.ok || ! json.success ) {
+					throw new Error(
+						json.data?.message || 'HTTP ' + response.status
+					);
+				}
+				if ( Number( json.data?.revision ) !== revision ) {
+					throw new Error( 'Unexpected autosave revision.' );
+				}
+				autosaveRevision = revision;
+				requestStored = true;
+				lastSavedTime = Date.now();
+				autosaveError = '';
+				if ( dirtyRevision === localRevision ) {
+					isDirty = false;
+				}
+				updateAutosaveIndicator();
 			} )
 			.catch( function ( err ) {
 				console.warn( '[OC] Autosave failed:', err );
@@ -254,7 +324,21 @@ import {
 			} )
 			.finally( function () {
 				autosaveInFlight = false;
-				if ( isDirty && dirtyRevision > revision ) {
+				if ( pendingSubmit ) {
+					pendingSubmit = false;
+					if ( ! autosaveConflict && requestStored ) {
+						submitRevisionVerified = true;
+						setSubmitEnabled( true );
+						const form =
+							document.getElementById( 'oc-design-form' );
+						form?.requestSubmit();
+						if ( ! isSubmitting ) {
+							submitRevisionVerified = false;
+						}
+					} else if ( ! autosaveConflict ) {
+						setSubmitEnabled( true );
+					}
+				} else if ( isDirty && dirtyRevision > localRevision ) {
 					doAutosave();
 				}
 			} );
@@ -271,16 +355,91 @@ import {
 			autosaveTimer = null;
 		}
 	}
+	function setSubmitEnabled( enabled ) {
+		const button = document.getElementById( 'oc-save-design-btn' );
+		if ( ! button ) {
+			return;
+		}
+		button.disabled = ! enabled;
+		button.setAttribute( 'aria-disabled', enabled ? 'false' : 'true' );
+	}
+	function setHydrationControlsDisabled( disabled ) {
+		[
+			'oc_design_name',
+			'oc_custom_type',
+			'oc_flat_rate',
+			'oc_active',
+		].forEach( ( id ) => {
+			const control = document.getElementById( id );
+			if ( control ) {
+				control.disabled = disabled;
+			}
+		} );
+	}
+	function initDesignStateInteractions() {
+		[
+			[ 'oc_design_name', 'input' ],
+			[ 'oc_custom_type', 'change' ],
+			[ 'oc_flat_rate', 'input' ],
+			[ 'oc_active', 'change' ],
+		].forEach( ( [ id, eventName ] ) => {
+			document
+				.getElementById( id )
+				?.addEventListener( eventName, markDirty );
+		} );
+	}
+	function finishHydration() {
+		isHydrated = true;
+		setHydrationControlsDisabled( false );
+		if ( ! interactionsInitialised ) {
+			initInteractions();
+			initDesignStateInteractions();
+			interactionsInitialised = true;
+		}
+		setSubmitEnabled( ! autosaveConflict );
+		if ( designId > 0 ) {
+			startAutosavePoll();
+		}
+		updateAutosaveIndicator();
+	}
+	function handleDesignSubmit( event ) {
+		if ( ! isHydrated ) {
+			event.preventDefault();
+			autosaveError = 'Wait for the design to finish loading.';
+			updateAutosaveIndicator();
+			return;
+		}
+		if ( autosaveConflict ) {
+			event.preventDefault();
+			window.alert(
+				'A newer autosave exists from another tab. Reload this design before saving.'
+			);
+			return;
+		}
+		if ( designId > 0 && ! submitRevisionVerified ) {
+			event.preventDefault();
+			pendingSubmit = true;
+			setSubmitEnabled( false );
+			if ( ! autosaveInFlight ) {
+				doAutosave( true );
+			}
+			return;
+		}
+
+		submitRevisionVerified = false;
+		isSubmitting = true;
+		renderHiddenFields();
+		stopAutosavePoll();
+	}
 	function init() {
 		const data = window.ocProductsData || {};
 		designId = Number( data.designId || 0 );
+		setHydrationControlsDisabled( true );
+		setSubmitEnabled( false );
+		updateAutosaveIndicator();
 		document
 			.getElementById( 'oc-design-form' )
-			?.addEventListener( 'submit', () => {
-				isSubmitting = true;
-				renderHiddenFields();
-				stopAutosavePoll();
-			} );
+			?.addEventListener( 'submit', handleDesignSubmit );
 		window.addEventListener( 'beforeunload', ( event ) => {
 			if ( hasUnsavedChanges && ! isSubmitting ) {
 				event.preventDefault();
@@ -295,13 +454,14 @@ import {
 			} );
 			fetch( data.ajaxUrl, { method: 'POST', body } )
 				.then( function ( r ) {
-					if ( ! r.ok ) {
-						throw new Error( 'HTTP ' + r.status );
-					}
 					return r.json();
 				} )
 				.then( function ( json ) {
 					if ( json.success && json.data && json.data.state ) {
+						autosaveRevision = Math.max(
+							0,
+							Number( json.data.revision ) || 0
+						);
 						const ts = json.data.timestamp || 0;
 						const diff = Math.round(
 							( Date.now() - ts * 1000 ) / 1000
@@ -315,10 +475,7 @@ import {
 							' ago. Restore?';
 						if ( window.confirm( msg ) ) {
 							applyAutosavedState( json.data.state );
-							isDirty = true;
-							startAutosavePoll();
-							updateAutosaveIndicator();
-							initInteractions();
+							finishHydration();
 							return;
 						}
 					}
@@ -348,10 +505,8 @@ import {
 		snapshot(); // seed initial history state
 		isDirty = false; // reset after seed
 		hasUnsavedChanges = false;
-		initInteractions();
-		if ( designId > 0 ) {
-			startAutosavePoll();
-		}
+		autosaveError = '';
+		finishHydration();
 	}
 	const {
 		normaliseArea,

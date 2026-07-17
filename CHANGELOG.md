@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.16.0 - 2026-07-17
+
+### Security
+- Moved customer artwork, VDP data, generated print files, and thumbnails behind protected storage and authenticated or signed delivery routes.
+- Added strict SVG, font, image, subprocess, webhook, and AI request resource limits.
+- Added paid AI call quotas and hardened upload ownership, cleanup references, and print-file path validation.
+
+### Fixed
+- Made checkout print queue staging, retries, terminal transitions, combined jobs, and regeneration updates concurrency-safe.
+- Made VDP, canonical render specs, hidden layers, image filters, print methods, and derivative lifecycles deterministic.
+- Fixed admin design persistence, frontend customiser state races, linked layers, Spotify inputs, and order artwork previews.
+
 ## 1.15.0 - 2026-07-15
 
 ### Added

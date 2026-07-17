@@ -2,7 +2,7 @@
  * Frontend Customiser — vanilla JS, no framework dependency.
  *
  * Data: window.ocCustomiserData (wp_localize_script).
- * Canvas: Fabric.js 6.x  |  Uploads: Uppy 4.x
+ * Canvas: Fabric.js 7.x  |  Uploads: Uppy 5.x
  *
  * @package
  */
@@ -63,8 +63,10 @@ class OCCustomiser {
 		this._redrawTimers = {};
 		this._redrawGenerations = {};
 		this._redrawPromises = {};
-		this.fontCache = {}; // fontName  → load Promise
-		this.outlineFontCache = {}; // fontName  → parsed font Promise
+		this._canvasReadyPromise = Promise.resolve();
+		this._canvasReadyGeneration = 0;
+		this._canvasLoadTimers = new Set();
+		this.fontCache = {}; // font family/weight/style/URL -> load Promise
 		this.clipartSvgCache = {};
 		this.galleryImg = null; // the main <img> in the product gallery
 		this._previewUrl = null; // saved preview URL (set just before cart submit)
@@ -84,10 +86,12 @@ class OCCustomiser {
 		this.uploadGenerations = {};
 		this.aiFilterGenerations = {};
 		this.aiFilterAbortControllers = {};
-		this.aiFilterPending = 0;
 		this.aiFilterErrors = {};
+		this.artworkPendingCount = 0;
+		this._artworkOperations = new Set();
+		this.uppyInstances = new Set();
+		this._thumbnailCanvases = new Set();
 		this.preflightRoot = null;
-		this.clipartByGroup = {};
 		this.clipartSearchTimers = {};
 		this.clipartSearchTerms = {};
 		this.clipartCategoryFilters = {};
@@ -97,34 +101,60 @@ class OCCustomiser {
 		this.fontComboboxDocumentClickBound = false;
 		this._customisationActive = true;
 		this._submitInProgress = false;
+		this._controlLocks = new Set();
+		this._galleryPreviewTimer = null;
+		this._variationChangeTimer = null;
+		this._mobileCartPreviewResolve = null;
+	}
 
-		if ( this.editMode ) {
-			Object.entries( data.layerInputs || {} ).forEach( ( [ k, v ] ) => {
-				const key = parseInt( k, 10 );
-				if (
-					this.inputs[ key ] &&
-					typeof v === 'object' &&
-					v !== null
-				) {
-					Object.assign( this.inputs[ key ], v );
-					this.clampLayerInputValue( key );
-				}
-			} );
+	setControlLock( reason, locked ) {
+		if ( locked ) {
+			this._controlLocks.add( reason );
+		} else {
+			this._controlLocks.delete( reason );
+		}
+		this.applyControlLocks();
+	}
+
+	applyControlLocks() {
+		const locked = this._controlLocks.size > 0;
+		const panel = document.getElementById( 'oc-customiser-panel' );
+		if ( panel ) {
+			panel.inert = locked;
+			panel.setAttribute( 'aria-busy', locked ? 'true' : 'false' );
 		}
 
-		for ( const [ lidStr, items ] of Object.entries(
-			data.clipartByLayer || {}
-		) ) {
-			const lid = parseInt( lidStr, 10 );
-			for ( const item of items ) {
-				for ( const gn of item.groupNames || [] ) {
-					if ( ! this.clipartByGroup[ gn ] ) {
-						this.clipartByGroup[ gn ] = {};
-					}
-					this.clipartByGroup[ gn ][ lid ] = item;
+		const controls = new Set( [
+			...( panel?.querySelectorAll(
+				'input:not([type="hidden"]), select, textarea, button'
+			) || [] ),
+			...( document
+				.querySelector( 'form.cart' )
+				?.querySelectorAll(
+					'input:not([type="hidden"]), select, textarea, button'
+				) || [] ),
+		] );
+		controls.forEach( ( control ) => {
+			if ( locked ) {
+				if ( control.dataset.ocLockDisabled === undefined ) {
+					control.dataset.ocLockDisabled = control.disabled
+						? '1'
+						: '0';
 				}
+				control.disabled = true;
+				control.setAttribute( 'aria-disabled', 'true' );
+				return;
 			}
-		}
+			if ( control.dataset.ocLockDisabled === undefined ) {
+				return;
+			}
+			control.disabled = control.dataset.ocLockDisabled === '1';
+			control.setAttribute(
+				'aria-disabled',
+				control.disabled ? 'true' : 'false'
+			);
+			delete control.dataset.ocLockDisabled;
+		} );
 	}
 
 	restHeaders( extra = {} ) {
@@ -186,25 +216,24 @@ class OCCustomiser {
 			} );
 		}
 
-		// Wire up controls IMMEDIATELY — don't block on canvas.
-		this.setupInputListeners();
+		// Hydrate state before listeners read values from the template controls.
+		this.seedLockedLayerDefaults();
 		this.seedTemplateImageDefaults();
+		this.applyInputsToDOM( { redraw: false } );
+		this.setupInputListeners();
 		this.setupVariationGalleryHandoff();
 		this.setupCartGalleryUnlock();
 		this.setupDesignVariantOptions();
 		this.setupClipartCarousels();
-		this.setupUploadZones();
+		this._uploadSetupPromise = this.setupUploadZones();
 		this.applyInitialAiFilters();
-		if ( this.editMode ) {
-			this.updateInputsFromDOM();
-		}
 		this.setupFormSubmit();
 		this.updateHiddenField();
 		this.setupDesignVariantCarousel();
 		this.renderDesignVariantThumbnails();
 
 		// Canvas init runs in background; calls redraw() when done.
-		this.initAllCanvases();
+		this.startCanvasInitialisation();
 	}
 }
 

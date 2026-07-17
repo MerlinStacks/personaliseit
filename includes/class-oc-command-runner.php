@@ -25,7 +25,24 @@ class OC_Command_Runner {
 		if ( empty( $parts ) ) {
 			throw new \InvalidArgumentException( 'Command is empty.' );
 		}
-		$parts = array_values( array_map( static fn( $v ) => (string) $v, $parts ) );
+		if ( count( $parts ) > 128 ) {
+			throw new \InvalidArgumentException( 'Command contains too many arguments.' );
+		}
+		$total_length = 0;
+		foreach ( $parts as $part ) {
+			if ( ! is_string( $part ) && ! is_int( $part ) && ! is_float( $part ) ) {
+				throw new \InvalidArgumentException( 'Command contains an invalid argument.' );
+			}
+			if ( preg_match( '/[\x00-\x1F\x7F]/', (string) $part ) ) {
+				throw new \InvalidArgumentException( 'Command contains control characters.' );
+			}
+			$total_length += strlen( (string) $part );
+		}
+		if ( $total_length > 65536 ) {
+			throw new \InvalidArgumentException( 'Command exceeds the safe length limit.' );
+		}
+
+		$parts = array_values( array_map( static fn( string|int|float $value ): string => (string) $value, $parts ) );
 		$bin   = trim( $parts[0] ?? '' );
 		if ( '' === $bin ) {
 			throw new \InvalidArgumentException( 'Executable is empty.' );
@@ -48,11 +65,15 @@ class OC_Command_Runner {
 		);
 
 		if ( ! function_exists( 'proc_open' ) ) {
-			return self::run_with_exec( $cmd );
+			throw new \InvalidArgumentException( 'Safe process execution is not available.' );
 		}
 
 		$descriptors = [ 0 => [ 'pipe', 'r' ], 1 => [ 'pipe', 'w' ], 2 => [ 'pipe', 'w' ] ];
-		$process = proc_open( $parts, $descriptors, $pipes, null, null, [ 'bypass_shell' => true ] );
+		try {
+			$process = proc_open( $parts, $descriptors, $pipes, null, null, [ 'bypass_shell' => true ] );
+		} catch ( \Throwable $e ) {
+			throw new \InvalidArgumentException( 'Could not start command.', 0, $e );
+		}
 		if ( ! is_resource( $process ) ) throw new \InvalidArgumentException( 'Could not start command.' );
 		fclose( $pipes[0] );
 		stream_set_blocking( $pipes[1], false );
@@ -64,52 +85,43 @@ class OC_Command_Runner {
 		$started = microtime( true );
 		$buffer  = '';
 		$code    = -1;
+		$stopped = false;
 		do {
-			$buffer .= (string) stream_get_contents( $pipes[1] ) . (string) stream_get_contents( $pipes[2] );
+			$buffer .= (string) stream_get_contents( $pipes[1], 65536 ) . (string) stream_get_contents( $pipes[2], 65536 );
 			if ( strlen( $buffer ) > self::MAX_OUTPUT_BYTES ) {
 				proc_terminate( $process, 9 );
 				$buffer = substr( $buffer, 0, self::MAX_OUTPUT_BYTES ) . "\n[output truncated]";
+				$code = 125;
+				$stopped = true;
 				break;
 			}
 			$status = proc_get_status( $process );
+			if ( ! is_array( $status ) ) {
+				$code = 125;
+				break;
+			}
 			if ( ! $status['running'] ) { $code = (int) $status['exitcode']; break; }
 			if ( microtime( true ) - $started >= $timeout ) {
 				proc_terminate( $process, 9 );
 				$buffer .= "\n[command timed out]";
+				$code = 124;
+				$stopped = true;
 				break;
 			}
 			usleep( 10000 );
 		} while ( true );
-		$buffer .= (string) stream_get_contents( $pipes[1] ) . (string) stream_get_contents( $pipes[2] );
+		$buffer .= (string) stream_get_contents( $pipes[1], 65536 ) . (string) stream_get_contents( $pipes[2], 65536 );
+		if ( strlen( $buffer ) > self::MAX_OUTPUT_BYTES + 32 ) {
+			$buffer = substr( $buffer, 0, self::MAX_OUTPUT_BYTES ) . "\n[output truncated]";
+		}
 		fclose( $pipes[1] ); fclose( $pipes[2] );
 		$closed = proc_close( $process );
-		if ( $code < 0 && $closed >= 0 ) $code = $closed;
+		if ( ! $stopped && $code < 0 && $closed >= 0 ) $code = $closed;
 		$output = preg_split( '/\R/', trim( $buffer ) ) ?: [];
 
 		return [
 			'code'    => (int) $code,
 			'output'  => array_values( $output ),
-			'command' => $cmd,
-		];
-	}
-
-	/** Use the previous escaped exec path when proc_open is unavailable. */
-	private static function run_with_exec( string $cmd ): array {
-		if ( ! function_exists( 'exec' ) ) {
-			throw new \InvalidArgumentException( 'Safe process execution is not available.' );
-		}
-
-		$output = [];
-		$code   = -1;
-		exec( $cmd . ' 2>&1', $output, $code ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_exec
-		$buffer = implode( "\n", array_map( 'strval', $output ) );
-		if ( strlen( $buffer ) > self::MAX_OUTPUT_BYTES ) {
-			$buffer = substr( $buffer, 0, self::MAX_OUTPUT_BYTES ) . "\n[output truncated]";
-		}
-
-		return [
-			'code'    => (int) $code,
-			'output'  => '' === $buffer ? [] : ( preg_split( '/\R/', $buffer ) ?: [] ),
 			'command' => $cmd,
 		];
 	}

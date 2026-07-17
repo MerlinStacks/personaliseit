@@ -85,6 +85,7 @@ class OC_Plugin {
 
 		// REST API.
 		( new OC_Rest_API() )->register();
+		OC_Upload_Handler::register();
 
 		// Mockup taxonomy + AJAX handlers.
 		OC_Admin_Mockups::init();
@@ -185,13 +186,11 @@ class OC_Plugin {
 		}
 
 		wp_clear_scheduled_hook( 'oc_process_print_queue_now' );
-
-		// Clear webhook delivery options.
-		global $wpdb;
-		$options = $wpdb->get_results( "SELECT option_name FROM {$wpdb->prefix}options WHERE option_name LIKE 'oc_wh_delivery_%'" );
-		foreach ( $options as $opt ) {
-			delete_option( $opt->option_name );
+		if ( function_exists( 'wp_unschedule_hook' ) ) {
+			wp_unschedule_hook( 'oc_webhook_retry' );
 		}
+
+		self::delete_runtime_options();
 	}
 
 	public static function uninstall(): void {
@@ -201,12 +200,28 @@ class OC_Plugin {
 		delete_option( 'oc_db_version' );
 		delete_option( 'oc_settings' );
 		delete_option( 'oc_print_methods' );
+		delete_option( 'oc_private_artwork_storage_version' );
+		delete_option( 'oc_artwork_cleanup_cursor' );
 
 		wp_clear_scheduled_hook( 'oc_daily_file_cleanup' );
 		wp_clear_scheduled_hook( 'oc_process_print_queue' );
 		wp_clear_scheduled_hook( 'oc_process_print_queue_now' );
+		if ( function_exists( 'wp_unschedule_hook' ) ) {
+			wp_unschedule_hook( 'oc_webhook_retry' );
+		}
 
 		unregister_taxonomy( 'oc_mockup', 'attachment' );
+		remove_filter( 'pre_delete_attachment', [ OC_Upload_Handler::class, 'prevent_referenced_artwork_deletion' ], 10 );
+		$artwork_ids = get_posts( [
+			'post_type'      => 'attachment',
+			'post_status'    => 'any',
+			'posts_per_page' => -1,
+			'fields'         => 'ids',
+			'meta_query'     => [ [ 'key' => '_oc_artwork', 'value' => '1' ] ],
+		] );
+		foreach ( array_map( 'absint', $artwork_ids ) as $attachment_id ) {
+			wp_delete_attachment( $attachment_id, true );
+		}
 
 		$upload_dir = wp_upload_dir();
 		$upload_path = $upload_dir['basedir'] . '/overcustomise/';
@@ -215,12 +230,43 @@ class OC_Plugin {
 		}
 
 		wp_cache_flush_group( 'oc_data' );
+		self::delete_runtime_options();
+	}
 
-		// Clear webhook delivery options.
+	/** Remove short-lived plugin options without retaining arbitrary payloads. */
+	private static function delete_runtime_options(): void {
 		global $wpdb;
-		$options = $wpdb->get_results( "SELECT option_name FROM {$wpdb->prefix}options WHERE option_name LIKE 'oc_wh_delivery_%'" );
-		foreach ( $options as $opt ) {
-			delete_option( $opt->option_name );
+		$prefixes = [
+			'oc_wh_delivery_',
+			'oc_ai_filter_lock_',
+			'oc_print_generated_emitted_',
+			'oc_print_failure_emitted_',
+			'_transient_oc_',
+			'_transient_timeout_oc_',
+		];
+		$clauses = implode( ' OR ', array_fill( 0, count( $prefixes ), 'option_name LIKE %s' ) );
+		$patterns = array_map(
+			static fn ( string $prefix ): string => $wpdb->esc_like( $prefix ) . '%',
+			$prefixes
+		);
+		$option_names = $wpdb->get_col( $wpdb->prepare(
+			"SELECT option_name FROM {$wpdb->options} WHERE {$clauses}",
+			...$patterns
+		) ) ?: [];
+
+		$transients = [];
+		foreach ( $option_names as $option_name ) {
+			$option_name = (string) $option_name;
+			if ( str_starts_with( $option_name, '_transient_timeout_' ) ) {
+				$transients[] = substr( $option_name, strlen( '_transient_timeout_' ) );
+			} elseif ( str_starts_with( $option_name, '_transient_' ) ) {
+				$transients[] = substr( $option_name, strlen( '_transient_' ) );
+			} else {
+				delete_option( $option_name );
+			}
+		}
+		foreach ( array_unique( $transients ) as $transient ) {
+			delete_transient( $transient );
 		}
 	}
 

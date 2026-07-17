@@ -53,6 +53,20 @@ export function displayLayer( layer, bounds ) {
 	return displayEntity( layer, bounds );
 }
 
+export function rasterDimensionsForLayer( layer, areaOrBounds ) {
+	const display = displayLayer( layer, areaOrBounds );
+	return {
+		width: Math.max(
+			1,
+			Math.ceil( Math.abs( Number( display?.w ) || 0 ) )
+		),
+		height: Math.max(
+			1,
+			Math.ceil( Math.abs( Number( display?.h ) || 0 ) )
+		),
+	};
+}
+
 export function displayFontSize( fontSize, areaOrBounds, canvasScale = 1 ) {
 	return (
 		Math.max( 1, Number( fontSize ) || 0 ) *

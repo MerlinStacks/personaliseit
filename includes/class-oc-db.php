@@ -9,6 +9,11 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_DB {
 
+	private const PRINT_FILE_CACHE_GROUP = 'oc_print_files';
+	private const PRINT_FILE_CACHE_TTL = 3600;
+
+	private static ?bool $schema_ready = null;
+
 	/** Create (or upgrade) all plugin tables. */
 	public static function create_tables(): void {
 		global $wpdb;
@@ -265,7 +270,7 @@ class OC_DB {
 			file_type      VARCHAR(20)  NOT NULL DEFAULT '',
 			file_path      VARCHAR(500) DEFAULT NULL,
 			thumbnail_path VARCHAR(500) DEFAULT NULL,
-			file_status    ENUM('pending','generating','brief_ready','awaiting_dst_upload','files_ready','expired') NOT NULL DEFAULT 'pending',
+			file_status    ENUM('pending','generating','brief_ready','awaiting_dst_upload','files_ready','expired','failed') NOT NULL DEFAULT 'pending',
 			generated_at   DATETIME DEFAULT NULL,
 			expires_at     DATETIME DEFAULT NULL,
 			PRIMARY KEY (id),
@@ -327,7 +332,7 @@ class OC_DB {
 			print_area_id  BIGINT UNSIGNED NOT NULL,
 			area_source    VARCHAR(20) NOT NULL DEFAULT 'unknown',
 			row_index      INT UNSIGNED NOT NULL DEFAULT 0,
-			area_data      TEXT NOT NULL,
+			area_data      LONGTEXT NOT NULL,
 			print_method   VARCHAR(20) NOT NULL DEFAULT '',
 			status         ENUM('pending','processing','done','failed') NOT NULL DEFAULT 'pending',
 			attempts       INT NOT NULL DEFAULT 0,
@@ -339,6 +344,7 @@ class OC_DB {
 			KEY status (status),
 			KEY status_id (status, id),
 			KEY status_created (status, created_at),
+			KEY status_due (status, processed_at, created_at, id),
 			KEY order_item_id (order_item_id)
 		) $charset;" );
 
@@ -360,18 +366,24 @@ class OC_DB {
 
 	/** Run migrations if DB version is outdated. */
 	public static function maybe_upgrade(): void {
-		$installed = get_option( 'oc_db_version', '0' );
+		$lock_name = 'oc_db_upgrade_lock';
+		self::clear_stale_upgrade_lock( $lock_name );
 
-		if ( version_compare( $installed, OC_DB_VERSION, '<' ) || ! self::print_pipeline_schema_ready() ) {
-			$lock_name = 'oc_db_upgrade_lock';
-			$locked_at = (int) get_option( $lock_name, 0 );
-			if ( $locked_at > 0 && $locked_at < time() - 300 ) {
-				delete_option( $lock_name );
-			}
-			if ( ! add_option( $lock_name, time(), '', false ) ) {
-				return;
-			}
+		$installed = (string) get_option( 'oc_db_version', '0' );
+		$outdated  = version_compare( $installed, OC_DB_VERSION, '<' );
 
+		if ( ! $outdated ) {
+			return;
+		}
+
+		$lock_owner = self::acquire_upgrade_lock( $lock_name );
+		if ( null === $lock_owner ) {
+			return;
+		}
+
+		try {
+			$installed = (string) get_option( 'oc_db_version', '0' );
+			self::$schema_ready = null;
 			self::create_tables();
 
 			global $wpdb;
@@ -512,15 +524,22 @@ class OC_DB {
 				self::create_tables();
 			}
 
-			self::backfill_print_pipeline_schema();
+			self::repair_current_print_schema();
+			self::$schema_ready = null;
+			$backfilled = self::backfill_print_pipeline_schema();
 
-			if ( self::print_pipeline_schema_ready() ) {
+			if ( $backfilled && self::print_pipeline_schema_ready() ) {
 				update_option( 'oc_db_version', OC_DB_VERSION );
+				if ( version_compare( (string) get_option( 'oc_db_version', '0' ), OC_DB_VERSION, '<' ) ) {
+					self::log_schema_error( 'The database schema is current, but its version option could not be saved.' );
+				}
 			} else {
-				OC_Logger::error( 'Print pipeline database upgrade is incomplete; the database version was not advanced.' );
+				self::log_schema_error( 'Database upgrade is incomplete; the database version was not advanced.' );
 			}
-
-			delete_option( $lock_name );
+		} catch ( \Throwable $e ) {
+			self::log_schema_error( 'Database upgrade failed: ' . $e->getMessage() );
+		} finally {
+			self::release_upgrade_lock( $lock_name, $lock_owner );
 		}
 	}
 
@@ -530,48 +549,262 @@ class OC_DB {
 			return false;
 		}
 
-		$installed = get_option( 'oc_db_version', '0' );
-		return ! version_compare( $installed, OC_DB_VERSION, '<' ) || self::print_pipeline_schema_ready();
+		return ! version_compare( (string) get_option( 'oc_db_version', '0' ), OC_DB_VERSION, '<' );
 	}
 
-	/** Confirm every column required by the print pipeline is present. */
+	/** Confirm every current plugin column and index required at runtime is present. */
 	private static function print_pipeline_schema_ready(): bool {
+		if ( null !== self::$schema_ready ) {
+			return self::$schema_ready;
+		}
+
 		global $wpdb;
 
-		$required = [
-			$wpdb->prefix . 'oc_print_files' => [ 'area_source', 'row_index', 'row_key', 'identity_key', 'area_snapshot' ],
-			$wpdb->prefix . 'oc_print_queue' => [ 'print_file_id', 'area_source', 'row_index' ],
+		$required_columns = [
+			$wpdb->prefix . 'oc_product_configs' => [ 'id', 'product_id', 'custom_type', 'flat_rate', 'active', 'created_at', 'updated_at' ],
+			$wpdb->prefix . 'oc_print_areas' => [ 'id', 'config_id', 'area_key', 'label', 'print_method', 'engraving_material', 'mockup_attachment_id', 'canvas_x', 'canvas_y', 'canvas_w', 'canvas_h', 'canvas_rotation', 'sort_order' ],
+			$wpdb->prefix . 'oc_fonts' => [ 'id', 'name', 'file_path', 'weight', 'style', 'embroidery_suitable', 'active', 'created_at' ],
+			$wpdb->prefix . 'oc_font_groups' => [ 'id', 'name', 'created_at' ],
+			$wpdb->prefix . 'oc_font_group_items' => [ 'id', 'group_id', 'font_id', 'sort_order' ],
+			$wpdb->prefix . 'oc_colours' => [ 'id', 'name', 'hex', 'active', 'created_at' ],
+			$wpdb->prefix . 'oc_colour_groups' => [ 'id', 'name', 'created_at' ],
+			$wpdb->prefix . 'oc_colour_group_items' => [ 'id', 'group_id', 'colour_id', 'sort_order' ],
+			$wpdb->prefix . 'oc_clipart' => [ 'id', 'name', 'file_path', 'file_type', 'colour_changeable', 'allowed_print_methods', 'active', 'created_at' ],
+			$wpdb->prefix . 'oc_clipart_groups' => [ 'id', 'name', 'created_at' ],
+			$wpdb->prefix . 'oc_clipart_group_items' => [ 'id', 'group_id', 'clipart_id', 'sort_order' ],
+			$wpdb->prefix . 'oc_designs' => [ 'id', 'name', 'custom_type', 'flat_rate', 'active', 'clone_priority', 'created_at', 'updated_at' ],
+			$wpdb->prefix . 'oc_design_print_areas' => [ 'id', 'design_id', 'area_key', 'label', 'print_method', 'engraving_material', 'canvas_unit', 'mockup_attachment_id', 'canvas_x', 'canvas_y', 'canvas_w', 'canvas_h', 'canvas_dpi', 'canvas_rotation', 'sort_order', 'visible', 'locked' ],
+			$wpdb->prefix . 'oc_product_assignments' => [ 'id', 'product_id', 'variant_id', 'design_id', 'design_variants' ],
+			$wpdb->prefix . 'oc_design_layers' => [ 'id', 'design_id', 'area_id', 'type', 'label', 'x', 'y', 'w', 'h', 'sort_order', 'visible', 'locked', 'settings', 'created_at' ],
+			$wpdb->prefix . 'oc_print_files' => [ 'id', 'order_id', 'order_item_id', 'print_area_id', 'area_source', 'row_index', 'row_key', 'identity_key', 'area_snapshot', 'file_type', 'file_path', 'thumbnail_path', 'file_status', 'generated_at', 'expires_at' ],
+			$wpdb->prefix . 'oc_webhooks' => [ 'id', 'name', 'url', 'events', 'secret', 'active', 'created_at' ],
+			$wpdb->prefix . 'oc_vdp_templates' => [ 'id', 'design_id', 'csv_file_path', 'active', 'created_at' ],
+			$wpdb->prefix . 'oc_vdp_fields' => [ 'id', 'template_id', 'field_name', 'layer_id', 'sort_order' ],
+			$wpdb->prefix . 'oc_print_queue' => [ 'id', 'print_file_id', 'order_id', 'order_item_id', 'print_area_id', 'area_source', 'row_index', 'area_data', 'print_method', 'status', 'attempts', 'error_message', 'created_at', 'processed_at' ],
+			$wpdb->prefix . 'oc_image_filters' => [ 'id', 'name', 'filter_key', 'value', 'prompt', 'active', 'created_at' ],
 		];
 
-		foreach ( $required as $table => $columns ) {
-			foreach ( $columns as $column ) {
-				if ( ! self::column_exists( $table, $column ) ) {
+		$table_placeholders = implode( ',', array_fill( 0, count( $required_columns ), '%s' ) );
+		$column_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE
+			 FROM INFORMATION_SCHEMA.COLUMNS
+			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$table_placeholders})",
+			...array_keys( $required_columns )
+		) );
+		if ( ! is_array( $column_rows ) ) {
+			self::$schema_ready = false;
+			return false;
+		}
+
+		$columns = [];
+		foreach ( $column_rows as $row ) {
+			$columns[ (string) $row->TABLE_NAME ][ (string) $row->COLUMN_NAME ] = $row;
+		}
+
+		foreach ( $required_columns as $table => $names ) {
+			foreach ( $names as $name ) {
+				if ( ! isset( $columns[ $table ][ $name ] ) ) {
+					self::$schema_ready = false;
 					return false;
 				}
 			}
 		}
 
-		return self::unique_index_exists( $wpdb->prefix . 'oc_print_files', 'identity_key' )
-			&& self::unique_index_exists( $wpdb->prefix . 'oc_print_queue', 'print_file_id' );
+		$area_data = $columns[ $wpdb->prefix . 'oc_print_queue' ]['area_data'];
+		$file_status = strtolower( (string) $columns[ $wpdb->prefix . 'oc_print_files' ]['file_status']->COLUMN_TYPE );
+		if ( 'longtext' !== strtolower( (string) $area_data->DATA_TYPE ) || 'NO' !== strtoupper( (string) $area_data->IS_NULLABLE ) || ! str_contains( $file_status, "'failed'" ) ) {
+			self::$schema_ready = false;
+			return false;
+		}
+
+		$required_indexes = [
+			$wpdb->prefix . 'oc_product_configs' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'product_id' => [ true, [ 'product_id' ] ] ],
+			$wpdb->prefix . 'oc_print_areas' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'config_id' => [ false, [ 'config_id' ] ] ],
+			$wpdb->prefix . 'oc_fonts' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'active_name' => [ false, [ 'active', 'name' ] ] ],
+			$wpdb->prefix . 'oc_font_groups' => [ 'PRIMARY' => [ true, [ 'id' ] ] ],
+			$wpdb->prefix . 'oc_font_group_items' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'group_font' => [ true, [ 'group_id', 'font_id' ] ], 'group_id' => [ false, [ 'group_id' ] ], 'font_id' => [ false, [ 'font_id' ] ] ],
+			$wpdb->prefix . 'oc_colours' => [ 'PRIMARY' => [ true, [ 'id' ] ] ],
+			$wpdb->prefix . 'oc_colour_groups' => [ 'PRIMARY' => [ true, [ 'id' ] ] ],
+			$wpdb->prefix . 'oc_colour_group_items' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'group_colour' => [ true, [ 'group_id', 'colour_id' ] ], 'group_id' => [ false, [ 'group_id' ] ], 'colour_id' => [ false, [ 'colour_id' ] ] ],
+			$wpdb->prefix . 'oc_clipart' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'active_name' => [ false, [ 'active', 'name' ] ] ],
+			$wpdb->prefix . 'oc_clipart_groups' => [ 'PRIMARY' => [ true, [ 'id' ] ] ],
+			$wpdb->prefix . 'oc_clipart_group_items' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'group_clipart' => [ true, [ 'group_id', 'clipart_id' ] ], 'group_id' => [ false, [ 'group_id' ] ], 'clipart_id' => [ false, [ 'clipart_id' ] ] ],
+			$wpdb->prefix . 'oc_designs' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'active' => [ false, [ 'active' ] ] ],
+			$wpdb->prefix . 'oc_design_print_areas' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'design_id' => [ false, [ 'design_id' ] ], 'design_sort' => [ false, [ 'design_id', 'sort_order' ] ] ],
+			$wpdb->prefix . 'oc_product_assignments' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'product_variant' => [ true, [ 'product_id', 'variant_id' ] ], 'design_id' => [ false, [ 'design_id' ] ] ],
+			$wpdb->prefix . 'oc_design_layers' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'design_id' => [ false, [ 'design_id' ] ], 'area_id' => [ false, [ 'area_id' ] ], 'design_area_sort' => [ false, [ 'design_id', 'area_id', 'sort_order' ] ] ],
+			$wpdb->prefix . 'oc_print_files' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'identity_key' => [ true, [ 'identity_key' ] ], 'order_id' => [ false, [ 'order_id' ] ], 'order_item_id' => [ false, [ 'order_item_id' ] ], 'file_status' => [ false, [ 'file_status' ] ], 'expires_at' => [ false, [ 'expires_at' ] ] ],
+			$wpdb->prefix . 'oc_webhooks' => [ 'PRIMARY' => [ true, [ 'id' ] ] ],
+			$wpdb->prefix . 'oc_vdp_templates' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'design_id' => [ true, [ 'design_id' ] ] ],
+			$wpdb->prefix . 'oc_vdp_fields' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'template_id' => [ false, [ 'template_id' ] ] ],
+			$wpdb->prefix . 'oc_print_queue' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'print_file_id' => [ true, [ 'print_file_id' ] ], 'status' => [ false, [ 'status' ] ], 'status_id' => [ false, [ 'status', 'id' ] ], 'status_created' => [ false, [ 'status', 'created_at' ] ], 'status_due' => [ false, [ 'status', 'processed_at', 'created_at', 'id' ] ], 'order_item_id' => [ false, [ 'order_item_id' ] ] ],
+			$wpdb->prefix . 'oc_image_filters' => [ 'PRIMARY' => [ true, [ 'id' ] ], 'active' => [ false, [ 'active' ] ] ],
+		];
+
+		$index_rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME
+			 FROM INFORMATION_SCHEMA.STATISTICS
+			 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ({$table_placeholders})
+			 ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX",
+			...array_keys( $required_columns )
+		) );
+		if ( ! is_array( $index_rows ) ) {
+			self::$schema_ready = false;
+			return false;
+		}
+
+		$indexes = [];
+		foreach ( $index_rows as $row ) {
+			$table = (string) $row->TABLE_NAME;
+			$name  = (string) $row->INDEX_NAME;
+			$indexes[ $table ][ $name ]['unique'] = 0 === (int) $row->NON_UNIQUE;
+			$indexes[ $table ][ $name ]['columns'][ (int) $row->SEQ_IN_INDEX ] = (string) $row->COLUMN_NAME;
+		}
+
+		foreach ( $required_indexes as $table => $definitions ) {
+			foreach ( $definitions as $name => [ $unique, $index_columns ] ) {
+				if ( ! isset( $indexes[ $table ][ $name ] ) ) {
+					self::$schema_ready = false;
+					return false;
+				}
+				ksort( $indexes[ $table ][ $name ]['columns'] );
+				if ( $unique !== $indexes[ $table ][ $name ]['unique'] || $index_columns !== array_values( $indexes[ $table ][ $name ]['columns'] ) ) {
+					self::$schema_ready = false;
+					return false;
+				}
+			}
+		}
+
+		self::$schema_ready = true;
+		return true;
 	}
 
-	/** Check for a named unique index. */
-	private static function unique_index_exists( string $table_name, string $index_name ): bool {
+	/** Repair schema details dbDelta cannot always change reliably. */
+	private static function repair_current_print_schema(): void {
+		global $wpdb;
+
+		$queue_table = $wpdb->prefix . 'oc_print_queue';
+		$files_table = $wpdb->prefix . 'oc_print_files';
+		$area_data   = self::column_definition( $queue_table, 'area_data' );
+		if ( $area_data && 'longtext' !== strtolower( (string) $area_data->DATA_TYPE ) ) {
+			$wpdb->query( "ALTER TABLE `{$queue_table}` MODIFY COLUMN area_data LONGTEXT NOT NULL" );
+		}
+
+		$file_status = self::column_definition( $files_table, 'file_status' );
+		if ( $file_status && ! str_contains( strtolower( (string) $file_status->COLUMN_TYPE ), "'failed'" ) ) {
+			$wpdb->query( "ALTER TABLE `{$files_table}` MODIFY COLUMN file_status ENUM('pending','generating','brief_ready','awaiting_dst_upload','files_ready','expired','failed') NOT NULL DEFAULT 'pending'" );
+		}
+
+		if ( ! self::index_matches( $queue_table, 'status_due', false, [ 'status', 'processed_at', 'created_at', 'id' ] ) ) {
+			if ( self::index_exists( $queue_table, 'status_due' ) ) {
+				$wpdb->query( "ALTER TABLE `{$queue_table}` DROP INDEX status_due" );
+			}
+			$wpdb->query( "ALTER TABLE `{$queue_table}` ADD KEY status_due (status, processed_at, created_at, id)" );
+		}
+	}
+
+	/** Return one column's current database definition. */
+	private static function column_definition( string $table_name, string $column_name ): ?object {
+		global $wpdb;
+
+		return $wpdb->get_row( $wpdb->prepare(
+			'SELECT DATA_TYPE, COLUMN_TYPE, IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND COLUMN_NAME = %s',
+			$table_name,
+			$column_name
+		) ) ?: null;
+	}
+
+	/** Return whether a named index exists. */
+	private static function index_exists( string $table_name, string $index_name ): bool {
 		global $wpdb;
 
 		return (bool) $wpdb->get_var( $wpdb->prepare(
-			'SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s AND NON_UNIQUE = 0',
+			'SELECT INDEX_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s LIMIT 1',
 			$table_name,
 			$index_name
 		) );
 	}
 
+	/** Return whether a named index has the expected uniqueness and columns. */
+	private static function index_matches( string $table_name, string $index_name, bool $unique, array $columns ): bool {
+		global $wpdb;
+
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			'SELECT NON_UNIQUE, COLUMN_NAME FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s AND INDEX_NAME = %s ORDER BY SEQ_IN_INDEX',
+			$table_name,
+			$index_name
+		) );
+		if ( empty( $rows ) ) {
+			return false;
+		}
+
+		return $unique === ( 0 === (int) $rows[0]->NON_UNIQUE )
+			&& $columns === array_map( static fn ( object $row ): string => (string) $row->COLUMN_NAME, $rows );
+	}
+
+	/** Atomically acquire the upgrade lock and return this process's owner token. */
+	private static function acquire_upgrade_lock( string $lock_name ): ?string {
+		self::clear_stale_upgrade_lock( $lock_name );
+		if ( '' !== (string) get_option( $lock_name, '' ) ) {
+			return null;
+		}
+
+		$owner = time() . '|' . ( function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'oc-', true ) );
+		return add_option( $lock_name, $owner, '', false ) ? $owner : null;
+	}
+
+	/** Remove an abandoned or malformed upgrade lock without touching an active owner. */
+	private static function clear_stale_upgrade_lock( string $lock_name ): void {
+		$current = (string) get_option( $lock_name, '' );
+		if ( '' === $current ) {
+			return;
+		}
+
+		$locked_at = (int) strtok( $current, '|' );
+		if ( $locked_at <= 0 || $locked_at < time() - 300 ) {
+			self::delete_owned_option( $lock_name, $current );
+		}
+	}
+
+	/** Release the upgrade lock only when it still belongs to this process. */
+	private static function release_upgrade_lock( string $lock_name, string $owner ): void {
+		self::delete_owned_option( $lock_name, $owner );
+	}
+
+	/** Conditionally delete an option without allowing an old owner to remove a new lock. */
+	private static function delete_owned_option( string $option_name, string $expected_value ): bool {
+		global $wpdb;
+
+		$deleted = $wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+			$option_name,
+			$expected_value
+		) );
+		if ( 1 === $deleted ) {
+			wp_cache_delete( $option_name, 'options' );
+			wp_cache_delete( 'alloptions', 'options' );
+			return true;
+		}
+
+		return false;
+	}
+
+	/** Log an upgrade failure without assuming the normal plugin bootstrap has loaded the logger. */
+	private static function log_schema_error( string $message ): void {
+		if ( class_exists( 'OC_Logger', false ) ) {
+			call_user_func( [ 'OC_Logger', 'error' ], $message );
+			return;
+		}
+
+		error_log( 'OverCustomise: ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+	}
+
 	/** Backfill only area sources that can be established without guessing. */
-	private static function backfill_print_pipeline_schema(): void {
+	private static function backfill_print_pipeline_schema(): bool {
 		global $wpdb;
 
 		if ( ! self::print_pipeline_schema_ready() ) {
-			return;
+			return false;
 		}
 
 		$files = $wpdb->prefix . 'oc_print_files';
@@ -581,7 +814,8 @@ class OC_DB {
 		$order_itemmeta = $wpdb->prefix . 'woocommerce_order_itemmeta';
 
 		// Order-time customisation data is authoritative when both area tables share an ID.
-		$wpdb->query(
+		$results   = [];
+		$results[] = $wpdb->query(
 			"UPDATE {$files} pf
 			 JOIN {$order_itemmeta} oim ON oim.order_item_id = pf.order_item_id AND oim.meta_key = '_oc_customisation'
 			 SET pf.area_source = CASE
@@ -591,7 +825,7 @@ class OC_DB {
 			 WHERE pf.area_source = 'unknown'"
 		);
 
-		$wpdb->query(
+		$results[] = $wpdb->query(
 			"UPDATE {$files} pf
 			 SET area_source = CASE
 				 WHEN EXISTS (SELECT 1 FROM {$design} da WHERE da.id = pf.print_area_id)
@@ -605,7 +839,7 @@ class OC_DB {
 
 		// Give the oldest copy of each existing identity the unique key. Historical
 		// duplicates remain readable but cannot cause more duplicate generation.
-		$wpdb->query(
+		$results[] = $wpdb->query(
 			"UPDATE {$files} pf
 			 LEFT JOIN {$files} earlier ON earlier.order_id = pf.order_id
 				AND earlier.order_item_id = pf.order_item_id
@@ -617,14 +851,14 @@ class OC_DB {
 			 WHERE pf.identity_key IS NULL AND pf.area_source <> 'unknown' AND earlier.id IS NULL"
 		);
 
-		$wpdb->query(
+		$results[] = $wpdb->query(
 			"UPDATE {$queue} q
 			 JOIN {$files} pf ON pf.id = q.print_file_id
 			 SET q.area_source = pf.area_source, q.row_index = pf.row_index
 			 WHERE q.area_source = 'unknown' AND pf.area_source <> 'unknown'"
 		);
 
-		$wpdb->query(
+		$results[] = $wpdb->query(
 			"UPDATE {$queue} q
 			 JOIN {$files} pf ON pf.id = (
 				 SELECT candidate.id FROM {$files} candidate
@@ -641,6 +875,8 @@ class OC_DB {
 				 AND matches.order_item_id = q.order_item_id
 				 AND matches.print_area_id = q.print_area_id) = 1"
 		);
+
+		return ! in_array( false, $results, true );
 	}
 
 	private static function column_exists( string $table_name, string $column_name ): bool {
@@ -827,40 +1063,6 @@ class OC_DB {
 		return is_object( $first ) && ! empty( $first->id ) ? absint( $first->id ) : 0;
 	}
 
-	/** Sanitise browser-captured per-area SVG snapshots before storing in cart/order meta. */
-	public static function sanitise_area_snapshots( array $snapshots ): array {
-		$clean = [];
-		foreach ( $snapshots as $area_key => $snapshot ) {
-			if ( ! is_array( $snapshot ) || ! is_string( $snapshot['svg'] ?? null ) ) {
-				continue;
-			}
-
-			$key = is_scalar( $area_key ) ? sanitize_key( (string) $area_key ) : '';
-			if ( '' === $key || strlen( $snapshot['svg'] ) > 512 * 1024 ) {
-				continue;
-			}
-
-			try {
-				$svg = OC_SVG_Sanitiser::sanitise( $snapshot['svg'] );
-			} catch ( \InvalidArgumentException $e ) {
-				continue;
-			}
-
-			if ( '' === $svg ) {
-				continue;
-			}
-
-			$clean[ $key ] = [
-				'format' => sanitize_key( is_string( $snapshot['format'] ?? null ) ? $snapshot['format'] : 'fabric-svg-v1' ),
-				'unit'   => sanitize_key( is_string( $snapshot['unit'] ?? null ) ? $snapshot['unit'] : 'mockup_px' ),
-				'scale'  => isset( $snapshot['scale'] ) ? (float) $snapshot['scale'] : 1.0,
-				'svg'    => $svg,
-			];
-		}
-
-		return $clean;
-	}
-
 	/** Fetch all font groups with their associated font IDs. */
 	public static function get_font_groups(): array {
 		$cache_key = 'font_groups';
@@ -948,9 +1150,11 @@ class OC_DB {
 
 	/** Fetch print files for a given order item. */
 	public static function get_print_files_for_item( int $order_item_id ): array {
-		$cache_key = 'print_files_item_' . $order_item_id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
+		$cache_key  = 'print_files_item_' . $order_item_id;
+		$generation = wp_cache_get_last_changed( self::PRINT_FILE_CACHE_GROUP );
+		$found      = false;
+		$cached     = wp_cache_get( $generation . ':' . $cache_key, self::PRINT_FILE_CACHE_GROUP, false, $found );
+		if ( $found ) {
 			return $cached;
 		}
 		global $wpdb;
@@ -960,15 +1164,19 @@ class OC_DB {
 				$order_item_id
 			)
 		) ?: [];
-		OC_Cache::set( $cache_key, $results );
+		// Use the generation captured before the query. A concurrent writer can
+		// advance the group without this stale result entering the new generation.
+		wp_cache_set( $generation . ':' . $cache_key, $results, self::PRINT_FILE_CACHE_GROUP, self::PRINT_FILE_CACHE_TTL );
 		return $results;
 	}
 
 	/** Fetch a single print file record by ID. */
 	public static function get_print_file( int $id ): ?object {
-		$cache_key = 'print_file_' . $id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
+		$cache_key  = 'print_file_' . $id;
+		$generation = wp_cache_get_last_changed( self::PRINT_FILE_CACHE_GROUP );
+		$found      = false;
+		$cached     = wp_cache_get( $generation . ':' . $cache_key, self::PRINT_FILE_CACHE_GROUP, false, $found );
+		if ( $found ) {
 			return $cached;
 		}
 		global $wpdb;
@@ -978,7 +1186,7 @@ class OC_DB {
 				$id
 			)
 		) ?: null;
-		OC_Cache::set( $cache_key, $row );
+		wp_cache_set( $generation . ':' . $cache_key, $row, self::PRINT_FILE_CACHE_GROUP, self::PRINT_FILE_CACHE_TTL );
 		return $row;
 	}
 
@@ -993,7 +1201,9 @@ class OC_DB {
 
 		if ( isset( $data['area_source'], $data['row_index'] ) ) {
 			if ( ! self::print_pipeline_available() ) {
-				OC_Logger::warning( 'Print file creation deferred while the database schema is being upgraded.' );
+				if ( class_exists( 'OC_Logger', false ) ) {
+					call_user_func( [ 'OC_Logger', 'warning' ], 'Print file creation deferred while the database schema is being upgraded.' );
+				}
 				return 0;
 			}
 
@@ -1015,17 +1225,20 @@ class OC_DB {
 			);
 			$sql = 'INSERT IGNORE INTO ' . $table
 				. ' (`' . implode( '`,`', $columns ) . '`) VALUES (' . implode( ',', $formats ) . ')';
-			$wpdb->query( $wpdb->prepare( $sql, ...$values ) );
+			$result = $wpdb->query( $wpdb->prepare( $sql, ...$values ) );
+			if ( false === $result ) {
+				return 0;
+			}
 			$id = (int) $wpdb->get_var( $wpdb->prepare(
 				"SELECT id FROM {$table} WHERE identity_key = %s LIMIT 1",
 				$data['identity_key']
 			) );
 		} else {
-			$wpdb->insert( $table, $data );
-			$id = (int) $wpdb->insert_id;
+			$result = $wpdb->insert( $table, $data );
+			$id     = false === $result ? 0 : (int) $wpdb->insert_id;
 		}
-		if ( ! empty( $data['order_item_id'] ) ) {
-			OC_Cache::delete( 'print_files_item_' . (int) $data['order_item_id'] );
+		if ( $id > 0 ) {
+			self::invalidate_print_file_cache();
 		}
 		return $id;
 	}
@@ -1035,17 +1248,273 @@ class OC_DB {
 	 * @param int   $id    Record ID.
 	 * @param array $data  Column => value pairs to update.
 	 */
-	public static function update_print_file( int $id, array $data ): void {
+	public static function update_print_file( int $id, array $data ): bool {
 		global $wpdb;
-		$existing = self::get_print_file( $id );
-		$wpdb->update( $wpdb->prefix . 'oc_print_files', $data, [ 'id' => $id ] );
-		OC_Cache::delete( 'print_file_' . $id );
-		if ( $existing && ! empty( $existing->order_item_id ) ) {
-			OC_Cache::delete( 'print_files_item_' . (int) $existing->order_item_id );
+		$result = $wpdb->update( $wpdb->prefix . 'oc_print_files', $data, [ 'id' => $id ] );
+		if ( false === $result ) {
+			return false;
 		}
-		if ( ! empty( $data['order_item_id'] ) ) {
-			OC_Cache::delete( 'print_files_item_' . (int) $data['order_item_id'] );
+
+		self::invalidate_print_file_cache();
+		return true;
+	}
+
+	/** Update several print-file records as one regeneration commit. */
+	public static function update_print_files_atomically( array $ids, array $data ): bool {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
+		if ( empty( $ids ) || empty( $data ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return false;
 		}
+
+		try {
+			foreach ( $ids as $id ) {
+				$exists = $wpdb->get_var( $wpdb->prepare(
+					"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE id = %d FOR UPDATE",
+					$id
+				) );
+				if ( ! $exists || false === $wpdb->update( $wpdb->prefix . 'oc_print_files', $data, [ 'id' => $id ] ) ) {
+					throw new \RuntimeException( 'A print file could not be updated.' );
+				}
+			}
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new \RuntimeException( 'The print file updates could not be committed.' );
+			}
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return false;
+		}
+
+		self::invalidate_print_file_cache();
+		return true;
+	}
+
+	/** Commit generated file rows and their claimed queue job as one success boundary. */
+	public static function complete_queue_job( int $job_id, int $attempts, array $file_updates ): bool {
+		global $wpdb;
+		if ( empty( $file_updates ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return false;
+		}
+
+		$file_ids = [];
+		try {
+			$queue = $wpdb->get_row( $wpdb->prepare(
+				"SELECT status, attempts FROM {$wpdb->prefix}oc_print_queue WHERE id = %d FOR UPDATE",
+				$job_id
+			) );
+			if ( ! $queue || 'processing' !== (string) $queue->status || $attempts !== (int) $queue->attempts ) {
+				throw new \RuntimeException( 'The queue claim is no longer current.' );
+			}
+
+			foreach ( $file_updates as $update ) {
+				$file_id         = (int) ( $update['id'] ?? 0 );
+				$expected_status = (string) ( $update['expected_status'] ?? '' );
+				$data            = is_array( $update['data'] ?? null ) ? $update['data'] : [];
+				$current_status  = $wpdb->get_var( $wpdb->prepare(
+					"SELECT file_status FROM {$wpdb->prefix}oc_print_files WHERE id = %d FOR UPDATE",
+					$file_id
+				) );
+				if ( $file_id <= 0 || '' === $expected_status || $expected_status !== (string) $current_status || empty( $data ) ) {
+					throw new \RuntimeException( 'A print file state changed while its queue job was running.' );
+				}
+
+				$updated = $wpdb->update(
+					$wpdb->prefix . 'oc_print_files',
+					$data,
+					[ 'id' => $file_id, 'file_status' => $expected_status ]
+				);
+				if ( 1 !== $updated ) {
+					throw new \RuntimeException( 'A generated print file could not be committed.' );
+				}
+				$file_ids[] = $file_id;
+			}
+
+			$queue_updated = $wpdb->update(
+				$wpdb->prefix . 'oc_print_queue',
+				[
+					'status'        => 'done',
+					'error_message' => null,
+					'processed_at'  => current_time( 'mysql', true ),
+				],
+				[ 'id' => $job_id, 'status' => 'processing', 'attempts' => $attempts ]
+			);
+			if ( 1 !== $queue_updated || false === $wpdb->query( 'COMMIT' ) ) {
+				throw new \RuntimeException( 'The completed queue state could not be committed.' );
+			}
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return false;
+		}
+
+		self::invalidate_print_file_cache();
+		return true;
+	}
+
+	/** Atomically move a claimed or exhausted queue job and its files to failed. */
+	public static function fail_queue_job( int $job_id, string $expected_status, int $attempts, string $error_message, array $file_ids ): bool {
+		global $wpdb;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return false;
+		}
+
+		$file_ids = array_values( array_unique( array_filter( array_map( 'absint', $file_ids ) ) ) );
+		try {
+			$queue = $wpdb->get_row( $wpdb->prepare(
+				"SELECT status, attempts FROM {$wpdb->prefix}oc_print_queue WHERE id = %d FOR UPDATE",
+				$job_id
+			) );
+			if ( ! $queue || $expected_status !== (string) $queue->status || $attempts !== (int) $queue->attempts ) {
+				throw new \RuntimeException( 'The queue state changed before it could be failed.' );
+			}
+
+			foreach ( $file_ids as $file_id ) {
+				$current_status = $wpdb->get_var( $wpdb->prepare(
+					"SELECT file_status FROM {$wpdb->prefix}oc_print_files WHERE id = %d FOR UPDATE",
+					$file_id
+				) );
+				if ( ! in_array( (string) $current_status, [ 'pending', 'generating', 'failed' ], true ) ) {
+					throw new \RuntimeException( 'A terminal queue failure would regress a completed print file.' );
+				}
+				if ( 'failed' !== (string) $current_status ) {
+					$updated = $wpdb->update(
+						$wpdb->prefix . 'oc_print_files',
+						[ 'file_status' => 'failed' ],
+						[ 'id' => $file_id, 'file_status' => (string) $current_status ]
+					);
+					if ( 1 !== $updated ) {
+						throw new \RuntimeException( 'A failed print file state could not be committed.' );
+					}
+				}
+			}
+
+			$queue_updated = $wpdb->update(
+				$wpdb->prefix . 'oc_print_queue',
+				[
+					'status'        => 'failed',
+					'error_message' => $error_message,
+					'processed_at'  => current_time( 'mysql', true ),
+				],
+				[ 'id' => $job_id, 'status' => $expected_status, 'attempts' => $attempts ]
+			);
+			if ( 1 !== $queue_updated || false === $wpdb->query( 'COMMIT' ) ) {
+				throw new \RuntimeException( 'The terminal queue failure could not be committed.' );
+			}
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return false;
+		}
+
+		if ( ! empty( $file_ids ) ) {
+			self::invalidate_print_file_cache();
+		}
+		return true;
+	}
+
+	/** Reset a failed queue job and all of its failed file rows for an explicit retry. */
+	public static function retry_failed_queue_job( int $job_id, int $attempts, array $file_ids ): bool {
+		global $wpdb;
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return false;
+		}
+
+		$file_ids = array_values( array_unique( array_filter( array_map( 'absint', $file_ids ) ) ) );
+		try {
+			$queue = $wpdb->get_row( $wpdb->prepare(
+				"SELECT status, attempts FROM {$wpdb->prefix}oc_print_queue WHERE id = %d FOR UPDATE",
+				$job_id
+			) );
+			if ( ! $queue || 'failed' !== (string) $queue->status || $attempts !== (int) $queue->attempts ) {
+				throw new \RuntimeException( 'Only the current failed queue state can be retried.' );
+			}
+
+			foreach ( $file_ids as $file_id ) {
+				$current_status = $wpdb->get_var( $wpdb->prepare(
+					"SELECT file_status FROM {$wpdb->prefix}oc_print_files WHERE id = %d FOR UPDATE",
+					$file_id
+				) );
+				if ( ! in_array( (string) $current_status, [ 'failed', 'pending' ], true ) ) {
+					throw new \RuntimeException( 'A completed print file cannot be reset by queue retry.' );
+				}
+				if ( 'pending' !== (string) $current_status ) {
+					$updated = $wpdb->update(
+						$wpdb->prefix . 'oc_print_files',
+						[ 'file_status' => 'pending' ],
+						[ 'id' => $file_id, 'file_status' => 'failed' ]
+					);
+					if ( 1 !== $updated ) {
+						throw new \RuntimeException( 'A failed print file could not be reset.' );
+					}
+				}
+			}
+
+			$queue_updated = $wpdb->update(
+				$wpdb->prefix . 'oc_print_queue',
+				[
+					'status'        => 'pending',
+					'attempts'      => 0,
+					'error_message' => null,
+					'processed_at'  => null,
+				],
+				[ 'id' => $job_id, 'status' => 'failed', 'attempts' => $attempts ]
+			);
+			if ( 1 !== $queue_updated || false === $wpdb->query( 'COMMIT' ) ) {
+				throw new \RuntimeException( 'The queue retry could not be committed.' );
+			}
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return false;
+		}
+
+		if ( ! empty( $file_ids ) ) {
+			self::invalidate_print_file_cache();
+		}
+		return true;
+	}
+
+	/** Mark newly-created file rows failed when their queue payload cannot be persisted. */
+	public static function fail_unqueued_print_files( array $file_ids ): bool {
+		global $wpdb;
+		$file_ids = array_values( array_unique( array_filter( array_map( 'absint', $file_ids ) ) ) );
+		if ( empty( $file_ids ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+			return false;
+		}
+
+		try {
+			foreach ( $file_ids as $file_id ) {
+				$current_status = $wpdb->get_var( $wpdb->prepare(
+					"SELECT file_status FROM {$wpdb->prefix}oc_print_files WHERE id = %d FOR UPDATE",
+					$file_id
+				) );
+				if ( ! in_array( (string) $current_status, [ 'pending', 'generating', 'failed' ], true ) ) {
+					throw new \RuntimeException( 'An unqueued failure would regress a completed print file.' );
+				}
+				if ( 'failed' !== (string) $current_status ) {
+					$updated = $wpdb->update(
+						$wpdb->prefix . 'oc_print_files',
+						[ 'file_status' => 'failed' ],
+						[ 'id' => $file_id, 'file_status' => (string) $current_status ]
+					);
+					if ( 1 !== $updated ) {
+						throw new \RuntimeException( 'An unqueued print file could not be failed.' );
+					}
+				}
+			}
+
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new \RuntimeException( 'The unqueued print file failure could not be committed.' );
+			}
+		} catch ( \Throwable $e ) {
+			$wpdb->query( 'ROLLBACK' );
+			return false;
+		}
+
+		self::invalidate_print_file_cache();
+		return true;
+	}
+
+	/** Advance the print-file cache generation after a committed write. */
+	private static function invalidate_print_file_cache(): void {
+		wp_cache_set_last_changed( self::PRINT_FILE_CACHE_GROUP );
 	}
 
 	/** Fetch all layers for a design, ordered by area then sort_order. */
@@ -1427,20 +1896,54 @@ class OC_DB {
 	}
 
 	/** Fetch pending queue jobs, ordered by creation time, limited to $limit. */
-	public static function get_pending_queue_jobs( int $limit = 5 ): array {
+	public static function get_pending_queue_jobs( int $limit = 5, int $max_attempts = 3 ): array {
 		global $wpdb;
 		$now = current_time( 'mysql', true );
 		return $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT * FROM {$wpdb->prefix}oc_print_queue
 				 WHERE status = 'pending'
+				 AND attempts < %d
 				 AND (processed_at IS NULL OR processed_at <= %s)
-				 ORDER BY created_at ASC
+				 ORDER BY created_at ASC, id ASC
 				 LIMIT %d",
+				$max_attempts,
 				$now,
 				$limit
 			)
 		) ?: [];
+	}
+
+	/** Return whether another claimable queue job is currently due. */
+	public static function has_due_queue_jobs( int $max_attempts = 3 ): bool {
+		global $wpdb;
+
+		return (bool) $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_print_queue
+			 WHERE status = 'pending' AND attempts < %d
+			 AND (processed_at IS NULL OR processed_at <= %s)
+			 ORDER BY created_at ASC, id ASC LIMIT 1",
+			$max_attempts,
+			current_time( 'mysql', true )
+		) );
+	}
+
+	/** Make a completed checkout batch immediately claimable without touching retries. */
+	public static function release_deferred_queue_jobs( array $job_ids ): int {
+		global $wpdb;
+		$job_ids = array_values( array_unique( array_filter( array_map( 'absint', $job_ids ) ) ) );
+		if ( empty( $job_ids ) ) {
+			return 0;
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $job_ids ), '%d' ) );
+		$result = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->prefix}oc_print_queue SET processed_at = NULL
+			 WHERE id IN ({$placeholders}) AND status = 'pending' AND attempts = 0",
+			...$job_ids
+		) );
+
+		return false === $result ? 0 : (int) $result;
 	}
 
 	/** Atomically claim one due queue job and return its post-claim state. */
@@ -1577,10 +2080,45 @@ class OC_DB {
 		) ?: null;
 	}
 
-	/** Update an existing queue job record. */
-	public static function update_queue_job( int $id, array $data ): void {
+	/** Compare-and-set a queue state, optionally tied to the current claim attempt. */
+	public static function transition_queue_job( int $id, string $expected_status, array $data, ?int $attempts = null ): bool {
 		global $wpdb;
-		$wpdb->update( $wpdb->prefix . 'oc_print_queue', $data, [ 'id' => $id ] );
+
+		$where = [ 'id' => $id, 'status' => $expected_status ];
+		if ( null !== $attempts ) {
+			$where['attempts'] = $attempts;
+		}
+
+		return 1 === $wpdb->update( $wpdb->prefix . 'oc_print_queue', $data, $where );
+	}
+
+	/** Return active, partial_failure, or complete for an order's persisted pipeline state. */
+	public static function get_order_print_pipeline_state( int $order_id ): string {
+		global $wpdb;
+
+		$queue = $wpdb->get_row( $wpdb->prepare(
+			"SELECT
+			 SUM(status IN ('pending','processing')) AS active_jobs,
+			 SUM(status = 'failed') AS failed_jobs
+			 FROM {$wpdb->prefix}oc_print_queue WHERE order_id = %d",
+			$order_id
+		) );
+		$files = $wpdb->get_row( $wpdb->prepare(
+			"SELECT COUNT(*) AS total_files,
+			 SUM(file_status NOT IN ('brief_ready','awaiting_dst_upload','files_ready')) AS non_ready_files
+			 FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d",
+			$order_id
+		) );
+
+		if ( ! $queue || ! $files || (int) $queue->active_jobs > 0 ) {
+			return 'active';
+		}
+
+		if ( (int) $queue->failed_jobs > 0 || (int) $files->total_files < 1 || (int) $files->non_ready_files > 0 ) {
+			return 'partial_failure';
+		}
+
+		return 'complete';
 	}
 
 	/** Fetch all queue jobs for a given order item. */

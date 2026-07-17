@@ -40,6 +40,20 @@ if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) && class_exists( 'TCPDF' ) ) {
 	}
 }
 
+if ( ! class_exists( 'OC_Test_Layer_Rotation_PDF' ) && class_exists( 'TCPDF' ) ) {
+	class OC_Test_Layer_Rotation_PDF extends TCPDF {
+		public array $rotations = [];
+
+		public function StartTransform() {}
+		public function StopTransform() {}
+		public function Rotate( $_angle, $_x = null, $_y = null ) {
+			$this->rotations[] = [ (float) $_angle, (float) $_x, (float) $_y ];
+		}
+		public function SetFillColorArray( $color ) {}
+		public function Rect( $_x, $_y, $_w, $_h, $_style = '', $_border_style = [], $_fill_color = [] ) {}
+	}
+}
+
 /**
  * Concrete subclass to expose the protected static methods for testing.
  */
@@ -98,6 +112,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 
 	public static function test_render_vector_snapshot_payload( \TCPDF $pdf, array $area_data, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): bool {
 		return self::render_vector_snapshot_payload( $pdf, $area_data, $x_mm, $y_mm, $w_mm, $h_mm );
+	}
+
+	public static function test_render_layer_payload( \TCPDF $pdf, object $area, array $area_data ): void {
+		self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0 );
 	}
 }
 
@@ -237,6 +255,43 @@ class Test_Print_Base extends TestCase {
 		$this->assertSame( 120.0, $flat_area->canvas_w );
 		$this->assertSame( 40.0, $flat_area->canvas_h );
 		$this->assertSame( 0, $flat_area->canvas_rotation );
+	}
+
+	#[Test]
+	public function fabric_clockwise_layer_rotation_is_inverted_for_tcpdf(): void {
+		if ( ! class_exists( 'OC_Test_Layer_Rotation_PDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+
+		$pdf = ( new ReflectionClass( OC_Test_Layer_Rotation_PDF::class ) )->newInstanceWithoutConstructor();
+		$area = (object) [
+			'canvas_unit' => 'mm',
+			'canvas_x'    => 0,
+			'canvas_y'    => 0,
+			'canvas_w'    => 100,
+			'canvas_h'    => 50,
+		];
+		$data = [
+			'bounds' => [ 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 50 ],
+			'layers' => [
+				[
+					'type'     => 'lineart',
+					'x'        => 10,
+					'y'        => 10,
+					'w'        => 20,
+					'h'        => 10,
+					'rotation' => 15,
+					'input'    => [ 'colorHex' => '#000000' ],
+				],
+			],
+		];
+
+		OC_Print_Base_Testable::test_render_layer_payload( $pdf, $area, $data );
+
+		$this->assertCount( 1, $pdf->rotations );
+		$this->assertSame( -15.0, $pdf->rotations[0][0] );
+		$this->assertSame( 20.0, $pdf->rotations[0][1] );
+		$this->assertSame( 15.0, $pdf->rotations[0][2] );
 	}
 
 	#[Test]

@@ -171,7 +171,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
-	public function customisation_item_data_contains_a_working_edit_link(): void {
+	public function customisation_item_data_does_not_contain_an_edit_link(): void {
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'front' => [
 				'text'                => 'Edit me',
@@ -187,7 +187,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$values    = array_column( $item_data, 'value' );
 
 		$this->assertNotFalse( $key );
-		$this->assertNotEmpty(
+		$this->assertEmpty(
 			array_filter( $values, fn( $value ) => is_string( $value ) && str_contains( $value, 'oc_edit_cart_key=' . $key ) )
 		);
 	}

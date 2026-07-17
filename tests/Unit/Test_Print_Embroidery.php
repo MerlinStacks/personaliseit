@@ -340,7 +340,7 @@ class Test_Print_Embroidery extends TestCase {
 		];
 
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'generate_eps' );
-		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 24, $area, [] ] );
+		$path   = $method->invokeArgs( null, [ $output_dir, new WC_Order(), 24, $area, [ 'text' => 'Artwork', 'color' => '#000000' ] ] );
 		$output = file_get_contents( $path );
 
 		$this->assertStringContainsString( '%%BoundingBox: 0 0 284 142', $output );
@@ -350,6 +350,29 @@ class Test_Print_Embroidery extends TestCase {
 
 		@unlink( $path );
 		@rmdir( $output_dir );
+	}
+
+	#[Test]
+	public function embroidery_generation_rejects_empty_artwork(): void {
+		$output_dir = sys_get_temp_dir() . '/oc-embroidery-test-' . uniqid();
+		mkdir( $output_dir );
+		$area = (object) [
+			'area_key'    => 'front',
+			'label'       => 'Front',
+			'canvas_unit' => 'mm',
+			'canvas_w'    => 100,
+			'canvas_h'    => 50,
+		];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'generate_eps' );
+
+		try {
+			$method->invokeArgs( null, [ $output_dir, new WC_Order(), 25, $area, [] ] );
+			$this->fail( 'Empty embroidery artwork should not produce a file.' );
+		} catch ( RuntimeException $e ) {
+			$this->assertStringContainsString( 'no printable artwork', $e->getMessage() );
+		} finally {
+			@rmdir( $output_dir );
+		}
 	}
 
 	#[Test]
@@ -463,7 +486,7 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '2.4001 22.8009 translate', $output );
-		$this->assertStringContainsString( '15.0000 rotate', $output );
+		$this->assertStringContainsString( '-15.0000 rotate', $output );
 		$this->assertStringNotContainsString( '105.0000 rotate', $output );
 	}
 

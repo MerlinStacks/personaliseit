@@ -21,6 +21,23 @@ __webpack_require__.r(__webpack_exports__);
 const canvasRendererMethods = {
   // ── Canvas initialisation ──────────────────────────────────────────────────
 
+  startCanvasInitialisation() {
+    const generation = this._designGeneration;
+    const task = this.initAllCanvases();
+    this._canvasReadyGeneration = generation;
+    this._canvasReadyPromise = task;
+    return task;
+  },
+  async awaitCanvasReady(generation = this._designGeneration) {
+    const task = this._canvasReadyPromise;
+    await task;
+    if (generation !== this._designGeneration || this._canvasReadyGeneration !== generation) {
+      throw new Error('The selected design changed while rendering.');
+    }
+    if (this.areas.some((_, index) => !this.canvases[index])) {
+      throw new Error('The customisation preview is not ready.');
+    }
+  },
   async initAllCanvases() {
     const designGeneration = this._designGeneration;
     for (let i = 0; i < this.areas.length; i++) {
@@ -53,17 +70,28 @@ const canvasRendererMethods = {
       return;
     }
     let mockupImg;
+    let loadTimeout = null;
     try {
       // Do NOT use crossOrigin:'anonymous' — WordPress uploads are same-origin
       // and CORS headers aren't sent, which would taint the canvas and break toDataURL.
-      mockupImg = await Promise.race([fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(area.mockupUrl), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 10000))]);
+      const timeoutPromise = new Promise((_, reject) => {
+        loadTimeout = setTimeout(() => reject(new Error('timeout')), 10000);
+        this._canvasLoadTimers.add(loadTimeout);
+      });
+      mockupImg = await Promise.race([fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(area.mockupUrl), timeoutPromise]);
     } catch (e) {
       if (designGeneration !== this._designGeneration) {
         return;
       }
       console.warn('[OC] Mockup failed to load:', area.mockupUrl, e.message);
       this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'Mockup image could not load.');
+      this.canvases[areaIndex]._ocMissingMockup = true;
       return;
+    } finally {
+      if (loadTimeout) {
+        clearTimeout(loadTimeout);
+        this._canvasLoadTimers.delete(loadTimeout);
+      }
     }
     const mockupEl = mockupImg.getElement?.();
     const sourceW = mockupEl?.naturalWidth || mockupImg.width || area.mockupW || 1;
@@ -172,14 +200,17 @@ const canvasRendererMethods = {
     this.focusPreviewArea(areaIndex);
     this._redrawTimers[areaIndex] = setTimeout(() => this.redraw(areaIndex), 120);
   },
-  async flushRedraw() {
+  async flushRedraw(inputs = this.inputs) {
     Object.values(this._redrawTimers).forEach(clearTimeout);
     this._redrawTimers = {};
     Object.keys(this._redrawGenerations).forEach(areaIndex => {
       this._redrawGenerations[areaIndex] += 1;
     });
     await Promise.allSettled(Object.values(this._redrawPromises));
-    await this.redraw(this.activeArea);
+    await this.awaitCanvasReady();
+    await this.redraw(this.activeArea, {
+      inputs
+    });
   },
   redraw(areaIndex, options = {}) {
     const canvas = this.canvases[areaIndex];
@@ -190,6 +221,7 @@ const canvasRendererMethods = {
     this._redrawGenerations[areaIndex] = generation;
     const isCurrent = () => this._redrawGenerations[areaIndex] === generation && this.canvases[areaIndex] === canvas && this._customisationActive;
     const task = (async () => {
+      canvas._ocRenderErrors = [];
       [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(o => canvas.remove(o));
       const groupIndexes = options.renderGroup === false ? [areaIndex] : this.areaCanvasGroupIndexes(areaIndex);
       for (const groupIndex of groupIndexes) {
@@ -199,8 +231,12 @@ const canvasRendererMethods = {
             return;
           }
           try {
-            await this.renderLayer(canvas, layer, this.inputs[layer.id] || {}, area, isCurrent);
+            await this.renderLayer(canvas, layer, options.inputs?.[layer.id] || this.inputs[layer.id] || {}, area, isCurrent);
           } catch (err) {
+            canvas._ocRenderErrors.push({
+              layerId: layer?.id,
+              message: err?.message || 'Layer render failed.'
+            });
             console.warn('[OC] Layer render failed:', layer?.id, err);
           }
         }
@@ -260,13 +296,14 @@ const canvasRendererMethods = {
       case 'textarea':
         {
           const isSingleLineText = layer.type === 'text';
-          const normalisedText = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(input.value) : input.value || '').replace(/\r\n?/g, '\n');
+          const inputValue = input.value === undefined ? layer.settings?.default_text || '' : input.value;
+          const normalisedText = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(inputValue) : inputValue || '').replace(/\r\n?/g, '\n');
           const raw = isSingleLineText ? normalisedText.trim() : normalisedText;
           if (!raw.trim()) {
             break;
           }
           const lineAlign = ['top', 'center', 'bottom'].includes(layer.settings?.line_alignment) ? layer.settings.line_alignment : 'top';
-          let font = this.fonts.find(f => f.id === (input.fontId || 0));
+          let font = this.fonts.find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
           // Engraving uses a fixed silver tone instead of a customer-selected colour.
           const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
           const align = layer.settings?.alignment || 'center';
@@ -303,6 +340,8 @@ const canvasRendererMethods = {
             padding: textPadding,
             angle: rotation,
             fontFamily: font?.name || 'sans-serif',
+            fontWeight: font?.weight || 'normal',
+            fontStyle: font?.style || 'normal',
             fontSize,
             fill: textFill,
             textAlign: align,
@@ -352,6 +391,8 @@ const canvasRendererMethods = {
               padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
+              fontWeight: font?.weight || 'normal',
+              fontStyle: font?.style || 'normal',
               fontSize,
               fill: threadShadow,
               opacity: 0.24,
@@ -377,6 +418,8 @@ const canvasRendererMethods = {
               padding: textPadding,
               angle: rotation,
               fontFamily: font?.name || 'sans-serif',
+              fontWeight: font?.weight || 'normal',
+              fontStyle: font?.style || 'normal',
               fontSize,
               fill: 'rgba(255,255,255,0)',
               stroke: threadLift,
@@ -521,33 +564,48 @@ const canvasRendererMethods = {
           break;
         }
       case 'image':
-        if (input.attachmentUrl) {
-          const imageFilter = this.imageFilterForLayer(layer, input.imageFilterId);
-          await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageFilter ? {
-            imageFilter
-          } : {}, isCurrent);
+        {
+          if (input.attachmentUrl) {
+            const imageFilter = this.imageFilterForLayer(layer, input.imageFilterId);
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageFilter ? {
+              imageFilter
+            } : {}, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Artwork image could not be rendered.');
+            }
+          }
+          break;
         }
-        break;
       case 'clipmask':
-        if (input.attachmentUrl) {
-          await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover', '', {}, isCurrent);
+        {
+          if (input.attachmentUrl) {
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover', '', {}, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Masked artwork could not be rendered.');
+            }
+          }
+          break;
         }
-        break;
       case 'clipart':
-        if (input.clipartUrl) {
-          const selectedClipartColor = String(input.colorHex || '').trim();
-          const shouldRecolourClipart = input.clipartRecolourable && (isEngraving || isEmbroidery);
-          const clipartColor = shouldRecolourClipart ? isEngraving ? engravingPalette.text : selectedClipartColor : '';
-          const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl(input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '') : await this.normaliseSvgClipartUrl(input.clipartUrl);
-          const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
-          const clipartEffects = isEmbroidery ? {
-            embroideryColor: clipartColor || selectedClipartColor || '#000000'
-          } : shouldRecolourClipart ? {
-            preserveRecolouredPixels: true
-          } : {};
-          await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects, isCurrent);
+        {
+          if (input.clipartUrl) {
+            const selectedClipartColor = String(input.colorHex || '').trim();
+            const shouldRecolourClipart = input.clipartRecolourable && (isEngraving || isEmbroidery);
+            const clipartColor = shouldRecolourClipart ? isEngraving ? engravingPalette.text : selectedClipartColor : '';
+            const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl(input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '') : await this.normaliseSvgClipartUrl(input.clipartUrl);
+            const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
+            const clipartEffects = isEmbroidery ? {
+              embroideryColor: clipartColor || selectedClipartColor || '#000000'
+            } : shouldRecolourClipart ? {
+              preserveRecolouredPixels: true
+            } : {};
+            const rendered = await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Clipart could not be rendered.');
+            }
+          }
+          break;
         }
-        break;
       case 'lineart':
         {
           const lineartColor = isEngraving ? engravingPalette.text : String(input.colorHex || '').trim();
@@ -665,6 +723,8 @@ const canvasRendererMethods = {
       originY: 'center',
       ...textBoxSize,
       fontFamily: font?.name || 'sans-serif',
+      fontWeight: font?.weight || 'normal',
+      fontStyle: font?.style || 'normal',
       fontSize,
       textAlign: settings?.alignment || 'center',
       selectable: false,
@@ -678,14 +738,6 @@ const canvasRendererMethods = {
     }
     return Number(measured.width || 0) + margin.x * 2 <= Math.max(maxW, 10) && Number(measured.height || 0) + margin.y * 2 <= Math.max(maxH, 10);
   },
-  textObjectFitsBox(obj, maxW, maxH, fontSize) {
-    if (!obj) {
-      return true;
-    }
-    obj.initDimensions?.();
-    const margin = this.textFitSafetyMargin(fontSize);
-    return Number(obj.width || 0) <= Math.max(maxW, 10) && Number(obj.height || 0) + margin.y * 2 <= Math.max(maxH, 10);
-  },
   measureSingleLineText(raw, font, fontSize, settings = {}) {
     const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw || '', {
       left: 0,
@@ -693,6 +745,8 @@ const canvasRendererMethods = {
       originX: 'left',
       originY: 'top',
       fontFamily: font?.name || 'sans-serif',
+      fontWeight: font?.weight || 'normal',
+      fontStyle: font?.style || 'normal',
       fontSize,
       textAlign: settings?.alignment || 'center',
       selectable: false,
@@ -1161,38 +1215,6 @@ const canvasRendererMethods = {
       return url;
     }
   },
-  async cropSvgClipartUrl(url) {
-    if (!this.isSvgClipartUrl(url)) {
-      return url;
-    }
-    const key = `${url}|crop`;
-    if (this.clipartSvgCache[key]) {
-      return this.clipartSvgCache[key];
-    }
-    try {
-      const response = await fetch(url, {
-        credentials: 'same-origin',
-        cache: 'force-cache'
-      });
-      if (!response.ok) {
-        throw new Error(`Could not load clipart SVG (${response.status}).`);
-      }
-      const raw = await response.text();
-      const doc = new window.DOMParser().parseFromString(raw, 'image/svg+xml');
-      const svg = doc.documentElement;
-      if (!svg || svg.localName.toLowerCase() !== 'svg') {
-        throw new Error('Clipart is not an SVG.');
-      }
-      if (!this.hasComplexSvgPaintReferences(svg)) {
-        this.cropSvgToVisibleBounds(svg);
-      }
-      const output = new window.XMLSerializer().serializeToString(svg);
-      this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
-      return this.clipartSvgCache[key];
-    } catch {
-      return url;
-    }
-  },
   async normaliseSvgClipartUrl(url) {
     if (!this.isSvgClipartUrl(url)) {
       return url;
@@ -1230,9 +1252,6 @@ const canvasRendererMethods = {
   isSvgClipartUrl(url) {
     const value = String(url || '').trim();
     return /^data:image\/svg\+xml/i.test(value) || /\.svg(?:[?#]|$)/i.test(value);
-  },
-  hasComplexSvgPaintReferences(svg) {
-    return !!svg.querySelector('clipPath, mask, filter, [clip-path], [mask], [filter]');
   },
   addEmbroiderySvgPattern(svg, color) {
     const rgb = this.hexToRgb(color) || {
@@ -1288,30 +1307,6 @@ const canvasRendererMethods = {
     }
     Array.from(element.children).forEach(child => this.forceSvgPreviewColour(child, color));
   },
-  cropSvgToVisibleBounds(svg) {
-    if (typeof document === 'undefined' || !document.body || typeof svg.getAttribute !== 'function') {
-      return;
-    }
-    const wrapper = document.createElement('div');
-    wrapper.style.cssText = 'position:absolute;left:-99999px;top:-99999px;opacity:0;pointer-events:none;';
-    const clone = document.importNode(svg, true);
-    clone.setAttribute('width', '1000');
-    clone.setAttribute('height', '1000');
-    try {
-      wrapper.appendChild(clone);
-      document.body.appendChild(wrapper);
-      const bounds = this.svgVisibleBounds(clone);
-      if (bounds.width > 0 && bounds.height > 0) {
-        svg.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.width} ${bounds.height}`);
-        svg.setAttribute('width', String(bounds.width));
-        svg.setAttribute('height', String(bounds.height));
-      }
-    } catch (e) {
-      console.warn('[OC] SVG clipart bounds crop failed:', e);
-    } finally {
-      wrapper.remove();
-    }
-  },
   ensureSvgIntrinsicSize(svg) {
     const viewBox = this.parseSvgViewBox(svg);
     if (!viewBox) {
@@ -1347,85 +1342,6 @@ const canvasRendererMethods = {
       return false;
     }
     return parseFloat(raw) > 0;
-  },
-  svgVisibleBounds(svg) {
-    const boxes = Array.from(svg.querySelectorAll('*')).filter(element => this.isVisibleSvgGraphicElement(element)).map(element => this.svgElementRootBounds(element)).filter(Boolean);
-    if (!boxes.length) {
-      return svg.getBBox();
-    }
-    const minX = Math.min(...boxes.map(box => box.x));
-    const minY = Math.min(...boxes.map(box => box.y));
-    const maxX = Math.max(...boxes.map(box => box.x + box.width));
-    const maxY = Math.max(...boxes.map(box => box.y + box.height));
-    return {
-      x: minX,
-      y: minY,
-      width: maxX - minX,
-      height: maxY - minY
-    };
-  },
-  isVisibleSvgGraphicElement(element) {
-    const tagName = element.localName.toLowerCase();
-    if (this.isInSvgDefinitionTree(element)) {
-      return false;
-    }
-    const graphicTags = ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line', 'text', 'image', 'use'];
-    if (!graphicTags.includes(tagName)) {
-      return false;
-    }
-    const style = window.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) {
-      return false;
-    }
-    if (['image', 'use'].includes(tagName)) {
-      return true;
-    }
-    return style.fill !== 'none' || style.stroke !== 'none';
-  },
-  isInSvgDefinitionTree(element) {
-    const nonRenderedContainers = ['defs', 'clippath', 'mask', 'pattern', 'symbol', 'marker', 'filter', 'lineargradient', 'radialgradient'];
-    let parent = element.parentElement;
-    while (parent) {
-      if (nonRenderedContainers.includes(parent.localName.toLowerCase())) {
-        return true;
-      }
-      parent = parent.parentElement;
-    }
-    return false;
-  },
-  svgElementRootBounds(element) {
-    if (typeof element.getBBox !== 'function') {
-      return null;
-    }
-    try {
-      const box = element.getBBox();
-      if (!box.width || !box.height) {
-        return null;
-      }
-      const root = element.ownerSVGElement;
-      const rootMatrix = root && typeof root.getScreenCTM === 'function' ? root.getScreenCTM() : null;
-      const elementMatrix = typeof element.getScreenCTM === 'function' ? element.getScreenCTM() : null;
-      const matrix = rootMatrix && elementMatrix ? rootMatrix.inverse().multiply(elementMatrix) : null;
-      if (!matrix) {
-        return box;
-      }
-      const points = [[box.x, box.y], [box.x + box.width, box.y], [box.x + box.width, box.y + box.height], [box.x, box.y + box.height]].map(([x, y]) => ({
-        x: matrix.a * x + matrix.c * y + matrix.e,
-        y: matrix.b * x + matrix.d * y + matrix.f
-      }));
-      const minX = Math.min(...points.map(point => point.x));
-      const minY = Math.min(...points.map(point => point.y));
-      const maxX = Math.max(...points.map(point => point.x));
-      const maxY = Math.max(...points.map(point => point.y));
-      return {
-        x: minX,
-        y: minY,
-        width: maxX - minX,
-        height: maxY - minY
-      };
-    } catch {
-      return null;
-    }
   },
   removeInvisibleSvgShapes(element) {
     Array.from(element.children).forEach(child => {
@@ -1569,6 +1485,7 @@ const canvasRendererMethods = {
       img._ocContent = true;
       img._ocSourceUrl = url;
       img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
+      img._ocSnapshotInlineSvg = filters.length === 0;
       this.applyContentClip(img, clipPath);
       if (!isCurrent()) {
         return false;
@@ -1636,23 +1553,27 @@ const canvasRendererMethods = {
         break;
     }
   },
+  fontCacheKey(font) {
+    return [font?.name || '', font?.weight || 'normal', font?.style || 'normal', font?.url || ''].join('|');
+  },
   async loadFont(font) {
     if (!font?.name || !font?.url) {
       return;
     }
-    if (this.fontCache[font.name]) {
-      return this.fontCache[font.name];
+    const key = this.fontCacheKey(font);
+    if (this.fontCache[key]) {
+      return this.fontCache[key];
     }
     const ff = new FontFace(font.name, `url('${font.url}')`, {
       weight: font.weight || 'normal',
       style: font.style || 'normal'
     });
-    this.fontCache[font.name] = ff.load().then(f => document.fonts.add(f)).catch(err => {
-      delete this.fontCache[font.name];
+    this.fontCache[key] = ff.load().then(f => document.fonts.add(f)).catch(err => {
+      delete this.fontCache[key];
       console.warn('[OC] Font load failed:', err);
       throw err;
     });
-    return this.fontCache[font.name];
+    return this.fontCache[key];
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (canvasRendererMethods);
@@ -1669,478 +1590,96 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../shared/render-math */ "./src/shared/render-math.js");
-/* eslint-disable no-undef, @wordpress/no-unused-vars-before-return */
-
-
 const cartSerializationMethods = {
-  // ── Cart serialisation ────────────────────────────────────────────────────────
-
-  async captureAreaSnapshots() {
-    const snapshots = {};
-    for (const [areaIndex, area] of this.areas.entries()) {
-      const canvas = this.canvases[areaIndex];
-      const bounds = this.areaBounds(area);
-      const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayBounds)(bounds);
-      const scale = canvas?._ocScaleX || 1;
-      if (!canvas || !display?.w || !display?.h || typeof canvas.toSVG !== 'function') {
-        continue;
-      }
-      await this.redraw(areaIndex, {
-        renderGroup: false,
-        pushGallery: false
-      });
-      const objects = canvas.getObjects ? canvas.getObjects() : [];
-      const imageSources = objects.filter(obj => obj._ocContent === true && obj._ocSourceUrl).map(obj => ({
-        url: obj._ocSourceUrl,
-        color: obj._ocSnapshotColor || ''
-      }));
-      const previousExportFlags = objects.map(obj => [obj, obj.excludeFromExport]);
-      objects.forEach(obj => {
-        obj.excludeFromExport = obj._ocContent !== true;
-      });
-      try {
-        let svg = canvas.toSVG({
-          width: Math.max(1, Math.round(Number(display.w) * scale)),
-          height: Math.max(1, Math.round(Number(display.h) * scale)),
-          viewBox: {
-            x: Number(display.x || 0) * scale,
-            y: Number(display.y || 0) * scale,
-            width: Math.max(1, Number(display.w) * scale),
-            height: Math.max(1, Number(display.h) * scale)
+  cloneSubmissionInputs() {
+    return JSON.parse(JSON.stringify(this.inputs || {}));
+  },
+  freezeSubmissionValue(value) {
+    if (!value || typeof value !== 'object' || Object.isFrozen(value)) {
+      return value;
+    }
+    Object.values(value).forEach(child => this.freezeSubmissionValue(child));
+    return Object.freeze(value);
+  },
+  serialiseLayers(inputs) {
+    const layers = {};
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        const input = {
+          ...(inputs[layer.id] || {})
+        };
+        if (['text', 'textarea'].includes(layer.type)) {
+          if (layer.locked) {
+            input.value = layer.settings?.default_text || '';
+          } else if (input.value !== undefined) {
+            input.value = this.normaliseLayerTextValue(layer.id, input.value);
           }
-        });
-        svg = await this.outlineSnapshotText(svg);
-        svg = await this.inlineSnapshotSvgImages(svg, imageSources);
-        if (svg && svg.includes('<svg')) {
-          snapshots[area.id || area.areaId || areaIndex] = {
-            format: 'fabric-svg-v1',
-            unit: 'mockup_px',
-            scale,
-            svg
-          };
         }
-      } catch {
-        // Snapshot export is best-effort; PHP generation keeps the layer fallback.
-      } finally {
-        previousExportFlags.forEach(([obj, flag]) => {
-          obj.excludeFromExport = flag;
-        });
-      }
-    }
-    await this.redraw(this.activeArea);
-    return snapshots;
-  },
-  async inlineSnapshotSvgImages(svg, imageSources = []) {
-    if (!svg || !svg.includes('<image') || !imageSources.length) {
-      return svg;
-    }
-    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
-    const svgEl = doc.documentElement;
-    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') {
-      return svg;
-    }
-    const imageNodes = Array.from(svgEl.querySelectorAll('image'));
-    for (let index = 0; index < imageNodes.length; index++) {
-      const source = imageSources[index];
-      if (!source?.url) {
-        continue;
-      }
-      let sourceSvg = '';
-      try {
-        sourceSvg = await this.svgSourceForSnapshotImage(source.url);
-      } catch {
-        continue;
-      }
-      if (!sourceSvg) {
-        continue;
-      }
-      const sourceDoc = new DOMParser().parseFromString(sourceSvg, 'image/svg+xml');
-      const sourceEl = sourceDoc.documentElement;
-      if (!sourceEl || sourceEl.nodeName.toLowerCase() !== 'svg') {
-        continue;
-      }
-      this.inlineSnapshotSvgPresentationStyles(sourceEl);
-      if (source.color) {
-        this.flattenSnapshotPatternPaint(sourceEl, source.color);
-      }
-      this.prefixSnapshotSvgIds(sourceEl, `oc-snapshot-${index}-`);
-      const replacement = this.snapshotImageReplacementGroup(doc, imageNodes[index], sourceEl);
-      if (replacement) {
-        imageNodes[index].replaceWith(replacement);
-      }
-    }
-    return new XMLSerializer().serializeToString(svgEl);
-  },
-  async svgSourceForSnapshotImage(url) {
-    const value = String(url || '');
-    if (value.startsWith('data:image/svg+xml')) {
-      const payload = value.slice(value.indexOf(',') + 1);
-      if (/^data:image\/svg\+xml(?:;[^,]*)?;base64,/i.test(value)) {
-        const decoded = atob(payload);
-        if (typeof TextDecoder !== 'undefined') {
-          return new TextDecoder().decode(Uint8Array.from(decoded, char => char.charCodeAt(0)));
-        }
-        return decoded;
-      }
-      return decodeURIComponent(payload);
-    }
-    const cleanUrl = value.split('?')[0].toLowerCase();
-    if (!cleanUrl.endsWith('.svg')) {
-      return '';
-    }
-    const response = await fetch(value, {
-      credentials: 'same-origin',
-      cache: 'force-cache'
-    });
-    if (!response.ok) {
-      return '';
-    }
-    return response.text();
-  },
-  inlineSnapshotSvgPresentationStyles(sourceEl) {
-    const styleEls = Array.from(sourceEl.querySelectorAll('style'));
-    for (const styleEl of styleEls) {
-      const css = String(styleEl.textContent || '').replace(/\/\*[\s\S]*?\*\//g, '');
-      const rulePattern = /([^{}@]+)\{([^{}]+)\}/g;
-      let match;
-      while (match = rulePattern.exec(css)) {
-        const declarations = this.svgPresentationDeclarations(match[2]);
-        if (!Object.keys(declarations).length) {
-          continue;
-        }
-        String(match[1]).split(',').map(selector => selector.trim()).filter(Boolean).forEach(selector => {
-          let nodes = [];
-          try {
-            nodes = Array.from(sourceEl.querySelectorAll(selector));
-          } catch {
-            nodes = [];
+        if (['image', 'clipmask'].includes(layer.type)) {
+          const canonicalId = this.canonicalLinkedLayerId(layer.id);
+          const canonicalInput = inputs[canonicalId] || {};
+          const sameAttachment = canonicalId !== layer.id && layer.settings?.allow_image_change !== false && (Number(input.attachmentId || 0) > 0 && Number(input.attachmentId) === Number(canonicalInput.attachmentId || 0) || input.attachmentUrl && input.attachmentUrl === canonicalInput.attachmentUrl);
+          if (sameAttachment) {
+            ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'imageMeta', 'sourceImageMeta'].forEach(key => delete input[key]);
+            input.linkedSourceLayerId = canonicalId;
           }
-          nodes.forEach(node => {
-            Object.entries(declarations).forEach(([attr, value]) => {
-              node.setAttribute(attr, value);
-            });
-          });
-        });
-      }
-    }
-    Array.from(sourceEl.querySelectorAll('[style]')).forEach(node => {
-      const declarations = this.svgPresentationDeclarations(node.getAttribute('style') || '');
-      Object.entries(declarations).forEach(([attr, value]) => {
-        node.setAttribute(attr, value);
+          if (canonicalId === layer.id) {
+            const linkedIds = this.linkedLayerIds(layer.id);
+            if (linkedIds.length) {
+              input.linkedLayerIds = linkedIds;
+            }
+          }
+        }
+        layers[layer.id] = {
+          type: layer.type,
+          ...input
+        };
       });
     });
-
-    // Keep original styles as a fallback for selectors we do not inline.
+    return layers;
   },
-  svgPresentationDeclarations(cssText) {
-    const allowed = new Set(['fill', 'stroke', 'opacity', 'fill-opacity', 'stroke-opacity', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'fill-rule', 'clip-rule']);
-    const declarations = {};
-    String(cssText || '').split(';').map(declaration => declaration.trim()).filter(Boolean).forEach(declaration => {
-      const separator = declaration.indexOf(':');
-      if (separator <= 0) {
-        return;
-      }
-      const property = declaration.slice(0, separator).trim().toLowerCase();
-      const value = declaration.slice(separator + 1).trim().replace(/\s*!important$/i, '');
-      if (allowed.has(property) && value) {
-        declarations[property] = value;
-      }
-    });
-    return declarations;
-  },
-  flattenSnapshotPatternPaint(element, color) {
-    Array.from(element.querySelectorAll('[fill], [stroke]')).forEach(node => {
-      ['fill', 'stroke'].forEach(attr => {
-        const value = String(node.getAttribute(attr) || '').trim();
-        if (/^url\(/i.test(value)) {
-          node.setAttribute(attr, color);
+  createSubmissionGeneration() {
+    const inputs = this.cloneSubmissionInputs();
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        if (!inputs[layer.id]) {
+          inputs[layer.id] = {};
+        }
+        if (layer.locked && ['text', 'textarea'].includes(layer.type)) {
+          inputs[layer.id].value = layer.settings?.default_text || '';
         }
       });
     });
-    Array.from(element.querySelectorAll('[style]')).forEach(node => {
-      node.setAttribute('style', String(node.getAttribute('style') || '').replace(/\b(fill|stroke)\s*:\s*url\([^;)]+\)/gi, `$1:${color}`));
-    });
+    const generation = {
+      designGeneration: this._designGeneration,
+      designId: this.data.designId,
+      designVariant: this.selectedDesignVariant || '',
+      designVariantLabel: this.designVariants.find(item => item.id === this.selectedDesignVariant)?.label || '',
+      layers: this.serialiseLayers(inputs)
+    };
+    return this.freezeSubmissionValue(generation);
   },
-  prefixSnapshotSvgIds(sourceEl, prefix) {
-    const idMap = new Map();
-    [sourceEl, ...Array.from(sourceEl.querySelectorAll('[id]'))].forEach(node => {
-      const id = node.getAttribute('id');
-      if (!id) {
-        return;
-      }
-      if (!idMap.has(id)) {
-        idMap.set(id, `${prefix}${id}`);
-      }
-      node.setAttribute('id', idMap.get(id));
-    });
-    if (!idMap.size) {
-      return;
-    }
-    [sourceEl, ...Array.from(sourceEl.querySelectorAll('*'))].forEach(node => {
-      if (node.localName?.toLowerCase() === 'style') {
-        node.textContent = this.rewriteSnapshotSvgIdReferences(node.textContent || '', idMap);
-      }
-      Array.from(node.attributes || []).forEach(attr => {
-        const rewritten = this.rewriteSnapshotSvgIdReferences(attr.value, idMap);
-        if (rewritten !== attr.value) {
-          node.setAttribute(attr.name, rewritten);
-        }
-      });
-    });
-  },
-  rewriteSnapshotSvgIdReferences(value, idMap) {
-    let output = String(value || '');
-    idMap.forEach((replacement, id) => {
-      const escaped = this.escapeRegExp(id);
-      output = output.replace(new RegExp(`url\\(\\s*#${escaped}\\s*\\)`, 'g'), `url(#${replacement})`);
-      if (output === `#${id}`) {
-        output = `#${replacement}`;
-      }
-    });
-    return output;
-  },
-  escapeRegExp(value) {
-    return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  },
-  snapshotImageReplacementGroup(doc, imageNode, sourceEl) {
-    const viewBox = this.svgViewBoxValues(sourceEl);
-    if (!viewBox) {
-      return null;
-    }
-    const [vbX, vbY, vbW, vbH] = viewBox;
-    const imageX = this.svgNumber(imageNode.getAttribute('x'), 0);
-    const imageY = this.svgNumber(imageNode.getAttribute('y'), 0);
-    const imageW = this.svgNumber(imageNode.getAttribute('width'), vbW);
-    const imageH = this.svgNumber(imageNode.getAttribute('height'), vbH);
-    if (vbW <= 0 || vbH <= 0 || imageW <= 0 || imageH <= 0) {
-      return null;
-    }
-    const ns = 'http://www.w3.org/2000/svg';
-    const outer = doc.createElementNS(ns, 'g');
-    ['transform', 'opacity', 'clip-path'].forEach(attr => {
-      if (imageNode.hasAttribute(attr)) {
-        outer.setAttribute(attr, imageNode.getAttribute(attr));
-      }
-    });
-    const inner = doc.createElementNS(ns, 'svg');
-    inner.setAttribute('x', String(imageX));
-    inner.setAttribute('y', String(imageY));
-    inner.setAttribute('width', String(imageW));
-    inner.setAttribute('height', String(imageH));
-    inner.setAttribute('viewBox', `${vbX} ${vbY} ${vbW} ${vbH}`);
-    inner.setAttribute('overflow', 'hidden');
-    inner.setAttribute('preserveAspectRatio', imageNode.getAttribute('preserveAspectRatio') || sourceEl.getAttribute('preserveAspectRatio') || 'xMidYMid meet');
-    Array.from(sourceEl.childNodes).forEach(child => {
-      inner.appendChild(doc.importNode(child, true));
-    });
-    outer.appendChild(inner);
-    return outer;
-  },
-  svgViewBoxValues(svgEl) {
-    const viewBox = String(svgEl.getAttribute('viewBox') || '').trim();
-    if (viewBox) {
-      const parts = viewBox.split(/[\s,]+/).map(Number);
-      if (parts.length >= 4 && parts.every(Number.isFinite)) {
-        return parts.slice(0, 4);
+  buildCustomisationPayload(generation, {
+    previewUrl = ''
+  } = {}) {
+    const payload = {
+      v: 2,
+      designId: generation.designId,
+      layers: generation.layers,
+      uploadToken: this.data.requestToken || ''
+    };
+    if (generation.designVariant) {
+      payload.designVariant = generation.designVariant;
+      if (generation.designVariantLabel) {
+        payload.designVariantLabel = generation.designVariantLabel;
       }
     }
-    const width = this.svgNumber(svgEl.getAttribute('width'), 0);
-    const height = this.svgNumber(svgEl.getAttribute('height'), 0);
-    return width > 0 && height > 0 ? [0, 0, width, height] : null;
-  },
-  async outlineSnapshotText(svg) {
-    if (!svg || !svg.includes('<text')) {
-      return svg;
+    if (previewUrl) {
+      payload.previewUrl = previewUrl;
     }
-    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
-    const svgEl = doc.documentElement;
-    if (!svgEl || svgEl.nodeName.toLowerCase() !== 'svg') {
-      return svg;
-    }
-    const textNodes = Array.from(svgEl.querySelectorAll('text'));
-    for (const textNode of textNodes) {
-      const fontFamily = this.cleanSvgFontFamily(textNode.getAttribute('font-family') || textNode.style?.fontFamily || '');
-      const font = this.fonts.find(item => item.name === fontFamily);
-      if (!font) {
-        continue;
-      }
-      let outlineFont = null;
-      try {
-        outlineFont = await this.loadOutlineFont(font);
-      } catch {
-        continue;
-      }
-      const pathData = this.svgTextNodeToPathData(textNode, outlineFont);
-      if (!pathData) {
-        continue;
-      }
-      const path = doc.createElementNS('http://www.w3.org/2000/svg', 'path');
-      path.setAttribute('d', pathData);
-      ['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'transform'].forEach(attr => {
-        if (textNode.hasAttribute(attr)) {
-          path.setAttribute(attr, textNode.getAttribute(attr));
-        }
-      });
-      if (!path.hasAttribute('fill')) {
-        path.setAttribute('fill', '#000000');
-      }
-      textNode.replaceWith(path);
-    }
-    return new XMLSerializer().serializeToString(svgEl);
+    return payload;
   },
-  cleanSvgFontFamily(value) {
-    return String(value || '').split(',')[0].trim().replace(/^['"]|['"]$/g, '');
-  },
-  async loadOutlineFont(font) {
-    if (!font?.name || !font?.url) {
-      throw new Error('Missing font.');
-    }
-    if (this.outlineFontCache[font.name]) {
-      return this.outlineFontCache[font.name];
-    }
-    this.outlineFontCache[font.name] = Promise.all([Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_fonteditor-core_lib_main_esm_js"), __webpack_require__.e("node_modules_fonteditor-core_woff2_sync_recursive")]).then(__webpack_require__.bind(__webpack_require__, /*! fonteditor-core */ "./node_modules/fonteditor-core/lib/main.esm.js")), fetch(font.url, {
-      credentials: 'same-origin',
-      cache: 'force-cache'
-    })]).then(([fontEditor, response]) => {
-      if (!response.ok) {
-        throw new Error('Font download failed.');
-      }
-      return Promise.all([fontEditor.createFont, response.arrayBuffer()]);
-    }).then(([createFont, buffer]) => {
-      const parsed = createFont(buffer, {
-        type: this.fontTypeFromUrl(font.url),
-        compound2simple: true
-      }).get();
-      return {
-        font,
-        ttf: parsed,
-        unitsPerEm: Number(parsed?.head?.unitsPerEm) || 1000,
-        glyphs: this.glyphMapForFont(parsed)
-      };
-    }).catch(err => {
-      delete this.outlineFontCache[font.name];
-      throw err;
-    });
-    return this.outlineFontCache[font.name];
-  },
-  fontTypeFromUrl(url) {
-    const cleanUrl = String(url || '').split('?')[0].toLowerCase();
-    const ext = cleanUrl.split('.').pop();
-    return ['ttf', 'otf', 'woff', 'woff2', 'eot', 'svg'].includes(ext) ? ext : 'ttf';
-  },
-  glyphMapForFont(parsed) {
-    const glyphs = {};
-    (parsed?.glyf || []).forEach(glyph => {
-      (glyph.unicode || []).forEach(code => {
-        glyphs[code] = glyph;
-      });
-    });
-    return glyphs;
-  },
-  svgTextNodeToPathData(textNode, outlineFont) {
-    const chunks = this.svgTextChunks(textNode);
-    if (!chunks.length) {
-      return '';
-    }
-    return chunks.map(chunk => this.textChunkToPathData(chunk, textNode, outlineFont)).filter(Boolean).join(' ');
-  },
-  svgTextChunks(textNode) {
-    const tspans = Array.from(textNode.querySelectorAll('tspan'));
-    if (tspans.length) {
-      return tspans.map(tspan => ({
-        text: tspan.textContent || '',
-        x: this.svgNumber(tspan.getAttribute('x'), this.svgNumber(textNode.getAttribute('x'), 0)),
-        y: this.svgNumber(tspan.getAttribute('y'), this.svgNumber(textNode.getAttribute('y'), 0)),
-        fontSize: this.svgNumber(tspan.getAttribute('font-size'), this.svgNumber(textNode.getAttribute('font-size'), 16)),
-        anchor: tspan.getAttribute('text-anchor') || textNode.getAttribute('text-anchor') || 'start'
-      })).filter(chunk => chunk.text);
-    }
-    return [{
-      text: textNode.textContent || '',
-      x: this.svgNumber(textNode.getAttribute('x'), 0),
-      y: this.svgNumber(textNode.getAttribute('y'), 0),
-      fontSize: this.svgNumber(textNode.getAttribute('font-size'), 16),
-      anchor: textNode.getAttribute('text-anchor') || 'start'
-    }].filter(chunk => chunk.text);
-  },
-  textChunkToPathData(chunk, textNode, outlineFont) {
-    const scale = chunk.fontSize / outlineFont.unitsPerEm;
-    const advance = this.textAdvanceWidth(chunk.text, outlineFont) * scale;
-    let cursor = chunk.x;
-    const anchor = String(chunk.anchor || '').toLowerCase();
-    if (anchor === 'middle') {
-      cursor -= advance / 2;
-    }
-    if (anchor === 'end') {
-      cursor -= advance;
-    }
-    const parts = [];
-    for (const char of Array.from(chunk.text)) {
-      const glyph = outlineFont.glyphs[char.codePointAt(0)];
-      if (glyph?.contours?.length) {
-        parts.push(this.glyphToSvgPath(glyph, cursor, chunk.y, scale));
-      }
-      cursor += (Number(glyph?.advanceWidth) || outlineFont.unitsPerEm * 0.5) * scale;
-    }
-    return parts.filter(Boolean).join(' ');
-  },
-  textAdvanceWidth(text, outlineFont) {
-    return Array.from(text).reduce((width, char) => {
-      const glyph = outlineFont.glyphs[char.codePointAt(0)];
-      return width + (Number(glyph?.advanceWidth) || outlineFont.unitsPerEm * 0.5);
-    }, 0);
-  },
-  glyphToSvgPath(glyph, x, baseline, scale) {
-    return glyph.contours.map(contour => this.contourToSvgPath(contour, x, baseline, scale)).filter(Boolean).join(' ');
-  },
-  contourToSvgPath(contour, x, baseline, scale) {
-    if (!contour?.length) {
-      return '';
-    }
-    const pointAt = index => contour[(index + contour.length) % contour.length];
-    const mid = (a, b) => ({
-      x: (a.x + b.x) / 2,
-      y: (a.y + b.y) / 2,
-      onCurve: true
-    });
-    const tx = point => Number((x + point.x * scale).toFixed(3));
-    const ty = point => Number((baseline - point.y * scale).toFixed(3));
-    let startIndex = 0;
-    let start = contour[0];
-    const last = contour[contour.length - 1];
-    if (!start.onCurve) {
-      if (last.onCurve) {
-        start = last;
-        startIndex = contour.length - 1;
-      } else {
-        start = mid(last, start);
-      }
-    }
-    const commands = [`M${tx(start)} ${ty(start)}`];
-    let i = startIndex + 1;
-    let processed = 0;
-    while (processed < contour.length) {
-      const p = pointAt(i);
-      if (p.onCurve) {
-        commands.push(`L${tx(p)} ${ty(p)}`);
-        i += 1;
-      } else {
-        const next = pointAt(i + 1);
-        const end = next.onCurve ? next : mid(p, next);
-        commands.push(`Q${tx(p)} ${ty(p)} ${tx(end)} ${ty(end)}`);
-        i += next.onCurve ? 2 : 1;
-      }
-      processed = i - startIndex - 1;
-    }
-    commands.push('Z');
-    return commands.join(' ');
-  },
-  svgNumber(value, fallback = 0) {
-    const num = parseFloat(String(value || '').replace(/px$/i, ''));
-    return Number.isFinite(num) ? num : fallback;
-  },
-  async updateHiddenField(includeSnapshots = false) {
+  updateHiddenField(options = {}) {
     const el = document.getElementById('oc-customisation-data');
     if (!el) {
       return;
@@ -2151,42 +1690,12 @@ const cartSerializationMethods = {
       return;
     }
     el.disabled = false;
-    const layers = {};
-    this.areas.forEach(area => {
-      (area.layers || []).forEach(layer => {
-        const inp = this.inputs[layer.id];
-        if (inp) {
-          this.clampLayerInputValue(layer.id);
-          layers[layer.id] = {
-            type: layer.type,
-            ...this.inputs[layer.id]
-          };
-        }
-      });
+    const generation = options.generation || this.createSubmissionGeneration();
+    const payload = this.buildCustomisationPayload(generation, {
+      previewUrl: options.previewUrl === undefined ? this._previewUrl || '' : options.previewUrl
     });
-    const payload = {
-      v: 2,
-      designId: this.data.designId,
-      layers,
-      uploadToken: this.data.requestToken || ''
-    };
-    if (this.selectedDesignVariant) {
-      const variant = this.designVariants.find(item => item.id === this.selectedDesignVariant);
-      payload.designVariant = this.selectedDesignVariant;
-      if (variant?.label) {
-        payload.designVariantLabel = variant.label;
-      }
-    }
-    if (includeSnapshots) {
-      const snapshots = await this.captureAreaSnapshots();
-      if (Object.keys(snapshots).length) {
-        payload.snapshots = snapshots;
-      }
-    }
-    if (this._previewUrl) {
-      payload.previewUrl = this._previewUrl;
-    }
     el.value = JSON.stringify(payload);
+    return payload;
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (cartSerializationMethods);
@@ -2229,9 +1738,9 @@ const checkoutMethods = {
     if (this.handleVariationSubmitBlock()) {
       return false;
     }
-    if (this._submitInProgress || !this._customisationActive || this.aiFilterPending > 0 || Object.keys(this.aiFilterErrors || {}).length > 0) {
-      if (this.aiFilterPending > 0) {
-        window.alert('Please wait for the AI image filter to finish.');
+    if (this._submitInProgress || !this._customisationActive || this.artworkPendingCount > 0 || Object.keys(this.aiFilterErrors || {}).length > 0) {
+      if (this.artworkPendingCount > 0) {
+        window.alert('Please wait for artwork uploads and image processing to finish.');
       } else if (Object.keys(this.aiFilterErrors || {}).length > 0) {
         window.alert('An AI image filter failed. Retry the filter before adding this product to your cart.');
       }
@@ -2239,10 +1748,7 @@ const checkoutMethods = {
     }
     this._submitInProgress = true;
     form.classList.add('processing');
-    form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
-      button.disabled = true;
-      button.setAttribute('aria-disabled', 'true');
-    });
+    this.setControlLock('submission', true);
     return true;
   },
   setupFormSubmit() {
@@ -2276,21 +1782,11 @@ const checkoutMethods = {
               return;
             }
           }
-          await this.uploadPreview();
-          this.updateHiddenField();
-          const layers = {};
-          this.areas.forEach(area => {
-            (area.layers || []).forEach(layer => {
-              const inp = this.inputs[layer.id];
-              if (inp) {
-                layers[layer.id] = {
-                  type: layer.type,
-                  ...inp
-                };
-              }
-            });
+          const generation = this.createSubmissionGeneration();
+          const previewUrl = await this.uploadPreview(generation);
+          const payload = this.buildCustomisationPayload(generation, {
+            previewUrl
           });
-          const snapshots = await this.captureAreaSnapshots();
           try {
             const res = await fetch(this.data.updateCartItemUrl, {
               method: 'POST',
@@ -2299,13 +1795,7 @@ const checkoutMethods = {
               }),
               body: JSON.stringify({
                 cart_key: this.cartKey,
-                designId: this.data.designId,
-                layers,
-                uploadToken: this.data.requestToken || '',
-                designVariant: this.selectedDesignVariant || '',
-                designVariantLabel: this.designVariants.find(item => item.id === this.selectedDesignVariant)?.label || '',
-                snapshots,
-                previewUrl: this._previewUrl || ''
+                ...payload
               })
             });
             let json = null;
@@ -2322,7 +1812,7 @@ const checkoutMethods = {
               return;
             }
             if (json?.success) {
-              window.location.href = window.wc_cart_params?.cart_url || '/cart/';
+              window.location.href = this.getCartUrl();
             } else {
               this.renderPreflightMessages([json?.message || 'Failed to update customisation.'], []);
             }
@@ -2330,6 +1820,9 @@ const checkoutMethods = {
             console.error('[OC] Update cart item failed:', err);
             this.renderPreflightMessages(['Failed to update customisation. Please try again.'], []);
           }
+        } catch (error) {
+          console.error('[OC] Cart update failed:', error);
+          this.renderPreflightMessages([error?.message || 'Could not prepare your customisation. Please try again.'], []);
         } finally {
           this.resetCartSubmitState(form);
         }
@@ -2351,6 +1844,7 @@ const checkoutMethods = {
           this.updateHiddenField();
           return;
         }
+        this.clearCustomValidity();
         if (!form.checkValidity()) {
           return;
         }
@@ -2417,13 +1911,17 @@ const checkoutMethods = {
             return;
           }
         }
-        const acceptedPreview = await this.confirmMobileCartPreview();
+        const generation = this.createSubmissionGeneration();
+        const acceptedPreview = await this.confirmMobileCartPreview(generation);
         if (!acceptedPreview) {
           this.resetCartSubmitState(form);
           return;
         }
-        await this.uploadPreview();
-        await this.updateHiddenField(true);
+        const previewUrl = await this.uploadPreview(generation);
+        await this.updateHiddenField({
+          generation,
+          previewUrl
+        });
         const payload = document.getElementById('oc-customisation-data')?.value;
         if (payload && new Blob([payload]).size > MAX_CUSTOMISATION_BYTES) {
           this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
@@ -2448,31 +1946,36 @@ const checkoutMethods = {
   },
   resetCartSubmitState(form) {
     this._submitInProgress = false;
-    form._ocGuardFromClick = false;
+    this.setControlLock('submission', false);
     form.classList.remove('loading', 'processing');
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.classList.remove('loading', 'processing');
-      button.disabled = false;
-      button.removeAttribute('disabled');
-      button.setAttribute('aria-disabled', 'false');
     });
+  },
+  getCartUrl() {
+    const candidates = [this.data.cartUrl, window.wc_cart_params?.cart_url, window.wc_add_to_cart_params?.cart_url, window.wc_cart_fragments_params?.cart_url, document.querySelector('a.cart-contents, a.wc-block-mini-cart__button, a[href*="/cart/"]')?.href];
+    const url = candidates.find(candidate => typeof candidate === 'string' && candidate.trim() !== '');
+    return url || new URL('cart/', `${window.location.origin}/`).href;
   },
   isMobileCartPreviewRequired() {
     return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
   },
   getCurrentPreviewDataUrl() {
     const canvas = this.canvases[this.activeArea];
-    if (canvas) {
-      try {
-        return canvas.toDataURL({
-          format: 'jpeg',
-          quality: 0.92
-        });
-      } catch {
-        // Fall back to the already-rendered preview image below.
-      }
+    if (!canvas || canvas._ocMissingMockup) {
+      throw new Error('The customisation preview is unavailable.');
     }
-    return document.getElementById('oc-canvas-preview')?.src || '';
+    if (canvas._ocRenderErrors?.length) {
+      throw new Error('Some artwork could not be rendered.');
+    }
+    const dataUrl = canvas.toDataURL({
+      format: 'jpeg',
+      quality: 0.92
+    });
+    if (!/^data:image\/(?:jpeg|png);base64,/i.test(dataUrl)) {
+      throw new Error('The customisation preview could not be captured.');
+    }
+    return dataUrl;
   },
   async getMobileCartPreviewAreas() {
     const activeArea = this.activeArea;
@@ -2653,19 +2156,21 @@ const checkoutMethods = {
       acceptBtn?.focus?.();
     });
   },
-  async uploadPreview() {
+  async uploadPreview(generation = null) {
     if (!this.data.savePreviewUrl) {
-      return;
+      return this._previewUrl || '';
     }
     await this.flushRedraw();
+    if (generation && generation.designGeneration !== this._designGeneration) {
+      throw new Error('The selected design changed while rendering.');
+    }
     let dataUrl;
     try {
       dataUrl = this.getCurrentPreviewDataUrl();
     } catch (e) {
       this._previewUrl = '';
-      this.updateHiddenField();
       console.warn('[OC] Could not capture preview for cart:', e.message);
-      return;
+      return '';
     }
     try {
       const res = await fetch(this.data.savePreviewUrl, {
@@ -2677,10 +2182,12 @@ const checkoutMethods = {
           image: dataUrl
         })
       });
+      if (generation && generation.designGeneration !== this._designGeneration) {
+        throw new Error('The selected design changed while saving.');
+      }
       if (!res.ok) {
         this._previewUrl = '';
-        this.updateHiddenField();
-        return;
+        return '';
       }
       let json = null;
       const isJson = res.headers.get('content-type')?.includes('application/json');
@@ -2693,18 +2200,19 @@ const checkoutMethods = {
       }
       if (!json) {
         this._previewUrl = '';
-        this.updateHiddenField();
-        return;
+        return '';
       }
       if (json.url) {
-        this._previewUrl = json.url;
-        this.updateHiddenField();
+        this._previewUrl = String(json.url);
+        return this._previewUrl;
       }
+      this._previewUrl = '';
+      return '';
     } catch (e) {
       this._previewUrl = '';
-      this.updateHiddenField();
       // Non-fatal: cart submits without a preview image.
       console.warn('[OC] Preview upload failed:', e.message);
+      return '';
     }
   }
 };
@@ -3938,6 +3446,9 @@ const inputControlMethods = {
       };
       updateCounter();
       el.addEventListener('input', async () => {
+        el.setCustomValidity('');
+        el.setAttribute('aria-invalid', 'false');
+        el.classList.remove('oc-preflight-field-error');
         const cleaned = this.normaliseLayerTextValue(lid, el.value);
         if (cleaned !== el.value) {
           el.value = cleaned;
@@ -3962,6 +3473,9 @@ const inputControlMethods = {
         return;
       }
       el.addEventListener('input', () => {
+        el.setCustomValidity('');
+        el.setAttribute('aria-invalid', 'false');
+        el.classList.remove('oc-preflight-field-error');
         this.invalidateSpotifyValidation(lid);
         if (!this.inputs[lid]) {
           this.inputs[lid] = {};
@@ -4140,8 +3654,11 @@ const inputControlMethods = {
         }
         this.inputs[lid].imageFilterId = parseInt(el.value, 10) || 0;
         el.disabled = true;
-        await this.applyAiImageFilter(lid, this.inputs[lid].imageFilterId);
-        el.disabled = false;
+        try {
+          await this.applyAiImageFilter(lid, this.inputs[lid].imageFilterId);
+        } finally {
+          el.disabled = this._controlLocks.size > 0;
+        }
         this.syncLinkedLayerInput(lid, ['imageFilterId']);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
@@ -4215,6 +3732,22 @@ const inputControlMethods = {
   getLayerById(layerId) {
     return this.layersById[layerId] || null;
   },
+  seedLockedLayerDefaults() {
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        if (!['text', 'textarea'].includes(layer.type)) {
+          return;
+        }
+        if (!this.inputs[layer.id]) {
+          this.inputs[layer.id] = {};
+        }
+        if (layer.locked || this.inputs[layer.id].value === undefined) {
+          this.inputs[layer.id].value = layer.settings?.default_text || '';
+          this.clampLayerInputValue(layer.id);
+        }
+      });
+    });
+  },
   seedTemplateImageDefaults() {
     document.querySelectorAll('[data-oc-default-image]').forEach(el => {
       const layerId = parseInt(el.dataset.ocDefaultImage, 10);
@@ -4284,6 +3817,21 @@ const inputControlMethods = {
       });
     });
     return ids;
+  },
+  canonicalLinkedLayerId(layerId) {
+    const layer = this.getLayerById(layerId);
+    const group = String(layer?.settings?.link_group || '').trim();
+    if (!layer || !group) {
+      return layerId;
+    }
+    for (const area of this.areas) {
+      for (const candidate of area.layers || []) {
+        if (candidate.type === layer.type && String(candidate.settings?.link_group || '').trim() === group) {
+          return candidate.id;
+        }
+      }
+    }
+    return layerId;
   },
   syncLinkedLayerInput(sourceLayerId, keys) {
     const sourceInput = this.inputs[sourceLayerId];
@@ -4358,11 +3906,9 @@ const inputControlMethods = {
   },
   // ── Form submit — upload preview then proceed ──────────────────────────────
 
-  updateInputsFromDOM() {
-    this.syncInputsFromDOM();
-    this.applyInputsToDOM();
-  },
-  applyInputsToDOM() {
+  applyInputsToDOM({
+    redraw = true
+  } = {}) {
     for (const layerIdStr in this.inputs) {
       const layerId = parseInt(layerIdStr, 10);
       const inp = this.inputs[layerId];
@@ -4381,7 +3927,11 @@ const inputControlMethods = {
       }
       const swatch = document.querySelector(`[data-oc-layer-swatch="${layerId}"][data-hex="${inp.colorHex}"]`);
       if (swatch) {
-        swatch.closest('.oc-colour-swatches')?.querySelectorAll('.oc-colour-swatch').forEach(s => s.classList.toggle('oc-selected', s === swatch));
+        swatch.closest('.oc-colour-swatches')?.querySelectorAll('.oc-colour-swatch').forEach(s => {
+          const selected = s === swatch;
+          s.classList.toggle('oc-selected', selected);
+          s.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
       }
       const colorEl = document.querySelector(`[data-oc-layer-color="${layerId}"]`);
       if (colorEl && inp.colorHex) {
@@ -4394,15 +3944,24 @@ const inputControlMethods = {
       }
       const clipartBtn = document.querySelector(`[data-oc-layer-clipart="${layerId}"][data-oc-clipart="${inp.clipartId}"]`);
       if (clipartBtn) {
-        clipartBtn.closest('.oc-clipart-grid')?.querySelectorAll('.oc-clipart-item').forEach(i => i.classList.toggle('oc-selected', i === clipartBtn));
+        clipartBtn.closest('.oc-clipart-grid')?.querySelectorAll('.oc-clipart-item').forEach(i => {
+          const selected = i === clipartBtn;
+          i.classList.toggle('oc-selected', selected);
+          i.setAttribute('aria-pressed', selected ? 'true' : 'false');
+        });
       }
       const imageFilterEl = document.querySelector(`[data-oc-layer-image-filter="${layerId}"]`);
       if (imageFilterEl) {
         imageFilterEl.value = String(inp.imageFilterId || 0);
       }
+      document.querySelectorAll(`[data-oc-upload-zone="${layerId}"]`).forEach(zone => {
+        this.setUploadZoneState(zone, inp.attachmentUrl ? 'uploaded' : '');
+      });
     }
     this.updateHiddenField();
-    this.areas.forEach((_, i) => this.redraw(i));
+    if (redraw) {
+      this.areas.forEach((_, i) => this.redraw(i));
+    }
   },
   syncInputsFromDOM() {
     this.areas.forEach(area => {
@@ -4502,6 +4061,14 @@ __webpack_require__.r(__webpack_exports__);
 
 const INVALID_SPOTIFY_STATUSES = ['invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited'];
 const preflightMethods = {
+  clearCustomValidity() {
+    document.querySelectorAll('[data-oc-layer-text], [data-oc-layer-spotify]').forEach(el => {
+      if (typeof el.setCustomValidity === 'function') {
+        el.setCustomValidity('');
+      }
+      el.setAttribute('aria-invalid', 'false');
+    });
+  },
   getLayerInputEl(layer) {
     if (!layer?.id) {
       return null;
@@ -4529,10 +4096,7 @@ const preflightMethods = {
     document.querySelectorAll('.oc-preflight-field-error').forEach(el => {
       el.classList.remove('oc-preflight-field-error');
     });
-    document.querySelectorAll('[data-oc-layer-text], [data-oc-layer-spotify]').forEach(el => {
-      el.setCustomValidity('');
-      el.setAttribute('aria-invalid', 'false');
-    });
+    this.clearCustomValidity();
   },
   renderPreflightMessages(errors = [], warnings = []) {
     if (!this.preflightRoot) {
@@ -4618,7 +4182,7 @@ const preflightMethods = {
             if (required && !value) {
               errors.push(`${label} is required.`);
               fieldEl?.classList.add('oc-preflight-field-error');
-              if (fieldEl) {
+              if (typeof fieldEl?.setCustomValidity === 'function') {
                 fieldEl.setCustomValidity('This field is required.');
                 fieldEl.setAttribute('aria-invalid', 'true');
               }
@@ -4628,7 +4192,7 @@ const preflightMethods = {
               if (charLimit > 0 && this.textLength(value) > charLimit) {
                 errors.push(`${label} exceeds the ${charLimit} character limit.`);
                 fieldEl?.classList.add('oc-preflight-field-error');
-                if (fieldEl) {
+                if (typeof fieldEl?.setCustomValidity === 'function') {
                   fieldEl.setCustomValidity(`Maximum ${charLimit} characters.`);
                   fieldEl.setAttribute('aria-invalid', 'true');
                 }
@@ -4644,13 +4208,14 @@ const preflightMethods = {
             if (input.attachmentUrl) {
               let imageMeta = input.imageMeta || null;
               if (!imageMeta) {
-                imageMeta = await this.getImageMeta(input.attachmentUrl);
+                imageMeta = await this.getTrackedImageMeta(input.attachmentUrl, layer.id);
                 if (imageMeta && this.inputs[layer.id]) {
                   this.inputs[layer.id].imageMeta = imageMeta;
                 }
               }
-              if (imageMeta && imageMeta.width > 0 && imageMeta.height > 0 && (imageMeta.width < layer.w || imageMeta.height < layer.h)) {
-                warnings.push(`${label} may print soft (${imageMeta.width}x${imageMeta.height}px for a ${layer.w}x${layer.h}px print area).`);
+              const requiredPixels = this.resolutionForLayer(layer.id);
+              if (!this.isVectorArtwork(input) && imageMeta && imageMeta.width > 0 && imageMeta.height > 0 && (imageMeta.width < requiredPixels.width || imageMeta.height < requiredPixels.height)) {
+                warnings.push(`${label} may print soft (${imageMeta.width}x${imageMeta.height}px; recommended ${requiredPixels.width}x${requiredPixels.height}px).`);
               }
             }
             break;
@@ -4665,7 +4230,7 @@ const preflightMethods = {
             if (required && !value) {
               errors.push(`${label} requires a line-art colour.`);
               fieldEl?.classList.add('oc-preflight-field-error');
-              if (fieldEl) {
+              if (typeof fieldEl?.setCustomValidity === 'function') {
                 fieldEl.setCustomValidity('Please choose a line-art colour.');
                 fieldEl.setAttribute('aria-invalid', 'true');
               }
@@ -4676,7 +4241,7 @@ const preflightMethods = {
             if (required && !value) {
               errors.push(`${label} requires a Spotify link.`);
               fieldEl?.classList.add('oc-preflight-field-error');
-              if (fieldEl) {
+              if (typeof fieldEl?.setCustomValidity === 'function') {
                 fieldEl.setCustomValidity('Please provide a Spotify link.');
                 fieldEl.setAttribute('aria-invalid', 'true');
               }
@@ -4691,7 +4256,7 @@ const preflightMethods = {
               if (INVALID_SPOTIFY_STATUSES.includes(status)) {
                 errors.push(`${label} has an invalid or unavailable Spotify link.`);
                 fieldEl?.classList.add('oc-preflight-field-error');
-                if (fieldEl) {
+                if (typeof fieldEl?.setCustomValidity === 'function') {
                   fieldEl.setCustomValidity('Spotify link is invalid or unavailable.');
                   fieldEl.setAttribute('aria-invalid', 'true');
                 }
@@ -4742,7 +4307,7 @@ const preflightMethods = {
         if (!filled) {
           errors.push(`${label} is required.`);
           fieldEl?.classList.add('oc-preflight-field-error');
-          if (fieldEl) {
+          if (typeof fieldEl?.setCustomValidity === 'function') {
             fieldEl.setCustomValidity('This field is required.');
             fieldEl.setAttribute('aria-invalid', 'true');
           }
@@ -5017,14 +4582,65 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../../shared/render-math */ "./src/shared/render-math.js");
 /**
  * Uppy upload zone setup and upload UI helpers.
  */
 
 /* eslint-disable no-console */
 
+
 const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
 const uploadMethods = {
+  beginArtworkOperation(type, layerId = 0) {
+    const operation = {
+      type,
+      layerId,
+      settled: false
+    };
+    this._artworkOperations.add(operation);
+    this.artworkPendingCount += 1;
+    return operation;
+  },
+  finishArtworkOperation(operation) {
+    if (!operation || operation.settled) {
+      return;
+    }
+    operation.settled = true;
+    this._artworkOperations.delete(operation);
+    this.artworkPendingCount = Math.max(0, this.artworkPendingCount - 1);
+  },
+  cancelArtworkOperations() {
+    Array.from(this._artworkOperations).forEach(operation => this.finishArtworkOperation(operation));
+  },
+  async getTrackedImageMeta(url, layerId = 0) {
+    // The handle is deliberately consumed in finally across every return path.
+    // eslint-disable-next-line @wordpress/no-unused-vars-before-return
+    const operation = this.beginArtworkOperation('metadata', layerId);
+    try {
+      return await this.getImageMeta(url);
+    } finally {
+      this.finishArtworkOperation(operation);
+    }
+  },
+  isVectorArtwork(input) {
+    const type = String(input?.sourceArtworkFileType || input?.artworkFileType || '').toLowerCase().replace(/^\./, '');
+    if (['svg', 'pdf', 'eps'].includes(type)) {
+      return true;
+    }
+    const originalUrl = String(input?.sourceOriginalAttachmentUrl || input?.originalAttachmentUrl || input?.sourceAttachmentUrl || input?.attachmentUrl || '');
+    return /\.(?:svg|pdf|eps)(?:[?#]|$)/i.test(originalUrl);
+  },
+  resolutionForLayer(layerId) {
+    const layer = this.getLayerById(layerId);
+    const area = this.areas[this.areaIndexForLayer(layerId)];
+    return (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.rasterDimensionsForLayer)(layer, this.areaBounds(area));
+  },
+  cancelAiFilterForLayer(layerId) {
+    this.aiFilterGenerations[layerId] = (this.aiFilterGenerations[layerId] || 0) + 1;
+    this.aiFilterAbortControllers[layerId]?.abort();
+    delete this.aiFilterAbortControllers[layerId];
+  },
   async applyInitialAiFilters() {
     if (this._variationSwitchPending) {
       return;
@@ -5040,6 +4656,7 @@ const uploadMethods = {
     }
   },
   async setupUploadZones() {
+    const designGeneration = this._designGeneration;
     const zoneEls = Array.from(document.querySelectorAll('[data-oc-upload-zone]'));
     if (!zoneEls.length) {
       return;
@@ -5051,7 +4668,13 @@ const uploadMethods = {
     }, {
       default: XHRUpload
     }] = await Promise.all([Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_uppy_core_lib_UIPlugin_js"), __webpack_require__.e("vendors-node_modules_uppy_core_lib_index_js")]).then(__webpack_require__.bind(__webpack_require__, /*! @uppy/core */ "./node_modules/@uppy/core/lib/index.js")), Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_uppy_core_lib_UIPlugin_js"), __webpack_require__.e("vendors-node_modules_uppy_drag-drop_lib_index_js")]).then(__webpack_require__.bind(__webpack_require__, /*! @uppy/drag-drop */ "./node_modules/@uppy/drag-drop/lib/index.js")), __webpack_require__.e(/*! import() */ "vendors-node_modules_uppy_xhr-upload_lib_index_js").then(__webpack_require__.bind(__webpack_require__, /*! @uppy/xhr-upload */ "./node_modules/@uppy/xhr-upload/lib/index.js"))]);
+    if (designGeneration !== this._designGeneration) {
+      return;
+    }
     zoneEls.forEach(zoneEl => {
+      if (!zoneEl.isConnected || zoneEl.dataset.ocUppyReady === '1') {
+        return;
+      }
       const lid = parseInt(zoneEl.dataset.ocUploadZone, 10);
       if (!lid) {
         return;
@@ -5091,19 +4714,19 @@ const uploadMethods = {
       }
       let activeGeneration = this.uploadGenerations[lid] || 0;
       const fileGenerations = new Map();
+      const fileOperations = new Map();
+      const finishFileTransfer = fileId => {
+        const operation = fileOperations.get(fileId);
+        this.finishArtworkOperation(operation);
+        fileOperations.delete(fileId);
+      };
       const uppy = new Uppy({
         autoProceed: true,
         onBeforeFileAdded: () => {
           activeGeneration += 1;
           this.uploadGenerations[lid] = activeGeneration;
+          this.cancelAiFilterForLayer(lid);
           uppy.getFiles().forEach(existingFile => uppy.removeFile(existingFile.id));
-          this.setUploadZoneState(zoneEl, '');
-          const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
-          if (warnEl) {
-            warnEl.style.display = 'none';
-          }
-          this.setUploadProgress(zoneEl, 0, 'Starting upload...');
-          this.showUploadError(zoneEl, '');
           return true;
         },
         restrictions: {
@@ -5114,6 +4737,13 @@ const uploadMethods = {
       });
       uppy.on('file-added', file => {
         fileGenerations.set(file.id, activeGeneration);
+        fileOperations.set(file.id, this.beginArtworkOperation('upload', lid));
+        this.setUploadProgress(zoneEl, 0, 'Starting upload...');
+        this.showUploadError(zoneEl, '');
+      });
+      uppy.on('file-removed', file => finishFileTransfer(file?.id));
+      uppy.on('cancel-all', () => {
+        Array.from(fileOperations.keys()).forEach(finishFileTransfer);
       });
       uppy.use(DragDrop, {
         target: zoneEl,
@@ -5130,6 +4760,11 @@ const uploadMethods = {
         formData: true,
         fieldName: 'artwork'
       });
+      zoneEl.dataset.ocUppyReady = '1';
+      this.uppyInstances.add(uppy);
+      if (this.inputs[lid]?.attachmentUrl) {
+        this.setUploadZoneState(zoneEl, 'uploaded');
+      }
       uppy.on('upload-progress', (file, progress) => {
         if (fileGenerations.get(file?.id) !== this.uploadGenerations[lid]) {
           return;
@@ -5139,72 +4774,75 @@ const uploadMethods = {
       });
       uppy.on('upload-success', async (file, res) => {
         const generation = fileGenerations.get(file?.id);
+        finishFileTransfer(file?.id);
         if (generation !== this.uploadGenerations[lid]) {
           return;
         }
         this.setUploadProgress(zoneEl, 100, '');
         if (!res?.body) {
-          this.setUploadZoneState(zoneEl, 'error');
+          this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
           this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
           return;
         }
-        if (!this.inputs[lid]) {
-          this.inputs[lid] = {};
-        }
-        this.inputs[lid].attachmentId = res.body.attachment_id || 0;
-        this.inputs[lid].attachmentUrl = res.body.preview_url || '';
-        this.inputs[lid].sourceAttachmentId = res.body.attachment_id || 0;
-        this.inputs[lid].sourceAttachmentUrl = res.body.preview_url || '';
-        this.inputs[lid].imageMeta = null;
-        if (!this.inputs[lid].attachmentUrl) {
-          this.setUploadZoneState(zoneEl, 'error');
-          this.showUploadError(zoneEl, 'Server did not return a preview URL.');
+        const attachmentId = Number(res.body.attachment_id || 0);
+        const attachmentUrl = String(res.body.preview_url || '');
+        if (!attachmentId || !attachmentUrl) {
+          this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+          this.showUploadError(zoneEl, 'Server did not return usable artwork data.');
           return;
         }
-        const meta = await this.getImageMeta(this.inputs[lid].attachmentUrl);
+        const artworkFileType = String(res.body.file_type || file?.extension || '').toLowerCase();
+        const candidate = {
+          ...(this.inputs[lid] || {}),
+          attachmentId,
+          attachmentUrl,
+          sourceAttachmentId: attachmentId,
+          sourceAttachmentUrl: attachmentUrl,
+          originalAttachmentUrl: String(res.body.original_url || attachmentUrl),
+          sourceOriginalAttachmentUrl: String(res.body.original_url || attachmentUrl),
+          artworkFileType,
+          sourceArtworkFileType: artworkFileType,
+          previewAttachmentId: Number(res.body.preview_attachment_id || 0),
+          imageMeta: null,
+          sourceImageMeta: null
+        };
+        const meta = await this.getTrackedImageMeta(attachmentUrl, lid);
         if (generation !== this.uploadGenerations[lid]) {
           return;
         }
-        if (meta && this.inputs[lid]) {
-          this.inputs[lid].imageMeta = meta;
-          this.inputs[lid].sourceImageMeta = meta;
-          const thresholdW = Math.round(layer.w * (300 / 72));
-          const thresholdH = Math.round(layer.h * (300 / 72));
-          const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
+        candidate.imageMeta = meta;
+        candidate.sourceImageMeta = meta;
+        const threshold = this.resolutionForLayer(lid);
+        const isVector = this.isVectorArtwork(candidate);
+        const belowThreshold = !isVector && meta && (meta.width < threshold.width || meta.height < threshold.height);
+        const belowHalf = belowThreshold && (meta.width < threshold.width * 0.5 || meta.height < threshold.height * 0.5);
+        const warnEl = document.querySelector(`.oc-resolution-warning[data-oc-resolution-warning="${lid}"]`);
+        if (belowHalf) {
           if (warnEl) {
-            const belowThreshold = meta.width < thresholdW || meta.height < thresholdH;
-            const belowHalf = meta.width < thresholdW * 0.5 || meta.height < thresholdH * 0.5;
-            if (belowHalf) {
-              warnEl.className = 'oc-resolution-warning oc-res-error';
-              warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${thresholdW} x ${thresholdH} pixels.`;
-              warnEl.style.display = '';
-              this.inputs[lid].attachmentId = 0;
-              this.inputs[lid].attachmentUrl = '';
-              this.inputs[lid].imageMeta = null;
-              this.inputs[lid].sourceAttachmentId = 0;
-              this.inputs[lid].sourceAttachmentUrl = '';
-              this.inputs[lid].sourceImageMeta = null;
-              this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'imageMeta']);
-              this.setUploadZoneState(zoneEl, 'error');
-              this.showUploadError(zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
-              this.scheduleRedraw(this.areaIndexForLayer(lid));
-              this.updateHiddenField();
-              return;
-            } else if (belowThreshold) {
-              warnEl.className = 'oc-resolution-warning oc-res-warning';
-              warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${thresholdW} x ${thresholdH} pixels.`;
-              warnEl.style.display = '';
-            } else {
-              warnEl.style.display = 'none';
-            }
+            warnEl.className = 'oc-resolution-warning oc-res-error';
+            warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${threshold.width} x ${threshold.height} pixels.`;
+            warnEl.style.display = '';
+          }
+          this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+          this.showUploadError(zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
+          return;
+        }
+        if (warnEl) {
+          if (belowThreshold) {
+            warnEl.className = 'oc-resolution-warning oc-res-warning';
+            warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${threshold.width} x ${threshold.height} pixels.`;
+            warnEl.style.display = '';
+          } else {
+            warnEl.style.display = 'none';
           }
         }
-        const filterApplied = await this.applyAiImageFilter(lid, this.inputs[lid].imageFilterId || 0, zoneEl);
+        this.inputs[lid] = candidate;
+        const filterApplied = await this.applyAiImageFilter(lid, candidate.imageFilterId || 0, zoneEl);
         if (generation !== this.uploadGenerations[lid]) {
           return;
         }
-        this.setUploadZoneState(zoneEl, filterApplied ? 'uploaded' : 'error');
-        this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'imageMeta']);
+        this.setUploadZoneState(zoneEl, filterApplied ? 'uploaded' : 'uploaded-error');
+        this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'imageMeta', 'sourceImageMeta']);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
@@ -5213,6 +4851,7 @@ const uploadMethods = {
         }
       });
       uppy.on('upload-error', (file, error, response) => {
+        finishFileTransfer(file?.id);
         if (fileGenerations.get(file?.id) !== this.uploadGenerations[lid]) {
           return;
         }
@@ -5228,15 +4867,13 @@ const uploadMethods = {
         }
         const msg = responseBody?.message || error?.message || 'Upload failed.';
         console.warn('[OC] Upload error:', msg, response);
-        this.setUploadZoneState(zoneEl, 'error');
+        this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
         this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, msg);
       });
       uppy.on('restriction-failed', (file, error) => {
-        if (file?.id && fileGenerations.get(file.id) !== this.uploadGenerations[lid]) {
-          return;
-        }
-        this.setUploadZoneState(zoneEl, 'error');
+        finishFileTransfer(file?.id);
+        this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
         this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, error?.message || 'File not allowed.');
       });
@@ -5277,7 +4914,9 @@ const uploadMethods = {
     this.aiFilterAbortControllers[layerId]?.abort();
     const controller = new AbortController();
     this.aiFilterAbortControllers[layerId] = controller;
-    this.aiFilterPending += 1;
+    // The handle is deliberately consumed in finally across every return path.
+    // eslint-disable-next-line @wordpress/no-unused-vars-before-return
+    const operation = this.beginArtworkOperation('filter', layerId);
     delete this.aiFilterErrors[layerId];
     const targetZone = zoneEl || document.querySelector(`[data-oc-upload-zone="${layerId}"]`);
     if (targetZone) {
@@ -5310,10 +4949,18 @@ const uploadMethods = {
       if (generation !== this.aiFilterGenerations[layerId]) {
         return false;
       }
-      input.attachmentId = Number(json.attachment_id);
-      input.attachmentUrl = json.preview_url;
+      const filteredAttachmentId = Number(json.attachment_id);
+      const filteredAttachmentUrl = String(json.preview_url);
+      const filteredArtworkFileType = String(json.file_type || input.artworkFileType || '').toLowerCase();
+      const imageMeta = await this.getTrackedImageMeta(filteredAttachmentUrl, layerId);
+      if (generation !== this.aiFilterGenerations[layerId]) {
+        return false;
+      }
+      input.attachmentId = filteredAttachmentId;
+      input.attachmentUrl = filteredAttachmentUrl;
       input.imageFilterId = Number(filterId);
-      input.imageMeta = await this.getImageMeta(json.preview_url);
+      input.artworkFileType = filteredArtworkFileType;
+      input.imageMeta = imageMeta;
       delete this.aiFilterErrors[layerId];
       this.requestPreviewFocus();
       this.scheduleRedraw(this.areaIndexForLayer(layerId));
@@ -5334,28 +4981,28 @@ const uploadMethods = {
       this.updateHiddenField();
       return false;
     } finally {
-      this.aiFilterPending = Math.max(0, this.aiFilterPending - 1);
+      this.finishArtworkOperation(operation);
       if (this.aiFilterAbortControllers[layerId] === controller) {
         delete this.aiFilterAbortControllers[layerId];
-      }
-      if (targetZone) {
-        this.setUploadProgress(targetZone, 0, '');
+        if (targetZone) {
+          this.setUploadProgress(targetZone, 0, '');
+        }
       }
     }
   },
   setUploadZoneState(zoneEl, state) {
-    zoneEl.classList.toggle('oc-upload-zone--uploaded', state === 'uploaded');
-    zoneEl.classList.toggle('oc-upload-zone--error', state === 'error');
+    zoneEl.classList.toggle('oc-upload-zone--uploaded', state === 'uploaded' || state === 'uploaded-error');
+    zoneEl.classList.toggle('oc-upload-zone--error', state === 'error' || state === 'uploaded-error');
     const browse = zoneEl.querySelector('.uppy-DragDrop-browse');
     const note = zoneEl.querySelector('.uppy-DragDrop-note');
     if (browse) {
-      browse.textContent = state === 'uploaded' ? 'Image uploaded' : 'Tap / click here to upload your image';
+      browse.textContent = state === 'uploaded' || state === 'uploaded-error' ? 'Image uploaded' : 'Tap / click here to upload your image';
     }
     if (note) {
       if (!note.dataset.ocOriginalText) {
         note.dataset.ocOriginalText = note.textContent;
       }
-      note.textContent = state === 'uploaded' ? 'Click to replace image' : note.dataset.ocOriginalText || note.textContent;
+      note.textContent = state === 'uploaded' || state === 'uploaded-error' ? 'Click to replace image' : note.dataset.ocOriginalText || note.textContent;
     }
   },
   setUploadProgress(zoneEl, percent, label) {
@@ -5420,6 +5067,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   displayLayer: () => (/* binding */ displayLayer),
 /* harmony export */   normaliseDpi: () => (/* binding */ normaliseDpi),
 /* harmony export */   normaliseUnit: () => (/* binding */ normaliseUnit),
+/* harmony export */   rasterDimensionsForLayer: () => (/* binding */ rasterDimensionsForLayer),
 /* harmony export */   unitPxScale: () => (/* binding */ unitPxScale)
 /* harmony export */ });
 const VALID_UNITS = ['px', 'mm', 'cm', 'in'];
@@ -5466,6 +5114,13 @@ function displayBounds(bounds) {
 }
 function displayLayer(layer, bounds) {
   return displayEntity(layer, bounds);
+}
+function rasterDimensionsForLayer(layer, areaOrBounds) {
+  const display = displayLayer(layer, areaOrBounds);
+  return {
+    width: Math.max(1, Math.ceil(Math.abs(Number(display?.w) || 0))),
+    height: Math.max(1, Math.ceil(Math.abs(Number(display?.h) || 0)))
+  };
 }
 function displayFontSize(fontSize, areaOrBounds, canvasScale = 1) {
   return Math.max(1, Number(fontSize) || 0) * unitPxScale(areaOrBounds) * canvasScale;
@@ -6092,7 +5747,7 @@ void main() {
 /******/ 		// This function allow to reference async chunks
 /******/ 		__webpack_require__.u = (chunkId) => {
 /******/ 			// return url for filenames based on template
-/******/ 			return "" + chunkId + ".js?ver=" + {"vendors-node_modules_fonteditor-core_lib_main_esm_js":"cbd31090ffbcf199aeb7","node_modules_fonteditor-core_woff2_sync_recursive":"10451c248f4cbe6e2119","vendors-node_modules_uppy_core_lib_UIPlugin_js":"d972fcad282d89b2af4e","vendors-node_modules_uppy_core_lib_index_js":"f07e4a770ba6d7f15ae7","vendors-node_modules_uppy_drag-drop_lib_index_js":"5276771047b17b121ca9","vendors-node_modules_uppy_xhr-upload_lib_index_js":"cf35c331fdbbbccda5fe"}[chunkId] + "";
+/******/ 			return "" + chunkId + ".js?ver=" + {"vendors-node_modules_uppy_core_lib_UIPlugin_js":"d972fcad282d89b2af4e","vendors-node_modules_uppy_core_lib_index_js":"f07e4a770ba6d7f15ae7","vendors-node_modules_uppy_drag-drop_lib_index_js":"5276771047b17b121ca9","vendors-node_modules_uppy_xhr-upload_lib_index_js":"cf35c331fdbbbccda5fe"}[chunkId] + "";
 /******/ 		};
 /******/ 	})();
 /******/ 	
@@ -6304,7 +5959,7 @@ __webpack_require__.r(__webpack_exports__);
  * Frontend Customiser — vanilla JS, no framework dependency.
  *
  * Data: window.ocCustomiserData (wp_localize_script).
- * Canvas: Fabric.js 6.x  |  Uploads: Uppy 4.x
+ * Canvas: Fabric.js 7.x  |  Uploads: Uppy 5.x
  *
  * @package
  */
@@ -6363,8 +6018,10 @@ class OCCustomiser {
     this._redrawTimers = {};
     this._redrawGenerations = {};
     this._redrawPromises = {};
-    this.fontCache = {}; // fontName  → load Promise
-    this.outlineFontCache = {}; // fontName  → parsed font Promise
+    this._canvasReadyPromise = Promise.resolve();
+    this._canvasReadyGeneration = 0;
+    this._canvasLoadTimers = new Set();
+    this.fontCache = {}; // font family/weight/style/URL -> load Promise
     this.clipartSvgCache = {};
     this.galleryImg = null; // the main <img> in the product gallery
     this._previewUrl = null; // saved preview URL (set just before cart submit)
@@ -6384,10 +6041,12 @@ class OCCustomiser {
     this.uploadGenerations = {};
     this.aiFilterGenerations = {};
     this.aiFilterAbortControllers = {};
-    this.aiFilterPending = 0;
     this.aiFilterErrors = {};
+    this.artworkPendingCount = 0;
+    this._artworkOperations = new Set();
+    this.uppyInstances = new Set();
+    this._thumbnailCanvases = new Set();
     this.preflightRoot = null;
-    this.clipartByGroup = {};
     this.clipartSearchTimers = {};
     this.clipartSearchTerms = {};
     this.clipartCategoryFilters = {};
@@ -6397,26 +6056,43 @@ class OCCustomiser {
     this.fontComboboxDocumentClickBound = false;
     this._customisationActive = true;
     this._submitInProgress = false;
-    if (this.editMode) {
-      Object.entries(data.layerInputs || {}).forEach(([k, v]) => {
-        const key = parseInt(k, 10);
-        if (this.inputs[key] && typeof v === 'object' && v !== null) {
-          Object.assign(this.inputs[key], v);
-          this.clampLayerInputValue(key);
-        }
-      });
+    this._controlLocks = new Set();
+    this._galleryPreviewTimer = null;
+    this._variationChangeTimer = null;
+    this._mobileCartPreviewResolve = null;
+  }
+  setControlLock(reason, locked) {
+    if (locked) {
+      this._controlLocks.add(reason);
+    } else {
+      this._controlLocks.delete(reason);
     }
-    for (const [lidStr, items] of Object.entries(data.clipartByLayer || {})) {
-      const lid = parseInt(lidStr, 10);
-      for (const item of items) {
-        for (const gn of item.groupNames || []) {
-          if (!this.clipartByGroup[gn]) {
-            this.clipartByGroup[gn] = {};
-          }
-          this.clipartByGroup[gn][lid] = item;
+    this.applyControlLocks();
+  }
+  applyControlLocks() {
+    const locked = this._controlLocks.size > 0;
+    const panel = document.getElementById('oc-customiser-panel');
+    if (panel) {
+      panel.inert = locked;
+      panel.setAttribute('aria-busy', locked ? 'true' : 'false');
+    }
+    const controls = new Set([...(panel?.querySelectorAll('input:not([type="hidden"]), select, textarea, button') || []), ...(document.querySelector('form.cart')?.querySelectorAll('input:not([type="hidden"]), select, textarea, button') || [])]);
+    controls.forEach(control => {
+      if (locked) {
+        if (control.dataset.ocLockDisabled === undefined) {
+          control.dataset.ocLockDisabled = control.disabled ? '1' : '0';
         }
+        control.disabled = true;
+        control.setAttribute('aria-disabled', 'true');
+        return;
       }
-    }
+      if (control.dataset.ocLockDisabled === undefined) {
+        return;
+      }
+      control.disabled = control.dataset.ocLockDisabled === '1';
+      control.setAttribute('aria-disabled', control.disabled ? 'true' : 'false');
+      delete control.dataset.ocLockDisabled;
+    });
   }
   restHeaders(extra = {}) {
     const headers = {
@@ -6466,25 +6142,26 @@ class OCCustomiser {
       });
     }
 
-    // Wire up controls IMMEDIATELY — don't block on canvas.
-    this.setupInputListeners();
+    // Hydrate state before listeners read values from the template controls.
+    this.seedLockedLayerDefaults();
     this.seedTemplateImageDefaults();
+    this.applyInputsToDOM({
+      redraw: false
+    });
+    this.setupInputListeners();
     this.setupVariationGalleryHandoff();
     this.setupCartGalleryUnlock();
     this.setupDesignVariantOptions();
     this.setupClipartCarousels();
-    this.setupUploadZones();
+    this._uploadSetupPromise = this.setupUploadZones();
     this.applyInitialAiFilters();
-    if (this.editMode) {
-      this.updateInputsFromDOM();
-    }
     this.setupFormSubmit();
     this.updateHiddenField();
     this.setupDesignVariantCarousel();
     this.renderDesignVariantThumbnails();
 
     // Canvas init runs in background; calls redraw() when done.
-    this.initAllCanvases();
+    this.startCanvasInitialisation();
   }
 }
 Object.assign(OCCustomiser.prototype, _customiser_canvas_renderer__WEBPACK_IMPORTED_MODULE_3__["default"]);

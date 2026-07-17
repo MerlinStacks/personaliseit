@@ -47,16 +47,21 @@ class OC_Admin_Customer_Uploads {
 		$per_page  = 24;
 		$query     = new WP_Query( [
 			'post_type'      => 'attachment',
-			'post_status'    => 'inherit',
+			'post_status'    => [ 'private', 'inherit' ],
 			'posts_per_page' => $per_page,
 			'paged'          => $paged,
 			'orderby'        => 'date',
 			'order'          => 'DESC',
 			'meta_query'     => [
+				'relation' => 'AND',
 				[
 					'key'     => '_oc_artwork',
 					'value'   => '1',
 					'compare' => '=',
+				],
+				[
+					'key'     => '_oc_artwork_parent_id',
+					'compare' => 'NOT EXISTS',
 				],
 			],
 		] );
@@ -136,6 +141,9 @@ class OC_Admin_Customer_Uploads {
 		if ( ! self::is_customer_upload( $id ) ) {
 			wp_die( esc_html__( 'Upload not found.', 'overcustomise' ) );
 		}
+		if ( OC_File_Cleanup::customer_artwork_is_referenced( $id ) ) {
+			wp_die( esc_html__( 'This artwork is still referenced by an order or active cart and cannot be deleted.', 'overcustomise' ) );
+		}
 
 		wp_delete_attachment( $id, true );
 
@@ -146,14 +154,17 @@ class OC_Admin_Customer_Uploads {
 	/** Render one upload card. */
 	private function render_upload_card( WP_Post $attachment ): void {
 		$id       = (int) $attachment->ID;
-		$url      = wp_get_attachment_url( $id );
+		$url      = OC_Upload_Handler::attachment_access_url( $id );
+		$download_url = OC_Upload_Handler::attachment_access_url( $id, true );
 		$path     = get_attached_file( $id );
 		$mime     = get_post_mime_type( $id );
 		$filename = $path ? basename( $path ) : basename( (string) get_attached_file( $id ) );
 		$size     = $path && file_exists( $path ) ? size_format( filesize( $path ) ) : __( 'Missing file', 'overcustomise' );
-		$thumb    = wp_get_attachment_image( $id, 'medium', false, [ 'loading' => 'lazy' ] );
-		if ( ! $thumb && $url && str_starts_with( (string) $mime, 'image/' ) ) {
-			$thumb = sprintf( '<img src="%s" alt="" loading="lazy" />', esc_url( $url ) );
+		$preview_id  = absint( get_post_meta( $id, '_oc_print_derivative_attachment_id', true ) );
+		$preview_url = OC_Upload_Handler::attachment_access_url( $preview_id ?: $id );
+		$thumb       = '';
+		if ( $preview_url && ( $preview_id || str_starts_with( (string) $mime, 'image/' ) ) ) {
+			$thumb = sprintf( '<img src="%s" alt="" loading="lazy" />', esc_url( $preview_url ) );
 		}
 		$delete_url = wp_nonce_url(
 			admin_url( 'admin.php?page=overcustomise-customer-uploads&action=delete&id=' . $id ),
@@ -175,7 +186,7 @@ class OC_Admin_Customer_Uploads {
 				<div class="oc-customer-upload-actions">
 					<?php if ( $url ) : ?>
 						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View', 'overcustomise' ); ?></a>
-						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $url ); ?>" download><?php esc_html_e( 'Download', 'overcustomise' ); ?></a>
+						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $download_url ); ?>"><?php esc_html_e( 'Download', 'overcustomise' ); ?></a>
 					<?php endif; ?>
 					<a class="oc-btn oc-btn-danger oc-btn-sm" href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm('<?php esc_attr_e( 'Delete this customer upload? This cannot be undone.', 'overcustomise' ); ?>');"><?php esc_html_e( 'Delete', 'overcustomise' ); ?></a>
 				</div>
@@ -237,7 +248,7 @@ class OC_Admin_Customer_Uploads {
 	private static function get_total_size(): int {
 		$query = new WP_Query( [
 			'post_type'      => 'attachment',
-			'post_status'    => 'inherit',
+			'post_status'    => [ 'private', 'inherit' ],
 			'posts_per_page' => -1,
 			'fields'         => 'ids',
 			'meta_query'     => [

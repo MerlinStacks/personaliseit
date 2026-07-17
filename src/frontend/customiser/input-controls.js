@@ -322,6 +322,9 @@ const inputControlMethods = {
 			};
 			updateCounter();
 			el.addEventListener( 'input', async () => {
+				el.setCustomValidity( '' );
+				el.setAttribute( 'aria-invalid', 'false' );
+				el.classList.remove( 'oc-preflight-field-error' );
 				const cleaned = this.normaliseLayerTextValue( lid, el.value );
 				if ( cleaned !== el.value ) {
 					el.value = cleaned;
@@ -349,6 +352,9 @@ const inputControlMethods = {
 				}
 
 				el.addEventListener( 'input', () => {
+					el.setCustomValidity( '' );
+					el.setAttribute( 'aria-invalid', 'false' );
+					el.classList.remove( 'oc-preflight-field-error' );
 					this.invalidateSpotifyValidation( lid );
 					if ( ! this.inputs[ lid ] ) {
 						this.inputs[ lid ] = {};
@@ -572,11 +578,14 @@ const inputControlMethods = {
 					this.inputs[ lid ].imageFilterId =
 						parseInt( el.value, 10 ) || 0;
 					el.disabled = true;
-					await this.applyAiImageFilter(
-						lid,
-						this.inputs[ lid ].imageFilterId
-					);
-					el.disabled = false;
+					try {
+						await this.applyAiImageFilter(
+							lid,
+							this.inputs[ lid ].imageFilterId
+						);
+					} finally {
+						el.disabled = this._controlLocks.size > 0;
+					}
 					this.syncLinkedLayerInput( lid, [ 'imageFilterId' ] );
 					this.requestPreviewFocus();
 					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
@@ -679,6 +688,27 @@ const inputControlMethods = {
 
 	getLayerById( layerId ) {
 		return this.layersById[ layerId ] || null;
+	},
+
+	seedLockedLayerDefaults() {
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				if ( ! [ 'text', 'textarea' ].includes( layer.type ) ) {
+					return;
+				}
+				if ( ! this.inputs[ layer.id ] ) {
+					this.inputs[ layer.id ] = {};
+				}
+				if (
+					layer.locked ||
+					this.inputs[ layer.id ].value === undefined
+				) {
+					this.inputs[ layer.id ].value =
+						layer.settings?.default_text || '';
+					this.clampLayerInputValue( layer.id );
+				}
+			} );
+		} );
 	},
 
 	seedTemplateImageDefaults() {
@@ -791,6 +821,27 @@ const inputControlMethods = {
 			} );
 		} );
 		return ids;
+	},
+
+	canonicalLinkedLayerId( layerId ) {
+		const layer = this.getLayerById( layerId );
+		const group = String( layer?.settings?.link_group || '' ).trim();
+		if ( ! layer || ! group ) {
+			return layerId;
+		}
+
+		for ( const area of this.areas ) {
+			for ( const candidate of area.layers || [] ) {
+				if (
+					candidate.type === layer.type &&
+					String( candidate.settings?.link_group || '' ).trim() ===
+						group
+				) {
+					return candidate.id;
+				}
+			}
+		}
+		return layerId;
 	},
 
 	syncLinkedLayerInput( sourceLayerId, keys ) {
@@ -911,12 +962,7 @@ const inputControlMethods = {
 
 	// ── Form submit — upload preview then proceed ──────────────────────────────
 
-	updateInputsFromDOM() {
-		this.syncInputsFromDOM();
-		this.applyInputsToDOM();
-	},
-
-	applyInputsToDOM() {
+	applyInputsToDOM( { redraw = true } = {} ) {
 		for ( const layerIdStr in this.inputs ) {
 			const layerId = parseInt( layerIdStr, 10 );
 			const inp = this.inputs[ layerId ];
@@ -947,9 +993,14 @@ const inputControlMethods = {
 				swatch
 					.closest( '.oc-colour-swatches' )
 					?.querySelectorAll( '.oc-colour-swatch' )
-					.forEach( ( s ) =>
-						s.classList.toggle( 'oc-selected', s === swatch )
-					);
+					.forEach( ( s ) => {
+						const selected = s === swatch;
+						s.classList.toggle( 'oc-selected', selected );
+						s.setAttribute(
+							'aria-pressed',
+							selected ? 'true' : 'false'
+						);
+					} );
 			}
 
 			const colorEl = document.querySelector(
@@ -980,9 +1031,14 @@ const inputControlMethods = {
 				clipartBtn
 					.closest( '.oc-clipart-grid' )
 					?.querySelectorAll( '.oc-clipart-item' )
-					.forEach( ( i ) =>
-						i.classList.toggle( 'oc-selected', i === clipartBtn )
-					);
+					.forEach( ( i ) => {
+						const selected = i === clipartBtn;
+						i.classList.toggle( 'oc-selected', selected );
+						i.setAttribute(
+							'aria-pressed',
+							selected ? 'true' : 'false'
+						);
+					} );
 			}
 
 			const imageFilterEl = document.querySelector(
@@ -991,10 +1047,21 @@ const inputControlMethods = {
 			if ( imageFilterEl ) {
 				imageFilterEl.value = String( inp.imageFilterId || 0 );
 			}
+
+			document
+				.querySelectorAll( `[data-oc-upload-zone="${ layerId }"]` )
+				.forEach( ( zone ) => {
+					this.setUploadZoneState(
+						zone,
+						inp.attachmentUrl ? 'uploaded' : ''
+					);
+				} );
 		}
 
 		this.updateHiddenField();
-		this.areas.forEach( ( _, i ) => this.redraw( i ) );
+		if ( redraw ) {
+			this.areas.forEach( ( _, i ) => this.redraw( i ) );
+		}
 	},
 
 	syncInputsFromDOM() {

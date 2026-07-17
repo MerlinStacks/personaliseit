@@ -1483,6 +1483,15 @@
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
   }
+  .oc-customiser-panel .oc-colour-swatches--labels {
+    gap: 6px;
+  }
+  .oc-customiser-panel .oc-colour-swatches--labels .oc-colour-swatch {
+    min-width: 0;
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 11px;
+  }
   .oc-customiser-panel input[type=color] {
     width: 48px;
     height: 48px;

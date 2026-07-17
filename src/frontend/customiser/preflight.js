@@ -13,6 +13,17 @@ const INVALID_SPOTIFY_STATUSES = [
 ];
 
 const preflightMethods = {
+	clearCustomValidity() {
+		document
+			.querySelectorAll( '[data-oc-layer-text], [data-oc-layer-spotify]' )
+			.forEach( ( el ) => {
+				if ( typeof el.setCustomValidity === 'function' ) {
+					el.setCustomValidity( '' );
+				}
+				el.setAttribute( 'aria-invalid', 'false' );
+			} );
+	},
+
 	getLayerInputEl( layer ) {
 		if ( ! layer?.id ) {
 			return null;
@@ -53,12 +64,7 @@ const preflightMethods = {
 				el.classList.remove( 'oc-preflight-field-error' );
 			} );
 
-		document
-			.querySelectorAll( '[data-oc-layer-text], [data-oc-layer-spotify]' )
-			.forEach( ( el ) => {
-				el.setCustomValidity( '' );
-				el.setAttribute( 'aria-invalid', 'false' );
-			} );
+		this.clearCustomValidity();
 	},
 
 	renderPreflightMessages( errors = [], warnings = [] ) {
@@ -160,7 +166,9 @@ const preflightMethods = {
 							fieldEl?.classList.add(
 								'oc-preflight-field-error'
 							);
-							if ( fieldEl ) {
+							if (
+								typeof fieldEl?.setCustomValidity === 'function'
+							) {
 								fieldEl.setCustomValidity(
 									'This field is required.'
 								);
@@ -180,7 +188,10 @@ const preflightMethods = {
 								fieldEl?.classList.add(
 									'oc-preflight-field-error'
 								);
-								if ( fieldEl ) {
+								if (
+									typeof fieldEl?.setCustomValidity ===
+									'function'
+								) {
 									fieldEl.setCustomValidity(
 										`Maximum ${ charLimit } characters.`
 									);
@@ -206,23 +217,28 @@ const preflightMethods = {
 						if ( input.attachmentUrl ) {
 							let imageMeta = input.imageMeta || null;
 							if ( ! imageMeta ) {
-								imageMeta = await this.getImageMeta(
-									input.attachmentUrl
+								imageMeta = await this.getTrackedImageMeta(
+									input.attachmentUrl,
+									layer.id
 								);
 								if ( imageMeta && this.inputs[ layer.id ] ) {
 									this.inputs[ layer.id ].imageMeta =
 										imageMeta;
 								}
 							}
+							const requiredPixels = this.resolutionForLayer(
+								layer.id
+							);
 							if (
+								! this.isVectorArtwork( input ) &&
 								imageMeta &&
 								imageMeta.width > 0 &&
 								imageMeta.height > 0 &&
-								( imageMeta.width < layer.w ||
-									imageMeta.height < layer.h )
+								( imageMeta.width < requiredPixels.width ||
+									imageMeta.height < requiredPixels.height )
 							) {
 								warnings.push(
-									`${ label } may print soft (${ imageMeta.width }x${ imageMeta.height }px for a ${ layer.w }x${ layer.h }px print area).`
+									`${ label } may print soft (${ imageMeta.width }x${ imageMeta.height }px; recommended ${ requiredPixels.width }x${ requiredPixels.height }px).`
 								);
 							}
 						}
@@ -248,7 +264,9 @@ const preflightMethods = {
 							fieldEl?.classList.add(
 								'oc-preflight-field-error'
 							);
-							if ( fieldEl ) {
+							if (
+								typeof fieldEl?.setCustomValidity === 'function'
+							) {
 								fieldEl.setCustomValidity(
 									'Please choose a line-art colour.'
 								);
@@ -266,7 +284,9 @@ const preflightMethods = {
 							fieldEl?.classList.add(
 								'oc-preflight-field-error'
 							);
-							if ( fieldEl ) {
+							if (
+								typeof fieldEl?.setCustomValidity === 'function'
+							) {
 								fieldEl.setCustomValidity(
 									'Please provide a Spotify link.'
 								);
@@ -295,7 +315,10 @@ const preflightMethods = {
 								fieldEl?.classList.add(
 									'oc-preflight-field-error'
 								);
-								if ( fieldEl ) {
+								if (
+									typeof fieldEl?.setCustomValidity ===
+									'function'
+								) {
 									fieldEl.setCustomValidity(
 										'Spotify link is invalid or unavailable.'
 									);
@@ -358,7 +381,7 @@ const preflightMethods = {
 				if ( ! filled ) {
 					errors.push( `${ label } is required.` );
 					fieldEl?.classList.add( 'oc-preflight-field-error' );
-					if ( fieldEl ) {
+					if ( typeof fieldEl?.setCustomValidity === 'function' ) {
 						fieldEl.setCustomValidity( 'This field is required.' );
 						fieldEl.setAttribute( 'aria-invalid', 'true' );
 					}

@@ -31,23 +31,24 @@ class OC_Print_UV extends OC_Print_Base {
 		self::require_tcpdf();
 
 		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
-		$bleed = (float) OC_Admin_Settings::get( 'bleed_mm' ) ?: 3.0;
+		$bleed = self::configured_bleed_mm();
+		$slug  = self::crop_mark_slug_mm( $bleed );
+		$live_origin = $slug + $bleed;
 
-		$pdf = self::make_pdf( $w_mm, $h_mm, $bleed );
+		$pdf = self::make_pdf( $w_mm, $h_mm, $bleed, $slug );
 		$pdf->SetTitle( sprintf( 'UV Print — Order #%d — %s', $order->get_id(), $area->label ) );
 		$pdf->AddPage();
 
 		// ── Page 1: Colour artwork ─────────────────────────────────────────
-		self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $bleed, $area_data );
-		self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+		self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $area_data );
+		self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
 
 		// ── Page 2: White ink mask (optional) ─────────────────────────────
 		$methods_settings = get_option( 'oc_print_methods', [] );
 		if ( ! empty( $methods_settings['uv']['white_ink_layer'] ) ) {
 			$white_spot_name = self::resolve_white_spot_name( $methods_settings );
 			$pdf->AddPage();
-			self::render_white_ink_page( $pdf, $w_mm, $h_mm, $bleed, $white_spot_name, $area_data );
-			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+			self::render_white_ink_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $white_spot_name, $area_data );
 		}
 
 		$output_dir  = self::ensure_output_dir( $order->get_id() );
@@ -71,9 +72,11 @@ class OC_Print_UV extends OC_Print_Base {
 			throw new \RuntimeException( __( 'No UV print areas supplied for combined file.', 'overcustomise' ) );
 		}
 
-		$bleed = (float) OC_Admin_Settings::get( 'bleed_mm' ) ?: 3.0;
+		$bleed = self::configured_bleed_mm();
+		$slug  = self::crop_mark_slug_mm( $bleed );
+		$live_origin = $slug + $bleed;
 		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
-		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed );
+		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed, $slug );
 		$pdf->SetTitle( sprintf( 'UV Print - Order #%d - Combined', $order->get_id() ) );
 
 		$methods_settings = get_option( 'oc_print_methods', [] );
@@ -86,16 +89,15 @@ class OC_Print_UV extends OC_Print_Base {
 			}
 
 			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
-			$page_w = $w_mm + $bleed * 2;
-			$page_h = $h_mm + $bleed * 2;
+			$page_w = $w_mm + ( $bleed + $slug ) * 2;
+			$page_h = $h_mm + ( $bleed + $slug ) * 2;
 			$pdf->AddPage( $page_w > $page_h ? 'L' : 'P', [ $page_w, $page_h ] );
-			self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $bleed, $entry['area_data'] );
-			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+			self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $entry['area_data'] );
+			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
 
 			if ( $add_white_page ) {
 				$pdf->AddPage( $page_w > $page_h ? 'L' : 'P', [ $page_w, $page_h ] );
-				self::render_white_ink_page( $pdf, $w_mm, $h_mm, $bleed, $white_spot_name, $entry['area_data'] );
-				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed );
+				self::render_white_ink_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $white_spot_name, $entry['area_data'] );
 			}
 		}
 
@@ -114,24 +116,24 @@ class OC_Print_UV extends OC_Print_Base {
 		object $area,
 		float $w_mm,
 		float $h_mm,
-		float $bleed,
+		float $live_origin,
 		array $area_data
 	): void {
 		// Leave the page unpainted so transparent artwork does not gain a white box.
 
-		if ( self::render_vector_snapshot_payload( $pdf, $area_data, $bleed, $bleed, $w_mm, $h_mm ) ) {
+		if ( self::has_layer_payload( $area_data ) ) {
+			self::render_layer_payload( $pdf, $area, $area_data, $live_origin, $live_origin, 'colour' );
 			return;
 		}
 
-		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, $bleed, $bleed, 'colour' );
+		if ( self::render_vector_snapshot_payload( $pdf, $area_data, $live_origin, $live_origin, $w_mm, $h_mm ) ) {
 			return;
 		}
 
 		// Artwork.
 		$artwork_path = self::resolve_artwork_path( $area_data );
 		if ( $artwork_path ) {
-			self::draw_pdf_image( $pdf, $artwork_path, $bleed, $bleed, $w_mm, $h_mm );
+			self::draw_pdf_image( $pdf, $artwork_path, $live_origin, $live_origin, $w_mm, $h_mm );
 		}
 
 		// Text.
@@ -147,7 +149,7 @@ class OC_Print_UV extends OC_Print_Base {
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 
 			$cell_h = self::cell_h( $font_size );
-			self::draw_clipped_text_cell( $pdf, $bleed, $bleed, $w_mm, $h_mm, $text, $cell_h );
+			self::draw_clipped_text_cell( $pdf, $live_origin, $live_origin, $w_mm, $h_mm, $text, $cell_h );
 		}
 	}
 
@@ -158,21 +160,29 @@ class OC_Print_UV extends OC_Print_Base {
 	 */
 	private static function render_white_ink_page(
 		\TCPDF $pdf,
+		object $area,
 		float $w_mm,
 		float $h_mm,
-		float $bleed,
+		float $live_origin,
 		string $white_spot_name,
 		array $area_data
 	): void {
-		// Black background (represents no white ink).
-		$pdf->SetFillColorArray( [ 0, 0, 0, 100 ] );
-		$pdf->Rect( 0, 0, $w_mm + $bleed * 2, $h_mm + $bleed * 2, 'F' );
-
-		// White ink area = spot colour only where content exists.
+		// The spot page contains no process-colour background or operator notes.
 		self::set_spot_fill_colour( $pdf, $white_spot_name );
 
+		if ( self::has_layer_payload( $area_data ) ) {
+			self::render_layer_payload( $pdf, $area, $area_data, $live_origin, $live_origin, 'spot' );
+			return;
+		}
+
+		if ( self::render_vector_snapshot_spot_mask( $pdf, $area_data, $live_origin, $live_origin, $w_mm, $h_mm ) ) {
+			return;
+		}
+
 		$artwork_path = self::resolve_artwork_path( $area_data );
-		self::render_artwork_white_mask_spot( $pdf, $artwork_path, $bleed, $w_mm, $h_mm );
+		if ( $artwork_path ) {
+			self::render_artwork_spot_mask( $pdf, $artwork_path, $live_origin, $live_origin, $w_mm, $h_mm );
+		}
 
 		$text = trim( $area_data['text'] ?? '' );
 		if ( '' !== $text ) {
@@ -182,14 +192,8 @@ class OC_Print_UV extends OC_Print_Base {
 
 			$pdf->SetFont( $font_name, '', $font_size );
 			$cell_h = self::cell_h( $font_size );
-			self::draw_clipped_text_cell( $pdf, $bleed, $bleed, $w_mm, $h_mm, $text, $cell_h );
+			self::draw_clipped_text_cell( $pdf, $live_origin, $live_origin, $w_mm, $h_mm, $text, $cell_h );
 		}
-
-		// Note text for operator.
-		$pdf->SetTextColorArray( [ 0, 0, 0, 100 ] );
-		$pdf->SetFont( 'helvetica', '', 7 );
-		$pdf->SetXY( $bleed, $bleed + $h_mm - 5 );
-		$pdf->Cell( $w_mm, 4, 'WHITE INK LAYER: ' . $white_spot_name, 0, 0, 'C' );
 	}
 
 	private static function resolve_white_spot_name( array $methods_settings ): string {
@@ -202,87 +206,13 @@ class OC_Print_UV extends OC_Print_Base {
 	}
 
 	private static function set_spot_fill_colour( \TCPDF $pdf, string $spot_name ): void {
-		if ( method_exists( $pdf, 'AddSpotColor' ) && method_exists( $pdf, 'SetFillColorSpot' ) ) {
-			$pdf->AddSpotColor( $spot_name, 0, 0, 0, 0 );
-			$pdf->SetFillColorSpot( $spot_name, 100 );
-			return;
+		if ( ! method_exists( $pdf, 'AddSpotColor' ) || ! method_exists( $pdf, 'setFillSpotColor' ) || ! method_exists( $pdf, 'setTextSpotColor' ) ) {
+			throw new \RuntimeException( __( 'The bundled TCPDF spot-colour APIs are unavailable; a true white-ink plate cannot be generated.', 'overcustomise' ) );
 		}
 
-		// Fallback for older TCPDF builds that do not expose spot APIs.
-		$pdf->SetFillColorArray( [ 0, 0, 0, 0 ] );
-		$pdf->SetTextColorArray( [ 0, 0, 0, 0 ] );
-	}
-
-	/**
-	 * Draw artwork alpha as spot-colour white mask.
-	 */
-	private static function render_artwork_white_mask_spot(
-		\TCPDF $pdf,
-		string $artwork_path,
-		float $bleed,
-		float $w_mm,
-		float $h_mm
-	): void {
-		if ( '' === $artwork_path || ! file_exists( $artwork_path ) || ! function_exists( 'imagecreatefromstring' ) ) {
-			return;
-		}
-
-		$raw = file_get_contents( $artwork_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-		if ( false === $raw ) {
-			return;
-		}
-
-		$img = @imagecreatefromstring( $raw ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		if ( false === $img ) {
-			return;
-		}
-
-		$img_w = imagesx( $img );
-		$img_h = imagesy( $img );
-		if ( $img_w < 1 || $img_h < 1 ) {
-			imagedestroy( $img );
-			return;
-		}
-
-		$x_scale = $w_mm / $img_w;
-		$y_scale = $h_mm / $img_h;
-		$alpha_threshold = 126;
-
-		for ( $y = 0; $y < $img_h; $y++ ) {
-			$run_start = -1;
-			for ( $x = 0; $x < $img_w; $x++ ) {
-				$rgba  = imagecolorat( $img, $x, $y );
-				$alpha = ( $rgba & 0x7F000000 ) >> 24;
-				$opaque = $alpha <= $alpha_threshold;
-
-				if ( $opaque && -1 === $run_start ) {
-					$run_start = $x;
-				} elseif ( ! $opaque && -1 !== $run_start ) {
-					$run_w = $x - $run_start;
-					$pdf->Rect(
-						$bleed + $run_start * $x_scale,
-						$bleed + $y * $y_scale,
-						$run_w * $x_scale,
-						$y_scale,
-						'F'
-					);
-					$run_start = -1;
-				}
-			}
-
-			if ( -1 !== $run_start ) {
-				$run_w = $img_w - $run_start;
-				$pdf->Rect(
-					$bleed + $run_start * $x_scale,
-					$bleed + $y * $y_scale,
-					$run_w * $x_scale,
-					$y_scale,
-					'F'
-				);
-			}
-		}
-
-		imagedestroy( $img );
+		$pdf->AddSpotColor( $spot_name, 0, 0, 0, 0 );
+		$pdf->setFillSpotColor( $spot_name, 100 );
+		$pdf->setTextSpotColor( $spot_name, 100 );
 	}
 
 	// resolve_font(), auto_font_size(), cell_h() are inherited from OC_Print_Base.

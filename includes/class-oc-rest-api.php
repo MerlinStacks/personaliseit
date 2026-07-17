@@ -16,9 +16,20 @@ class OC_Rest_API {
 
 	private const NAMESPACE = 'overcustomise/v1';
 	private const PUBLIC_TOKEN_TTL = 21600; // 6 hours.
+	private const AI_QUOTA_TTL = HOUR_IN_SECONDS;
+	private const AI_LOCK_TTL = 300;
+	private const SPOTIFY_RESPONSE_BYTES = 524288;
 
 	public function register(): void {
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
+		add_action( 'init', [ self::class, 'ensure_vdp_storage' ] );
+	}
+
+	/** Ensure saved VDP values are not directly downloadable from uploads. */
+	public static function ensure_vdp_storage(): void {
+		if ( null === self::protected_vdp_directory() ) {
+			OC_Logger::warning( 'VDP storage could not be protected.' );
+		}
 	}
 
 	public function register_routes(): void {
@@ -79,13 +90,6 @@ class OC_Rest_API {
 			'methods'             => \WP_REST_Server::CREATABLE,
 			'callback'            => [ $this, 'validate_spotify' ],
 			'permission_callback' => [ $this, 'public_write_permission' ],
-		] );
-
-		// Get cart item customisation data for editing.
-		register_rest_route( self::NAMESPACE, '/cart-item-customisation/(?P<cart_key>[^/]+)', [
-			'methods'             => \WP_REST_Server::READABLE,
-			'callback'            => [ $this, 'get_cart_item_customisation' ],
-			'permission_callback' => '__return_true',
 		] );
 
 		// Update cart item customisation from edit mode.
@@ -204,6 +208,36 @@ class OC_Rest_API {
 			return new \WP_Error( 'rate_limited', $message, [ 'status' => 429 ] );
 		}
 		set_transient( $rate_key, $rate_count + 1, HOUR_IN_SECONDS );
+		return null;
+	}
+
+	/** Reserve one paid AI call against actor, IP, and whole-site hourly budgets. */
+	private function enforce_ai_quota( string $token ): ?\WP_Error {
+		$actor = is_user_logged_in()
+			? 'user:' . get_current_user_id()
+			: 'token:' . hash( 'sha256', $token );
+		$actor_limit = max( 1, min( 100, (int) apply_filters( 'oc_ai_filter_actor_hourly_limit', 5 ) ) );
+		$ip_limit     = max( 1, min( 500, (int) apply_filters( 'oc_ai_filter_ip_hourly_limit', 10 ) ) );
+		$site_limit   = max( 1, min( 10000, (int) apply_filters( 'oc_ai_filter_site_hourly_limit', 100 ) ) );
+		$buckets      = [
+			'oc_ai_actor_' . hash( 'sha256', $actor )           => $actor_limit,
+			'oc_ai_ip_' . hash( 'sha256', self::client_ip() )   => $ip_limit,
+			'oc_ai_site'                                         => $site_limit,
+		];
+
+		foreach ( $buckets as $key => $limit ) {
+			if ( (int) get_transient( $key ) >= $limit ) {
+				return new \WP_Error(
+					'ai_quota_exceeded',
+					__( 'The AI image limit has been reached. Please try again later.', 'overcustomise' ),
+					[ 'status' => 429, 'retry_after' => self::AI_QUOTA_TTL ]
+				);
+			}
+		}
+		foreach ( array_keys( $buckets ) as $key ) {
+			set_transient( $key, (int) get_transient( $key ) + 1, self::AI_QUOTA_TTL );
+		}
+
 		return null;
 	}
 
@@ -398,9 +432,6 @@ class OC_Rest_API {
 		$auth = $this->verify_public_write_auth( $request );
 		if ( is_wp_error( $auth ) ) return $auth;
 
-		$rate_limit = $this->enforce_rate_limit( 'oc_ai_filter_rate_', 20, __( 'Too many AI filter requests. Try again later.', 'overcustomise' ) );
-		if ( is_wp_error( $rate_limit ) ) return $rate_limit;
-
 		$body                 = $request->get_json_params();
 		$body                 = is_array( $body ) ? $body : [];
 		$source_attachment_id = absint( $body['source_attachment_id'] ?? 0 );
@@ -456,38 +487,88 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_attachment', __( 'The source image is not valid for this customisation.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$generated = OC_AI_Image_Filter::generate( $source_attachment_id, (string) $filter->prompt );
-		if ( is_wp_error( $generated ) ) {
-			$generated->add_data( [ 'status' => 422 ] );
-			return $generated;
+		$actor       = is_user_logged_in() ? 'user:' . get_current_user_id() : 'token:' . hash( 'sha256', $token );
+		$lock_key    = 'oc_ai_filter_lock_' . md5( $actor . '|' . $source_attachment_id . '|' . $filter_id );
+		$current_lock = (string) get_option( $lock_key, '' );
+		$lock_until   = (int) strtok( $current_lock, '|' );
+		if ( $lock_until > time() ) {
+			return new \WP_Error( 'ai_filter_in_progress', __( 'This AI filter is already being generated.', 'overcustomise' ), [ 'status' => 409 ] );
+		}
+		if ( '' !== $current_lock ) {
+			self::delete_owned_option( $lock_key, $current_lock );
+		}
+		$quota = $this->enforce_ai_quota( $token );
+		if ( is_wp_error( $quota ) ) {
+			return $quota;
+		}
+		$lock_owner = ( time() + self::AI_LOCK_TTL ) . '|' . wp_generate_uuid4();
+		if ( ! add_option( $lock_key, $lock_owner, '', false ) ) {
+			return new \WP_Error( 'ai_filter_in_progress', __( 'This AI filter is already being generated.', 'overcustomise' ), [ 'status' => 409 ] );
 		}
 
 		try {
-			$result = OC_Upload_Handler::save_generated_image(
-				$generated['bytes'],
-				$generated['mime'],
-				[
-					'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id,
-					'layer_id' => $layer_id, 'token_hash' => $token ? hash( 'sha256', $token ) : '',
-				],
-				[ 'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id, 'model' => $generated['model'] ]
-			);
-		} catch ( \RuntimeException $e ) {
-			return new \WP_Error( 'generated_image_save_failed', $e->getMessage(), [ 'status' => 422 ] );
+			$generated = OC_AI_Image_Filter::generate( $source_attachment_id, (string) $filter->prompt );
+			if ( is_wp_error( $generated ) ) {
+				$status = match ( $generated->get_error_code() ) {
+					'openrouter_rate_limited' => 429,
+					'openrouter_unavailable'  => 503,
+					default                   => 422,
+				};
+				$generated->add_data( [ 'status' => $status ] );
+				return $generated;
+			}
+
+			try {
+				$result = OC_Upload_Handler::save_generated_image(
+					$generated['bytes'],
+					$generated['mime'],
+					[
+						'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id,
+						'layer_id' => $layer_id, 'token_hash' => $token ? hash( 'sha256', $token ) : '',
+					],
+					[ 'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id, 'model' => $generated['model'] ]
+				);
+			} catch ( \RuntimeException $e ) {
+				return new \WP_Error( 'generated_image_save_failed', $e->getMessage(), [ 'status' => 422 ] );
+			}
+			if ( is_wp_error( $result ) ) {
+				$result->add_data( [ 'status' => 422 ] );
+				return $result;
+			}
+
+			if ( $token ) {
+				$key = self::public_token_key( $token );
+				$ctx = get_transient( $key );
+				if ( is_array( $ctx ) ) {
+					$ctx['attachments'][ (int) $result['attachment_id'] ] = [ $product_id, $variation_id, $design_id, $layer_id ];
+					set_transient( $key, $ctx, self::PUBLIC_TOKEN_TTL );
+				}
+			}
+
+			$result['source_attachment_id'] = $source_attachment_id;
+			$result['filter_id']            = $filter_id;
+			return rest_ensure_response( $result );
+		} finally {
+			self::delete_owned_option( $lock_key, $lock_owner );
 		}
-		if ( is_wp_error( $result ) ) {
-			$result->add_data( [ 'status' => 422 ] );
-			return $result;
+	}
+
+	/** Delete a lock only when it still belongs to the expected request. */
+	private static function delete_owned_option( string $option_name, string $expected_value ): bool {
+		global $wpdb;
+
+		$deleted = $wpdb->query( $wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+			$option_name,
+			$expected_value
+		) );
+		if ( 1 !== $deleted ) {
+			return false;
 		}
 
-		if ( $token ) {
-			$key = self::public_token_key( $token ); $ctx = get_transient( $key );
-			if ( is_array( $ctx ) ) { $ctx['attachments'][ (int) $result['attachment_id'] ] = [ $product_id, $variation_id, $design_id, $layer_id ]; set_transient( $key, $ctx, self::PUBLIC_TOKEN_TTL ); }
-		}
-
-		$result['source_attachment_id'] = $source_attachment_id;
-		$result['filter_id']            = $filter_id;
-		return rest_ensure_response( $result );
+		wp_cache_delete( $option_name, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
+		return true;
 	}
 
 	/**
@@ -606,7 +687,7 @@ class OC_Rest_API {
 		}
 
 		$oembed_url = 'https://open.spotify.com/oembed?url=' . rawurlencode( $parsed['open_url'] );
-		
+
 		// Validate the oembed URL is exactly the expected Spotify domain.
 		$parsed_oembed = wp_parse_url( $oembed_url );
 		if ( ! is_array( $parsed_oembed ) || strtolower( $parsed_oembed['host'] ?? '' ) !== 'open.spotify.com' ) {
@@ -616,11 +697,12 @@ class OC_Rest_API {
 				'message' => __( 'Invalid Spotify link format.', 'overcustomise' ),
 			] );
 		}
-		
-		$response   = wp_remote_get( $oembed_url, [
-			'timeout'     => 8,
-			'redirection' => 3,
-			'headers'     => [ 'Accept' => 'application/json' ],
+
+		$response = wp_safe_remote_get( $oembed_url, [
+			'timeout'             => 8,
+			'redirection'         => 3,
+			'limit_response_size' => self::SPOTIFY_RESPONSE_BYTES,
+			'headers'             => [ 'Accept' => 'application/json' ],
 		] );
 
 		if ( is_wp_error( $response ) ) {
@@ -667,11 +749,11 @@ class OC_Rest_API {
 	 */
 	private function parse_spotify_input( string $raw ): ?array {
 		$raw = trim( $raw );
-		if ( '' === $raw ) {
+		if ( '' === $raw || strlen( $raw ) > 2048 ) {
 			return null;
 		}
 
-		if ( preg_match( '/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]+)$/i', $raw, $m ) ) {
+		if ( preg_match( '/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]{1,128})$/i', $raw, $m ) ) {
 			$type = strtolower( $m[1] );
 			$id   = $m[2];
 			return [
@@ -708,8 +790,8 @@ class OC_Rest_API {
 		}
 
 		$type = strtolower( $path_parts[ $type_index ] );
-		$id   = preg_replace( '/[^A-Za-z0-9]/', '', (string) $path_parts[ $type_index + 1 ] );
-		if ( '' === $id ) {
+		$id   = (string) $path_parts[ $type_index + 1 ];
+		if ( ! preg_match( '/^[A-Za-z0-9]{1,128}$/D', $id ) ) {
 			return null;
 		}
 
@@ -784,18 +866,18 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_type', __( 'Only CSV files are allowed.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$max_bytes = 5 * 1024 * 1024;
-		if ( (int) $files['csv']['size'] > $max_bytes ) {
+		$max_bytes   = 5 * 1024 * 1024;
+		$actual_size = filesize( $files['csv']['tmp_name'] );
+		if ( false === $actual_size || $actual_size <= 0 ) {
+			return new \WP_Error( 'invalid_csv', __( 'The CSV file is empty or unreadable.', 'overcustomise' ), [ 'status' => 422 ] );
+		}
+		if ( $actual_size > $max_bytes ) {
 			return new \WP_Error( 'too_large', __( 'CSV file exceeds 5 MB.', 'overcustomise' ), [ 'status' => 413 ] );
 		}
 
-		$upload = wp_upload_dir();
-		if ( ! empty( $upload['error'] ) ) {
-			return new \WP_Error( 'upload_dir_error', (string) $upload['error'], [ 'status' => 500 ] );
-		}
-		$dir    = $upload['basedir'] . '/overcustomise/vdp';
-		if ( ! wp_mkdir_p( $dir ) ) {
-			return new \WP_Error( 'mkdir_failed', __( 'Could not create VDP directory.', 'overcustomise' ), [ 'status' => 500 ] );
+		$dir = self::protected_vdp_directory();
+		if ( null === $dir ) {
+			return new \WP_Error( 'storage_protection_failed', __( 'Could not protect the VDP directory.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
 
 		$filename = 'vdp-' . $design_id . '-' . wp_generate_uuid4() . '.csv';
@@ -804,15 +886,34 @@ class OC_Rest_API {
 		if ( false === move_uploaded_file( $files['csv']['tmp_name'], $filepath ) ) {
 			return new \WP_Error( 'save_failed', __( 'Could not save CSV file.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
+		@chmod( $filepath, 0640 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 
 		$old_filepath = '';
 		$vdp          = new OC_VDP();
 		$csv_data = $vdp->parse_csv( $filepath );
 
-		if ( empty( $csv_data['headers'] ) ) {
+		if ( ! empty( $csv_data['error'] ) || empty( $csv_data['headers'] ) || empty( $csv_data['rows'] ) ) {
 			@unlink( $filepath );
-			return new \WP_Error( 'empty_csv', __( 'CSV file is empty or unreadable.', 'overcustomise' ), [ 'status' => 422 ] );
+			return new \WP_Error( 'invalid_csv', (string) ( $csv_data['error'] ?? __( 'CSV must contain at least one data row.', 'overcustomise' ) ), [ 'status' => 422 ] );
 		}
+		$all_layers = array_values( array_filter(
+			OC_DB::get_design_layers( $design_id ),
+			static fn( object $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true )
+		) );
+		if ( count( $csv_data['headers'] ) > count( $all_layers ) ) {
+			self::delete_vdp_file( $filepath );
+			return new \WP_Error( 'invalid_csv_fields', __( 'The CSV contains more fields than the design has editable variable layers.', 'overcustomise' ), [ 'status' => 422 ] );
+		}
+		foreach ( $csv_data['headers'] as $index => $header ) {
+			foreach ( $csv_data['rows'] as $row ) {
+				$value = $vdp->normalise_layer_value( $all_layers[ $index ], (string) ( $row[ $header ] ?? '' ) );
+				if ( is_wp_error( $value ) ) {
+					self::delete_vdp_file( $filepath );
+					return new \WP_Error( 'invalid_csv_value', $value->get_error_message(), [ 'status' => 422 ] );
+				}
+			}
+		}
+		$layer_ids = array_values( array_map( static fn( object $layer ): int => (int) $layer->id, $all_layers ) );
 
 		global $wpdb;
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
@@ -840,8 +941,6 @@ class OC_Rest_API {
 				throw new \RuntimeException( 'Could not reload the VDP template.' );
 			}
 
-			$all_layers = OC_DB::get_design_layers( $design_id );
-			$layer_ids  = array_values( array_map( static fn( $layer ) => (int) $layer->id, $all_layers ) );
 			foreach ( $csv_data['headers'] as $index => $header ) {
 				$inserted = OC_DB::insert_vdp_field( [
 					'template_id' => (int) $template->id,
@@ -873,8 +972,34 @@ class OC_Rest_API {
 			'template_id'=> (int) $template->id,
 			'fields'     => $csv_data['headers'],
 			'row_count'  => count( $csv_data['rows'] ),
-			'file_path'  => $filepath,
+			'file_name'  => basename( $filepath ),
 		] );
+	}
+
+	/** Return the VDP directory after installing Apache/IIS deny rules. */
+	private static function protected_vdp_directory(): ?string {
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+			return null;
+		}
+		$directory = trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/vdp';
+		if ( ! is_dir( $directory ) && ! wp_mkdir_p( $directory ) ) {
+			return null;
+		}
+
+		$files = [
+			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
+			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
+			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
+		];
+		foreach ( $files as $filename => $contents ) {
+			$path = $directory . '/' . $filename;
+			if ( ( ! is_file( $path ) || (string) file_get_contents( $path ) !== $contents ) && false === file_put_contents( $path, $contents ) ) {
+				return null;
+			}
+		}
+
+		return $directory;
 	}
 
 	/** Delete a VDP CSV only when it resolves inside the plugin's VDP upload directory. */
@@ -885,29 +1010,6 @@ class OC_Rest_API {
 		if ( $base && $real && str_starts_with( $real, rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR ) ) {
 			wp_delete_file( $real );
 		}
-	}
-
-	/** Return customisation data for a cart item so it can be edited. */
-	public function get_cart_item_customisation( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
-		$cart_key = sanitize_text_field( $request->get_param( 'cart_key' ) );
-		$cart     = WC()->cart ?? null;
-
-		if ( ! $cart || ! isset( $cart->cart_contents[ $cart_key ] ) ) {
-			return new \WP_Error( 'not_found', __( 'Cart item not found.', 'overcustomise' ), [ 'status' => 404 ] );
-		}
-
-		$cart_item = $cart->cart_contents[ $cart_key ];
-		$customisation = $cart_item['_oc_customisation'] ?? null;
-
-		if ( empty( $customisation ) ) {
-			return new \WP_Error( 'no_customisation', __( 'No customisation data for this cart item.', 'overcustomise' ), [ 'status' => 404 ] );
-		}
-
-		return rest_ensure_response( [
-			'customisation' => $customisation,
-			'designId'      => (int) ( $cart_item['_oc_design_id'] ?? 0 ),
-			'previewUrl'    => (string) ( $cart_item['_oc_preview_url'] ?? '' ),
-		] );
 	}
 
 	/** Update a cart item's customisation data from the edit flow. */
@@ -970,30 +1072,27 @@ class OC_Rest_API {
 		$design           = $normalised['design'];
 		$sanitised_layers = $normalised['layers'];
 
-		$snapshots = OC_DB::sanitise_area_snapshots( is_array( $body['snapshots'] ?? null ) ? $body['snapshots'] : [] );
-
 		$updated_customisation = [
 			'v'          => 2,
 			'designId'   => $design_id,
 			'layers'     => $sanitised_layers,
-			'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers, $snapshots ),
+			'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
 		];
-		$design_variant = is_string( $body['designVariant'] ?? null ) ? sanitize_key( $body['designVariant'] ) : '';
-		$design_variant_label = is_string( $body['designVariantLabel'] ?? null ) ? sanitize_text_field( $body['designVariantLabel'] ) : '';
-		if ( '' === $design_variant && $design_id === absint( $customisation['designId'] ?? 0 ) ) {
-			$design_variant = sanitize_key( (string) ( $customisation['designVariant'] ?? '' ) );
-			$design_variant_label = sanitize_text_field( (string) ( $customisation['designVariantLabel'] ?? '' ) );
-		}
-		if ( '' !== $design_variant ) {
-			$updated_customisation['designVariant'] = $design_variant;
-			$updated_customisation['designVariantLabel'] = $design_variant_label;
+		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+		$variant    = $assignment ? OC_Cart::design_variant_for_assignment( $assignment, $design_id ) : null;
+		if ( $variant ) {
+			$updated_customisation['designVariant']      = $variant['id'];
+			$updated_customisation['designVariantLabel'] = $variant['label'];
 		}
 		$cart->cart_contents[ $cart_key ]['_oc_customisation'] = $updated_customisation;
 		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
 		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
 		$cart->cart_contents[ $cart_key ]['_oc_unique_key']    = md5( wp_json_encode( $sanitised_layers ) . microtime() );
 
-		$preview_url = $body['previewUrl'] ?? '';
+		$preview_url = $body['previewUrl'] ?? null;
+		if ( array_key_exists( 'previewUrl', $body ) && '' === $preview_url ) {
+			unset( $cart->cart_contents[ $cart_key ]['_oc_preview_url'] );
+		}
 		if ( is_string( $preview_url ) && '' !== $preview_url ) {
 			$uploads = wp_upload_dir();
 			$baseurl = isset( $uploads['baseurl'] ) ? rtrim( (string) $uploads['baseurl'], '/' ) : '';

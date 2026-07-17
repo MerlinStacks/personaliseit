@@ -13,6 +13,9 @@ class OC_Cart {
 	/** @var array<string,bool> Checkout rows where WooCommerce already rendered the thumbnail column. */
 	private array $checkout_thumbnail_rendered = [];
 
+	/** @var array<string,array{decoded:array,normalised:array}> Request-local validated submissions. */
+	private static array $validated_submissions = [];
+
 	public function register(): void {
 		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_preview_styles' ] );
 		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_admin_preview_modal' ] );
@@ -20,6 +23,7 @@ class OC_Cart {
 		// Store customisation in the cart item.
 		add_filter( 'woocommerce_add_to_cart_validation', [ $this, 'validate_legacy_artwork' ], 20, 4 );
 		add_filter( 'woocommerce_add_cart_item_data', [ $this, 'add_cart_item_data' ], 10, 3 );
+		add_filter( 'woocommerce_store_api_add_to_cart_data', [ $this, 'store_api_add_to_cart_data' ], 10, 2 );
 
 		// Display summary lines in cart and checkout.
 		add_filter( 'woocommerce_get_item_data', [ $this, 'display_item_data' ], 10, 2 );
@@ -137,18 +141,24 @@ class OC_Cart {
 			return false;
 		}
 
-		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
-		if ( ! is_string( $raw ) || '' === trim( $raw ) || strlen( $raw ) > 1024 * 1024 ) {
-			return $passed;
-		}
-
-		$decoded = json_decode( $raw, true );
-		if ( ! is_array( $decoded ) || ( isset( $decoded['v'] ) && 2 === (int) $decoded['v'] ) ) {
+		if ( OC_DB::get_assignment_for_product( $product_id, $variation_id ) ) {
 			return $passed;
 		}
 		$config = OC_DB::get_config_by_product( $product_id );
 		if ( ! $config || ! (int) $config->active ) {
 			return $passed;
+		}
+
+		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
+		if ( ! is_string( $raw ) || '' === trim( $raw ) || strlen( $raw ) > 1024 * 1024 ) {
+			wc_add_notice( __( 'Please complete your personalisation before adding to cart.', 'overcustomise' ), 'error' );
+			return false;
+		}
+
+		$decoded = json_decode( $raw, true );
+		if ( ! is_array( $decoded ) || isset( $decoded['v'] ) ) {
+			wc_add_notice( __( 'Invalid personalisation data. Please refresh and try again.', 'overcustomise' ), 'error' );
+			return false;
 		}
 
 		$upload_token = is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : '';
@@ -168,7 +178,8 @@ class OC_Cart {
 	}
 
 	public function add_cart_item_data( array $cart_item_data, int $product_id, int $variation_id ): array {
-		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
+		$raw = self::submission_raw_from_request( $cart_item_data );
+		unset( $cart_item_data['_oc_submission_raw'] );
 
 		if ( ! is_string( $raw ) || '' === trim( $raw ) ) {
 			return $cart_item_data;
@@ -185,59 +196,49 @@ class OC_Cart {
 		}
 
 		// ── v2 format: { v:2, designId, layers:{layerId:{type,...}} } ────────
-		if ( isset( $decoded['v'] ) && 2 === (int) $decoded['v'] ) {
+		if ( array_key_exists( 'v', $decoded ) ) {
+			if ( 2 !== $decoded['v'] ) {
+				throw new \Exception( esc_html__( 'Unsupported personalisation data. Please refresh and try again.', 'overcustomise' ) );
+			}
 			$design_id = absint( $decoded['designId'] ?? 0 );
-			if ( ! $design_id ) return $cart_item_data;
+			if ( ! $design_id ) {
+				throw new \Exception( esc_html__( 'No personalisation design was selected.', 'overcustomise' ) );
+			}
 
 			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 			if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
-				return $cart_item_data;
+				throw new \Exception( esc_html__( 'The selected personalisation design is not available.', 'overcustomise' ) );
 			}
 
 			if ( ! isset( $decoded['layers'] ) || ! is_array( $decoded['layers'] ) ) {
-				return $cart_item_data;
+				throw new \Exception( esc_html__( 'No personalisation layers were submitted.', 'overcustomise' ) );
 			}
-			$posted_layer_inputs = [];
-			if ( isset( $_POST['oc_layer_inputs'] ) && is_array( $_POST['oc_layer_inputs'] ) ) {
-				$posted_layer_inputs = wp_unslash( $_POST['oc_layer_inputs'] );
-			}
-			$raw_layers = $decoded['layers'];
-			foreach ( $raw_layers as $layer_id => &$layer_data ) {
-				if ( ! is_array( $layer_data ) ) {
-					continue;
-				}
-				$layer_key = absint( $layer_id );
-				if ( isset( $posted_layer_inputs[ $layer_key ] ) && is_array( $posted_layer_inputs[ $layer_key ] ) ) {
-					$posted_value = $posted_layer_inputs[ $layer_key ]['value'] ?? null;
-					if ( is_scalar( $posted_value ) ) {
-						$layer_data['value'] = (string) $posted_value;
-					}
-				}
 
-			}
-			unset( $layer_data );
-			$upload_token = is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : '';
-			$normalised   = self::normalise_v2_layers( $product_id, $variation_id, $design_id, $raw_layers, $upload_token );
+			$cache_key  = self::submission_key( $product_id, $variation_id, $raw );
+			$validated  = self::$validated_submissions[ $cache_key ] ?? null;
+			$normalised = is_array( $validated ) ? $validated['normalised'] : self::normalise_v2_layers(
+				$product_id,
+				$variation_id,
+				$design_id,
+				$decoded['layers'],
+				is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : ''
+			);
 			if ( is_wp_error( $normalised ) ) {
-				wc_add_notice( $normalised->get_error_message(), 'error' );
-				return $cart_item_data;
+				throw new \Exception( esc_html( $normalised->get_error_message() ) );
 			}
 			$design           = $normalised['design'];
 			$sanitised_layers = $normalised['layers'];
-
-			$snapshots = OC_DB::sanitise_area_snapshots( is_array( $decoded['snapshots'] ?? null ) ? $decoded['snapshots'] : [] );
 
 			$cart_item_data['_oc_customisation'] = [
 				'v'          => 2,
 				'designId'   => $design_id,
 				'layers'     => $sanitised_layers,
-				'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers, $snapshots ),
+				'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
 			];
-			if ( is_string( $decoded['designVariant'] ?? null ) && '' !== $decoded['designVariant'] ) {
-				$cart_item_data['_oc_customisation']['designVariant'] = sanitize_key( $decoded['designVariant'] );
-			}
-			if ( is_string( $decoded['designVariantLabel'] ?? null ) && '' !== $decoded['designVariantLabel'] ) {
-				$cart_item_data['_oc_customisation']['designVariantLabel'] = sanitize_text_field( $decoded['designVariantLabel'] );
+			$variant = self::design_variant_for_assignment( $assignment, $design_id );
+			if ( $variant ) {
+				$cart_item_data['_oc_customisation']['designVariant']      = $variant['id'];
+				$cart_item_data['_oc_customisation']['designVariantLabel'] = $variant['label'];
 			}
 			$cart_item_data['_oc_design_id']     = $design_id;
 			$cart_item_data['_oc_flat_rate']     = (float) $design->flat_rate;
@@ -286,6 +287,70 @@ class OC_Cart {
 		return $cart_item_data;
 	}
 
+	/** Accept a v2 payload supplied through the WooCommerce Store API extensions object. */
+	public function store_api_add_to_cart_data( array $add_to_cart_data, \WP_REST_Request $request ): array {
+		$extensions    = $request->get_param( 'extensions' );
+		$customisation = is_array( $extensions ) ? ( $extensions['overcustomise']['customisation'] ?? null ) : null;
+		if ( is_array( $customisation ) ) {
+			$customisation = wp_json_encode( $customisation );
+		}
+		if ( is_string( $customisation ) && '' !== trim( $customisation ) ) {
+			$add_to_cart_data['cart_item_data'] = is_array( $add_to_cart_data['cart_item_data'] ?? null ) ? $add_to_cart_data['cart_item_data'] : [];
+			$add_to_cart_data['cart_item_data']['_oc_submission_raw'] = $customisation;
+		}
+
+		return $add_to_cart_data;
+	}
+
+	/** Read the customisation from classic form data or Store API cart item data. */
+	public static function submission_raw_from_request( array $cart_item_data = [] ): mixed {
+		if ( isset( $cart_item_data['_oc_submission_raw'] ) ) {
+			return $cart_item_data['_oc_submission_raw'];
+		}
+
+		return isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
+	}
+
+	/** Validate and cache one exact v2 submission for the cart persistence filter. */
+	public static function validate_v2_submission( int $product_id, int $variation_id, mixed $raw ): true|\WP_Error {
+		if ( ! is_string( $raw ) || '' === trim( $raw ) || '{}' === trim( $raw ) ) {
+			return new \WP_Error( 'missing_customisation', __( 'Please complete your personalisation before adding to cart.', 'overcustomise' ) );
+		}
+		if ( strlen( $raw ) > 1024 * 1024 ) {
+			return new \WP_Error( 'customisation_too_large', __( 'This personalisation is too large to add safely. Please simplify the design or contact us for help.', 'overcustomise' ) );
+		}
+
+		$decoded = json_decode( $raw, true );
+		if ( ! is_array( $decoded ) || ! array_key_exists( 'v', $decoded ) || 2 !== $decoded['v'] ) {
+			return new \WP_Error( 'invalid_customisation_version', __( 'Invalid or unsupported personalisation data. Please refresh and try again.', 'overcustomise' ) );
+		}
+		$design_id = absint( $decoded['designId'] ?? 0 );
+		if ( ! $design_id || ! is_array( $decoded['layers'] ?? null ) ) {
+			return new \WP_Error( 'invalid_customisation', __( 'Invalid personalisation data. Please refresh and try again.', 'overcustomise' ) );
+		}
+
+		$normalised = self::normalise_v2_layers(
+			$product_id,
+			$variation_id,
+			$design_id,
+			$decoded['layers'],
+			is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : ''
+		);
+		if ( is_wp_error( $normalised ) ) {
+			return $normalised;
+		}
+
+		self::$validated_submissions[ self::submission_key( $product_id, $variation_id, $raw ) ] = [
+			'decoded'    => $decoded,
+			'normalised' => $normalised,
+		];
+		return true;
+	}
+
+	private static function submission_key( int $product_id, int $variation_id, string $raw ): string {
+		return $product_id . ':' . $variation_id . ':' . hash( 'sha256', $raw );
+	}
+
 	/**
 	 * Authoritatively normalise v2 layer input against the assigned design.
 	 *
@@ -302,8 +367,13 @@ class OC_Cart {
 			return new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ) );
 		}
 
-		$methods = [];
+		$methods       = [];
+		$design_layers = OC_DB::get_design_layers( $design_id );
+		$raw_layers    = self::synchronise_linked_layer_inputs( $design_layers, $raw_layers );
 		foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
+			if ( isset( $area->visible ) && ! (bool) $area->visible ) {
+				continue;
+			}
 			$methods[ absint( $area->id ?? 0 ) ] = sanitize_key( (string) ( $area->print_method ?? '' ) );
 		}
 
@@ -312,7 +382,10 @@ class OC_Cart {
 		$normalised       = [];
 		$valid_types      = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
 
-		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
+		foreach ( $design_layers as $layer ) {
+			if ( isset( $layer->visible ) && ! (bool) $layer->visible ) {
+				continue;
+			}
 			$layer_id = absint( $layer->id ?? 0 );
 			$type     = sanitize_key( (string) ( $layer->type ?? '' ) );
 			if ( ! $layer_id || ! in_array( $type, $valid_types, true ) ) {
@@ -328,6 +401,12 @@ class OC_Cart {
 			$default_value = is_scalar( $settings['default_text'] ?? null ) ? (string) $settings['default_text'] : '';
 			$value         = is_scalar( $source['value'] ?? null ) ? (string) $source['value'] : $default_value;
 			$value         = 'textarea' === $type && function_exists( 'sanitize_textarea_field' ) ? sanitize_textarea_field( $value ) : sanitize_text_field( $value );
+			if ( 'spotify' === $type && '' !== trim( $value ) ) {
+				$value = self::normalise_spotify_value( $value );
+				if ( '' === $value ) {
+					return new \WP_Error( 'invalid_spotify', sprintf( __( 'The Spotify link in "%s" is invalid.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
+				}
+			}
 			$char_limit    = absint( $settings['char_limit'] ?? 0 );
 			if ( $char_limit && self::string_length_static( $value ) > $char_limit ) {
 				return new \WP_Error( 'character_limit', sprintf( __( '"%1$s" exceeds the maximum of %2$d characters.', 'overcustomise' ), $layer->label ?: ucfirst( $type ), $char_limit ) );
@@ -370,8 +449,10 @@ class OC_Cart {
 			$default_attachment = absint( $settings['default_attachment_id'] ?? 0 );
 			$attachment_id      = in_array( $type, [ 'image', 'clipmask' ], true ) ? absint( $source['attachmentId'] ?? $default_attachment ) : 0;
 			$source_attachment_id = in_array( $type, [ 'image', 'clipmask' ], true ) ? absint( $source['sourceAttachmentId'] ?? $attachment_id ) : 0;
-			if ( ! $editable ) {
-				$attachment_id = $default_attachment;
+			$can_image_change = ! array_key_exists( 'allow_image_change', $settings ) || ! empty( $settings['allow_image_change'] );
+			if ( ! $editable || ! $can_image_change ) {
+				$attachment_id        = $default_attachment;
+				$source_attachment_id = $default_attachment;
 			}
 			if ( $attachment_id && $attachment_id === $default_attachment && ! OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
 				$attachment_id = 0;
@@ -383,17 +464,18 @@ class OC_Cart {
 			$allowed_existing_source = is_array( $allowed_existing_data )
 				? absint( $allowed_existing_data['sourceAttachmentId'] ?? 0 )
 				: 0;
+			$attachment_context_layer_id = absint( $source['_oc_link_source_layer_id'] ?? $layer_id );
 			$existing_is_valid = $attachment_id > 0 && $attachment_id === $allowed_existing && OC_Upload_Handler::existing_cart_attachment_is_valid( $attachment_id );
 			if ( $attachment_id && $attachment_id !== $default_attachment
 				&& ! $existing_is_valid
-				&& ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token )
+				&& ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The uploaded artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 			$existing_source_is_valid = $source_attachment_id > 0 && $source_attachment_id === $allowed_existing_source && OC_Upload_Handler::existing_cart_attachment_is_valid( $source_attachment_id );
 			if ( $source_attachment_id && $source_attachment_id !== $default_attachment
 				&& ! $existing_source_is_valid
-				&& ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token )
+				&& ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
@@ -407,6 +489,9 @@ class OC_Cart {
 			$selected_filter = null;
 			foreach ( OC_DB::get_image_filters( true ) as $candidate ) {
 				if ( (int) $candidate->id === $filter_id ) { $selected_filter = $candidate; break; }
+			}
+			if ( $filter_id && ! $selected_filter ) {
+				return new \WP_Error( 'invalid_image_filter', sprintf( __( 'The selected image filter for "%s" is no longer available.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 			if ( $filter_id && $selected_filter && 'ai' === (string) $selected_filter->filter_key ) {
 				$generated_filter_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_id', true ) );
@@ -437,9 +522,13 @@ class OC_Cart {
 				return new \WP_Error( 'required_layer', sprintf( __( 'Please complete "%s".', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 
+			$preview_attachment_id = $attachment_id ? absint( get_post_meta( $attachment_id, '_oc_print_derivative_attachment_id', true ) ) : 0;
 			$normalised[ $layer_id ] = [
 				'type' => $type, 'value' => $value, 'fontId' => $font_id, 'fontSize' => $font_size,
 				'colorHex' => $colour, 'attachmentId' => $attachment_id, 'sourceAttachmentId' => $source_attachment_id, 'imageFilterId' => $filter_id,
+				'imageFilterKey' => $selected_filter ? sanitize_key( (string) $selected_filter->filter_key ) : '',
+				'imageFilterValue' => $selected_filter ? (float) $selected_filter->value : 0.0,
+				'previewAttachmentId' => $preview_attachment_id,
 				'clipartId' => $clipart_id,
 				'clipartUrl' => $clipart ? self::clipart_url( (string) $clipart->file_path ) : '',
 				'clipartRecolourable' => $clipart && (bool) $clipart->colour_changeable && 'svg' === strtolower( (string) $clipart->file_type ),
@@ -447,6 +536,84 @@ class OC_Cart {
 		}
 
 		return $normalised ? [ 'design' => $design, 'layers' => $normalised ] : new \WP_Error( 'invalid_design', __( 'Design has no valid layers.', 'overcustomise' ) );
+	}
+
+	/** Copy the one rendered linked control to every server-confirmed group member. */
+	private static function synchronise_linked_layer_inputs( array $layers, array $raw_layers ): array {
+		$groups = [];
+		foreach ( $layers as $layer ) {
+			$settings = ! empty( $layer->settings ) ? json_decode( (string) $layer->settings, true ) : [];
+			$settings = is_array( $settings ) ? $settings : [];
+			$group    = sanitize_key( (string) ( $settings['link_group'] ?? '' ) );
+			if ( '' !== $group && ! empty( $layer->visible ) && empty( $layer->locked ) ) {
+				$groups[ (string) $layer->type . ':' . $group ][] = (int) $layer->id;
+			}
+		}
+
+		foreach ( $groups as $layer_ids ) {
+			if ( count( $layer_ids ) < 2 ) {
+				continue;
+			}
+			$source_id   = 0;
+			$source_data = [];
+			foreach ( $layer_ids as $layer_id ) {
+				$candidate = $raw_layers[ $layer_id ] ?? null;
+				if ( is_array( $candidate ) && ! empty( array_filter( $candidate, static fn( $value ) => null !== $value && '' !== $value && 0 !== $value ) ) ) {
+					$source_id   = $layer_id;
+					$source_data = $candidate;
+					break;
+				}
+			}
+			if ( ! $source_id ) {
+				continue;
+			}
+			$source_data['_oc_link_source_layer_id'] = $source_id;
+			foreach ( $layer_ids as $layer_id ) {
+				$raw_layers[ $layer_id ] = $source_data;
+			}
+		}
+
+		return $raw_layers;
+	}
+
+	public static function normalise_spotify_value( string $value ): string {
+		$value = trim( $value );
+		if ( preg_match( '/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]{1,128})$/i', $value, $matches ) ) {
+			return sprintf( 'spotify:%s:%s', strtolower( $matches[1] ), $matches[2] );
+		}
+
+		$parts = wp_parse_url( $value );
+		if ( ! is_array( $parts ) || ! in_array( strtolower( (string) ( $parts['host'] ?? '' ) ), [ 'open.spotify.com', 'play.spotify.com' ], true ) ) {
+			return '';
+		}
+		$path = array_values( array_filter( explode( '/', trim( (string) ( $parts['path'] ?? '' ), '/' ) ) ) );
+		if ( isset( $path[0], $path[1] ) && in_array( strtolower( $path[0] ), [ 'track', 'album', 'artist', 'playlist', 'episode', 'show' ], true ) && preg_match( '/^[A-Za-z0-9]{1,128}$/', $path[1] ) ) {
+			return sprintf( 'spotify:%s:%s', strtolower( $path[0] ), $path[1] );
+		}
+
+		return '';
+	}
+
+	/** Return the authoritative stored variant ID and label for a selected design. */
+	public static function design_variant_for_assignment( object $assignment, int $design_id ): ?array {
+		if ( $design_id === (int) ( $assignment->design_id ?? 0 ) ) {
+			$design = OC_DB::get_design( $design_id );
+			return $design ? [ 'id' => 'design-' . $design_id, 'label' => sanitize_text_field( (string) $design->name ) ] : null;
+		}
+
+		$variants = json_decode( (string) ( $assignment->design_variants ?? '' ), true );
+		foreach ( is_array( $variants ) ? $variants : [] as $variant ) {
+			if ( $design_id === absint( $variant['designId'] ?? 0 ) ) {
+				$design = OC_DB::get_design( $design_id );
+				$label  = sanitize_text_field( (string) ( $variant['label'] ?? '' ) );
+				return [
+					'id'    => 'design-' . $design_id,
+					'label' => $label ?: ( $design ? sanitize_text_field( (string) $design->name ) : '' ),
+				];
+			}
+		}
+
+		return null;
 	}
 
 	private static function id_list( mixed $value ): array {
@@ -535,26 +702,6 @@ class OC_Cart {
 				$item_data[] = [ 'key' => $label, 'value' => $value ];
 			}
 
-			$cart_item_key = sanitize_text_field( (string) ( $cart_item['key'] ?? '' ) );
-			if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
-				foreach ( WC()->cart->get_cart() as $key => $ci ) {
-					if ( isset( $ci['_oc_unique_key'], $cart_item['_oc_unique_key'] ) && hash_equals( (string) $ci['_oc_unique_key'], (string) $cart_item['_oc_unique_key'] ) ) {
-						$cart_item_key = $key;
-						break;
-					}
-				}
-			}
-			if ( '' !== $cart_item_key && ! empty( $cart_item['product_id'] ) ) {
-				$product_url = get_permalink( (int) $cart_item['product_id'] );
-				if ( $product_url ) {
-					$edit_url = add_query_arg( 'oc_edit_cart_key', $cart_item_key, $product_url );
-					$item_data[] = [
-						'key'   => '',
-						'value' => '<a href="' . esc_url( $edit_url ) . '" class="oc-edit-customisation">' . esc_html__( '✏️ Edit Customisation', 'overcustomise' ) . '</a>',
-					];
-				}
-			}
-
 			return $item_data;
 		}
 
@@ -581,26 +728,6 @@ class OC_Cart {
 				'key'   => sprintf( __( 'Personalisation (%s)', 'overcustomise' ), ucwords( str_replace( '-', ' ', $area_key ) ) ),
 				'value' => implode( ' ', $parts ),
 			];
-		}
-
-		$cart_item_key = sanitize_text_field( (string) ( $cart_item['key'] ?? '' ) );
-		if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
-			foreach ( WC()->cart->get_cart() as $key => $ci ) {
-				if ( isset( $ci['_oc_unique_key'], $cart_item['_oc_unique_key'] ) && hash_equals( (string) $ci['_oc_unique_key'], (string) $cart_item['_oc_unique_key'] ) ) {
-					$cart_item_key = $key;
-					break;
-				}
-			}
-		}
-		if ( '' !== $cart_item_key && ! empty( $cart_item['product_id'] ) ) {
-			$product_url = get_permalink( (int) $cart_item['product_id'] );
-			if ( $product_url ) {
-				$edit_url = add_query_arg( 'oc_edit_cart_key', $cart_item_key, $product_url );
-				$item_data[] = [
-					'key'   => '',
-					'value' => '<a href="' . esc_url( $edit_url ) . '" class="oc-edit-customisation">' . esc_html__( '✏️ Edit Customisation', 'overcustomise' ) . '</a>',
-				];
-			}
 		}
 
 		return $item_data;
@@ -855,8 +982,9 @@ class OC_Cart {
 				}
 			}
 			if ( $has_artwork ) {
-				$thumb = wp_get_attachment_image( (int) $area_data['artworkAttachmentId'], [ 48, 48 ], false,
-					[ 'style' => 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;' ] );
+				$attachment_id = absint( $area_data['artworkAttachmentId'] );
+				$preview_id    = absint( get_post_meta( $attachment_id, '_oc_artwork_preview_attachment_id', true ) );
+				$thumb         = $this->artwork_thumbnail_html( $preview_id ?: $attachment_id, 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;' );
 				echo $thumb ?: ' ' . esc_html__( '[Artwork]', 'overcustomise' );
 			}
 			echo '</div></div>';
@@ -915,8 +1043,8 @@ class OC_Cart {
 			case 'image':
 			case 'clipmask':
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
-					$thumb = wp_get_attachment_image( (int) $layer_data['attachmentId'], [ 48, 48 ], false,
-						[ 'style' => 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' ] );
+					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
+					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' );
 					return $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
 				}
 				return '';
@@ -936,6 +1064,20 @@ class OC_Cart {
 			default:
 				return '';
 		}
+	}
+
+	/** Render customer artwork through its signed endpoint instead of its uploads URL. */
+	private function artwork_thumbnail_html( int $attachment_id, string $style ): string {
+		$url = OC_Upload_Handler::attachment_access_url( $attachment_id );
+		if ( '' === $url ) {
+			return '';
+		}
+
+		return sprintf(
+			'<img src="%s" alt="" width="48" height="48" loading="lazy" style="%s" />',
+			esc_url( $url ),
+			esc_attr( $style )
+		);
 	}
 
 	/** Return an escaped colour swatch and hex value for order admin summaries. */

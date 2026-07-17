@@ -45,11 +45,12 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$pdf = self::make_pdf( $w_mm, $h_mm, 0.0 );
 		$pdf->SetTitle( sprintf( 'Engraving — Order #%d — %s', $order->get_id(), $area->label ) );
 		$pdf->AddPage();
+		$profile = self::resolve_profile( $area, $area_data );
 
 		// Leave the page unpainted so the generated file contains only engraving marks.
 
 		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0, 'engraving' );
+			self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0, 'engraving', [ 'engraving_profile' => $profile ] );
 
 			$output_dir  = self::ensure_output_dir( $order->get_id() );
 			$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $area, 'pdf' );
@@ -62,34 +63,30 @@ class OC_Print_Engraving extends OC_Print_Base {
 		// ── Artwork layer ──────────────────────────────────────────────────
 		$artwork_path = self::resolve_artwork_path( $area_data );
 		$temp_artwork = null;
-		if ( $artwork_path ) {
-			$profile = self::resolve_profile();
-			$temp_artwork = self::build_engraving_raster( $artwork_path, $profile );
-			$render_path = $temp_artwork ?: $artwork_path;
+		try {
+			if ( $artwork_path ) {
+				$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile );
+				self::draw_pdf_image( $pdf, $temp_artwork, 0, 0, $w_mm, $h_mm );
+			}
 
-			// Render artwork greyscale, fitted to page.
-			self::draw_pdf_image( $pdf, $render_path, 0, 0, $w_mm, $h_mm );
-		}
+			$text = self::normalise_engraving_text( trim( $area_data['text'] ?? '' ) );
+			if ( $text !== '' ) {
+				$font_name = self::resolve_font( (int) ( $area_data['fontId'] ?? 0 ), $pdf );
+				[ $min_font_size, $max_font_size ] = self::font_size_bounds( $area_data );
+				$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 
-		// ── Text layer ─────────────────────────────────────────────────────
-		$text = self::normalise_engraving_text( trim( $area_data['text'] ?? '' ) );
-		if ( $text !== '' ) {
-			$font_name = self::resolve_font( (int) ( $area_data['fontId'] ?? 0 ), $pdf );
-			[ $min_font_size, $max_font_size ] = self::font_size_bounds( $area_data );
-			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
+				$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
+				$pdf->SetFont( $font_name, '', $font_size );
+				self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
+			}
 
-			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
-			$pdf->SetFont( $font_name, '', $font_size );
-			self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
-		}
-
-		$output_dir  = self::ensure_output_dir( $order->get_id() );
-		$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $area, 'pdf' );
-
-		self::write_pdf_file( $pdf, $output_path );
-
-		if ( is_string( $temp_artwork ) && '' !== $temp_artwork && file_exists( $temp_artwork ) ) {
-			@unlink( $temp_artwork );
+			$output_dir  = self::ensure_output_dir( $order->get_id() );
+			$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $area, 'pdf' );
+			self::write_pdf_file( $pdf, $output_path );
+		} finally {
+			if ( is_string( $temp_artwork ) && '' !== $temp_artwork && file_exists( $temp_artwork ) ) {
+				@unlink( $temp_artwork ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
 		}
 
 		return $output_path;
@@ -119,33 +116,34 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
 			$pdf->AddPage( $w_mm > $h_mm ? 'L' : 'P', [ $w_mm, $h_mm ] );
+			$profile = self::resolve_profile( $area, $entry['area_data'] );
 
 			if ( self::has_layer_payload( $entry['area_data'] ) ) {
-				self::render_layer_payload( $pdf, $area, $entry['area_data'], 0.0, 0.0, 'engraving' );
+				self::render_layer_payload( $pdf, $area, $entry['area_data'], 0.0, 0.0, 'engraving', [ 'engraving_profile' => $profile ] );
 				continue;
 			}
 
 			$artwork_path = self::resolve_artwork_path( $entry['area_data'] );
 			$temp_artwork = null;
-			if ( $artwork_path ) {
-				$profile      = self::resolve_profile();
-				$temp_artwork = self::build_engraving_raster( $artwork_path, $profile );
-				$render_path  = $temp_artwork ?: $artwork_path;
-				self::draw_pdf_image( $pdf, $render_path, 0, 0, $w_mm, $h_mm );
-			}
+			try {
+				if ( $artwork_path ) {
+					$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile );
+					self::draw_pdf_image( $pdf, $temp_artwork, 0, 0, $w_mm, $h_mm );
+				}
 
-			$text = self::normalise_engraving_text( trim( $entry['area_data']['text'] ?? '' ) );
-			if ( '' !== $text ) {
-				$font_name = self::resolve_font( (int) ( $entry['area_data']['fontId'] ?? 0 ), $pdf );
-				[ $min_font_size, $max_font_size ] = self::font_size_bounds( $entry['area_data'] );
-				$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
-				$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
-				$pdf->SetFont( $font_name, '', $font_size );
-				self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
-			}
-
-			if ( is_string( $temp_artwork ) && '' !== $temp_artwork && file_exists( $temp_artwork ) ) {
-				@unlink( $temp_artwork );
+				$text = self::normalise_engraving_text( trim( $entry['area_data']['text'] ?? '' ) );
+				if ( '' !== $text ) {
+					$font_name = self::resolve_font( (int) ( $entry['area_data']['fontId'] ?? 0 ), $pdf );
+					[ $min_font_size, $max_font_size ] = self::font_size_bounds( $entry['area_data'] );
+					$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
+					$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
+					$pdf->SetFont( $font_name, '', $font_size );
+					self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
+				}
+			} finally {
+				if ( is_string( $temp_artwork ) && '' !== $temp_artwork && file_exists( $temp_artwork ) ) {
+					@unlink( $temp_artwork ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
 			}
 		}
 
@@ -158,7 +156,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 	}
 
 	/** @return array<string,mixed> */
-	private static function resolve_profile(): array {
+	private static function resolve_profile( ?object $area = null, array $area_data = [] ): array {
 		$profile = self::DEFAULT_PROFILE;
 
 		if ( class_exists( 'OC_Admin_Print_Methods' ) ) {
@@ -168,8 +166,10 @@ class OC_Print_Engraving extends OC_Print_Base {
 			}
 		}
 
-		$material = sanitize_key( (string) ( $profile['material'] ?? 'default' ) );
-		if ( ! in_array( $material, [ 'default', 'wood', 'glass' ], true ) ) {
+		$snapshot = is_array( $area_data['renderSpecArea'] ?? null ) ? $area_data['renderSpecArea'] : [];
+		$area_material = (string) ( $snapshot['engravingMaterial'] ?? $area->engraving_material ?? '' );
+		$material = sanitize_key( '' !== $area_material ? $area_material : (string) ( $profile['material'] ?? 'default' ) );
+		if ( ! in_array( $material, [ 'default', 'wood', 'glass', 'gold_metal', 'silver_metal', 'black_metal' ], true ) ) {
 			$material = 'default';
 		}
 
@@ -201,6 +201,13 @@ class OC_Print_Engraving extends OC_Print_Base {
 			}
 		}
 
+		if ( 'black_metal' === $material ) {
+			$gamma = 1.4;
+			if ( 0 === $contrast ) {
+				$contrast = 15;
+			}
+		}
+
 		return [
 			'material'   => $material,
 			'gamma'      => $gamma,
@@ -208,6 +215,22 @@ class OC_Print_Engraving extends OC_Print_Base {
 			'edge_boost' => $edge_boost,
 			'dithering'  => $dithering,
 		];
+	}
+
+	/** Convert one canonical image/SVG layer through the selected material profile. */
+	public static function prepare_artwork_for_layer( string $artwork_path, array $profile ): string {
+		$profile = array_merge( self::DEFAULT_PROFILE, $profile );
+		$path    = self::build_engraving_raster( $artwork_path, $profile );
+		if ( ! $path ) {
+			throw new \RuntimeException(
+				sprintf(
+					__( 'Artwork "%s" could not be converted into a production-safe engraving mark.', 'overcustomise' ),
+					basename( $artwork_path )
+				)
+			);
+		}
+
+		return $path;
 	}
 
 	private static function build_engraving_raster( string $artwork_path, array $profile ): ?string {
@@ -228,6 +251,10 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		$dst = imagecreatetruecolor( $w, $h );
+		imagealphablending( $dst, false );
+		imagesavealpha( $dst, true );
+		$transparent = imagecolorallocatealpha( $dst, 0, 0, 0, 127 );
+		imagefilledrectangle( $dst, 0, 0, $w, $h, $transparent );
 		imagecopy( $dst, $src, 0, 0, 0, 0, $w, $h );
 		imagedestroy( $src );
 
@@ -253,6 +280,10 @@ class OC_Print_Engraving extends OC_Print_Base {
 		if ( 'floyd_steinberg' === ( $profile['dithering'] ?? 'none' ) ) {
 			self::apply_floyd_steinberg_dither( $dst );
 		}
+		if ( ! self::image_has_engraving_mark( $dst ) ) {
+			imagedestroy( $dst );
+			return null;
+		}
 
 		$tmp = self::temp_path_with_extension( 'oc-engraving-' . wp_generate_uuid4() . '.png', 'png' );
 		if ( ! is_string( $tmp ) || '' === $tmp ) {
@@ -273,7 +304,11 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 	private static function open_image_resource( string $path ) {
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-		return match ( $ext ) {
+		if ( 'svg' === $ext ) {
+			return self::open_svg_image_resource( $path );
+		}
+		self::assert_safe_raster_dimensions( $path );
+		$image = match ( $ext ) {
 			'jpg', 'jpeg' => @imagecreatefromjpeg( $path ),
 			'png' => @imagecreatefrompng( $path ),
 			'webp' => function_exists( 'imagecreatefromwebp' ) ? @imagecreatefromwebp( $path ) : false,
@@ -281,6 +316,51 @@ class OC_Print_Engraving extends OC_Print_Base {
 			'gif' => @imagecreatefromgif( $path ),
 			default => false,
 		};
+
+		return $image ? self::bounded_gd_resource( $image, 2048, 4000000 ) : false;
+	}
+
+	/** Rasterise SVG with a transparent background before material conversion. */
+	private static function open_svg_image_resource( string $path ) {
+		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || ! is_readable( $path ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
+			return false;
+		}
+
+		try {
+			$image = new \Imagick();
+			self::configure_imagick_limits( $image );
+			$image->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
+			$image->setResolution( 300, 300 );
+			$image->readImage( $path );
+			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
+			$image->setImageFormat( 'png32' );
+			[ $width, $height ] = self::bounded_work_dimensions( $image->getImageWidth(), $image->getImageHeight() );
+			$image->resizeImage( $width, $height, \Imagick::FILTER_LANCZOS, 1, true );
+			$blob = $image->getImageBlob();
+			$image->clear();
+			$image->destroy();
+
+			$resource = is_string( $blob ) && '' !== $blob ? @imagecreatefromstring( $blob ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return $resource ? self::bounded_gd_resource( $resource, 2048, 4000000 ) : false;
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'Engraving SVG conversion failed: ' . $e->getMessage() );
+			return false;
+		}
+	}
+
+	/** A fully transparent conversion is not a successful production file. */
+	private static function image_has_engraving_mark( $image ): bool {
+		$width  = imagesx( $image );
+		$height = imagesy( $image );
+		for ( $y = 0; $y < $height; $y++ ) {
+			for ( $x = 0; $x < $width; $x++ ) {
+				if ( ( ( imagecolorat( $image, $x, $y ) >> 24 ) & 0x7F ) < 120 ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	private static function apply_floyd_steinberg_dither( $img ): void {
@@ -290,11 +370,15 @@ class OC_Print_Engraving extends OC_Print_Base {
 		for ( $y = 0; $y < $h; $y++ ) {
 			for ( $x = 0; $x < $w; $x++ ) {
 				$rgb = imagecolorat( $img, $x, $y );
+				$alpha = ( $rgb >> 24 ) & 0x7F;
+				if ( $alpha >= 120 ) {
+					continue;
+				}
 				$gray = ( $rgb >> 16 ) & 0xFF;
 				$new_gray = $gray < 128 ? 0 : 255;
 				$error = $gray - $new_gray;
 
-				$col = imagecolorallocate( $img, $new_gray, $new_gray, $new_gray );
+				$col = imagecolorallocatealpha( $img, $new_gray, $new_gray, $new_gray, $alpha );
 				imagesetpixel( $img, $x, $y, $col );
 
 				self::dither_spread( $img, $x + 1, $y,     $error, 7 / 16 );
@@ -313,10 +397,14 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		$rgb = imagecolorat( $img, $x, $y );
+		$alpha = ( $rgb >> 24 ) & 0x7F;
+		if ( $alpha >= 120 ) {
+			return;
+		}
 		$gray = ( $rgb >> 16 ) & 0xFF;
 		$gray = (int) round( max( 0, min( 255, $gray + ( $error * $factor ) ) ) );
 
-		$col = imagecolorallocate( $img, $gray, $gray, $gray );
+		$col = imagecolorallocatealpha( $img, $gray, $gray, $gray, $alpha );
 		imagesetpixel( $img, $x, $y, $col );
 	}
 

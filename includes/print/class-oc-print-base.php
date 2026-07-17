@@ -5,8 +5,7 @@
  * Shared utilities: dimension conversion, font loading, color conversion,
  * directory management, and TCPDF bootstrapping.
  *
- * Canvas coordinate assumption: 300 DPI.
- * 1 canvas pixel = 25.4/300 mm = 0.0847 mm.
+ * Canvas coordinates use the DPI snapshotted with each print area.
  *
  * @package OverCustomise
  */
@@ -15,8 +14,18 @@ defined( 'ABSPATH' ) || exit;
 
 abstract class OC_Print_Base {
 
-	/** Assumed DPI for canvas coordinates stored in the DB. */
+	/** Fallback DPI for historical areas that pre-date canvas_dpi snapshots. */
 	protected const CANVAS_DPI = 300;
+
+	/** Resource limits for customer-supplied render sources. */
+	protected const MAX_RASTER_DIMENSION = 12000;
+	protected const MAX_RASTER_PIXELS = 40000000;
+	protected const MAX_WORK_RASTER_DIMENSION = 4096;
+	protected const MAX_WORK_RASTER_PIXELS = 16000000;
+	protected const MAX_SVG_BYTES = 5242880;
+	protected const MAX_SPOT_MASK_DIMENSION = 900;
+	protected const MAX_SPOT_MASK_RUNS = 150000;
+	protected const MAX_SPOTIFY_RESPONSE_BYTES = 524288;
 
 	/** Engraving print files must output customer text and clipart as black. */
 	protected const ENGRAVING_TONE_RGB = [ 0, 0, 0 ];
@@ -28,13 +37,13 @@ abstract class OC_Print_Base {
 	// Dimension helpers
 	// -------------------------------------------------------------------------
 
-	/** Convert canvas pixels to millimetres at CANVAS_DPI. */
-	protected static function px_to_mm( int $pixels ): float {
-		return round( $pixels * 25.4 / self::CANVAS_DPI, 3 );
+	/** Convert canvas pixels to millimetres at the snapshotted canvas DPI. */
+	protected static function px_to_mm( float $pixels, int $dpi = self::CANVAS_DPI ): float {
+		return round( $pixels * 25.4 / self::normalise_canvas_dpi( $dpi ), 3 );
 	}
 
 	/** Convert a stored print-bound value to millimetres using its selected unit. */
-	protected static function unit_to_mm( float $value, string $unit ): float {
+	protected static function unit_to_mm( float $value, string $unit, int $dpi = self::CANVAS_DPI ): float {
 		switch ( $unit ) {
 			case 'mm':
 				return round( $value, 3 );
@@ -44,23 +53,47 @@ abstract class OC_Print_Base {
 				return round( $value * 25.4, 3 );
 			case 'px':
 			default:
-				return self::px_to_mm( (int) round( $value ) );
+				return self::px_to_mm( $value, $dpi );
 		}
 	}
 
 	/** Return the physical print area dimensions in millimetres. */
 	protected static function area_dimensions_mm( object $area ): array {
 		$unit = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
+		$dpi  = self::normalise_canvas_dpi( $area->canvas_dpi ?? self::CANVAS_DPI );
 
 		return [
-			self::unit_to_mm( (float) ( $area->canvas_w ?? 1 ), $unit ),
-			self::unit_to_mm( (float) ( $area->canvas_h ?? 1 ), $unit ),
+			self::unit_to_mm( (float) ( $area->canvas_w ?? 1 ), $unit, $dpi ),
+			self::unit_to_mm( (float) ( $area->canvas_h ?? 1 ), $unit, $dpi ),
 		];
 	}
 
-	/** Convert canvas pixels to font points at CANVAS_DPI. */
-	protected static function px_to_pt( float $pixels ): float {
-		return round( $pixels * 72 / self::CANVAS_DPI, 3 );
+	/** Convert canvas pixels to font points at the snapshotted canvas DPI. */
+	protected static function px_to_pt( float $pixels, int $dpi = self::CANVAS_DPI ): float {
+		return round( $pixels * 72 / self::normalise_canvas_dpi( $dpi ), 3 );
+	}
+
+	/** Clamp invalid or hostile DPI snapshots to a practical production range. */
+	protected static function normalise_canvas_dpi( mixed $dpi ): int {
+		$dpi = is_numeric( $dpi ) ? (int) round( (float) $dpi ) : self::CANVAS_DPI;
+
+		return max( 36, min( 2400, $dpi ) );
+	}
+
+	/** Read bleed without treating an explicitly configured zero as missing. */
+	protected static function configured_bleed_mm(): float {
+		$value = OC_Admin_Settings::get( 'bleed_mm' );
+
+		return is_numeric( $value ) ? max( 0.0, min( 50.0, (float) $value ) ) : 3.0;
+	}
+
+	/** Reserve enough page slug for crop marks to remain inside the PDF page. */
+	protected static function crop_mark_slug_mm( float $bleed ): float {
+		if ( $bleed <= 0.0 || 'none' === OC_Admin_Settings::get( 'crop_mark_style' ) ) {
+			return 0.0;
+		}
+
+		return 7.5;
 	}
 
 	// -------------------------------------------------------------------------
@@ -78,22 +111,53 @@ abstract class OC_Print_Base {
 		if ( ! empty( $upload_dir['error'] ) ) {
 			throw new \RuntimeException( (string) $upload_dir['error'] );
 		}
-		$base       = $upload_dir['basedir'] . '/' . self::PRINT_SUBDIR;
-		$dir        = $base . '/' . $order_id;
+		$base = $upload_dir['basedir'] . '/' . self::PRINT_SUBDIR;
+		if ( ! self::protect_output_root( $base ) ) {
+			throw new \RuntimeException( __( 'Could not protect print directory.', 'overcustomise' ) );
+		}
+
+		$order_token = substr( hash_hmac( 'sha256', (string) $order_id, wp_salt( 'auth' ) ), 0, 32 );
+		$dir         = $base . '/' . $order_token;
 
 		if ( ! wp_mkdir_p( $dir ) ) {
 			throw new \RuntimeException( __( 'Could not create print output directory.', 'overcustomise' ) );
 		}
 
-		// Protect the print-files root with .htaccess if not already there.
-		$htaccess = $base . '/.htaccess';
-		if ( ! file_exists( $htaccess ) ) {
-			if ( false === file_put_contents( $htaccess, "Options -Indexes\nDeny from all\n" ) ) {
-				throw new \RuntimeException( __( 'Could not protect print directory.', 'overcustomise' ) );
+		return $dir;
+	}
+
+	/** Ensure existing and future print files are denied by Apache and IIS. */
+	public static function ensure_output_storage_protected(): void {
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+			return;
+		}
+
+		$base = trailingslashit( (string) $uploads['basedir'] ) . self::PRINT_SUBDIR;
+		if ( ! self::protect_output_root( $base ) ) {
+			OC_Logger::warning( 'Generated print storage could not be protected.' );
+		}
+	}
+
+	/** Create the print root and write server-specific deny rules. */
+	private static function protect_output_root( string $base ): bool {
+		if ( ( ! is_dir( $base ) && ! wp_mkdir_p( $base ) ) || ! is_writable( $base ) ) {
+			return false;
+		}
+
+		$files = [
+			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
+			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
+			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
+		];
+		foreach ( $files as $filename => $contents ) {
+			$path = $base . '/' . $filename;
+			if ( ( ! is_file( $path ) || (string) file_get_contents( $path ) !== $contents ) && false === file_put_contents( $path, $contents ) ) {
+				return false;
 			}
 		}
 
-		return $dir;
+		return true;
 	}
 
 	/** Build a stable output filename for a print file. */
@@ -217,11 +281,8 @@ abstract class OC_Print_Base {
 		$base = realpath( wp_upload_dir()['basedir'] );
 		
 		// Ensure the font file is within the uploads directory.
-		if ( ! $real || ! $base || 0 !== strpos( $real, $base ) ) {
-			return null;
-		}
-		
-		if ( ! file_exists( $real ) ) {
+		$base_prefix = $base ? rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR : '';
+		if ( ! $real || '' === $base_prefix || ! str_starts_with( $real, $base_prefix ) || ! is_file( $real ) ) {
 			return null;
 		}
 
@@ -464,10 +525,18 @@ abstract class OC_Print_Base {
 
 	/** Embed an image in TCPDF, converting artwork to a safe PNG when needed. */
 	protected static function draw_pdf_image( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		if ( ! is_readable( $path ) ) {
+			throw new \RuntimeException( sprintf( __( 'Production artwork is not readable: %s', 'overcustomise' ), basename( $path ) ) );
+		}
+		if ( $w_mm <= 0.0 || $h_mm <= 0.0 ) {
+			return;
+		}
+
 		if ( 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
 			self::draw_pdf_svg( $pdf, $path, $x_mm, $y_mm, $w_mm, $h_mm );
 			return;
 		}
+		self::assert_safe_raster_dimensions( $path );
 
 		$temp_path      = null;
 		$fallback_path  = null;
@@ -526,6 +595,9 @@ abstract class OC_Print_Base {
 	private static function normalise_svg_intrinsic_size_for_tcpdf( string $path ): ?string {
 		if ( ! class_exists( '\DOMDocument' ) || ! is_readable( $path ) ) {
 			return null;
+		}
+		if ( filesize( $path ) > self::MAX_SVG_BYTES ) {
+			throw new \RuntimeException( __( 'SVG artwork exceeds the safe production size limit.', 'overcustomise' ) );
 		}
 
 		$data = file_get_contents( $path );
@@ -753,12 +825,15 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		$dpi       = 600;
-		$width_px  = max( 1, min( 12000, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ) );
-		$height_px = max( 1, min( 12000, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) ) );
+		$dpi = 600;
+		[ $width_px, $height_px ] = self::bounded_work_dimensions(
+			max( 1, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ),
+			max( 1, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) )
+		);
 
 		try {
 			$imagick = new \Imagick();
+			self::configure_imagick_limits( $imagick );
 			$imagick->setResolution( $dpi, $dpi );
 			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
 			$imagick->readImage( $path );
@@ -853,7 +928,13 @@ abstract class OC_Print_Base {
 		}
 
 		try {
-			$imagick = new \Imagick( $path );
+			$imagick = new \Imagick();
+			self::configure_imagick_limits( $imagick );
+			$imagick->readImage( $path );
+			[ $width, $height ] = self::bounded_work_dimensions( $imagick->getImageWidth(), $imagick->getImageHeight() );
+			if ( $width !== $imagick->getImageWidth() || $height !== $imagick->getImageHeight() ) {
+				$imagick->resizeImage( $width, $height, \Imagick::FILTER_LANCZOS, 1, true );
+			}
 			$imagick->setImageFormat( 'png' );
 			$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$result = $imagick->writeImage( $output_path );
@@ -864,6 +945,48 @@ abstract class OC_Print_Base {
 			OC_Logger::warning( 'Image to PNG conversion failed for print artwork: ' . $e->getMessage() );
 			return false;
 		}
+	}
+
+	/** Apply bounded ImageMagick memory/map/disk limits before reading customer input. */
+	protected static function configure_imagick_limits( \Imagick $imagick ): void {
+		$imagick->setResourceLimit( \Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024 );
+		$imagick->setResourceLimit( \Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024 );
+		$imagick->setResourceLimit( \Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024 );
+		if ( defined( '\\Imagick::RESOURCETYPE_AREA' ) ) {
+			$imagick->setResourceLimit( \Imagick::RESOURCETYPE_AREA, self::MAX_RASTER_PIXELS );
+		}
+	}
+
+	/** Scale dimensions to the bounded working raster envelope without distortion. */
+	protected static function bounded_work_dimensions( int $width, int $height, int $max_dimension = self::MAX_WORK_RASTER_DIMENSION, int $max_pixels = self::MAX_WORK_RASTER_PIXELS ): array {
+		$width  = max( 1, $width );
+		$height = max( 1, $height );
+		$scale  = min(
+			1.0,
+			$max_dimension / max( $width, $height ),
+			sqrt( $max_pixels / max( 1, $width * $height ) )
+		);
+
+		return [
+			max( 1, (int) floor( $width * $scale ) ),
+			max( 1, (int) floor( $height * $scale ) ),
+		];
+	}
+
+	/** Reject raster headers that exceed the upload/production resource envelope. */
+	protected static function assert_safe_raster_dimensions( string $path ): array {
+		$size = @getimagesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( ! is_array( $size ) || empty( $size[0] ) || empty( $size[1] ) ) {
+			throw new \RuntimeException( sprintf( __( 'Production artwork is not a supported raster image: %s', 'overcustomise' ), basename( $path ) ) );
+		}
+
+		$width  = (int) $size[0];
+		$height = (int) $size[1];
+		if ( $width > self::MAX_RASTER_DIMENSION || $height > self::MAX_RASTER_DIMENSION || $width * $height > self::MAX_RASTER_PIXELS ) {
+			throw new \RuntimeException( __( 'Artwork dimensions exceed the safe production rendering limit.', 'overcustomise' ) );
+		}
+
+		return [ $width, $height ];
 	}
 
 	// -------------------------------------------------------------------------
@@ -975,13 +1098,17 @@ abstract class OC_Print_Base {
 	 * @param  float  $w_mm  Page width in mm (without bleed).
 	 * @param  float  $h_mm  Page height in mm (without bleed).
 	 * @param  float  $bleed Bleed in mm (added to all sides).
+	 * @param  float  $slug  Non-printing page slug outside the bleed.
 	 * @return \TCPDF
 	 */
-	protected static function make_pdf( float $w_mm, float $h_mm, float $bleed = 0.0 ): \TCPDF {
+	protected static function make_pdf( float $w_mm, float $h_mm, float $bleed = 0.0, float $slug = 0.0 ): \TCPDF {
 		self::require_tcpdf();
 
-		$page_w = $w_mm + $bleed * 2;
-		$page_h = $h_mm + $bleed * 2;
+		$bleed = max( 0.0, $bleed );
+		$slug  = max( 0.0, $slug );
+		$inset = $bleed + $slug;
+		$page_w = $w_mm + $inset * 2;
+		$page_h = $h_mm + $inset * 2;
 
 		$orientation = $page_w > $page_h ? 'L' : 'P';
 		$pdf_mode = self::pdf_conformance_mode();
@@ -1022,7 +1149,7 @@ abstract class OC_Print_Base {
 		$pdf->SetAuthor( 'Custom Kings' );
 		$pdf->SetSubject( 'Production print artwork' );
 		$pdf->SetKeywords( 'print,production,customisation,PDF/X' );
-		$pdf->SetMargins( $bleed, $bleed, $bleed );
+		$pdf->SetMargins( $inset, $inset, $inset );
 		$pdf->SetAutoPageBreak( false, 0 );
 		$pdf->setPrintHeader( false );
 		$pdf->setPrintFooter( false );
@@ -1214,18 +1341,81 @@ abstract class OC_Print_Base {
 		if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
 			$attachment_path = self::resolve_attachment_artwork_path( (int) $area_data['artworkAttachmentId'] );
 			if ( $attachment_path ) {
-				return $attachment_path;
+				return self::production_artwork_path( $attachment_path, $area_data, (int) $area_data['artworkAttachmentId'] );
 			}
+			throw new \RuntimeException( __( 'The selected production artwork attachment is missing or unreadable.', 'overcustomise' ) );
 		}
 
 		if ( ! empty( $area_data['artworkPath'] ) && is_string( $area_data['artworkPath'] ) ) {
 			$real = self::resolve_uploads_file_path( $area_data['artworkPath'] );
 			if ( $real ) {
-				return $real;
+				return self::production_artwork_path( $real, $area_data );
 			}
+			throw new \RuntimeException( __( 'The selected production artwork path is missing or outside the protected upload directory.', 'overcustomise' ) );
 		}
 
 		return null;
+	}
+
+	/**
+	 * Resolve PDF/EPS originals to an explicitly retained production derivative.
+	 * Production must never silently replace accepted artwork with a placeholder.
+	 */
+	private static function production_artwork_path( string $path, array $area_data, int $attachment_id = 0 ): string {
+		$extension = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( ! in_array( $extension, [ 'pdf', 'eps' ], true ) ) {
+			return $path;
+		}
+
+		$path_keys = [ 'artworkDerivativePath', 'derivativePath', 'artworkPreviewPath', 'previewPath' ];
+		foreach ( $path_keys as $key ) {
+			if ( ! empty( $area_data[ $key ] ) && is_string( $area_data[ $key ] ) ) {
+				$derivative = self::resolve_uploads_file_path( $area_data[ $key ] );
+				if ( $derivative && self::is_supported_production_derivative( $derivative ) ) {
+					return $derivative;
+				}
+			}
+		}
+
+		$id_keys = [ 'artworkDerivativeAttachmentId', 'derivativeAttachmentId', 'previewAttachmentId' ];
+		foreach ( $id_keys as $key ) {
+			$derivative_id = absint( $area_data[ $key ] ?? 0 );
+			$derivative    = $derivative_id ? self::resolve_attachment_artwork_path( $derivative_id ) : null;
+			if ( $derivative && self::is_supported_production_derivative( $derivative ) ) {
+				return $derivative;
+			}
+		}
+
+		if ( $attachment_id > 0 && function_exists( 'get_post_meta' ) ) {
+			foreach ( [ '_oc_print_derivative_attachment_id', '_oc_artwork_preview_attachment_id' ] as $meta_key ) {
+				$derivative_id = absint( get_post_meta( $attachment_id, $meta_key, true ) );
+				$derivative    = $derivative_id ? self::resolve_attachment_artwork_path( $derivative_id ) : null;
+				if ( $derivative && self::is_supported_production_derivative( $derivative ) ) {
+					return $derivative;
+				}
+			}
+		}
+
+		$stem = pathinfo( $path, PATHINFO_DIRNAME ) . '/' . pathinfo( $path, PATHINFO_FILENAME );
+		foreach ( [ '-preview.png', '-preview.jpg', '-preview.webp', '-derivative.png' ] as $suffix ) {
+			$derivative = self::resolve_uploads_file_path( $stem . $suffix );
+			if ( $derivative && self::is_supported_production_derivative( $derivative ) ) {
+				return $derivative;
+			}
+		}
+
+		throw new \RuntimeException(
+			sprintf(
+				__( 'Production rendering does not support the %1$s original "%2$s" without a safe PNG, JPEG, WEBP, or SVG derivative.', 'overcustomise' ),
+				strtoupper( $extension ),
+				basename( $path )
+			)
+		);
+	}
+
+	/** Return whether a resolved derivative is supported by all production renderers. */
+	private static function is_supported_production_derivative( string $path ): bool {
+		return is_readable( $path ) && in_array( strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ), [ 'png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'svg' ], true );
 	}
 
 	/** Resolve a media-library artwork attachment, tolerating stale absolute upload paths. */
@@ -1260,6 +1450,7 @@ abstract class OC_Print_Base {
 		if ( ! $base_real ) {
 			return null;
 		}
+		$base_real = rtrim( $base_real, '/\\' );
 
 		$candidates = [ $path ];
 		if ( ! str_starts_with( $path, '/' ) ) {
@@ -1277,7 +1468,7 @@ abstract class OC_Print_Base {
 
 		foreach ( array_unique( $candidates ) as $candidate ) {
 			$real = realpath( $candidate );
-			if ( $real && 0 === strpos( $real, $base_real ) && is_readable( $real ) ) {
+			if ( $real && ( $real === $base_real || str_starts_with( $real, $base_real . DIRECTORY_SEPARATOR ) ) && is_readable( $real ) ) {
 				return $real;
 			}
 		}
@@ -1306,6 +1497,9 @@ abstract class OC_Print_Base {
 
 		$snapshot = is_array( $area_data['snapshot'] ?? null ) ? $area_data['snapshot'] : [];
 		$svg      = (string) $snapshot['svg'];
+		if ( strlen( $svg ) > self::MAX_SVG_BYTES ) {
+			throw new \RuntimeException( __( 'Vector snapshot exceeds the safe production size limit.', 'overcustomise' ) );
+		}
 		$temp     = self::temp_path_with_extension( 'oc-vector-snapshot-' . wp_generate_uuid4() . '.svg', 'svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return false;
@@ -1327,9 +1521,36 @@ abstract class OC_Print_Base {
 		}
 	}
 
+	/** Render a vector snapshot's visible alpha using the active spot colour. */
+	protected static function render_vector_snapshot_spot_mask( \TCPDF $pdf, array $area_data, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): bool {
+		if ( ! self::has_vector_snapshot_payload( $area_data ) ) {
+			return false;
+		}
+
+		$svg = (string) $area_data['snapshot']['svg'];
+		if ( strlen( $svg ) > self::MAX_SVG_BYTES ) {
+			throw new \RuntimeException( __( 'Vector snapshot exceeds the safe production size limit.', 'overcustomise' ) );
+		}
+		$temp = self::temp_path_with_extension( 'oc-vector-spot-snapshot-' . wp_generate_uuid4() . '.svg', 'svg' );
+		if ( ! is_string( $temp ) || '' === $temp || false === file_put_contents( $temp, $svg ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			if ( is_string( $temp ) ) {
+				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			return false;
+		}
+
+		try {
+			self::render_artwork_spot_mask( $pdf, $temp, $x_mm, $y_mm, $w_mm, $h_mm );
+			return true;
+		} finally {
+			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
 	/**
-	 * Rotated print areas are rotated on the product mockup only. Production files
-	 * need the flat artboard dimensions, with artwork kept upright on that bed.
+	 * Convert quarter-turn v2 areas to a flat artboard. The source dimensions and
+	 * turn are retained on the cloned row so layer coordinates can be transformed
+	 * rather than stretched into the swapped dimensions.
 	 *
 	 * @return array{0:object,1:float,2:float}
 	 */
@@ -1340,13 +1561,17 @@ abstract class OC_Print_Base {
 			return [ $area, $w_mm, $h_mm ];
 		}
 
-		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
-		$rotation = abs( fmod( (float) ( $bounds['rotation'] ?? $area->canvas_rotation ?? 0 ), 180.0 ) );
-		if ( abs( $rotation - 90.0 ) >= 0.001 ) {
+		$bounds   = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
+		$rotation = fmod( (float) ( $bounds['rotation'] ?? $area->canvas_rotation ?? 0 ), 360.0 );
+		$rotation = $rotation < 0.0 ? $rotation + 360.0 : $rotation;
+		if ( abs( $rotation - 90.0 ) >= 0.001 && abs( $rotation - 270.0 ) >= 0.001 ) {
 			return [ $area, $w_mm, $h_mm ];
 		}
 
 		$flat_area = clone $area;
+		$flat_area->_oc_source_canvas_w = (float) ( $area->canvas_w ?? $bounds['w'] ?? 1 );
+		$flat_area->_oc_source_canvas_h = (float) ( $area->canvas_h ?? $bounds['h'] ?? 1 );
+		$flat_area->_oc_print_quarter_turn = (int) round( $rotation );
 		$flat_area->canvas_w = (float) ( $area->canvas_h ?? $bounds['h'] ?? $area->canvas_w ?? 1 );
 		$flat_area->canvas_h = (float) ( $area->canvas_w ?? $bounds['w'] ?? $area->canvas_h ?? 1 );
 		$flat_area->canvas_rotation = 0;
@@ -1359,16 +1584,15 @@ abstract class OC_Print_Base {
 	 * Layer coordinates are stored in mockup pixels, so they are offset back into
 	 * print-area space before converting to millimetres.
 	 */
-	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour' ): void {
+	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour', array $options = [] ): void {
 		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
-		$unit   = isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px';
 		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
 		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
 		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
-		$area_w_mm = self::unit_to_mm( (float) ( $area->canvas_w ?? $bounds_w ), $unit );
-		$area_h_mm = self::unit_to_mm( (float) ( $area->canvas_h ?? $bounds_h ), $unit );
-		$font_px_to_pt = self::mm_to_pt_value( $area_h_mm ) / $bounds_h;
+		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
+		$quarter_turn = (int) ( $area->_oc_print_quarter_turn ?? 0 );
+		$font_px_to_pt = self::mm_to_pt_value( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
 
 		foreach ( $area_data['layers'] as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -1383,44 +1607,88 @@ abstract class OC_Print_Base {
 			$layer_y = (float) ( $layer['y'] ?? 0 );
 			$layer_w = max( 1.0, (float) ( $layer['w'] ?? 1 ) );
 			$layer_h = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
-			$x_mm = $origin_x_mm + ( ( $layer_x - $area_x ) / $bounds_w ) * $area_w_mm;
-			$y_mm = $origin_y_mm + ( ( $layer_y - $area_y ) / $bounds_h ) * $area_h_mm;
-			$w_mm = ( $layer_w / $bounds_w ) * $area_w_mm;
-			$h_mm = ( $layer_h / $bounds_h ) * $area_h_mm;
 			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+			$relative_cx = ( $layer_x - $area_x + $layer_w / 2 ) / $bounds_w;
+			$relative_cy = ( $layer_y - $area_y + $layer_h / 2 ) / $bounds_h;
 
-			switch ( $type ) {
-				case 'text':
-				case 'textarea':
-					self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $font_px_to_pt );
-					break;
+			if ( 90 === $quarter_turn ) {
+				$center_x = $origin_x_mm + ( 1.0 - $relative_cy ) * $area_w_mm;
+				$center_y = $origin_y_mm + $relative_cx * $area_h_mm;
+				$w_mm     = ( $layer_w / $bounds_w ) * $area_h_mm;
+				$h_mm     = ( $layer_h / $bounds_h ) * $area_w_mm;
+			} elseif ( 270 === $quarter_turn ) {
+				$center_x = $origin_x_mm + $relative_cy * $area_w_mm;
+				$center_y = $origin_y_mm + ( 1.0 - $relative_cx ) * $area_h_mm;
+				$w_mm     = ( $layer_w / $bounds_w ) * $area_h_mm;
+				$h_mm     = ( $layer_h / $bounds_h ) * $area_w_mm;
+			} else {
+				$center_x = $origin_x_mm + $relative_cx * $area_w_mm;
+				$center_y = $origin_y_mm + $relative_cy * $area_h_mm;
+				$w_mm     = ( $layer_w / $bounds_w ) * $area_w_mm;
+				$h_mm     = ( $layer_h / $bounds_h ) * $area_h_mm;
+			}
 
-				case 'spotify':
-					self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
-					break;
+			$x_mm = $center_x - $w_mm / 2;
+			$y_mm = $center_y - $h_mm / 2;
+			$rotation = $quarter_turn + self::layer_rotation_degrees( $layer, $input, $settings );
+			$rotation = fmod( $rotation, 360.0 );
+			$transformed = abs( $rotation ) >= 0.001;
+			if ( $transformed ) {
+				$pdf->StartTransform();
+				// Fabric uses clockwise angles in its top-left coordinate system;
+				// TCPDF expects counter-clockwise angles.
+				$pdf->Rotate( -$rotation, $center_x, $center_y );
+			}
 
-				case 'image':
-				case 'clipart':
-					self::render_layer_image( $pdf, $layer, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
-					break;
+			try {
+				switch ( $type ) {
+					case 'text':
+					case 'textarea':
+						self::render_layer_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $font_px_to_pt );
+						break;
 
-				case 'clipmask':
-					self::render_layer_clipped_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
-					break;
+					case 'spotify':
+						self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+						break;
 
-				case 'lineart':
-					$hex = (string) ( $input['colorHex'] ?? '#000000' );
-					if ( 'engraving' === $mode ) {
-						$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
-					} else {
-						[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
-						$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
-					}
-					$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'F' );
-					break;
+					case 'image':
+					case 'clipart':
+						self::render_layer_image( $pdf, $layer, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $options );
+						break;
+
+					case 'clipmask':
+						self::render_layer_clipped_image( $pdf, $layer, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $options );
+						break;
+
+					case 'lineart':
+						$hex = (string) ( $input['colorHex'] ?? '#000000' );
+						if ( 'engraving' === $mode ) {
+							$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
+						} elseif ( 'spot' !== $mode ) {
+							[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
+							$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
+						}
+						$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'F' );
+						break;
+				}
+			} finally {
+				if ( $transformed ) {
+					$pdf->StopTransform();
+				}
 			}
 		}
+	}
+
+	/** Resolve a layer-local rotation without mixing it with print-area rotation. */
+	private static function layer_rotation_degrees( array $layer, array $input, array $settings ): float {
+		foreach ( [ $layer['rotation'] ?? null, $input['rotation'] ?? null, $settings['rotation'] ?? null ] as $rotation ) {
+			if ( is_numeric( $rotation ) ) {
+				return (float) $rotation;
+			}
+		}
+
+		return 0.0;
 	}
 
 	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode, ?float $font_px_to_pt = null ): void {
@@ -1438,7 +1706,7 @@ abstract class OC_Print_Base {
 		$font_name           = self::resolve_font( $font_id, $pdf );
 		$raw_font_path       = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
 		$engraving_font_path = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
-		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : 72 / self::CANVAS_DPI;
+		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : self::px_to_pt( 1.0 );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? max( 4.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_px_to_pt )
 			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.42 * $font_px_to_pt );
@@ -1506,7 +1774,7 @@ abstract class OC_Print_Base {
 		$pdf->SetFont( $font_name, '', $font_size );
 		if ( 'engraving' === $mode ) {
 			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
-		} else {
+		} elseif ( 'spot' !== $mode ) {
 			[ $c, $m, $y, $k ] = self::hex_to_cmyk( (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' ) );
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 		}
@@ -1520,16 +1788,19 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		$dpi       = 600;
-		$width_px  = max( 1, min( 12000, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ) );
-		$height_px = max( 1, min( 12000, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) ) );
-		$temp      = self::temp_path_with_extension( 'oc-engraving-text-raster-' . wp_generate_uuid4() . '.png', 'png' );
+		$dpi = 600;
+		[ $width_px, $height_px ] = self::bounded_work_dimensions(
+			max( 1, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ),
+			max( 1, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) )
+		);
+		$temp = self::temp_path_with_extension( 'oc-engraving-text-raster-' . wp_generate_uuid4() . '.png', 'png' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
 			return false;
 		}
 
 		try {
 			$image = new \Imagick();
+			self::configure_imagick_limits( $image );
 			$image->newImage( $width_px, $height_px, new \ImagickPixel( 'transparent' ), 'png' );
 			$image->setImageFormat( 'png32' );
 
@@ -1817,16 +2088,20 @@ abstract class OC_Print_Base {
 	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
 		$spotify_url = self::build_spotify_code_url( (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'engraving' === $mode );
 		if ( '' === $spotify_url ) {
-			return;
+			throw new \RuntimeException( __( 'The Spotify layer does not contain a valid Spotify URI.', 'overcustomise' ) );
 		}
 
 		$svg_path = self::download_spotify_code_svg( $spotify_url );
 		if ( ! $svg_path ) {
-			return;
+			throw new \RuntimeException( __( 'The Spotify code could not be retrieved for production.', 'overcustomise' ) );
 		}
 
 		try {
-			$pdf->ImageSVG( $svg_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+			if ( 'spot' === $mode ) {
+				self::render_artwork_spot_mask( $pdf, $svg_path, $x_mm, $y_mm, $w_mm, $h_mm );
+			} else {
+				$pdf->ImageSVG( $svg_path, $x_mm, $y_mm, $w_mm, $h_mm, '', '', '', 0, false );
+			}
 		} finally {
 			@unlink( $svg_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
@@ -1838,11 +2113,8 @@ abstract class OC_Print_Base {
 			return '';
 		}
 
-		$background_hex = $engraving ? 'ECEFF1' : 'FFFFFF';
-
 		return sprintf(
-			'https://scannables.scdn.co/uri/plain/svg/%s/black/640/%s',
-			$background_hex,
+			'https://scannables.scdn.co/uri/plain/svg/FFFFFF/black/640/%s',
 			$spotify_uri
 		);
 	}
@@ -1853,7 +2125,7 @@ abstract class OC_Print_Base {
 			return '';
 		}
 
-		if ( preg_match( '/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]+)$/i', $raw, $matches ) ) {
+		if ( preg_match( '/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]{1,128})$/i', $raw, $matches ) ) {
 			return sprintf( 'spotify:%s:%s', strtolower( $matches[1] ), $matches[2] );
 		}
 
@@ -1880,7 +2152,7 @@ abstract class OC_Print_Base {
 			}
 
 			$id = (string) $path_parts[ $index + 1 ];
-			if ( preg_match( '/^[A-Za-z0-9]+$/', $id ) ) {
+			if ( preg_match( '/^[A-Za-z0-9]{1,128}$/', $id ) ) {
 				return sprintf( 'spotify:%s:%s', $part, $id );
 			}
 		}
@@ -1888,10 +2160,11 @@ abstract class OC_Print_Base {
 		return '';
 	}
 
-	private static function download_spotify_code_svg( string $spotify_url ): ?string {
+	protected static function download_spotify_code_svg( string $spotify_url ): ?string {
 		$response = wp_safe_remote_get( $spotify_url, [
-			'timeout'     => 15,
+			'timeout'     => 8,
 			'redirection' => 2,
+			'limit_response_size' => self::MAX_SPOTIFY_RESPONSE_BYTES,
 		] );
 
 		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
@@ -1899,7 +2172,7 @@ abstract class OC_Print_Base {
 		}
 
 		$body = wp_remote_retrieve_body( $response );
-		if ( ! is_string( $body ) || ! str_contains( $body, '<svg' ) ) {
+		if ( ! is_string( $body ) || strlen( $body ) > self::MAX_SPOTIFY_RESPONSE_BYTES || ! str_contains( $body, '<svg' ) ) {
 			return null;
 		}
 
@@ -1908,6 +2181,13 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
+		if ( class_exists( 'OC_SVG_Sanitiser' ) ) {
+			try {
+				$body = OC_SVG_Sanitiser::sanitise( $body );
+			} catch ( \InvalidArgumentException $e ) {
+				return null;
+			}
+		}
 		$body = self::make_spotify_svg_background_transparent( $body );
 
 		if ( false === file_put_contents( $temp, $body ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
@@ -1928,90 +2208,228 @@ abstract class OC_Print_Base {
 		return $svg;
 	}
 
-	private static function render_layer_image( \TCPDF $pdf, array $layer, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {
-		$path = self::resolve_artwork_path( $layer );
+	private static function render_layer_image( \TCPDF $pdf, array $layer, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour', array $options = [] ): void {
+		$path = self::resolve_artwork_path( array_merge( $input, $layer ) );
 		if ( ! $path ) {
+			if ( absint( $input['attachmentId'] ?? 0 ) > 0 || absint( $layer['artworkAttachmentId'] ?? 0 ) > 0 || absint( $input['clipartId'] ?? 0 ) > 0 ) {
+				throw new \RuntimeException( __( 'A selected artwork layer no longer has a readable production file.', 'overcustomise' ) );
+			}
 			return;
 		}
 
-		$temp_path = null;
-		if ( 'engraving' === $mode && 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
-			$temp_path = self::build_black_clipart( $path );
-			if ( is_string( $temp_path ) && '' !== $temp_path ) {
-				$path = $temp_path;
-			}
-		} elseif (
-			'colour' !== $mode
+		$temp_paths = [];
+		if (
+			'colour' === $mode
 			&& 'clipart' === (string) ( $layer['type'] ?? '' )
 			&& ! empty( $input['clipartRecolourable'] )
 		) {
 			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );
 			if ( $hex ) {
-				$temp_path = self::build_coloured_clipart( $path, $hex );
-				if ( is_string( $temp_path ) && '' !== $temp_path ) {
-					$path = $temp_path;
+				$coloured_path = self::build_coloured_clipart( $path, $hex );
+				if ( is_string( $coloured_path ) && '' !== $coloured_path ) {
+					$temp_paths[] = $coloured_path;
+					$path         = $coloured_path;
 				}
 			}
 		}
 		if ( 'image' === (string) ( $layer['type'] ?? '' ) ) {
 			$filtered_path = self::build_filtered_image( $path, $layer, $input );
 			if ( is_string( $filtered_path ) && '' !== $filtered_path ) {
-				$temp_path = $filtered_path;
-				$path      = $filtered_path;
+				if ( $filtered_path !== $path ) {
+					$temp_paths[] = $filtered_path;
+				}
+				$path         = $filtered_path;
+			} elseif ( absint( $input['imageFilterId'] ?? 0 ) > 0 ) {
+				throw new \RuntimeException( __( 'The selected image filter could not be reproduced for production.', 'overcustomise' ) );
 			}
 		}
-
-		$draw_w = $w_mm;
-		$draw_h = $h_mm;
-		$draw_x = $x_mm;
-		$draw_y = $y_mm;
-		$size = @getimagesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		if ( is_array( $size ) && ! empty( $size[0] ) && ! empty( $size[1] ) ) {
-			$scale = min( $w_mm / (float) $size[0], $h_mm / (float) $size[1] );
-			$draw_w = (float) $size[0] * $scale;
-			$draw_h = (float) $size[1] * $scale;
-			$draw_x = $x_mm + ( $w_mm - $draw_w ) / 2;
-			$draw_y = $y_mm + ( $h_mm - $draw_h ) / 2;
+		if ( 'engraving' === $mode ) {
+			if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
+				throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
+			}
+			$engraved_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
+			$temp_paths[]  = $engraved_path;
+			$path          = $engraved_path;
 		}
 
-		self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
+		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, 'contain' );
 
-		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
-			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		try {
+			if ( 'spot' === $mode ) {
+				self::render_artwork_spot_mask( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
+			} else {
+				self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
+			}
+		} finally {
+			foreach ( array_unique( $temp_paths ) as $temp_path ) {
+				if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
+					@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+			}
 		}
 	}
 
-	private static function render_layer_clipped_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour' ): void {
-		$path = self::resolve_artwork_path( $layer );
+	private static function render_layer_clipped_image( \TCPDF $pdf, array $layer, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode = 'colour', array $options = [] ): void {
+		$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+		$path  = self::resolve_artwork_path( array_merge( $input, $layer ) );
 		if ( ! $path ) {
+			if ( absint( $input['attachmentId'] ?? 0 ) > 0 || absint( $layer['artworkAttachmentId'] ?? 0 ) > 0 ) {
+				throw new \RuntimeException( __( 'A selected clipped artwork layer no longer has a readable production file.', 'overcustomise' ) );
+			}
 			return;
 		}
-
-		$draw_w = $w_mm;
-		$draw_h = $h_mm;
-		$draw_x = $x_mm;
-		$draw_y = $y_mm;
-		$size = @getimagesize( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		if ( is_array( $size ) && ! empty( $size[0] ) && ! empty( $size[1] ) ) {
-			$scale  = max( $w_mm / (float) $size[0], $h_mm / (float) $size[1] );
-			$draw_w = (float) $size[0] * $scale;
-			$draw_h = (float) $size[1] * $scale;
-			$draw_x = $x_mm + ( $w_mm - $draw_w ) / 2;
-			$draw_y = $y_mm + ( $h_mm - $draw_h ) / 2;
+		$temp_path = null;
+		if ( 'engraving' === $mode ) {
+			if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
+				throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
+			}
+			$temp_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
+			$path      = $temp_path;
 		}
+
+		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, 'cover' );
 
 		$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 		$shape    = sanitize_key( (string) ( $settings['mask_shape'] ?? 'circle' ) );
 
 		$pdf->StartTransform();
-		if ( 'circle' === $shape ) {
-			$radius = min( $w_mm, $h_mm ) / 2;
-			$pdf->Circle( $x_mm + $w_mm / 2, $y_mm + $h_mm / 2, $radius, 0, 360, 'CNZ' );
-		} else {
-			$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
+		try {
+			if ( 'circle' === $shape ) {
+				$radius = min( $w_mm, $h_mm ) / 2;
+				$pdf->Circle( $x_mm + $w_mm / 2, $y_mm + $h_mm / 2, $radius, 0, 360, 'CNZ' );
+			} else {
+				$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
+			}
+			if ( 'spot' === $mode ) {
+				self::render_artwork_spot_mask( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
+			} else {
+				self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
+			}
+		} finally {
+			$pdf->StopTransform();
+			if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
+				@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
 		}
-		self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
-		$pdf->StopTransform();
+	}
+
+	/** Fit artwork by intrinsic dimensions, including SVG viewBox dimensions. */
+	private static function fit_artwork_box( string $path, float $x, float $y, float $w, float $h, string $fit ): array {
+		$size = self::artwork_intrinsic_dimensions( $path );
+		if ( ! $size ) {
+			return [ $x, $y, $w, $h ];
+		}
+
+		[ $source_w, $source_h ] = $size;
+		$scale  = 'cover' === $fit ? max( $w / $source_w, $h / $source_h ) : min( $w / $source_w, $h / $source_h );
+		$draw_w = $source_w * $scale;
+		$draw_h = $source_h * $scale;
+
+		return [ $x + ( $w - $draw_w ) / 2, $y + ( $h - $draw_h ) / 2, $draw_w, $draw_h ];
+	}
+
+	/** Return width/height without decoding an unbounded raster. */
+	private static function artwork_intrinsic_dimensions( string $path ): ?array {
+		if ( 'svg' !== strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			return self::assert_safe_raster_dimensions( $path );
+		}
+		if ( ! class_exists( '\DOMDocument' ) || ! is_readable( $path ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
+			return null;
+		}
+
+		$dom      = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $dom->load( $path, LIBXML_NONET );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $dom->documentElement instanceof \DOMElement ) {
+			return null;
+		}
+
+		$svg = $dom->documentElement;
+		$view_box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
+		if ( is_array( $view_box ) && count( $view_box ) >= 4 && (float) $view_box[2] > 0.0 && (float) $view_box[3] > 0.0 ) {
+			return [ (float) $view_box[2], (float) $view_box[3] ];
+		}
+
+		$width  = (float) $svg->getAttribute( 'width' );
+		$height = (float) $svg->getAttribute( 'height' );
+		return $width > 0.0 && $height > 0.0 ? [ $width, $height ] : null;
+	}
+
+	/** Draw only non-transparent artwork pixels using the currently selected spot fill. */
+	protected static function render_artwork_spot_mask( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
+		if ( 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			$image = self::rasterise_svg_spot_mask( $path, $w_mm, $h_mm );
+		} else {
+			$image = self::open_raster_resource( $path );
+			if ( $image ) {
+				$image = self::bounded_gd_resource( $image, self::MAX_SPOT_MASK_DIMENSION, self::MAX_SPOT_MASK_DIMENSION * self::MAX_SPOT_MASK_DIMENSION );
+			}
+		}
+		if ( ! $image ) {
+			throw new \RuntimeException( sprintf( __( 'Could not build a white-ink mask from %s.', 'overcustomise' ), basename( $path ) ) );
+		}
+
+		$width  = imagesx( $image );
+		$height = imagesy( $image );
+		$x_scale = $w_mm / max( 1, $width );
+		$y_scale = $h_mm / max( 1, $height );
+		$runs    = 0;
+		for ( $row = 0; $row < $height; $row++ ) {
+			$run_start = -1;
+			for ( $column = 0; $column < $width; $column++ ) {
+				$rgba    = imagecolorat( $image, $column, $row );
+				$visible = ( ( $rgba >> 24 ) & 0x7F ) < 120;
+				if ( $visible && $run_start < 0 ) {
+					$run_start = $column;
+				} elseif ( ! $visible && $run_start >= 0 ) {
+					if ( ++$runs > self::MAX_SPOT_MASK_RUNS ) {
+						imagedestroy( $image );
+						throw new \RuntimeException( __( 'The white-ink mask is too complex to render safely.', 'overcustomise' ) );
+					}
+					$pdf->Rect( $x_mm + $run_start * $x_scale, $y_mm + $row * $y_scale, ( $column - $run_start ) * $x_scale, $y_scale, 'F' );
+					$run_start = -1;
+				}
+			}
+			if ( $run_start >= 0 ) {
+				if ( ++$runs > self::MAX_SPOT_MASK_RUNS ) {
+					imagedestroy( $image );
+					throw new \RuntimeException( __( 'The white-ink mask is too complex to render safely.', 'overcustomise' ) );
+				}
+				$pdf->Rect( $x_mm + $run_start * $x_scale, $y_mm + $row * $y_scale, ( $width - $run_start ) * $x_scale, $y_scale, 'F' );
+			}
+		}
+
+		imagedestroy( $image );
+	}
+
+	/** Rasterise SVG alpha only at a bounded white-plate working resolution. */
+	private static function rasterise_svg_spot_mask( string $path, float $w_mm, float $h_mm ) {
+		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
+			return false;
+		}
+		$ratio = max( 0.01, $w_mm ) / max( 0.01, $h_mm );
+		$width = $ratio >= 1.0 ? self::MAX_SPOT_MASK_DIMENSION : max( 1, (int) round( self::MAX_SPOT_MASK_DIMENSION * $ratio ) );
+		$height = $ratio >= 1.0 ? max( 1, (int) round( self::MAX_SPOT_MASK_DIMENSION / $ratio ) ) : self::MAX_SPOT_MASK_DIMENSION;
+
+		try {
+			$imagick = new \Imagick();
+			self::configure_imagick_limits( $imagick );
+			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
+			$imagick->readImage( $path );
+			$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
+			$imagick->setImageFormat( 'png32' );
+			$imagick->resizeImage( $width, $height, \Imagick::FILTER_LANCZOS, 1, true );
+			$blob = $imagick->getImageBlob();
+			$imagick->clear();
+			$imagick->destroy();
+
+			return is_string( $blob ) && '' !== $blob ? @imagecreatefromstring( $blob ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'SVG white-ink mask conversion failed: ' . $e->getMessage() );
+			return false;
+		}
 	}
 
 	private static function build_black_clipart( string $path ): ?string {
@@ -2154,8 +2572,9 @@ abstract class OC_Print_Base {
 	}
 
 	private static function open_raster_resource( string $path ) {
+		self::assert_safe_raster_dimensions( $path );
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
-		return match ( $ext ) {
+		$image = match ( $ext ) {
 			'jpg', 'jpeg' => @imagecreatefromjpeg( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			'png' => @imagecreatefrompng( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			'webp' => function_exists( 'imagecreatefromwebp' ) ? @imagecreatefromwebp( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -2163,9 +2582,39 @@ abstract class OC_Print_Base {
 			'gif' => @imagecreatefromgif( $path ), // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			default => false,
 		};
+		if ( ! $image ) {
+			return false;
+		}
+
+		return self::bounded_gd_resource( $image );
 	}
 
-	private static function build_filtered_image( string $path, array $layer, array $input ): ?string {
+	/** Downsample expensive per-pixel work while preserving transparency and aspect ratio. */
+	protected static function bounded_gd_resource( $image, int $max_dimension = self::MAX_WORK_RASTER_DIMENSION, int $max_pixels = self::MAX_WORK_RASTER_PIXELS ) {
+		if ( function_exists( 'imageistruecolor' ) && ! imageistruecolor( $image ) && function_exists( 'imagepalettetotruecolor' ) ) {
+			imagepalettetotruecolor( $image );
+			imagealphablending( $image, false );
+			imagesavealpha( $image, true );
+		}
+		$width  = imagesx( $image );
+		$height = imagesy( $image );
+		[ $target_w, $target_h ] = self::bounded_work_dimensions( $width, $height, $max_dimension, $max_pixels );
+		if ( $target_w === $width && $target_h === $height ) {
+			return $image;
+		}
+
+		$resized = imagecreatetruecolor( $target_w, $target_h );
+		imagealphablending( $resized, false );
+		imagesavealpha( $resized, true );
+		$transparent = imagecolorallocatealpha( $resized, 0, 0, 0, 127 );
+		imagefilledrectangle( $resized, 0, 0, $target_w, $target_h, $transparent );
+		imagecopyresampled( $resized, $image, 0, 0, 0, 0, $target_w, $target_h, $width, $height );
+		imagedestroy( $image );
+
+		return $resized;
+	}
+
+	protected static function build_filtered_image( string $path, array $layer, array $input ): ?string {
 		$filter_id = absint( $input['imageFilterId'] ?? 0 );
 		if ( ! $filter_id || ! function_exists( 'imagefilter' ) ) {
 			return null;
@@ -2177,26 +2626,34 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$filter = null;
-		foreach ( OC_DB::get_image_filters( true ) as $candidate ) {
-			if ( (int) $candidate->id === $filter_id ) {
-				$filter = $candidate;
-				break;
+		$key   = sanitize_key( (string) ( $input['imageFilterKey'] ?? '' ) );
+		$value = is_numeric( $input['imageFilterValue'] ?? null ) ? (float) $input['imageFilterValue'] : 0.0;
+		if ( '' === $key ) {
+			$filter = null;
+			foreach ( OC_DB::get_image_filters( true ) as $candidate ) {
+				if ( (int) $candidate->id === $filter_id ) {
+					$filter = $candidate;
+					break;
+				}
 			}
+			if ( ! $filter ) {
+				return null;
+			}
+			$key   = sanitize_key( (string) $filter->filter_key );
+			$value = (float) $filter->value;
 		}
-		if ( ! $filter ) {
-			return null;
+		if ( 'ai' === $key ) {
+			return $path;
 		}
 
 		$src = self::open_raster_resource( $path );
 		if ( ! $src ) {
 			return null;
 		}
+		$src = self::bounded_gd_resource( $src, 2048, 4000000 );
 		imagealphablending( $src, false );
 		imagesavealpha( $src, true );
 
-		$key   = sanitize_key( (string) $filter->filter_key );
-		$value = (float) $filter->value;
 		$ok    = match ( $key ) {
 			'grayscale'  => imagefilter( $src, IMG_FILTER_GRAYSCALE ),
 			'sepia'      => imagefilter( $src, IMG_FILTER_GRAYSCALE ) && imagefilter( $src, IMG_FILTER_COLORIZE, 90, 45, 0 ),
@@ -2291,8 +2748,9 @@ abstract class OC_Print_Base {
 	 * @param float  $w_mm  Trim width (without bleed).
 	 * @param float  $h_mm  Trim height (without bleed).
 	 * @param float  $bleed Bleed in mm.
+	 * @param float  $slug  Page slug outside the bleed.
 	 */
-	protected static function draw_crop_marks( \TCPDF $pdf, float $w_mm, float $h_mm, float $bleed ): void {
+	protected static function draw_crop_marks( \TCPDF $pdf, float $w_mm, float $h_mm, float $bleed, float $slug = 0.0 ): void {
 		if ( $bleed <= 0 ) {
 			return;
 		}
@@ -2302,23 +2760,23 @@ abstract class OC_Print_Base {
 
 		$mark_len  = 5.0;  // Length of crop mark line beyond bleed edge.
 		$mark_gap  = 2.0;  // Gap between trim edge and start of crop mark.
-		$page_w    = $w_mm + $bleed * 2;
-		$page_h    = $h_mm + $bleed * 2;
+		$trim_x    = max( 0.0, $slug ) + $bleed;
+		$trim_y    = max( 0.0, $slug ) + $bleed;
 
 		$pdf->SetDrawColor( 0, 0, 0 );
 		$pdf->SetLineWidth( 0.25 );
 
 		// Trim box corners: TL, TR, BL, BR.
 		$corners = [
-			[ $bleed, $bleed ],            // TL
-			[ $bleed + $w_mm, $bleed ],    // TR
-			[ $bleed, $bleed + $h_mm ],    // BL
-			[ $bleed + $w_mm, $bleed + $h_mm ], // BR
+			[ $trim_x, $trim_y ],            // TL
+			[ $trim_x + $w_mm, $trim_y ],    // TR
+			[ $trim_x, $trim_y + $h_mm ],    // BL
+			[ $trim_x + $w_mm, $trim_y + $h_mm ], // BR
 		];
 
 		foreach ( $corners as [ $cx, $cy ] ) {
 			// Horizontal line.
-			$dir_x = $cx <= $bleed ? -1 : 1;
+			$dir_x = $cx <= $trim_x ? -1 : 1;
 			$pdf->Line(
 				$cx + $dir_x * $mark_gap,
 				$cy,
@@ -2326,7 +2784,7 @@ abstract class OC_Print_Base {
 				$cy
 			);
 			// Vertical line.
-			$dir_y = $cy <= $bleed ? -1 : 1;
+			$dir_y = $cy <= $trim_y ? -1 : 1;
 			$pdf->Line(
 				$cx,
 				$cy + $dir_y * $mark_gap,

@@ -142,6 +142,17 @@ class Test_SVG_Sanitiser extends TestCase {
 		$this->assertStringNotContainsString( 'data:', $result );
 	}
 
+	#[Test]
+	public function it_retains_safe_static_stylesheet_rules(): void {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>.st0{fill:#78d5df;stroke:url(#g)}</style>'
+			. '<defs><linearGradient id="g"/></defs><path class="st0" d="M0 0h10v10z"/></svg>';
+
+		$result = OC_SVG_Sanitiser::sanitise( $svg );
+
+		$this->assertStringContainsString( '<style>', $result );
+		$this->assertStringContainsString( '.st0{fill:#78d5df;stroke:url(#g)}', $result );
+	}
+
 	// ── Blocked element removal ───────────────────────────────────────────
 
 	#[Test]
@@ -165,6 +176,23 @@ class Test_SVG_Sanitiser extends TestCase {
 		$this->assertStringNotContainsString( '<animate', $result );
 	}
 
+	#[Test]
+	public function it_removes_active_styles_foreign_namespaces_and_presentation_urls(): void {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:evil="https://example.com/evil">'
+			. '<style>@import url(https://example.com/a.css);rect{fill:red}</style>'
+			. '<iframe href="#safe"/><evil:rect width="10" height="10"/>'
+			. '<rect id="safe" fill="url(https://example.com/paint.svg#g)" width="10" height="10"/>'
+			. '</svg>';
+
+		$result = OC_SVG_Sanitiser::sanitise( $svg );
+
+		$this->assertStringNotContainsString( '<style', $result );
+		$this->assertStringNotContainsString( '<iframe', $result );
+		$this->assertStringNotContainsString( 'evil:rect', $result );
+		$this->assertStringNotContainsString( 'example.com/paint', $result );
+		$this->assertStringContainsString( 'id="safe"', $result );
+	}
+
 	// ── Style attribute ───────────────────────────────────────────────────
 
 	#[Test]
@@ -175,6 +203,16 @@ class Test_SVG_Sanitiser extends TestCase {
 
 		$result = OC_SVG_Sanitiser::sanitise( $svg );
 		$this->assertStringNotContainsString( 'javascript', $result );
+	}
+
+	#[Test]
+	public function it_drops_css_escape_sequences(): void {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg">'
+			. '<rect style="fill:u\\72l(https://example.com/a.svg)" width="10" height="10"/>'
+			. '</svg>';
+
+		$result = OC_SVG_Sanitiser::sanitise( $svg );
+		$this->assertStringNotContainsString( 'style=', $result );
 	}
 
 	// ── xml:base ──────────────────────────────────────────────────────────
@@ -201,6 +239,20 @@ class Test_SVG_Sanitiser extends TestCase {
 	public function it_throws_for_empty_string(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		OC_SVG_Sanitiser::sanitise( '' );
+	}
+
+	#[Test]
+	public function it_rejects_foreign_root_namespace(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		OC_SVG_Sanitiser::sanitise( '<svg xmlns="https://example.com/not-svg"><rect/></svg>' );
+	}
+
+	#[Test]
+	public function it_rejects_excessive_nesting(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		OC_SVG_Sanitiser::sanitise(
+			'<svg xmlns="http://www.w3.org/2000/svg">' . str_repeat( '<g>', 130 ) . '<rect/>' . str_repeat( '</g>', 130 ) . '</svg>'
+		);
 	}
 
 	// ── sanitise_file() ───────────────────────────────────────────────────

@@ -21,6 +21,28 @@ import {
 const canvasRendererMethods = {
 	// ── Canvas initialisation ──────────────────────────────────────────────────
 
+	startCanvasInitialisation() {
+		const generation = this._designGeneration;
+		const task = this.initAllCanvases();
+		this._canvasReadyGeneration = generation;
+		this._canvasReadyPromise = task;
+		return task;
+	},
+
+	async awaitCanvasReady( generation = this._designGeneration ) {
+		const task = this._canvasReadyPromise;
+		await task;
+		if (
+			generation !== this._designGeneration ||
+			this._canvasReadyGeneration !== generation
+		) {
+			throw new Error( 'The selected design changed while rendering.' );
+		}
+		if ( this.areas.some( ( _, index ) => ! this.canvases[ index ] ) ) {
+			throw new Error( 'The customisation preview is not ready.' );
+		}
+	},
+
 	async initAllCanvases() {
 		const designGeneration = this._designGeneration;
 		for ( let i = 0; i < this.areas.length; i++ ) {
@@ -63,14 +85,20 @@ const canvasRendererMethods = {
 		}
 
 		let mockupImg;
+		let loadTimeout = null;
 		try {
 			// Do NOT use crossOrigin:'anonymous' — WordPress uploads are same-origin
 			// and CORS headers aren't sent, which would taint the canvas and break toDataURL.
+			const timeoutPromise = new Promise( ( _, reject ) => {
+				loadTimeout = setTimeout(
+					() => reject( new Error( 'timeout' ) ),
+					10000
+				);
+				this._canvasLoadTimers.add( loadTimeout );
+			} );
 			mockupImg = await Promise.race( [
 				FabricImage.fromURL( area.mockupUrl ),
-				new Promise( ( _, rej ) =>
-					setTimeout( () => rej( new Error( 'timeout' ) ), 10000 )
-				),
+				timeoutPromise,
 			] );
 		} catch ( e ) {
 			if ( designGeneration !== this._designGeneration ) {
@@ -87,7 +115,13 @@ const canvasRendererMethods = {
 				240,
 				'Mockup image could not load.'
 			);
+			this.canvases[ areaIndex ]._ocMissingMockup = true;
 			return;
+		} finally {
+			if ( loadTimeout ) {
+				clearTimeout( loadTimeout );
+				this._canvasLoadTimers.delete( loadTimeout );
+			}
 		}
 
 		const mockupEl = mockupImg.getElement?.();
@@ -233,14 +267,15 @@ const canvasRendererMethods = {
 		);
 	},
 
-	async flushRedraw() {
+	async flushRedraw( inputs = this.inputs ) {
 		Object.values( this._redrawTimers ).forEach( clearTimeout );
 		this._redrawTimers = {};
 		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
 			this._redrawGenerations[ areaIndex ] += 1;
 		} );
 		await Promise.allSettled( Object.values( this._redrawPromises ) );
-		await this.redraw( this.activeArea );
+		await this.awaitCanvasReady();
+		await this.redraw( this.activeArea, { inputs } );
 	},
 
 	redraw( areaIndex, options = {} ) {
@@ -256,6 +291,7 @@ const canvasRendererMethods = {
 			this._customisationActive;
 
 		const task = ( async () => {
+			canvas._ocRenderErrors = [];
 			[ ...canvas.getObjects() ]
 				.filter( ( o ) => o._ocContent === true )
 				.forEach( ( o ) => canvas.remove( o ) );
@@ -274,11 +310,17 @@ const canvasRendererMethods = {
 						await this.renderLayer(
 							canvas,
 							layer,
-							this.inputs[ layer.id ] || {},
+							options.inputs?.[ layer.id ] ||
+								this.inputs[ layer.id ] ||
+								{},
 							area,
 							isCurrent
 						);
 					} catch ( err ) {
+						canvas._ocRenderErrors.push( {
+							layerId: layer?.id,
+							message: err?.message || 'Layer render failed.',
+						} );
 						console.warn(
 							'[OC] Layer render failed:',
 							layer?.id,
@@ -362,10 +404,14 @@ const canvasRendererMethods = {
 			case 'text':
 			case 'textarea': {
 				const isSingleLineText = layer.type === 'text';
+				const inputValue =
+					input.value === undefined
+						? layer.settings?.default_text || ''
+						: input.value;
 				const normalisedText = (
 					isEngraving || isEmbroidery
-						? this.stripUnsupportedPrintEmoji( input.value )
-						: input.value || ''
+						? this.stripUnsupportedPrintEmoji( inputValue )
+						: inputValue || ''
 				).replace( /\r\n?/g, '\n' );
 				const raw = isSingleLineText
 					? normalisedText.trim()
@@ -380,7 +426,9 @@ const canvasRendererMethods = {
 					: 'top';
 
 				let font = this.fonts.find(
-					( f ) => f.id === ( input.fontId || 0 )
+					( f ) =>
+						f.id ===
+						( input.fontId || layer.settings?.default_font_id || 0 )
 				);
 				// Engraving uses a fixed silver tone instead of a customer-selected colour.
 				const color = isEngraving
@@ -443,6 +491,8 @@ const canvasRendererMethods = {
 					padding: textPadding,
 					angle: rotation,
 					fontFamily: font?.name || 'sans-serif',
+					fontWeight: font?.weight || 'normal',
+					fontStyle: font?.style || 'normal',
 					fontSize,
 					fill: textFill,
 					textAlign: align,
@@ -510,6 +560,8 @@ const canvasRendererMethods = {
 						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
+						fontWeight: font?.weight || 'normal',
+						fontStyle: font?.style || 'normal',
 						fontSize,
 						fill: threadShadow,
 						opacity: 0.24,
@@ -536,6 +588,8 @@ const canvasRendererMethods = {
 						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
+						fontWeight: font?.weight || 'normal',
+						fontStyle: font?.style || 'normal',
 						fontSize,
 						fill: 'rgba(255,255,255,0)',
 						stroke: threadLift,
@@ -710,13 +764,13 @@ const canvasRendererMethods = {
 				break;
 			}
 
-			case 'image':
+			case 'image': {
 				if ( input.attachmentUrl ) {
 					const imageFilter = this.imageFilterForLayer(
 						layer,
 						input.imageFilterId
 					);
-					await this.renderFabricImg(
+					const rendered = await this.renderFabricImg(
 						canvas,
 						input.attachmentUrl,
 						lx,
@@ -734,12 +788,18 @@ const canvasRendererMethods = {
 						imageFilter ? { imageFilter } : {},
 						isCurrent
 					);
+					if ( ! rendered && isCurrent() ) {
+						throw new Error(
+							'Artwork image could not be rendered.'
+						);
+					}
 				}
 				break;
+			}
 
-			case 'clipmask':
+			case 'clipmask': {
 				if ( input.attachmentUrl ) {
-					await this.renderFabricImg(
+					const rendered = await this.renderFabricImg(
 						canvas,
 						input.attachmentUrl,
 						lx,
@@ -764,10 +824,16 @@ const canvasRendererMethods = {
 						{},
 						isCurrent
 					);
+					if ( ! rendered && isCurrent() ) {
+						throw new Error(
+							'Masked artwork could not be rendered.'
+						);
+					}
 				}
 				break;
+			}
 
-			case 'clipart':
+			case 'clipart': {
 				if ( input.clipartUrl ) {
 					const selectedClipartColor = String(
 						input.colorHex || ''
@@ -800,7 +866,7 @@ const canvasRendererMethods = {
 						: shouldRecolourClipart
 						? { preserveRecolouredPixels: true }
 						: {};
-					await this.renderFabricImg(
+					const rendered = await this.renderFabricImg(
 						canvas,
 						clipartUrl,
 						lx,
@@ -818,8 +884,12 @@ const canvasRendererMethods = {
 						clipartEffects,
 						isCurrent
 					);
+					if ( ! rendered && isCurrent() ) {
+						throw new Error( 'Clipart could not be rendered.' );
+					}
 				}
 				break;
+			}
 
 			case 'lineart': {
 				const lineartColor = isEngraving
@@ -1003,6 +1073,8 @@ const canvasRendererMethods = {
 			originY: 'center',
 			...textBoxSize,
 			fontFamily: font?.name || 'sans-serif',
+			fontWeight: font?.weight || 'normal',
+			fontStyle: font?.style || 'normal',
 			fontSize,
 			textAlign: settings?.alignment || 'center',
 			selectable: false,
@@ -1027,20 +1099,6 @@ const canvasRendererMethods = {
 		);
 	},
 
-	textObjectFitsBox( obj, maxW, maxH, fontSize ) {
-		if ( ! obj ) {
-			return true;
-		}
-
-		obj.initDimensions?.();
-		const margin = this.textFitSafetyMargin( fontSize );
-
-		return (
-			Number( obj.width || 0 ) <= Math.max( maxW, 10 ) &&
-			Number( obj.height || 0 ) + margin.y * 2 <= Math.max( maxH, 10 )
-		);
-	},
-
 	measureSingleLineText( raw, font, fontSize, settings = {} ) {
 		const obj = new FabricText( raw || '', {
 			left: 0,
@@ -1048,6 +1106,8 @@ const canvasRendererMethods = {
 			originX: 'left',
 			originY: 'top',
 			fontFamily: font?.name || 'sans-serif',
+			fontWeight: font?.weight || 'normal',
+			fontStyle: font?.style || 'normal',
 			fontSize,
 			textAlign: settings?.alignment || 'center',
 			selectable: false,
@@ -1660,52 +1720,6 @@ const canvasRendererMethods = {
 		}
 	},
 
-	async cropSvgClipartUrl( url ) {
-		if ( ! this.isSvgClipartUrl( url ) ) {
-			return url;
-		}
-
-		const key = `${ url }|crop`;
-		if ( this.clipartSvgCache[ key ] ) {
-			return this.clipartSvgCache[ key ];
-		}
-
-		try {
-			const response = await fetch( url, {
-				credentials: 'same-origin',
-				cache: 'force-cache',
-			} );
-			if ( ! response.ok ) {
-				throw new Error(
-					`Could not load clipart SVG (${ response.status }).`
-				);
-			}
-
-			const raw = await response.text();
-			const doc = new window.DOMParser().parseFromString(
-				raw,
-				'image/svg+xml'
-			);
-			const svg = doc.documentElement;
-			if ( ! svg || svg.localName.toLowerCase() !== 'svg' ) {
-				throw new Error( 'Clipart is not an SVG.' );
-			}
-
-			if ( ! this.hasComplexSvgPaintReferences( svg ) ) {
-				this.cropSvgToVisibleBounds( svg );
-			}
-			const output = new window.XMLSerializer().serializeToString( svg );
-			this.clipartSvgCache[
-				key
-			] = `data:image/svg+xml;charset=utf-8,${ encodeURIComponent(
-				output
-			) }`;
-			return this.clipartSvgCache[ key ];
-		} catch {
-			return url;
-		}
-	},
-
 	async normaliseSvgClipartUrl( url ) {
 		if ( ! this.isSvgClipartUrl( url ) ) {
 			return url;
@@ -1760,12 +1774,6 @@ const canvasRendererMethods = {
 		return (
 			/^data:image\/svg\+xml/i.test( value ) ||
 			/\.svg(?:[?#]|$)/i.test( value )
-		);
-	},
-
-	hasComplexSvgPaintReferences( svg ) {
-		return !! svg.querySelector(
-			'clipPath, mask, filter, [clip-path], [mask], [filter]'
 		);
 	},
 
@@ -1868,41 +1876,6 @@ const canvasRendererMethods = {
 		);
 	},
 
-	cropSvgToVisibleBounds( svg ) {
-		if (
-			typeof document === 'undefined' ||
-			! document.body ||
-			typeof svg.getAttribute !== 'function'
-		) {
-			return;
-		}
-
-		const wrapper = document.createElement( 'div' );
-		wrapper.style.cssText =
-			'position:absolute;left:-99999px;top:-99999px;opacity:0;pointer-events:none;';
-		const clone = document.importNode( svg, true );
-		clone.setAttribute( 'width', '1000' );
-		clone.setAttribute( 'height', '1000' );
-
-		try {
-			wrapper.appendChild( clone );
-			document.body.appendChild( wrapper );
-			const bounds = this.svgVisibleBounds( clone );
-			if ( bounds.width > 0 && bounds.height > 0 ) {
-				svg.setAttribute(
-					'viewBox',
-					`${ bounds.x } ${ bounds.y } ${ bounds.width } ${ bounds.height }`
-				);
-				svg.setAttribute( 'width', String( bounds.width ) );
-				svg.setAttribute( 'height', String( bounds.height ) );
-			}
-		} catch ( e ) {
-			console.warn( '[OC] SVG clipart bounds crop failed:', e );
-		} finally {
-			wrapper.remove();
-		}
-	},
-
 	ensureSvgIntrinsicSize( svg ) {
 		const viewBox = this.parseSvgViewBox( svg );
 		if ( ! viewBox ) {
@@ -1947,147 +1920,6 @@ const canvasRendererMethods = {
 		}
 
 		return parseFloat( raw ) > 0;
-	},
-
-	svgVisibleBounds( svg ) {
-		const boxes = Array.from( svg.querySelectorAll( '*' ) )
-			.filter( ( element ) => this.isVisibleSvgGraphicElement( element ) )
-			.map( ( element ) => this.svgElementRootBounds( element ) )
-			.filter( Boolean );
-
-		if ( ! boxes.length ) {
-			return svg.getBBox();
-		}
-
-		const minX = Math.min( ...boxes.map( ( box ) => box.x ) );
-		const minY = Math.min( ...boxes.map( ( box ) => box.y ) );
-		const maxX = Math.max( ...boxes.map( ( box ) => box.x + box.width ) );
-		const maxY = Math.max( ...boxes.map( ( box ) => box.y + box.height ) );
-
-		return {
-			x: minX,
-			y: minY,
-			width: maxX - minX,
-			height: maxY - minY,
-		};
-	},
-
-	isVisibleSvgGraphicElement( element ) {
-		const tagName = element.localName.toLowerCase();
-		if ( this.isInSvgDefinitionTree( element ) ) {
-			return false;
-		}
-
-		const graphicTags = [
-			'path',
-			'rect',
-			'circle',
-			'ellipse',
-			'polygon',
-			'polyline',
-			'line',
-			'text',
-			'image',
-			'use',
-		];
-		if ( ! graphicTags.includes( tagName ) ) {
-			return false;
-		}
-
-		const style = window.getComputedStyle( element );
-		if (
-			style.display === 'none' ||
-			style.visibility === 'hidden' ||
-			Number( style.opacity ) === 0
-		) {
-			return false;
-		}
-
-		if ( [ 'image', 'use' ].includes( tagName ) ) {
-			return true;
-		}
-
-		return style.fill !== 'none' || style.stroke !== 'none';
-	},
-
-	isInSvgDefinitionTree( element ) {
-		const nonRenderedContainers = [
-			'defs',
-			'clippath',
-			'mask',
-			'pattern',
-			'symbol',
-			'marker',
-			'filter',
-			'lineargradient',
-			'radialgradient',
-		];
-
-		let parent = element.parentElement;
-		while ( parent ) {
-			if (
-				nonRenderedContainers.includes( parent.localName.toLowerCase() )
-			) {
-				return true;
-			}
-			parent = parent.parentElement;
-		}
-
-		return false;
-	},
-
-	svgElementRootBounds( element ) {
-		if ( typeof element.getBBox !== 'function' ) {
-			return null;
-		}
-
-		try {
-			const box = element.getBBox();
-			if ( ! box.width || ! box.height ) {
-				return null;
-			}
-
-			const root = element.ownerSVGElement;
-			const rootMatrix =
-				root && typeof root.getScreenCTM === 'function'
-					? root.getScreenCTM()
-					: null;
-			const elementMatrix =
-				typeof element.getScreenCTM === 'function'
-					? element.getScreenCTM()
-					: null;
-			const matrix =
-				rootMatrix && elementMatrix
-					? rootMatrix.inverse().multiply( elementMatrix )
-					: null;
-			if ( ! matrix ) {
-				return box;
-			}
-
-			const points = [
-				[ box.x, box.y ],
-				[ box.x + box.width, box.y ],
-				[ box.x + box.width, box.y + box.height ],
-				[ box.x, box.y + box.height ],
-			].map( ( [ x, y ] ) => ( {
-				x: matrix.a * x + matrix.c * y + matrix.e,
-				y: matrix.b * x + matrix.d * y + matrix.f,
-			} ) );
-
-			const minX = Math.min( ...points.map( ( point ) => point.x ) );
-			const minY = Math.min( ...points.map( ( point ) => point.y ) );
-			const maxX = Math.max( ...points.map( ( point ) => point.x ) );
-			const maxY = Math.max( ...points.map( ( point ) => point.y ) );
-
-			return {
-				x: minX,
-				y: minY,
-				width: maxX - minX,
-				height: maxY - minY,
-			};
-		} catch {
-			return null;
-		}
 	},
 
 	removeInvisibleSvgShapes( element ) {
@@ -2321,6 +2153,7 @@ const canvasRendererMethods = {
 			img._ocContent = true;
 			img._ocSourceUrl = url;
 			img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
+			img._ocSnapshotInlineSvg = filters.length === 0;
 			this.applyContentClip( img, clipPath );
 			if ( ! isCurrent() ) {
 				return false;
@@ -2395,26 +2228,36 @@ const canvasRendererMethods = {
 		}
 	},
 
+	fontCacheKey( font ) {
+		return [
+			font?.name || '',
+			font?.weight || 'normal',
+			font?.style || 'normal',
+			font?.url || '',
+		].join( '|' );
+	},
+
 	async loadFont( font ) {
 		if ( ! font?.name || ! font?.url ) {
 			return;
 		}
-		if ( this.fontCache[ font.name ] ) {
-			return this.fontCache[ font.name ];
+		const key = this.fontCacheKey( font );
+		if ( this.fontCache[ key ] ) {
+			return this.fontCache[ key ];
 		}
 		const ff = new FontFace( font.name, `url('${ font.url }')`, {
 			weight: font.weight || 'normal',
 			style: font.style || 'normal',
 		} );
-		this.fontCache[ font.name ] = ff
+		this.fontCache[ key ] = ff
 			.load()
 			.then( ( f ) => document.fonts.add( f ) )
 			.catch( ( err ) => {
-				delete this.fontCache[ font.name ];
+				delete this.fontCache[ key ];
 				console.warn( '[OC] Font load failed:', err );
 				throw err;
 			} );
-		return this.fontCache[ font.name ];
+		return this.fontCache[ key ];
 	},
 };
 

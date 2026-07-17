@@ -40,12 +40,12 @@ const checkoutMethods = {
 		if (
 			this._submitInProgress ||
 			! this._customisationActive ||
-			this.aiFilterPending > 0 ||
+			this.artworkPendingCount > 0 ||
 			Object.keys( this.aiFilterErrors || {} ).length > 0
 		) {
-			if ( this.aiFilterPending > 0 ) {
+			if ( this.artworkPendingCount > 0 ) {
 				window.alert(
-					'Please wait for the AI image filter to finish.'
+					'Please wait for artwork uploads and image processing to finish.'
 				);
 			} else if ( Object.keys( this.aiFilterErrors || {} ).length > 0 ) {
 				window.alert(
@@ -56,12 +56,7 @@ const checkoutMethods = {
 		}
 		this._submitInProgress = true;
 		form.classList.add( 'processing' );
-		form.querySelectorAll(
-			'[type="submit"], .single_add_to_cart_button'
-		).forEach( ( button ) => {
-			button.disabled = true;
-			button.setAttribute( 'aria-disabled', 'true' );
-		} );
+		this.setControlLock( 'submission', true );
 		return true;
 	},
 
@@ -107,22 +102,15 @@ const checkoutMethods = {
 							}
 						}
 
-						await this.uploadPreview();
-						this.updateHiddenField();
-
-						const layers = {};
-						this.areas.forEach( ( area ) => {
-							( area.layers || [] ).forEach( ( layer ) => {
-								const inp = this.inputs[ layer.id ];
-								if ( inp ) {
-									layers[ layer.id ] = {
-										type: layer.type,
-										...inp,
-									};
-								}
-							} );
-						} );
-						const snapshots = await this.captureAreaSnapshots();
+						const generation = this.createSubmissionGeneration();
+						const previewUrl =
+							await this.uploadPreview( generation );
+						const payload = this.buildCustomisationPayload(
+							generation,
+							{
+								previewUrl,
+							}
+						);
 
 						try {
 							const res = await fetch(
@@ -134,20 +122,7 @@ const checkoutMethods = {
 									} ),
 									body: JSON.stringify( {
 										cart_key: this.cartKey,
-										designId: this.data.designId,
-										layers,
-										uploadToken:
-											this.data.requestToken || '',
-										designVariant:
-											this.selectedDesignVariant || '',
-										designVariantLabel:
-											this.designVariants.find(
-												( item ) =>
-													item.id ===
-													this.selectedDesignVariant
-											)?.label || '',
-										snapshots,
-										previewUrl: this._previewUrl || '',
+										...payload,
 									} ),
 								}
 							);
@@ -178,8 +153,7 @@ const checkoutMethods = {
 							}
 
 							if ( json?.success ) {
-								window.location.href =
-									window.wc_cart_params?.cart_url || '/cart/';
+								window.location.href = this.getCartUrl();
 							} else {
 								this.renderPreflightMessages(
 									[
@@ -201,6 +175,15 @@ const checkoutMethods = {
 								[]
 							);
 						}
+					} catch ( error ) {
+						console.error( '[OC] Cart update failed:', error );
+						this.renderPreflightMessages(
+							[
+								error?.message ||
+									'Could not prepare your customisation. Please try again.',
+							],
+							[]
+						);
 					} finally {
 						this.resetCartSubmitState( form );
 					}
@@ -229,6 +212,7 @@ const checkoutMethods = {
 						this.updateHiddenField();
 						return;
 					}
+					this.clearCustomValidity();
 					if ( ! form.checkValidity() ) {
 						return;
 					}
@@ -321,15 +305,19 @@ const checkoutMethods = {
 						}
 					}
 
+					const generation = this.createSubmissionGeneration();
 					const acceptedPreview =
-						await this.confirmMobileCartPreview();
+						await this.confirmMobileCartPreview( generation );
 					if ( ! acceptedPreview ) {
 						this.resetCartSubmitState( form );
 						return;
 					}
 
-					await this.uploadPreview();
-					await this.updateHiddenField( true );
+					const previewUrl = await this.uploadPreview( generation );
+					await this.updateHiddenField( {
+						generation,
+						previewUrl,
+					} );
 					const payload = document.getElementById(
 						'oc-customisation-data'
 					)?.value;
@@ -374,16 +362,30 @@ const checkoutMethods = {
 
 	resetCartSubmitState( form ) {
 		this._submitInProgress = false;
-		form._ocGuardFromClick = false;
+		this.setControlLock( 'submission', false );
 		form.classList.remove( 'loading', 'processing' );
 		form.querySelectorAll(
 			'[type="submit"], .single_add_to_cart_button'
 		).forEach( ( button ) => {
 			button.classList.remove( 'loading', 'processing' );
-			button.disabled = false;
-			button.removeAttribute( 'disabled' );
-			button.setAttribute( 'aria-disabled', 'false' );
 		} );
+	},
+
+	getCartUrl() {
+		const candidates = [
+			this.data.cartUrl,
+			window.wc_cart_params?.cart_url,
+			window.wc_add_to_cart_params?.cart_url,
+			window.wc_cart_fragments_params?.cart_url,
+			document.querySelector(
+				'a.cart-contents, a.wc-block-mini-cart__button, a[href*="/cart/"]'
+			)?.href,
+		];
+		const url = candidates.find(
+			( candidate ) =>
+				typeof candidate === 'string' && candidate.trim() !== ''
+		);
+		return url || new URL( 'cart/', `${ window.location.origin }/` ).href;
 	},
 
 	isMobileCartPreviewRequired() {
@@ -395,15 +397,19 @@ const checkoutMethods = {
 
 	getCurrentPreviewDataUrl() {
 		const canvas = this.canvases[ this.activeArea ];
-		if ( canvas ) {
-			try {
-				return canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
-			} catch {
-				// Fall back to the already-rendered preview image below.
-			}
+		if ( ! canvas || canvas._ocMissingMockup ) {
+			throw new Error( 'The customisation preview is unavailable.' );
 		}
-
-		return document.getElementById( 'oc-canvas-preview' )?.src || '';
+		if ( canvas._ocRenderErrors?.length ) {
+			throw new Error( 'Some artwork could not be rendered.' );
+		}
+		const dataUrl = canvas.toDataURL( { format: 'jpeg', quality: 0.92 } );
+		if ( ! /^data:image\/(?:jpeg|png);base64,/i.test( dataUrl ) ) {
+			throw new Error(
+				'The customisation preview could not be captured.'
+			);
+		}
+		return dataUrl;
 	},
 
 	async getMobileCartPreviewAreas() {
@@ -635,23 +641,28 @@ const checkoutMethods = {
 		} );
 	},
 
-	async uploadPreview() {
+	async uploadPreview( generation = null ) {
 		if ( ! this.data.savePreviewUrl ) {
-			return;
+			return this._previewUrl || '';
 		}
 		await this.flushRedraw();
+		if (
+			generation &&
+			generation.designGeneration !== this._designGeneration
+		) {
+			throw new Error( 'The selected design changed while rendering.' );
+		}
 
 		let dataUrl;
 		try {
 			dataUrl = this.getCurrentPreviewDataUrl();
 		} catch ( e ) {
 			this._previewUrl = '';
-			this.updateHiddenField();
 			console.warn(
 				'[OC] Could not capture preview for cart:',
 				e.message
 			);
-			return;
+			return '';
 		}
 
 		try {
@@ -662,10 +673,15 @@ const checkoutMethods = {
 				} ),
 				body: JSON.stringify( { image: dataUrl } ),
 			} );
+			if (
+				generation &&
+				generation.designGeneration !== this._designGeneration
+			) {
+				throw new Error( 'The selected design changed while saving.' );
+			}
 			if ( ! res.ok ) {
 				this._previewUrl = '';
-				this.updateHiddenField();
-				return;
+				return '';
 			}
 			let json = null;
 			const isJson = res.headers
@@ -683,18 +699,19 @@ const checkoutMethods = {
 			}
 			if ( ! json ) {
 				this._previewUrl = '';
-				this.updateHiddenField();
-				return;
+				return '';
 			}
 			if ( json.url ) {
-				this._previewUrl = json.url;
-				this.updateHiddenField();
+				this._previewUrl = String( json.url );
+				return this._previewUrl;
 			}
+			this._previewUrl = '';
+			return '';
 		} catch ( e ) {
 			this._previewUrl = '';
-			this.updateHiddenField();
 			// Non-fatal: cart submits without a preview image.
 			console.warn( '[OC] Preview upload failed:', e.message );
+			return '';
 		}
 	},
 };

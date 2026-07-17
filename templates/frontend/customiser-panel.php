@@ -241,7 +241,7 @@ foreach ( $layers as $layer ) {
 										<input type="text"
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
 											name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]"
-											value=""
+											value="<?php echo esc_attr( $default ); ?>"
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											autocomplete="off"
 											inputmode="text"
@@ -263,7 +263,7 @@ foreach ( $layers as $layer ) {
 											inputmode="text"
 											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
 											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
-										></textarea>
+										><?php echo esc_textarea( $default ); ?></textarea>
 										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
 									</div>
 								</div>

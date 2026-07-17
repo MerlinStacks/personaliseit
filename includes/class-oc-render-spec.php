@@ -14,26 +14,32 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Render_Spec {
 
-	/** Build a full render spec for a v2 design. */
-	public static function build( int $design_id, array $layer_inputs, array $snapshots = [] ): array {
+	/** Build a full render spec for a v2 design. Browser snapshots are preview-only. */
+	public static function build( int $design_id, array $layer_inputs ): array {
 		$areas  = OC_DB::get_design_print_areas( $design_id );
 		$layers = OC_DB::get_design_layers( $design_id );
 
 		$layers_by_area = [];
 		foreach ( $layers as $layer ) {
+			if ( isset( $layer->visible ) && ! (bool) $layer->visible ) {
+				continue;
+			}
 			$layers_by_area[ (int) $layer->area_id ][] = $layer;
 		}
 
 		$spec_areas = [];
 		foreach ( $areas as $area ) {
+			if ( isset( $area->visible ) && ! (bool) $area->visible ) {
+				continue;
+			}
 			$area_id = (int) $area->id;
-			$spec_areas[ $area_id ] = self::build_area( $area, $layers_by_area[ $area_id ] ?? [], $layer_inputs, $snapshots );
+			$spec_areas[ $area_id ] = self::build_area( $area, $layers_by_area[ $area_id ] ?? [], $layer_inputs );
 		}
 
 		return [
 			'v'        => 1,
 			'designId' => $design_id,
-			'units'    => 'mockup_px_300dpi',
+			'units'    => 'area_units_v2',
 			'areas'    => $spec_areas,
 		];
 	}
@@ -128,7 +134,7 @@ class OC_Render_Spec {
 		];
 	}
 
-	private static function build_area( object $area, array $layers, array $layer_inputs, array $snapshots = [] ): array {
+	private static function build_area( object $area, array $layers, array $layer_inputs ): array {
 		$spec_layers = [];
 		foreach ( $layers as $layer ) {
 			$layer_id = (int) $layer->id;
@@ -166,9 +172,7 @@ class OC_Render_Spec {
 			$spec_layers[] = $spec_layer;
 		}
 
-		$area_id = (int) $area->id;
 		$area_key = (string) $area->area_key;
-		$snapshot = $snapshots[ $area_id ] ?? $snapshots[ (string) $area_id ] ?? $snapshots[ $area_key ] ?? null;
 
 		$spec_area = [
 			'id'          => (int) $area->id,
@@ -188,10 +192,6 @@ class OC_Render_Spec {
 			],
 			'layers'      => $spec_layers,
 		];
-		if ( is_array( $snapshot ) && ! empty( $snapshot['svg'] ) ) {
-			$spec_area['snapshot'] = $snapshot;
-		}
-
 		return $spec_area;
 	}
 

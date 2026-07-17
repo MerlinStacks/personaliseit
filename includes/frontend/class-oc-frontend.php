@@ -22,7 +22,7 @@ class OC_Frontend {
 		add_action( 'wp',                                    [ $this, 'maybe_load_design' ],  10 );
 		add_action( 'wp_enqueue_scripts',                    [ $this, 'enqueue_assets' ],     20 );
 		add_action( 'woocommerce_before_add_to_cart_button', [ $this, 'inject_panel' ],       10 );
-		add_filter( 'woocommerce_add_to_cart_validation',    [ $this, 'validate' ],           10, 3 );
+		add_filter( 'woocommerce_add_to_cart_validation',    [ $this, 'validate' ],           10, 6 );
 	}
 
 	// ── Design pre-load ───────────────────────────────────────────────────────
@@ -313,7 +313,7 @@ class OC_Frontend {
 
 				// Default input per layer.
 				$layer_inputs[ (int) $layer->id ] = [
-					'value'         => '',
+					'value'         => in_array( $layer->type, [ 'text', 'textarea' ], true ) ? (string) ( $settings['default_text'] ?? '' ) : '',
 					'fontId'        => absint( $settings['default_font_id'] ?? 0 ),
 					'fontSize'      => absint( $settings['default_font_size'] ?? 0 ),
 					'colorHex'      => $default_colour,
@@ -439,8 +439,17 @@ class OC_Frontend {
 			$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
 			$attachment_id = absint( $layer_inputs[ (int) $lid ]['attachmentId'] ?? 0 );
 			$source_id     = absint( $layer_inputs[ (int) $lid ]['sourceAttachmentId'] ?? $attachment_id );
-			if ( $attachment_id ) $layer_inputs[ (int) $lid ]['attachmentUrl'] = (string) wp_get_attachment_url( $attachment_id );
-			if ( $source_id ) $layer_inputs[ (int) $lid ]['sourceAttachmentUrl'] = (string) wp_get_attachment_url( $source_id );
+			if ( $attachment_id ) {
+				$preview_id = absint( get_post_meta( $attachment_id, '_oc_print_derivative_attachment_id', true ) );
+				$layer_inputs[ (int) $lid ]['attachmentUrl'] = OC_Upload_Handler::attachment_access_url( $preview_id ?: $attachment_id );
+				$layer_inputs[ (int) $lid ]['originalAttachmentUrl'] = OC_Upload_Handler::attachment_access_url( $attachment_id );
+				$layer_inputs[ (int) $lid ]['previewAttachmentId'] = $preview_id;
+			}
+			if ( $source_id ) {
+				$source_preview_id = absint( get_post_meta( $source_id, '_oc_print_derivative_attachment_id', true ) );
+				$layer_inputs[ (int) $lid ]['sourceAttachmentUrl'] = OC_Upload_Handler::attachment_access_url( $source_preview_id ?: $source_id );
+				$layer_inputs[ (int) $lid ]['sourceOriginalAttachmentUrl'] = OC_Upload_Handler::attachment_access_url( $source_id );
+			}
 		}
 		return $layer_inputs;
 	}
@@ -948,74 +957,19 @@ class OC_Frontend {
 
 	// ── Validation ────────────────────────────────────────────────────────────
 
-	public function validate( bool $passed, int $product_id, int $qty ): bool {
-		$variation_id = isset( $_POST['variation_id'] ) ? absint( wp_unslash( $_POST['variation_id'] ) ) : 0;
-		$assignment   = null;
-		$design       = $this->design;
-		$layers       = $this->layers;
-
-		if ( null === $design ) {
-			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
-			if ( ! $assignment ) {
-				return $passed;
-			}
-
-			$design = OC_DB::get_design( (int) $assignment->design_id );
-			if ( ! $design || ! (bool) $design->active ) {
-				return $passed;
-			}
-
-			$areas = OC_DB::get_design_print_areas( (int) $design->id );
-			if ( empty( $areas ) ) {
-				return $passed;
-			}
-
-			$layers = OC_DB::get_design_layers( (int) $design->id );
-		} else {
-			$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+	public function validate( bool $passed, int $product_id, int $qty, int $variation_id = 0, array $variations = [], array $cart_item_data = [] ): bool {
+		if ( ! $passed ) {
+			return false;
 		}
-		if ( ! $assignment ) {
+
+		if ( ! OC_DB::get_assignment_for_product( $product_id, $variation_id ) ) {
 			return $passed;
 		}
 
-		$raw = isset( $_POST['_oc_customisation'] ) ? wp_unslash( $_POST['_oc_customisation'] ) : '';
-
-		if ( empty( trim( $raw ) ) || '{}' === trim( $raw ) ) {
-			wc_add_notice( __( 'Please complete your personalisation before adding to cart.', 'overcustomise' ), 'error' );
-			return false;
-		}
-		if ( strlen( $raw ) > 1024 * 1024 ) {
-			wc_add_notice( __( 'This personalisation is too large to add safely. Please simplify the design or contact us for help.', 'overcustomise' ), 'error' );
-			return false;
-		}
-
-		$data = json_decode( $raw, true );
-		if ( ! is_array( $data ) ) {
-			wc_add_notice( __( 'Invalid personalisation data. Please try again.', 'overcustomise' ), 'error' );
-			return false;
-		}
-
-		$posted_design_id = absint( $data['designId'] ?? 0 );
-		if ( $posted_design_id && $posted_design_id !== (int) $design->id ) {
-			$allowed_design_ids = array_map( fn( $variant ) => absint( $variant['designId'] ?? 0 ), $this->design_variants );
-			$is_allowed_design = in_array( $posted_design_id, $allowed_design_ids, true )
-				|| ( $assignment && OC_DB::assignment_allows_design( $assignment, $posted_design_id ) );
-
-			if ( ! $is_allowed_design ) {
-				wc_add_notice( __( 'Invalid design option selected. Please refresh and try again.', 'overcustomise' ), 'error' );
-				return false;
-			}
-		}
-
-		$normalised = OC_Cart::normalise_v2_layers(
-			$product_id,
-			$variation_id,
-			$posted_design_id ?: (int) $design->id,
-			is_array( $data['layers'] ?? null ) ? $data['layers'] : [],
-			is_string( $data['uploadToken'] ?? null ) ? $data['uploadToken'] : ''
-		);
-		if ( is_wp_error( $normalised ) ) {
-			wc_add_notice( $normalised->get_error_message(), 'error' );
+		$raw = OC_Cart::submission_raw_from_request( $cart_item_data );
+		$result = OC_Cart::validate_v2_submission( $product_id, $variation_id, $raw );
+		if ( is_wp_error( $result ) ) {
+			wc_add_notice( $result->get_error_message(), 'error' );
 			return false;
 		}
 

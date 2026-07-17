@@ -11,6 +11,11 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Print_Embroidery extends OC_Print_Base {
+	private const MAX_SVG_NODES = 20000;
+	private const MAX_SVG_DEPTH = 64;
+	private const MAX_SVG_USE_DEPTH = 16;
+	private const MAX_SVG_PATH_TOKENS = 100000;
+	private const MAX_SVG_PATH_BYTES = 2097152;
 
 	/** Parsed TrueType font cache for font-independent EPS text outlines. */
 	private static array $ttf_outline_cache = [];
@@ -45,7 +50,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		object $area,
 		array $area_data
 	): string {
-		[ $w_mm, $h_mm ] = self::area_dimensions_mm( $area );
+		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
 		$w_pt            = max( 1, (int) ceil( self::mm_to_pt( $w_mm ) ) );
 		$h_pt            = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
 		$lines           = [
@@ -71,6 +76,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$lines[] = '%%OCExportMode: legacy-artwork';
 			self::append_eps_legacy_artwork( $lines, $area, $area_data );
 		}
+		if ( ! self::eps_lines_have_paint( $lines ) ) {
+			throw new \RuntimeException( __( 'Embroidery generation produced no printable artwork.', 'overcustomise' ) );
+		}
 
 		$lines[] = 'grestore';
 		$lines[] = 'showpage';
@@ -92,7 +100,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
 		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
-		$font_px_to_pt = self::mm_to_pt( $area_h_mm ) / $bounds_h;
+		$quarter_turn  = (int) ( $area->_oc_print_quarter_turn ?? 0 );
+		$font_px_to_pt = self::mm_to_pt( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
 		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
 		$text_index     = 0;
 		$artwork_used   = false;
@@ -114,14 +123,28 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$layer_h  = max( 1.0, (float) ( $layer['h'] ?? 1 ) );
 			$center_x = $layer_x + $layer_w / 2;
 			$center_y = $layer_y + $layer_h / 2;
-			$rotation = self::layer_rotation( $layer, $input, $settings );
-
-			$center_x_mm = ( ( $center_x - $area_x ) / $bounds_w ) * $area_w_mm;
-			$center_y_mm = ( ( $center_y - $area_y ) / $bounds_h ) * $area_h_mm;
+			$relative_cx = ( $center_x - $area_x ) / $bounds_w;
+			$relative_cy = ( $center_y - $area_y ) / $bounds_h;
+			if ( 90 === $quarter_turn ) {
+				$center_x_mm = ( 1.0 - $relative_cy ) * $area_w_mm;
+				$center_y_mm = $relative_cx * $area_h_mm;
+				$w_pt       = self::mm_to_pt( ( $layer_w / $bounds_w ) * $area_h_mm );
+				$h_pt       = self::mm_to_pt( ( $layer_h / $bounds_h ) * $area_w_mm );
+			} elseif ( 270 === $quarter_turn ) {
+				$center_x_mm = $relative_cy * $area_w_mm;
+				$center_y_mm = ( 1.0 - $relative_cx ) * $area_h_mm;
+				$w_pt       = self::mm_to_pt( ( $layer_w / $bounds_w ) * $area_h_mm );
+				$h_pt       = self::mm_to_pt( ( $layer_h / $bounds_h ) * $area_w_mm );
+			} else {
+				$center_x_mm = $relative_cx * $area_w_mm;
+				$center_y_mm = $relative_cy * $area_h_mm;
+				$w_pt       = self::mm_to_pt( ( $layer_w / $bounds_w ) * $area_w_mm );
+				$h_pt       = self::mm_to_pt( ( $layer_h / $bounds_h ) * $area_h_mm );
+			}
+			$rotation = -1 * ( $quarter_turn + self::layer_rotation( $layer, $input, $settings ) );
+			$rotation = fmod( $rotation, 360.0 );
 			$cx_pt       = self::mm_to_pt( $center_x_mm );
-			$cy_pt       = self::mm_to_pt( max( 0.0, $area_h_mm - $center_y_mm ) );
-			$w_pt     = self::mm_to_pt( ( $layer_w / $bounds_w ) * $area_w_mm );
-			$h_pt     = self::mm_to_pt( ( $layer_h / $bounds_h ) * $area_h_mm );
+			$cy_pt       = self::mm_to_pt( $area_h_mm - $center_y_mm );
 			$x_pt     = -$w_pt / 2;
 			$y_pt     = -$h_pt / 2;
 
@@ -158,17 +181,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					break;
 
 				case 'spotify':
-					self::append_eps_text(
-						$lines,
-						[ 'value' => (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'colorHex' => '#000000' ],
-						[],
-						$x_pt,
-						$y_pt,
-						$w_pt,
-						$h_pt,
-						true,
-						$font_px_to_pt
-					);
+					self::append_eps_spotify( $lines, $input, $x_pt, $y_pt, $w_pt, $h_pt );
 					break;
 			}
 
@@ -187,9 +200,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$w_pt            = self::mm_to_pt( $w_mm );
 		$h_pt            = self::mm_to_pt( $h_mm );
 		$text            = trim( (string) ( $area_data['text'] ?? '' ) );
+		$dpi             = self::normalise_canvas_dpi( $area->canvas_dpi ?? self::CANVAS_DPI );
 
 		if ( '' !== $text ) {
-			self::append_eps_text( $lines, [ 'value' => $text, 'colorHex' => (string) ( $area_data['color'] ?? '#000000' ) ], [], 0, 0, $w_pt, $h_pt );
+			self::append_eps_text( $lines, [ 'value' => $text, 'colorHex' => (string) ( $area_data['color'] ?? '#000000' ) ], [], 0, 0, $w_pt, $h_pt, false, self::px_to_pt( 1.0, $dpi ) );
 		}
 
 		$path = self::resolve_artwork_path( $area_data );
@@ -219,7 +233,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$hex       = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
-			? max( 5.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * ( $font_px_to_pt ?? 72 / self::CANVAS_DPI ) )
+			? max( 5.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * ( $font_px_to_pt ?? self::px_to_pt( 1.0 ) ) )
 			: max( 8.0, $h_pt * 0.38 );
 		$font_size = min( $font_size, max( 5.0, $h_pt * 0.8 ) );
 		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
@@ -994,34 +1008,101 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): bool {
 		$path = self::resolve_eps_layer_artwork_path( $layer );
 		if ( ! $path ) {
+			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+			if ( absint( $input['attachmentId'] ?? 0 ) > 0 || absint( $layer['artworkAttachmentId'] ?? 0 ) > 0 || absint( $input['clipartId'] ?? 0 ) > 0 ) {
+				throw new \RuntimeException( __( 'A selected embroidery artwork layer no longer has a readable production file.', 'overcustomise' ) );
+			}
 			return false;
 		}
 
-		$temp_path = null;
-		$input     = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+		$temp_paths = [];
+		$input      = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 		if ( 'clipart' === (string) ( $layer['type'] ?? '' ) && ! empty( $input['clipartRecolourable'] ) && 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
 			$hex = sanitize_hex_color( (string) ( $input['colorHex'] ?? '' ) );
 			if ( $hex ) {
-				$temp_path = self::build_coloured_svg( $path, $hex );
-				if ( is_string( $temp_path ) && '' !== $temp_path ) {
-					$path = $temp_path;
+				$coloured_path = self::build_coloured_svg( $path, $hex );
+				if ( is_string( $coloured_path ) && '' !== $coloured_path ) {
+					$temp_paths[] = $coloured_path;
+					$path         = $coloured_path;
 				}
 			}
 		}
+		if ( 'image' === (string) ( $layer['type'] ?? '' ) ) {
+			$filtered_path = self::build_filtered_image( $path, $layer, $input );
+			if ( is_string( $filtered_path ) && '' !== $filtered_path ) {
+				if ( $filtered_path !== $path ) {
+					$temp_paths[] = $filtered_path;
+				}
+				$path         = $filtered_path;
+			} elseif ( absint( $input['imageFilterId'] ?? 0 ) > 0 ) {
+				throw new \RuntimeException( __( 'The selected image filter could not be reproduced for embroidery production.', 'overcustomise' ) );
+			}
+		}
 
-		self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+		$clipped = 'clipmask' === (string) ( $layer['type'] ?? '' );
+		if ( $clipped ) {
+			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+			$lines[] = 'gsave';
+			self::append_eps_clip_path( $lines, $x_pt, $y_pt, $w_pt, $h_pt, sanitize_key( (string) ( $settings['mask_shape'] ?? 'circle' ) ) );
+		}
 
-		if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
-			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		try {
+			self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+		} finally {
+			if ( $clipped ) {
+				$lines[] = 'grestore';
+			}
+			foreach ( array_unique( $temp_paths ) as $temp_path ) {
+				if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
+					@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+			}
 		}
 
 		return true;
 	}
 
-	/** Embed supported raster artwork or include vector source as EPS comments. */
+	/** Clip an EPS artwork layer to the same circle/rectangle used by the preview. */
+	private static function append_eps_clip_path( array &$lines, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $shape ): void {
+		if ( 'circle' === $shape ) {
+			$radius  = min( $w_pt, $h_pt ) / 2;
+			$center_x = $x_pt + $w_pt / 2;
+			$center_y = $y_pt + $h_pt / 2;
+			$lines[] = sprintf( 'newpath %.4F %.4F %.4F 0 360 arc closepath clip newpath', $center_x, $center_y, $radius );
+			return;
+		}
+
+		$lines[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath clip newpath', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
+	}
+
+	/** Embed the actual Spotify scannable rather than printing its URI as text. */
+	private static function append_eps_spotify( array &$lines, array $input, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+		$url = self::build_spotify_code_url( (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ) );
+		if ( '' === $url ) {
+			throw new \RuntimeException( __( 'The Spotify layer does not contain a valid Spotify URI.', 'overcustomise' ) );
+		}
+
+		$path = self::download_spotify_code_svg( $url );
+		if ( ! $path ) {
+			throw new \RuntimeException( __( 'The Spotify code could not be retrieved for embroidery production.', 'overcustomise' ) );
+		}
+
+		try {
+			self::append_eps_image_or_reference( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, 'contain' );
+		} finally {
+			@unlink( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
+	/** Embed supported raster/vector artwork or fail clearly when conversion is unavailable. */
 	private static function append_eps_image_or_reference( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): void {
 		$lines[] = '%%OCArtworkFile: ' . self::eps_comment( basename( $path ) );
 		$ext     = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
+		if ( in_array( $ext, [ 'pdf', 'eps' ], true ) ) {
+			throw new \RuntimeException(
+				sprintf( __( 'Embroidery production cannot render the %1$s original "%2$s" without a safe raster or SVG derivative.', 'overcustomise' ), strtoupper( $ext ), basename( $path ) )
+			);
+		}
 
 		if ( 'svg' === $ext ) {
 			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
@@ -1039,22 +1120,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				return;
 			}
 
-			$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-			$lines[] = '%%BeginOCEmbeddedSVG: ' . self::eps_comment( basename( $path ) );
-			if ( is_string( $raw ) ) {
-				foreach ( preg_split( '/\R/', $raw ) as $svg_line ) {
-					$lines[] = '%%OCSVG: ' . self::eps_comment( (string) $svg_line );
-				}
-			}
-			$lines[] = '%%EndOCEmbeddedSVG';
-			self::append_eps_artwork_box( $lines, $x_pt, $y_pt, $w_pt, $h_pt, basename( $path ) );
-			return;
+			throw new \RuntimeException(
+				sprintf( __( 'SVG artwork "%s" is blank or uses unsupported production features and could not be converted.', 'overcustomise' ), basename( $path ) )
+			);
 		}
 
 		$image = self::open_raster_resource( $path );
 		if ( ! $image ) {
-			self::append_eps_artwork_box( $lines, $x_pt, $y_pt, $w_pt, $h_pt, basename( $path ) );
-			return;
+			throw new \RuntimeException( sprintf( __( 'Artwork "%s" is not supported for embroidery production.', 'overcustomise' ), basename( $path ) ) );
 		}
 
 		self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
@@ -1214,7 +1287,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		$body = self::eps_embedded_body( $raw );
-		if ( empty( $body ) ) {
+		if ( empty( $body ) || ! self::eps_lines_have_paint( $body ) ) {
 			return false;
 		}
 
@@ -1308,26 +1381,17 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Run a converter command without shell expansion. */
 	private static function run_process( array $command ): bool {
-		$disabled = array_map( 'trim', explode( ',', (string) ini_get( 'disable_functions' ) ) );
-		if ( ! function_exists( 'proc_open' ) || in_array( 'proc_open', $disabled, true ) ) {
+		if ( ! class_exists( 'OC_Command_Runner' ) || ! method_exists( 'OC_Command_Runner', 'run' ) ) {
 			return false;
 		}
 
-		$pipes   = [];
-		$process = @proc_open( // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_open
-			$command,
-			[
-				0 => [ 'file', '/dev/null', 'r' ],
-				1 => [ 'file', '/dev/null', 'w' ],
-				2 => [ 'file', '/dev/null', 'w' ],
-			],
-			$pipes
-		);
-		if ( ! is_resource( $process ) ) {
+		try {
+			$result = OC_Command_Runner::run( $command );
+		} catch ( \Throwable $e ) {
 			return false;
 		}
 
-		return 0 === proc_close( $process ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.system_calls_proc_close
+		return 0 === (int) ( $result['code'] ?? -1 );
 	}
 
 	/** Parse an EPS BoundingBox comment. */
@@ -1360,6 +1424,18 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return $body;
+	}
+
+	/** Detect real paint operators rather than wrapper transforms/comments. */
+	private static function eps_lines_have_paint( array $lines ): bool {
+		foreach ( $lines as $line ) {
+			$line = trim( (string) $line );
+			if ( preg_match( '/(?:^|\s)(?:fill|eofill|stroke|rectfill|colorimage|image)(?:\s|$)/', $line ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** Resolve selected clipart paths from the trusted clipart DB row before falling back to upload artwork rules. */
@@ -1396,6 +1472,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Render common SVG clipart directly as EPS vectors when no SVG rasterizer is available. */
 	private static function append_eps_svg_vector( array &$lines, string $path, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): bool {
+		if ( ! is_readable( $path ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
+			return false;
+		}
 		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
 		if ( ! is_string( $raw ) || '' === $raw ) {
 			return false;
@@ -1407,6 +1486,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		libxml_clear_errors();
 		libxml_use_internal_errors( $previous );
 		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return false;
+		}
+		if ( $dom->getElementsByTagName( '*' )->length > self::MAX_SVG_NODES ) {
 			return false;
 		}
 
@@ -1426,11 +1508,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'css'      => self::svg_css_rules( $dom ),
 			'ids'      => self::svg_id_map( $dom ),
 			'view_box' => [ $vb_x, $vb_y, $vb_w, $vb_h ],
+			'depth'    => 0,
+			'use_stack' => [],
 		];
 		self::append_svg_element_eps( $lines, $dom->documentElement, [], $context );
 		$lines[] = 'grestore';
 
-		if ( count( $lines ) <= $before + 4 ) {
+		$body = array_slice( $lines, $before );
+		if ( ! self::eps_lines_have_paint( $body ) ) {
 			array_splice( $lines, $before );
 			return false;
 		}
@@ -1453,6 +1538,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style, array $context = [] ): void {
+		$depth = (int) ( $context['depth'] ?? 0 );
+		if ( $depth > self::MAX_SVG_DEPTH ) {
+			return;
+		}
+		$context['depth'] = $depth + 1;
 		$style = self::svg_style_for_element( $element, $style, $context['css'] ?? [] );
 		$name  = strtolower( $element->localName );
 		if ( in_array( $name, [ 'defs', 'style', 'metadata', 'title', 'desc' ], true ) || ( 'symbol' === $name && empty( $context['from_use'] ) ) ) {
@@ -1521,6 +1611,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( ! isset( $ids[ $id ] ) || ! $ids[ $id ] instanceof \DOMElement ) {
 			return;
 		}
+		$use_stack = is_array( $context['use_stack'] ?? null ) ? $context['use_stack'] : [];
+		if ( in_array( $id, $use_stack, true ) || count( $use_stack ) >= self::MAX_SVG_USE_DEPTH ) {
+			return;
+		}
 
 		$lines[] = 'gsave';
 		$x = self::svg_number( $element->getAttribute( 'x' ) );
@@ -1530,6 +1624,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		$use_context = $context;
 		$use_context['from_use'] = true;
+		$use_context['use_stack'] = array_merge( $use_stack, [ $id ] );
 		self::append_svg_element_eps( $lines, $ids[ $id ], $style, $use_context );
 		$lines[] = 'grestore';
 	}
@@ -1667,8 +1762,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	private static function svg_path_to_eps( string $d ): array {
+		if ( strlen( $d ) > self::MAX_SVG_PATH_BYTES ) {
+			return [];
+		}
 		preg_match_all( '/[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $d, $matches );
 		$tokens = $matches[0] ?? [];
+		if ( count( $tokens ) > self::MAX_SVG_PATH_TOKENS ) {
+			return [];
+		}
 		$out = [];
 		$i = 0;
 		$cmd = '';
@@ -1682,6 +1783,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$prev_qy = null;
 
 		while ( $i < count( $tokens ) ) {
+			$iteration_start = $i;
 			if ( preg_match( '/^[A-Za-z]$/', $tokens[ $i ] ) ) {
 				$cmd = $tokens[ $i++ ];
 			}
@@ -1815,6 +1917,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					break;
 				default:
 					return $out;
+			}
+			if ( $i <= $iteration_start ) {
+				break;
+			}
+			if ( count( $out ) >= self::MAX_SVG_PATH_TOKENS ) {
+				break;
 			}
 		}
 
@@ -2017,7 +2125,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Convert an SVG to a GD image so clipart appears in EPS output. */
 	private static function open_svg_resource( string $path, float $w_pt, float $h_pt ) {
-		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) ) {
+		$size = is_readable( $path ) ? filesize( $path ) : false;
+		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || false === $size || $size > self::MAX_SVG_BYTES ) {
 			return false;
 		}
 
@@ -2026,14 +2135,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		try {
 			$imagick = new \Imagick();
+			self::configure_imagick_limits( $imagick );
 			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
 			$imagick->setResolution( 300, 300 );
 			$imagick->readImage( $path );
 			$imagick->setImageFormat( 'png' );
 			$imagick->resizeImage( $width_px, $height_px, \Imagick::FILTER_LANCZOS, 1, true );
 			$blob = $imagick->getImagesBlob();
-			$imagick->clear();
-			$imagick->destroy();
 
 			return is_string( $blob ) && '' !== $blob ? @imagecreatefromstring( $blob ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		} catch ( \Throwable $e ) {
@@ -2041,6 +2149,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				OC_Logger::warning( 'Embroidery EPS SVG render failed for ' . basename( $path ) . ': ' . $e->getMessage() );
 			}
 			return false;
+		} finally {
+			if ( isset( $imagick ) && $imagick instanceof \Imagick ) {
+				$imagick->clear();
+				$imagick->destroy();
+			}
 		}
 	}
 

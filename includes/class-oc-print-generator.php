@@ -21,6 +21,8 @@ class OC_Print_Generator {
 	private array $deferred_order_ids = [];
 
 	public function register(): void {
+		add_action( 'init', [ OC_Print_Base::class, 'ensure_output_storage_protected' ] );
+
 		// Primary: order created at checkout.
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order' ], 20, 1 );
 
@@ -36,6 +38,7 @@ class OC_Print_Generator {
 		add_action( 'admin_init', [ $this, 'handle_admin_generate_missing' ] );
 		add_action( 'admin_init', [ $this, 'handle_admin_process_queue' ] );
 		add_action( 'admin_notices', [ $this, 'render_admin_notices' ] );
+		add_action( 'wp_ajax_oc_serve_print_thumbnail', [ $this, 'handle_admin_thumbnail' ] );
 	}
 
 	// -------------------------------------------------------------------------
@@ -55,6 +58,10 @@ class OC_Print_Generator {
 
 		if ( ! $record ) {
 			throw new \RuntimeException( "Print file record #{$file_id} not found." );
+		}
+		$queue_status = OC_Print_Queue::instance()->get_status( $file_id );
+		if ( ! empty( $queue_status['in_queue'] ) || ! empty( $queue_status['is_processing'] ) || ! empty( $queue_status['has_failed_job'] ) ) {
+			throw new \RuntimeException( __( 'This print file is managed by an active or failed queue job. Process or retry that queue job instead.', 'overcustomise' ) );
 		}
 
 		$order = wc_get_order( (int) $record->order_id );
@@ -127,28 +134,31 @@ class OC_Print_Generator {
 		$result  = self::with_output_lock(
 			(int) $record->order_id,
 			(int) $record->order_item_id,
-			static function () use ( $record, $order, $area, $area_data, $file_id ): array {
-				$result = self::generate_with_backup(
+			static function () use ( $record, $order, $area, $area_data, $file_id, $now, $expires_at ): array {
+				return self::generate_with_backup(
 					(string) ( $record->file_path ?? '' ),
-					static fn (): array => self::generate_for_area( $order, (int) $record->order_item_id, $area, $area_data )
+					static fn (): array => self::generate_for_area( $order, (int) $record->order_item_id, $area, $area_data ),
+					static function ( array &$result ) use ( $file_id, $now, $expires_at ): void {
+						$result['file_path'] = self::finalise_generated_output( $result['file_path'], $file_id );
+						$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
+						$result['thumbnail_path'] = $thumb_path;
+						if ( ! OC_DB::update_print_file( $file_id, [
+							'file_path'      => $result['file_path'],
+							'file_status'    => $result['status'],
+							'thumbnail_path' => $thumb_path,
+							'generated_at'   => $now,
+							'expires_at'     => $expires_at,
+						] ) ) {
+							throw new \RuntimeException( __( 'The regenerated print file could not be committed.', 'overcustomise' ) );
+						}
+					},
+					[ (string) ( $record->thumbnail_path ?? '' ) ]
 				);
-				$result['file_path'] = self::finalise_generated_output( $result['file_path'], $file_id );
-				return $result;
 			}
 		);
 		if ( '' !== $warning ) {
 			$result['warning'] = $warning;
 		}
-
-		$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
-
-		OC_DB::update_print_file( $file_id, [
-			'file_path'      => $result['file_path'],
-			'file_status'    => $result['status'],
-			'thumbnail_path' => $thumb_path,
-			'generated_at'   => $now,
-			'expires_at'     => $expires_at,
-		] );
 
 		return $result;
 	}
@@ -172,8 +182,8 @@ class OC_Print_Generator {
 			(int) ( $record->row_index ?? 0 )
 		);
 
-		if ( empty( $records ) ) {
-			throw new \RuntimeException( 'No print file records found for combined regeneration.' );
+		if ( count( $records ) !== count( $area_ids ) ) {
+			throw new \RuntimeException( 'Not every combined print area has a matching file record.' );
 		}
 
 		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90;
@@ -183,26 +193,34 @@ class OC_Print_Generator {
 		$result = self::with_output_lock(
 			(int) $record->order_id,
 			(int) $record->order_item_id,
-			static function () use ( $record, $order, $combined_entries, $records ): array {
-				$result = self::generate_with_backup(
+			static function () use ( $record, $order, $combined_entries, $records, $now, $expires_at ): array {
+				return self::generate_with_backup(
 					(string) ( $record->file_path ?? '' ),
-					static fn (): array => self::generate_for_areas( $order, (int) $record->order_item_id, (string) $record->file_type, $combined_entries )
+					static fn (): array => self::generate_for_areas( $order, (int) $record->order_item_id, (string) $record->file_type, $combined_entries ),
+					static function ( array &$result ) use ( $records, $now, $expires_at ): void {
+						$result['file_path'] = self::finalise_generated_output( $result['file_path'], (int) $records[0]->id );
+						$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
+						$result['thumbnail_path'] = $thumb_path;
+						if ( ! OC_DB::update_print_files_atomically(
+							array_map( static fn( object $print_file ): int => (int) $print_file->id, $records ),
+							[
+								'file_path'      => $result['file_path'],
+								'file_status'    => $result['status'],
+								'thumbnail_path' => $thumb_path,
+								'generated_at'   => $now,
+								'expires_at'     => $expires_at,
+							]
+						) ) {
+							throw new \RuntimeException( __( 'The combined regenerated print files could not be committed.', 'overcustomise' ) );
+						}
+					},
+					array_merge(
+						array_map( static fn( object $print_file ): string => (string) ( $print_file->file_path ?? '' ), $records ),
+						array_map( static fn( object $print_file ): string => (string) ( $print_file->thumbnail_path ?? '' ), $records )
+					)
 				);
-				$result['file_path'] = self::finalise_generated_output( $result['file_path'], (int) $records[0]->id );
-				return $result;
 			}
 		);
-		$thumb_path = self::maybe_generate_thumbnail( $result['file_path'] );
-
-		foreach ( $records as $print_file ) {
-			OC_DB::update_print_file( (int) $print_file->id, [
-				'file_path'      => $result['file_path'],
-				'file_status'    => $result['status'],
-				'thumbnail_path' => $thumb_path,
-				'generated_at'   => $now,
-				'expires_at'     => $expires_at,
-			] );
-		}
 
 		return $result;
 	}
@@ -269,41 +287,109 @@ class OC_Print_Generator {
 		}
 	}
 
-	/** Preserve an existing output if a driver writes in place and then fails. */
-	private static function generate_with_backup( string $old_path, callable $generate ): array {
-		$backup = '';
-		if ( '' !== $old_path && is_file( $old_path ) ) {
-			$backup = $old_path . '.oc-backup-' . wp_generate_uuid4();
-			if ( ! copy( $old_path, $backup ) ) {
+	/** Preserve existing output artifacts until their replacements have been fully committed. */
+	private static function generate_with_backup( string $old_path, callable $generate, ?callable $commit = null, array $related_paths = [] ): array {
+		$paths   = array_values( array_unique( array_filter(
+			array_merge( [ $old_path ], $related_paths ),
+			static fn( mixed $path ): bool => is_string( $path ) && '' !== $path
+		) ) );
+		$backups = [];
+		foreach ( $paths as $path ) {
+			if ( ! is_file( $path ) ) {
+				continue;
+			}
+
+			$backup = $path . '.oc-backup-' . wp_generate_uuid4();
+			if ( ! copy( $path, $backup ) ) {
+				foreach ( $backups as $created_backup ) {
+					@unlink( $created_backup ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
 				throw new \RuntimeException( 'Could not protect the existing print output before regeneration.' );
 			}
+			$backups[ $path ] = $backup;
 		}
 
+		$result = null;
 		try {
 			$result = $generate();
 			if ( ! is_array( $result ) || empty( $result['file_path'] ) || ! is_file( $result['file_path'] ) || filesize( $result['file_path'] ) <= 0 ) {
 				throw new \RuntimeException( 'Print generator did not produce a valid replacement file.' );
 			}
 
-			if ( '' !== $backup && $old_path === $result['file_path'] ) {
-				$replacement = $old_path . '.oc-replacement-' . wp_generate_uuid4();
-				if ( ! @rename( $old_path, $replacement ) || ! @rename( $backup, $old_path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-					throw new \RuntimeException( 'Could not safely stage regenerated print output.' );
-				}
-				$result['file_path'] = $replacement;
-				$backup = '';
+			if ( null !== $commit ) {
+				$commit( $result );
+				self::delete_superseded_artifacts( $paths, $result );
 			}
 
-			if ( '' !== $backup && file_exists( $backup ) ) {
-				@unlink( $backup ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			foreach ( $backups as $backup ) {
+				if ( file_exists( $backup ) ) {
+					@unlink( $backup ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
 			}
 
 			return $result;
 		} catch ( \Throwable $e ) {
-			if ( '' !== $backup && file_exists( $backup ) ) {
-				@rename( $backup, $old_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			foreach ( [ 'file_path', 'thumbnail_path' ] as $result_key ) {
+				$result_path = is_array( $result ) ? (string) ( $result[ $result_key ] ?? '' ) : '';
+				if ( '' !== $result_path && ! isset( $backups[ $result_path ] ) && is_file( $result_path ) ) {
+					@unlink( $result_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+			}
+
+			$restore_failed = false;
+			foreach ( $backups as $path => $backup ) {
+				if ( ! file_exists( $backup ) ) {
+					continue;
+				}
+				$restored = @rename( $backup, $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! $restored && @copy( $backup, $path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					@unlink( $backup ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					$restored = true;
+				}
+				if ( ! $restored ) {
+					$restore_failed = true;
+				}
+			}
+			if ( $restore_failed ) {
+				throw new \RuntimeException( 'Could not restore the previous print output after regeneration failed.', 0, $e );
 			}
 			throw $e;
+		}
+	}
+
+	/** Delete committed predecessors only after no print-file row references them. */
+	private static function delete_superseded_artifacts( array $paths, array $result ): void {
+		$current_paths = array_values( array_filter( [
+			(string) ( $result['file_path'] ?? '' ),
+			(string) ( $result['thumbnail_path'] ?? '' ),
+		] ) );
+		$current_real_paths = [];
+		foreach ( $current_paths as $current_path ) {
+			$current_real = self::resolve_print_storage_path( $current_path );
+			if ( null !== $current_real ) {
+				$current_real_paths[ $current_real ] = true;
+			}
+		}
+
+		global $wpdb;
+		foreach ( $paths as $path ) {
+			$real = self::resolve_print_storage_path( (string) $path );
+			if ( null === $real || isset( $current_real_paths[ $real ] ) ) {
+				continue;
+			}
+
+			try {
+				$references = (int) $wpdb->get_var( $wpdb->prepare(
+					"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files WHERE file_path = %s OR thumbnail_path = %s",
+					(string) $path,
+					(string) $path
+				) );
+				if ( 0 === $references && ! @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+					OC_Logger::warning( 'Could not remove superseded print artifact: ' . basename( $real ) );
+				}
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( 'Could not verify a superseded print artifact: ' . $e->getMessage() );
+			}
 		}
 	}
 
@@ -313,7 +399,9 @@ class OC_Print_Generator {
 		$now            = current_time( 'mysql', true );
 		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
-		$created_count = 0;
+		$queued_count = 0;
+		$failed_count = 0;
+		$queue_ids    = [];
 
 		foreach ( $order->get_items() as $item_id => $item ) {
 			/** @var \WC_Order_Item_Product $item */
@@ -330,92 +418,20 @@ class OC_Print_Generator {
 					continue;
 				}
 
-				// Check for active VDP template.
-				$vdp = new OC_VDP();
-				if ( $vdp->is_enabled( $design_id ) ) {
-					$template = $vdp->get_template( $design_id );
-					if ( is_array( $template ) && '' !== $template['csv_file_path'] && file_exists( $template['csv_file_path'] ) ) {
-						$csv_data = $vdp->parse_csv( $template['csv_file_path'] );
-						$rows     = $csv_data['rows'] ?? [];
-
-						if ( ! empty( $rows ) ) {
-							$areas = OC_DB::get_design_print_areas( $design_id );
-							$layer_map = [];
-							foreach ( $template['fields'] as $field ) {
-								$layer_map[ (int) $field['layer_id'] ] = $field['field_name'];
-							}
-
-							foreach ( array_values( $rows ) as $row_offset => $row ) {
-								$row_index = $row_offset + 1;
-								foreach ( $areas as $area ) {
-									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
-									$area      = self::area_object_for_generation( $area, $area_data );
-
-									// Merge VDP field values into text layers.
-									$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
-									$all_layers   = OC_DB::get_design_layers( $design_id );
-									foreach ( $all_layers as $layer ) {
-										if ( (int) $layer->area_id !== (int) $area->id ) {
-											continue;
-										}
-										$layer_lid = (int) $layer->id;
-										if ( isset( $layer_map[ $layer_lid ] ) && isset( $layer_inputs[ $layer_lid ] ) ) {
-											$field_name = $layer_map[ $layer_lid ];
-											if ( isset( $row[ $field_name ] ) ) {
-												$merged_value = $vdp->merge_values( $row[ $field_name ], $row );
-												$layer_inputs[ $layer_lid ]['value'] = $merged_value;
-											}
-										}
-									}
-
-									$merged_customisation = $customisation;
-									$merged_customisation['layers'] = $layer_inputs;
-									$merged_customisation['renderSpec'] = OC_Render_Spec::build( $design_id, $layer_inputs );
-									$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $merged_customisation );
-									$area      = self::area_object_for_generation( $area, $area_data );
-
-									if ( ! self::area_has_printable_data( $area_data ) ) {
-										$order->add_order_note( sprintf( __( 'OverCustomise skipped print area "%s": no printable customer data was found.', 'overcustomise' ), $area->label ?: $area->area_key ) );
-										continue;
-									}
-									$print_file_id = OC_DB::insert_print_file( [
-										'order_id'      => $order->get_id(),
-										'order_item_id' => (int) $item_id,
-										'print_area_id' => (int) $area->id,
-										'area_source'   => 'design',
-										'row_index'     => $row_index,
-										'row_key'       => hash( 'sha256', wp_json_encode( $row ) ),
-										'area_snapshot' => wp_json_encode( (array) $area ),
-										'file_type'     => $area->print_method,
-										'file_status'   => 'pending',
-										'generated_at'  => $now,
-										'expires_at'    => $expires_at,
-									] );
-									if ( ! $print_file_id || self::queue_job_exists_for_file( $print_file_id ) ) {
-										continue;
-									}
-
-									OC_Print_Queue::instance()->enqueue(
-										(int) $order->get_id(),
-										(int) $item_id,
-										(int) $area->id,
-										$area_data,
-										(string) $area->print_method,
-										$print_file_id,
-										'design',
-										$row_index
-									);
-									$created_count++;
-								}
-							}
-						}
-						continue;
-					}
+				$vdp_result = $this->queue_vdp_files( $order, (int) $item_id, $design_id, $customisation, $now, $expires_at );
+				if ( is_array( $vdp_result ) ) {
+					$queued_count += $vdp_result['queued'];
+					$failed_count += $vdp_result['failed'];
+					$queue_ids     = array_merge( $queue_ids, $vdp_result['queue_ids'] );
+					continue;
 				}
 
 				$areas      = OC_DB::get_design_print_areas( $design_id );
 				$print_jobs = [];
 				foreach ( $areas as $area ) {
+					if ( isset( $area->visible ) && ! (bool) $area->visible ) {
+						continue;
+					}
 					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
 					$area      = self::area_object_for_generation( $area, $area_data );
 					if ( ! self::area_has_printable_data( $area_data ) ) {
@@ -435,7 +451,11 @@ class OC_Print_Generator {
 						'generated_at'  => $now,
 						'expires_at'    => $expires_at,
 					] );
-					if ( ! $print_file_id || self::queue_job_exists_for_file( $print_file_id ) ) {
+					if ( ! $print_file_id ) {
+						$failed_count++;
+						continue;
+					}
+					if ( self::queue_job_exists_for_file( $print_file_id ) ) {
 						continue;
 					}
 
@@ -448,9 +468,11 @@ class OC_Print_Generator {
 						'area_data'    => $area_data,
 						'print_method' => (string) $area->print_method,
 					];
-					$created_count++;
 				}
-				self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
+				$grouped_result = self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
+				$queued_count  += $grouped_result['queued'];
+				$failed_count  += $grouped_result['failed'];
+				$queue_ids      = array_merge( $queue_ids, $grouped_result['queue_ids'] );
 				continue;
 			}
 
@@ -484,7 +506,11 @@ class OC_Print_Generator {
 					'generated_at'  => $now,
 					'expires_at'    => $expires_at,
 				] );
-				if ( ! $print_file_id || self::queue_job_exists_for_file( $print_file_id ) ) {
+				if ( ! $print_file_id ) {
+					$failed_count++;
+					continue;
+				}
+				if ( self::queue_job_exists_for_file( $print_file_id ) ) {
 					continue;
 				}
 
@@ -497,14 +523,164 @@ class OC_Print_Generator {
 					'area_data'    => $area_data,
 					'print_method' => (string) $area->print_method,
 				];
-				$created_count++;
 			}
-			self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
+			$grouped_result = self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
+			$queued_count  += $grouped_result['queued'];
+			$failed_count  += $grouped_result['failed'];
+			$queue_ids      = array_merge( $queue_ids, $grouped_result['queue_ids'] );
+		}
+		if ( ! empty( $queue_ids ) || $failed_count > 0 ) {
+			OC_Print_Queue::instance()->finalise_enqueue_batch( $order, $queue_ids );
 		}
 
-		if ( $created_count > 0 ) {
-			$order->add_order_note( sprintf( __( 'OverCustomise queued %d print file(s) for generation.', 'overcustomise' ), $created_count ) );
+		if ( $queued_count > 0 ) {
+			$order->add_order_note( sprintf( __( 'OverCustomise queued %d print file(s) for generation.', 'overcustomise' ), $queued_count ) );
 		}
+		if ( $failed_count > 0 ) {
+			$order->add_order_note( sprintf( __( 'OverCustomise could not queue %d print file(s). Review the print queue and error log.', 'overcustomise' ), $failed_count ) );
+		}
+	}
+
+	/** Expand a valid VDP template into row-specific queue jobs, or return null for standard fallback. */
+	private function queue_vdp_files( \WC_Order $order, int $item_id, int $design_id, array $customisation, string $now, string $expires_at ): ?array {
+		$vdp = new OC_VDP();
+		if ( ! $vdp->is_enabled( $design_id ) ) {
+			return null;
+		}
+
+		$template = $vdp->get_template( $design_id );
+		if ( ! is_array( $template ) || empty( $template['fields'] ) || empty( $template['csv_file_path'] ) || ! is_readable( $template['csv_file_path'] ) ) {
+			$order->add_order_note( __( 'OverCustomise VDP was enabled but its template was unavailable. A standard single-output print job was queued instead.', 'overcustomise' ) );
+			return null;
+		}
+
+		$csv_data = $vdp->parse_csv( (string) $template['csv_file_path'] );
+		$headers  = is_array( $csv_data['headers'] ?? null ) ? $csv_data['headers'] : [];
+		$rows     = is_array( $csv_data['rows'] ?? null ) ? $csv_data['rows'] : [];
+		if ( ! empty( $csv_data['error'] ) || empty( $headers ) || empty( $rows ) || count( $template['fields'] ) !== count( $headers ) ) {
+			OC_Logger::warning( 'VDP fallback for design #' . $design_id . ': ' . (string) ( $csv_data['error'] ?? 'template fields do not match CSV headers' ) );
+			$order->add_order_note( __( 'OverCustomise VDP data was invalid or empty. A standard single-output print job was queued instead.', 'overcustomise' ) );
+			return null;
+		}
+
+		$layers_by_id = [];
+		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
+			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || ! empty( $layer->locked ) ) {
+				continue;
+			}
+			$layers_by_id[ (int) $layer->id ] = $layer;
+		}
+
+		$header_lookup = array_fill_keys( $headers, true );
+		$field_map     = [];
+		$used_headers  = [];
+		foreach ( $template['fields'] as $field ) {
+			$layer_id  = absint( $field['layer_id'] ?? 0 );
+			$field_name = sanitize_key( (string) ( $field['field_name'] ?? '' ) );
+			$layer      = $layers_by_id[ $layer_id ] ?? null;
+			if ( ! $layer || ! isset( $header_lookup[ $field_name ] ) || isset( $field_map[ $layer_id ] ) || isset( $used_headers[ $field_name ] ) || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true ) ) {
+				$order->add_order_note( __( 'OverCustomise VDP fields no longer match the visible design layers. A standard single-output print job was queued instead.', 'overcustomise' ) );
+				return null;
+			}
+			$field_map[ $layer_id ]     = [ 'field' => $field_name, 'layer' => $layer ];
+			$used_headers[ $field_name ] = true;
+		}
+
+		$normalised_rows = [];
+		foreach ( array_values( $rows ) as $row ) {
+			$row_values = [];
+			foreach ( $field_map as $layer_id => $mapping ) {
+				$field_name = $mapping['field'];
+				$merged     = $vdp->merge_values( (string) ( $row[ $field_name ] ?? '' ), $row );
+				if ( preg_match( '/\{\{[a-z0-9_-]+\}\}/i', $merged ) ) {
+					$order->add_order_note( __( 'OverCustomise VDP contains an unresolved field placeholder. A standard single-output print job was queued instead.', 'overcustomise' ) );
+					return null;
+				}
+				$value      = $vdp->normalise_layer_value( $mapping['layer'], $merged );
+				if ( is_wp_error( $value ) ) {
+					OC_Logger::warning( 'VDP fallback for design #' . $design_id . ': ' . $value->get_error_message() );
+					$order->add_order_note( __( 'OverCustomise VDP contains a value that is invalid for its mapped layer. A standard single-output print job was queued instead.', 'overcustomise' ) );
+					return null;
+				}
+				$row_values[ $layer_id ] = $value;
+			}
+			$normalised_rows[] = [ 'row' => $row, 'values' => $row_values ];
+		}
+
+		$areas = array_values( array_filter(
+			OC_DB::get_design_print_areas( $design_id ),
+			static fn( object $area ): bool => ! isset( $area->visible ) || (bool) $area->visible
+		) );
+		if ( empty( $areas ) ) {
+			return null;
+		}
+
+		$queued   = 0;
+		$failed   = 0;
+		$queue_ids = [];
+		foreach ( $normalised_rows as $row_offset => $row_data ) {
+			$row_index    = $row_offset + 1;
+			$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+			foreach ( $row_data['values'] as $layer_id => $value ) {
+				$layer_inputs[ $layer_id ] = is_array( $layer_inputs[ $layer_id ] ?? null ) ? $layer_inputs[ $layer_id ] : [];
+				$layer_inputs[ $layer_id ]['value'] = $value;
+			}
+
+			$merged_customisation               = $customisation;
+			$merged_customisation['layers']     = $layer_inputs;
+			$merged_customisation['renderSpec'] = OC_Render_Spec::build( $design_id, $layer_inputs );
+			$row_key = hash( 'sha256', (string) wp_json_encode( $row_data['row'] ) );
+
+			foreach ( $areas as $area_row ) {
+				$area_data = self::build_v2_area_data( $design_id, (int) $area_row->id, $merged_customisation );
+				$area      = self::area_object_for_generation( $area_row, $area_data );
+				if ( ! self::area_has_printable_data( $area_data ) ) {
+					$order->add_order_note( sprintf( __( 'OverCustomise skipped VDP row %1$d, print area "%2$s": no printable data was found.', 'overcustomise' ), $row_index, $area->label ?: $area->area_key ) );
+					continue;
+				}
+
+				$print_file_id = OC_DB::insert_print_file( [
+					'order_id'      => $order->get_id(),
+					'order_item_id' => $item_id,
+					'print_area_id' => (int) $area->id,
+					'area_source'   => 'design',
+					'row_index'     => $row_index,
+					'row_key'       => $row_key,
+					'area_snapshot' => wp_json_encode( (array) $area ),
+					'file_type'     => $area->print_method,
+					'file_status'   => 'pending',
+					'generated_at'  => $now,
+					'expires_at'    => $expires_at,
+				] );
+				if ( ! $print_file_id ) {
+					$failed++;
+					continue;
+				}
+				if ( self::queue_job_exists_for_file( $print_file_id ) ) {
+					continue;
+				}
+
+				$queue_id = OC_Print_Queue::instance()->enqueue(
+					(int) $order->get_id(),
+					$item_id,
+					(int) $area->id,
+					$area_data,
+					(string) $area->print_method,
+					$print_file_id,
+					'design',
+					$row_index,
+					true
+				);
+				if ( $queue_id > 0 ) {
+					$queued++;
+					$queue_ids[] = $queue_id;
+				} else {
+					$failed++;
+				}
+			}
+		}
+
+		return [ 'queued' => $queued, 'failed' => $failed, 'queue_ids' => $queue_ids ];
 	}
 
 	/** Generate print files from an order ID-based WooCommerce hook. */
@@ -539,29 +715,88 @@ class OC_Print_Generator {
 				return true;
 			}
 		}
+		foreach ( is_array( $area_data['layers'] ?? null ) ? $area_data['layers'] : [] as $layer ) {
+			if ( ! is_array( $layer ) ) {
+				continue;
+			}
+			$type  = (string) ( $layer['type'] ?? '' );
+			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
+			if ( 'lineart' === $type ) {
+				return true;
+			}
+			if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) && '' !== trim( (string) ( $input['value'] ?? '' ) ) ) {
+				return true;
+			}
+			if ( in_array( $type, [ 'image', 'clipmask' ], true ) && absint( $input['attachmentId'] ?? $layer['artworkAttachmentId'] ?? 0 ) > 0 ) {
+				return true;
+			}
+			if ( 'clipart' === $type && ( absint( $input['clipartId'] ?? 0 ) > 0 || ! empty( $layer['artworkPath'] ) ) ) {
+				return true;
+			}
+		}
 
 		return false;
 	}
 
-	private static function print_file_exists( int $order_id, int $item_id, int $print_area_id ): bool {
+	private static function print_file_exists( int $order_id, int $item_id, int $print_area_id, string $area_source, int $row_index ): bool {
 		global $wpdb;
 		return (bool) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d LIMIT 1",
+			"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND print_area_id = %d AND area_source = %s AND row_index = %d LIMIT 1",
 			$order_id,
 			$item_id,
-			$print_area_id
+			$print_area_id,
+			$area_source,
+			$row_index
 		) );
 	}
 
 	/** Return whether creation has already attached a queue job to this exact file row. */
 	private static function queue_job_exists_for_file( int $print_file_id ): bool {
 		global $wpdb;
-		return (bool) $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_print_queue
-			 WHERE print_file_id = %d OR area_data LIKE %s LIMIT 1",
-			$print_file_id,
-			'%' . $wpdb->esc_like( '"printFileId":' . $print_file_id ) . '%'
-		) );
+		if ( $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_print_queue WHERE print_file_id = %d LIMIT 1",
+			$print_file_id
+		) ) ) {
+			return true;
+		}
+
+		$record = OC_DB::get_print_file( $print_file_id );
+		if ( ! $record ) {
+			return false;
+		}
+
+		$payloads = $wpdb->get_col( $wpdb->prepare(
+			"SELECT area_data FROM {$wpdb->prefix}oc_print_queue
+			 WHERE order_id = %d AND order_item_id = %d AND area_data LIKE %s",
+			(int) $record->order_id,
+			(int) $record->order_item_id,
+			'%' . $wpdb->esc_like( '"__combined_print_areas"' ) . '%'
+		) ) ?: [];
+
+		foreach ( $payloads as $payload ) {
+			if ( self::combined_payload_contains_print_file_id( (string) $payload, $print_file_id ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/** Inspect only structured combined entries, never arbitrary customer text. */
+	private static function combined_payload_contains_print_file_id( string $encoded, int $print_file_id ): bool {
+		$payload = json_decode( $encoded, true );
+		if ( ! is_array( $payload ) || ! self::is_combined_area_data( $payload ) ) {
+			return false;
+		}
+
+		foreach ( $payload['__combined_print_areas'] as $entry ) {
+			$value = is_array( $entry ) ? ( $entry['printFileId'] ?? null ) : null;
+			if ( is_numeric( $value ) && (float) $value === (float) (int) $value && (int) $value === $print_file_id ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/** Read the immutable generation payload retained by this file's queue job. */
@@ -619,27 +854,64 @@ class OC_Print_Generator {
 
 			$contains_record = false;
 			$entries         = [];
+			$seen_file_ids   = [];
+			$seen_areas      = [];
+			$valid           = true;
 			foreach ( $payload['__combined_print_areas'] as $entry ) {
-				if ( ! is_array( $entry ) || ! is_array( $entry['areaData'] ?? null ) ) {
-					continue;
+				if (
+					! is_array( $entry )
+					|| ! is_numeric( $entry['printFileId'] ?? null )
+					|| ! is_numeric( $entry['areaId'] ?? null )
+					|| ! is_numeric( $entry['rowIndex'] ?? null )
+					|| ! is_array( $entry['areaData'] ?? null )
+				) {
+					$valid = false;
+					break;
 				}
-				$file_id = (int) ( $entry['printFileId'] ?? 0 );
-				$contains_record = $contains_record || $file_id === (int) $record->id;
-				$file = $file_id > 0 ? OC_DB::get_print_file( $file_id ) : null;
-				$snapshot = $file ? json_decode( (string) ( $file->area_snapshot ?? '' ), true ) : null;
+				$file_id       = (int) ( $entry['printFileId'] ?? 0 );
+				$area_id       = (int) ( $entry['areaId'] ?? 0 );
+				$area_source   = (string) ( $entry['areaSource'] ?? '' );
+				$row_index     = (int) ( $entry['rowIndex'] ?? -1 );
+				$area_identity = $area_source . ':' . $area_id . ':' . $row_index;
+				$file          = $file_id > 0 ? OC_DB::get_print_file( $file_id ) : null;
+				if (
+					! $file
+					|| (float) $entry['printFileId'] !== (float) $file_id
+					|| (float) $entry['areaId'] !== (float) $area_id
+					|| (float) $entry['rowIndex'] !== (float) $row_index
+					|| ! in_array( $area_source, [ 'design', 'legacy', 'unknown' ], true )
+					|| isset( $seen_file_ids[ $file_id ] )
+					|| isset( $seen_areas[ $area_identity ] )
+					|| (int) ( $file->order_id ?? 0 ) !== (int) $record->order_id
+					|| (int) ( $file->order_item_id ?? 0 ) !== (int) $record->order_item_id
+					|| (int) ( $file->print_area_id ?? 0 ) !== $area_id
+					|| (string) ( $file->area_source ?? '' ) !== $area_source
+					|| (int) ( $file->row_index ?? -1 ) !== $row_index
+					|| $area_source !== (string) ( $record->area_source ?? '' )
+					|| $row_index !== (int) ( $record->row_index ?? -1 )
+					|| sanitize_key( (string) ( $file->file_type ?? '' ) ) !== sanitize_key( (string) ( $record->file_type ?? '' ) )
+				) {
+					$valid = false;
+					break;
+				}
+			$seen_file_ids[ $file_id ]    = true;
+			$seen_areas[ $area_identity ] = true;
+				$snapshot = json_decode( (string) ( $file->area_snapshot ?? '' ), true );
 				if ( ! is_array( $snapshot ) || empty( $snapshot ) ) {
 					$snapshot = is_array( $entry['areaSnapshot'] ?? null ) ? $entry['areaSnapshot'] : [];
 				}
 				if ( empty( $snapshot ) ) {
-					continue;
+					$valid = false;
+					break;
 				}
+				$contains_record = $contains_record || $file_id === (int) $record->id;
 				$entries[] = [
 					'area'      => (object) $snapshot,
 					'area_data' => $entry['areaData'],
 				];
 			}
 
-			if ( $contains_record && count( $entries ) > 1 ) {
+			if ( $valid && $contains_record && count( $entries ) > 1 ) {
 				return $entries;
 			}
 		}
@@ -687,6 +959,9 @@ class OC_Print_Generator {
 			}
 
 			foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
+				if ( isset( $area->visible ) && ! (bool) $area->visible ) {
+					continue;
+				}
 				if ( sanitize_key( (string) $area->print_method ) !== $method ) {
 					continue;
 				}
@@ -696,7 +971,7 @@ class OC_Print_Generator {
 					continue;
 				}
 
-				if ( ! self::print_file_exists( (int) $record->order_id, (int) $record->order_item_id, (int) $area->id ) ) {
+				if ( ! self::print_file_exists( (int) $record->order_id, (int) $record->order_item_id, (int) $area->id, (string) $record->area_source, (int) $record->row_index ) ) {
 					continue;
 				}
 
@@ -723,7 +998,7 @@ class OC_Print_Generator {
 				continue;
 			}
 
-			if ( ! self::print_file_exists( (int) $record->order_id, (int) $record->order_item_id, (int) $area->id ) ) {
+			if ( ! self::print_file_exists( (int) $record->order_id, (int) $record->order_item_id, (int) $area->id, (string) $record->area_source, (int) $record->row_index ) ) {
 				continue;
 			}
 
@@ -740,13 +1015,16 @@ class OC_Print_Generator {
 	 * Queue compatible same-method print areas together without changing the per-area DB records.
 	 *
 	 * @param array<int,array{print_file_id:int,area_id:int,area_source:string,row_index:int,area_snapshot:array,area_data:array,print_method:string}> $print_jobs
+	 * @return array{queued:int,failed:int,queue_ids:array<int,int>}
 	 */
-	private static function enqueue_print_jobs_grouped( int $order_id, int $item_id, array $print_jobs ): void {
-		$groups = [];
+	private static function enqueue_print_jobs_grouped( int $order_id, int $item_id, array $print_jobs ): array {
+		$groups           = [];
+		$invalid_file_ids = [];
 
 		foreach ( $print_jobs as $job ) {
 			$method = sanitize_key( (string) ( $job['print_method'] ?? '' ) );
 			if ( '' === $method ) {
+				$invalid_file_ids[] = absint( $job['print_file_id'] ?? 0 );
 				continue;
 			}
 
@@ -755,6 +1033,13 @@ class OC_Print_Generator {
 				$groups[ $key ] = [];
 			}
 			$groups[ $key ][] = $job;
+		}
+
+		$queued    = 0;
+		$failed    = count( array_filter( $invalid_file_ids ) );
+		$queue_ids = [];
+		if ( ! empty( $invalid_file_ids ) ) {
+			OC_DB::fail_unqueued_print_files( $invalid_file_ids );
 		}
 
 		foreach ( $groups as $jobs ) {
@@ -780,7 +1065,7 @@ class OC_Print_Generator {
 				];
 			}
 
-			OC_Print_Queue::instance()->enqueue(
+			$queue_id = OC_Print_Queue::instance()->enqueue(
 				$order_id,
 				$item_id,
 				(int) $first['area_id'],
@@ -788,9 +1073,18 @@ class OC_Print_Generator {
 				(string) $first['print_method'],
 				(int) $first['print_file_id'],
 				(string) $first['area_source'],
-				(int) $first['row_index']
+				(int) $first['row_index'],
+				true
 			);
+			if ( $queue_id > 0 ) {
+				$queued += count( $jobs );
+				$queue_ids[] = $queue_id;
+			} else {
+				$failed += count( $jobs );
+			}
 		}
+
+		return [ 'queued' => $queued, 'failed' => $failed, 'queue_ids' => $queue_ids ];
 	}
 
 	public static function supports_combined_print_file( string $print_method ): bool {
@@ -803,7 +1097,7 @@ class OC_Print_Generator {
 
 	private static function regeneration_snapshot_warning( object $area, array $area_data ): string {
 		$print_method = sanitize_key( (string) ( $area->print_method ?? '' ) );
-		if ( ! in_array( $print_method, [ 'uv', 'sublimation' ], true ) ) {
+		if ( ! in_array( $print_method, [ 'uv', 'sublimation' ], true ) || ! empty( $area_data['layers'] ) ) {
 			return '';
 		}
 
@@ -826,10 +1120,7 @@ class OC_Print_Generator {
 	public static function build_v2_area_data( int $design_id, int $area_id, array $customisation ): array {
 		$stored_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
 		if ( ! empty( $stored_spec ) ) {
-			$stored_area_data = OC_Render_Spec::area_from_spec( $stored_spec, $area_id );
-			if ( ! empty( $stored_area_data ) && self::area_has_printable_data( $stored_area_data ) ) {
-				return $stored_area_data;
-			}
+			return OC_Render_Spec::area_from_spec( $stored_spec, $area_id );
 		}
 
 		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
@@ -1072,19 +1363,18 @@ class OC_Print_Generator {
 			$order_id
 		) ) ?: [];
 
+		$processed = 0;
 		foreach ( $jobs as $job ) {
 			if ( 'failed' === $job->status ) {
-				OC_DB::update_queue_job( (int) $job->id, [
-					'status'        => 'pending',
-					'attempts'      => 0,
-					'error_message' => null,
-					'processed_at'  => null,
-				] );
+				if ( ! OC_Print_Queue::instance()->retry_job( (int) $job->id ) ) {
+					continue;
+				}
 			}
 			OC_Print_Queue::instance()->process_one( (int) $job->id );
+			$processed++;
 		}
 
-		$order->add_order_note( sprintf( __( 'OverCustomise manually processed %d print queue job(s).', 'overcustomise' ), count( $jobs ) ) );
+		$order->add_order_note( sprintf( __( 'OverCustomise manually processed %d print queue job(s).', 'overcustomise' ), $processed ) );
 
 		$redirect = wp_get_referer() ?: $order->get_edit_order_url();
 		wp_safe_redirect( remove_query_arg( [ 'oc_process_print_queue_order', '_wpnonce' ], $redirect ) );
@@ -1117,19 +1407,16 @@ class OC_Print_Generator {
 			wp_die( esc_html__( 'File not available.', 'overcustomise' ), 404 );
 		}
 
-		if ( empty( $record->file_path ) || ! file_exists( $record->file_path ) ) {
+		if ( empty( $record->file_path ) ) {
 			wp_die( esc_html__( 'File not found on disk.', 'overcustomise' ), 404 );
 		}
 
-		// Defence-in-depth: file path must resolve inside the uploads directory.
-		$upload      = wp_upload_dir();
-		$base_real   = realpath( $upload['basedir'] );
-		$target_real = realpath( $record->file_path );
-		if ( ! $base_real || ! $target_real || 0 !== strpos( $target_real, $base_real ) ) {
+		$target_real = self::resolve_print_storage_path( (string) $record->file_path );
+		if ( ! $target_real ) {
 			wp_die( esc_html__( 'Invalid file path.', 'overcustomise' ), 400 );
 		}
 
-		$filename  = basename( $record->file_path );
+		$filename  = basename( $target_real );
 		$mime_type = self::mime_for_extension( pathinfo( $filename, PATHINFO_EXTENSION ) );
 
 		// RFC 6266: use a safe ASCII fallback plus filename* for any UTF-8 names.
@@ -1143,7 +1430,7 @@ class OC_Print_Generator {
 			$ascii_fallback,
 			$utf8_encoded
 		) );
-		header( 'Content-Length: '      . filesize( $record->file_path ) );
+		header( 'Content-Length: '      . filesize( $target_real ) );
 		header( 'Cache-Control: private, no-cache, no-store, must-revalidate' );
 		header( 'Pragma: no-cache' );
 		header( 'X-Content-Type-Options: nosniff' );
@@ -1153,8 +1440,51 @@ class OC_Print_Generator {
 			ob_end_clean();
 		}
 
-		readfile( $record->file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile
+		readfile( $target_real ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile
 		exit;
+	}
+
+	/** Stream a generated thumbnail to an authorised WooCommerce manager. */
+	public function handle_admin_thumbnail(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), '', [ 'response' => 403 ] );
+		}
+
+		$file_id = absint( $_GET['file_id'] ?? 0 );
+		$nonce   = sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ?? '' ) );
+		if ( $file_id <= 0 || ! wp_verify_nonce( $nonce, 'oc_thumbnail_' . $file_id ) ) {
+			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ), '', [ 'response' => 403 ] );
+		}
+
+		$record = OC_DB::get_print_file( $file_id );
+		$path   = $record && 'files_ready' === (string) $record->file_status
+			? self::resolve_print_storage_path( (string) ( $record->thumbnail_path ?? '' ) )
+			: null;
+		$info   = $path ? @getimagesize( $path ) : false;
+		$mime   = is_array( $info ) ? (string) ( $info['mime'] ?? '' ) : '';
+		if ( ! $path || ! in_array( $mime, [ 'image/png', 'image/jpeg', 'image/webp' ], true ) ) {
+			wp_die( esc_html__( 'Thumbnail not available.', 'overcustomise' ), '', [ 'response' => 404 ] );
+		}
+
+		header( 'Content-Type: ' . $mime );
+		header( 'Content-Disposition: inline; filename="' . sanitize_file_name( basename( $path ) ) . '"' );
+		header( 'Content-Length: ' . filesize( $path ) );
+		header( 'Cache-Control: private, no-cache, no-store, must-revalidate' );
+		header( 'X-Content-Type-Options: nosniff' );
+		while ( ob_get_level() ) {
+			ob_end_clean();
+		}
+		readfile( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_readfile
+		exit;
+	}
+
+	/** Resolve a DB path only when it is a regular file under the print root. */
+	private static function resolve_print_storage_path( string $path ): ?string {
+		$uploads = wp_upload_dir();
+		$base    = realpath( trailingslashit( (string) ( $uploads['basedir'] ?? '' ) ) . 'overcustomise/print-files' );
+		$real    = '' !== $path ? realpath( $path ) : false;
+
+		return $base && $real && is_file( $real ) && str_starts_with( $real, rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR ) ? $real : null;
 	}
 
 	/** Map file extension to MIME type for download headers. */

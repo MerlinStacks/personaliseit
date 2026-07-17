@@ -4,6 +4,8 @@
 
 /* eslint-disable no-console */
 
+import { rasterDimensionsForLayer } from '../../shared/render-math';
+
 const SERVER_UPLOAD_FORMATS = [
 	'jpg',
 	'jpeg',
@@ -15,6 +17,71 @@ const SERVER_UPLOAD_FORMATS = [
 ];
 
 const uploadMethods = {
+	beginArtworkOperation( type, layerId = 0 ) {
+		const operation = { type, layerId, settled: false };
+		this._artworkOperations.add( operation );
+		this.artworkPendingCount += 1;
+		return operation;
+	},
+
+	finishArtworkOperation( operation ) {
+		if ( ! operation || operation.settled ) {
+			return;
+		}
+		operation.settled = true;
+		this._artworkOperations.delete( operation );
+		this.artworkPendingCount = Math.max( 0, this.artworkPendingCount - 1 );
+	},
+
+	cancelArtworkOperations() {
+		Array.from( this._artworkOperations ).forEach( ( operation ) =>
+			this.finishArtworkOperation( operation )
+		);
+	},
+
+	async getTrackedImageMeta( url, layerId = 0 ) {
+		// The handle is deliberately consumed in finally across every return path.
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return
+		const operation = this.beginArtworkOperation( 'metadata', layerId );
+		try {
+			return await this.getImageMeta( url );
+		} finally {
+			this.finishArtworkOperation( operation );
+		}
+	},
+
+	isVectorArtwork( input ) {
+		const type = String(
+			input?.sourceArtworkFileType || input?.artworkFileType || ''
+		)
+			.toLowerCase()
+			.replace( /^\./, '' );
+		if ( [ 'svg', 'pdf', 'eps' ].includes( type ) ) {
+			return true;
+		}
+		const originalUrl = String(
+			input?.sourceOriginalAttachmentUrl ||
+				input?.originalAttachmentUrl ||
+				input?.sourceAttachmentUrl ||
+				input?.attachmentUrl ||
+				''
+		);
+		return /\.(?:svg|pdf|eps)(?:[?#]|$)/i.test( originalUrl );
+	},
+
+	resolutionForLayer( layerId ) {
+		const layer = this.getLayerById( layerId );
+		const area = this.areas[ this.areaIndexForLayer( layerId ) ];
+		return rasterDimensionsForLayer( layer, this.areaBounds( area ) );
+	},
+
+	cancelAiFilterForLayer( layerId ) {
+		this.aiFilterGenerations[ layerId ] =
+			( this.aiFilterGenerations[ layerId ] || 0 ) + 1;
+		this.aiFilterAbortControllers[ layerId ]?.abort();
+		delete this.aiFilterAbortControllers[ layerId ];
+	},
+
 	async applyInitialAiFilters() {
 		if ( this._variationSwitchPending ) {
 			return;
@@ -33,6 +100,7 @@ const uploadMethods = {
 	},
 
 	async setupUploadZones() {
+		const designGeneration = this._designGeneration;
 		const zoneEls = Array.from(
 			document.querySelectorAll( '[data-oc-upload-zone]' )
 		);
@@ -49,8 +117,14 @@ const uploadMethods = {
 			import( '@uppy/drag-drop' ),
 			import( '@uppy/xhr-upload' ),
 		] );
+		if ( designGeneration !== this._designGeneration ) {
+			return;
+		}
 
 		zoneEls.forEach( ( zoneEl ) => {
+			if ( ! zoneEl.isConnected || zoneEl.dataset.ocUppyReady === '1' ) {
+				return;
+			}
 			const lid = parseInt( zoneEl.dataset.ocUploadZone, 10 );
 			if ( ! lid ) {
 				return;
@@ -114,23 +188,21 @@ const uploadMethods = {
 
 			let activeGeneration = this.uploadGenerations[ lid ] || 0;
 			const fileGenerations = new Map();
+			const fileOperations = new Map();
+			const finishFileTransfer = ( fileId ) => {
+				const operation = fileOperations.get( fileId );
+				this.finishArtworkOperation( operation );
+				fileOperations.delete( fileId );
+			};
 			const uppy = new Uppy( {
 				autoProceed: true,
 				onBeforeFileAdded: () => {
 					activeGeneration += 1;
 					this.uploadGenerations[ lid ] = activeGeneration;
+					this.cancelAiFilterForLayer( lid );
 					uppy.getFiles().forEach( ( existingFile ) =>
 						uppy.removeFile( existingFile.id )
 					);
-					this.setUploadZoneState( zoneEl, '' );
-					const warnEl = document.querySelector(
-						`.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]`
-					);
-					if ( warnEl ) {
-						warnEl.style.display = 'none';
-					}
-					this.setUploadProgress( zoneEl, 0, 'Starting upload...' );
-					this.showUploadError( zoneEl, '' );
 					return true;
 				},
 				restrictions: {
@@ -141,6 +213,20 @@ const uploadMethods = {
 			} );
 			uppy.on( 'file-added', ( file ) => {
 				fileGenerations.set( file.id, activeGeneration );
+				fileOperations.set(
+					file.id,
+					this.beginArtworkOperation( 'upload', lid )
+				);
+				this.setUploadProgress( zoneEl, 0, 'Starting upload...' );
+				this.showUploadError( zoneEl, '' );
+			} );
+			uppy.on( 'file-removed', ( file ) =>
+				finishFileTransfer( file?.id )
+			);
+			uppy.on( 'cancel-all', () => {
+				Array.from( fileOperations.keys() ).forEach(
+					finishFileTransfer
+				);
 			} );
 			uppy.use( DragDrop, {
 				target: zoneEl,
@@ -166,6 +252,11 @@ const uploadMethods = {
 				formData: true,
 				fieldName: 'artwork',
 			} );
+			zoneEl.dataset.ocUppyReady = '1';
+			this.uppyInstances.add( uppy );
+			if ( this.inputs[ lid ]?.attachmentUrl ) {
+				this.setUploadZoneState( zoneEl, 'uploaded' );
+			}
 
 			uppy.on( 'upload-progress', ( file, progress ) => {
 				if (
@@ -189,95 +280,121 @@ const uploadMethods = {
 
 			uppy.on( 'upload-success', async ( file, res ) => {
 				const generation = fileGenerations.get( file?.id );
+				finishFileTransfer( file?.id );
 				if ( generation !== this.uploadGenerations[ lid ] ) {
 					return;
 				}
 				this.setUploadProgress( zoneEl, 100, '' );
 				if ( ! res?.body ) {
-					this.setUploadZoneState( zoneEl, 'error' );
+					this.setUploadZoneState(
+						zoneEl,
+						this.inputs[ lid ]?.attachmentUrl
+							? 'uploaded-error'
+							: 'error'
+					);
 					this.showUploadError(
 						zoneEl,
 						'Upload succeeded but server returned no data.'
 					);
 					return;
 				}
-				if ( ! this.inputs[ lid ] ) {
-					this.inputs[ lid ] = {};
-				}
-				this.inputs[ lid ].attachmentId = res.body.attachment_id || 0;
-				this.inputs[ lid ].attachmentUrl = res.body.preview_url || '';
-				this.inputs[ lid ].sourceAttachmentId =
-					res.body.attachment_id || 0;
-				this.inputs[ lid ].sourceAttachmentUrl =
-					res.body.preview_url || '';
-				this.inputs[ lid ].imageMeta = null;
-				if ( ! this.inputs[ lid ].attachmentUrl ) {
-					this.setUploadZoneState( zoneEl, 'error' );
+				const attachmentId = Number( res.body.attachment_id || 0 );
+				const attachmentUrl = String( res.body.preview_url || '' );
+				if ( ! attachmentId || ! attachmentUrl ) {
+					this.setUploadZoneState(
+						zoneEl,
+						this.inputs[ lid ]?.attachmentUrl
+							? 'uploaded-error'
+							: 'error'
+					);
 					this.showUploadError(
 						zoneEl,
-						'Server did not return a preview URL.'
+						'Server did not return usable artwork data.'
 					);
 					return;
 				}
-				const meta = await this.getImageMeta(
-					this.inputs[ lid ].attachmentUrl
+
+				const artworkFileType = String(
+					res.body.file_type || file?.extension || ''
+				).toLowerCase();
+				const candidate = {
+					...( this.inputs[ lid ] || {} ),
+					attachmentId,
+					attachmentUrl,
+					sourceAttachmentId: attachmentId,
+					sourceAttachmentUrl: attachmentUrl,
+					originalAttachmentUrl: String(
+						res.body.original_url || attachmentUrl
+					),
+					sourceOriginalAttachmentUrl: String(
+						res.body.original_url || attachmentUrl
+					),
+					artworkFileType,
+					sourceArtworkFileType: artworkFileType,
+					previewAttachmentId: Number(
+						res.body.preview_attachment_id || 0
+					),
+					imageMeta: null,
+					sourceImageMeta: null,
+				};
+				const meta = await this.getTrackedImageMeta(
+					attachmentUrl,
+					lid
 				);
 				if ( generation !== this.uploadGenerations[ lid ] ) {
 					return;
 				}
-				if ( meta && this.inputs[ lid ] ) {
-					this.inputs[ lid ].imageMeta = meta;
-					this.inputs[ lid ].sourceImageMeta = meta;
-					const thresholdW = Math.round( layer.w * ( 300 / 72 ) );
-					const thresholdH = Math.round( layer.h * ( 300 / 72 ) );
-					const warnEl = document.querySelector(
-						`.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]`
-					);
+				candidate.imageMeta = meta;
+				candidate.sourceImageMeta = meta;
+				const threshold = this.resolutionForLayer( lid );
+				const isVector = this.isVectorArtwork( candidate );
+				const belowThreshold =
+					! isVector &&
+					meta &&
+					( meta.width < threshold.width ||
+						meta.height < threshold.height );
+				const belowHalf =
+					belowThreshold &&
+					( meta.width < threshold.width * 0.5 ||
+						meta.height < threshold.height * 0.5 );
+				const warnEl = document.querySelector(
+					`.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]`
+				);
+
+				if ( belowHalf ) {
 					if ( warnEl ) {
-						const belowThreshold =
-							meta.width < thresholdW || meta.height < thresholdH;
-						const belowHalf =
-							meta.width < thresholdW * 0.5 ||
-							meta.height < thresholdH * 0.5;
-						if ( belowHalf ) {
-							warnEl.className =
-								'oc-resolution-warning oc-res-error';
-							warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${ thresholdW } x ${ thresholdH } pixels.`;
-							warnEl.style.display = '';
-							this.inputs[ lid ].attachmentId = 0;
-							this.inputs[ lid ].attachmentUrl = '';
-							this.inputs[ lid ].imageMeta = null;
-							this.inputs[ lid ].sourceAttachmentId = 0;
-							this.inputs[ lid ].sourceAttachmentUrl = '';
-							this.inputs[ lid ].sourceImageMeta = null;
-							this.syncLinkedLayerInput( lid, [
-								'attachmentId',
-								'attachmentUrl',
-								'imageMeta',
-							] );
-							this.setUploadZoneState( zoneEl, 'error' );
-							this.showUploadError(
-								zoneEl,
-								'Image resolution too low. Please upload a higher resolution image.'
-							);
-							this.scheduleRedraw(
-								this.areaIndexForLayer( lid )
-							);
-							this.updateHiddenField();
-							return;
-						} else if ( belowThreshold ) {
-							warnEl.className =
-								'oc-resolution-warning oc-res-warning';
-							warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${ thresholdW } x ${ thresholdH } pixels.`;
-							warnEl.style.display = '';
-						} else {
-							warnEl.style.display = 'none';
-						}
+						warnEl.className = 'oc-resolution-warning oc-res-error';
+						warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${ threshold.width } x ${ threshold.height } pixels.`;
+						warnEl.style.display = '';
+					}
+					this.setUploadZoneState(
+						zoneEl,
+						this.inputs[ lid ]?.attachmentUrl
+							? 'uploaded-error'
+							: 'error'
+					);
+					this.showUploadError(
+						zoneEl,
+						'Image resolution too low. Please upload a higher resolution image.'
+					);
+					return;
+				}
+
+				if ( warnEl ) {
+					if ( belowThreshold ) {
+						warnEl.className =
+							'oc-resolution-warning oc-res-warning';
+						warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${ threshold.width } x ${ threshold.height } pixels.`;
+						warnEl.style.display = '';
+					} else {
+						warnEl.style.display = 'none';
 					}
 				}
+
+				this.inputs[ lid ] = candidate;
 				const filterApplied = await this.applyAiImageFilter(
 					lid,
-					this.inputs[ lid ].imageFilterId || 0,
+					candidate.imageFilterId || 0,
 					zoneEl
 				);
 				if ( generation !== this.uploadGenerations[ lid ] ) {
@@ -285,12 +402,20 @@ const uploadMethods = {
 				}
 				this.setUploadZoneState(
 					zoneEl,
-					filterApplied ? 'uploaded' : 'error'
+					filterApplied ? 'uploaded' : 'uploaded-error'
 				);
 				this.syncLinkedLayerInput( lid, [
 					'attachmentId',
 					'attachmentUrl',
+					'sourceAttachmentId',
+					'sourceAttachmentUrl',
+					'originalAttachmentUrl',
+					'sourceOriginalAttachmentUrl',
+					'artworkFileType',
+					'sourceArtworkFileType',
+					'previewAttachmentId',
 					'imageMeta',
+					'sourceImageMeta',
 				] );
 				this.requestPreviewFocus();
 				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
@@ -301,6 +426,7 @@ const uploadMethods = {
 			} );
 
 			uppy.on( 'upload-error', ( file, error, response ) => {
+				finishFileTransfer( file?.id );
 				if (
 					fileGenerations.get( file?.id ) !==
 					this.uploadGenerations[ lid ]
@@ -318,19 +444,23 @@ const uploadMethods = {
 				const msg =
 					responseBody?.message || error?.message || 'Upload failed.';
 				console.warn( '[OC] Upload error:', msg, response );
-				this.setUploadZoneState( zoneEl, 'error' );
+				this.setUploadZoneState(
+					zoneEl,
+					this.inputs[ lid ]?.attachmentUrl
+						? 'uploaded-error'
+						: 'error'
+				);
 				this.setUploadProgress( zoneEl, 0, '' );
 				this.showUploadError( zoneEl, msg );
 			} );
 			uppy.on( 'restriction-failed', ( file, error ) => {
-				if (
-					file?.id &&
-					fileGenerations.get( file.id ) !==
-						this.uploadGenerations[ lid ]
-				) {
-					return;
-				}
-				this.setUploadZoneState( zoneEl, 'error' );
+				finishFileTransfer( file?.id );
+				this.setUploadZoneState(
+					zoneEl,
+					this.inputs[ lid ]?.attachmentUrl
+						? 'uploaded-error'
+						: 'error'
+				);
 				this.setUploadProgress( zoneEl, 0, '' );
 				this.showUploadError(
 					zoneEl,
@@ -382,7 +512,9 @@ const uploadMethods = {
 		this.aiFilterAbortControllers[ layerId ]?.abort();
 		const controller = new AbortController();
 		this.aiFilterAbortControllers[ layerId ] = controller;
-		this.aiFilterPending += 1;
+		// The handle is deliberately consumed in finally across every return path.
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return
+		const operation = this.beginArtworkOperation( 'filter', layerId );
 		delete this.aiFilterErrors[ layerId ];
 		const targetZone =
 			zoneEl ||
@@ -429,10 +561,23 @@ const uploadMethods = {
 			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
 				return false;
 			}
-			input.attachmentId = Number( json.attachment_id );
-			input.attachmentUrl = json.preview_url;
+			const filteredAttachmentId = Number( json.attachment_id );
+			const filteredAttachmentUrl = String( json.preview_url );
+			const filteredArtworkFileType = String(
+				json.file_type || input.artworkFileType || ''
+			).toLowerCase();
+			const imageMeta = await this.getTrackedImageMeta(
+				filteredAttachmentUrl,
+				layerId
+			);
+			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+				return false;
+			}
+			input.attachmentId = filteredAttachmentId;
+			input.attachmentUrl = filteredAttachmentUrl;
 			input.imageFilterId = Number( filterId );
-			input.imageMeta = await this.getImageMeta( json.preview_url );
+			input.artworkFileType = filteredArtworkFileType;
+			input.imageMeta = imageMeta;
 			delete this.aiFilterErrors[ layerId ];
 			this.requestPreviewFocus();
 			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
@@ -454,12 +599,12 @@ const uploadMethods = {
 			this.updateHiddenField();
 			return false;
 		} finally {
-			this.aiFilterPending = Math.max( 0, this.aiFilterPending - 1 );
+			this.finishArtworkOperation( operation );
 			if ( this.aiFilterAbortControllers[ layerId ] === controller ) {
 				delete this.aiFilterAbortControllers[ layerId ];
-			}
-			if ( targetZone ) {
-				this.setUploadProgress( targetZone, 0, '' );
+				if ( targetZone ) {
+					this.setUploadProgress( targetZone, 0, '' );
+				}
 			}
 		}
 	},
@@ -467,15 +612,18 @@ const uploadMethods = {
 	setUploadZoneState( zoneEl, state ) {
 		zoneEl.classList.toggle(
 			'oc-upload-zone--uploaded',
-			state === 'uploaded'
+			state === 'uploaded' || state === 'uploaded-error'
 		);
-		zoneEl.classList.toggle( 'oc-upload-zone--error', state === 'error' );
+		zoneEl.classList.toggle(
+			'oc-upload-zone--error',
+			state === 'error' || state === 'uploaded-error'
+		);
 
 		const browse = zoneEl.querySelector( '.uppy-DragDrop-browse' );
 		const note = zoneEl.querySelector( '.uppy-DragDrop-note' );
 		if ( browse ) {
 			browse.textContent =
-				state === 'uploaded'
+				state === 'uploaded' || state === 'uploaded-error'
 					? 'Image uploaded'
 					: 'Tap / click here to upload your image';
 		}
@@ -484,7 +632,7 @@ const uploadMethods = {
 				note.dataset.ocOriginalText = note.textContent;
 			}
 			note.textContent =
-				state === 'uploaded'
+				state === 'uploaded' || state === 'uploaded-error'
 					? 'Click to replace image'
 					: note.dataset.ocOriginalText || note.textContent;
 		}

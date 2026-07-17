@@ -37,27 +37,26 @@ class OC_File_Cleanup {
 		}
 
 		$uploads_base = wp_upload_dir()['basedir'] ?? '';
-		$base_real     = $uploads_base ? realpath( $uploads_base ) : false;
+		$base_real     = $uploads_base ? realpath( trailingslashit( (string) $uploads_base ) . 'overcustomise/print-files' ) : false;
 		$handled_paths = [];
+		$expired_count = 0;
 
 		foreach ( $expired as $record ) {
 			$file_handled  = self::cleanup_record_path( $record, 'file_path', $base_real, $wp_filesystem, $handled_paths );
 			$thumb_handled = self::cleanup_record_path( $record, 'thumbnail_path', $base_real, $wp_filesystem, $handled_paths );
 
 			if ( $file_handled && $thumb_handled ) {
-				$wpdb->update(
-					"{$wpdb->prefix}oc_print_files",
-					[ 'file_status' => 'expired', 'file_path' => null, 'thumbnail_path' => null ],
-					[ 'id' => $record->id ],
-					[ '%s', '%s', '%s' ],
-					[ '%d' ]
-				);
+				if ( OC_DB::update_print_file( (int) $record->id, [ 'file_status' => 'expired', 'file_path' => null, 'thumbnail_path' => null ] ) ) {
+					$expired_count++;
+				} else {
+					OC_Logger::warning( 'File cleanup could not update print file #' . (int) $record->id );
+				}
 			} else {
 				OC_Logger::warning( 'File cleanup could not safely expire print file #' . (int) $record->id );
 			}
 		}
 
-		OC_Logger::info( sprintf( 'File cleanup: expired %d print file records.', count( $expired ) ) );
+		OC_Logger::info( sprintf( 'File cleanup: expired %d print file records.', $expired_count ) );
 		self::cleanup_preview_images();
 		self::cleanup_customer_artwork();
 	}
@@ -84,9 +83,10 @@ class OC_File_Cleanup {
 
 		$shared_active = (int) $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files
-			 WHERE {$column} = %s AND id <> %d AND file_status <> 'expired'
+			 WHERE (file_path = %s OR thumbnail_path = %s) AND id <> %d AND file_status <> 'expired'
 			 AND NOT (file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
 			 AND expires_at IS NOT NULL AND expires_at < %s)",
+			$path,
 			$path,
 			(int) $record->id,
 			current_time( 'mysql', true )
@@ -153,19 +153,31 @@ class OC_File_Cleanup {
 	/** Delete expired customer artwork that is no longer referenced by an order or cart. */
 	private static function cleanup_customer_artwork(): void {
 		$retention_days = max( 1, (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90 );
-		$attachments    = get_posts( [
-			'post_type'      => 'attachment',
-			'post_status'    => 'inherit',
-			'posts_per_page' => 100,
-			'fields'         => 'ids',
-			'date_query'     => [ [ 'before' => gmdate( 'Y-m-d H:i:s', time() - ( $retention_days * DAY_IN_SECONDS ) ) ] ],
-			'meta_query'     => [ [ 'key' => '_oc_artwork', 'value' => '1' ] ],
-		] );
+		$cursor         = max( 0, (int) get_option( 'oc_artwork_cleanup_cursor', 0 ) );
+		$cutoff         = gmdate( 'Y-m-d H:i:s', time() - ( $retention_days * DAY_IN_SECONDS ) );
+		$limit          = 100;
+
+		global $wpdb;
+		$attachments = $wpdb->get_col( $wpdb->prepare(
+			"SELECT DISTINCT p.ID FROM {$wpdb->posts} p
+			 INNER JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID
+			 WHERE p.post_type = 'attachment'
+			 AND p.post_status IN ('private','inherit')
+			 AND p.post_date_gmt < %s
+			 AND p.ID > %d
+			 AND pm.meta_key = '_oc_artwork' AND pm.meta_value = '1'
+			 ORDER BY p.ID ASC LIMIT %d",
+			$cutoff,
+			$cursor,
+			$limit
+		) );
 		if ( empty( $attachments ) ) {
+			if ( $cursor > 0 ) {
+				update_option( 'oc_artwork_cleanup_cursor', 0, false );
+			}
 			return;
 		}
 
-		global $wpdb;
 		foreach ( array_map( 'absint', $attachments ) as $attachment_id ) {
 			if ( self::customer_artwork_is_referenced( $attachment_id ) ) {
 				delete_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since' );
@@ -189,13 +201,35 @@ class OC_File_Cleanup {
 				wp_delete_attachment( $attachment_id, true );
 			}
 		}
+
+		update_option( 'oc_artwork_cleanup_cursor', max( array_map( 'absint', $attachments ) ), false );
 	}
 
 	/** Check orders, active WC sessions, and persistent customer carts. */
-	private static function customer_artwork_is_referenced( int $attachment_id ): bool {
+	public static function customer_artwork_is_referenced( int $attachment_id ): bool {
+		if ( $attachment_id <= 0 ) {
+			return false;
+		}
+
 		global $wpdb;
 
-		$patterns = self::artwork_reference_patterns( $attachment_id );
+		$related_ids = [ $attachment_id ];
+		$parent_id   = absint( get_post_meta( $attachment_id, '_oc_artwork_parent_id', true ) );
+		if ( $parent_id > 0 ) {
+			$related_ids[] = $parent_id;
+		}
+		foreach ( [ '_oc_print_derivative_attachment_id', '_oc_artwork_preview_attachment_id' ] as $meta_key ) {
+			$related_id = absint( get_post_meta( $attachment_id, $meta_key, true ) );
+			if ( $related_id > 0 ) {
+				$related_ids[] = $related_id;
+			}
+		}
+
+		$patterns = [];
+		foreach ( array_unique( array_filter( $related_ids ) ) as $related_id ) {
+			$patterns = array_merge( $patterns, self::artwork_reference_patterns( $related_id ) );
+		}
+		$patterns = array_values( array_unique( $patterns ) );
 		$clauses  = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
 		$found    = $wpdb->get_var( $wpdb->prepare(
 			"SELECT meta_id FROM {$wpdb->prefix}woocommerce_order_itemmeta
@@ -207,7 +241,7 @@ class OC_File_Cleanup {
 		}
 
 		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $sessions_table ) ) === $sessions_table ) {
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) ) === $sessions_table ) {
 			$session_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'session_value LIKE %s' ) );
 			$session_args    = array_merge( [ time() ], $patterns );
 			$found           = $wpdb->get_var( $wpdb->prepare(
@@ -234,14 +268,24 @@ class OC_File_Cleanup {
 	private static function artwork_reference_patterns( int $attachment_id ): array {
 		global $wpdb;
 
-		$id = (string) $attachment_id;
-		return [
-			'%' . $wpdb->esc_like( 's:12:"attachmentId";i:' . $id . ';' ) . '%',
-			'%' . $wpdb->esc_like( 's:12:"attachmentId";s:' . strlen( $id ) . ':"' . $id . '";' ) . '%',
-			'%' . $wpdb->esc_like( '"attachmentId":' . $id ) . '%',
-			'%' . $wpdb->esc_like( '"attachmentId": ' . $id ) . '%',
-			'%' . $wpdb->esc_like( '"attachmentId":"' . $id . '"' ) . '%',
-			'%' . $wpdb->esc_like( '"attachmentId": "' . $id . '"' ) . '%',
-		];
+		$id       = (string) $attachment_id;
+		$patterns = [];
+		foreach ( [ 'attachmentId', 'sourceAttachmentId', 'previewAttachmentId', 'artworkAttachmentId' ] as $key ) {
+			$values = [
+				's:' . strlen( $key ) . ':"' . $key . '";i:' . $id . ';',
+				's:' . strlen( $key ) . ':"' . $key . '";s:' . strlen( $id ) . ':"' . $id . '";',
+				'"' . $key . '":' . $id . ',',
+				'"' . $key . '":' . $id . '}',
+				'"' . $key . '": ' . $id . ',',
+				'"' . $key . '": ' . $id . '}',
+				'"' . $key . '":"' . $id . '"',
+				'"' . $key . '": "' . $id . '"',
+			];
+			foreach ( $values as $value ) {
+				$patterns[] = '%' . $wpdb->esc_like( $value ) . '%';
+			}
+		}
+
+		return $patterns;
 	}
 }

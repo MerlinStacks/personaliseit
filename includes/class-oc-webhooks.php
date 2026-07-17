@@ -5,6 +5,8 @@ class OC_Webhooks {
 
 	private const MAX_RETRIES  = 3;
 	private const RETRY_DELAYS = [ 60, 300, 900 ];
+	private const MAX_PAYLOAD_BYTES = 2097152;
+	private const MAX_RESPONSE_BYTES = 65536;
 
 	public function register(): void {
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'on_order_created' ], 25, 1 );
@@ -24,7 +26,7 @@ class OC_Webhooks {
 					'variation_id'  => $item->get_variation_id(),
 					'name'          => $item->get_name(),
 					'quantity'      => $item->get_quantity(),
-					'customisation' => $customisation,
+					'customisation' => self::without_internal_paths( $customisation ),
 				];
 			}
 		}
@@ -35,7 +37,6 @@ class OC_Webhooks {
 
 		$this->send( 'order.customisation.created', [
 			'order_id'       => $order->get_id(),
-			'order_key'      => $order->get_order_key(),
 			'customer_email' => $order->get_billing_email(),
 			'total'          => $order->get_total(),
 			'items'          => $items,
@@ -54,7 +55,7 @@ class OC_Webhooks {
 					'print_area_id' => (int) $file->print_area_id,
 					'file_type'     => $file->file_type,
 					'file_status'   => $file->file_status,
-					'file_path'     => $file->file_path,
+					'file_path'     => ! empty( $file->file_path ) ? basename( (string) $file->file_path ) : null,
 				];
 			}
 		}
@@ -72,12 +73,15 @@ class OC_Webhooks {
 			'order_item_id' => $item_id,
 			'area_key'      => $area->area_key,
 			'print_method'  => $area->print_method,
-			'error'         => $exception->getMessage(),
+			'error'         => self::redact_local_paths( $exception->getMessage() ),
 			'timestamp'     => current_time( 'mysql', true ),
 		] );
 	}
 
 	public function send( string $event, array $payload ): void {
+		if ( ! preg_match( '/^[a-z0-9._-]{1,64}$/D', $event ) ) {
+			return;
+		}
 		$webhooks = OC_DB::get_active_webhooks();
 
 		if ( empty( $webhooks ) ) {
@@ -88,6 +92,10 @@ class OC_Webhooks {
 			'event'   => $event,
 			'payload' => $payload,
 		] );
+		if ( ! is_string( $body ) || strlen( $body ) > self::MAX_PAYLOAD_BYTES ) {
+			OC_Logger::error( 'Webhook payload was not sent because it exceeded the safe size limit for event ' . sanitize_key( $event ) . '.' );
+			return;
+		}
 
 		foreach ( $webhooks as $webhook ) {
 			$events = json_decode( $webhook->events, true );
@@ -101,6 +109,10 @@ class OC_Webhooks {
 	}
 
 	private function deliver( int $webhook_id, string $url, string $secret, string $body, string $event ): void {
+		if ( strlen( $secret ) < 32 ) {
+			$this->update_delivery_status( $webhook_id, 'failed', 0, 'Webhook secret must contain at least 32 characters.' );
+			return;
+		}
 		if ( ! self::is_safe_webhook_url( $url ) ) {
 			$this->update_delivery_status( $webhook_id, 'failed', 0, 'Webhook URL resolves to a blocked address.' );
 			return;
@@ -120,7 +132,7 @@ class OC_Webhooks {
 		if ( $status >= 200 && $status < 300 ) {
 			$this->update_delivery_status( $webhook_id, 'success', $status );
 		} else {
-			$this->update_delivery_status( $webhook_id, 'failed', $status, (string) wp_remote_retrieve_body( $response ) );
+			$this->update_delivery_status( $webhook_id, 'failed', $status, self::bounded_message( (string) wp_remote_retrieve_body( $response ) ) );
 			if ( in_array( $status, [ 408, 429 ], true ) || $status >= 500 || 0 === $status ) {
 				$this->schedule_retry( $webhook_id, $body, $event, 0, $delivery_id );
 			}
@@ -128,7 +140,7 @@ class OC_Webhooks {
 	}
 
 	private function schedule_retry( int $webhook_id, string $body, string $event, int $attempt = 0, string $delivery_id = '' ): void {
-		if ( $attempt >= self::MAX_RETRIES ) {
+		if ( $attempt >= self::MAX_RETRIES || strlen( $body ) > self::MAX_PAYLOAD_BYTES || ! preg_match( '/^[a-z0-9._-]{1,64}$/D', $event ) ) {
 			OC_Logger::error( "Webhook #{$webhook_id} exceeded max retries for event {$event}." );
 			return;
 		}
@@ -145,6 +157,7 @@ class OC_Webhooks {
 
 		$scheduled = wp_schedule_single_event( time() + $delay, 'oc_webhook_retry', [ $webhook_id, $retry_key ] );
 		if ( ! $scheduled ) {
+			delete_transient( $retry_key );
 			OC_Logger::error( "Webhook #{$webhook_id} retry scheduling failed for event {$event}." );
 		}
 	}
@@ -163,16 +176,17 @@ class OC_Webhooks {
 			return;
 		}
 
-		$body    = $retry_data['body'] ?? '';
-		$event   = $retry_data['event'] ?? '';
+		$body    = is_string( $retry_data['body'] ?? null ) ? $retry_data['body'] : '';
+		$event   = is_string( $retry_data['event'] ?? null ) ? $retry_data['event'] : '';
 		$attempt = (int) ( $retry_data['attempt'] ?? 1 );
 		$delivery_id = (string) ( $retry_data['delivery_id'] ?? wp_generate_uuid4() );
 
-		$response = self::is_safe_webhook_url( (string) $webhook->url )
-			? self::post( (string) $webhook->url, (string) ( $webhook->secret ?? '' ), (string) $body, (string) $event, $delivery_id, 10 )
-			: new \WP_Error( 'http_request_not_executed', 'Webhook URL resolves to a blocked address.' );
-
 		delete_transient( $retry_key );
+		if ( ! self::is_safe_webhook_url( (string) $webhook->url ) || strlen( (string) ( $webhook->secret ?? '' ) ) < 32 ) {
+			$this->update_delivery_status( $webhook_id, 'failed', 0, 'Webhook configuration is no longer valid.' );
+			return;
+		}
+		$response = self::post( (string) $webhook->url, (string) ( $webhook->secret ?? '' ), $body, $event, $delivery_id, 10 );
 
 		if ( is_wp_error( $response ) ) {
 			$this->update_delivery_status( $webhook_id, 'failed', 0, $response->get_error_message() );
@@ -186,7 +200,7 @@ class OC_Webhooks {
 			$this->update_delivery_status( $webhook_id, 'success', $status );
 			OC_Logger::info( "Webhook #{$webhook_id} retry succeeded for event {$event}." );
 		} else {
-			$this->update_delivery_status( $webhook_id, 'failed', $status, (string) wp_remote_retrieve_body( $response ) );
+			$this->update_delivery_status( $webhook_id, 'failed', $status, self::bounded_message( (string) wp_remote_retrieve_body( $response ) ) );
 			if ( in_array( $status, [ 408, 429 ], true ) || $status >= 500 || 0 === $status ) {
 				$this->schedule_retry( $webhook_id, $body, $event, $attempt, $delivery_id );
 			}
@@ -197,7 +211,7 @@ class OC_Webhooks {
 		update_option( 'oc_wh_delivery_' . $webhook_id, [
 			'status'  => $status,
 			'code'    => $code,
-			'message' => $message,
+			'message' => self::bounded_message( $message ),
 			'at'      => current_time( 'mysql', true ),
 		] );
 	}
@@ -212,6 +226,9 @@ class OC_Webhooks {
 		$url    = (string) $webhook->url;
 		$secret = (string) $webhook->secret;
 
+		if ( strlen( $secret ) < 32 ) {
+			return [ 'success' => false, 'message' => 'Webhook secret must contain at least 32 characters.' ];
+		}
 		if ( ! self::is_safe_webhook_url( $url ) ) {
 			return [ 'success' => false, 'message' => 'URL resolves to a blocked address.' ];
 		}
@@ -220,6 +237,9 @@ class OC_Webhooks {
 			'event'   => $event,
 			'payload' => [ 'test' => true, 'timestamp' => current_time( 'mysql', true ) ],
 		] );
+		if ( ! is_string( $body ) ) {
+			return [ 'success' => false, 'message' => 'Could not encode the test payload.' ];
+		}
 
 		$response = self::post( $url, $secret, $body, $event, wp_generate_uuid4(), 15 );
 
@@ -228,13 +248,13 @@ class OC_Webhooks {
 		}
 
 		$status = (int) wp_remote_retrieve_response_code( $response );
-		$body   = wp_remote_retrieve_body( $response );
+		$body   = self::bounded_message( (string) wp_remote_retrieve_body( $response ), 500 );
 
 		if ( $status >= 200 && $status < 300 ) {
 			return [
 				'success'     => true,
 				'status_code' => $status,
-				'response'    => substr( $body, 0, 500 ),
+				'response'    => $body,
 				'message'     => 'Test delivery successful.',
 			];
 		}
@@ -242,17 +262,26 @@ class OC_Webhooks {
 		return [
 			'success'     => false,
 			'status_code' => $status,
-			'response'    => substr( $body, 0, 500 ),
+			'response'    => $body,
 			'message'     => "Received status {$status}.",
 		];
 	}
 
 	private static function post( string $url, string $secret, string $body, string $event, string $delivery_id, int $timeout ): array|\WP_Error {
+		if ( strlen( $body ) > self::MAX_PAYLOAD_BYTES
+			|| strlen( $secret ) < 32
+			|| ! preg_match( '/^[a-z0-9._-]{1,64}$/D', $event )
+			|| ! preg_match( '/^[A-Za-z0-9-]{16,64}$/D', $delivery_id )
+			|| ! self::is_safe_webhook_url( $url )
+		) {
+			return new \WP_Error( 'http_request_not_executed', 'Webhook delivery parameters are invalid.' );
+		}
 		$timestamp    = (string) time();
 		$signature_v1 = hash_hmac( 'sha256', $body, $secret );
 		$signature_v2 = hash_hmac( 'sha256', $timestamp . '.' . $event . '.' . $body, $secret );
 		return wp_safe_remote_post( $url, [
 			'timeout' => $timeout, 'blocking' => true, 'sslverify' => true, 'redirection' => 0, 'reject_unsafe_urls' => true,
+			'limit_response_size' => self::MAX_RESPONSE_BYTES,
 			'body' => $body,
 			'headers' => [
 				'Content-Type'       => 'application/json',
@@ -269,7 +298,13 @@ class OC_Webhooks {
 	public static function is_safe_webhook_url( string $url ): bool {
 		if ( false === filter_var( $url, FILTER_VALIDATE_URL ) ) return false;
 		$parts = wp_parse_url( $url );
-		if ( ! is_array( $parts ) || ! in_array( strtolower( (string) ( $parts['scheme'] ?? '' ) ), [ 'http', 'https' ], true ) || empty( $parts['host'] ) ) return false;
+		if ( ! is_array( $parts )
+			|| 'https' !== strtolower( (string) ( $parts['scheme'] ?? '' ) )
+			|| empty( $parts['host'] )
+			|| isset( $parts['user'] )
+			|| isset( $parts['pass'] )
+			|| ( isset( $parts['port'] ) && 443 !== (int) $parts['port'] )
+		) return false;
 		$host = strtolower( rtrim( (string) $parts['host'], '.' ) );
 		if ( 'localhost' === $host || str_ends_with( $host, '.localhost' ) ) return false;
 		$ips = [];
@@ -291,5 +326,43 @@ class OC_Webhooks {
 			if ( false === filter_var( $ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE ) ) return false;
 		}
 		return true;
+	}
+
+	/** Strip control characters and cap stored/displayed remote response text. */
+	private static function bounded_message( string $message, int $limit = 1000 ): string {
+		$message = preg_replace( '/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', '', $message ) ?? '';
+		$limit   = max( 0, min( self::MAX_RESPONSE_BYTES, $limit ) );
+		return function_exists( 'mb_strcut' ) ? mb_strcut( $message, 0, $limit, 'UTF-8' ) : substr( $message, 0, $limit );
+	}
+
+	/** Remove local filesystem roots from failure details sent off-site. */
+	private static function redact_local_paths( string $message ): string {
+		$uploads   = wp_upload_dir();
+		$site_root = defined( 'ABSPATH' ) ? (string) ABSPATH : '';
+		$replacements = [
+			(string) ( $uploads['basedir'] ?? '' ) => '[uploads]',
+			$site_root => '[site]',
+			sys_get_temp_dir() => '[temp]',
+		];
+		foreach ( $replacements as $path => $label ) {
+			if ( '' !== $path ) {
+				$message = str_replace( [ $path, str_replace( '\\', '/', $path ) ], $label, $message );
+			}
+		}
+
+		return self::bounded_message( $message );
+	}
+
+	/** Remove local production paths from nested customisation payloads. */
+	private static function without_internal_paths( array $value ): array {
+		$clean = [];
+		foreach ( $value as $key => $item ) {
+			if ( is_string( $key ) && in_array( $key, [ 'artworkPath', 'file_path', 'thumbnail_path' ], true ) ) {
+				continue;
+			}
+			$clean[ $key ] = is_array( $item ) ? self::without_internal_paths( $item ) : $item;
+		}
+
+		return $clean;
 	}
 }

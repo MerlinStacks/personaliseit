@@ -18,6 +18,13 @@ if ( file_exists( $autoloader ) ) {
 	require_once $autoloader;
 }
 
+$_oc_wp_tests_dir = getenv( 'WP_TESTS_DIR' );
+$_oc_has_wp_tests = is_string( $_oc_wp_tests_dir ) && is_dir( $_oc_wp_tests_dir );
+if ( $_oc_has_wp_tests ) {
+	require __DIR__ . '/integration-bootstrap.php';
+	return;
+}
+
 // ── Unit test stubs ──────────────────────────────────────────────────────────
 // Define bare-minimum WordPress stubs so unit-tested classes can be loaded
 // without a full WP environment.
@@ -32,6 +39,12 @@ if ( ! defined( 'OC_PATH' ) ) {
 
 if ( ! defined( 'OC_VERSION' ) ) {
 	define( 'OC_VERSION', '1.0.0-test' );
+}
+if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
+	define( 'HOUR_IN_SECONDS', 3600 );
+}
+if ( ! defined( 'DAY_IN_SECONDS' ) ) {
+	define( 'DAY_IN_SECONDS', 86400 );
 }
 
 // Stub commonly used WP functions so unit tests don't need a WP environment.
@@ -80,6 +93,12 @@ if ( ! function_exists( 'get_option' ) ) {
 if ( ! function_exists( 'wp_parse_args' ) ) {
 	function wp_parse_args( $args, $defaults = [] ): array {
 		return array_merge( (array) $defaults, (array) $args );
+	}
+}
+
+if ( ! function_exists( 'wp_parse_url' ) ) {
+	function wp_parse_url( string $url ): array|false {
+		return parse_url( $url );
 	}
 }
 
@@ -221,6 +240,7 @@ if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 // Load classes under test (unit tests only need the pure PHP classes).
 require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
 require_once OC_PATH . 'includes/class-oc-command-runner.php';
+require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 require_once OC_PATH . 'includes/class-oc-upload-handler.php';
 require_once OC_PATH . 'includes/class-oc-ai-image-filter.php';
 require_once OC_PATH . 'includes/class-oc-render-math.php';
@@ -232,6 +252,7 @@ require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
 // ── Integration base-class stubs ─────────────────────────────────────────────
 // When WP is not loaded, integration test classes extend these stubs which
 // mark every test as skipped rather than fataling on undefined base classes.
+
 
 if ( ! class_exists( 'WP_UnitTestCase' ) ) {
 	class WP_UnitTestCase extends \PHPUnit\Framework\TestCase {
@@ -247,55 +268,4 @@ if ( ! class_exists( 'WC_Unit_Test_Case' ) ) {
 
 if ( ! class_exists( 'WP_Test_REST_TestCase' ) ) {
 	class WP_Test_REST_TestCase extends WP_UnitTestCase {}
-}
-
-// ── Integration test bootstrap ────────────────────────────────────────────────
-// Only loaded when WP_TESTS_DIR is set in the environment.
-// Usage: WP_TESTS_DIR=/path/to/wp-tests vendor/bin/phpunit --testsuite Integration
-
-$_oc_wp_tests_dir = getenv( 'WP_TESTS_DIR' );
-if ( $_oc_wp_tests_dir && is_dir( $_oc_wp_tests_dir ) ) {
-	// Load the WP test bootstrap (sets up the test database, loads WP, etc.).
-	require_once $_oc_wp_tests_dir . '/includes/bootstrap.php';
-
-	// Define the plugin constant so the plugin file can self-register.
-	if ( ! defined( 'OC_VERSION' ) ) {
-		define( 'OC_VERSION', '1.0.0-test' );
-	}
-	if ( ! defined( 'OC_FILE' ) ) {
-		define( 'OC_FILE', OC_PATH . 'overcustomise.php' );
-	}
-	if ( ! defined( 'OC_URL' ) ) {
-		define( 'OC_URL', 'http://example.com/wp-content/plugins/overcustomise/' );
-	}
-	if ( ! defined( 'OC_ASSETS_URL' ) ) {
-		define( 'OC_ASSETS_URL', OC_URL . 'assets/build/' );
-	}
-	if ( ! defined( 'OC_DB_VERSION' ) ) {
-		define( 'OC_DB_VERSION', '1.0.0' );
-	}
-
-	// Load and initialise the plugin.
-	require_once OC_PATH . 'includes/class-oc-db.php';
-	require_once OC_PATH . 'includes/class-oc-logger.php';
-	require_once OC_PATH . 'includes/class-oc-command-runner.php';
-	require_once OC_PATH . 'includes/class-oc-font-registry.php';
-	require_once OC_PATH . 'includes/class-oc-render-math.php';
-	require_once OC_PATH . 'includes/class-oc-render-spec.php';
-	require_once OC_PATH . 'includes/admin/class-oc-admin-settings.php';
-	require_once OC_PATH . 'includes/admin/class-oc-admin-mockups.php';
-	require_once OC_PATH . 'includes/class-oc-rest-api.php';
-	require_once OC_PATH . 'includes/frontend/class-oc-cart.php';
-	require_once OC_PATH . 'includes/print/class-oc-print-engraving.php';
-	require_once OC_PATH . 'includes/print/class-oc-print-uv.php';
-	require_once OC_PATH . 'includes/print/class-oc-print-sublimation.php';
-	require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
-	require_once OC_PATH . 'includes/class-oc-print-queue.php';
-	require_once OC_PATH . 'includes/class-oc-print-generator.php';
-	require_once OC_PATH . 'includes/class-oc-file-cleanup.php';
-
-	// Create plugin tables.
-	add_action( 'after_setup_theme', function (): void {
-		OC_DB::create_tables();
-	} );
 }

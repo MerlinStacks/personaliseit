@@ -125,7 +125,7 @@ const renderSummary = summary => {
 };
 (0,_woocommerce_blocks_checkout__WEBPACK_IMPORTED_MODULE_0__.registerCheckoutFilters)('overcustomise', {
   cartItemClass: (defaultValue, extensions) => {
-    return getPreviewUrl(extensions) || getSummary(extensions).length ? `${defaultValue} oc-has-personalisation`.trim() : defaultValue;
+    return getPreviewUrl(extensions) ? `${defaultValue} oc-has-personalisation`.trim() : defaultValue;
   },
   itemName: (defaultValue, extensions) => {
     const previewUrl = getPreviewUrl(extensions);
