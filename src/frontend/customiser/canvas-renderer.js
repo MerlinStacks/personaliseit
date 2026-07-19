@@ -267,7 +267,7 @@ const canvasRendererMethods = {
 		);
 	},
 
-	async flushRedraw( inputs = this.inputs ) {
+	async flushRedraw( inputs = this.inputs, options = {} ) {
 		Object.values( this._redrawTimers ).forEach( clearTimeout );
 		this._redrawTimers = {};
 		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
@@ -275,7 +275,7 @@ const canvasRendererMethods = {
 		} );
 		await Promise.allSettled( Object.values( this._redrawPromises ) );
 		await this.awaitCanvasReady();
-		await this.redraw( this.activeArea, { inputs } );
+		await this.redraw( this.activeArea, { ...options, inputs } );
 	},
 
 	redraw( areaIndex, options = {} ) {
@@ -334,6 +334,8 @@ const canvasRendererMethods = {
 				return;
 			}
 			canvas.renderAll();
+			canvas._ocCartPreviewRevision = '';
+			canvas._ocCartPreviewDataUrl = '';
 			if (
 				options.pushGallery !== false &&
 				areaIndex === this.activeArea &&

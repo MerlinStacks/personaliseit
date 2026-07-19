@@ -69,7 +69,6 @@ class OCCustomiser {
 		this.fontCache = {}; // font family/weight/style/URL -> load Promise
 		this.clipartSvgCache = {};
 		this.galleryImg = null; // the main <img> in the product gallery
-		this._previewUrl = null; // saved preview URL (set just before cart submit)
 		this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
 		this._hasCustomerPersonalisation = this.editMode;
 		this._tvpgPreviewLocked = false;

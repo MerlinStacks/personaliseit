@@ -214,14 +214,15 @@ class OC_Cart {
 				throw new \Exception( esc_html__( 'No personalisation layers were submitted.', 'overcustomise' ) );
 			}
 
-			$cache_key  = self::submission_key( $product_id, $variation_id, $raw );
-			$validated  = self::$validated_submissions[ $cache_key ] ?? null;
-			$normalised = is_array( $validated ) ? $validated['normalised'] : self::normalise_v2_layers(
+			$cache_key    = self::submission_key( $product_id, $variation_id, $raw );
+			$validated    = self::$validated_submissions[ $cache_key ] ?? null;
+			$upload_token = is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : '';
+			$normalised   = is_array( $validated ) ? $validated['normalised'] : self::normalise_v2_layers(
 				$product_id,
 				$variation_id,
 				$design_id,
 				$decoded['layers'],
-				is_string( $decoded['uploadToken'] ?? null ) ? $decoded['uploadToken'] : ''
+				$upload_token
 			);
 			if ( is_wp_error( $normalised ) ) {
 				throw new \Exception( esc_html( $normalised->get_error_message() ) );
@@ -244,9 +245,18 @@ class OC_Cart {
 			$cart_item_data['_oc_flat_rate']     = (float) $design->flat_rate;
 			$cart_item_data['_oc_unique_key']    = md5( $raw . microtime() );
 
-			// Preview image URL (uploaded by JS before form submit).
+			// New clients include a small preview in the cart request, avoiding a
+			// separate blocking REST request before WooCommerce can add the item.
+			$preview_image = $decoded['previewImage'] ?? '';
+			if ( is_string( $preview_image ) && '' !== $preview_image ) {
+				$stored_preview = OC_Rest_API::store_cart_preview( $preview_image, $upload_token );
+				if ( ! is_wp_error( $stored_preview ) ) {
+					$cart_item_data['_oc_preview_url'] = $stored_preview;
+				}
+			}
+
 			$preview_url = $decoded['previewUrl'] ?? '';
-			if ( is_string( $preview_url ) && '' !== $preview_url ) {
+			if ( empty( $cart_item_data['_oc_preview_url'] ) && is_string( $preview_url ) && '' !== $preview_url ) {
 				$safe_preview_url = $this->validate_preview_url( $preview_url );
 				if ( '' !== $safe_preview_url ) {
 					$cart_item_data['_oc_preview_url'] = $safe_preview_url;

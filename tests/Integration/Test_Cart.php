@@ -477,4 +477,83 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$item_disallowed = WC()->cart->get_cart_item( $key_disallowed );
 		$this->assertArrayNotHasKey( '_oc_preview_url', $item_disallowed );
 	}
+
+	#[Test]
+	public function v2_inline_preview_is_saved_during_add_to_cart(): void {
+		global $wpdb;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_designs', [
+			'name'        => 'Inline Preview Design',
+			'custom_type' => 'text_only',
+			'flat_rate'   => 0,
+			'active'      => 1,
+		] );
+		$design_id = (int) $wpdb->insert_id;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_design_print_areas', [
+			'design_id' => $design_id,
+			'area_key'  => 'front',
+			'label'     => 'Front',
+		] );
+		$area_id = (int) $wpdb->insert_id;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [
+			'design_id' => $design_id,
+			'area_id'   => $area_id,
+			'type'      => 'text',
+			'label'     => 'Name',
+		] );
+		$layer_id = (int) $wpdb->insert_id;
+
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [
+			'product_id' => $this->product->get_id(),
+			'variant_id' => 0,
+			'design_id'  => $design_id,
+		] );
+		OC_Cache::flush_group();
+
+		$token = OC_Rest_API::issue_public_token();
+		$png   = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$this->assertIsString( $png );
+		$text_data = 'Test-ID' . "\0" . wp_generate_uuid4();
+		$chunk     = 'tEXt' . $text_data;
+		$png       = substr( $png, 0, -12 )
+			. pack( 'N', strlen( $text_data ) )
+			. $chunk
+			. hex2bin( hash( 'crc32b', $chunk ) )
+			. substr( $png, -12 );
+		$image     = 'data:image/png;base64,' . base64_encode( $png );
+		$path      = wp_upload_dir()['basedir'] . '/overcustomise/previews/preview-' . md5( $png ) . '.png';
+
+		$this->assertFileDoesNotExist( $path );
+		$this->assertWPError( OC_Rest_API::store_cart_preview( $image, 'invalid-token' ) );
+		$this->assertFileDoesNotExist( $path );
+
+		$_POST['_oc_customisation'] = wp_json_encode( [
+			'v'            => 2,
+			'designId'     => $design_id,
+			'uploadToken'  => $token,
+			'previewImage' => $image,
+			'layers'       => [
+				$layer_id => [
+					'type'  => 'text',
+					'value' => 'Alex',
+				],
+			],
+		] );
+
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key );
+		$item = WC()->cart->get_cart_item( $key );
+		$url  = (string) ( $item['_oc_preview_url'] ?? '' );
+
+		try {
+			$this->assertMatchesRegularExpression( '#/overcustomise/previews/preview-[a-f0-9]{32}\.png$#', $url );
+			$this->assertFileExists( $path );
+		} finally {
+			if ( is_file( $path ) ) {
+				wp_delete_file( $path );
+			}
+		}
+	}
 }

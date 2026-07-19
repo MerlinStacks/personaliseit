@@ -341,7 +341,10 @@ const galleryPreviewMethods = {
 
 		window
 			.jQuery?.( document.body )
-			.on?.( 'added_to_cart', () => this.releaseTVPGPreviewLock( true ) );
+			.on?.( 'added_to_cart', () => {
+				this.releaseTVPGPreviewLock( true );
+				this.restoreGalleryPreview();
+			} );
 	},
 
 	lockTVPGPreviewSlide( swiper, slide ) {
@@ -744,7 +747,6 @@ const galleryPreviewMethods = {
 		Object.keys( this.spotifyValidateTokens ).forEach( ( layerId ) =>
 			this.invalidateSpotifyValidation( layerId )
 		);
-		this._previewUrl = null;
 		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
 			this._redrawGenerations[ areaIndex ] += 1;
 		} );

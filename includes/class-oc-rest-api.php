@@ -144,8 +144,12 @@ class OC_Rest_API {
 			return true;
 		}
 
-		// Guests authenticate with a short-lived OC token, scoped by client IP hash.
 		$token = (string) ( $request->get_header( 'X-OC-Token' ) ?: $request->get_param( 'oc_token' ) );
+		return self::verify_public_token( $token );
+	}
+
+	/** Validate a short-lived guest token scoped to the client IP. */
+	private static function verify_public_token( string $token ): true|\WP_Error {
 		if ( '' === $token ) {
 			return new \WP_Error( 'invalid_token', __( 'Security verification failed.', 'overcustomise' ), [ 'status' => 403 ] );
 		}
@@ -200,7 +204,7 @@ class OC_Rest_API {
 	 *
 	 * @return \WP_Error|null
 	 */
-	private function enforce_rate_limit( string $prefix, int $max, string $message ): ?\WP_Error {
+	private static function enforce_rate_limit( string $prefix, int $max, string $message ): ?\WP_Error {
 		$ip         = self::client_ip();
 		$rate_key   = $prefix . hash( 'sha256', $ip );
 		$rate_count = (int) get_transient( $rate_key );
@@ -326,7 +330,7 @@ class OC_Rest_API {
 			return $auth;
 		}
 
-		$rate_limit = $this->enforce_rate_limit(
+		$rate_limit = self::enforce_rate_limit(
 			'oc_artwork_rate_',
 			60,
 			__( 'Too many uploads. Try again later.', 'overcustomise' )
@@ -571,17 +575,41 @@ class OC_Rest_API {
 		return true;
 	}
 
-	/**
-	 * Save a base64 canvas snapshot as a JPEG for cart/order preview.
-	 * Uses a content-hash filename so identical previews are deduplicated.
-	 */
+	/** Save a base64 canvas snapshot for cart/order preview. */
 	public function save_preview( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		$auth = $this->verify_public_write_auth( $request );
 		if ( is_wp_error( $auth ) ) {
 			return $auth;
 		}
 
-		$rate_limit = $this->enforce_rate_limit(
+		$body = $request->get_json_params();
+		$raw  = is_array( $body ) && isset( $body['image'] ) && is_string( $body['image'] ) ? $body['image'] : '';
+		$url  = self::store_rate_limited_preview( $raw );
+		if ( is_wp_error( $url ) ) {
+			return $url;
+		}
+
+		return rest_ensure_response( [ 'url' => $url ] );
+	}
+
+	/**
+	 * Save a preview supplied with a WooCommerce cart request.
+	 *
+	 * The cart request has no REST nonce, so inline previews use the same
+	 * short-lived token and rate limit as the standalone preview endpoint.
+	 */
+	public static function store_cart_preview( string $raw, string $token ): string|\WP_Error {
+		$auth = self::verify_public_token( $token );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		return self::store_rate_limited_preview( $raw );
+	}
+
+	/** Rate-limit and store a preview after its containing request is authenticated. */
+	private static function store_rate_limited_preview( string $raw ): string|\WP_Error {
+		$rate_limit = self::enforce_rate_limit(
 			'oc_preview_rate_',
 			30,
 			__( 'Too many preview uploads. Try again later.', 'overcustomise' )
@@ -590,8 +618,11 @@ class OC_Rest_API {
 			return $rate_limit;
 		}
 
-		$body = $request->get_json_params();
-		$raw  = is_array( $body ) && isset( $body['image'] ) && is_string( $body['image'] ) ? $body['image'] : '';
+		return self::store_preview_image( $raw );
+	}
+
+	/** Validate and persist a base64 preview using a content-hash filename. */
+	private static function store_preview_image( string $raw ): string|\WP_Error {
 
 		// Strip data URI prefix (data:image/jpeg;base64,…).
 		if ( '' !== $raw && str_contains( $raw, ',' ) ) {
@@ -647,9 +678,7 @@ class OC_Rest_API {
 			}
 		}
 
-		return rest_ensure_response( [
-			'url' => $upload['baseurl'] . '/overcustomise/previews/' . $filename,
-		] );
+		return $upload['baseurl'] . '/overcustomise/previews/' . $filename;
 	}
 
 	/** Validate a Spotify URL/URI and confirm it is publicly accessible. */
@@ -659,7 +688,7 @@ class OC_Rest_API {
 			return $auth;
 		}
 
-		$rate_limit = $this->enforce_rate_limit(
+		$rate_limit = self::enforce_rate_limit(
 			'oc_spotify_rate_',
 			120,
 			__( 'Too many validations. Try again shortly.', 'overcustomise' )
@@ -1088,6 +1117,16 @@ class OC_Rest_API {
 		$cart->cart_contents[ $cart_key ]['_oc_design_id']     = $design_id;
 		$cart->cart_contents[ $cart_key ]['_oc_flat_rate']     = (float) $design->flat_rate;
 		$cart->cart_contents[ $cart_key ]['_oc_unique_key']    = md5( wp_json_encode( $sanitised_layers ) . microtime() );
+
+		$preview_image = $body['previewImage'] ?? null;
+		if ( is_string( $preview_image ) && '' !== $preview_image ) {
+			$stored_preview = self::store_rate_limited_preview( $preview_image );
+			if ( ! is_wp_error( $stored_preview ) ) {
+				$cart->cart_contents[ $cart_key ]['_oc_preview_url'] = $stored_preview;
+			} else {
+				unset( $cart->cart_contents[ $cart_key ]['_oc_preview_url'] );
+			}
+		}
 
 		$preview_url = $body['previewUrl'] ?? null;
 		if ( array_key_exists( 'previewUrl', $body ) && '' === $preview_url ) {

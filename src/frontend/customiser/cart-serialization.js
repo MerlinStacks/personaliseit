@@ -104,7 +104,10 @@ const cartSerializationMethods = {
 		return this.freezeSubmissionValue( generation );
 	},
 
-	buildCustomisationPayload( generation, { previewUrl = '' } = {} ) {
+	buildCustomisationPayload(
+		generation,
+		{ previewUrl = '', previewImage = '' } = {}
+	) {
 		const payload = {
 			v: 2,
 			designId: generation.designId,
@@ -117,7 +120,9 @@ const cartSerializationMethods = {
 				payload.designVariantLabel = generation.designVariantLabel;
 			}
 		}
-		if ( previewUrl ) {
+		if ( previewImage ) {
+			payload.previewImage = previewImage;
+		} else if ( previewUrl ) {
 			payload.previewUrl = previewUrl;
 		}
 		return payload;
@@ -137,10 +142,8 @@ const cartSerializationMethods = {
 		const generation =
 			options.generation || this.createSubmissionGeneration();
 		const payload = this.buildCustomisationPayload( generation, {
-			previewUrl:
-				options.previewUrl === undefined
-					? this._previewUrl || ''
-					: options.previewUrl,
+			previewUrl: options.previewUrl || '',
+			previewImage: options.previewImage || '',
 		} );
 		el.value = JSON.stringify( payload );
 		return payload;

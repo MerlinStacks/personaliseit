@@ -360,7 +360,6 @@ const designVariantMethods = {
 			this._redrawGenerations[ areaIndex ] += 1;
 		} );
 		this.canvases = {};
-		this._previewUrl = null;
 		this.activeArea = 0;
 		this.selectedDesignVariant = variantId;
 		this._customisationActive = true;

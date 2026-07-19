@@ -200,7 +200,7 @@ const canvasRendererMethods = {
     this.focusPreviewArea(areaIndex);
     this._redrawTimers[areaIndex] = setTimeout(() => this.redraw(areaIndex), 120);
   },
-  async flushRedraw(inputs = this.inputs) {
+  async flushRedraw(inputs = this.inputs, options = {}) {
     Object.values(this._redrawTimers).forEach(clearTimeout);
     this._redrawTimers = {};
     Object.keys(this._redrawGenerations).forEach(areaIndex => {
@@ -209,6 +209,7 @@ const canvasRendererMethods = {
     await Promise.allSettled(Object.values(this._redrawPromises));
     await this.awaitCanvasReady();
     await this.redraw(this.activeArea, {
+      ...options,
       inputs
     });
   },
@@ -245,6 +246,8 @@ const canvasRendererMethods = {
         return;
       }
       canvas.renderAll();
+      canvas._ocCartPreviewRevision = '';
+      canvas._ocCartPreviewDataUrl = '';
       if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) {
         this.pushToGallery(canvas);
       }
@@ -1660,7 +1663,8 @@ const cartSerializationMethods = {
     return this.freezeSubmissionValue(generation);
   },
   buildCustomisationPayload(generation, {
-    previewUrl = ''
+    previewUrl = '',
+    previewImage = ''
   } = {}) {
     const payload = {
       v: 2,
@@ -1674,7 +1678,9 @@ const cartSerializationMethods = {
         payload.designVariantLabel = generation.designVariantLabel;
       }
     }
-    if (previewUrl) {
+    if (previewImage) {
+      payload.previewImage = previewImage;
+    } else if (previewUrl) {
       payload.previewUrl = previewUrl;
     }
     return payload;
@@ -1692,7 +1698,8 @@ const cartSerializationMethods = {
     el.disabled = false;
     const generation = options.generation || this.createSubmissionGeneration();
     const payload = this.buildCustomisationPayload(generation, {
-      previewUrl: options.previewUrl === undefined ? this._previewUrl || '' : options.previewUrl
+      previewUrl: options.previewUrl || '',
+      previewImage: options.previewImage || ''
     });
     el.value = JSON.stringify(payload);
     return payload;
@@ -1713,13 +1720,16 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
 /**
- * Cart submission, mobile preview confirmation, and preview upload helpers.
+ * Cart submission, mobile preview confirmation, and preview capture helpers.
  */
 
 /* eslint-disable no-console, no-alert */
 
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
+const MAX_INLINE_CUSTOMISATION_BYTES = 768 * 1024;
+const CART_PREVIEW_MAX_DIMENSION = 640;
+const CART_PREVIEW_QUALITY = 0.82;
 const checkoutMethods = {
   handleVariationSubmitBlock() {
     if (this._variationSwitchPending) {
@@ -1770,7 +1780,6 @@ const checkoutMethods = {
         }
         try {
           this.syncInputsFromDOM();
-          await this.flushRedraw();
           const preflight = await this.runPreflight();
           this.renderPreflightMessages(preflight.errors, preflight.warnings);
           if (!preflight.ok) {
@@ -1782,11 +1791,19 @@ const checkoutMethods = {
               return;
             }
           }
+          await this.flushRedraw();
           const generation = this.createSubmissionGeneration();
-          const previewUrl = await this.uploadPreview(generation);
+          const previewImage = this.getSubmissionPreviewImage(generation);
           const payload = this.buildCustomisationPayload(generation, {
-            previewUrl
+            previewImage
           });
+          if (!previewImage) {
+            payload.previewUrl = '';
+          }
+          if (this.customisationPayloadBytes(payload) > MAX_CUSTOMISATION_BYTES) {
+            this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
+            return;
+          }
           try {
             const res = await fetch(this.data.updateCartItemUrl, {
               method: 'POST',
@@ -1888,7 +1905,7 @@ const checkoutMethods = {
       if (form._ocSubmitReady) {
         form._ocSubmitReady = false;
         this.resetCartSubmitState(form);
-        return; // preview already saved, let submit through
+        return; // preview already captured, let submit through
       }
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -1897,7 +1914,6 @@ const checkoutMethods = {
       }
       try {
         this.syncInputsFromDOM();
-        await this.flushRedraw();
         const preflight = await this.runPreflight();
         this.renderPreflightMessages(preflight.errors, preflight.warnings);
         if (!preflight.ok) {
@@ -1911,20 +1927,25 @@ const checkoutMethods = {
             return;
           }
         }
+        await this.flushRedraw(this.inputs, {
+          pushGallery: false
+        });
         const generation = this.createSubmissionGeneration();
         const acceptedPreview = await this.confirmMobileCartPreview(generation);
         if (!acceptedPreview) {
+          this.restoreGalleryPreview();
           this.resetCartSubmitState(form);
           return;
         }
-        const previewUrl = await this.uploadPreview(generation);
+        const previewImage = this.getSubmissionPreviewImage(generation);
         await this.updateHiddenField({
           generation,
-          previewUrl
+          previewImage
         });
         const payload = document.getElementById('oc-customisation-data')?.value;
         if (payload && new Blob([payload]).size > MAX_CUSTOMISATION_BYTES) {
           this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
+          this.restoreGalleryPreview();
           this.resetCartSubmitState(form);
           return;
         }
@@ -1939,6 +1960,7 @@ const checkoutMethods = {
         }
       } catch (error) {
         console.error('[OC] Cart submission failed:', error);
+        this.restoreGalleryPreview();
         this.renderPreflightMessages(['Could not prepare your customisation. Please try again.'], []);
         this.resetCartSubmitState(form);
       }
@@ -1960,55 +1982,85 @@ const checkoutMethods = {
   isMobileCartPreviewRequired() {
     return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
   },
-  getCurrentPreviewDataUrl() {
-    const canvas = this.canvases[this.activeArea];
+  getCanvasPreviewDataUrl(areaIndex) {
+    const canvas = this.canvases[areaIndex];
     if (!canvas || canvas._ocMissingMockup) {
       throw new Error('The customisation preview is unavailable.');
     }
     if (canvas._ocRenderErrors?.length) {
       throw new Error('Some artwork could not be rendered.');
     }
+    if (this._redrawPromises[areaIndex]) {
+      throw new Error('The customisation preview is still rendering.');
+    }
+    const revision = `${this._designGeneration}:${this._redrawGenerations[areaIndex] || 0}`;
+    if (canvas._ocCartPreviewRevision === revision && canvas._ocCartPreviewDataUrl) {
+      return canvas._ocCartPreviewDataUrl;
+    }
+    const width = Math.max(1, Number(canvas.getWidth?.() || canvas.width || 1));
+    const height = Math.max(1, Number(canvas.getHeight?.() || canvas.height || 1));
+    const multiplier = Math.min(1, CART_PREVIEW_MAX_DIMENSION / Math.max(width, height));
     const dataUrl = canvas.toDataURL({
       format: 'jpeg',
-      quality: 0.92
+      quality: CART_PREVIEW_QUALITY,
+      multiplier
     });
     if (!/^data:image\/(?:jpeg|png);base64,/i.test(dataUrl)) {
       throw new Error('The customisation preview could not be captured.');
     }
+    canvas._ocCartPreviewRevision = revision;
+    canvas._ocCartPreviewDataUrl = dataUrl;
     return dataUrl;
+  },
+  getCurrentPreviewDataUrl() {
+    return this.getCanvasPreviewDataUrl(this.activeArea);
+  },
+  customisationPayloadBytes(payload) {
+    return new Blob([JSON.stringify(payload)]).size;
+  },
+  getSubmissionPreviewImage(generation) {
+    if (generation.designGeneration !== this._designGeneration) {
+      throw new Error('The selected design changed while rendering.');
+    }
+    let previewImage = '';
+    try {
+      previewImage = this.getCurrentPreviewDataUrl();
+    } catch (error) {
+      console.warn('[OC] Could not capture preview for cart:', error.message);
+      return '';
+    }
+    const payload = this.buildCustomisationPayload(generation, {
+      previewImage
+    });
+    if (this.customisationPayloadBytes(payload) > MAX_INLINE_CUSTOMISATION_BYTES) {
+      console.warn('[OC] Cart preview omitted because the submission would be too large.');
+      return '';
+    }
+    return previewImage;
+  },
+  restoreGalleryPreview() {
+    this.redraw(this.activeArea).catch(error => {
+      console.warn('[OC] Could not restore gallery preview:', error.message);
+    });
   },
   async getMobileCartPreviewAreas() {
     const activeArea = this.activeArea;
-    const fallbackUrl = this.getCurrentPreviewDataUrl();
     const previews = [];
     for (let index = 0; index < this.areas.length; index++) {
-      await this.redraw(index, {
-        pushGallery: false
-      });
-      const canvas = this.canvases[index];
-      if (!canvas) {
-        continue;
+      if (index !== activeArea) {
+        await this.redraw(index, {
+          pushGallery: false
+        });
       }
       try {
         previews.push({
           index,
           label: this.areas[index]?.name || `Area ${index + 1}`,
-          url: canvas.toDataURL({
-            format: 'jpeg',
-            quality: 0.92
-          })
+          url: this.getCanvasPreviewDataUrl(index)
         });
       } catch {
         // Omit an area only when its canvas cannot be safely exported.
       }
-    }
-    await this.redraw(activeArea);
-    if (!previews.length && fallbackUrl) {
-      previews.push({
-        index: activeArea,
-        label: this.areas[activeArea]?.name || `Area ${activeArea + 1}`,
-        url: fallbackUrl
-      });
     }
     return previews;
   },
@@ -2042,6 +2094,7 @@ const checkoutMethods = {
     this.closeFontComboboxes(true);
     const previews = await this.getMobileCartPreviewAreas();
     if (!previews.length) {
+      this.renderPreflightMessages(['The customisation preview is unavailable. Please wait for it to finish loading and try again.'], []);
       return false;
     }
     const dialog = this.getMobileCartPreviewDialog();
@@ -2155,65 +2208,6 @@ const checkoutMethods = {
       window.requestAnimationFrame(() => dialog.classList.add('is-visible'));
       acceptBtn?.focus?.();
     });
-  },
-  async uploadPreview(generation = null) {
-    if (!this.data.savePreviewUrl) {
-      return this._previewUrl || '';
-    }
-    await this.flushRedraw();
-    if (generation && generation.designGeneration !== this._designGeneration) {
-      throw new Error('The selected design changed while rendering.');
-    }
-    let dataUrl;
-    try {
-      dataUrl = this.getCurrentPreviewDataUrl();
-    } catch (e) {
-      this._previewUrl = '';
-      console.warn('[OC] Could not capture preview for cart:', e.message);
-      return '';
-    }
-    try {
-      const res = await fetch(this.data.savePreviewUrl, {
-        method: 'POST',
-        headers: this.restHeaders({
-          'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify({
-          image: dataUrl
-        })
-      });
-      if (generation && generation.designGeneration !== this._designGeneration) {
-        throw new Error('The selected design changed while saving.');
-      }
-      if (!res.ok) {
-        this._previewUrl = '';
-        return '';
-      }
-      let json = null;
-      const isJson = res.headers.get('content-type')?.includes('application/json');
-      if (isJson) {
-        try {
-          json = await res.json();
-        } catch (err) {
-          console.warn('[OC] Preview upload JSON parse failed:', err);
-        }
-      }
-      if (!json) {
-        this._previewUrl = '';
-        return '';
-      }
-      if (json.url) {
-        this._previewUrl = String(json.url);
-        return this._previewUrl;
-      }
-      this._previewUrl = '';
-      return '';
-    } catch (e) {
-      this._previewUrl = '';
-      // Non-fatal: cart submits without a preview image.
-      console.warn('[OC] Preview upload failed:', e.message);
-      return '';
-    }
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (checkoutMethods);
@@ -2593,7 +2587,6 @@ const designVariantMethods = {
       this._redrawGenerations[areaIndex] += 1;
     });
     this.canvases = {};
-    this._previewUrl = null;
     this.activeArea = 0;
     this.selectedDesignVariant = variantId;
     this._customisationActive = true;
@@ -2903,7 +2896,10 @@ const galleryPreviewMethods = {
       return;
     }
     this._cartGalleryUnlockBound = true;
-    window.jQuery?.(document.body).on?.('added_to_cart', () => this.releaseTVPGPreviewLock(true));
+    window.jQuery?.(document.body).on?.('added_to_cart', () => {
+      this.releaseTVPGPreviewLock(true);
+      this.restoreGalleryPreview();
+    });
   },
   lockTVPGPreviewSlide(swiper, slide) {
     if (!swiper || !slide) {
@@ -3166,7 +3162,6 @@ const galleryPreviewMethods = {
       this.uploadGenerations[layerId] += 1;
     });
     Object.keys(this.spotifyValidateTokens).forEach(layerId => this.invalidateSpotifyValidation(layerId));
-    this._previewUrl = null;
     Object.keys(this._redrawGenerations).forEach(areaIndex => {
       this._redrawGenerations[areaIndex] += 1;
     });
@@ -6024,7 +6019,6 @@ class OCCustomiser {
     this.fontCache = {}; // font family/weight/style/URL -> load Promise
     this.clipartSvgCache = {};
     this.galleryImg = null; // the main <img> in the product gallery
-    this._previewUrl = null; // saved preview URL (set just before cart submit)
     this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
     this._hasCustomerPersonalisation = this.editMode;
     this._tvpgPreviewLocked = false;
