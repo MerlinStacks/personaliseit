@@ -324,11 +324,6 @@ class OC_Upload_Handler {
 		return self::attachment_owner_matches( $attachment_id, $token );
 	}
 
-	/** Validate an attachment already stored in the current cart item. */
-	public static function existing_cart_attachment_is_valid( int $attachment_id ): bool {
-		return self::artwork_file_is_valid( $attachment_id );
-	}
-
 	/** Verify ownership of artwork posted by the legacy product customiser. */
 	public static function legacy_attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, string $token = '' ): bool {
 		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;

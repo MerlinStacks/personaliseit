@@ -632,10 +632,6 @@ const galleryPreviewMethods = {
 	},
 
 	async switchProductVariation( variationId ) {
-		if ( this.editMode ) {
-			return;
-		}
-
 		const key = String( Math.max( 0, parseInt( variationId, 10 ) || 0 ) );
 		const requestSeq = ++this._variationRequestSeq;
 		this._variationSwitchPending = true;

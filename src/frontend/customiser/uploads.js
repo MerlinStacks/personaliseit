@@ -544,7 +544,6 @@ const uploadMethods = {
 					design_id: Number( this.data.designId || 0 ),
 					product_id: Number( this.data.productId || 0 ),
 					variation_id: variationId,
-					cart_key: this.editMode ? this.cartKey : '',
 					oc_token: this.data.requestToken || '',
 				} ),
 			} );

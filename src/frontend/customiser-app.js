@@ -57,8 +57,6 @@ class OCCustomiser {
 			this.clampLayerInputValue( layerId );
 		} );
 
-		this.editMode = !! ( data.editMode && data.cartKey );
-		this.cartKey = this.editMode ? data.cartKey : '';
 		this.canvases = {}; // areaIndex → Fabric StaticCanvas
 		this._redrawTimers = {};
 		this._redrawGenerations = {};
@@ -70,7 +68,7 @@ class OCCustomiser {
 		this.clipartSvgCache = {};
 		this.galleryImg = null; // the main <img> in the product gallery
 		this._focusPreviewSlide = false; // jump TVPG to preview slide after user edits
-		this._hasCustomerPersonalisation = this.editMode;
+		this._hasCustomerPersonalisation = false;
 		this._tvpgPreviewLocked = false;
 		this._galleryPreviewGeneration = 0;
 		this._galleryPreviewNodes = new Set();

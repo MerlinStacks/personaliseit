@@ -46,6 +46,12 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
+	public function cart_item_update_route_is_not_registered(): void {
+		$routes = rest_get_server()->get_routes();
+		$this->assertArrayNotHasKey( '/overcustomise/v1/update-cart-item', $routes );
+	}
+
+	#[Test]
 	public function regenerate_files_route_is_registered(): void {
 		$routes = rest_get_server()->get_routes();
 		$this->assertArrayHasKey( '/overcustomise/v1/regenerate-files', $routes );

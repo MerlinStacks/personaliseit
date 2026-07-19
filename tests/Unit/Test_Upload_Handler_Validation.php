@@ -181,17 +181,6 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
-	public function existing_cart_allowlist_accepts_only_a_valid_oc_artwork_file(): void {
-		$this->create_test_artwork( 42 );
-
-		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 42, 10, 12, 20, 30 ) );
-		$this->assertTrue( OC_Upload_Handler::existing_cart_attachment_is_valid( 42 ) );
-
-		$GLOBALS['oc_test_post_meta'][42]['_oc_artwork'] = 0;
-		$this->assertFalse( OC_Upload_Handler::existing_cart_attachment_is_valid( 42 ) );
-	}
-
-	#[Test]
 	public function legacy_artwork_requires_owned_exact_product_context(): void {
 		$this->create_test_artwork( 43, [ 10, 12, 0, 0 ], 'legacy-token' );
 

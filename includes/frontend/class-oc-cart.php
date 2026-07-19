@@ -366,7 +366,7 @@ class OC_Cart {
 	 *
 	 * @return array{design:object,layers:array<int,array>}|\WP_Error
 	 */
-	public static function normalise_v2_layers( int $product_id, int $variation_id, int $design_id, array $raw_layers, string $upload_token = '', array $allowed_existing_attachments = [] ): array|\WP_Error {
+	public static function normalise_v2_layers( int $product_id, int $variation_id, int $design_id, array $raw_layers, string $upload_token = '' ): array|\WP_Error {
 		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
 		if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) ) {
 			return new \WP_Error( 'invalid_design', __( 'Design is not assigned to this product.', 'overcustomise' ) );
@@ -467,24 +467,13 @@ class OC_Cart {
 			if ( $attachment_id && $attachment_id === $default_attachment && ! OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
 				$attachment_id = 0;
 			}
-			$allowed_existing_data = $allowed_existing_attachments[ $layer_id ] ?? 0;
-			$allowed_existing = is_array( $allowed_existing_data )
-				? absint( $allowed_existing_data['attachmentId'] ?? 0 )
-				: absint( $allowed_existing_data );
-			$allowed_existing_source = is_array( $allowed_existing_data )
-				? absint( $allowed_existing_data['sourceAttachmentId'] ?? 0 )
-				: 0;
 			$attachment_context_layer_id = absint( $source['_oc_link_source_layer_id'] ?? $layer_id );
-			$existing_is_valid = $attachment_id > 0 && $attachment_id === $allowed_existing && OC_Upload_Handler::existing_cart_attachment_is_valid( $attachment_id );
 			if ( $attachment_id && $attachment_id !== $default_attachment
-				&& ! $existing_is_valid
 				&& ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The uploaded artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
-			$existing_source_is_valid = $source_attachment_id > 0 && $source_attachment_id === $allowed_existing_source && OC_Upload_Handler::existing_cart_attachment_is_valid( $source_attachment_id );
 			if ( $source_attachment_id && $source_attachment_id !== $default_attachment
-				&& ! $existing_source_is_valid
 				&& ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );

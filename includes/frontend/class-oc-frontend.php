@@ -16,7 +16,6 @@ class OC_Frontend {
 	private array   $layers = [];
 	private array   $design_variants = [];
 	private string  $selected_design_variant = '';
-	private ?array  $edit_cart_item = null;
 
 	public function register(): void {
 		add_action( 'wp',                                    [ $this, 'maybe_load_design' ],  10 );
@@ -28,47 +27,6 @@ class OC_Frontend {
 	// ── Design pre-load ───────────────────────────────────────────────────────
 
 	public function maybe_load_design(): void {
-		$edit_cart_key = isset( $_GET['oc_edit_cart_key'] ) ? sanitize_text_field( wp_unslash( $_GET['oc_edit_cart_key'] ) ) : '';
-
-		if ( $edit_cart_key !== '' ) {
-			$cart = WC()->cart ?? null;
-			if ( $cart && isset( $cart->cart_contents[ $edit_cart_key ] ) ) {
-				$ci = $cart->cart_contents[ $edit_cart_key ];
-				if ( ! empty( $ci['_oc_customisation'] ) ) {
-					$this->edit_cart_item = [
-						'key'      => $edit_cart_key,
-						'customisation' => $ci['_oc_customisation'],
-					];
-				}
-			}
-		}
-
-		if ( null !== $this->edit_cart_item ) {
-			$cs = $this->edit_cart_item['customisation'];
-			$design_id = 0;
-			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] ) {
-				$design_id = (int) ( $cs['designId'] ?? 0 );
-			}
-			if ( ! $design_id ) {
-				return;
-			}
-
-			$design = OC_DB::get_design( $design_id );
-			if ( ! $design || ! (bool) $design->active ) {
-				return;
-			}
-
-			$areas = OC_DB::get_design_print_areas( (int) $design->id );
-			if ( empty( $areas ) ) {
-				return;
-			}
-
-			$this->design = $design;
-			$this->areas  = $areas;
-			$this->layers = OC_DB::get_design_layers( (int) $design->id );
-			return;
-		}
-
 		if ( ! is_product() ) {
 			return;
 		}
@@ -155,17 +113,6 @@ class OC_Frontend {
 	private function build_state(): array {
 		$state = $this->build_design_state( $this->design, $this->areas, $this->layers );
 
-		$edit_mode = false;
-		$cart_key  = '';
-		if ( null !== $this->edit_cart_item ) {
-			$edit_mode = true;
-			$cart_key  = $this->edit_cart_item['key'];
-			$cs = $this->edit_cart_item['customisation'];
-			if ( isset( $cs['v'] ) && 2 === (int) $cs['v'] && isset( $cs['layers'] ) && is_array( $cs['layers'] ) ) {
-				$state['layerInputs'] = $this->merge_saved_layer_inputs( $state['layerInputs'], $cs['layers'] );
-			}
-		}
-
 		$state['designVariants']        = $this->design_variants;
 		$state['selectedDesignVariant'] = $this->selected_design_variant;
 		$state['designVariantStates']   = $this->build_design_variant_states();
@@ -175,15 +122,12 @@ class OC_Frontend {
 		$state['applyImageFilterUrl']   = rest_url( 'overcustomise/v1/apply-image-filter' );
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
-		$state['updateCartItemUrl']     = rest_url( 'overcustomise/v1/update-cart-item' );
 		$state['productDesignUrl']      = rest_url( 'overcustomise/v1/product-design/' . (int) get_queried_object_id() );
 		$state['productId']             = (int) get_queried_object_id();
 		$state['uploadNonce']           = wp_create_nonce( 'wp_rest' );
 		$state['requestToken']          = OC_Rest_API::issue_public_token();
 		$state['maxUploadSizeMb']       = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
 		$state['allowedFormats']        = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
-		$state['editMode']              = $edit_mode;
-		$state['cartKey']               = $cart_key;
 
 		return $state;
 	}
@@ -430,28 +374,6 @@ class OC_Frontend {
 			'layerInputs'     => $layer_inputs,
 			'restrictedLayerColours' => $restricted_layer_colours,
 		];
-	}
-
-	/** Merge saved cart values into default layer inputs. */
-	private function merge_saved_layer_inputs( array $layer_inputs, array $saved_inputs ): array {
-		foreach ( $saved_inputs as $lid => $ldata ) {
-			if ( ! is_array( $ldata ) || ! isset( $layer_inputs[ (int) $lid ] ) ) continue;
-			$layer_inputs[ (int) $lid ] = array_merge( $layer_inputs[ (int) $lid ], $ldata );
-			$attachment_id = absint( $layer_inputs[ (int) $lid ]['attachmentId'] ?? 0 );
-			$source_id     = absint( $layer_inputs[ (int) $lid ]['sourceAttachmentId'] ?? $attachment_id );
-			if ( $attachment_id ) {
-				$preview_id = absint( get_post_meta( $attachment_id, '_oc_print_derivative_attachment_id', true ) );
-				$layer_inputs[ (int) $lid ]['attachmentUrl'] = OC_Upload_Handler::attachment_access_url( $preview_id ?: $attachment_id );
-				$layer_inputs[ (int) $lid ]['originalAttachmentUrl'] = OC_Upload_Handler::attachment_access_url( $attachment_id );
-				$layer_inputs[ (int) $lid ]['previewAttachmentId'] = $preview_id;
-			}
-			if ( $source_id ) {
-				$source_preview_id = absint( get_post_meta( $source_id, '_oc_print_derivative_attachment_id', true ) );
-				$layer_inputs[ (int) $lid ]['sourceAttachmentUrl'] = OC_Upload_Handler::attachment_access_url( $source_preview_id ?: $source_id );
-				$layer_inputs[ (int) $lid ]['sourceOriginalAttachmentUrl'] = OC_Upload_Handler::attachment_access_url( $source_id );
-			}
-		}
-		return $layer_inputs;
 	}
 
 	/** Build frontend-safe alternate design options from assignment JSON. */
