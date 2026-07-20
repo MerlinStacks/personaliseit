@@ -18,13 +18,16 @@ class OC_AI_Image_Filter {
 	private const MAX_PROMPT_BYTES = 16384;
 
 	/** Generate a filtered image from a raster attachment. */
-	public static function generate( int $source_attachment_id, string $prompt ): array|\WP_Error {
+	public static function generate( int $source_attachment_id, string $prompt, bool $remove_background = false ): array|\WP_Error {
 		$api_key = OC_Admin_Settings::get_openrouter_api_key();
 		if ( '' === $api_key ) {
 			return new \WP_Error( 'openrouter_not_configured', __( 'OpenRouter is not configured. Ask the store administrator to add an API key.', 'overcustomise' ) );
 		}
 
 		$prompt = trim( $prompt );
+		if ( $remove_background ) {
+			$prompt .= "\n\nRemove the entire background from the final image. Keep only the main subject, make every background pixel fully transparent, preserve clean subject edges, and return the result as a PNG with transparency.";
+		}
 		if ( '' === $prompt || strlen( $prompt ) > self::MAX_PROMPT_BYTES ) {
 			return new \WP_Error( 'invalid_filter', __( 'This AI filter has an invalid prompt.', 'overcustomise' ) );
 		}

@@ -354,13 +354,14 @@ class OC_DB {
 		// 21. Image filters available to upload layers
 		// ------------------------------------------------------------------
 		dbDelta( "CREATE TABLE {$wpdb->prefix}oc_image_filters (
-			id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-			name        VARCHAR(100) NOT NULL,
-			filter_key  VARCHAR(30) NOT NULL DEFAULT 'grayscale',
-			value       DECIMAL(10,3) NOT NULL DEFAULT 1.000,
-			prompt      LONGTEXT DEFAULT NULL,
-			active      TINYINT(1) NOT NULL DEFAULT 1,
-			created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			id                BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+			name              VARCHAR(100) NOT NULL,
+			filter_key        VARCHAR(30) NOT NULL DEFAULT 'grayscale',
+			value             DECIMAL(10,3) NOT NULL DEFAULT 1.000,
+			prompt            LONGTEXT DEFAULT NULL,
+			remove_background TINYINT(1) NOT NULL DEFAULT 0,
+			active            TINYINT(1) NOT NULL DEFAULT 1,
+			created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			PRIMARY KEY (id),
 			KEY active (active)
 		) $charset;" );
@@ -592,7 +593,7 @@ class OC_DB {
 			$wpdb->prefix . 'oc_vdp_templates' => [ 'id', 'design_id', 'csv_file_path', 'active', 'created_at' ],
 			$wpdb->prefix . 'oc_vdp_fields' => [ 'id', 'template_id', 'field_name', 'layer_id', 'sort_order' ],
 			$wpdb->prefix . 'oc_print_queue' => [ 'id', 'print_file_id', 'order_id', 'order_item_id', 'print_area_id', 'area_source', 'row_index', 'area_data', 'print_method', 'status', 'attempts', 'error_message', 'created_at', 'processed_at' ],
-			$wpdb->prefix . 'oc_image_filters' => [ 'id', 'name', 'filter_key', 'value', 'prompt', 'active', 'created_at' ],
+			$wpdb->prefix . 'oc_image_filters' => [ 'id', 'name', 'filter_key', 'value', 'prompt', 'remove_background', 'active', 'created_at' ],
 		];
 
 		$table_placeholders = implode( ',', array_fill( 0, count( $required_columns ), '%s' ) );

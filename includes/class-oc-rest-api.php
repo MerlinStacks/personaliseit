@@ -1511,7 +1511,7 @@ class OC_Rest_API {
 			}
 
 			try {
-				$generated = OC_AI_Image_Filter::generate( $source_attachment_id, $prompt );
+				$generated = OC_AI_Image_Filter::generate( $source_attachment_id, $prompt, ! empty( $filter->remove_background ) );
 			} catch ( \Throwable $e ) {
 				self::release_budget_reservation( $storage_reservation );
 				OC_Logger::error( 'AI image generation threw an exception after quota reservation: ' . $e->getMessage() );

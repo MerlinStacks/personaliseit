@@ -555,7 +555,7 @@ const uploadMethods = {
 			zoneEl ||
 			document.querySelector( `[data-oc-upload-zone="${ layerId }"]` );
 		if ( targetZone ) {
-			this.setUploadProgress( targetZone, 100, 'Creating AI preview...' );
+			this.setUploadProgress( targetZone, 100, 'Doing the image thing...' );
 			this.showUploadError( targetZone, '' );
 		}
 

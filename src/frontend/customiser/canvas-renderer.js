@@ -2129,6 +2129,15 @@ const canvasRendererMethods = {
 					);
 				}
 			}
+			if (
+				( effects.embroidery || effects.embroideryColor ) &&
+				FabricFilters.Noise
+			) {
+				filters.push(
+					new FabricFilters.Contrast( { contrast: 0.08 } ),
+					new FabricFilters.Noise( { noise: 22 } )
+				);
+			}
 			if ( filters.length ) {
 				img.filters = filters;
 				img.applyFilters();

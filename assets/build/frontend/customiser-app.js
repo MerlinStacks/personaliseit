@@ -1474,6 +1474,13 @@ const canvasRendererMethods = {
           }));
         }
       }
+      if ((effects.embroidery || effects.embroideryColor) && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Noise) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
+          contrast: 0.08
+        }), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Noise({
+          noise: 22
+        }));
+      }
       if (filters.length) {
         img.filters = filters;
         img.applyFilters();
@@ -5632,7 +5639,7 @@ const uploadMethods = {
     delete this.aiFilterErrors[layerId];
     const targetZone = zoneEl || document.querySelector(`[data-oc-upload-zone="${layerId}"]`);
     if (targetZone) {
-      this.setUploadProgress(targetZone, 100, 'Creating AI preview...');
+      this.setUploadProgress(targetZone, 100, 'Doing the image thing...');
       this.showUploadError(targetZone, '');
     }
     const variationId = this.currentVariationId();
@@ -6466,7 +6473,7 @@ void main() {
 /******/ 			// no module.loaded needed
 /******/ 			exports: {}
 /******/ 		};
-/******/ 	
+/******/
 /******/ 		// Execute the module function
 /******/ 		if (!(moduleId in __webpack_modules__)) {
 /******/ 			delete __webpack_module_cache__[moduleId];

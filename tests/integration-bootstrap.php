@@ -12,11 +12,11 @@ if ( ! isset( $_oc_wp_tests_dir ) || ! is_string( $_oc_wp_tests_dir ) ) {
 require_once $_oc_wp_tests_dir . '/includes/bootstrap.php';
 
 defined( 'OC_PATH' ) || define( 'OC_PATH', dirname( __DIR__ ) . '/' );
-defined( 'OC_VERSION' ) || define( 'OC_VERSION', '1.16.0-test' );
+defined( 'OC_VERSION' ) || define( 'OC_VERSION', '1.16.1-test' );
 defined( 'OC_FILE' ) || define( 'OC_FILE', OC_PATH . 'overcustomise.php' );
 defined( 'OC_URL' ) || define( 'OC_URL', 'http://example.com/wp-content/plugins/overcustomise/' );
 defined( 'OC_ASSETS_URL' ) || define( 'OC_ASSETS_URL', OC_URL . 'assets/build/' );
-defined( 'OC_DB_VERSION' ) || define( 'OC_DB_VERSION', '1.16.0' );
+defined( 'OC_DB_VERSION' ) || define( 'OC_DB_VERSION', '1.16.1' );
 
 require_once OC_PATH . 'includes/class-oc-cache.php';
 require_once OC_PATH . 'includes/class-oc-woff-converter.php';
