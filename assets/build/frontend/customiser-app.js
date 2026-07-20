@@ -826,6 +826,11 @@ const canvasRendererMethods = {
     let cappedMax = Math.max(parseInt(sizeEl.min, 10) || 1, configuredMax ? Math.min(originalMax, configuredMax) : originalMax);
     cappedMax = await this.maxFittingFontSize(layerId, cappedMax);
     sizeEl.max = String(cappedMax);
+    const hasAdjustableRange = cappedMax > (parseInt(sizeEl.min, 10) || 1);
+    const control = sizeEl.closest('[data-oc-font-size-control]');
+    control?.querySelector('[data-oc-font-size-label]')?.toggleAttribute('hidden', !hasAdjustableRange);
+    sizeEl.toggleAttribute('hidden', !hasAdjustableRange);
+    control?.querySelector('[data-oc-font-size-notice]')?.toggleAttribute('hidden', hasAdjustableRange);
     if (clampValue && parseInt(sizeEl.value, 10) > cappedMax) {
       sizeEl.value = String(cappedMax);
       if (!this.inputs[layerId]) {
@@ -3506,6 +3511,28 @@ const inputControlMethods = {
     });
     combo.querySelector('[data-oc-font-empty]')?.setAttribute('hidden', '');
   },
+  updateColourPickerTrigger(swatch) {
+    const picker = swatch?.closest('.oc-colour-picker');
+    const preview = picker?.querySelector('[data-oc-colour-picker-preview]');
+    const label = picker?.querySelector('[data-oc-colour-picker-label]');
+    if (preview) {
+      preview.style.background = swatch.dataset.hex || '';
+    }
+    if (label) {
+      label.textContent = swatch.dataset.colourName || '';
+    }
+  },
+  closeColourDialog(dialog) {
+    if (!dialog) {
+      return;
+    }
+    dialog.classList.remove('is-visible');
+    if (typeof dialog.close === 'function' && dialog.open) {
+      dialog.close();
+    } else {
+      dialog.removeAttribute('open');
+    }
+  },
   setupFontComboboxes() {
     const stateSignal = this._panelListenerController?.signal;
     const useNativeFontSelect = window.matchMedia?.('(max-width: 639px) and (hover: none) and (pointer: coarse)')?.matches;
@@ -3924,6 +3951,48 @@ const inputControlMethods = {
       });
     });
 
+    // Large colour pickers
+    document.querySelectorAll('[data-oc-colour-dialog-trigger]').forEach(trigger => {
+      trigger.addEventListener('click', () => {
+        const dialog = document.getElementById(trigger.dataset.ocColourDialogTrigger);
+        if (!dialog) {
+          return;
+        }
+        if (typeof dialog.showModal === 'function') {
+          dialog.showModal();
+        } else {
+          dialog.setAttribute('open', '');
+          dialog.classList.add('oc-dialog-fallback');
+        }
+        dialog.classList.add('is-visible');
+        dialog.querySelector('.oc-colour-swatch.oc-selected')?.focus();
+      }, {
+        signal: stateSignal
+      });
+    });
+    document.querySelectorAll('[data-oc-colour-dialog]').forEach(dialog => {
+      dialog.querySelector('[data-oc-colour-dialog-close]')?.addEventListener('click', () => this.closeColourDialog(dialog), {
+        signal: stateSignal
+      });
+      dialog.addEventListener('click', event => {
+        if (event.target === dialog) {
+          this.closeColourDialog(dialog);
+        }
+      }, {
+        signal: stateSignal
+      });
+      dialog.addEventListener('close', () => dialog.classList.remove('is-visible'), {
+        signal: stateSignal
+      });
+      dialog.addEventListener('keydown', event => {
+        if (event.key === 'Escape' && !dialog.showModal) {
+          this.closeColourDialog(dialog);
+        }
+      }, {
+        signal: stateSignal
+      });
+    });
+
     // Colour swatches
     document.querySelectorAll('[data-oc-layer-swatch]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -3940,6 +4009,8 @@ const inputControlMethods = {
           s.classList.toggle('oc-selected', isSelected);
           s.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
         });
+        this.updateColourPickerTrigger(btn);
+        this.closeColourDialog(btn.closest('[data-oc-colour-dialog]'));
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
@@ -4441,6 +4512,7 @@ const inputControlMethods = {
           s.classList.toggle('oc-selected', selected);
           s.setAttribute('aria-pressed', selected ? 'true' : 'false');
         });
+        this.updateColourPickerTrigger(swatch);
       }
       const colorEl = document.querySelector(`[data-oc-layer-color="${layerId}"]`);
       if (colorEl && inp.colorHex) {
@@ -6390,7 +6462,7 @@ void main() {
 /************************************************************************/
 /******/ 	// The module cache
 /******/ 	var __webpack_module_cache__ = {};
-/******/ 	
+/******/
 /******/ 	// The require function
 /******/ 	function __webpack_require__(moduleId) {
 /******/ 		// Check if module is in cache

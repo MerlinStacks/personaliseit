@@ -68,6 +68,32 @@ const inputControlMethods = {
 			?.setAttribute( 'hidden', '' );
 	},
 
+	updateColourPickerTrigger( swatch ) {
+		const picker = swatch?.closest( '.oc-colour-picker' );
+		const preview = picker?.querySelector(
+			'[data-oc-colour-picker-preview]'
+		);
+		const label = picker?.querySelector( '[data-oc-colour-picker-label]' );
+		if ( preview ) {
+			preview.style.background = swatch.dataset.hex || '';
+		}
+		if ( label ) {
+			label.textContent = swatch.dataset.colourName || '';
+		}
+	},
+
+	closeColourDialog( dialog ) {
+		if ( ! dialog ) {
+			return;
+		}
+		dialog.classList.remove( 'is-visible' );
+		if ( typeof dialog.close === 'function' && dialog.open ) {
+			dialog.close();
+		} else {
+			dialog.removeAttribute( 'open' );
+		}
+	},
+
 	setupFontComboboxes() {
 		const stateSignal = this._panelListenerController?.signal;
 		const useNativeFontSelect = window.matchMedia?.(
@@ -626,6 +652,69 @@ const inputControlMethods = {
 				);
 			} );
 
+		// Large colour pickers
+		document
+			.querySelectorAll( '[data-oc-colour-dialog-trigger]' )
+			.forEach( ( trigger ) => {
+				trigger.addEventListener(
+					'click',
+					() => {
+						const dialog = document.getElementById(
+							trigger.dataset.ocColourDialogTrigger
+						);
+						if ( ! dialog ) {
+							return;
+						}
+						if ( typeof dialog.showModal === 'function' ) {
+							dialog.showModal();
+						} else {
+							dialog.setAttribute( 'open', '' );
+							dialog.classList.add( 'oc-dialog-fallback' );
+						}
+						dialog.classList.add( 'is-visible' );
+						dialog
+							.querySelector( '.oc-colour-swatch.oc-selected' )
+							?.focus();
+					},
+					{ signal: stateSignal }
+				);
+			} );
+
+		document
+			.querySelectorAll( '[data-oc-colour-dialog]' )
+			.forEach( ( dialog ) => {
+				dialog
+					.querySelector( '[data-oc-colour-dialog-close]' )
+					?.addEventListener(
+						'click',
+						() => this.closeColourDialog( dialog ),
+						{ signal: stateSignal }
+					);
+				dialog.addEventListener(
+					'click',
+					( event ) => {
+						if ( event.target === dialog ) {
+							this.closeColourDialog( dialog );
+						}
+					},
+					{ signal: stateSignal }
+				);
+				dialog.addEventListener(
+					'close',
+					() => dialog.classList.remove( 'is-visible' ),
+					{ signal: stateSignal }
+				);
+				dialog.addEventListener(
+					'keydown',
+					( event ) => {
+						if ( event.key === 'Escape' && ! dialog.showModal ) {
+							this.closeColourDialog( dialog );
+						}
+					},
+					{ signal: stateSignal }
+				);
+			} );
+
 		// Colour swatches
 		document
 			.querySelectorAll( '[data-oc-layer-swatch]' )
@@ -655,6 +744,10 @@ const inputControlMethods = {
 									isSelected ? 'true' : 'false'
 								);
 							} );
+						this.updateColourPickerTrigger( btn );
+						this.closeColourDialog(
+							btn.closest( '[data-oc-colour-dialog]' )
+						);
 						this.requestPreviewFocus();
 						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 						this.updateHiddenField();
@@ -1418,6 +1511,7 @@ const inputControlMethods = {
 							selected ? 'true' : 'false'
 						);
 					} );
+				this.updateColourPickerTrigger( swatch );
 			}
 
 			const colorEl = document.querySelector(

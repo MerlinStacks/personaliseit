@@ -1229,6 +1229,16 @@ const canvasRendererMethods = {
 		cappedMax = await this.maxFittingFontSize( layerId, cappedMax );
 
 		sizeEl.max = String( cappedMax );
+		const hasAdjustableRange =
+			cappedMax > ( parseInt( sizeEl.min, 10 ) || 1 );
+		const control = sizeEl.closest( '[data-oc-font-size-control]' );
+		control
+			?.querySelector( '[data-oc-font-size-label]' )
+			?.toggleAttribute( 'hidden', ! hasAdjustableRange );
+		sizeEl.toggleAttribute( 'hidden', ! hasAdjustableRange );
+		control
+			?.querySelector( '[data-oc-font-size-notice]' )
+			?.toggleAttribute( 'hidden', hasAdjustableRange );
 		if ( clampValue && parseInt( sizeEl.value, 10 ) > cappedMax ) {
 			sizeEl.value = String( cappedMax );
 			if ( ! this.inputs[ layerId ] ) {

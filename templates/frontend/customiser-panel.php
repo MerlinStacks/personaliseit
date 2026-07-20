@@ -33,7 +33,7 @@ $active_image_filter_ids = array_map( static fn ( $filter ): int => (int) $filte
 $valid_font_group_ids = array_map( static fn ( $group ): int => (int) $group->id, OC_DB::get_font_groups() );
 $has_multiple_areas = count( $areas ) > 1;
 $has_spotify_layer  = false;
-$colour_label_threshold = 12;
+$colour_modal_threshold = 6;
 
 $colour_contrast_text = static function ( string $hex ): string {
 	$hex = ltrim( sanitize_hex_color( $hex ) ?: '#000000', '#' );
@@ -47,6 +47,65 @@ $colour_contrast_text = static function ( string $hex ): string {
 	$luminance = ( ( $r * 299 ) + ( $g * 587 ) + ( $b * 114 ) ) / 1000;
 
 	return $luminance >= 150 ? '#1f2933' : '#ffffff';
+};
+
+$render_colour_picker = static function ( array $colours, int $layer_id, string $default_colour, string $context ) use ( $colour_contrast_text, $colour_modal_threshold ): void {
+	$use_modal      = count( $colours ) > $colour_modal_threshold;
+	$selected       = $colours[0];
+	$selected_index = 0;
+
+	foreach ( $colours as $index => $colour ) {
+		if ( strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ) {
+			$selected       = $colour;
+			$selected_index = $index;
+			break;
+		}
+	}
+
+	$dialog_id = 'oc-colour-dialog-' . $layer_id;
+	if ( $use_modal ) :
+		?>
+		<div class="oc-colour-picker">
+			<button type="button" class="oc-colour-picker-trigger" aria-haspopup="dialog" aria-controls="<?php echo esc_attr( $dialog_id ); ?>" data-oc-colour-dialog-trigger="<?php echo esc_attr( $dialog_id ); ?>">
+				<span class="oc-colour-picker-preview" style="background:<?php echo esc_attr( $selected->hex ); ?>;" data-oc-colour-picker-preview aria-hidden="true"></span>
+				<span data-oc-colour-picker-label><?php echo esc_html( $selected->name ); ?></span>
+				<span class="oc-colour-picker-action"><?php esc_html_e( 'Change', 'overcustomise' ); ?></span>
+			</button>
+			<dialog id="<?php echo esc_attr( $dialog_id ); ?>" class="oc-colour-dialog" aria-labelledby="<?php echo esc_attr( $dialog_id ); ?>-title" data-oc-colour-dialog>
+				<div class="oc-colour-dialog-card">
+					<div class="oc-colour-dialog-header">
+						<h2 id="<?php echo esc_attr( $dialog_id ); ?>-title"><?php esc_html_e( 'Choose a colour', 'overcustomise' ); ?></h2>
+						<button type="button" class="oc-colour-dialog-close" data-oc-colour-dialog-close aria-label="<?php esc_attr_e( 'Close colour picker', 'overcustomise' ); ?>">&times;</button>
+					</div>
+	<?php endif; ?>
+	<div class="oc-colour-swatches<?php echo $use_modal ? ' oc-colour-swatches--modal' : ''; ?>">
+		<?php foreach ( $colours as $index => $colour ) :
+			$is_selected = $index === $selected_index;
+			if ( 'text' === $context ) {
+				$aria_label = sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name );
+			} elseif ( 'clipart' === $context ) {
+				$aria_label = sprintf( __( 'Select %s clipart colour', 'overcustomise' ), $colour->name );
+			} else {
+				$aria_label = sprintf( __( 'Select %s', 'overcustomise' ), $colour->name );
+			}
+			?>
+			<button type="button" class="oc-colour-swatch<?php echo $is_selected ? ' oc-selected' : ''; ?>"
+				style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
+				aria-label="<?php echo esc_attr( $aria_label ); ?>"
+				aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
+				data-oc-layer-swatch="<?php echo esc_attr( $layer_id ); ?>"
+				data-colour-name="<?php echo esc_attr( $colour->name ); ?>"
+				data-hex="<?php echo esc_attr( $colour->hex ); ?>">
+				<span><?php echo esc_html( $colour->name ); ?></span>
+			</button>
+		<?php endforeach; ?>
+	</div>
+	<?php if ( $use_modal ) : ?>
+				</div>
+			</dialog>
+		</div>
+		<?php
+	endif;
 };
 
 foreach ( $layers as $layer ) {
@@ -204,7 +263,6 @@ foreach ( $layers as $layer ) {
 							$default_colour = sanitize_hex_color( (string) ( $layer_colours[0]->hex ?? '#000000' ) ) ?: '#000000';
 						}
 					}
-					$colour_swatch_class = 'oc-colour-swatches' . ( count( $layer_colours ) >= $colour_label_threshold ? ' oc-colour-swatches--labels' : '' );
 					$fg_ids = array_values( array_intersect( array_filter( array_map( 'absint', $fg_ids ) ), $valid_font_group_ids ) );
 					$layer_fonts = $all_fonts;
 					if ( ! empty( $fg_ids ) ) {
@@ -382,20 +440,9 @@ foreach ( $layers as $layer ) {
 
 								<?php if ( ! $is_engraving && $allow_colour_change ) : ?>
 									<div class="oc-control-group">
-										<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?></label>
-										<?php if ( ! empty( $layer_colours ) ) : ?>
-											<div class="<?php echo esc_attr( $colour_swatch_class ); ?>">
-												<?php foreach ( $layer_colours as $colour ) : ?>
-												<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
-													style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
-													aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart colour', 'overcustomise' ), $colour->name ) ); ?>"
-													aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
-													data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-													data-hex="<?php echo esc_attr( $colour->hex ); ?>">
-													<span><?php echo esc_html( $colour->name ); ?></span>
-												</button>
-												<?php endforeach; ?>
-											</div>
+									<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?></label>
+									<?php if ( ! empty( $layer_colours ) ) : ?>
+										<?php $render_colour_picker( $layer_colours, (int) $layer->id, $default_colour, 'clipart' ); ?>
 										<?php elseif ( empty( $cg_ids ) ) : ?>
 											<input type="color" value="<?php echo esc_attr( $default_colour ); ?>"
 												data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
@@ -409,18 +456,7 @@ foreach ( $layers as $layer ) {
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
-										<div class="<?php echo esc_attr( $colour_swatch_class ); ?>">
-											<?php foreach ( $layer_colours as $colour ) : ?>
-											<button type="button" class="oc-colour-swatch"
-												style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
-												aria-label="<?php echo esc_attr( sprintf( __( 'Select %s', 'overcustomise' ), $colour->name ) ); ?>"
-												aria-pressed="false"
-												data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-												data-hex="<?php echo esc_attr( $colour->hex ); ?>">
-												<span><?php echo esc_html( $colour->name ); ?></span>
-											</button>
-											<?php endforeach; ?>
-										</div>
+										<?php $render_colour_picker( $layer_colours, (int) $layer->id, $default_colour, 'lineart' ); ?>
 									<?php elseif ( empty( $cg_ids ) ) : ?>
 										<input type="color" value="#000000"
 											data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
@@ -491,8 +527,8 @@ foreach ( $layers as $layer ) {
 							<?php endif; ?>
 
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_size_change ) : ?>
-								<div class="oc-control-group">
-									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>">
+								<div class="oc-control-group" data-oc-font-size-control="<?php echo esc_attr( $layer->id ); ?>">
+									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>" data-oc-font-size-label>
 										<?php esc_html_e( 'Text size', 'overcustomise' ); ?>
 										<span class="oc-range-value" data-oc-range-value="<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $font_size_value ); ?></span>
 									</label>
@@ -503,6 +539,7 @@ foreach ( $layers as $layer ) {
 										value="<?php echo esc_attr( $font_size_value ); ?>"
 										id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"
 										data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
+									<p class="oc-font-size-notice" data-oc-font-size-notice hidden><?php esc_html_e( 'This font is already at the largest size that fits your text.', 'overcustomise' ); ?></p>
 								</div>
 							<?php endif; ?>
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
@@ -514,18 +551,7 @@ foreach ( $layers as $layer ) {
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>
-										<div class="<?php echo esc_attr( $colour_swatch_class ); ?>">
-											<?php foreach ( $layer_colours as $colour ) : ?>
-									<button type="button" class="oc-colour-swatch<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? ' oc-selected' : ''; ?>"
-										style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
-										aria-label="<?php echo esc_attr( sprintf( __( 'Select %s text colour', 'overcustomise' ), $colour->name ) ); ?>"
-										aria-pressed="<?php echo strtolower( (string) $colour->hex ) === strtolower( $default_colour ) ? 'true' : 'false'; ?>"
-										data-oc-layer-swatch="<?php echo esc_attr( $layer->id ); ?>"
-										data-hex="<?php echo esc_attr( $colour->hex ); ?>">
-										<span><?php echo esc_html( $colour->name ); ?></span>
-											</button>
-											<?php endforeach; ?>
-										</div>
+										<?php $render_colour_picker( $layer_colours, (int) $layer->id, $default_colour, 'text' ); ?>
 									<?php elseif ( empty( $cg_ids ) ) : ?>
 										<input type="color" value="<?php echo esc_attr( $default_colour ); ?>"
 											data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
