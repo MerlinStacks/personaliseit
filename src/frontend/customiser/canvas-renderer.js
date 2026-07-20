@@ -779,6 +779,10 @@ const canvasRendererMethods = {
 						layer,
 						input.imageFilterId
 					);
+					const imageEffects = {
+						...( imageFilter ? { imageFilter } : {} ),
+						...( isEmbroidery ? { embroidery: true } : {} ),
+					};
 					const rendered = await this.renderFabricImg(
 						canvas,
 						input.attachmentUrl,
@@ -794,7 +798,7 @@ const canvasRendererMethods = {
 						contentClip(),
 						'contain',
 						'',
-						imageFilter ? { imageFilter } : {},
+						imageEffects,
 						isCurrent
 					);
 					if ( ! rendered && isCurrent() ) {
@@ -2149,7 +2153,7 @@ const canvasRendererMethods = {
 						blur: 1,
 					} ),
 				} );
-			} else if ( effects.embroideryColor ) {
+			} else if ( effects.embroidery || effects.embroideryColor ) {
 				img.set( {
 					shadow: new Shadow( {
 						color: 'rgba(0,0,0,0.24)',

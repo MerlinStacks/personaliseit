@@ -36,6 +36,19 @@ class Test_SVG_Sanitiser extends TestCase {
 	}
 
 	#[Test]
+	public function it_strips_external_svg_doctype(): void {
+		$svg = '<?xml version="1.0" encoding="UTF-8"?>'
+			. '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" '
+			. '"http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">'
+			. '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="50" cy="50" r="40"/></svg>';
+
+		$result = OC_SVG_Sanitiser::sanitise( $svg );
+
+		$this->assertStringNotContainsString( '<!DOCTYPE', $result );
+		$this->assertStringContainsString( '<circle', $result );
+	}
+
+	#[Test]
 	public function it_strips_bom(): void {
 		$svg = "\xEF\xBB\xBF" . '<svg xmlns="http://www.w3.org/2000/svg"><g/></svg>';
 
@@ -253,6 +266,26 @@ class Test_SVG_Sanitiser extends TestCase {
 		OC_SVG_Sanitiser::sanitise(
 			'<svg xmlns="http://www.w3.org/2000/svg">' . str_repeat( '<g>', 130 ) . '<rect/>' . str_repeat( '</g>', 130 ) . '</svg>'
 		);
+	}
+
+	#[Test]
+	public function it_rejects_doctype_with_entity_declaration(): void {
+		$svg = '<!DOCTYPE svg [<!ENTITY payload "unsafe">]>'
+			. '<svg xmlns="http://www.w3.org/2000/svg"><text>&payload;</text></svg>';
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'SVG DOCTYPE declarations are not permitted.' );
+		OC_SVG_Sanitiser::sanitise( $svg );
+	}
+
+	#[Test]
+	public function it_rejects_malformed_external_doctype(): void {
+		$svg = '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN">'
+			. '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>';
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'SVG DOCTYPE declarations are not permitted.' );
+		OC_SVG_Sanitiser::sanitise( $svg );
 	}
 
 	// ── sanitise_file() ───────────────────────────────────────────────────

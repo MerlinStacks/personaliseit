@@ -575,9 +575,15 @@ const canvasRendererMethods = {
         {
           if (input.attachmentUrl) {
             const imageFilter = this.imageFilterForLayer(layer, input.imageFilterId);
-            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageFilter ? {
-              imageFilter
-            } : {}, isCurrent);
+            const imageEffects = {
+              ...(imageFilter ? {
+                imageFilter
+              } : {}),
+              ...(isEmbroidery ? {
+                embroidery: true
+              } : {})
+            };
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageEffects, isCurrent);
             if (!rendered && isCurrent()) {
               throw new Error('Artwork image could not be rendered.');
             }
@@ -1490,7 +1496,7 @@ const canvasRendererMethods = {
             blur: 1
           })
         });
-      } else if (effects.embroideryColor) {
+      } else if (effects.embroidery || effects.embroideryColor) {
         img.set({
           shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
             color: 'rgba(0,0,0,0.24)',
@@ -2651,10 +2657,6 @@ const designVariantMethods = {
     const previousFonts = this.fonts;
     this.fonts = state.fonts || this.fonts || [];
     try {
-      const thumbArea = {
-        ...area,
-        printMethod: 'uv'
-      };
       for (const layer of area.layers || []) {
         const input = {
           ...(state.layerInputs?.[layer.id] || {})
@@ -2662,7 +2664,7 @@ const designVariantMethods = {
         if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
           input.value = layer.settings?.default_text || layer.label || '';
         }
-        await this.renderLayer(canvas, layer, input, thumbArea);
+        await this.renderLayer(canvas, layer, input, area);
       }
     } finally {
       this.fonts = previousFonts;

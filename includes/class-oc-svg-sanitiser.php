@@ -93,7 +93,18 @@ class OC_SVG_Sanitiser {
 			throw new \InvalidArgumentException( 'Not a valid SVG file.' );
 		}
 
-		// Reject any DOCTYPE to block XXE / billion-laughs entity expansion.
+		// Legacy SVG exporters commonly include an external-only SVG DOCTYPE.
+		// Strip it before parsing; internal subsets and other declarations remain blocked.
+		$svg = preg_replace(
+			'/<!DOCTYPE\s+svg\s+(?:SYSTEM\s+(?:"[^"]*"|\'[^\']*\')|PUBLIC\s+(?:"[^"]*"|\'[^\']*\')\s+(?:"[^"]*"|\'[^\']*\'))\s*>/i',
+			'',
+			$svg
+		);
+		if ( ! is_string( $svg ) ) {
+			throw new \InvalidArgumentException( 'SVG DOCTYPE declaration could not be processed.' );
+		}
+
+		// Reject anything left to block XXE / billion-laughs entity expansion.
 		if ( preg_match( '/<!DOCTYPE/i', $svg ) ) {
 			throw new \InvalidArgumentException( 'SVG DOCTYPE declarations are not permitted.' );
 		}

@@ -270,10 +270,6 @@ const designVariantMethods = {
 		const previousFonts = this.fonts;
 		this.fonts = state.fonts || this.fonts || [];
 		try {
-			const thumbArea = {
-				...area,
-				printMethod: 'uv',
-			};
 			for ( const layer of area.layers || [] ) {
 				const input = {
 					...( state.layerInputs?.[ layer.id ] || {} ),
@@ -285,7 +281,7 @@ const designVariantMethods = {
 					input.value =
 						layer.settings?.default_text || layer.label || '';
 				}
-				await this.renderLayer( canvas, layer, input, thumbArea );
+				await this.renderLayer( canvas, layer, input, area );
 			}
 		} finally {
 			this.fonts = previousFonts;
