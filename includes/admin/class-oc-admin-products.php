@@ -28,18 +28,41 @@ class OC_Admin_Products {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$product_id = (int) ( $_POST['product_id'] ?? 0 );
-		$variant_id = (int) ( $_POST['variant_id'] ?? 0 );
-		$design_id  = (int) ( $_POST['design_id']  ?? 0 );
+		$product_id = absint( $_POST['product_id'] ?? 0 );
+		$variant_id = absint( $_POST['variant_id'] ?? 0 );
+		$design_id  = absint( $_POST['design_id'] ?? 0 );
 
-		if ( ! $product_id ) {
-			wp_send_json_error( [ 'message' => __( 'Invalid product.', 'overcustomise' ) ] );
+		$context = self::validate_product_context( $product_id, $variant_id );
+		if ( is_wp_error( $context ) ) {
+			wp_send_json_error( [ 'message' => $context->get_error_message() ], 400 );
 		}
 
 		if ( $design_id ) {
+			$design = OC_DB::get_design( $design_id );
+			if ( ! $design || ! (bool) $design->active ) {
+				wp_send_json_error( [ 'message' => __( 'Select an active design.', 'overcustomise' ) ], 400 );
+			}
 			OC_DB::upsert_assignment( $product_id, $variant_id, $design_id );
+			global $wpdb;
+			$stored = $wpdb->get_var( $wpdb->prepare(
+				"SELECT design_id FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d AND variant_id = %d LIMIT 1",
+				$product_id,
+				$variant_id
+			) );
+			if ( $design_id !== (int) $stored ) {
+				wp_send_json_error( [ 'message' => __( 'Could not save the design assignment.', 'overcustomise' ) ], 500 );
+			}
 		} else {
 			OC_DB::delete_assignment( $product_id, $variant_id );
+			global $wpdb;
+			$remaining = $wpdb->get_var( $wpdb->prepare(
+				"SELECT 1 FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d AND variant_id = %d LIMIT 1",
+				$product_id,
+				$variant_id
+			) );
+			if ( $remaining ) {
+				wp_send_json_error( [ 'message' => __( 'Could not remove the design assignment.', 'overcustomise' ) ], 500 );
+			}
 		}
 
 		wp_send_json_success();
@@ -51,30 +74,76 @@ class OC_Admin_Products {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$product_id = (int) ( $_POST['product_id'] ?? 0 );
-		$variant_id = (int) ( $_POST['variant_id'] ?? 0 );
+		$product_id = absint( $_POST['product_id'] ?? 0 );
+		$variant_id = absint( $_POST['variant_id'] ?? 0 );
 		$raw        = wp_unslash( $_POST['variants'] ?? '[]' );
 		$decoded    = is_string( $raw ) ? json_decode( $raw, true ) : [];
 
-		if ( ! $product_id || ! is_array( $decoded ) ) {
+		$context = self::validate_product_context( $product_id, $variant_id );
+		if ( is_wp_error( $context ) || ! is_array( $decoded ) || count( $decoded ) > 50 ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid variants.', 'overcustomise' ) ] );
+		}
+		$assignment = OC_DB::get_assignment_for_product( $product_id, $variant_id );
+		if ( ! $assignment || (int) $assignment->product_id !== $product_id || (int) $assignment->variant_id !== $variant_id ) {
+			wp_send_json_error( [ 'message' => __( 'Assign a default design before adding artwork options.', 'overcustomise' ) ], 400 );
 		}
 
 		$variants = [];
+		$seen     = [];
 		foreach ( $decoded as $item ) {
+			if ( ! is_array( $item ) ) {
+				wp_send_json_error( [ 'message' => __( 'Invalid variants.', 'overcustomise' ) ], 400 );
+			}
 			$design_id = absint( $item['designId'] ?? 0 );
 			$design    = $design_id ? OC_DB::get_design( $design_id ) : null;
-			if ( ! $design || ! (bool) $design->active ) {
-				continue;
+			if ( ! $design || ! (bool) $design->active || $design_id === (int) $assignment->design_id || isset( $seen[ $design_id ] ) ) {
+				wp_send_json_error( [ 'message' => __( 'Each artwork option must reference a distinct active design.', 'overcustomise' ) ], 400 );
 			}
+			$seen[ $design_id ] = true;
 			$variants[] = [
 				'designId' => $design_id,
-				'label'    => sanitize_text_field( (string) ( $item['label'] ?? '' ) ),
+				'label'    => substr( sanitize_text_field( is_scalar( $item['label'] ?? null ) ? (string) $item['label'] : '' ), 0, 190 ),
 			];
 		}
 
-		OC_DB::update_assignment_variants( $product_id, $variant_id, $variants );
+		global $wpdb;
+		$updated = $wpdb->update(
+			"{$wpdb->prefix}oc_product_assignments",
+			[ 'design_variants' => wp_json_encode( array_values( $variants ) ) ],
+			[ 'product_id' => $product_id, 'variant_id' => $variant_id ],
+			[ '%s' ],
+			[ '%d', '%d' ]
+		);
+		if ( false === $updated ) {
+			wp_send_json_error( [ 'message' => __( 'Could not save artwork options.', 'overcustomise' ) ], 500 );
+		}
+		OC_Cache::delete( 'all_assignments_v2' );
+		OC_Cache::flush_pattern( 'assignment_' );
 		wp_send_json_success();
+	}
+
+	/** Validate an editable parent product and optional child variation. */
+	private static function validate_product_context( int $product_id, int $variation_id ): array|\WP_Error {
+		$product = $product_id ? wc_get_product( $product_id ) : null;
+		if ( ! $product instanceof WC_Product
+			|| ! in_array( $product->get_type(), [ 'simple', 'variable' ], true )
+			|| ! current_user_can( 'edit_post', $product_id )
+		) {
+			return new \WP_Error( 'invalid_product', __( 'Invalid or inaccessible product.', 'overcustomise' ) );
+		}
+
+		$variation = null;
+		if ( $variation_id ) {
+			$variation = wc_get_product( $variation_id );
+			if ( ! $variation instanceof WC_Product_Variation
+				|| (int) $variation->get_parent_id() !== $product_id
+				|| ! current_user_can( 'edit_post', $variation_id )
+			) {
+				return new \WP_Error( 'invalid_variation', __( 'The selected variation does not belong to this product.', 'overcustomise' ) );
+			}
+		}
+
+		return [ 'product' => $product, 'variation' => $variation ];
 	}
 
 	public static function ajax_autosave_design(): void {
@@ -960,10 +1029,19 @@ class OC_Admin_Products {
 		// Build layers JSON for JS.
 		$all_layers = $id > 0 ? OC_DB::get_design_layers( $id ) : [];
 		$layers_js  = array_map( function ( $l ) {
+			$type     = sanitize_key( (string) $l->type );
+			$settings = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
+			$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
+			if ( $attachment_id && OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
+				$settings['default_attachment_url'] = (string) wp_get_attachment_url( $attachment_id );
+			} else {
+				$settings['default_attachment_id']  = 0;
+				$settings['default_attachment_url'] = '';
+			}
 			return [
 				'id'        => (int) $l->id,
 				'areaId'    => (int) $l->area_id,
-				'type'      => $l->type,
+				'type'      => $type,
 				'label'     => $l->label,
 				'x'         => (int) $l->x,
 				'y'         => (int) $l->y,
@@ -972,7 +1050,7 @@ class OC_Admin_Products {
 				'sortOrder' => (int) $l->sort_order,
 				'visible'   => (bool) $l->visible,
 				'locked'    => (bool) $l->locked,
-				'settings'  => $l->settings ? json_decode( $l->settings, true ) : [],
+				'settings'  => $settings,
 			];
 		}, $all_layers );
 
@@ -983,6 +1061,19 @@ class OC_Admin_Products {
 				$clipart_group_ids_by_item[ (int) $clipart_id ][] = (int) $group->id;
 			}
 		}
+		$method_settings   = OC_Admin_Print_Methods::get();
+		$selectable_methods = OC_Admin_Print_Methods::enabled_methods();
+		foreach ( $areas as $area ) {
+			$existing_method = sanitize_key( (string) ( $area->print_method ?? '' ) );
+			if ( isset( $method_settings[ $existing_method ] ) ) {
+				$selectable_methods[] = $existing_method;
+			}
+		}
+		$selectable_methods = array_values( array_unique( $selectable_methods ) );
+		$method_labels = [];
+		foreach ( $selectable_methods as $method ) {
+			$method_labels[ $method ] = (string) $method_settings[ $method ]['label'];
+		}
 
 		wp_localize_script( 'oc-products-page', 'ocProductsData', [
 			'designId'     => $id,
@@ -992,13 +1083,13 @@ class OC_Admin_Products {
 			'nonce'        => wp_create_nonce( 'oc-products-nonce' ),
 			'mediaTitle'   => __( 'Select Mockup Image', 'overcustomise' ),
 			'mediaBtn'     => __( 'Use as Mockup', 'overcustomise' ),
-			'fonts'        => OC_Font_Registry::get_fonts_for_js(),
+			'fonts'        => OC_Plugin::browser_fonts(),
 			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'fontIds' => array_map( 'intval', $g->font_ids ) ]; }, OC_DB::get_font_groups() ),
 			'colours'      => array_map( function ( $c ) { return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ]; }, OC_DB::get_colours( true ) ),
 			'imageFilters' => array_map( function ( $f ) { return [ 'id' => (int) $f->id, 'name' => $f->name, 'key' => $f->filter_key, 'value' => (float) $f->value, 'isAi' => 'ai' === (string) $f->filter_key ]; }, OC_DB::get_image_filters( true ) ),
 			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'colourIds' => array_map( 'intval', $g->colour_ids ) ]; }, OC_DB::get_colour_groups() ),
 			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, $clipart_groups ),
-			'clipartItems'  => array_map(
+			'clipartItems'  => array_values( array_filter( array_map(
 				function ( $c ) use ( $clipart_group_ids_by_item ) {
 					return [
 						'id'        => (int) $c->id,
@@ -1012,13 +1103,8 @@ class OC_Admin_Products {
 					];
 				},
 				OC_DB::get_clipart( true )
-			),
-			'methodLabels' => [
-				'engraving'   => __( 'Engraving', 'overcustomise' ),
-				'uv'          => __( 'UV Printing', 'overcustomise' ),
-				'embroidery'  => __( 'Embroidery', 'overcustomise' ),
-				'sublimation' => __( 'Sublimation', 'overcustomise' ),
-			],
+			), static fn ( array $item ): bool => '' !== $item['url'] ) ),
+			'methodLabels' => $method_labels,
 		] );
 		?>
 		<div class="wrap oc-page oc-design-editor-page">
@@ -1106,10 +1192,9 @@ class OC_Admin_Products {
 								</div>
 								<div class="oc-editor-field">
 									<select id="oc-prop-method" class="oc-select" style="width:100%;" aria-label="<?php esc_attr_e( 'Print Method', 'overcustomise' ); ?>">
-										<option value="uv"><?php esc_html_e( 'UV Printing', 'overcustomise' ); ?></option>
-										<option value="engraving"><?php esc_html_e( 'Engraving', 'overcustomise' ); ?></option>
-										<option value="embroidery"><?php esc_html_e( 'Embroidery', 'overcustomise' ); ?></option>
-										<option value="sublimation"><?php esc_html_e( 'Sublimation', 'overcustomise' ); ?></option>
+										<?php foreach ( $method_labels as $method => $method_label ) : ?>
+											<option value="<?php echo esc_attr( $method ); ?>"><?php echo esc_html( $method_label ); ?></option>
+										<?php endforeach; ?>
 									</select>
 								</div>
 								<div class="oc-editor-field" id="oc-prop-engraving-material-wrap" style="display:none;">
@@ -1264,7 +1349,7 @@ class OC_Admin_Products {
 
 	private function handle_design_save(): int {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
+			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), '', [ 'response' => 403 ] );
 		}
 		if ( ! wp_verify_nonce( sanitize_key( $_POST['oc_design_nonce'] ?? '' ), 'oc_save_design' ) ) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
@@ -1272,45 +1357,53 @@ class OC_Admin_Products {
 
 		global $wpdb;
 
-		$design_id   = (int) ( $_POST['oc_design_id'] ?? 0 );
-		$name        = sanitize_text_field( $_POST['oc_design_name'] ?? '' );
+		$design_id   = absint( $_POST['oc_design_id'] ?? 0 );
+		$name_raw    = is_scalar( $_POST['oc_design_name'] ?? null ) ? (string) $_POST['oc_design_name'] : '';
+		$name        = sanitize_text_field( wp_unslash( $name_raw ) );
 		$custom_type = null;
 		$flat_rate   = null;
 		$active      = isset( $_POST['oc_active'] ) ? 1 : 0;
 
 		if ( array_key_exists( 'oc_custom_type', $_POST ) ) {
-			if ( ! in_array( $_POST['oc_custom_type'], [ 'text_only', 'photo_text' ], true ) ) {
+			$posted_custom_type = is_scalar( $_POST['oc_custom_type'] ) ? sanitize_key( wp_unslash( (string) $_POST['oc_custom_type'] ) ) : '';
+			if ( ! in_array( $posted_custom_type, [ 'text_only', 'photo_text' ], true ) ) {
 				wp_die( esc_html__( 'Invalid customisation type.', 'overcustomise' ) );
 			}
-			$custom_type = sanitize_key( $_POST['oc_custom_type'] );
+			$custom_type = $posted_custom_type;
 		}
 		if ( array_key_exists( 'oc_flat_rate', $_POST ) ) {
-			$flat_rate = number_format( max( 0, (float) $_POST['oc_flat_rate'] ), 2, '.', '' );
+			$posted_rate = is_numeric( $_POST['oc_flat_rate'] ) ? (float) $_POST['oc_flat_rate'] : 0.0;
+			$flat_rate = number_format( max( 0, min( 1000000, is_finite( $posted_rate ) ? $posted_rate : 0.0 ) ), 2, '.', '' );
 		}
 		if ( 0 === $design_id ) {
 			$custom_type = $custom_type ?? 'text_only';
 			$flat_rate   = $flat_rate ?? number_format( max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) ), 2, '.', '' );
 		}
 
-		if ( ! $name ) {
+		if ( ! $name || strlen( $name ) > 150 ) {
 			wp_die( esc_html__( 'Design name is required.', 'overcustomise' ) );
 		}
 
 		$posted_areas  = $_POST['oc_design_areas'] ?? [];
 		$posted_layers = $_POST['oc_layers'] ?? [];
-		if ( ! is_array( $posted_areas ) || ! is_array( $posted_layers ) ) {
+		if ( ! is_array( $posted_areas ) || ! is_array( $posted_layers ) || count( $posted_areas ) > 100 || count( $posted_layers ) > 1000 ) {
 			wp_die( esc_html__( 'Invalid design data.', 'overcustomise' ) );
 		}
 
 		$submitted_existing_area_ids  = [];
 		$submitted_existing_layer_ids = [];
 		$valid_area_indexes            = [];
+		$seen_area_indexes             = [];
 		foreach ( $posted_areas as $area_index => $area_data ) {
-			if ( ! is_array( $area_data ) ) {
+			$normalised_index = is_int( $area_index ) || ( is_string( $area_index ) && ctype_digit( $area_index ) ) ? (int) $area_index : -1;
+			if ( ! is_array( $area_data ) || $normalised_index < 0 || isset( $seen_area_indexes[ $normalised_index ] ) ) {
 				wp_die( esc_html__( 'Invalid print area data.', 'overcustomise' ) );
 			}
-			if ( sanitize_text_field( $area_data['label'] ?? '' ) ) {
-				$valid_area_indexes[ (int) $area_index ] = true;
+			$seen_area_indexes[ $normalised_index ] = true;
+			$area_label_raw = is_scalar( $area_data['label'] ?? null ) ? (string) $area_data['label'] : '';
+			$area_label = sanitize_text_field( wp_unslash( $area_label_raw ) );
+			if ( $area_label ) {
+				$valid_area_indexes[ $normalised_index ] = true;
 			}
 			$area_id = (int) ( $area_data['id'] ?? 0 );
 			if ( $area_id > 0 ) {
@@ -1321,7 +1414,11 @@ class OC_Admin_Products {
 			}
 		}
 		foreach ( $posted_layers as $layer_data ) {
-			if ( ! is_array( $layer_data ) || ! isset( $valid_area_indexes[ (int) ( $layer_data['area_index'] ?? -1 ) ] ) ) {
+			if ( ! is_array( $layer_data ) ) {
+				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
+			}
+			$layer_area_index = is_scalar( $layer_data['area_index'] ?? null ) && ctype_digit( (string) $layer_data['area_index'] ) ? (int) $layer_data['area_index'] : -1;
+			if ( ! isset( $valid_area_indexes[ $layer_area_index ] ) ) {
 				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
 			}
 			$layer_id = (int) ( $layer_data['id'] ?? 0 );
@@ -1352,20 +1449,27 @@ class OC_Admin_Products {
 		}
 
 		try {
-			$existing_area_ids       = [];
-			$existing_layer_area_ids = [];
+			$existing_area_ids          = [];
+			$existing_area_data         = [];
+			$existing_layer_area_ids    = [];
+			$existing_layer_settings    = [];
 			if ( $design_id > 0 ) {
 				$locked_design = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
 				if ( ! $locked_design ) {
 					throw new RuntimeException( 'Design not found.' );
 				}
-				$existing_area_ids = array_map( 'intval', $wpdb->get_col( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) );
+				$existing_areas = $wpdb->get_results( $wpdb->prepare( "SELECT id, print_method, mockup_attachment_id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) ?: [];
+				foreach ( $existing_areas as $existing_area ) {
+					$existing_area_ids[]                         = (int) $existing_area->id;
+					$existing_area_data[ (int) $existing_area->id ] = $existing_area;
+				}
 				if ( array_diff( $submitted_existing_area_ids, $existing_area_ids ) ) {
 					throw new RuntimeException( 'Submitted area does not belong to this design.' );
 				}
-				$existing_layers = $wpdb->get_results( $wpdb->prepare( "SELECT id, area_id FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d FOR UPDATE", $design_id ) ) ?: [];
+				$existing_layers = $wpdb->get_results( $wpdb->prepare( "SELECT id, area_id, settings FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d FOR UPDATE", $design_id ) ) ?: [];
 				foreach ( $existing_layers as $existing_layer ) {
 					$existing_layer_area_ids[ (int) $existing_layer->id ] = (int) $existing_layer->area_id;
+					$existing_layer_settings[ (int) $existing_layer->id ] = OC_Cart::normalise_layer_settings( $existing_layer->settings ?? [] );
 				}
 				if ( array_diff( $submitted_existing_layer_ids, array_keys( $existing_layer_area_ids ) ) ) {
 					throw new RuntimeException( 'Submitted layer does not belong to this design.' );
@@ -1389,18 +1493,35 @@ class OC_Admin_Products {
 			// Save print areas and build the submitted index to database ID map.
 			$submitted_ids = [];
 			$area_id_map   = [];
+			$used_area_keys = [];
 
 			foreach ( $posted_areas as $area_index => $area_data ) {
 				$area_id = (int) ( $area_data['id'] ?? 0 );
-				$label   = sanitize_text_field( $area_data['label'] ?? '' );
+				$label_raw = is_scalar( $area_data['label'] ?? null ) ? (string) $area_data['label'] : '';
+				$label   = sanitize_text_field( wp_unslash( $label_raw ) );
 				if ( ! $label ) {
 					continue;
 				}
+				if ( strlen( $label ) > 100 ) {
+					throw new RuntimeException( 'Print area label is too long.' );
+				}
 
-				$area_key   = sanitize_key( $label );
-				$method     = in_array( $area_data['print_method'] ?? '', [ 'engraving', 'uv', 'embroidery', 'sublimation' ], true )
-					? sanitize_key( $area_data['print_method'] )
-					: 'uv';
+				$area_key   = substr( sanitize_key( $label ), 0, 50 );
+				if ( '' === $area_key ) {
+					throw new RuntimeException( 'Print area label must contain a usable key.' );
+				}
+				if ( isset( $used_area_keys[ $area_key ] ) ) {
+					throw new RuntimeException( 'Print area labels must be unique.' );
+				}
+				$used_area_keys[ $area_key ] = true;
+				$method     = sanitize_key( is_scalar( $area_data['print_method'] ?? null ) ? (string) $area_data['print_method'] : '' );
+				$all_methods = OC_Admin_Print_Methods::get();
+				$old_method  = sanitize_key( (string) ( $existing_area_data[ $area_id ]->print_method ?? '' ) );
+				if ( ! isset( $all_methods[ $method ] )
+					|| ( ( 0 === $area_id || $method !== $old_method ) && ! OC_Admin_Print_Methods::is_enabled( $method ) )
+				) {
+					throw new RuntimeException( 'The selected print method is disabled or invalid.' );
+				}
 				$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood' ], true )
 					? sanitize_key( $area_data['engraving_material'] )
 					: 'silver_metal';
@@ -1408,10 +1529,14 @@ class OC_Admin_Products {
 					? sanitize_key( $area_data['canvas_unit'] )
 					: 'px';
 				$mockup_id  = (int) ( $area_data['mockup_attachment_id'] ?? 0 );
-				$canvas_x   = max( 0, (int) ( $area_data['canvas_x'] ?? 0 ) );
-				$canvas_y   = max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) );
-				$canvas_w   = max( 1, (int) ( $area_data['canvas_w'] ?? 300 ) );
-				$canvas_h   = max( 1, (int) ( $area_data['canvas_h'] ?? 300 ) );
+				$old_mockup_id = (int) ( $existing_area_data[ $area_id ]->mockup_attachment_id ?? 0 );
+				if ( $mockup_id && ! self::design_attachment_is_valid( $mockup_id, $old_mockup_id, true ) ) {
+					throw new RuntimeException( 'The selected mockup is invalid or inaccessible.' );
+				}
+				$canvas_x   = min( 100000, max( 0, (int) ( $area_data['canvas_x'] ?? 0 ) ) );
+				$canvas_y   = min( 100000, max( 0, (int) ( $area_data['canvas_y'] ?? 0 ) ) );
+				$canvas_w   = min( 100000, max( 1, (int) ( $area_data['canvas_w'] ?? 300 ) ) );
+				$canvas_h   = min( 100000, max( 1, (int) ( $area_data['canvas_h'] ?? 300 ) ) );
 				$canvas_dpi = min( 1200, max( 1, (int) ( $area_data['canvas_dpi'] ?? 300 ) ) );
 				$rotation   = (int) ( $area_data['canvas_rotation'] ?? 0 );
 				$rotation   = ( ( $rotation % 360 ) + 360 ) % 360;
@@ -1462,24 +1587,47 @@ class OC_Admin_Products {
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;
 				$layer_id   = (int) ( $layer_data['id'] ?? 0 );
 
-				$type  = in_array( $layer_data['type'] ?? '', $valid_types, true )
-					? sanitize_key( $layer_data['type'] )
-					: 'text';
-				$label = sanitize_text_field( $layer_data['label'] ?? '' );
+				$type = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
+				if ( ! in_array( $type, $valid_types, true ) ) {
+					throw new RuntimeException( 'Invalid design layer type.' );
+				}
+				$label_raw = is_scalar( $layer_data['label'] ?? null ) ? (string) $layer_data['label'] : '';
+				$label = sanitize_text_field( wp_unslash( $label_raw ) );
+				if ( strlen( $label ) > 100 ) {
+					throw new RuntimeException( 'Layer label is too long.' );
+				}
 				// WordPress slashes $_POST, so unslash before decoding settings.
 				$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
-				$decoded      = json_decode( is_string( $settings_raw ) ? $settings_raw : '{}', true );
-				$settings     = wp_json_encode( is_array( $decoded ) ? $decoded : [] );
+				$decoded      = json_decode( is_string( $settings_raw ) && strlen( $settings_raw ) <= 262144 ? $settings_raw : '', true );
+				if ( ! is_array( $decoded ) ) {
+					throw new RuntimeException( 'Invalid design layer settings.' );
+				}
+				$area_method = '';
+				foreach ( $posted_areas as $posted_area_index => $posted_area ) {
+					if ( (int) $posted_area_index === $area_index ) {
+						$area_method = sanitize_key( is_scalar( $posted_area['print_method'] ?? null ) ? (string) $posted_area['print_method'] : '' );
+						break;
+					}
+				}
+				$settings = wp_json_encode( self::normalise_design_layer_settings(
+					$decoded,
+					$type,
+					$area_method,
+					$existing_layer_settings[ $layer_id ] ?? []
+				) );
+				if ( false === $settings ) {
+					throw new RuntimeException( 'Could not encode design layer settings.' );
+				}
 
 				$layer_row = [
 					'design_id'  => $design_id,
 					'area_id'    => $area_db_id,
 					'type'       => $type,
 					'label'      => $label,
-					'x'          => max( 0, (int) ( $layer_data['x'] ?? 0 ) ),
-					'y'          => max( 0, (int) ( $layer_data['y'] ?? 0 ) ),
-					'w'          => max( 1, (int) ( $layer_data['w'] ?? 200 ) ),
-					'h'          => max( 1, (int) ( $layer_data['h'] ?? 50 ) ),
+					'x'          => min( 100000, max( 0, (int) ( $layer_data['x'] ?? 0 ) ) ),
+					'y'          => min( 100000, max( 0, (int) ( $layer_data['y'] ?? 0 ) ) ),
+					'w'          => min( 100000, max( 1, (int) ( $layer_data['w'] ?? 200 ) ) ),
+					'h'          => min( 100000, max( 1, (int) ( $layer_data['h'] ?? 50 ) ) ),
 					'sort_order' => (int) ( $layer_data['sort_order'] ?? $sort ),
 					'visible'    => isset( $layer_data['visible'] ) && $layer_data['visible'] !== '0' ? 1 : 0,
 					'locked'     => ! empty( $layer_data['locked'] ) && $layer_data['locked'] !== '0' ? 1 : 0,
@@ -1541,10 +1689,103 @@ class OC_Admin_Products {
 		OC_Cache::delete( 'designs_area_counts' );
 	}
 
+	/** Validate media selected for a design without breaking an unchanged existing relationship. */
+	private static function design_attachment_is_valid( int $attachment_id, int $existing_attachment_id = 0, bool $require_image = false ): bool {
+		if ( 'attachment' !== get_post_type( $attachment_id ) || ! OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
+			return false;
+		}
+		if ( $require_image && ! str_starts_with( (string) get_post_mime_type( $attachment_id ), 'image/' ) ) {
+			return false;
+		}
+
+		return $attachment_id === $existing_attachment_id || current_user_can( 'edit_post', $attachment_id );
+	}
+
+	/** Normalize layer settings and retain only live, related resources. */
+	private static function normalise_design_layer_settings( array $raw, string $type, string $print_method, array $existing = [] ): array {
+		$settings = OC_Cart::normalise_layer_settings( $raw, $type );
+
+		$font_groups    = OC_DB::get_font_groups();
+		$colour_groups  = OC_DB::get_colour_groups();
+		$clipart_groups = OC_DB::get_clipart_groups();
+		$font_group_ids = array_map( static fn ( $group ): int => (int) $group->id, $font_groups );
+		$colour_group_ids = array_map( static fn ( $group ): int => (int) $group->id, $colour_groups );
+		$clipart_group_ids = array_map( static fn ( $group ): int => (int) $group->id, $clipart_groups );
+
+		$settings['font_groups']    = array_values( array_intersect( $settings['font_groups'], $font_group_ids ) );
+		$settings['colour_groups']  = array_values( array_intersect( $settings['colour_groups'], $colour_group_ids ) );
+		$settings['clipart_groups'] = array_values( array_intersect( $settings['clipart_groups'], $clipart_group_ids ) );
+
+		$active_font_ids = array_map( static fn ( $font ): int => (int) $font->id, OC_DB::get_fonts( true ) );
+		$allowed_font_ids = $settings['font_groups']
+			? array_values( array_intersect( $active_font_ids, OC_DB::get_font_ids_for_groups( $settings['font_groups'] ) ) )
+			: $active_font_ids;
+		if ( $settings['default_font_id'] && ! in_array( $settings['default_font_id'], $allowed_font_ids, true ) ) {
+			$settings['default_font_id'] = 0;
+		}
+
+		if ( $settings['colour_groups'] ) {
+			$allowed_colours = array_values( array_filter( array_map(
+				static fn ( $colour ): ?string => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ),
+				OC_DB::get_colours_for_groups( $settings['colour_groups'] )
+			) ) );
+			if ( $allowed_colours && ! in_array( strtolower( $settings['default_color'] ), array_map( 'strtolower', $allowed_colours ), true ) ) {
+				$settings['default_color'] = $allowed_colours[0];
+			}
+		}
+
+		$active_filter_ids = array_map( static fn ( $filter ): int => (int) $filter->id, OC_DB::get_image_filters( true ) );
+		$settings['image_filter_ids'] = array_values( array_intersect( $settings['image_filter_ids'], $active_filter_ids ) );
+		if ( ! in_array( $settings['default_image_filter_id'], $settings['image_filter_ids'], true ) ) {
+			$settings['default_image_filter_id'] = 0;
+		}
+
+		$attachment_id = in_array( $type, [ 'image', 'clipmask' ], true ) ? (int) $settings['default_attachment_id'] : 0;
+		$existing_attachment_id = (int) ( $existing['default_attachment_id'] ?? 0 );
+		if ( $attachment_id && ! self::design_attachment_is_valid( $attachment_id, $existing_attachment_id, true ) ) {
+			throw new RuntimeException( 'The selected default artwork is invalid or inaccessible.' );
+		}
+		$settings['default_attachment_id']  = $attachment_id;
+		$settings['default_attachment_url'] = '';
+
+		$default_clipart_id = 'clipart' === $type ? (int) $settings['default_clipart_id'] : 0;
+		$active_clipart = [];
+		foreach ( OC_DB::get_clipart( true ) as $clipart ) {
+			if ( '' !== OC_Admin_Clipart::get_clipart_url( (string) ( $clipart->file_path ?? '' ) ) ) {
+				$active_clipart[ (int) $clipart->id ] = $clipart;
+			}
+		}
+		if ( $default_clipart_id && isset( $active_clipart[ $default_clipart_id ] ) ) {
+			$clipart = $active_clipart[ $default_clipart_id ];
+			$allowed_methods = self::normalise_clipart_print_methods( (string) ( $clipart->allowed_print_methods ?? '' ) );
+			$in_selected_group = empty( $settings['clipart_groups'] );
+			foreach ( $clipart_groups as $group ) {
+				if ( in_array( (int) $group->id, $settings['clipart_groups'], true )
+					&& in_array( $default_clipart_id, array_map( 'intval', (array) $group->clipart_ids ), true )
+				) {
+					$in_selected_group = true;
+					break;
+				}
+			}
+			if ( ! $in_selected_group || ( $allowed_methods && ! in_array( $print_method, $allowed_methods, true ) ) ) {
+				$default_clipart_id = 0;
+			}
+		} else {
+			$default_clipart_id = 0;
+		}
+		$settings['default_clipart_id']           = $default_clipart_id;
+		$settings['default_clipart_url']          = '';
+		$settings['default_clipart_recolourable'] = $default_clipart_id
+			&& 'svg' === strtolower( (string) ( $active_clipart[ $default_clipart_id ]->file_type ?? '' ) )
+			&& ( ! property_exists( $active_clipart[ $default_clipart_id ], 'colour_changeable' ) || (bool) $active_clipart[ $default_clipart_id ]->colour_changeable );
+
+		return $settings;
+	}
+
 	private function handle_design_delete(): void {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_delete_design_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
@@ -1605,88 +1846,105 @@ class OC_Admin_Products {
 	private function handle_design_duplicate(): void {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_duplicate_design_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
 		global $wpdb;
-
-		$original = OC_DB::get_design( $id );
-		if ( ! $original ) {
-			wp_die( esc_html__( 'Design not found.', 'overcustomise' ) );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_die( esc_html__( 'Could not start the design duplication transaction.', 'overcustomise' ) );
 		}
 
-		// Copy design record.
-		$wpdb->insert(
-			"{$wpdb->prefix}oc_designs",
-			[
-				'name'        => $original->name . __( ' (Copy)', 'overcustomise' ),
-				'custom_type' => $original->custom_type,
-				'flat_rate'      => $original->flat_rate,
-				'active'         => 0,
-				'clone_priority' => 1,
-			],
-			[ '%s', '%s', '%s', '%d', '%d' ]
-		);
-		$new_id = (int) $wpdb->insert_id;
-		if ( ! $new_id ) {
-			wp_die( esc_html__( 'Could not duplicate design.', 'overcustomise' ) );
-		}
+		$new_id = 0;
+		try {
+			$original = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $id ) );
+			if ( ! $original ) {
+				throw new RuntimeException( 'Design not found.' );
+			}
+			$areas  = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d ORDER BY sort_order ASC FOR UPDATE", $id ) ) ?: [];
+			$layers = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d ORDER BY area_id ASC, sort_order ASC FOR UPDATE", $id ) ) ?: [];
 
-		// Copy print areas, mapping old IDs to new IDs.
-		$areas       = OC_DB::get_design_print_areas( $id );
-		$area_id_map = [];
-		foreach ( $areas as $area ) {
-			$wpdb->insert(
-				"{$wpdb->prefix}oc_design_print_areas",
+			if ( false === $wpdb->insert(
+				"{$wpdb->prefix}oc_designs",
 				[
-					'design_id'            => $new_id,
-					'area_key'             => $area->area_key,
-					'label'                => $area->label,
-					'print_method'         => $area->print_method,
-					'engraving_material'   => $area->engraving_material ?? 'silver_metal',
-					'canvas_unit'          => $area->canvas_unit ?? 'px',
-					'mockup_attachment_id' => $area->mockup_attachment_id,
-					'canvas_x'             => $area->canvas_x,
-					'canvas_y'             => $area->canvas_y,
-					'canvas_w'             => $area->canvas_w,
-					'canvas_h'             => $area->canvas_h,
-					'canvas_dpi'           => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
-					'canvas_rotation'      => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
-					'sort_order'           => $area->sort_order,
-					'visible'              => $area->visible,
-					'locked'               => $area->locked,
+					'name'           => substr( (string) $original->name, 0, 143 ) . __( ' (Copy)', 'overcustomise' ),
+					'custom_type'    => $original->custom_type,
+					'flat_rate'      => $original->flat_rate,
+					'active'         => 0,
+					'clone_priority' => 1,
 				],
-				[ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ]
-			);
-			$area_id_map[ (int) $area->id ] = (int) $wpdb->insert_id;
-		}
+				[ '%s', '%s', '%s', '%d', '%d' ]
+			) ) {
+				throw new RuntimeException( 'Could not copy design.' );
+			}
+			$new_id = (int) $wpdb->insert_id;
+			if ( $new_id <= 0 ) {
+				throw new RuntimeException( 'Could not identify copied design.' );
+			}
 
-		// Copy layers, re-mapping area_id.
-		$layers = OC_DB::get_design_layers( $id );
-		foreach ( $layers as $layer ) {
-			$new_area_id = $area_id_map[ (int) $layer->area_id ] ?? 0;
-			if ( ! $new_area_id ) continue;
-			$wpdb->insert(
-				"{$wpdb->prefix}oc_design_layers",
-				[
-					'design_id'  => $new_id,
-					'area_id'    => $new_area_id,
-					'type'       => $layer->type,
-					'label'      => $layer->label,
-					'x'          => $layer->x,
-					'y'          => $layer->y,
-					'w'          => $layer->w,
-					'h'          => $layer->h,
-					'sort_order' => $layer->sort_order,
-					'visible'    => $layer->visible,
-					'locked'     => $layer->locked,
-					'settings'   => $layer->settings ?: '{}',
-				],
-				[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
-			);
+			$area_id_map = [];
+			foreach ( $areas as $area ) {
+				$inserted = $wpdb->insert(
+					"{$wpdb->prefix}oc_design_print_areas",
+					[
+						'design_id'            => $new_id,
+						'area_key'             => $area->area_key,
+						'label'                => $area->label,
+						'print_method'         => $area->print_method,
+						'engraving_material'   => $area->engraving_material ?? 'silver_metal',
+						'canvas_unit'          => $area->canvas_unit ?? 'px',
+						'mockup_attachment_id' => $area->mockup_attachment_id,
+						'canvas_x'             => $area->canvas_x,
+						'canvas_y'             => $area->canvas_y,
+						'canvas_w'             => $area->canvas_w,
+						'canvas_h'             => $area->canvas_h,
+						'canvas_dpi'           => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
+						'canvas_rotation'      => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
+						'sort_order'           => $area->sort_order,
+						'visible'              => $area->visible,
+						'locked'               => $area->locked,
+					],
+					[ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ]
+				);
+				$new_area_id = (int) $wpdb->insert_id;
+				if ( false === $inserted || $new_area_id <= 0 ) {
+					throw new RuntimeException( 'Could not copy print area.' );
+				}
+				$area_id_map[ (int) $area->id ] = $new_area_id;
+			}
+
+			foreach ( $layers as $layer ) {
+				$new_area_id = $area_id_map[ (int) $layer->area_id ] ?? 0;
+				if ( ! $new_area_id || false === $wpdb->insert(
+					"{$wpdb->prefix}oc_design_layers",
+					[
+						'design_id'  => $new_id,
+						'area_id'    => $new_area_id,
+						'type'       => $layer->type,
+						'label'      => $layer->label,
+						'x'          => $layer->x,
+						'y'          => $layer->y,
+						'w'          => $layer->w,
+						'h'          => $layer->h,
+						'sort_order' => $layer->sort_order,
+						'visible'    => $layer->visible,
+						'locked'     => $layer->locked,
+						'settings'   => $layer->settings ?: '{}',
+					],
+					[ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ]
+				) ) {
+					throw new RuntimeException( 'Could not copy design layer.' );
+				}
+			}
+
+			if ( false === $wpdb->query( 'COMMIT' ) ) {
+				throw new RuntimeException( 'Could not commit copied design.' );
+			}
+		} catch ( Throwable $error ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_die( esc_html__( 'Could not duplicate design. No changes were applied.', 'overcustomise' ) );
 		}
 
 		$this->clear_design_cache( $new_id );
@@ -1700,10 +1958,16 @@ class OC_Admin_Products {
 			return [];
 		}
 
-		$decoded = json_decode( $raw, true );
-		$methods = is_array( $decoded ) ? $decoded : explode( ',', $raw );
-		$allowed = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+		$decoded    = json_decode( $raw, true );
+		$methods    = is_array( $decoded ) ? $decoded : explode( ',', $raw );
+		$allowed    = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+		$normalised = [];
+		foreach ( $methods as $method ) {
+			if ( is_scalar( $method ) ) {
+				$normalised[] = sanitize_key( (string) $method );
+			}
+		}
 
-		return array_values( array_intersect( $allowed, array_map( 'sanitize_key', $methods ) ) );
+		return array_values( array_unique( array_intersect( $allowed, $normalised ) ) );
 	}
 }

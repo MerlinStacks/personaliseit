@@ -46,6 +46,8 @@ class OC_Admin_Mockups {
 		// Handle inline meta save.
 		if ( isset( $_POST['oc_mockup_meta_nonce'] ) ) {
 			$this->handle_meta_save();
+			wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-mockups' ) );
+			exit;
 		}
 
 		wp_enqueue_media();
@@ -223,11 +225,12 @@ class OC_Admin_Mockups {
 
 		if ( ! $attachment_id
 		     || ! wp_verify_nonce( sanitize_key( $_POST['oc_mockup_meta_nonce'] ?? '' ), 'oc_save_mockup_meta_' . $attachment_id )
+			 || ! self::can_manage_mockup_attachment( $attachment_id )
 		) {
 			return;
 		}
 
-		update_post_meta( $attachment_id, '_oc_mockup_label', sanitize_text_field( $_POST['oc_mockup_label'] ?? '' ) );
+		update_post_meta( $attachment_id, '_oc_mockup_label', sanitize_text_field( wp_unslash( $_POST['oc_mockup_label'] ?? '' ) ) );
 		wp_set_object_terms( $attachment_id, self::CATEGORY_SLUG, 'oc_mockup' );
 	}
 
@@ -237,10 +240,20 @@ class OC_Admin_Mockups {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( 'Forbidden', 403 );
 		}
-		$ids = array_map( 'intval', (array) ( $_POST['ids'] ?? [] ) );
+		$raw_ids = $_POST['ids'] ?? [];
+		if ( ! is_array( $raw_ids ) || count( $raw_ids ) > 100 ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid attachment selection.', 'overcustomise' ) ], 400 );
+		}
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $raw_ids ) ) ) );
 		foreach ( $ids as $id ) {
-			if ( $id > 0 ) {
-				wp_set_object_terms( $id, self::CATEGORY_SLUG, 'oc_mockup' );
+			if ( ! self::can_manage_mockup_attachment( $id ) ) {
+				wp_send_json_error( [ 'message' => __( 'One or more selected attachments are invalid or inaccessible.', 'overcustomise' ) ], 403 );
+			}
+		}
+		foreach ( $ids as $id ) {
+			$result = wp_set_object_terms( $id, self::CATEGORY_SLUG, 'oc_mockup' );
+			if ( is_wp_error( $result ) ) {
+				wp_send_json_error( [ 'message' => __( 'Could not add the mockup to the library.', 'overcustomise' ) ], 500 );
 			}
 		}
 		wp_send_json_success();
@@ -250,11 +263,22 @@ class OC_Admin_Mockups {
 	public static function ajax_delete(): void {
 		$id = (int) ( $_POST['id'] ?? 0 );
 		check_ajax_referer( 'oc_delete_mockup_' . $id );
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! self::can_manage_mockup_attachment( $id ) ) {
 			wp_send_json_error( 'Forbidden', 403 );
 		}
-		wp_remove_object_terms( $id, self::CATEGORY_SLUG, 'oc_mockup' );
+		$result = wp_remove_object_terms( $id, self::CATEGORY_SLUG, 'oc_mockup' );
+		if ( is_wp_error( $result ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not remove the mockup.', 'overcustomise' ) ], 500 );
+		}
 		wp_send_json_success();
+	}
+
+	/** Verify attachment type and object-level edit permission. */
+	private static function can_manage_mockup_attachment( int $attachment_id ): bool {
+		if ( 'attachment' !== get_post_type( $attachment_id ) || ! current_user_can( 'edit_post', $attachment_id ) ) {
+			return false;
+		}
+		return str_starts_with( (string) get_post_mime_type( $attachment_id ), 'image/' );
 	}
 
 	/** Return all mockup attachments as array of [ id => label ] for select menus. */

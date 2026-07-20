@@ -1340,6 +1340,12 @@ let groups = (window.ocClipartGroups || []).map(normaliseGroup);
 let currentFile = null;
 let editClipartId = null;
 let editGroupId = null;
+let uploadModalGeneration = 0;
+let editModalGeneration = 0;
+let groupModalGeneration = 0;
+let uploadWrite = null;
+let editWrite = null;
+let groupWrite = null;
 
 // ---------------------------------------------------------------------------
 // Normalisers
@@ -1436,25 +1442,7 @@ function buildClipartCardEl(item) {
   card.setAttribute('role', 'button');
   card.setAttribute('tabindex', '0');
   card.innerHTML = '<div class="oc-clipart-preview">' + '<img src="' + h(item.url) + '" alt="' + h(item.name) + '" loading="lazy" />' + '</div>' + '<div class="oc-clipart-card-body">' + '<div class="oc-clipart-card-title-row">' + '<p class="oc-clipart-card-name" title="' + h(item.name) + '">' + h(item.name) + '</p>' + '<span class="oc-badge ' + (item.active ? 'oc-badge-active' : 'oc-badge-inactive') + '">' + (item.active ? 'Active' : 'Inactive') + '</span>' + '</div>' + '<p class="oc-clipart-type-label">' + h(item.fileType.toUpperCase()) + ' · ' + (item.colourChangeable ? 'Colour changeable' : 'Fixed colour') + '</p>' + '<p class="oc-clipart-type-label">' + h(methodSummary(item.allowedPrintMethods)) + '</p>' + '<div class="oc-clipart-card-actions">' + (item.canConvert ? '<button type="button" class="oc-btn oc-btn-secondary oc-btn-sm" data-oc-convert-clipart="' + item.id + '">Convert to SVG</button>' : '') + '<a href="' + h(item.toggleUrl) + '" class="oc-btn oc-btn-secondary oc-btn-sm">' + (item.active ? 'Deactivate' : 'Activate') + '</a>' + '<a href="' + h(item.deleteUrl) + '" onclick="return confirm(\'Delete this clipart?\');" class="oc-btn oc-btn-danger oc-btn-sm">Delete</a>' + '</div>' + '</div>';
-  card.addEventListener('click', e => {
-    if (isCardActionEvent(e)) {
-      return;
-    }
-    openEditModal(item.id);
-  });
-  card.querySelector('[data-oc-convert-clipart]')?.addEventListener('click', e => {
-    e.preventDefault();
-    e.stopPropagation();
-    convertClipartToSvg(item.id, e.currentTarget);
-  });
-  card.addEventListener('keydown', e => {
-    if (isCardActionEvent(e)) {
-      return;
-    }
-    if (e.key === 'Enter' || e.key === ' ') {
-      openEditModal(item.id);
-    }
-  });
+  bindClipartCard(card);
   return card;
 }
 function isCardActionEvent(event) {
@@ -1638,12 +1626,15 @@ function updateClipartGridUI() {
   grid.style.display = '';
   grid.innerHTML = '';
   clipart.forEach(c => {
-    const card = buildClipartCardEl(c);
-    grid.appendChild(card);
-    bindClipartCard(card);
+    grid.appendChild(buildClipartCardEl(c));
   });
+  document.getElementById('oc-clipart-load-more')?.parentElement?.remove();
 }
 function bindClipartCard(card) {
+  if (card.dataset.ocHandlersBound === 'true') {
+    return;
+  }
+  card.dataset.ocHandlersBound = 'true';
   card.addEventListener('click', e => {
     if (isCardActionEvent(e)) {
       return;
@@ -1660,6 +1651,7 @@ function bindClipartCard(card) {
       return;
     }
     if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
       openEditModal(Number(card.dataset.clipartId));
     }
   });
@@ -1686,17 +1678,36 @@ function initUploadModal() {
   if (!modal) {
     return;
   }
+  function isCurrentUploadContext(request) {
+    return uploadWrite === request && request.generation === uploadModalGeneration && currentFile === request.file && !modal.hidden;
+  }
+  function syncUploadWriteControls() {
+    if (!submitBtn) {
+      return;
+    }
+    const busy = !!uploadWrite;
+    submitBtn.dataset.label ||= submitBtn.textContent;
+    submitBtn.disabled = busy;
+    submitBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    submitBtn.textContent = busy ? 'Uploading...' : submitBtn.dataset.label;
+  }
   function openModal() {
     resetToStep1();
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
+    syncUploadWriteControls();
   }
   function closeModal() {
+    uploadModalGeneration++;
+    uploadWrite = null;
     modal.hidden = true;
     document.body.style.overflow = '';
     currentFile = null;
+    syncUploadWriteControls();
   }
   function resetToStep1() {
+    uploadModalGeneration++;
+    uploadWrite = null;
     if (step1) {
       step1.style.display = '';
     }
@@ -1716,8 +1727,11 @@ function initUploadModal() {
     }
     setCheckedMethods('.oc-clipart-upload-method-check', []);
     currentFile = null;
+    syncUploadWriteControls();
   }
   function showStep2(file) {
+    uploadModalGeneration++;
+    uploadWrite = null;
     currentFile = file;
     if (previewImg) {
       const url = URL.createObjectURL(file);
@@ -1739,6 +1753,7 @@ function initUploadModal() {
     if (errDiv) {
       errDiv.style.display = 'none';
     }
+    syncUploadWriteControls();
   }
   function handleFile(file) {
     if (!/\.(svg|png|jpe?g|webp|gif)$/i.test(file.name)) {
@@ -1780,9 +1795,10 @@ function initUploadModal() {
     }
   });
   submitBtn?.addEventListener('click', async () => {
-    if (!currentFile) {
+    if (!currentFile || uploadWrite) {
       return;
     }
+    const file = currentFile;
     const name = nameInput?.value.trim() || '';
     if (!name) {
       if (errDiv) {
@@ -1791,37 +1807,55 @@ function initUploadModal() {
       }
       return;
     }
-    const origLabel = submitBtn.textContent;
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Uploading\u2026';
-    let uploadFile = currentFile;
-    if (!/\.svg$/i.test(currentFile.name)) {
-      try {
-        const svg = await traceBlobToSvg(currentFile);
-        uploadFile = new File([svg], `${safeFilename(name) || 'clipart'}.svg`, {
-          type: 'image/svg+xml'
-        });
-        submitBtn.textContent = 'Uploading traced SVG...';
-      } catch (traceErr) {
-        console.warn('[OC] Browser clipart tracing failed; uploading for server fallback:', traceErr);
-      }
-    }
-    const fd = new FormData();
-    fd.append('action', 'oc_clipart_upload');
-    fd.append('nonce', window.ocClipartNonce);
-    fd.append('name', name);
-    fd.append('colour_changeable', document.getElementById('oc_clipart_upload_colour_changeable')?.checked ? '1' : '0');
-    checkedMethods('.oc-clipart-upload-method-check').forEach(method => fd.append('allowed_print_methods[]', method));
-    fd.append('clipart_file', uploadFile);
+    const colourChangeable = document.getElementById('oc_clipart_upload_colour_changeable')?.checked;
+    const methods = checkedMethods('.oc-clipart-upload-method-check');
+    const request = {
+      generation: uploadModalGeneration,
+      file,
+      mode: 'upload'
+    };
+    uploadWrite = request;
+    syncUploadWriteControls();
     try {
+      let uploadFile = file;
+      if (!/\.svg$/i.test(file.name)) {
+        try {
+          const svg = await traceBlobToSvg(file);
+          if (!isCurrentUploadContext(request)) {
+            return;
+          }
+          uploadFile = new File([svg], `${safeFilename(name) || 'clipart'}.svg`, {
+            type: 'image/svg+xml'
+          });
+        } catch (traceErr) {
+          if (isCurrentUploadContext(request)) {
+            console.warn('[OC] Browser clipart tracing failed; uploading for server fallback:', traceErr);
+          } else {
+            return;
+          }
+        }
+      }
+      const fd = new FormData();
+      fd.append('action', 'oc_clipart_upload');
+      fd.append('nonce', window.ocClipartNonce);
+      fd.append('name', name);
+      fd.append('colour_changeable', colourChangeable ? '1' : '0');
+      methods.forEach(method => fd.append('allowed_print_methods[]', method));
+      fd.append('clipart_file', uploadFile);
       const res = await fetch(window.ocAjaxUrl, {
         method: 'POST',
         body: fd
       });
+      if (!isCurrentUploadContext(request)) {
+        return;
+      }
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       const text = await res.text();
+      if (!isCurrentUploadContext(request)) {
+        return;
+      }
       let json;
       try {
         json = JSON.parse(text);
@@ -1835,20 +1869,25 @@ function initUploadModal() {
         }
         return;
       }
-      clipart.push(normaliseClipart(json.data));
+      const uploaded = normaliseClipart(json.data);
+      if (!clipart.some(item => item.id === uploaded.id)) {
+        clipart.push(uploaded);
+      }
       updateClipartGridUI();
       if (nameInput) {
         nameInput.value = '';
       }
       closeModal();
     } catch (err) {
-      if (errDiv) {
+      if (errDiv && isCurrentUploadContext(request)) {
         errDiv.textContent = err?.message || 'Upload failed. Please try again.';
         errDiv.style.display = '';
       }
     } finally {
-      submitBtn.disabled = false;
-      submitBtn.textContent = origLabel;
+      if (uploadWrite === request) {
+        uploadWrite = null;
+        syncUploadWriteControls();
+      }
     }
   });
 }
@@ -1857,12 +1896,33 @@ function initUploadModal() {
 // Edit modal (rename)
 // ---------------------------------------------------------------------------
 
+function isEditContextCurrent(request) {
+  const modal = document.getElementById('oc-clipart-modal');
+  return editWrite === request && request.generation === editModalGeneration && editClipartId === request.id && !modal?.hidden;
+}
+function syncEditWriteControls() {
+  const saveBtn = document.getElementById('oc-clipart-save-btn');
+  const deleteBtn = document.getElementById('oc-clipart-delete-btn');
+  const busy = !!editWrite;
+  if (saveBtn) {
+    saveBtn.dataset.label ||= saveBtn.textContent;
+    saveBtn.disabled = busy;
+    saveBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    saveBtn.textContent = busy ? 'Saving...' : saveBtn.dataset.label;
+  }
+  if (deleteBtn) {
+    deleteBtn.disabled = busy;
+    deleteBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  }
+}
 function openEditModal(id) {
-  editClipartId = id;
   const item = clipart.find(c => c.id === id);
   if (!item) {
     return;
   }
+  editModalGeneration++;
+  editWrite = null;
+  editClipartId = id;
   const modal = document.getElementById('oc-clipart-modal');
   const nameInp = document.getElementById('oc_clipart_name');
   const preview = document.getElementById('oc-clipart-modal-preview-img');
@@ -1890,6 +1950,7 @@ function openEditModal(id) {
   if (modal) {
     modal.hidden = false;
     document.body.style.overflow = 'hidden';
+    syncEditWriteControls();
     if (nameInp) {
       nameInp.focus();
     }
@@ -1908,9 +1969,12 @@ function initEditModal() {
     return;
   }
   function closeModal() {
+    editModalGeneration++;
+    editWrite = null;
     modal.hidden = true;
     document.body.style.overflow = '';
     editClipartId = null;
+    syncEditWriteControls();
   }
   closeBtn?.addEventListener('click', closeModal);
   cancelBtn?.addEventListener('click', closeModal);
@@ -1920,7 +1984,7 @@ function initEditModal() {
     }
   });
   deleteBtn?.addEventListener('click', () => {
-    if (!editClipartId) {
+    if (!editClipartId || editWrite) {
       return;
     }
     const item = clipart.find(c => c.id === editClipartId);
@@ -1929,9 +1993,10 @@ function initEditModal() {
     }
   });
   saveBtn?.addEventListener('click', async () => {
-    if (!editClipartId) {
+    if (!editClipartId || editWrite) {
       return;
     }
+    const targetId = editClipartId;
     const name = nameInput && nameInput.value.trim() || '';
     if (!name) {
       if (nameInput) {
@@ -1939,23 +2004,38 @@ function initEditModal() {
       }
       return;
     }
+    const canChangeColour = colourChangeable?.checked;
+    const methods = checkedMethods('.oc-clipart-method-check');
+    const request = {
+      generation: editModalGeneration,
+      id: targetId,
+      mode: 'edit'
+    };
     const body = new URLSearchParams({
       action: 'oc_clipart_rename',
       nonce: window.ocClipartNonce,
-      id: editClipartId,
+      id: targetId,
       name,
-      colour_changeable: colourChangeable?.checked ? '1' : '0'
+      colour_changeable: canChangeColour ? '1' : '0'
     });
-    checkedMethods('.oc-clipart-method-check').forEach(method => body.append('allowed_print_methods[]', method));
+    methods.forEach(method => body.append('allowed_print_methods[]', method));
+    editWrite = request;
+    syncEditWriteControls();
     try {
       const res = await fetch(window.ocAjaxUrl, {
         method: 'POST',
         body
       });
+      if (!isEditContextCurrent(request)) {
+        return;
+      }
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
       const json = await res.json();
+      if (!isEditContextCurrent(request)) {
+        return;
+      }
       if (!json.success) {
         if (errDiv) {
           errDiv.textContent = json.data && json.data.message || 'Save failed.';
@@ -1963,7 +2043,7 @@ function initEditModal() {
         }
         return;
       }
-      const idx = clipart.findIndex(c => c.id === editClipartId);
+      const idx = clipart.findIndex(c => c.id === request.id);
       if (idx !== -1) {
         clipart[idx] = normaliseClipart({
           ...clipart[idx],
@@ -1974,10 +2054,17 @@ function initEditModal() {
       }
       closeModal();
     } catch (e) {
-      console.warn('[OC] Clipart rename failed:', e);
-      if (errDiv) {
+      if (isEditContextCurrent(request)) {
+        console.warn('[OC] Clipart rename failed:', e);
+      }
+      if (errDiv && isEditContextCurrent(request)) {
         errDiv.textContent = 'Save failed. Please try again.';
         errDiv.style.display = '';
+      }
+    } finally {
+      if (editWrite === request) {
+        editWrite = null;
+        syncEditWriteControls();
       }
     }
   });
@@ -1986,19 +2073,17 @@ function initEditModal() {
   document.querySelectorAll('.oc-clipart-card').forEach(bindClipartCard);
   document.getElementById('oc-clipart-load-more')?.addEventListener('click', function () {
     const grid = document.getElementById('oc-clipart-grid');
-    const offset = Number(this.dataset.offset || 0);
     const step = Number(this.dataset.step || 60);
     if (!grid) {
       return;
     }
-    clipart.slice(offset, offset + step).forEach(item => {
-      const card = buildClipartCardEl(item);
-      grid.appendChild(card);
-      bindClipartCard(card);
+    const renderedIds = new Set([...grid.querySelectorAll('.oc-clipart-card')].map(card => Number(card.dataset.clipartId)));
+    clipart.filter(item => !renderedIds.has(item.id)).slice(0, step).forEach(item => {
+      grid.appendChild(buildClipartCardEl(item));
+      renderedIds.add(item.id);
     });
-    const nextOffset = offset + step;
-    this.dataset.offset = String(nextOffset);
-    if (nextOffset >= clipart.length) {
+    this.dataset.offset = String(renderedIds.size);
+    if (renderedIds.size >= clipart.length) {
       this.parentElement?.remove();
     }
   });
@@ -2035,6 +2120,7 @@ function buildGroupCardEl(group) {
   card.addEventListener('click', () => openGroupModal(group.id));
   card.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
       openGroupModal(group.id);
     }
   });
@@ -2078,7 +2164,27 @@ const groupNameInput = () => document.getElementById('oc-clipart-group-name-inpu
 const groupPicker = () => document.getElementById('oc-clipart-group-picker');
 const groupSelCount = () => document.getElementById('oc-clipart-group-selected-count');
 const groupDeleteBtn = () => document.getElementById('oc-clipart-group-delete-btn');
+function isGroupContextCurrent(request) {
+  return groupWrite === request && request.generation === groupModalGeneration && editGroupId === request.id && !groupModal()?.hidden;
+}
+function syncGroupWriteControls() {
+  const saveBtn = document.getElementById('oc-clipart-group-save-btn');
+  const deleteBtn = groupDeleteBtn();
+  const busy = !!groupWrite;
+  if (saveBtn) {
+    saveBtn.dataset.label ||= saveBtn.textContent;
+    saveBtn.disabled = busy;
+    saveBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    saveBtn.textContent = busy ? 'Saving...' : saveBtn.dataset.label;
+  }
+  if (deleteBtn) {
+    deleteBtn.disabled = busy;
+    deleteBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  }
+}
 function openGroupModal(id) {
+  groupModalGeneration++;
+  groupWrite = null;
   editGroupId = id || null;
   const group = id ? groups.find(g => g.id === id) : null;
   groupNameInput().value = group ? group.name : '';
@@ -2089,12 +2195,16 @@ function openGroupModal(id) {
   renderClipartPicker(group ? group.clipartIds : []);
   groupModal().hidden = false;
   document.body.style.overflow = 'hidden';
+  syncGroupWriteControls();
   groupNameInput().focus();
 }
 function closeGroupModal() {
+  groupModalGeneration++;
+  groupWrite = null;
   groupModal().hidden = true;
   document.body.style.overflow = '';
   editGroupId = null;
+  syncGroupWriteControls();
 }
 function renderClipartPicker(selectedIds) {
   const picker = groupPicker();
@@ -2126,85 +2236,127 @@ function selectedClipartIds() {
   return Array.from(picker.querySelectorAll('input:checked')).map(cb => Number(cb.value));
 }
 async function saveGroup() {
+  if (groupWrite) {
+    return;
+  }
   const name = groupNameInput().value.trim();
   const clipartIds = selectedClipartIds();
   if (!name) {
     groupNameInput().focus();
     return;
   }
-  const action = editGroupId ? 'oc_clipart_group_update' : 'oc_clipart_group_create';
+  const targetId = editGroupId;
+  const mode = targetId ? 'edit' : 'create';
+  const request = {
+    generation: groupModalGeneration,
+    id: targetId,
+    mode
+  };
+  const action = mode === 'edit' ? 'oc_clipart_group_update' : 'oc_clipart_group_create';
   const body = new URLSearchParams({
     action,
     nonce: window.ocClipartNonce,
     name,
-    id: editGroupId || 0
+    id: targetId || 0
   });
   clipartIds.forEach(id => body.append('clipart_ids[]', id));
-  let json;
+  groupWrite = request;
+  syncGroupWriteControls();
   try {
     const res = await fetch(window.ocAjaxUrl, {
       method: 'POST',
       body
     });
+    if (!isGroupContextCurrent(request)) {
+      return;
+    }
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    json = await res.json();
-  } catch (e) {
-    console.warn('[OC] Clipart group save failed:', e);
-    alert('Save failed. Please try again.');
-    return;
-  }
-  if (!json.success) {
-    alert(json.data?.message || 'Save failed.');
-    return;
-  }
-  const saved = normaliseGroup(json.data);
-  if (editGroupId) {
-    const idx = groups.findIndex(g => g.id === editGroupId);
-    if (idx !== -1) {
-      groups[idx] = saved;
+    const json = await res.json();
+    if (!isGroupContextCurrent(request)) {
+      return;
     }
-  } else {
-    groups.push(saved);
+    if (!json.success) {
+      alert(json.data?.message || 'Save failed.');
+      return;
+    }
+    const saved = normaliseGroup(json.data);
+    if (request.mode === 'edit') {
+      const idx = groups.findIndex(g => g.id === request.id);
+      if (idx !== -1) {
+        groups[idx] = saved;
+      }
+    } else if (!groups.some(group => group.id === saved.id)) {
+      groups.push(saved);
+    }
+    updateGroupGridUI();
+    closeGroupModal();
+  } catch (e) {
+    if (isGroupContextCurrent(request)) {
+      console.warn('[OC] Clipart group save failed:', e);
+      alert('Save failed. Please try again.');
+    }
+  } finally {
+    if (groupWrite === request) {
+      groupWrite = null;
+      syncGroupWriteControls();
+    }
   }
-  updateGroupGridUI();
-  closeGroupModal();
 }
 async function deleteGroup() {
-  if (!editGroupId) {
+  if (!editGroupId || groupWrite) {
     return;
   }
   if (!confirm('Delete this clipart group?')) {
     return;
   }
+  const targetId = editGroupId;
+  const request = {
+    generation: groupModalGeneration,
+    id: targetId,
+    mode: 'delete'
+  };
   const body = new URLSearchParams({
     action: 'oc_clipart_group_delete',
     nonce: window.ocClipartNonce,
-    id: editGroupId
+    id: targetId
   });
-  let json;
+  groupWrite = request;
+  syncGroupWriteControls();
   try {
     const res = await fetch(window.ocAjaxUrl, {
       method: 'POST',
       body
     });
+    if (!isGroupContextCurrent(request)) {
+      return;
+    }
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    json = await res.json();
+    const json = await res.json();
+    if (!isGroupContextCurrent(request)) {
+      return;
+    }
+    if (!json.success) {
+      alert(json.data?.message || 'Delete failed.');
+      return;
+    }
+    groups = groups.filter(g => g.id !== request.id);
+    updateGroupGridUI();
+    closeGroupModal();
   } catch (e) {
-    console.warn('[OC] Clipart group delete failed:', e);
-    alert('Delete failed. Please try again.');
-    return;
+    if (isGroupContextCurrent(request)) {
+      console.warn('[OC] Clipart group delete failed:', e);
+      alert('Delete failed. Please try again.');
+    }
+  } finally {
+    if (groupWrite === request) {
+      groupWrite = null;
+      syncGroupWriteControls();
+    }
   }
-  if (!json.success) {
-    alert(json.data?.message || 'Delete failed.');
-    return;
-  }
-  groups = groups.filter(g => g.id !== editGroupId);
-  updateGroupGridUI();
-  closeGroupModal();
 }
 function initGroupModal() {
   document.getElementById('oc-create-clipart-group-btn')?.addEventListener('click', () => openGroupModal(null));
@@ -2221,6 +2373,7 @@ function initGroupModal() {
     card.addEventListener('click', () => openGroupModal(Number(card.dataset.groupId)));
     card.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
         openGroupModal(Number(card.dataset.groupId));
       }
     });

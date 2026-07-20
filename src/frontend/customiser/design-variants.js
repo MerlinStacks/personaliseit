@@ -13,22 +13,27 @@ const designVariantMethods = {
 			return;
 		}
 
+		const stateSignal = this._panelListenerController?.signal;
 		document
 			.querySelectorAll( '[data-oc-design-variant]' )
 			.forEach( ( btn ) => {
-				btn.addEventListener( 'click', () => {
-					const variant = this.designVariants.find(
-						( item ) => item.id === btn.dataset.ocDesignVariant
-					);
-					if (
-						! variant ||
-						variant.id === this.selectedDesignVariant
-					) {
-						return;
-					}
+				btn.addEventListener(
+					'click',
+					() => {
+						const variant = this.designVariants.find(
+							( item ) => item.id === btn.dataset.ocDesignVariant
+						);
+						if (
+							! variant ||
+							variant.id === this.selectedDesignVariant
+						) {
+							return;
+						}
 
-					this.switchDesignVariant( variant.id );
-				} );
+						this.switchDesignVariant( variant.id );
+					},
+					{ signal: stateSignal }
+				);
 			} );
 	},
 
@@ -176,6 +181,7 @@ const designVariantMethods = {
 	},
 
 	async renderDesignVariantThumbnails() {
+		const designGeneration = this._designGeneration;
 		const canvases = Array.from(
 			document.querySelectorAll( '[data-oc-design-variant-thumb]' )
 		);
@@ -184,6 +190,9 @@ const designVariantMethods = {
 		}
 
 		for ( const canvasEl of canvases ) {
+			if ( designGeneration !== this._designGeneration ) {
+				return;
+			}
 			if ( canvasEl.dataset.ocThumbRendered === '1' ) {
 				continue;
 			}
@@ -241,6 +250,7 @@ const designVariantMethods = {
 			height: size,
 			backgroundColor: 'rgba(255,255,255,0)',
 		} );
+		this._thumbnailCanvases.add( canvas );
 		const scale = Math.min(
 			size / Math.max( 1, bounds.w || 1 ),
 			size / Math.max( 1, bounds.h || 1 )
@@ -315,11 +325,41 @@ const designVariantMethods = {
 
 	async switchDesignVariant( variantId ) {
 		const state = this.data.designVariantStates?.[ variantId ];
-		if ( ! state?.panelHtml ) {
+		if (
+			! state?.panelHtml ||
+			this._variationSwitchPending ||
+			this._controlLocks.has( 'design' )
+		) {
 			return;
 		}
 
-		await this.applyDesignState( state, variantId, true );
+		this.setControlLock( 'design', true );
+		try {
+			await this.applyDesignState( state, variantId, true );
+		} catch ( error ) {
+			console.error( '[OC] Design option switch failed:', error );
+			this.renderPreflightMessages(
+				[
+					'The selected artwork option could not be loaded. Please try again.',
+				],
+				[]
+			);
+		} finally {
+			this.setControlLock( 'design', false );
+		}
+	},
+
+	cloneLayerInputs( inputs = this.inputs ) {
+		return JSON.parse( JSON.stringify( inputs || {} ) );
+	},
+
+	saveCurrentDesignVariantInputs() {
+		this.syncInputsFromDOM();
+		const currentState =
+			this.data.designVariantStates?.[ this.selectedDesignVariant ];
+		if ( currentState ) {
+			currentState.layerInputs = this.cloneLayerInputs();
+		}
 	},
 
 	async applyDesignState( state, variantId, preserveCurrentState = true ) {
@@ -328,40 +368,12 @@ const designVariantMethods = {
 		}
 
 		if ( preserveCurrentState ) {
-			this.syncInputsFromDOM();
-			const currentState =
-				this.data.designVariantStates?.[ this.selectedDesignVariant ];
-			if ( currentState ) {
-				currentState.layerInputs = JSON.parse(
-					JSON.stringify( this.inputs || {} )
-				);
-			}
+			this.saveCurrentDesignVariantInputs();
 		}
-		this._designGeneration += 1;
-		Object.keys( this.aiFilterGenerations ).forEach( ( layerId ) => {
-			this.aiFilterGenerations[ layerId ] += 1;
-		} );
-		Object.values( this.aiFilterAbortControllers ).forEach(
-			( controller ) => controller.abort()
-		);
-		this.aiFilterAbortControllers = {};
-		this.aiFilterErrors = {};
-		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
-			this.uploadGenerations[ layerId ] += 1;
-		} );
-		Object.keys( this.spotifyValidateTokens ).forEach( ( layerId ) =>
-			this.invalidateSpotifyValidation( layerId )
-		);
-
-		Object.values( this.canvases || {} ).forEach( ( canvas ) =>
-			canvas?.dispose?.()
-		);
-		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
-			this._redrawGenerations[ areaIndex ] += 1;
-		} );
-		this.canvases = {};
+		const designGeneration = this.invalidateDesignState();
 		this.activeArea = 0;
-		this.selectedDesignVariant = variantId;
+		this.selectedDesignVariant =
+			variantId || state.selectedDesignVariant || '';
 		this._customisationActive = true;
 
 		const currentPanel = document.getElementById( 'oc-customiser-panel' );
@@ -379,9 +391,18 @@ const designVariantMethods = {
 		this.data.designVariants = state.designVariants || this.designVariants;
 		this.data.designVariantStates =
 			state.designVariantStates || this.data.designVariantStates || {};
-		this.data.selectedDesignVariant = variantId;
+		this.data.selectedDesignVariant = this.selectedDesignVariant;
+		this.data.fonts = state.fonts || this.data.fonts || [];
+		this.data.colours = state.colours || this.data.colours || [];
+		this.data.imageFilters =
+			state.imageFilters || this.data.imageFilters || [];
+		this.data.restrictedLayerColours =
+			state.restrictedLayerColours ||
+			this.data.restrictedLayerColours ||
+			{};
 
 		this.areas = this.data.areas || [];
+		this.fonts = this.data.fonts || [];
 		this.designVariants = this.data.designVariants || [];
 		this.layersById = {};
 		this.areas.forEach( ( area ) =>
@@ -390,26 +411,37 @@ const designVariantMethods = {
 			} )
 		);
 		this.inputs = {};
-		Object.entries( this.data.layerInputs || {} ).forEach( ( [ k, v ] ) => {
-			const layerId = parseInt( k, 10 );
-			this.inputs[ layerId ] = { ...v };
-			this.clampLayerInputValue( layerId );
-		} );
+		Object.entries( this.cloneLayerInputs( state.layerInputs ) ).forEach(
+			( [ k, v ] ) => {
+				const layerId = parseInt( k, 10 );
+				this.inputs[ layerId ] = { ...v };
+				this.clampLayerInputValue( layerId );
+			}
+		);
+		this.data.layerInputs = this.cloneLayerInputs( this.inputs );
 
 		this.preflightRoot = document.getElementById( 'oc-preflight-messages' );
-		this.mobileCartPreviewDialog = null;
-		this.setupInputListeners();
+		this.beginDesignStateListeners();
+		this.seedLockedLayerDefaults();
 		this.seedTemplateImageDefaults();
+		this.seedLayerFontDefaults();
+		this.seedLinkedImageInputs();
+		this.applyInputsToDOM( { redraw: false } );
+		this.setupInputListeners();
 		this.setupDesignVariantOptions();
 		this.setupDesignVariantCarousel();
 		this.renderDesignVariantThumbnails();
 		this.setupClipartCarousels();
-		this.setupUploadZones();
-		this.applyInitialAiFilters();
-		this.setupVariationGalleryHandoff();
-		this.applyInputsToDOM();
+		this._uploadSetupPromise = this.setupUploadZones();
+		this._initialAiFilterPromise = this.applyInitialAiFilters();
+		this.applyActiveAreaState( 0 );
+		if ( preserveCurrentState ) {
+			this.requestPreviewFocus();
+		}
+		this.applyControlLocks();
 		this.updateHiddenField();
-		await this.initAllCanvases();
+		await this.startCanvasInitialisation();
+		return designGeneration === this._designGeneration;
 	},
 };
 

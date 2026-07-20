@@ -6,7 +6,7 @@ class OC_Print_Queue {
 	private const MAX_ATTEMPTS = 3;
 	private const RETRY_BACKOFF_SECONDS = 300;
 	private const BATCH_SIZE = 5;
-	private const STALE_PROCESSING_SECONDS = 900;
+	private const DEFAULT_LEASE_SECONDS = 900;
 	private const DEFERRED_ENQUEUE_RECOVERY_SECONDS = 900;
 	private const MAX_AREA_DATA_BYTES = 2 * 1024 * 1024;
 	private const COMPLETE_MARKER_PREFIX = 'oc_print_generated_emitted_';
@@ -153,12 +153,31 @@ class OC_Print_Queue {
 	}
 
 	/** Schedule a near-immediate queue run for newly inserted jobs. */
-	public function schedule_processing(): bool {
-		if ( ! wp_next_scheduled( 'oc_process_print_queue_now' ) ) {
-			return false !== wp_schedule_single_event( time() + 1, 'oc_process_print_queue_now' );
+	public function schedule_processing( int $delay = 1 ): bool {
+		$delay  = max( 1, min( DAY_IN_SECONDS, $delay ) );
+		$run_at = time() + $delay;
+		$next   = wp_next_scheduled( 'oc_process_print_queue_now' );
+		if ( false === $next ) {
+			return false !== wp_schedule_single_event( $run_at, 'oc_process_print_queue_now' );
+		}
+		if ( (int) $next <= $run_at ) {
+			return true;
 		}
 
-		return true;
+		$unscheduled = wp_unschedule_event( (int) $next, 'oc_process_print_queue_now' );
+		if ( false === $unscheduled || is_wp_error( $unscheduled ) ) {
+			return false;
+		}
+		if ( false !== wp_schedule_single_event( $run_at, 'oc_process_print_queue_now' ) ) {
+			return true;
+		}
+
+		// Preserve the previous recovery run if a concurrent scheduler won the race.
+		if ( false === wp_next_scheduled( 'oc_process_print_queue_now' ) ) {
+			wp_schedule_single_event( (int) $next, 'oc_process_print_queue_now' );
+		}
+
+		return false;
 	}
 
 	public function process(): void {
@@ -174,8 +193,9 @@ class OC_Print_Queue {
 				$this->process_one( (int) $job->id );
 			}
 		} finally {
-			if ( OC_DB::has_due_queue_jobs( self::MAX_ATTEMPTS ) ) {
-				$this->schedule_processing();
+			$delay = OC_DB::seconds_until_next_queue_job( self::MAX_ATTEMPTS );
+			if ( null !== $delay ) {
+				$this->schedule_processing( max( 1, $delay ) );
 			}
 		}
 	}
@@ -194,6 +214,7 @@ class OC_Print_Queue {
 		$area      = null;
 		$area_data = null;
 		$order     = null;
+		$artifact_paths = [];
 
 		try {
 			$area_data = json_decode( (string) $job->area_data, true );
@@ -248,15 +269,22 @@ class OC_Print_Queue {
 			$now            = current_time( 'mysql', true );
 			$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
+			$this->heartbeat_claim( $job );
 			$result = OC_Print_Generator::with_output_lock(
 				(int) $job->order_id,
 				(int) $job->order_item_id,
-				static function () use ( $order, $job, $area, $area_data, $print_file ): array {
+				static function () use ( $order, $job, $area, $area_data, $print_file, &$artifact_paths ): array {
+					if ( ! OC_DB::heartbeat_queue_job( (int) $job->id, (int) $job->attempts ) ) {
+						throw new \RuntimeException( 'The queue claim expired before print generation started.' );
+					}
 					$result = OC_Print_Generator::generate_for_area( $order, (int) $job->order_item_id, $area, $area_data );
+					$artifact_paths[] = (string) ( $result['file_path'] ?? '' );
 					$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_file->id );
+					$artifact_paths[] = $result['file_path'];
 					return $result;
 				}
 			);
+			$this->heartbeat_claim( $job );
 			if ( empty( $result['file_path'] ) || ! $this->is_ready_file_status( (string) ( $result['status'] ?? '' ) ) ) {
 				throw new \RuntimeException( 'Print generation returned an invalid completion result.' );
 			}
@@ -269,8 +297,11 @@ class OC_Print_Queue {
 
 				if ( ! OC_Preview_Generator::from_pdf( $result['file_path'], $thumb_path ) ) {
 					$thumb_path = null;
+				} else {
+					$artifact_paths[] = $thumb_path;
 				}
 			}
+			$this->heartbeat_claim( $job );
 
 			$committed = OC_DB::complete_queue_job( $job_id, (int) $job->attempts, [
 				[
@@ -292,6 +323,13 @@ class OC_Print_Queue {
 			OC_Logger::info( "Print file generated via queue: job #{$job_id}, file #{$print_file->id}" );
 
 		} catch ( \Throwable $e ) {
+			if ( ! empty( $artifact_paths ) ) {
+				OC_Print_Generator::remove_uncommitted_artifacts( $artifact_paths );
+			}
+			if ( OC_Print_Generator::OUTPUT_LOCK_CONTENTION_CODE === (int) $e->getCode() ) {
+				$this->requeue_output_lock_contention( $job, $e );
+				return;
+			}
 			$terminal = $this->record_job_failure( $job, $area_data, $e );
 			if ( $terminal ) {
 				if ( ! $order instanceof \WC_Order ) {
@@ -365,46 +403,64 @@ class OC_Print_Queue {
 		$now            = current_time( 'mysql', true );
 		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
-		$result = OC_Print_Generator::with_output_lock(
-			(int) $job->order_id,
-			(int) $job->order_item_id,
-			static function () use ( $order, $job, $areas, $print_files ): array {
-				$result = OC_Print_Generator::generate_for_areas( $order, (int) $job->order_item_id, (string) $job->print_method, $areas );
-				$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_files[0]->id );
-				return $result;
+		$artifact_paths = [];
+		try {
+			$this->heartbeat_claim( $job );
+			$result = OC_Print_Generator::with_output_lock(
+				(int) $job->order_id,
+				(int) $job->order_item_id,
+				static function () use ( $order, $job, $areas, $print_files, &$artifact_paths ): array {
+					if ( ! OC_DB::heartbeat_queue_job( (int) $job->id, (int) $job->attempts ) ) {
+						throw new \RuntimeException( 'The queue claim expired before combined print generation started.' );
+					}
+					$result = OC_Print_Generator::generate_for_areas( $order, (int) $job->order_item_id, (string) $job->print_method, $areas );
+					$artifact_paths[] = (string) ( $result['file_path'] ?? '' );
+					$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_files[0]->id );
+					$artifact_paths[] = $result['file_path'];
+					return $result;
+				}
+			);
+			$this->heartbeat_claim( $job );
+			if ( empty( $result['file_path'] ) || ! $this->is_ready_file_status( (string) ( $result['status'] ?? '' ) ) ) {
+				throw new \RuntimeException( 'Combined print generation returned an invalid completion result.' );
 			}
-		);
-		if ( empty( $result['file_path'] ) || ! $this->is_ready_file_status( (string) ( $result['status'] ?? '' ) ) ) {
-			throw new \RuntimeException( 'Combined print generation returned an invalid completion result.' );
-		}
-		$thumb_path = null;
-		$ext = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
-		if ( 'pdf' === $ext && file_exists( $result['file_path'] ) ) {
-			$thumb_path = pathinfo( $result['file_path'], PATHINFO_DIRNAME ) . '/'
-				. pathinfo( $result['file_path'], PATHINFO_FILENAME ) . '-thumb.png';
+			$thumb_path = null;
+			$ext = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
+			if ( 'pdf' === $ext && file_exists( $result['file_path'] ) ) {
+				$thumb_path = pathinfo( $result['file_path'], PATHINFO_DIRNAME ) . '/'
+					. pathinfo( $result['file_path'], PATHINFO_FILENAME ) . '-thumb.png';
 
-			if ( ! OC_Preview_Generator::from_pdf( $result['file_path'], $thumb_path ) ) {
-				$thumb_path = null;
+				if ( ! OC_Preview_Generator::from_pdf( $result['file_path'], $thumb_path ) ) {
+					$thumb_path = null;
+				} else {
+					$artifact_paths[] = $thumb_path;
+				}
 			}
-		}
+			$this->heartbeat_claim( $job );
 
-		$file_updates = [];
-		foreach ( $print_files as $print_file ) {
-			$file_updates[] = [
-				'id'              => (int) $print_file->id,
-				'expected_status' => (string) $print_file->file_status,
-				'data'            => [
-					'file_path'      => $result['file_path'],
-					'file_status'    => $result['status'],
-					'thumbnail_path' => $thumb_path,
-					'generated_at'   => $now,
-					'expires_at'     => $expires_at,
-				],
-			];
-		}
+			$file_updates = [];
+			foreach ( $print_files as $print_file ) {
+				$file_updates[] = [
+					'id'              => (int) $print_file->id,
+					'expected_status' => (string) $print_file->file_status,
+					'data'            => [
+						'file_path'      => $result['file_path'],
+						'file_status'    => $result['status'],
+						'thumbnail_path' => $thumb_path,
+						'generated_at'   => $now,
+						'expires_at'     => $expires_at,
+					],
+				];
+			}
 
-		if ( ! OC_DB::complete_queue_job( $job_id, (int) $job->attempts, $file_updates ) ) {
-			throw new \RuntimeException( 'Combined generated output could not be committed because the queue state changed.' );
+			if ( ! OC_DB::complete_queue_job( $job_id, (int) $job->attempts, $file_updates ) ) {
+				throw new \RuntimeException( 'Combined generated output could not be committed because the queue state changed.' );
+			}
+		} catch ( \Throwable $e ) {
+			if ( ! empty( $artifact_paths ) ) {
+				OC_Print_Generator::remove_uncommitted_artifacts( $artifact_paths );
+			}
+			throw $e;
 		}
 
 		OC_Logger::info( "Combined print file generated via queue: job #{$job_id}" );
@@ -553,6 +609,28 @@ class OC_Print_Queue {
 				// Queue state is already committed; logging must not alter it.
 			}
 		}
+	}
+
+	/** Abort work immediately when this worker no longer owns the claim token. */
+	private function heartbeat_claim( object $job ): void {
+		if ( ! OC_DB::heartbeat_queue_job( (int) $job->id, (int) $job->attempts ) ) {
+			throw new \RuntimeException( 'The print queue claim is no longer current.' );
+		}
+	}
+
+	/** Return lock contention to pending without consuming the claimed attempt. */
+	private function requeue_output_lock_contention( object $job, \Throwable $exception ): void {
+		$delay = apply_filters( 'oc_print_output_lock_retry_delay', 15, (int) $job->id );
+		$delay = is_numeric( $delay ) ? max( 1, min( 300, (int) $delay ) ) : 15;
+		$message = $this->truncate_error_message( $exception->getMessage() );
+		$retry_at = gmdate( 'Y-m-d H:i:s', time() + $delay );
+		if ( ! OC_DB::requeue_contended_job( (int) $job->id, (int) $job->attempts, $retry_at, $message ) ) {
+			OC_Logger::warning( sprintf( 'Queue job #%d changed state before output-lock contention could be requeued.', (int) $job->id ) );
+			return;
+		}
+
+		OC_Logger::info( sprintf( 'Queue job #%d deferred for output-lock contention without consuming an attempt.', (int) $job->id ) );
+		$this->schedule_processing( $delay );
 	}
 
 	/** Persist a retry or terminal failure only if this worker still owns the claim. */
@@ -750,17 +828,20 @@ class OC_Print_Queue {
 	public function reset_stale_processing_jobs(): int {
 		global $wpdb;
 
-		$cutoff = gmdate( 'Y-m-d H:i:s', time() - self::STALE_PROCESSING_SECONDS );
-		$now    = current_time( 'mysql', true );
-		$exhausted = $wpdb->get_results( $wpdb->prepare(
+		$cutoff      = gmdate( 'Y-m-d H:i:s', time() - self::lease_seconds() );
+		$now         = current_time( 'mysql', true );
+		$stale_limit = apply_filters( 'oc_print_queue_stale_batch_size', 100 );
+		$stale_limit = is_numeric( $stale_limit ) ? max( 1, min( 500, (int) $stale_limit ) ) : 100;
+		$exhausted   = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$wpdb->prefix}oc_print_queue
 			 WHERE attempts >= %d AND (
 				(status = 'processing' AND (processed_at IS NULL OR processed_at <= %s))
 				OR (status = 'pending' AND (processed_at IS NULL OR processed_at <= %s))
-			 )",
+			 ) ORDER BY id ASC LIMIT %d",
 			self::MAX_ATTEMPTS,
 			$cutoff,
-			$now
+			$now,
+			$stale_limit
 		) ) ?: [];
 		$updated = 0;
 		foreach ( $exhausted as $job ) {
@@ -772,7 +853,9 @@ class OC_Print_Queue {
 				(string) $job->status,
 				(int) $job->attempts,
 				$message,
-				$this->get_job_print_file_ids( $job )
+				$this->get_job_print_file_ids( $job ),
+				null !== $job->processed_at ? (string) $job->processed_at : null,
+				true
 			) ) {
 				continue;
 			}
@@ -803,64 +886,119 @@ class OC_Print_Queue {
 		return $updated + ( false === $result ? 0 : (int) $result );
 	}
 
-	public function get_status( int $file_id ): array {
-		$file = OC_DB::get_print_file( $file_id );
+	/** Return a safely bounded, filterable processing lease. */
+	public static function lease_seconds(): int {
+		$value = apply_filters( 'oc_print_queue_lease_seconds', self::DEFAULT_LEASE_SECONDS );
+		$value = is_numeric( $value ) ? (int) $value : self::DEFAULT_LEASE_SECONDS;
 
-		if ( ! $file ) {
-			return [ 'found' => false ];
+		return max( 60, min( DAY_IN_SECONDS, $value ) );
+	}
+
+	public function get_status( int $file_id ): array {
+		$statuses = $this->get_statuses( [ $file_id ] );
+
+		return $statuses[ $file_id ] ?? [ 'found' => false ];
+	}
+
+	/** Resolve statuses for several files with one file query and one queue query. */
+	public function get_statuses( array $file_ids ): array {
+		global $wpdb;
+		$file_ids = array_values( array_unique( array_filter( array_map( 'absint', $file_ids ) ) ) );
+		if ( empty( $file_ids ) ) {
+			return [];
 		}
 
-		$queue_status = OC_DB::get_queue_status_for_item( (int) $file->order_item_id );
+		$statuses    = array_fill_keys( $file_ids, [ 'found' => false ] );
+		$placeholders = implode( ',', array_fill( 0, count( $file_ids ), '%d' ) );
+		$files        = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE id IN ({$placeholders})",
+			...$file_ids
+		) ) ?: [];
+		if ( empty( $files ) ) {
+			return $statuses;
+		}
 
-		$pending_count = 0;
-		$processing    = false;
-		$failed        = false;
-		$error_message = '';
+		$files_by_id    = [];
+		$order_item_ids = [];
+		foreach ( $files as $file ) {
+			$file_id = (int) $file->id;
+			$files_by_id[ $file_id ] = $file;
+			$order_item_ids[] = (int) $file->order_item_id;
+			$statuses[ $file_id ] = [
+				'found'          => true,
+				'file_status'    => (string) $file->file_status,
+				'in_queue'       => false,
+				'queue_position' => 0,
+				'is_processing'  => false,
+				'has_failed_job' => false,
+				'error_message'  => '',
+			];
+		}
 
-		if ( is_array( $queue_status ) ) {
-			foreach ( $queue_status as $q ) {
-				$area_data     = json_decode( (string) ( $q->area_data ?? '' ), true );
-				$combined      = is_array( $area_data ) && OC_Print_Generator::is_combined_area_data( $area_data );
-				$contains_file = false;
-				if ( $combined ) {
-					foreach ( $area_data['__combined_print_areas'] as $entry ) {
-						if ( is_array( $entry ) && (int) ( $entry['printFileId'] ?? 0 ) === (int) $file->id ) {
-							$contains_file = true;
-							break;
+		$order_item_ids = array_values( array_unique( array_filter( $order_item_ids ) ) );
+		if ( empty( $order_item_ids ) ) {
+			return $statuses;
+		}
+		$item_placeholders = implode( ',', array_fill( 0, count( $order_item_ids ), '%d' ) );
+		$jobs = $wpdb->get_results( $wpdb->prepare(
+			"SELECT * FROM {$wpdb->prefix}oc_print_queue
+			 WHERE order_item_id IN ({$item_placeholders})
+			 AND status IN ('pending','processing','failed') ORDER BY id DESC",
+			...$order_item_ids
+		) ) ?: [];
+		$pending_jobs_by_file = [];
+		$pending_job_ids      = [];
+
+		foreach ( $jobs as $job ) {
+			$represented_file_ids = [];
+			$area_data = json_decode( (string) ( $job->area_data ?? '' ), true );
+			if ( is_array( $area_data ) && OC_Print_Generator::is_combined_area_data( $area_data ) ) {
+				foreach ( $area_data['__combined_print_areas'] as $entry ) {
+					$file_id = is_array( $entry ) ? absint( $entry['printFileId'] ?? 0 ) : 0;
+					if ( isset( $files_by_id[ $file_id ] ) ) {
+						$represented_file_ids[] = $file_id;
+					}
+				}
+			} else {
+				$file_id = absint( $job->print_file_id ?? 0 );
+				if ( isset( $files_by_id[ $file_id ] ) ) {
+					$represented_file_ids[] = $file_id;
+				}
+			}
+
+			foreach ( array_unique( $represented_file_ids ) as $file_id ) {
+				if ( (int) $files_by_id[ $file_id ]->order_item_id !== (int) $job->order_item_id ) {
+					continue;
+				}
+				switch ( (string) $job->status ) {
+					case 'pending':
+						$statuses[ $file_id ]['in_queue'] = true;
+						$pending_jobs_by_file[ $file_id ][] = (int) $job->id;
+						$pending_job_ids[] = (int) $job->id;
+						break;
+					case 'processing':
+						$statuses[ $file_id ]['is_processing'] = true;
+						break;
+					case 'failed':
+						$statuses[ $file_id ]['has_failed_job'] = true;
+						if ( '' === $statuses[ $file_id ]['error_message'] && ! empty( $job->error_message ) ) {
+							$statuses[ $file_id ]['error_message'] = (string) $job->error_message;
 						}
-					}
-				} else {
-					$contains_file = (int) ( $q->print_file_id ?? 0 ) === (int) $file->id;
-				}
-				if ( ! $contains_file ) {
-					continue;
-				}
-				if ( ! $this->queue_job_contains_print_area( $q, (int) $file->print_area_id ) ) {
-					continue;
-				}
-
-				if ( 'pending' === $q->status ) {
-					$pending_count++;
-				} elseif ( 'processing' === $q->status ) {
-					$processing = true;
-				} elseif ( 'failed' === $q->status ) {
-					$failed = true;
-					if ( '' === $error_message && ! empty( $q->error_message ) ) {
-						$error_message = (string) $q->error_message;
-					}
+						break;
 				}
 			}
 		}
 
-		return [
-			'found'           => true,
-			'file_status'     => $file->file_status,
-			'in_queue'        => $pending_count > 0,
-			'queue_position'  => $pending_count,
-			'is_processing'   => $processing,
-			'has_failed_job'  => $failed,
-			'error_message'   => $error_message,
-		];
+		$positions = OC_DB::get_due_queue_positions( $pending_job_ids, self::MAX_ATTEMPTS );
+		foreach ( $pending_jobs_by_file as $file_id => $job_ids ) {
+			$file_positions = array_values( array_filter( array_map(
+				static fn ( int $job_id ): int => (int) ( $positions[ $job_id ] ?? 0 ),
+				$job_ids
+			) ) );
+			$statuses[ $file_id ]['queue_position'] = empty( $file_positions ) ? 0 : min( $file_positions );
+		}
+
+		return $statuses;
 	}
 
 	private function queue_job_contains_print_area( object $job, int $print_area_id ): bool {

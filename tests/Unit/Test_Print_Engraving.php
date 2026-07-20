@@ -56,7 +56,7 @@ class Test_Print_Engraving extends TestCase {
 
 	#[Test]
 	public function cff_font_uses_browser_converted_print_companion(): void {
-		$font_dir = sys_get_temp_dir() . '/overcustomise/fonts';
+		$font_dir = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/fonts';
 		if ( ! is_dir( $font_dir ) ) {
 			mkdir( $font_dir, 0755, true );
 		}

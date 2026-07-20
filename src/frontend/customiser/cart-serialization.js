@@ -35,37 +35,28 @@ const cartSerializationMethods = {
 
 				if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
 					const canonicalId = this.canonicalLinkedLayerId( layer.id );
-					const canonicalInput = inputs[ canonicalId ] || {};
-					const sameAttachment =
-						canonicalId !== layer.id &&
-						layer.settings?.allow_image_change !== false &&
-						( ( Number( input.attachmentId || 0 ) > 0 &&
-							Number( input.attachmentId ) ===
-								Number( canonicalInput.attachmentId || 0 ) ) ||
-							( input.attachmentUrl &&
-								input.attachmentUrl ===
-									canonicalInput.attachmentUrl ) );
-					if ( sameAttachment ) {
-						[
-							'attachmentId',
-							'attachmentUrl',
-							'sourceAttachmentId',
-							'sourceAttachmentUrl',
-							'originalAttachmentUrl',
-							'sourceOriginalAttachmentUrl',
-							'artworkFileType',
-							'sourceArtworkFileType',
-							'previewAttachmentId',
-							'imageMeta',
-							'sourceImageMeta',
-						].forEach( ( key ) => delete input[ key ] );
+					const linkedMembers = this.linkedLayerMembers( layer.id );
+					if ( linkedMembers.length > 1 ) {
 						input.linkedSourceLayerId = canonicalId;
 					}
 					if ( canonicalId === layer.id ) {
-						const linkedIds = this.linkedLayerIds( layer.id );
+						const linkedIds = linkedMembers.filter(
+							( layerId ) =>
+								Number( layerId ) !== Number( canonicalId )
+						);
 						if ( linkedIds.length ) {
 							input.linkedLayerIds = linkedIds;
 						}
+					}
+				}
+
+				if ( layer.type === 'spotify' ) {
+					const spotifyUri = this.extractSpotifyUri(
+						input.spotifyUri || input.value
+					);
+					if ( spotifyUri ) {
+						input.value = spotifyUri;
+						input.spotifyUri = spotifyUri;
 					}
 				}
 

@@ -86,7 +86,20 @@ const uploadMethods = {
 		if ( this._variationSwitchPending ) {
 			return;
 		}
+		const designGeneration = this._designGeneration;
+		const started = new Set();
 		for ( const [ layerId, input ] of Object.entries( this.inputs ) ) {
+			const canonicalId = this.canonicalLinkedLayerId(
+				Number( layerId )
+			);
+			if (
+				canonicalId !== Number( layerId ) ||
+				started.has( canonicalId ) ||
+				this.aiFilterAbortControllers[ canonicalId ]
+			) {
+				continue;
+			}
+			started.add( canonicalId );
 			const filterId = Number( input?.imageFilterId || 0 );
 			const sourceId = Number( input?.sourceAttachmentId || 0 );
 			const attachmentId = Number( input?.attachmentId || 0 );
@@ -94,7 +107,10 @@ const uploadMethods = {
 				( item ) => Number( item.id ) === filterId
 			);
 			if ( filter?.isAi && sourceId && attachmentId === sourceId ) {
-				await this.applyAiImageFilter( Number( layerId ), filterId );
+				await this.applyAiImageFilter( canonicalId, filterId );
+				if ( designGeneration !== this._designGeneration ) {
+					return;
+				}
 			}
 		}
 	},
@@ -108,15 +124,26 @@ const uploadMethods = {
 			return;
 		}
 
+		let modules;
+		try {
+			modules = await Promise.all( [
+				import( '@uppy/core' ),
+				import( '@uppy/drag-drop' ),
+				import( '@uppy/xhr-upload' ),
+			] );
+		} catch ( error ) {
+			if ( designGeneration === this._designGeneration ) {
+				zoneEls.forEach( ( zoneEl ) =>
+					this.showUploadImportFailure( zoneEl, error )
+				);
+			}
+			return;
+		}
 		const [
 			{ default: Uppy },
 			{ default: DragDrop },
 			{ default: XHRUpload },
-		] = await Promise.all( [
-			import( '@uppy/core' ),
-			import( '@uppy/drag-drop' ),
-			import( '@uppy/xhr-upload' ),
-		] );
+		] = modules;
 		if ( designGeneration !== this._designGeneration ) {
 			return;
 		}
@@ -251,10 +278,17 @@ const uploadMethods = {
 				endpoint: this.uploadEndpoint( uploadUrl, lid ),
 				formData: true,
 				fieldName: 'artwork',
+				headers: this.restHeaders(),
 			} );
 			zoneEl.dataset.ocUppyReady = '1';
 			this.uppyInstances.add( uppy );
-			if ( this.inputs[ lid ]?.attachmentUrl ) {
+			this.applyUploadZoneAccessibility( zoneEl, layer );
+			this.requestStateAnimationFrame( () => {
+				if ( zoneEl.isConnected ) {
+					this.applyUploadZoneAccessibility( zoneEl, layer );
+				}
+			} );
+			if ( this.isProductionImageInput( this.inputs[ lid ] ) ) {
 				this.setUploadZoneState( zoneEl, 'uploaded' );
 			}
 
@@ -288,7 +322,7 @@ const uploadMethods = {
 				if ( ! res?.body ) {
 					this.setUploadZoneState(
 						zoneEl,
-						this.inputs[ lid ]?.attachmentUrl
+						this.isProductionImageInput( this.inputs[ lid ] )
 							? 'uploaded-error'
 							: 'error'
 					);
@@ -303,7 +337,7 @@ const uploadMethods = {
 				if ( ! attachmentId || ! attachmentUrl ) {
 					this.setUploadZoneState(
 						zoneEl,
-						this.inputs[ lid ]?.attachmentUrl
+						this.isProductionImageInput( this.inputs[ lid ] )
 							? 'uploaded-error'
 							: 'error'
 					);
@@ -332,6 +366,9 @@ const uploadMethods = {
 					artworkFileType,
 					sourceArtworkFileType: artworkFileType,
 					previewAttachmentId: Number(
+						res.body.preview_attachment_id || 0
+					),
+					sourcePreviewAttachmentId: Number(
 						res.body.preview_attachment_id || 0
 					),
 					imageMeta: null,
@@ -369,7 +406,7 @@ const uploadMethods = {
 					}
 					this.setUploadZoneState(
 						zoneEl,
-						this.inputs[ lid ]?.attachmentUrl
+						this.isProductionImageInput( this.inputs[ lid ] )
 							? 'uploaded-error'
 							: 'error'
 					);
@@ -392,6 +429,7 @@ const uploadMethods = {
 				}
 
 				this.inputs[ lid ] = candidate;
+				this.syncLinkedImageInput( lid );
 				const filterApplied = await this.applyAiImageFilter(
 					lid,
 					candidate.imageFilterId || 0,
@@ -404,19 +442,7 @@ const uploadMethods = {
 					zoneEl,
 					filterApplied ? 'uploaded' : 'uploaded-error'
 				);
-				this.syncLinkedLayerInput( lid, [
-					'attachmentId',
-					'attachmentUrl',
-					'sourceAttachmentId',
-					'sourceAttachmentUrl',
-					'originalAttachmentUrl',
-					'sourceOriginalAttachmentUrl',
-					'artworkFileType',
-					'sourceArtworkFileType',
-					'previewAttachmentId',
-					'imageMeta',
-					'sourceImageMeta',
-				] );
+				this.syncLinkedImageInput( lid );
 				this.requestPreviewFocus();
 				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
@@ -446,7 +472,7 @@ const uploadMethods = {
 				console.warn( '[OC] Upload error:', msg, response );
 				this.setUploadZoneState(
 					zoneEl,
-					this.inputs[ lid ]?.attachmentUrl
+					this.isProductionImageInput( this.inputs[ lid ] )
 						? 'uploaded-error'
 						: 'error'
 				);
@@ -457,7 +483,7 @@ const uploadMethods = {
 				finishFileTransfer( file?.id );
 				this.setUploadZoneState(
 					zoneEl,
-					this.inputs[ lid ]?.attachmentUrl
+					this.isProductionImageInput( this.inputs[ lid ] )
 						? 'uploaded-error'
 						: 'error'
 				);
@@ -475,42 +501,51 @@ const uploadMethods = {
 		if ( ! input ) {
 			return false;
 		}
+		filterId = Number( filterId || 0 );
+		this.cancelAiFilterForLayer( layerId );
+		const generation = this.aiFilterGenerations[ layerId ];
+		const designGeneration = this._designGeneration;
+		input.imageFilterId = filterId;
 		const sourceId = Number(
 			input.sourceAttachmentId || input.attachmentId || 0
 		);
 		const sourceUrl =
 			input.sourceAttachmentUrl || input.attachmentUrl || '';
+		const isCurrent = () =>
+			generation === this.aiFilterGenerations[ layerId ] &&
+			designGeneration === this._designGeneration &&
+			this.inputs[ layerId ] === input &&
+			Number( input.imageFilterId || 0 ) === filterId &&
+			this._customisationActive;
 		if ( ! filterId ) {
-			if ( sourceId && sourceUrl ) {
-				input.attachmentId = sourceId;
-				input.attachmentUrl = sourceUrl;
-				input.imageMeta = input.sourceImageMeta || input.imageMeta;
-			}
+			this.restoreSourceArtwork( input, sourceId, sourceUrl );
 			delete this.aiFilterErrors[ layerId ];
+			this.syncLinkedImageInput( layerId );
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+			this.updateHiddenField();
 			return true;
 		}
 		const filter = ( this.data?.imageFilters || [] ).find(
 			( item ) => Number( item.id ) === Number( filterId )
 		);
 		if ( ! filter?.isAi ) {
-			if ( sourceId && sourceUrl ) {
-				input.attachmentId = sourceId;
-				input.attachmentUrl = sourceUrl;
-				input.imageMeta = input.sourceImageMeta || input.imageMeta;
-			}
+			this.restoreSourceArtwork( input, sourceId, sourceUrl );
 			delete this.aiFilterErrors[ layerId ];
+			this.syncLinkedImageInput( layerId );
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+			this.updateHiddenField();
 			return true;
 		}
 		if ( ! sourceId || ! sourceUrl || ! this.data?.applyImageFilterUrl ) {
 			this.aiFilterErrors[ layerId ] =
 				'Upload an image before applying this filter.';
+			this.syncLinkedImageInput( layerId );
+			this.updateHiddenField();
 			return false;
 		}
 
-		const generation = ( this.aiFilterGenerations[ layerId ] || 0 ) + 1;
-		this.aiFilterGenerations[ layerId ] = generation;
-		this.aiFilterAbortControllers[ layerId ]?.abort();
-		const controller = new AbortController();
+		const request = this.createStateAbortController( 30000 );
+		const controller = request.controller;
 		this.aiFilterAbortControllers[ layerId ] = controller;
 		// The handle is deliberately consumed in finally across every return path.
 		// eslint-disable-next-line @wordpress/no-unused-vars-before-return
@@ -524,12 +559,7 @@ const uploadMethods = {
 			this.showUploadError( targetZone, '' );
 		}
 
-		const variationId =
-			parseInt(
-				document.querySelector( 'form.cart input.variation_id' )
-					?.value || '0',
-				10
-			) || 0;
+		const variationId = this.currentVariationId();
 		try {
 			const response = await fetch( this.data.applyImageFilterUrl, {
 				method: 'POST',
@@ -544,10 +574,9 @@ const uploadMethods = {
 					design_id: Number( this.data.designId || 0 ),
 					product_id: Number( this.data.productId || 0 ),
 					variation_id: variationId,
-					oc_token: this.data.requestToken || '',
 				} ),
 			} );
-			const json = await response.json();
+			const json = await response.json().catch( () => null );
 			if (
 				! response.ok ||
 				! json?.attachment_id ||
@@ -557,7 +586,7 @@ const uploadMethods = {
 					json?.message || 'The AI filter could not be applied.'
 				);
 			}
-			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+			if ( ! isCurrent() ) {
 				return false;
 			}
 			const filteredAttachmentId = Number( json.attachment_id );
@@ -569,28 +598,35 @@ const uploadMethods = {
 				filteredAttachmentUrl,
 				layerId
 			);
-			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+			if ( ! isCurrent() ) {
 				return false;
 			}
 			input.attachmentId = filteredAttachmentId;
 			input.attachmentUrl = filteredAttachmentUrl;
 			input.imageFilterId = Number( filterId );
 			input.artworkFileType = filteredArtworkFileType;
+			input.originalAttachmentUrl = String(
+				json.original_url || filteredAttachmentUrl
+			);
+			input.previewAttachmentId = Number(
+				json.preview_attachment_id || 0
+			);
 			input.imageMeta = imageMeta;
 			delete this.aiFilterErrors[ layerId ];
-			this.requestPreviewFocus();
+			this.syncLinkedImageInput( layerId );
 			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return true;
 		} catch ( error ) {
-			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+			if ( ! isCurrent() ) {
 				return false;
 			}
-			const message =
-				error?.message || 'The AI filter could not be applied.';
+			const message = request.timedOut()
+				? 'The AI filter timed out. Please try again.'
+				: error?.message || 'The AI filter could not be applied.';
 			this.aiFilterErrors[ layerId ] = message;
-			input.attachmentId = sourceId;
-			input.attachmentUrl = sourceUrl;
+			this.restoreSourceArtwork( input, sourceId, sourceUrl );
+			this.syncLinkedImageInput( layerId );
 			if ( targetZone ) {
 				this.showUploadError( targetZone, message );
 			}
@@ -599,6 +635,7 @@ const uploadMethods = {
 			return false;
 		} finally {
 			this.finishArtworkOperation( operation );
+			request.release();
 			if ( this.aiFilterAbortControllers[ layerId ] === controller ) {
 				delete this.aiFilterAbortControllers[ layerId ];
 				if ( targetZone ) {
@@ -606,6 +643,22 @@ const uploadMethods = {
 				}
 			}
 		}
+	},
+
+	restoreSourceArtwork( input, sourceId, sourceUrl ) {
+		if ( ! sourceId || ! sourceUrl ) {
+			return;
+		}
+		input.attachmentId = sourceId;
+		input.attachmentUrl = sourceUrl;
+		input.originalAttachmentUrl =
+			input.sourceOriginalAttachmentUrl || sourceUrl;
+		input.artworkFileType =
+			input.sourceArtworkFileType || input.artworkFileType || '';
+		input.previewAttachmentId = Number(
+			input.sourcePreviewAttachmentId || 0
+		);
+		input.imageMeta = input.sourceImageMeta || input.imageMeta || null;
 	},
 
 	setUploadZoneState( zoneEl, state ) {
@@ -661,14 +714,46 @@ const uploadMethods = {
 
 		if ( labelEl ) {
 			labelEl.textContent = label || '';
+			labelEl.setAttribute( 'aria-live', 'polite' );
 		}
 		if ( track ) {
 			track.setAttribute( 'aria-valuenow', String( safePercent ) );
+			track.setAttribute( 'aria-label', label || 'Upload progress' );
 		}
 		if ( bar ) {
 			bar.style.width = `${ safePercent }%`;
 		}
 		progressEl.style.display = label ? '' : 'none';
+	},
+
+	showUploadImportFailure( zoneEl, error ) {
+		console.warn( '[OC] Upload controls failed to load:', error );
+		this.setUploadZoneState( zoneEl, 'error' );
+		this.showUploadError(
+			zoneEl,
+			'Upload controls could not load. Check your connection and retry.'
+		);
+		const errorEl = zoneEl
+			.closest( '.oc-artwork-wrap' )
+			?.querySelector( '.oc-artwork-error' );
+		if ( ! errorEl || errorEl.querySelector( '[data-oc-upload-retry]' ) ) {
+			return;
+		}
+		const retry = document.createElement( 'button' );
+		retry.type = 'button';
+		retry.className = 'oc-upload-retry';
+		retry.dataset.ocUploadRetry = '1';
+		retry.textContent = 'Retry upload controls';
+		retry.addEventListener(
+			'click',
+			() => {
+				retry.disabled = true;
+				zoneEl.removeAttribute( 'data-oc-uppy-ready' );
+				this._uploadSetupPromise = this.setupUploadZones();
+			},
+			{ signal: this._panelListenerController?.signal }
+		);
+		errorEl.append( document.createTextNode( ' ' ), retry );
 	},
 
 	showUploadError( zoneEl, message ) {
@@ -681,10 +766,28 @@ const uploadMethods = {
 			err = document.createElement( 'div' );
 			err.className = 'oc-artwork-error';
 			err.style.cssText = 'color:#b32d2e;font-size:12px;margin-top:6px;';
+			err.id = `oc-artwork-error-${
+				zoneEl.dataset.ocUploadZone || 'upload'
+			}`;
+			err.setAttribute( 'role', 'status' );
+			err.setAttribute( 'aria-live', 'polite' );
+			err.setAttribute( 'aria-atomic', 'true' );
 			wrap.appendChild( err );
 		}
-		err.textContent = message || '';
+		err.replaceChildren( document.createTextNode( message || '' ) );
 		err.style.display = message ? '' : 'none';
+		if ( message ) {
+			const describedBy = new Set(
+				String( zoneEl.getAttribute( 'aria-describedby' ) || '' )
+					.split( /\s+/ )
+					.filter( Boolean )
+			);
+			describedBy.add( err.id );
+			zoneEl.setAttribute(
+				'aria-describedby',
+				Array.from( describedBy ).join( ' ' )
+			);
+		}
 	},
 };
 

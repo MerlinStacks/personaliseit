@@ -23,15 +23,17 @@ jQuery( function ( $ ) {
 	}
 
 	// Prevent accidental navigation when a label field has unsaved changes.
-	let dirty = false;
+	const dirtyForms = new Set();
 	$( document ).on( 'input', 'input[name="oc_mockup_label"]', function () {
-		dirty = true;
+		if ( this.form ) {
+			dirtyForms.add( this.form );
+		}
 	} );
 	$( document ).on( 'submit', 'form', function () {
-		dirty = false;
+		dirtyForms.delete( this );
 	} );
 	$( window ).on( 'beforeunload', function () {
-		if ( dirty ) {
+		if ( dirtyForms.size ) {
 			return 'You have unsaved mockup label changes.';
 		}
 	} );

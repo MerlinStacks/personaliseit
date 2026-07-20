@@ -61,9 +61,12 @@ class OCCustomiser {
 		this._redrawTimers = {};
 		this._redrawGenerations = {};
 		this._redrawPromises = {};
-		this._canvasReadyPromise = Promise.resolve();
-		this._canvasReadyGeneration = 0;
-		this._canvasLoadTimers = new Set();
+		this._canvasReadyPromise = null;
+		this._canvasReadyGeneration = -1;
+		this._stateAbortControllers = new Set();
+		this._stateTimers = new Set();
+		this._stateAnimationFrames = new Set();
+		this._panelListenerController = null;
 		this.fontCache = {}; // font family/weight/style/URL -> load Promise
 		this.clipartSvgCache = {};
 		this.galleryImg = null; // the main <img> in the product gallery
@@ -72,14 +75,21 @@ class OCCustomiser {
 		this._tvpgPreviewLocked = false;
 		this._galleryPreviewGeneration = 0;
 		this._galleryPreviewNodes = new Set();
+		this._galleryFallbackNodeStates = new Map();
+		this._tvpgLockedSwipers = new Set();
 		this.productVariationStates = {};
 		this._variationRequestSeq = 0;
 		this._variationSwitchPending = false;
 		this._variationSwitchFailed = false;
+		this._activeVariationKey = '';
+		this._pendingVariationKey = '';
+		this._variationAbortController = null;
+		this._variationSwitchPromise = null;
 		this._designGeneration = 0;
 		this.spotifyValidateTimers = {};
 		this.spotifyValidateTokens = {};
 		this.spotifyAbortControllers = {};
+		this.spotifyValidationPromises = {};
 		this.uploadGenerations = {};
 		this.aiFilterGenerations = {};
 		this.aiFilterAbortControllers = {};
@@ -94,6 +104,7 @@ class OCCustomiser {
 		this.clipartCategoryFilters = {};
 		this.spotifyModalCloseTimer = null;
 		this.mobileCartPreviewDialog = null;
+		this.mobileCartPreviewDismissedAt = 0;
 		this.formSubmitBound = false;
 		this.fontComboboxDocumentClickBound = false;
 		this._customisationActive = true;
@@ -102,6 +113,140 @@ class OCCustomiser {
 		this._galleryPreviewTimer = null;
 		this._variationChangeTimer = null;
 		this._mobileCartPreviewResolve = null;
+		this._mobileCartPreviewPromise = null;
+		this._storeApiPreparationPromise = null;
+		this._storeApiSubmitBound = false;
+	}
+
+	beginDesignStateListeners() {
+		this._panelListenerController?.abort();
+		this._panelListenerController = new AbortController();
+		return this._panelListenerController.signal;
+	}
+
+	setStateTimeout( callback, delay ) {
+		const timer = window.setTimeout( () => {
+			this._stateTimers.delete( timer );
+			callback();
+		}, delay );
+		this._stateTimers.add( timer );
+		return timer;
+	}
+
+	clearStateTimeout( timer ) {
+		if ( timer !== null && timer !== undefined ) {
+			window.clearTimeout( timer );
+			this._stateTimers.delete( timer );
+		}
+	}
+
+	requestStateAnimationFrame( callback ) {
+		const frame = window.requestAnimationFrame( () => {
+			this._stateAnimationFrames.delete( frame );
+			callback();
+		} );
+		this._stateAnimationFrames.add( frame );
+		return frame;
+	}
+
+	createStateAbortController( timeoutMs = 10000 ) {
+		const controller = new AbortController();
+		let timedOut = false;
+		let timer = null;
+		this._stateAbortControllers.add( controller );
+		if ( timeoutMs > 0 ) {
+			timer = this.setStateTimeout( () => {
+				timedOut = true;
+				controller.abort();
+			}, timeoutMs );
+		}
+
+		return {
+			controller,
+			timedOut: () => timedOut,
+			release: () => {
+				if ( timer !== null ) {
+					this.clearStateTimeout( timer );
+				}
+				this._stateAbortControllers.delete( controller );
+			},
+		};
+	}
+
+	invalidateDesignState() {
+		this._designGeneration += 1;
+		this.teardownDesignState();
+		this._canvasReadyGeneration = -1;
+		this._canvasReadyPromise = null;
+		return this._designGeneration;
+	}
+
+	teardownDesignState() {
+		this.restoreProductGallery?.();
+		this.dismissMobileCartPreview?.();
+		this.dismissSpotifyModal?.();
+		this._panelListenerController?.abort();
+		this._panelListenerController = null;
+
+		Object.values( this._redrawTimers ).forEach( window.clearTimeout );
+		this._redrawTimers = {};
+		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
+			this._redrawGenerations[ areaIndex ] += 1;
+		} );
+		this._redrawPromises = {};
+
+		new Set( [
+			...Object.keys( this.spotifyValidateTokens ),
+			...Object.keys( this.spotifyValidationPromises ),
+		] ).forEach( ( layerId ) =>
+			this.invalidateSpotifyValidation( layerId )
+		);
+		this.spotifyValidationPromises = {};
+		this.spotifyAbortControllers = {};
+
+		Object.keys( this.aiFilterGenerations ).forEach( ( layerId ) => {
+			this.aiFilterGenerations[ layerId ] += 1;
+		} );
+		Object.values( this.aiFilterAbortControllers ).forEach(
+			( controller ) => controller.abort()
+		);
+		this.aiFilterAbortControllers = {};
+		this.aiFilterErrors = {};
+		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
+			this.uploadGenerations[ layerId ] += 1;
+		} );
+
+		this.uppyInstances.forEach( ( uppy ) => {
+			try {
+				uppy.cancelAll?.();
+				uppy.destroy?.();
+			} catch {
+				// The instance may already have been destroyed by its own teardown.
+			}
+		} );
+		this.uppyInstances.clear();
+		this.cancelArtworkOperations?.();
+
+		this.clipartSearchTimers = {};
+		this._stateTimers.forEach( window.clearTimeout );
+		this._stateTimers.clear();
+		this._stateAnimationFrames.forEach( window.cancelAnimationFrame );
+		this._stateAnimationFrames.clear();
+		this.spotifyModalCloseTimer = null;
+		this._galleryPreviewTimer = null;
+		this._variationChangeTimer = null;
+
+		this._stateAbortControllers.forEach( ( controller ) =>
+			controller.abort()
+		);
+		this._stateAbortControllers.clear();
+
+		Object.values( this.canvases || {} ).forEach( ( canvas ) =>
+			canvas?.dispose?.()
+		);
+		this.canvases = {};
+		this._thumbnailCanvases.forEach( ( canvas ) => canvas?.dispose?.() );
+		this._thumbnailCanvases.clear();
 	}
 
 	setControlLock( reason, locked ) {
@@ -116,6 +261,11 @@ class OCCustomiser {
 	applyControlLocks() {
 		const locked = this._controlLocks.size > 0;
 		const panel = document.getElementById( 'oc-customiser-panel' );
+		const cartForm =
+			panel?.closest( 'form' ) ||
+			document.querySelector(
+				'form.cart, form[data-wp-on--submit*="addToCart"]'
+			);
 		if ( panel ) {
 			panel.inert = locked;
 			panel.setAttribute( 'aria-busy', locked ? 'true' : 'false' );
@@ -125,11 +275,9 @@ class OCCustomiser {
 			...( panel?.querySelectorAll(
 				'input:not([type="hidden"]), select, textarea, button'
 			) || [] ),
-			...( document
-				.querySelector( 'form.cart' )
-				?.querySelectorAll(
-					'input:not([type="hidden"]), select, textarea, button'
-				) || [] ),
+			...( cartForm?.querySelectorAll(
+				'input:not([type="hidden"]), select, textarea, button'
+			) || [] ),
 		] );
 		controls.forEach( ( control ) => {
 			if ( locked ) {
@@ -165,25 +313,49 @@ class OCCustomiser {
 		return headers;
 	}
 
-	uploadEndpoint( uploadUrl, layerId ) {
-		const variationId =
+	async ensureRequestToken() {
+		if ( this.data.requestToken || ! this.data.requestTokenUrl ) {
+			return;
+		}
+
+		const response = await fetch( this.data.requestTokenUrl, {
+			credentials: 'same-origin',
+			cache: 'no-store',
+			headers: { Accept: 'application/json' },
+		} );
+		const body = await response.json().catch( () => null );
+		const token = typeof body?.token === 'string' ? body.token : '';
+		if ( ! response.ok || ! /^[A-Za-z0-9]{64}$/.test( token ) ) {
+			throw new Error(
+				body?.message || 'Security verification could not be started.'
+			);
+		}
+
+		this.data.requestToken = token;
+	}
+
+	currentVariationId() {
+		const panelForm = document
+			.getElementById( 'oc-customiser-panel' )
+			?.closest( 'form' );
+		return (
 			parseInt(
-				document.querySelector( 'form.cart input.variation_id' )
-					?.value || '0',
+				panelForm?.querySelector( '[name="variation_id"]' )?.value ||
+					document.querySelector( '[name="variation_id"]' )?.value ||
+					'0',
 				10
-			) || 0;
+			) || 0
+		);
+	}
+
+	uploadEndpoint( uploadUrl, layerId ) {
+		const variationId = this.currentVariationId();
 		const params = new URLSearchParams( {
 			layer_id: String( layerId ),
 			design_id: String( this.data.designId || '' ),
 			product_id: String( this.data.productId || '' ),
 			variation_id: String( variationId ),
 		} );
-		if ( this.data.uploadNonce ) {
-			params.set( '_wpnonce', this.data.uploadNonce );
-		}
-		if ( this.data.requestToken ) {
-			params.set( 'oc_token', this.data.requestToken );
-		}
 		return (
 			uploadUrl +
 			( uploadUrl.includes( '?' ) ? '&' : '?' ) +
@@ -193,29 +365,23 @@ class OCCustomiser {
 
 	// ── Init ───────────────────────────────────────────────────────────────────
 
-	init() {
+	async init() {
 		this.findGalleryImage();
 		this.preflightRoot = document.getElementById( 'oc-preflight-messages' );
-
-		// Seed configured/default fonts for text layers so they render immediately.
-		if ( this.fonts.length ) {
-			const firstFont = this.fonts[ 0 ];
-			this.areas.forEach( ( area ) => {
-				( area.layers || [] ).forEach( ( layer ) => {
-					if ( layer.type === 'text' || layer.type === 'textarea' ) {
-						const inp = this.inputs[ layer.id ];
-						if ( inp && ! inp.fontId ) {
-							inp.fontId =
-								layer.settings?.default_font_id || firstFont.id;
-						}
-					}
-				} );
-			} );
+		this.beginDesignStateListeners();
+		try {
+			await this.ensureRequestToken();
+		} catch ( error ) {
+			this._requestTokenError =
+				error?.message || 'Security verification is unavailable.';
+			this.renderPreflightMessages( [ this._requestTokenError ], [] );
 		}
 
 		// Hydrate state before listeners read values from the template controls.
 		this.seedLockedLayerDefaults();
 		this.seedTemplateImageDefaults();
+		this.seedLayerFontDefaults();
+		this.seedLinkedImageInputs();
 		this.applyInputsToDOM( { redraw: false } );
 		this.setupInputListeners();
 		this.setupVariationGalleryHandoff();
@@ -225,6 +391,7 @@ class OCCustomiser {
 		this._uploadSetupPromise = this.setupUploadZones();
 		this.applyInitialAiFilters();
 		this.setupFormSubmit();
+		this.setupStoreApiIntegration();
 		this.updateHiddenField();
 		this.setupDesignVariantCarousel();
 		this.renderDesignVariantThumbnails();

@@ -256,6 +256,7 @@ var __webpack_exports__ = {};
   const ajaxUrl = window.ocAjaxUrl || '';
   let currentFile = null;
   let currentFontFace = null;
+  let fileSelectionToken = null;
   let detailFontName = null; // Family name currently shown in detail panel
   let nameLocked = false; // True when opened from "Add weight" flow
 
@@ -411,9 +412,18 @@ var __webpack_exports__ = {};
     document.body.style.overflow = '';
     resetModal();
   }
+  function removeUploadPreviewFont() {
+    document.fonts.forEach(function (font) {
+      if (font.family === PREVIEW_FAMILY) {
+        document.fonts.delete(font);
+      }
+    });
+  }
   function resetModal() {
+    fileSelectionToken = null;
     currentFile = null;
     currentFontFace = null;
+    removeUploadPreviewFont();
     step1.style.display = '';
     step2.style.display = 'none';
     modalFooter.style.display = 'none';
@@ -449,13 +459,27 @@ var __webpack_exports__ = {};
     if (!file) {
       return;
     }
+    const token = {
+      file
+    };
+    fileSelectionToken = token;
     currentFile = file;
+    currentFontFace = null;
+    removeUploadPreviewFont();
+    previewText.style.fontFamily = '';
+    const isCurrentSelection = () => fileSelectionToken === token && currentFile === token.file;
     let buffer;
     let names;
     try {
       buffer = await file.arrayBuffer();
+      if (!isCurrentSelection()) {
+        return;
+      }
       names = parseFontNames(buffer);
     } catch (e) {
+      if (!isCurrentSelection()) {
+        return;
+      }
       console.warn('[OC] Font file read failed:', e);
       currentFile = null;
       uploadError.textContent = 'Could not read that font file. Please try another.';
@@ -478,21 +502,22 @@ var __webpack_exports__ = {};
 
     // Live preview via FontFace API.
     try {
-      // Remove any previous upload preview font.
-      document.fonts.forEach(function (f) {
-        if (f.family === PREVIEW_FAMILY) {
-          document.fonts.delete(f);
-        }
-      });
       const ff = new FontFace(PREVIEW_FAMILY, buffer, {
         weight: weightSel.value,
         style: styleSel.value
       });
       await ff.load();
+      if (!isCurrentSelection()) {
+        return;
+      }
+      removeUploadPreviewFont();
       document.fonts.add(ff);
       currentFontFace = ff;
       applyPreviewStyle();
     } catch (e) {
+      if (!isCurrentSelection()) {
+        return;
+      }
       console.warn('[OC] Font preview failed:', e);
       previewText.style.fontFamily = '';
       uploadError.textContent = 'Preview unavailable for this font. You can still upload it.';
@@ -937,10 +962,14 @@ var __webpack_exports__ = {};
   // ── Event: upload step 2 controls ─────────────────────────────────────────
 
   backBtn.addEventListener('click', function () {
+    fileSelectionToken = null;
     step1.style.display = '';
     step2.style.display = 'none';
     modalFooter.style.display = 'none';
     currentFile = null;
+    currentFontFace = null;
+    removeUploadPreviewFont();
+    previewText.style.fontFamily = '';
     fileInput.value = '';
   });
   submitBtn.dataset.label = submitBtn.textContent;

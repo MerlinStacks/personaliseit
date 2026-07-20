@@ -7,7 +7,7 @@ export function normaliseUnit( value ) {
 export function normaliseDpi( value ) {
 	return Math.min(
 		1200,
-		Math.max( 1, Math.round( Number( value ) || 300 ) )
+		Math.max( 36, Math.round( Number( value ) || 300 ) )
 	);
 }
 

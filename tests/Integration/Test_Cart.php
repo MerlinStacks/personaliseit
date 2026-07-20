@@ -22,8 +22,13 @@ class Test_Cart extends WC_Unit_Test_Case {
 	/** @var int[] */
 	private array $attachment_ids = [];
 
+	/** @var array<string,true> */
+	private array $preview_ids = [];
+
 	public function setUp(): void {
 		parent::setUp();
+		unset( $_POST['_oc_customisation'] );
+		wc_clear_notices();
 
 		// Create a simple WC product.
 		$this->product = WC_Helper_Product::create_simple_product();
@@ -37,12 +42,21 @@ class Test_Cart extends WC_Unit_Test_Case {
 			'active'      => 1,
 		] );
 		$this->config_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_print_areas', [
+			'config_id'    => $this->config_id,
+			'area_key'     => 'front',
+			'label'        => 'Front',
+			'print_method' => 'uv',
+			'sort_order'   => 0,
+		] );
 
 		// Register cart hooks.
 		( new OC_Cart() )->register();
+		OC_Upload_Handler::register();
 	}
 
 	public function tearDown(): void {
+		unset( $_POST['_oc_customisation'] );
 		if ( function_exists( 'WC' ) && WC() && WC()->cart ) {
 			WC()->cart->empty_cart();
 		}
@@ -52,25 +66,91 @@ class Test_Cart extends WC_Unit_Test_Case {
 		foreach ( $this->attachment_ids as $attachment_id ) {
 			wp_delete_attachment( $attachment_id, true );
 		}
+		$preview_directory = OC_Upload_Handler::private_storage_path( 'previews' );
+		foreach ( array_keys( $this->preview_ids ) as $preview_id ) {
+			$record = json_decode( (string) get_option( 'oc_private_preview_' . $preview_id, '' ), true );
+			if ( is_string( $preview_directory ) && is_array( $record ) && is_string( $record['file'] ?? null )
+				&& preg_match( '/^preview-[a-f0-9]{40}\.(?:png|jpg)$/D', $record['file'] )
+			) {
+				wp_delete_file( $preview_directory . '/' . $record['file'] );
+			}
+			delete_option( 'oc_private_preview_' . $preview_id );
+		}
 		parent::tearDown();
 	}
 
 	private function create_artwork_attachment( array $context, string $token = '' ): int {
-		$bytes  = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
-		$upload = wp_upload_bits( 'oc-cart-artwork-' . wp_generate_uuid4() . '.png', null, $bytes );
-		$this->assertEmpty( $upload['error'] );
+		$bytes     = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$directory = OC_Upload_Handler::private_storage_path( 'artwork' );
+		$this->assertIsString( $directory );
+		$file = $directory . '/artwork-' . strtolower( wp_generate_password( 40, false, false ) ) . '.png';
+		$this->assertSame( strlen( $bytes ), file_put_contents( $file, $bytes, LOCK_EX ) );
 
 		$attachment_id = wp_insert_attachment( [
 			'post_mime_type' => 'image/png',
 			'post_title'     => 'Cart artwork',
-			'post_status'    => 'inherit',
-		], $upload['file'] );
+			'post_status'    => 'private',
+		], $file, 0, true );
+		$this->assertNotWPError( $attachment_id );
+		$this->assertGreaterThan( 0, $attachment_id );
 		$this->attachment_ids[] = $attachment_id;
 		update_post_meta( $attachment_id, '_oc_artwork', 1 );
+		update_post_meta( $attachment_id, '_oc_artwork_type', 'png' );
+		update_post_meta( $attachment_id, '_oc_private_storage_version', 2 );
 		update_post_meta( $attachment_id, '_oc_artwork_context', $context );
 		update_post_meta( $attachment_id, '_oc_artwork_user_id', 0 );
 		update_post_meta( $attachment_id, '_oc_artwork_token', '' !== $token ? hash( 'sha256', $token ) : '' );
+		update_post_meta( $attachment_id, '_oc_artwork_owner_secret', wp_generate_password( 64, false, false ) );
 		return $attachment_id;
+	}
+
+	/** Return a valid preview data URI whose payload is large enough for production validation. */
+	private function create_preview_image(): string {
+		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$this->assertIsString( $png );
+		$text_data = 'Test-ID' . "\0" . wp_generate_uuid4();
+		$chunk     = 'tEXt' . $text_data;
+		$png       = substr( $png, 0, -12 )
+			. pack( 'N', strlen( $text_data ) )
+			. $chunk
+			. hex2bin( hash( 'crc32b', $chunk ) )
+			. substr( $png, -12 );
+		return 'data:image/png;base64,' . base64_encode( $png );
+	}
+
+	/** Track one private preview and return its persisted metadata for assertions. */
+	private function remember_private_preview( string $url ): array {
+		wp_parse_str( (string) wp_parse_url( $url, PHP_URL_QUERY ), $query );
+		$preview_id = is_string( $query['preview_id'] ?? null ) ? $query['preview_id'] : '';
+		$this->assertSame( 'oc_serve_preview', $query['action'] ?? '' );
+		$this->assertMatchesRegularExpression( '/^[a-f0-9]{40}$/D', $preview_id );
+		$this->assertMatchesRegularExpression( '/^[a-f0-9]{64}$/D', (string) ( $query['signature'] ?? '' ) );
+		$record = json_decode( (string) get_option( 'oc_private_preview_' . $preview_id, '' ), true );
+		$this->assertIsArray( $record );
+		$this->preview_ids[ $preview_id ] = true;
+		return $record;
+	}
+
+	/** Store and track one valid private preview. */
+	private function store_private_preview( string $image ): string {
+		$token = OC_Rest_API::issue_public_token();
+		$this->assertNotSame( '', $token );
+		$url = OC_Rest_API::store_cart_preview( $image, $token );
+		$this->assertIsString( $url );
+		$this->remember_private_preview( $url );
+		return $url;
+	}
+
+	/** Return a signed-controller-shaped URL for display-only tests. */
+	private function example_private_preview_url(): string {
+		return add_query_arg(
+			[
+				'action'     => 'oc_serve_preview',
+				'preview_id' => str_repeat( 'a', 40 ),
+				'signature'  => str_repeat( 'b', 64 ),
+			],
+			admin_url( 'admin-post.php' )
+		);
 	}
 
 	// ── add_cart_item_data ────────────────────────────────────────────────────
@@ -101,17 +181,21 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function cart_customisation_detection_ignores_plain_products(): void {
-		unset( $_POST['_oc_customisation'] );
-		$this->assertFalse( OC_Cart::cart_has_customisation() );
+		$plain_product = WC_Helper_Product::create_simple_product();
+		try {
+			$this->assertFalse( OC_Cart::cart_has_customisation() );
 
-		$key = WC()->cart->add_to_cart( $this->product->get_id() );
-		$this->assertNotFalse( $key );
-		$this->assertFalse( OC_Cart::cart_has_customisation() );
+			$key = WC()->cart->add_to_cart( $plain_product->get_id() );
+			$this->assertNotFalse( $key );
+			$this->assertFalse( OC_Cart::cart_has_customisation() );
 
-		WC()->cart->cart_contents[ $key ]['_oc_customisation'] = [
-			'front' => [ 'text' => 'Custom' ],
-		];
-		$this->assertTrue( OC_Cart::cart_has_customisation() );
+			WC()->cart->cart_contents[ $key ]['_oc_customisation'] = [
+				'front' => [ 'text' => 'Custom' ],
+			];
+			$this->assertTrue( OC_Cart::cart_has_customisation() );
+		} finally {
+			$plain_product->delete( true );
+		}
 	}
 
 	#[Test]
@@ -133,7 +217,8 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function legacy_owned_artwork_attachment_is_preserved(): void {
-		$token         = 'legacy-cart-owner-token';
+		$token         = OC_Rest_API::issue_public_token();
+		$this->assertNotSame( '', $token );
 		$attachment_id = $this->create_artwork_attachment( [ $this->product->get_id(), 0, 0, 0 ], $token );
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'uploadToken' => $token,
@@ -145,11 +230,22 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 
-		$key       = WC()->cart->add_to_cart( $this->product->get_id() );
-		$cart_item = WC()->cart->get_cart_item( $key );
-
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
 		$this->assertNotFalse( $key );
+		$cart_item = WC()->cart->get_cart_item( $key );
 		$this->assertSame( $attachment_id, $cart_item['_oc_customisation']['front']['artworkAttachmentId'] );
+	}
+
+	#[Test]
+	public function deleting_private_artwork_removes_its_file(): void {
+		$attachment_id = $this->create_artwork_attachment( [ $this->product->get_id(), 0, 0, 0 ] );
+		$path          = get_attached_file( $attachment_id );
+		$this->assertIsString( $path );
+		$this->assertFileExists( $path );
+
+		$this->assertNotFalse( wp_delete_attachment( $attachment_id, true ) );
+		$this->assertFileDoesNotExist( $path );
+		$this->attachment_ids = array_values( array_diff( $this->attachment_ids, [ $attachment_id ] ) );
 	}
 
 	#[Test]
@@ -163,7 +259,8 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 
-		$key  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key );
 		$item = WC()->cart->get_cart_item( $key );
 		$text = $item['_oc_customisation']['front']['text'] ?? '';
 
@@ -181,12 +278,12 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 
-		$key       = WC()->cart->add_to_cart( $this->product->get_id() );
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key );
 		$cart_item = WC()->cart->get_cart_item( $key );
 		$item_data = ( new OC_Cart() )->display_item_data( [], $cart_item );
 		$values    = array_column( $item_data, 'value' );
 
-		$this->assertNotFalse( $key );
 		$this->assertEmpty(
 			array_filter( $values, fn( $value ) => is_string( $value ) && str_contains( $value, 'oc_edit_cart_key=' . $key ) )
 		);
@@ -194,14 +291,20 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function personalisation_fees_with_different_tax_classes_use_distinct_ids(): void {
+		$first_product = WC_Helper_Product::create_simple_product();
 		$second_product = WC_Helper_Product::create_simple_product();
+		$first_product->set_tax_status( 'taxable' );
+		$first_product->set_tax_class( '' );
+		$first_product->save();
 		$second_product->set_tax_status( 'taxable' );
 		$second_product->set_tax_class( 'reduced-rate' );
 		$second_product->save();
 
 		try {
-			$first_key  = WC()->cart->add_to_cart( $this->product->get_id() );
+			$first_key  = WC()->cart->add_to_cart( $first_product->get_id() );
 			$second_key = WC()->cart->add_to_cart( $second_product->get_id() );
+			$this->assertNotFalse( $first_key );
+			$this->assertNotFalse( $second_key );
 			WC()->cart->cart_contents[ $first_key ]['_oc_customisation'] = [ 'front' => [ 'text' => 'One' ] ];
 			WC()->cart->cart_contents[ $first_key ]['_oc_flat_rate'] = 2.0;
 			WC()->cart->cart_contents[ $second_key ]['_oc_customisation'] = [ 'front' => [ 'text' => 'Two' ] ];
@@ -214,6 +317,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 			$this->assertCount( 2, $fees );
 			$this->assertCount( 2, array_unique( array_map( fn( $fee ) => $fee->name, $fees ) ) );
 		} finally {
+			$first_product->delete( true );
 			$second_product->delete( true );
 		}
 	}
@@ -229,7 +333,8 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 
-		$key   = WC()->cart->add_to_cart( $this->product->get_id() );
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key );
 		$item  = WC()->cart->get_cart_item( $key );
 		$color = $item['_oc_customisation']['front']['color'] ?? '#000000';
 
@@ -241,7 +346,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function save_to_order_item_writes_customisation_meta(): void {
-		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$preview_url = $this->example_private_preview_url();
 		$customisation = [
 			'front' => [
 				'text'                => 'Engraved',
@@ -297,7 +402,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 	#[Test]
 	public function checkout_name_preview_is_not_added_when_thumbnail_column_already_rendered(): void {
 		$cart        = new OC_Cart();
-		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$preview_url = $this->example_private_preview_url();
 		$cart_item   = [ '_oc_preview_url' => $preview_url ];
 
 		add_filter( 'woocommerce_is_checkout', '__return_true' );
@@ -318,7 +423,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 	#[Test]
 	public function checkout_name_preview_is_added_when_no_thumbnail_column_rendered(): void {
 		$cart        = new OC_Cart();
-		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$preview_url = $this->example_private_preview_url();
 		$cart_item   = [ '_oc_preview_url' => $preview_url ];
 
 		add_filter( 'woocommerce_is_checkout', '__return_true' );
@@ -336,7 +441,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function store_api_preview_image_uses_the_expected_object_shape(): void {
-		$preview_url = 'http://example.org/wp-content/uploads/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
+		$preview_url = $this->example_private_preview_url();
 		$images      = ( new OC_Cart() )->store_api_cart_item_images(
 			[],
 			[ '_oc_preview_url' => $preview_url ],
@@ -350,7 +455,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
-	public function v2_customisation_only_accepts_layers_from_assigned_design(): void {
+	public function v2_customisation_rejects_unknown_layers(): void {
 		global $wpdb;
 
 		$wpdb->insert( $wpdb->prefix . 'oc_designs', [
@@ -360,25 +465,35 @@ class Test_Cart extends WC_Unit_Test_Case {
 			'active'      => 1,
 		] );
 		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_design_print_areas', [
+			'design_id' => $design_id,
+			'area_key'  => 'front',
+			'label'     => 'Front',
+		] );
+		$area_id = (int) $wpdb->insert_id;
 
 		$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [
 			'design_id'  => $design_id,
-			'area_id'    => 0,
-			'type'       => 'clipart',
-			'label'      => 'Artwork',
+			'area_id'    => $area_id,
+			'type'       => 'text',
+			'label'      => 'Name',
 			'sort_order' => 0,
 		] );
 		$layer_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [
+			'product_id' => $this->product->get_id(),
+			'variant_id' => 0,
+			'design_id'  => $design_id,
+		] );
+		OC_Cache::flush_group();
 
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'v'        => 2,
 			'designId' => $design_id,
 			'layers'   => [
 				$layer_id => [
-					'type'       => 'text', // Should be replaced with DB-backed type.
+					'type'       => 'text',
 					'value'      => 'Hello',
-					'clipartId'  => 321,
-					'clipartUrl' => 'https://example.com/clipart.svg',
 				],
 				999999 => [
 					'type'  => 'text',
@@ -387,19 +502,14 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 
-		$key  = WC()->cart->add_to_cart( $this->product->get_id() );
-		$item = WC()->cart->get_cart_item( $key );
+		$key = WC()->cart->add_to_cart( $this->product->get_id() );
 
-		$layers = $item['_oc_customisation']['layers'] ?? [];
-		$this->assertArrayHasKey( $layer_id, $layers );
-		$this->assertArrayNotHasKey( 999999, $layers );
-		$this->assertSame( 'clipart', $layers[ $layer_id ]['type'] );
-		$this->assertSame( $design_id, $item['_oc_customisation']['renderSpec']['designId'] ?? 0 );
-		$this->assertArrayHasKey( 'areas', $item['_oc_customisation']['renderSpec'] ?? [] );
+		$this->assertFalse( $key );
+		$this->assertNotEmpty( wc_get_notices( 'error' ) );
 	}
 
 	#[Test]
-	public function v2_preview_url_must_be_plugin_generated_preview_path(): void {
+	public function v2_preview_url_must_be_a_valid_signed_private_url(): void {
 		global $wpdb;
 
 		$wpdb->insert( $wpdb->prefix . 'oc_designs', [
@@ -409,19 +519,30 @@ class Test_Cart extends WC_Unit_Test_Case {
 			'active'      => 1,
 		] );
 		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_design_print_areas', [
+			'design_id' => $design_id,
+			'area_key'  => 'front',
+			'label'     => 'Front',
+		] );
+		$area_id = (int) $wpdb->insert_id;
 
 		$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [
 			'design_id'  => $design_id,
-			'area_id'    => 0,
+			'area_id'    => $area_id,
 			'type'       => 'text',
 			'label'      => 'Name',
 			'sort_order' => 0,
 		] );
 		$layer_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [
+			'product_id' => $this->product->get_id(),
+			'variant_id' => 0,
+			'design_id'  => $design_id,
+		] );
+		OC_Cache::flush_group();
 
-		$uploads      = wp_upload_dir();
-		$allowed_url  = rtrim( (string) $uploads['baseurl'], '/' ) . '/overcustomise/previews/preview-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png';
-		$disallowed   = 'https://attacker.example/fake-preview.png';
+		$allowed_url = $this->store_private_preview( $this->create_preview_image() );
+		$disallowed  = add_query_arg( 'signature', str_repeat( '0', 64 ), $allowed_url );
 
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'v'          => 2,
@@ -435,6 +556,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 		$key_allowed  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key_allowed );
 		$item_allowed = WC()->cart->get_cart_item( $key_allowed );
 		$this->assertSame( $allowed_url, $item_allowed['_oc_preview_url'] ?? '' );
 
@@ -457,6 +579,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 		$key_normalised  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key_normalised );
 		$item_normalised = WC()->cart->get_cart_item( $key_normalised );
 		$this->assertSame( $allowed_url, $item_normalised['_oc_preview_url'] ?? '' );
 
@@ -474,6 +597,7 @@ class Test_Cart extends WC_Unit_Test_Case {
 			],
 		] );
 		$key_disallowed  = WC()->cart->add_to_cart( $this->product->get_id() );
+		$this->assertNotFalse( $key_disallowed );
 		$item_disallowed = WC()->cart->get_cart_item( $key_disallowed );
 		$this->assertArrayNotHasKey( '_oc_preview_url', $item_disallowed );
 	}
@@ -513,21 +637,9 @@ class Test_Cart extends WC_Unit_Test_Case {
 		OC_Cache::flush_group();
 
 		$token = OC_Rest_API::issue_public_token();
-		$png   = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
-		$this->assertIsString( $png );
-		$text_data = 'Test-ID' . "\0" . wp_generate_uuid4();
-		$chunk     = 'tEXt' . $text_data;
-		$png       = substr( $png, 0, -12 )
-			. pack( 'N', strlen( $text_data ) )
-			. $chunk
-			. hex2bin( hash( 'crc32b', $chunk ) )
-			. substr( $png, -12 );
-		$image     = 'data:image/png;base64,' . base64_encode( $png );
-		$path      = wp_upload_dir()['basedir'] . '/overcustomise/previews/preview-' . md5( $png ) . '.png';
+		$image = $this->create_preview_image();
 
-		$this->assertFileDoesNotExist( $path );
 		$this->assertWPError( OC_Rest_API::store_cart_preview( $image, 'invalid-token' ) );
-		$this->assertFileDoesNotExist( $path );
 
 		$_POST['_oc_customisation'] = wp_json_encode( [
 			'v'            => 2,
@@ -546,14 +658,9 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertNotFalse( $key );
 		$item = WC()->cart->get_cart_item( $key );
 		$url  = (string) ( $item['_oc_preview_url'] ?? '' );
-
-		try {
-			$this->assertMatchesRegularExpression( '#/overcustomise/previews/preview-[a-f0-9]{32}\.png$#', $url );
-			$this->assertFileExists( $path );
-		} finally {
-			if ( is_file( $path ) ) {
-				wp_delete_file( $path );
-			}
-		}
+		$record = $this->remember_private_preview( $url );
+		$directory = OC_Upload_Handler::private_storage_path( 'previews' );
+		$this->assertIsString( $directory );
+		$this->assertFileExists( $directory . '/' . $record['file'] );
 	}
 }

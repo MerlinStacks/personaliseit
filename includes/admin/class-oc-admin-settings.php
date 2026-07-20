@@ -42,7 +42,27 @@ class OC_Admin_Settings {
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
-		$all   = wp_parse_args( $saved, $defaults );
+		$all   = wp_parse_args( is_array( $saved ) ? $saved : [], $defaults );
+		$formats = is_array( $all['allowed_upload_formats'] ?? null ) ? $all['allowed_upload_formats'] : [];
+		$formats = array_values( array_unique( array_intersect(
+			[ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ],
+			array_map( static fn ( $format ): string => is_scalar( $format ) ? sanitize_key( (string) $format ) : '', $formats )
+		) ) );
+		$flat_rate = is_numeric( $all['flat_rate_default'] ?? null ) ? (float) $all['flat_rate_default'] : 0.0;
+		$bleed     = is_numeric( $all['bleed_mm'] ?? null ) ? (float) $all['bleed_mm'] : 3.0;
+		$all = [
+			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
+			'file_retention_days'    => max( 1, min( 3650, is_numeric( $all['file_retention_days'] ?? null ) ? (int) $all['file_retention_days'] : 90 ) ),
+			'max_upload_size_mb'     => max( 1, min( 100, is_numeric( $all['max_upload_size_mb'] ?? null ) ? (int) $all['max_upload_size_mb'] : 10 ) ),
+			'allowed_upload_formats' => $formats,
+			'bleed_mm'               => max( 0, min( 100, is_finite( $bleed ) ? $bleed : 3.0 ) ),
+			'crop_mark_style'        => in_array( $all['crop_mark_style'] ?? null, [ 'standard', 'none' ], true ) ? $all['crop_mark_style'] : 'standard',
+			'icc_engraving'          => is_scalar( $all['icc_engraving'] ?? null ) ? substr( sanitize_text_field( (string) $all['icc_engraving'] ), 0, 255 ) : $defaults['icc_engraving'],
+			'icc_uv'                 => is_scalar( $all['icc_uv'] ?? null ) ? substr( sanitize_text_field( (string) $all['icc_uv'] ), 0, 255 ) : $defaults['icc_uv'],
+			'icc_sublimation'        => is_scalar( $all['icc_sublimation'] ?? null ) ? substr( sanitize_text_field( (string) $all['icc_sublimation'] ), 0, 255 ) : $defaults['icc_sublimation'],
+			'openrouter_api_key_enc' => is_string( $all['openrouter_api_key_enc'] ?? null ) && strlen( $all['openrouter_api_key_enc'] ) <= 4096 ? $all['openrouter_api_key_enc'] : '',
+			'openrouter_image_model' => is_scalar( $all['openrouter_image_model'] ?? null ) ? substr( sanitize_text_field( (string) $all['openrouter_image_model'] ), 0, 255 ) : $defaults['openrouter_image_model'],
+		];
 
 		if ( '' !== $key ) {
 			return $all[ $key ] ?? null;
@@ -659,18 +679,20 @@ class OC_Admin_Settings {
 			$model = 'google/gemini-2.5-flash-image-preview';
 		}
 
+		$flat_rate = is_numeric( $_POST['oc_flat_rate_default'] ?? null ) ? (float) $_POST['oc_flat_rate_default'] : 0.0;
+		$bleed     = is_numeric( $_POST['oc_bleed_mm'] ?? null ) ? (float) $_POST['oc_bleed_mm'] : 3.0;
 		$settings = [
-			'flat_rate_default'      => number_format( (float) ( $_POST['oc_flat_rate_default'] ?? 0 ), 2, '.', '' ),
-			'file_retention_days'    => max( 1, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ),
-			'max_upload_size_mb'     => max( 1, (int) ( $_POST['oc_max_upload_size_mb'] ?? 10 ) ),
+			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
+			'file_retention_days'    => max( 1, min( 3650, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ) ),
+			'max_upload_size_mb'     => max( 1, min( 100, (int) ( $_POST['oc_max_upload_size_mb'] ?? 10 ) ) ),
 			'allowed_upload_formats' => array_values( $posted_formats ),
-			'bleed_mm'               => max( 0, (float) ( $_POST['oc_bleed_mm'] ?? 3 ) ),
+			'bleed_mm'               => max( 0, min( 100, is_finite( $bleed ) ? $bleed : 3.0 ) ),
 			'crop_mark_style'        => in_array( $_POST['oc_crop_mark_style'] ?? '', [ 'standard', 'none' ], true )
 				? sanitize_key( $_POST['oc_crop_mark_style'] )
 				: 'standard',
-			'icc_engraving'          => sanitize_text_field( $_POST['oc_icc_engraving'] ?? '' ),
-			'icc_uv'                 => sanitize_text_field( $_POST['oc_icc_uv'] ?? '' ),
-			'icc_sublimation'        => sanitize_text_field( $_POST['oc_icc_sublimation'] ?? '' ),
+			'icc_engraving'          => substr( sanitize_text_field( wp_unslash( $_POST['oc_icc_engraving'] ?? '' ) ), 0, 255 ),
+			'icc_uv'                 => substr( sanitize_text_field( wp_unslash( $_POST['oc_icc_uv'] ?? '' ) ), 0, 255 ),
+			'icc_sublimation'        => substr( sanitize_text_field( wp_unslash( $_POST['oc_icc_sublimation'] ?? '' ) ), 0, 255 ),
 			'openrouter_api_key_enc' => $api_key_encrypted,
 			'openrouter_image_model' => $model,
 		];

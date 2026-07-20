@@ -22,6 +22,10 @@ const colours = (window.ocColoursData || []).map(normaliseColour);
 let groups = (window.ocColourGroups || []).map(normaliseGroup);
 let editColourId = null; // null = adding new, number = editing existing
 let editGroupId = null;
+let colourModalGeneration = 0;
+let groupModalGeneration = 0;
+let colourWrite = null;
+let groupWrite = null;
 
 // ---------------------------------------------------------------------------
 // Normalisers
@@ -122,6 +126,7 @@ function buildColourCardEl(colour) {
   });
   card.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
       openColourModal(colour.id);
     }
   });
@@ -168,7 +173,27 @@ const hexInput = () => document.getElementById('oc_colour_hex');
 const colourError = () => document.getElementById('oc-colour-error');
 const colourDeleteBtn = () => document.getElementById('oc-colour-delete-btn');
 const colourModalTitle = () => document.getElementById('oc-colour-modal-title');
+function isColourContextCurrent(request) {
+  return colourWrite === request && request.generation === colourModalGeneration && editColourId === request.id && !colourModal()?.hidden;
+}
+function syncColourWriteControls() {
+  const saveBtn = document.getElementById('oc-colour-save-btn');
+  const deleteBtn = colourDeleteBtn();
+  const busy = !!colourWrite;
+  if (saveBtn) {
+    saveBtn.dataset.label ||= saveBtn.textContent;
+    saveBtn.disabled = busy;
+    saveBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    saveBtn.textContent = busy ? 'Saving...' : saveBtn.dataset.label;
+  }
+  if (deleteBtn) {
+    deleteBtn.disabled = busy;
+    deleteBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  }
+}
 function openColourModal(id) {
+  colourModalGeneration++;
+  colourWrite = null;
   editColourId = id || null;
   const colour = id ? colours.find(c => c.id === id) : null;
   colourModalTitle().textContent = colour ? 'Edit Colour' : 'Add Colour';
@@ -188,14 +213,21 @@ function openColourModal(id) {
   }
   colourModal().hidden = false;
   document.body.style.overflow = 'hidden';
+  syncColourWriteControls();
   nameInput().focus();
 }
 function closeColourModal() {
+  colourModalGeneration++;
+  colourWrite = null;
   colourModal().hidden = true;
   document.body.style.overflow = '';
   editColourId = null;
+  syncColourWriteControls();
 }
 async function saveColour() {
+  if (colourWrite) {
+    return;
+  }
   const name = nameInput().value.trim();
   const hex = hexInput().value.trim();
   const err = colourError();
@@ -204,48 +236,68 @@ async function saveColour() {
     err.style.display = '';
     return;
   }
+  const targetId = editColourId;
+  const mode = targetId ? 'edit' : 'create';
+  const request = {
+    generation: colourModalGeneration,
+    id: targetId,
+    mode
+  };
   const body = new URLSearchParams({
     action: 'oc_colour_save',
     nonce: window.ocColourNonce,
     name,
     hex,
-    id: editColourId || 0
+    id: targetId || 0
   });
-  let json;
+  colourWrite = request;
+  syncColourWriteControls();
   try {
     const res = await fetch(window.ocAjaxUrl, {
       method: 'POST',
       body
     });
+    if (!isColourContextCurrent(request)) {
+      return;
+    }
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    json = await res.json();
-  } catch (e) {
-    console.warn('[OC] Colour save failed:', e);
-    err.textContent = 'Save failed. Please try again.';
-    err.style.display = '';
-    return;
-  }
-  if (!json.success) {
-    err.textContent = json.data?.message || 'Save failed.';
-    err.style.display = '';
-    return;
-  }
-  const saved = normaliseColour(json.data);
-  if (editColourId) {
-    const idx = colours.findIndex(c => c.id === editColourId);
-    if (idx !== -1) {
-      colours[idx] = saved;
+    const json = await res.json();
+    if (!isColourContextCurrent(request)) {
+      return;
     }
-  } else {
-    colours.push(saved);
+    if (!json.success) {
+      err.textContent = json.data?.message || 'Save failed.';
+      err.style.display = '';
+      return;
+    }
+    const saved = normaliseColour(json.data);
+    if (request.mode === 'edit') {
+      const idx = colours.findIndex(c => c.id === request.id);
+      if (idx !== -1) {
+        colours[idx] = saved;
+      }
+    } else if (!colours.some(colour => colour.id === saved.id)) {
+      colours.push(saved);
+    }
+    updateColourGridUI();
+    closeColourModal();
+  } catch (e) {
+    if (isColourContextCurrent(request)) {
+      console.warn('[OC] Colour save failed:', e);
+      err.textContent = 'Save failed. Please try again.';
+      err.style.display = '';
+    }
+  } finally {
+    if (colourWrite === request) {
+      colourWrite = null;
+      syncColourWriteControls();
+    }
   }
-  updateColourGridUI();
-  closeColourModal();
 }
 async function deleteColourFromModal() {
-  if (!editColourId) {
+  if (!editColourId || colourWrite) {
     return;
   }
   if (!confirm('Delete this colour?')) {
@@ -290,6 +342,7 @@ function initColourModal() {
     });
     card.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
         openColourModal(Number(card.dataset.colourId));
       }
     });
@@ -349,6 +402,7 @@ function buildGroupCardEl(group) {
   card.addEventListener('click', () => openGroupModal(group.id));
   card.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
       openGroupModal(group.id);
     }
   });
@@ -392,7 +446,27 @@ const groupNameInput = () => document.getElementById('oc-colour-group-name-input
 const groupPicker = () => document.getElementById('oc-colour-group-picker');
 const groupSelCount = () => document.getElementById('oc-colour-group-selected-count');
 const groupDeleteBtn = () => document.getElementById('oc-colour-group-delete-btn');
+function isGroupContextCurrent(request) {
+  return groupWrite === request && request.generation === groupModalGeneration && editGroupId === request.id && !groupModal()?.hidden;
+}
+function syncGroupWriteControls() {
+  const saveBtn = document.getElementById('oc-colour-group-save-btn');
+  const deleteBtn = groupDeleteBtn();
+  const busy = !!groupWrite;
+  if (saveBtn) {
+    saveBtn.dataset.label ||= saveBtn.textContent;
+    saveBtn.disabled = busy;
+    saveBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+    saveBtn.textContent = busy ? 'Saving...' : saveBtn.dataset.label;
+  }
+  if (deleteBtn) {
+    deleteBtn.disabled = busy;
+    deleteBtn.setAttribute('aria-disabled', busy ? 'true' : 'false');
+  }
+}
 function openGroupModal(id) {
+  groupModalGeneration++;
+  groupWrite = null;
   editGroupId = id || null;
   const group = id ? groups.find(g => g.id === id) : null;
   groupNameInput().value = group ? group.name : '';
@@ -403,12 +477,16 @@ function openGroupModal(id) {
   renderColourPicker(group ? group.colourIds : []);
   groupModal().hidden = false;
   document.body.style.overflow = 'hidden';
+  syncGroupWriteControls();
   groupNameInput().focus();
 }
 function closeGroupModal() {
+  groupModalGeneration++;
+  groupWrite = null;
   groupModal().hidden = true;
   document.body.style.overflow = '';
   editGroupId = null;
+  syncGroupWriteControls();
 }
 function renderColourPicker(selectedIds) {
   const picker = groupPicker();
@@ -442,85 +520,127 @@ function selectedColourIds() {
   return [...(groupPicker()?.querySelectorAll('input:checked') || [])].map(cb => Number(cb.value));
 }
 async function saveGroup() {
+  if (groupWrite) {
+    return;
+  }
   const name = groupNameInput().value.trim();
   const colourIds = selectedColourIds();
   if (!name) {
     groupNameInput().focus();
     return;
   }
-  const action = editGroupId ? 'oc_colour_group_update' : 'oc_colour_group_create';
+  const targetId = editGroupId;
+  const mode = targetId ? 'edit' : 'create';
+  const request = {
+    generation: groupModalGeneration,
+    id: targetId,
+    mode
+  };
+  const action = mode === 'edit' ? 'oc_colour_group_update' : 'oc_colour_group_create';
   const body = new URLSearchParams({
     action,
     nonce: window.ocColourNonce,
     name,
-    id: editGroupId || 0
+    id: targetId || 0
   });
   colourIds.forEach(id => body.append('colour_ids[]', id));
-  let json;
+  groupWrite = request;
+  syncGroupWriteControls();
   try {
     const res = await fetch(window.ocAjaxUrl, {
       method: 'POST',
       body
     });
+    if (!isGroupContextCurrent(request)) {
+      return;
+    }
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    json = await res.json();
-  } catch (e) {
-    console.warn('[OC] Colour group save failed:', e);
-    alert('Save failed. Please try again.');
-    return;
-  }
-  if (!json.success) {
-    alert(json.data?.message || 'Save failed.');
-    return;
-  }
-  const saved = normaliseGroup(json.data);
-  if (editGroupId) {
-    const idx = groups.findIndex(g => g.id === editGroupId);
-    if (idx !== -1) {
-      groups[idx] = saved;
+    const json = await res.json();
+    if (!isGroupContextCurrent(request)) {
+      return;
     }
-  } else {
-    groups.push(saved);
+    if (!json.success) {
+      alert(json.data?.message || 'Save failed.');
+      return;
+    }
+    const saved = normaliseGroup(json.data);
+    if (request.mode === 'edit') {
+      const idx = groups.findIndex(g => g.id === request.id);
+      if (idx !== -1) {
+        groups[idx] = saved;
+      }
+    } else if (!groups.some(group => group.id === saved.id)) {
+      groups.push(saved);
+    }
+    updateGroupGridUI();
+    closeGroupModal();
+  } catch (e) {
+    if (isGroupContextCurrent(request)) {
+      console.warn('[OC] Colour group save failed:', e);
+      alert('Save failed. Please try again.');
+    }
+  } finally {
+    if (groupWrite === request) {
+      groupWrite = null;
+      syncGroupWriteControls();
+    }
   }
-  updateGroupGridUI();
-  closeGroupModal();
 }
 async function deleteGroup() {
-  if (!editGroupId) {
+  if (!editGroupId || groupWrite) {
     return;
   }
   if (!confirm('Delete this colour group?')) {
     return;
   }
+  const targetId = editGroupId;
+  const request = {
+    generation: groupModalGeneration,
+    id: targetId,
+    mode: 'delete'
+  };
   const body = new URLSearchParams({
     action: 'oc_colour_group_delete',
     nonce: window.ocColourNonce,
-    id: editGroupId
+    id: targetId
   });
-  let json;
+  groupWrite = request;
+  syncGroupWriteControls();
   try {
     const res = await fetch(window.ocAjaxUrl, {
       method: 'POST',
       body
     });
+    if (!isGroupContextCurrent(request)) {
+      return;
+    }
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
-    json = await res.json();
+    const json = await res.json();
+    if (!isGroupContextCurrent(request)) {
+      return;
+    }
+    if (!json.success) {
+      alert(json.data?.message || 'Delete failed.');
+      return;
+    }
+    groups = groups.filter(g => g.id !== request.id);
+    updateGroupGridUI();
+    closeGroupModal();
   } catch (e) {
-    console.warn('[OC] Colour group delete failed:', e);
-    alert('Delete failed. Please try again.');
-    return;
+    if (isGroupContextCurrent(request)) {
+      console.warn('[OC] Colour group delete failed:', e);
+      alert('Delete failed. Please try again.');
+    }
+  } finally {
+    if (groupWrite === request) {
+      groupWrite = null;
+      syncGroupWriteControls();
+    }
   }
-  if (!json.success) {
-    alert(json.data?.message || 'Delete failed.');
-    return;
-  }
-  groups = groups.filter(g => g.id !== editGroupId);
-  updateGroupGridUI();
-  closeGroupModal();
 }
 function initGroupModal() {
   document.getElementById('oc-create-colour-group-btn')?.addEventListener('click', () => openGroupModal(null));
@@ -539,6 +659,7 @@ function initGroupModal() {
     card.addEventListener('click', () => openGroupModal(Number(card.dataset.groupId)));
     card.addEventListener('keydown', e => {
       if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
         openGroupModal(Number(card.dataset.groupId));
       }
     });

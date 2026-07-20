@@ -77,7 +77,7 @@ abstract class OC_Print_Base {
 	protected static function normalise_canvas_dpi( mixed $dpi ): int {
 		$dpi = is_numeric( $dpi ) ? (int) round( (float) $dpi ) : self::CANVAS_DPI;
 
-		return max( 36, min( 2400, $dpi ) );
+		return max( 36, min( 1200, $dpi ) );
 	}
 
 	/** Read bleed without treating an explicitly configured zero as missing. */
@@ -256,14 +256,14 @@ abstract class OC_Print_Base {
 	// Font helpers
 	// -------------------------------------------------------------------------
 
-	/** Fetch a font DB row by its ID (or null if not found / inactive). */
+	/** Fetch a retained font DB row by its explicit ID, including inactive rows. */
 	protected static function get_font( int $font_id ): ?object {
 		if ( ! $font_id ) {
 			return null;
 		}
 		global $wpdb;
 		return $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE id = %d AND active = 1 LIMIT 1",
+			"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
 			$font_id
 		) ) ?: null;
 	}
@@ -359,18 +359,24 @@ abstract class OC_Print_Base {
 		return null;
 	}
 
-	/** Find another active DB font row for the same family that already points to a print-safe TTF. */
+	/** Find another retained family row that already points to a print-safe TTF. */
 	protected static function get_print_variant_font_path( object $font ): ?string {
-		$name = trim( (string) ( $font->name ?? '' ) );
-		$id   = (int) ( $font->id ?? 0 );
+		$name   = trim( (string) ( $font->name ?? '' ) );
+		$weight = trim( (string) ( $font->weight ?? 'normal' ) );
+		$style  = trim( (string) ( $font->style ?? 'normal' ) );
+		$id     = (int) ( $font->id ?? 0 );
 		if ( '' === $name || $id <= 0 ) {
 			return null;
 		}
 
 		global $wpdb;
 		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE name = %s AND id <> %d AND active = 1 ORDER BY id DESC",
+			"SELECT * FROM {$wpdb->prefix}oc_fonts
+			 WHERE name = %s AND weight = %s AND style = %s AND id <> %d
+			 ORDER BY active DESC, id DESC",
 			$name,
+			$weight,
+			$style,
 			$id
 		) );
 		if ( ! is_array( $rows ) ) {
@@ -1065,13 +1071,18 @@ abstract class OC_Print_Base {
 
 		if ( ! defined( 'K_ALLOWED_PATHS' ) ) {
 			$upload_dir = wp_upload_dir();
+			$allowed_paths = [
+				$upload_dir['basedir'],
+				trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts',
+				trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-cache',
+			];
+			$private_artwork = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'artwork' ) : null;
+			if ( is_string( $private_artwork ) ) {
+				$allowed_paths[] = $private_artwork;
+			}
 			define(
 				'K_ALLOWED_PATHS',
-				[
-					$upload_dir['basedir'],
-					trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts',
-					trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-cache',
-				]
+				$allowed_paths
 			);
 		}
 
@@ -1133,6 +1144,10 @@ abstract class OC_Print_Base {
 					$paths[] = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts';
 					$paths[] = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-cache';
 				}
+				$private_artwork = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'artwork' ) : null;
+				if ( is_string( $private_artwork ) ) {
+					$paths[] = $private_artwork;
+				}
 
 				$allowed = [];
 				foreach ( $paths as $path ) {
@@ -1171,34 +1186,34 @@ abstract class OC_Print_Base {
 
 	/**
 	 * Resolve a TCPDF font name from a font DB ID.
-	 * Falls back to 'helvetica' if the font is missing or cannot be registered.
+	 * A zero ID is the deliberate legacy default; explicit IDs must render exactly.
 	 */
 	protected static function resolve_font( int $font_id, ?\TCPDF $pdf = null ): string {
-		if ( $font_id ) {
-			$font = self::get_font( $font_id );
-			if ( $font ) {
-				$raw_path = self::get_raw_font_path( $font );
-				$path = self::get_font_path( $font );
-				if ( $path ) {
-					$name = self::register_tcpdf_font( $path );
-					if ( $name ) {
-						if ( $pdf ) {
-							$font_file = self::tcpdf_font_definition_path( $path, $name );
-							if ( $font_file ) {
-								$pdf->AddFont( $name, '', $font_file );
-							}
-						}
-						return $name;
-					}
-					OC_Logger::warning( 'Print font fallback: TCPDF could not register font #' . $font_id . ' from ' . basename( $path ) . '.' );
-				} elseif ( ! $raw_path ) {
-					OC_Logger::warning( 'Print font fallback: font #' . $font_id . ' file was not accessible.' );
-				}
-			} else {
-				OC_Logger::warning( 'Print font fallback: font #' . $font_id . ' was not found or inactive.' );
-			}
+		if ( $font_id <= 0 ) {
+			return 'helvetica';
 		}
-		return 'helvetica';
+
+		$font = self::get_font( $font_id );
+		if ( ! $font ) {
+			throw new \RuntimeException( sprintf( __( 'The selected print font #%d is no longer retained.', 'overcustomise' ), $font_id ) );
+		}
+		$path = self::get_font_path( $font );
+		if ( ! $path ) {
+			throw new \RuntimeException( sprintf( __( 'The selected print font #%d has no renderable production file.', 'overcustomise' ), $font_id ) );
+		}
+		$name = self::register_tcpdf_font( $path );
+		if ( '' === $name ) {
+			throw new \RuntimeException( sprintf( __( 'The selected print font #%d could not be registered for production.', 'overcustomise' ), $font_id ) );
+		}
+		if ( $pdf ) {
+			$font_file = self::tcpdf_font_definition_path( $path, $name );
+			if ( '' === $font_file ) {
+				throw new \RuntimeException( sprintf( __( 'The selected print font #%d has no usable PDF definition.', 'overcustomise' ), $font_id ) );
+			}
+			$pdf->AddFont( $name, '', $font_file );
+		}
+
+		return $name;
 	}
 
 	protected static function tcpdf_font_definition_path( string $font_path, string $font_name ): string {
@@ -1351,7 +1366,7 @@ abstract class OC_Print_Base {
 			if ( $real ) {
 				return self::production_artwork_path( $real, $area_data );
 			}
-			throw new \RuntimeException( __( 'The selected production artwork path is missing or outside the protected upload directory.', 'overcustomise' ) );
+			throw new \RuntimeException( __( 'The selected production artwork path is missing or outside protected storage.', 'overcustomise' ) );
 		}
 
 		return null;
@@ -1427,7 +1442,7 @@ abstract class OC_Print_Base {
 		$attachment_path = get_attached_file( $attachment_id );
 		if ( is_string( $attachment_path ) && '' !== $attachment_path ) {
 			$real = self::resolve_uploads_file_path( $attachment_path );
-			if ( $real ) {
+			if ( $real && self::attachment_storage_path_is_allowed( $attachment_id, $real ) ) {
 				return $real;
 			}
 		}
@@ -1435,7 +1450,7 @@ abstract class OC_Print_Base {
 		$attached_file = get_post_meta( $attachment_id, '_wp_attached_file', true );
 		if ( is_string( $attached_file ) && '' !== $attached_file ) {
 			$real = self::resolve_uploads_file_path( $attached_file );
-			if ( $real ) {
+			if ( $real && self::attachment_storage_path_is_allowed( $attachment_id, $real ) ) {
 				return $real;
 			}
 		}
@@ -1443,18 +1458,35 @@ abstract class OC_Print_Base {
 		return null;
 	}
 
-	/** Resolve a path or uploads-relative filename to a readable file inside the current uploads directory. */
+	/** Resolve a path to private artwork or a bounded uploads-relative production asset. */
 	protected static function resolve_uploads_file_path( string $path ): ?string {
-		$uploads   = wp_upload_dir();
-		$base_real = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
-		if ( ! $base_real ) {
+		$uploads           = wp_upload_dir();
+		$base_real         = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
+		$private_available = class_exists( 'OC_Upload_Handler' ) && function_exists( 'apply_filters' ) && function_exists( 'wp_normalize_path' );
+		$private_root      = $private_available
+			? OC_Upload_Handler::private_storage_path()
+			: null;
+		$private_real = $private_available
+			? OC_Upload_Handler::private_storage_path( 'artwork' )
+			: null;
+		if ( ! $base_real && null === $private_real ) {
 			return null;
 		}
-		$base_real = rtrim( $base_real, '/\\' );
+		$base_real    = $base_real ? rtrim( $base_real, '/\\' ) : '';
+		$private_root = null !== $private_root ? rtrim( $private_root, '/\\' ) : '';
+		$private_real = null !== $private_real ? rtrim( $private_real, '/\\' ) : '';
 
 		$candidates = [ $path ];
-		if ( ! str_starts_with( $path, '/' ) ) {
-			$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $path, '/\\' );
+		if ( ! self::is_absolute_file_path( $path ) ) {
+			if ( '' !== $base_real ) {
+				$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $path, '/\\' );
+			}
+			if ( '' !== $private_root ) {
+				$candidates[] = $private_root . DIRECTORY_SEPARATOR . ltrim( $path, '/\\' );
+			}
+			if ( '' !== $private_real ) {
+				$candidates[] = $private_real . DIRECTORY_SEPARATOR . ltrim( $path, '/\\' );
+			}
 		}
 
 		$normalised = str_replace( '\\', '/', $path );
@@ -1462,13 +1494,17 @@ abstract class OC_Print_Base {
 		if ( false !== $marker_pos ) {
 			$relative = substr( $normalised, $marker_pos + strlen( '/uploads/' ) );
 			if ( is_string( $relative ) && '' !== $relative ) {
-				$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $relative, '/\\' );
+				if ( '' !== $base_real ) {
+					$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $relative, '/\\' );
+				}
 			}
 		}
 
 		foreach ( array_unique( $candidates ) as $candidate ) {
-			$real = realpath( $candidate );
-			if ( $real && ( $real === $base_real || str_starts_with( $real, $base_real . DIRECTORY_SEPARATOR ) ) && is_readable( $real ) ) {
+			$real       = realpath( $candidate );
+			$in_uploads = $real && '' !== $base_real && str_starts_with( $real, $base_real . DIRECTORY_SEPARATOR );
+			$in_private = $real && '' !== $private_real && str_starts_with( $real, $private_real . DIRECTORY_SEPARATOR );
+			if ( $real && ( $in_uploads || $in_private ) && is_file( $real ) && is_readable( $real ) ) {
 				return $real;
 			}
 		}
@@ -1476,9 +1512,69 @@ abstract class OC_Print_Base {
 		return null;
 	}
 
+	/** Customer artwork must stay in current private storage or the protected legacy root. */
+	private static function attachment_storage_path_is_allowed( int $attachment_id, string $path ): bool {
+		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) {
+			return true;
+		}
+
+		$real = realpath( $path );
+		if ( false === $real || ! is_file( $real ) ) {
+			return false;
+		}
+		$private = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'artwork' ) : null;
+		if ( is_string( $private ) && self::path_is_within( $real, $private ) ) {
+			return true;
+		}
+
+		$uploads = wp_upload_dir();
+		$legacy  = ! empty( $uploads['basedir'] ) ? realpath( trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/artwork' ) : false;
+		return false !== $legacy && self::path_is_within( $real, $legacy ) && self::legacy_artwork_root_is_protected( $legacy );
+	}
+
+	/** Require intact deny rules before using a legacy public-upload artwork path. */
+	private static function legacy_artwork_root_is_protected( string $directory ): bool {
+		$files = [
+			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
+			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
+			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
+		];
+		foreach ( $files as $filename => $contents ) {
+			$file = $directory . DIRECTORY_SEPARATOR . $filename;
+			if ( ! is_file( $file ) || ! hash_equals( $contents, (string) file_get_contents( $file ) ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	private static function is_absolute_file_path( string $path ): bool {
+		return str_starts_with( $path, '/' ) || (bool) preg_match( '#^[A-Za-z]:[\\\\/]#D', $path );
+	}
+
+	private static function path_is_within( string $path, string $base ): bool {
+		$path = rtrim( wp_normalize_path( $path ), '/' );
+		$base = rtrim( wp_normalize_path( $base ), '/' );
+		if ( '' === $path || '' === $base ) {
+			return false;
+		}
+		if ( str_starts_with( strtoupper( PHP_OS_FAMILY ), 'WINDOWS' ) ) {
+			$path = strtolower( $path );
+			$base = strtolower( $base );
+		}
+
+		return str_starts_with( $path, $base . '/' );
+	}
+
 	/** Return true when the print payload contains v2 layer geometry. */
 	protected static function has_layer_payload( array $area_data ): bool {
 		return ! empty( $area_data['layers'] ) && is_array( $area_data['layers'] );
+	}
+
+	/** Match the frontend convention: stored ascending layers paint bottom to top. */
+	protected static function layer_paint_order( array $layers ): array {
+		return array_values( $layers );
 	}
 
 	/** Return true when the print payload contains a fully vector snapshot. */
@@ -1594,7 +1690,7 @@ abstract class OC_Print_Base {
 		$quarter_turn = (int) ( $area->_oc_print_quarter_turn ?? 0 );
 		$font_px_to_pt = self::mm_to_pt_value( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
 
-		foreach ( $area_data['layers'] as $layer ) {
+		foreach ( self::layer_paint_order( $area_data['layers'] ) as $layer ) {
 			if ( ! is_array( $layer ) ) {
 				continue;
 			}
@@ -1631,6 +1727,33 @@ abstract class OC_Print_Base {
 
 			$x_mm = $center_x - $w_mm / 2;
 			$y_mm = $center_y - $h_mm / 2;
+			if (
+				'colour' === $mode
+				&& ! empty( $options['full_bleed_artwork'] )
+				&& in_array( $type, [ 'image', 'clipart', 'clipmask' ], true )
+			) {
+				$bleed_mm = max( 0.0, (float) ( $options['bleed_mm'] ?? 0.0 ) );
+				$background = ! empty( $settings['background'] ) || ! empty( $settings['is_background'] ) || ! empty( $settings['full_bleed'] );
+				$tolerance = max( 0.01, min( $area_w_mm, $area_h_mm ) * 0.002 );
+				$left   = $background || $x_mm <= $origin_x_mm + $tolerance;
+				$top    = $background || $y_mm <= $origin_y_mm + $tolerance;
+				$right  = $background || $x_mm + $w_mm >= $origin_x_mm + $area_w_mm - $tolerance;
+				$bottom = $background || $y_mm + $h_mm >= $origin_y_mm + $area_h_mm - $tolerance;
+				if ( $left ) {
+					$x_mm -= $bleed_mm;
+					$w_mm += $bleed_mm;
+				}
+				if ( $right ) {
+					$w_mm += $bleed_mm;
+				}
+				if ( $top ) {
+					$y_mm -= $bleed_mm;
+					$h_mm += $bleed_mm;
+				}
+				if ( $bottom ) {
+					$h_mm += $bleed_mm;
+				}
+			}
 			$rotation = $quarter_turn + self::layer_rotation_degrees( $layer, $input, $settings );
 			$rotation = fmod( $rotation, 360.0 );
 			$transformed = abs( $rotation ) >= 0.001;

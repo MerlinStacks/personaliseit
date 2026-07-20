@@ -125,6 +125,29 @@ class Test_Print_Generator extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function checkout_generation_failure_is_marked_for_deferred_retry(): void {
+		$generator = new class() extends OC_Print_Generator {
+			public function generate_for_order( \WC_Order $order ): void {
+				throw new \RuntimeException( 'Deliberate checkout generation failure.' );
+			}
+		};
+		$order_id = (int) $this->order->get_id();
+
+		try {
+			$generator->generate_for_order_safely( $this->order );
+			$this->order = wc_get_order( $order_id );
+			$this->assertNotEmpty( $this->order->get_meta( '_oc_print_generation_pending', true ) );
+		} finally {
+			$this->order->delete_meta_data( '_oc_print_generation_pending' );
+			$this->order->save_meta_data();
+			wp_clear_scheduled_hook( 'oc_retry_order_print_generation', [ $order_id ] );
+			if ( function_exists( 'as_unschedule_all_actions' ) ) {
+				as_unschedule_all_actions( 'oc_retry_order_print_generation', [ $order_id ], 'overcustomise' );
+			}
+		}
+	}
+
+	#[Test]
 	public function completed_outputs_receive_distinct_print_file_id_paths(): void {
 		$uploads = wp_upload_dir();
 		wp_mkdir_p( $uploads['basedir'] );

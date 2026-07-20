@@ -545,7 +545,7 @@ class Test_Print_Base extends TestCase {
 	public function resolves_stale_absolute_attachment_path_inside_current_uploads(): void {
 		global $oc_test_attached_files, $oc_test_post_meta;
 
-		$dir = sys_get_temp_dir() . '/overcustomise/artwork';
+		$dir = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/artwork';
 		wp_mkdir_p( $dir );
 		$path = $dir . '/customer-upload.png';
 		file_put_contents( $path, 'png' );
@@ -570,7 +570,7 @@ class Test_Print_Base extends TestCase {
 	public function resolves_attachment_meta_relative_upload_path(): void {
 		global $oc_test_attached_files, $oc_test_post_meta;
 
-		$dir = sys_get_temp_dir() . '/overcustomise/artwork';
+		$dir = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/artwork';
 		wp_mkdir_p( $dir );
 		$path = $dir . '/relative-upload.png';
 		file_put_contents( $path, 'png' );
@@ -583,6 +583,29 @@ class Test_Print_Base extends TestCase {
 		try {
 			$this->assertSame( realpath( $path ), OC_Print_Base_Testable::test_resolve_artwork_path( [
 				'artworkAttachmentId' => 456,
+			] ) );
+		} finally {
+			@unlink( $path );
+			$oc_test_attached_files = [];
+			$oc_test_post_meta = [];
+		}
+	}
+
+	#[Test]
+	public function resolves_marked_customer_artwork_from_private_storage(): void {
+		global $oc_test_attached_files, $oc_test_post_meta;
+
+		$directory = OC_Upload_Handler::private_storage_path( 'artwork' );
+		$this->assertIsString( $directory );
+		$path = tempnam( $directory, 'oc-private-artwork-' );
+		file_put_contents( $path, 'png' );
+
+		$oc_test_attached_files = [ 789 => $path ];
+		$oc_test_post_meta      = [ 789 => [ '_oc_artwork' => 1 ] ];
+
+		try {
+			$this->assertSame( realpath( $path ), OC_Print_Base_Testable::test_resolve_artwork_path( [
+				'artworkAttachmentId' => 789,
 			] ) );
 		} finally {
 			@unlink( $path );

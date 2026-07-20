@@ -29,13 +29,20 @@
 	--oc-radius: 8px;
 	--oc-radius-sm: 4px;
 	--oc-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-	--oc-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+	--oc-shadow-md:
+		0 4px 6px -1px rgb(0 0 0 / 0.1),
+		0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
 /* ── Page wrapper ──────────────────────────────────────────────────────── */
 .oc-page {
 	max-width: 1200px;
-	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+	font-family:
+		-apple-system,
+		BlinkMacSystemFont,
+		"Segoe UI",
+		Roboto,
+		sans-serif;
 }
 
 /* ── Page header ───────────────────────────────────────────────────────── */
@@ -410,7 +417,10 @@
 	background: var(--oc-white);
 	overflow: hidden;
 	box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-	transition: transform 0.16s ease, box-shadow 0.16s ease, border-color 0.16s ease;
+	transition:
+		transform 0.16s ease,
+		box-shadow 0.16s ease,
+		border-color 0.16s ease;
 }
 
 .oc-page .oc-customer-upload-card:hover {
@@ -432,7 +442,11 @@
 		linear-gradient(45deg, transparent 75%, rgba(148, 163, 184, 0.1) 75%),
 		linear-gradient(-45deg, transparent 75%, rgba(148, 163, 184, 0.1) 75%),
 		#f8fafc;
-	background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+	background-position:
+		0 0,
+		0 10px,
+		10px -10px,
+		-10px 0;
 	background-size: 20px 20px;
 	border-bottom: 1px solid var(--oc-gray-100);
 }
@@ -586,7 +600,9 @@
 	color: var(--oc-gray-800) !important;
 	background: var(--oc-white) !important;
 	line-height: 1.4 !important;
-	transition: border-color 0.15s, box-shadow 0.15s !important;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s !important;
 	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04) !important;
 }
 
@@ -920,7 +936,9 @@
 
 .oc-dashboard-card:hover {
 	border-color: var(--oc-primary-border);
-	box-shadow: var(--oc-shadow-md), 0 0 0 1px var(--oc-primary-border);
+	box-shadow:
+		var(--oc-shadow-md),
+		0 0 0 1px var(--oc-primary-border);
 	transform: translateY(-1px);
 	color: var(--oc-gray-700) !important;
 }
@@ -954,7 +972,9 @@
 	margin-top: auto;
 	color: var(--oc-gray-300);
 	font-size: 16px;
-	transition: color 0.15s, transform 0.15s;
+	transition:
+		color 0.15s,
+		transform 0.15s;
 }
 
 .oc-dashboard-card:hover .oc-dashboard-card-arrow {
@@ -1280,7 +1300,9 @@
 	border-bottom: none;
 	border-radius: 7px 7px 0 0;
 	cursor: pointer;
-	transition: background 0.12s, color 0.12s;
+	transition:
+		background 0.12s,
+		color 0.12s;
 	display: inline-flex;
 	align-items: center;
 	gap: 7px;
@@ -1343,7 +1365,10 @@
 	display: flex;
 	flex-direction: column;
 	cursor: pointer;
-	transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+	transition:
+		box-shadow 0.15s,
+		transform 0.15s,
+		border-color 0.15s;
 }
 
 .oc-font-card:hover {
@@ -1354,7 +1379,9 @@
 
 .oc-font-card.oc-font-card--active-detail {
 	border-color: var(--oc-primary);
-	box-shadow: 0 0 0 2px var(--oc-primary-border), var(--oc-shadow-md);
+	box-shadow:
+		0 0 0 2px var(--oc-primary-border),
+		var(--oc-shadow-md);
 }
 
 .oc-font-card--inactive {
@@ -1610,7 +1637,9 @@
 	padding: 44px 20px;
 	text-align: center;
 	cursor: pointer;
-	transition: border-color 0.15s, background 0.15s;
+	transition:
+		border-color 0.15s,
+		background 0.15s;
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -1718,7 +1747,10 @@
 	background: var(--oc-white);
 	box-shadow: var(--oc-shadow);
 	cursor: pointer;
-	transition: box-shadow 0.15s, transform 0.15s, border-color 0.15s;
+	transition:
+		box-shadow 0.15s,
+		transform 0.15s,
+		border-color 0.15s;
 	overflow: hidden;
 }
 
@@ -1880,7 +1912,9 @@
 	border-radius: var(--oc-radius);
 	overflow: hidden;
 	cursor: pointer;
-	transition: box-shadow 0.15s, border-color 0.15s;
+	transition:
+		box-shadow 0.15s,
+		border-color 0.15s;
 	display: flex;
 	flex-direction: column;
 }
@@ -2078,7 +2112,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	min-width: 180px;
 	max-width: 420px;
 	width: 100%;
-	transition: border-color 0.15s, background 0.15s;
+	transition:
+		border-color 0.15s,
+		background 0.15s;
 }
 
 .oc-design-name-input:hover {
@@ -2307,6 +2343,51 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	-webkit-user-drag: none;
 }
 
+.oc-canvas-draw-toggle {
+	position: absolute;
+	right: 12px;
+	bottom: 34px;
+	z-index: 30;
+	padding: 7px 11px;
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	border-radius: 6px;
+	background: rgba(17, 24, 39, 0.88);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	color: #fff;
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.oc-canvas-draw-toggle:hover,
+.oc-canvas-draw-toggle:focus-visible,
+.oc-canvas-draw-toggle[aria-pressed="true"] {
+	border-color: #fff;
+	background: var(--oc-primary);
+	outline: none;
+}
+
+.oc-canvas-draw-toggle:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
+}
+
+.oc-canvas-draw-toggle[hidden] {
+	display: none;
+}
+
+.oc-canvas-stage--draw-mode,
+.oc-canvas-stage--draw-mode .oc-bounds-box,
+.oc-canvas-stage--draw-mode .oc-canvas-layer-ghost {
+	cursor: crosshair !important;
+}
+
+.oc-canvas-stage--draw-mode .oc-bounds-handle,
+.oc-canvas-stage--draw-mode .oc-bounds-rotate-handle {
+	opacity: 0.35;
+	pointer-events: none;
+}
+
 /* Interactive bounds box */
 .oc-bounds-box {
 	position: absolute;
@@ -2446,7 +2527,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 .oc-mockup-thumb {
 	width: 100%;
 	aspect-ratio: 4/3;
-	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 / 12px 12px;
+	background:
+		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		12px 12px;
 	border: 1px solid var(--oc-gray-200);
 	border-radius: var(--oc-radius-sm);
 	display: flex;
@@ -2578,7 +2661,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	font-size: 11px;
 	padding: 0;
 	color: var(--oc-gray-400);
-	transition: background 0.1s, color 0.1s;
+	transition:
+		background 0.1s,
+		color 0.1s;
 	line-height: 1;
 }
 
@@ -2761,7 +2846,10 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	font-size: 10px;
 	color: var(--oc-gray-600);
 	text-align: center;
-	transition: border-color 0.1s, background 0.1s, color 0.1s;
+	transition:
+		border-color 0.1s,
+		background 0.1s,
+		color 0.1s;
 	line-height: 1.2;
 }
 
@@ -2826,7 +2914,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	cursor: pointer;
 	margin-bottom: -2px;
 	white-space: nowrap;
-	transition: color 0.1s, border-color 0.1s;
+	transition:
+		color 0.1s,
+		border-color 0.1s;
 }
 
 .oc-layer-tab:hover {
@@ -2912,7 +3002,10 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	font-size: 11px;
 	background: var(--oc-white);
 	color: var(--oc-gray-600);
-	transition: border-color 0.1s, background 0.1s, color 0.1s;
+	transition:
+		border-color 0.1s,
+		background 0.1s,
+		color 0.1s;
 }
 
 .oc-align-btn:hover {
@@ -2992,7 +3085,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	border-radius: 5px;
 	border: 2px solid transparent;
 	opacity: 0.6;
-	transition: opacity 0.15s, border-color 0.15s;
+	transition:
+		opacity 0.15s,
+		border-color 0.15s;
 }
 
 .oc-area-strip-card:hover {
@@ -3083,7 +3178,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	cursor: pointer;
 	font-size: 10px;
 	color: var(--oc-gray-600);
-	transition: border-color 0.1s, background 0.1s;
+	transition:
+		border-color 0.1s,
+		background 0.1s;
 }
 
 .oc-draw-type-btn:hover {
@@ -3110,7 +3207,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	padding: 4px 8px;
 	font-weight: 600;
 	color: rgba(15, 15, 15, 0.9);
-	text-shadow: 0 0 8px rgba(255, 255, 255, 0.95), 0 1px 4px rgba(255, 255, 255, 0.8);
+	text-shadow:
+		0 0 8px rgba(255, 255, 255, 0.95),
+		0 1px 4px rgba(255, 255, 255, 0.8);
 	line-height: 1.25;
 	word-break: break-word;
 	flex-direction: column;
@@ -3305,7 +3404,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	border-radius: var(--oc-radius);
 	overflow: hidden;
 	cursor: pointer;
-	transition: border-color 0.15s, box-shadow 0.15s;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s;
 }
 
 .oc-clipart-card:hover {
@@ -3323,7 +3424,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 / 16px 16px;
+	background:
+		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		16px 16px;
 	padding: 12px;
 }
 
@@ -3376,7 +3479,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 / 16px 16px;
+	background:
+		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		16px 16px;
 	border-radius: var(--oc-radius);
 	min-height: 160px;
 	margin-bottom: 20px;
@@ -3410,7 +3515,9 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	align-items: center;
 	justify-content: center;
 	border-radius: 4px;
-	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 / 8px 8px;
+	background:
+		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		8px 8px;
 	border: 1px solid var(--oc-gray-200);
 	overflow: hidden;
 	flex-shrink: 0;
@@ -3468,7 +3575,11 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	font-size: 13px;
 	color: var(--oc-gray-700);
 	text-align: left;
-	transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+	transition:
+		border-color 0.15s,
+		background 0.15s,
+		box-shadow 0.15s,
+		transform 0.15s;
 }
 
 .oc-settings-tab-btn:hover {
@@ -3574,6 +3685,53 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	flex-shrink: 0;
 }
 
+@media (max-width: 1100px) {
+
+	.oc-design-editor-topbar,
+	.oc-design-editor-topbar > div:last-child {
+		flex-wrap: wrap;
+	}
+
+	.oc-design-name-input {
+		min-width: 0;
+	}
+
+	.oc-design-editor {
+		grid-template-columns: minmax(0, 1fr);
+		height: auto;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	.oc-editor-left,
+	.oc-editor-right,
+	.oc-right-layer-props {
+		overflow: visible;
+	}
+
+	.oc-editor-left {
+		border-right: 0;
+		border-bottom: 1px solid var(--oc-gray-200);
+	}
+
+	.oc-editor-canvas-wrap {
+		min-height: clamp(420px, 62vh, 680px);
+	}
+
+	.oc-editor-right {
+		border-top: 1px solid var(--oc-gray-200);
+		border-left: 0;
+	}
+
+	.oc-right-layers-scroll {
+		max-height: none;
+	}
+
+	.oc-right-layers-scroll #oc-layers-list {
+		max-height: 300px;
+	}
+}
+
 @media (max-width: 1080px) {
 
 	.oc-settings-layout {
@@ -3595,6 +3753,23 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 
 @media (max-width: 782px) {
+
+	.oc-design-editor-topbar {
+		align-items: flex-start;
+	}
+
+	.oc-design-editor-topbar > div {
+		width: 100%;
+	}
+
+	.oc-editor-canvas-wrap {
+		min-height: 360px;
+	}
+
+	.oc-canvas-draw-toggle {
+		right: 8px;
+		bottom: 32px;
+	}
 
 	.oc-settings-savebar {
 		flex-direction: column;

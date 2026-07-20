@@ -10,6 +10,13 @@ use PHPUnit\Framework\Attributes\Test;
 class Test_Render_Math extends \PHPUnit\Framework\TestCase {
 
 	#[Test]
+	public function dpi_is_clamped_to_the_shared_render_range(): void {
+		$this->assertSame( 36, OC_Render_Math::normalise_dpi( 1 ) );
+		$this->assertSame( 300, OC_Render_Math::normalise_dpi( 300 ) );
+		$this->assertSame( 1200, OC_Render_Math::normalise_dpi( 2400 ) );
+	}
+
+	#[Test]
 	public function unit_px_scale_converts_physical_units_using_area_dpi(): void {
 		$this->assertSame( 1.0, OC_Render_Math::unit_px_scale( [ 'unit' => 'px', 'dpi' => 600 ] ) );
 		$this->assertEqualsWithDelta( 600 / 25.4, OC_Render_Math::unit_px_scale( [ 'unit' => 'mm', 'dpi' => 600 ] ), 0.0001 );

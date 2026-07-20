@@ -1,5 +1,21 @@
 /* eslint-disable no-console, @wordpress/no-unused-vars-before-return */
 
+const LINKED_IMAGE_INPUT_KEYS = [
+	'attachmentId',
+	'attachmentUrl',
+	'sourceAttachmentId',
+	'sourceAttachmentUrl',
+	'originalAttachmentUrl',
+	'sourceOriginalAttachmentUrl',
+	'artworkFileType',
+	'sourceArtworkFileType',
+	'previewAttachmentId',
+	'sourcePreviewAttachmentId',
+	'imageMeta',
+	'sourceImageMeta',
+	'imageFilterId',
+];
+
 const inputControlMethods = {
 	// ── Input listeners ─────────────────────────────────────────────────────────
 
@@ -53,6 +69,7 @@ const inputControlMethods = {
 	},
 
 	setupFontComboboxes() {
+		const stateSignal = this._panelListenerController?.signal;
 		const useNativeFontSelect = window.matchMedia?.(
 			'(max-width: 639px) and (hover: none) and (pointer: coarse)'
 		)?.matches;
@@ -125,7 +142,7 @@ const inputControlMethods = {
 					if ( filterFrame ) {
 						window.cancelAnimationFrame( filterFrame );
 					}
-					filterFrame = window.requestAnimationFrame( () => {
+					filterFrame = this.requestStateAnimationFrame( () => {
 						filterFrame = null;
 						filterOptions();
 					} );
@@ -150,84 +167,117 @@ const inputControlMethods = {
 				this.updateFontCombobox( select );
 				filterOptions();
 
-				input.addEventListener( 'focus', () => {
-					if ( input.value.trim() === selectedFontLabel() ) {
-						filterOptions( '' );
-					} else {
-						scheduleFilterOptions();
-					}
-					setOpen( true );
-				} );
-				input.addEventListener( 'input', () => {
-					scheduleFilterOptions();
-					setOpen( true );
-				} );
-				input.addEventListener( 'search', () => {
-					scheduleFilterOptions();
-					setOpen( true );
-				} );
-				input.addEventListener( 'keydown', ( e ) => {
-					if ( e.key === 'Escape' ) {
-						setOpen( false );
-						this.updateFontCombobox( select );
-						return;
-					}
-					if ( e.key === 'ArrowDown' ) {
-						e.preventDefault();
-						filterOptions();
-						setOpen( true );
-						firstVisibleOption()?.focus();
-						return;
-					}
-					if ( e.key === 'Enter' ) {
-						e.preventDefault();
-						filterOptions();
-						const option = firstVisibleOption();
-						if ( option ) {
-							selectFont( option.dataset.ocFontOption );
+				input.addEventListener(
+					'focus',
+					() => {
+						if ( input.value.trim() === selectedFontLabel() ) {
+							filterOptions( '' );
 						} else {
+							scheduleFilterOptions();
+						}
+						setOpen( true );
+					},
+					{ signal: stateSignal }
+				);
+				input.addEventListener(
+					'input',
+					() => {
+						scheduleFilterOptions();
+						setOpen( true );
+					},
+					{ signal: stateSignal }
+				);
+				input.addEventListener(
+					'search',
+					() => {
+						scheduleFilterOptions();
+						setOpen( true );
+					},
+					{ signal: stateSignal }
+				);
+				input.addEventListener(
+					'keydown',
+					( e ) => {
+						if ( e.key === 'Escape' ) {
 							setOpen( false );
 							this.updateFontCombobox( select );
+							return;
 						}
-					}
-				} );
-				input.addEventListener( 'blur', () => {
-					window.setTimeout( () => {
-						if (
-							! combo.contains(
-								combo.ownerDocument.activeElement
-							)
-						) {
-							setOpen( false );
-							this.updateFontCombobox( select );
-						}
-					}, 120 );
-				} );
-
-				options.forEach( ( option ) => {
-					option.addEventListener( 'pointerdown', ( e ) => {
-						e.preventDefault();
-						selectFont( option.dataset.ocFontOption );
-					} );
-					option.addEventListener( 'click', () =>
-						selectFont( option.dataset.ocFontOption )
-					);
-					option.addEventListener( 'keydown', ( e ) => {
-						const visible = options.filter(
-							( item ) => ! item.hidden
-						);
-						const index = visible.indexOf( option );
 						if ( e.key === 'ArrowDown' ) {
 							e.preventDefault();
-							visible[ index + 1 ]?.focus();
-						} else if ( e.key === 'ArrowUp' ) {
-							e.preventDefault();
-							( visible[ index - 1 ] || input ).focus();
-						} else if ( e.key === 'Escape' ) {
-							setOpen( false );
-							input.focus();
+							filterOptions();
+							setOpen( true );
+							firstVisibleOption()?.focus();
+							return;
 						}
-					} );
+						if ( e.key === 'Enter' ) {
+							e.preventDefault();
+							filterOptions();
+							const option = firstVisibleOption();
+							if ( option ) {
+								selectFont( option.dataset.ocFontOption );
+							} else {
+								setOpen( false );
+								this.updateFontCombobox( select );
+							}
+						}
+					},
+					{ signal: stateSignal }
+				);
+				input.addEventListener(
+					'blur',
+					() => {
+						this.setStateTimeout( () => {
+							if ( stateSignal?.aborted ) {
+								return;
+							}
+							if (
+								! combo.contains(
+									combo.ownerDocument.activeElement
+								)
+							) {
+								setOpen( false );
+								this.updateFontCombobox( select );
+							}
+						}, 120 );
+					},
+					{ signal: stateSignal }
+				);
+
+				options.forEach( ( option ) => {
+					option.addEventListener(
+						'pointerdown',
+						( e ) => {
+							e.preventDefault();
+							selectFont( option.dataset.ocFontOption );
+						},
+						{ signal: stateSignal }
+					);
+					option.addEventListener(
+						'click',
+						() => selectFont( option.dataset.ocFontOption ),
+						{ signal: stateSignal }
+					);
+					option.addEventListener(
+						'keydown',
+						( e ) => {
+							const visible = options.filter(
+								( item ) => ! item.hidden
+							);
+							const index = visible.indexOf( option );
+							if ( e.key === 'ArrowDown' ) {
+								e.preventDefault();
+								visible[ index + 1 ]?.focus();
+							} else if ( e.key === 'ArrowUp' ) {
+								e.preventDefault();
+								( visible[ index - 1 ] || input ).focus();
+							} else if ( e.key === 'Escape' ) {
+								setOpen( false );
+								input.focus();
+							}
+						},
+						{ signal: stateSignal }
+					);
 				} );
 			} );
 
@@ -242,6 +292,9 @@ const inputControlMethods = {
 	},
 
 	setupInputListeners() {
+		const stateSignal = this._panelListenerController?.signal;
+		const designGeneration = this._designGeneration;
+		this.setupControlAccessibility();
 		this.setupFontComboboxes();
 
 		// Area tabs
@@ -249,8 +302,10 @@ const inputControlMethods = {
 			document.querySelectorAll( '.oc-area-tab' )
 		);
 		areaTabs.forEach( ( btn ) => {
-			btn.addEventListener( 'click', () =>
-				this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) )
+			btn.addEventListener(
+				'click',
+				() => this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) ),
+				{ signal: stateSignal }
 			);
 			btn.addEventListener(
 				'touchend',
@@ -258,42 +313,46 @@ const inputControlMethods = {
 					e.preventDefault();
 					this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) );
 				},
-				{ passive: false }
+				{ passive: false, signal: stateSignal }
 			);
-			btn.addEventListener( 'keydown', ( e ) => {
-				if (
-					! [ 'ArrowLeft', 'ArrowRight', 'Home', 'End' ].includes(
-						e.key
-					)
-				) {
-					return;
-				}
-				e.preventDefault();
-				const currentIndex = areaTabs.indexOf( btn );
-				let nextIndex = currentIndex;
-				if ( e.key === 'ArrowLeft' ) {
-					nextIndex = Math.max( 0, currentIndex - 1 );
-				}
-				if ( e.key === 'ArrowRight' ) {
-					nextIndex = Math.min(
-						areaTabs.length - 1,
-						currentIndex + 1
+			btn.addEventListener(
+				'keydown',
+				( e ) => {
+					if (
+						! [ 'ArrowLeft', 'ArrowRight', 'Home', 'End' ].includes(
+							e.key
+						)
+					) {
+						return;
+					}
+					e.preventDefault();
+					const currentIndex = areaTabs.indexOf( btn );
+					let nextIndex = currentIndex;
+					if ( e.key === 'ArrowLeft' ) {
+						nextIndex = Math.max( 0, currentIndex - 1 );
+					}
+					if ( e.key === 'ArrowRight' ) {
+						nextIndex = Math.min(
+							areaTabs.length - 1,
+							currentIndex + 1
+						);
+					}
+					if ( e.key === 'Home' ) {
+						nextIndex = 0;
+					}
+					if ( e.key === 'End' ) {
+						nextIndex = areaTabs.length - 1;
+					}
+					areaTabs[ nextIndex ]?.focus();
+					this.switchArea(
+						parseInt(
+							areaTabs[ nextIndex ]?.dataset.areaIndex || '0',
+							10
+						)
 					);
-				}
-				if ( e.key === 'Home' ) {
-					nextIndex = 0;
-				}
-				if ( e.key === 'End' ) {
-					nextIndex = areaTabs.length - 1;
-				}
-				areaTabs[ nextIndex ]?.focus();
-				this.switchArea(
-					parseInt(
-						areaTabs[ nextIndex ]?.dataset.areaIndex || '0',
-						10
-					)
-				);
-			} );
+				},
+				{ signal: stateSignal }
+			);
 		} );
 
 		// Text / textarea
@@ -321,25 +380,38 @@ const inputControlMethods = {
 				counter.style.display = '';
 			};
 			updateCounter();
-			el.addEventListener( 'input', async () => {
-				el.setCustomValidity( '' );
-				el.setAttribute( 'aria-invalid', 'false' );
-				el.classList.remove( 'oc-preflight-field-error' );
-				const cleaned = this.normaliseLayerTextValue( lid, el.value );
-				if ( cleaned !== el.value ) {
-					el.value = cleaned;
-				}
-				if ( ! this.inputs[ lid ] ) {
-					this.inputs[ lid ] = {};
-				}
-				this.inputs[ lid ].value = cleaned;
-				this.syncLinkedLayerInput( lid, [ 'value' ] );
-				updateCounter();
-				await this.updateTextSizeSliderCap( lid );
-				this.requestPreviewFocus();
-				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-				this.updateHiddenField();
-			} );
+			el.addEventListener(
+				'input',
+				async () => {
+					el.setCustomValidity( '' );
+					el.setAttribute( 'aria-invalid', 'false' );
+					el.classList.remove( 'oc-preflight-field-error' );
+					const cleaned = this.normaliseLayerTextValue(
+						lid,
+						el.value
+					);
+					if ( cleaned !== el.value ) {
+						el.value = cleaned;
+					}
+					if ( ! this.inputs[ lid ] ) {
+						this.inputs[ lid ] = {};
+					}
+					this.inputs[ lid ].value = cleaned;
+					this.syncLinkedLayerInput( lid, [ 'value' ] );
+					updateCounter();
+					await this.updateTextSizeSliderCap( lid );
+					if (
+						designGeneration !== this._designGeneration ||
+						stateSignal?.aborted
+					) {
+						return;
+					}
+					this.requestPreviewFocus();
+					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+					this.updateHiddenField();
+				},
+				{ signal: stateSignal }
+			);
 		} );
 
 		// Spotify validation (invalid format / private playlist / unavailable).
@@ -351,36 +423,53 @@ const inputControlMethods = {
 					return;
 				}
 
-				el.addEventListener( 'input', () => {
-					el.setCustomValidity( '' );
-					el.setAttribute( 'aria-invalid', 'false' );
-					el.classList.remove( 'oc-preflight-field-error' );
-					this.invalidateSpotifyValidation( lid );
-					if ( ! this.inputs[ lid ] ) {
-						this.inputs[ lid ] = {};
-					}
-					this.inputs[ lid ].value = el.value;
-					this.inputs[ lid ].spotifyStatus = '';
-					this.inputs[ lid ].spotifyUri = '';
-					this.syncLinkedLayerInput( lid, [
-						'value',
-						'spotifyStatus',
-						'spotifyUri',
-					] );
-					this.setSpotifyError( lid, '', el );
-					this.requestPreviewFocus();
-					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-					this.updateHiddenField();
+				el.addEventListener(
+					'input',
+					() => {
+						el.setCustomValidity( '' );
+						el.setAttribute( 'aria-invalid', 'false' );
+						el.classList.remove( 'oc-preflight-field-error' );
+						this.invalidateSpotifyValidation( lid );
+						if ( ! this.inputs[ lid ] ) {
+							this.inputs[ lid ] = {};
+						}
+						this.inputs[ lid ].value = el.value;
+						this.inputs[ lid ].spotifyStatus = el.value.trim()
+							? 'pending'
+							: '';
+						this.inputs[ lid ].spotifyUri = this.extractSpotifyUri(
+							el.value
+						);
+						this.syncLinkedLayerInput( lid, [
+							'value',
+							'spotifyStatus',
+							'spotifyUri',
+						] );
+						this.setSpotifyError( lid, '', el );
+						this.requestPreviewFocus();
+						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+						this.updateHiddenField();
 
-					clearTimeout( this.spotifyValidateTimers[ lid ] );
-					this.spotifyValidateTimers[ lid ] = setTimeout( () => {
+						this.spotifyValidateTimers[ lid ] =
+							this.setStateTimeout( () => {
+								delete this.spotifyValidateTimers[ lid ];
+								this.validateSpotifyLayer( lid, el.value, el );
+							}, 450 );
+					},
+					{ signal: stateSignal }
+				);
+
+				el.addEventListener(
+					'blur',
+					() => {
+						this.clearStateTimeout(
+							this.spotifyValidateTimers[ lid ]
+						);
+						delete this.spotifyValidateTimers[ lid ];
 						this.validateSpotifyLayer( lid, el.value, el );
-					}, 450 );
-				} );
-
-				el.addEventListener( 'blur', () => {
-					this.validateSpotifyLayer( lid, el.value, el );
-				} );
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Help tooltips: tap to toggle on touch devices, close on outside tap.
@@ -401,22 +490,26 @@ const inputControlMethods = {
 				'.oc-help-toggle:not(.oc-spotify-modal-trigger), .oc-spotify-help-toggle'
 			)
 			.forEach( ( btn ) => {
-				btn.addEventListener( 'click', ( e ) => {
-					e.preventDefault();
-					e.stopPropagation();
-					const help = btn.closest(
-						'.oc-help-tooltip, .oc-spotify-help'
-					);
-					if ( ! help ) {
-						return;
-					}
-					const willOpen = ! help.classList.contains( 'oc-open' );
-					closeHelpTooltips();
-					if ( willOpen ) {
-						help.classList.add( 'oc-open' );
-						btn.setAttribute( 'aria-expanded', 'true' );
-					}
-				} );
+				btn.addEventListener(
+					'click',
+					( e ) => {
+						e.preventDefault();
+						e.stopPropagation();
+						const help = btn.closest(
+							'.oc-help-tooltip, .oc-spotify-help'
+						);
+						if ( ! help ) {
+							return;
+						}
+						const willOpen = ! help.classList.contains( 'oc-open' );
+						closeHelpTooltips();
+						if ( willOpen ) {
+							help.classList.add( 'oc-open' );
+							btn.setAttribute( 'aria-expanded', 'true' );
+						}
+					},
+					{ signal: stateSignal }
+				);
 			} );
 		if ( ! this.helpTooltipDocumentClickBound ) {
 			this.helpTooltipDocumentClickBound = true;
@@ -450,34 +543,50 @@ const inputControlMethods = {
 				}
 				this.inputs[ lid ].fontId = selectedFontId;
 			}
-			el.addEventListener( 'change', async () => {
-				if ( ! this.inputs[ lid ] ) {
-					this.inputs[ lid ] = {};
-				}
-				this.inputs[ lid ].fontId = parseInt( el.value, 10 );
-				const font = this.fonts.find(
-					( f ) => f.id === this.inputs[ lid ].fontId
-				);
-				if ( font ) {
-					try {
-						await this.loadFont( font );
-					} catch ( err ) {
-						console.warn( '[OC] Font load failed:', err );
+			el.addEventListener(
+				'change',
+				async () => {
+					if ( ! this.inputs[ lid ] ) {
+						this.inputs[ lid ] = {};
 					}
-				}
-				reflectFontOnSelect( el );
-				this.updateFontCombobox( el );
-				const preview = document.querySelector(
-					`.oc-font-preview[data-oc-font-preview="${ lid }"]`
-				);
-				if ( preview && font ) {
-					preview.style.fontFamily = font.name;
-				}
-				await this.updateTextSizeSliderCap( lid );
-				this.requestPreviewFocus();
-				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-				this.updateHiddenField();
-			} );
+					this.inputs[ lid ].fontId = parseInt( el.value, 10 );
+					const font = this.fonts.find(
+						( f ) => f.id === this.inputs[ lid ].fontId
+					);
+					if ( font ) {
+						try {
+							await this.loadFont( font );
+						} catch ( err ) {
+							console.warn( '[OC] Font load failed:', err );
+						}
+						if (
+							designGeneration !== this._designGeneration ||
+							stateSignal?.aborted
+						) {
+							return;
+						}
+					}
+					reflectFontOnSelect( el );
+					this.updateFontCombobox( el );
+					const preview = document.querySelector(
+						`.oc-font-preview[data-oc-font-preview="${ lid }"]`
+					);
+					if ( preview && font ) {
+						preview.style.fontFamily = font.name;
+					}
+					await this.updateTextSizeSliderCap( lid );
+					if (
+						designGeneration !== this._designGeneration ||
+						stateSignal?.aborted
+					) {
+						return;
+					}
+					this.requestPreviewFocus();
+					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+					this.updateHiddenField();
+				},
+				{ signal: stateSignal }
+			);
 		} );
 
 		// Font size
@@ -498,48 +607,60 @@ const inputControlMethods = {
 				};
 				updateValue();
 				this.updateTextSizeSliderCap( lid );
-				el.addEventListener( 'input', () => {
-					if ( ! this.inputs[ lid ] ) {
-						this.inputs[ lid ] = {};
-					}
-					this.inputs[ lid ].fontSize = Math.max(
-						1,
-						parseInt( el.value, 10 ) || 1
-					);
-					updateValue();
-					this.requestPreviewFocus();
-					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-					this.updateHiddenField();
-				} );
+				el.addEventListener(
+					'input',
+					() => {
+						if ( ! this.inputs[ lid ] ) {
+							this.inputs[ lid ] = {};
+						}
+						this.inputs[ lid ].fontSize = Math.max(
+							1,
+							parseInt( el.value, 10 ) || 1
+						);
+						updateValue();
+						this.requestPreviewFocus();
+						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Colour swatches
 		document
 			.querySelectorAll( '[data-oc-layer-swatch]' )
 			.forEach( ( btn ) => {
-				btn.addEventListener( 'click', () => {
-					const lid = parseInt( btn.dataset.ocLayerSwatch, 10 );
-					if ( ! this.inputs[ lid ] ) {
-						this.inputs[ lid ] = {};
-					}
-					this.inputs[ lid ].colorHex = btn.dataset.hex;
-					if ( this.getLayerById( lid )?.type === 'lineart' ) {
-						this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
-					}
-					btn.closest( '.oc-colour-swatches' )
-						?.querySelectorAll( '.oc-colour-swatch' )
-						.forEach( ( s ) => {
-							const isSelected = s === btn;
-							s.classList.toggle( 'oc-selected', isSelected );
-							s.setAttribute(
-								'aria-pressed',
-								isSelected ? 'true' : 'false'
-							);
-						} );
-					this.requestPreviewFocus();
-					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-					this.updateHiddenField();
-				} );
+				btn.addEventListener(
+					'click',
+					() => {
+						const lid = parseInt( btn.dataset.ocLayerSwatch, 10 );
+						if ( ! this.inputs[ lid ] ) {
+							this.inputs[ lid ] = {};
+						}
+						this.inputs[ lid ].colorHex = btn.dataset.hex;
+						if (
+							[ 'clipart', 'lineart' ].includes(
+								this.getLayerById( lid )?.type
+							)
+						) {
+							this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
+						}
+						btn.closest( '.oc-colour-swatches' )
+							?.querySelectorAll( '.oc-colour-swatch' )
+							.forEach( ( s ) => {
+								const isSelected = s === btn;
+								s.classList.toggle( 'oc-selected', isSelected );
+								s.setAttribute(
+									'aria-pressed',
+									isSelected ? 'true' : 'false'
+								);
+							} );
+						this.requestPreviewFocus();
+						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Free colour picker
@@ -547,21 +668,29 @@ const inputControlMethods = {
 			.querySelectorAll( '[data-oc-layer-color]' )
 			.forEach( ( el ) => {
 				const lid = parseInt( el.dataset.ocLayerColor, 10 );
-				el.addEventListener( 'input', () => {
-					if ( ! this.inputs[ lid ] ) {
-						this.inputs[ lid ] = {};
-					}
-					this.inputs[ lid ].colorHex = el.value;
-					if ( this.getLayerById( lid )?.type === 'lineart' ) {
-						this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
-					}
-					this.requestPreviewFocus();
-					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-					this.updateHiddenField();
-				} );
+				el.addEventListener(
+					'input',
+					() => {
+						if ( ! this.inputs[ lid ] ) {
+							this.inputs[ lid ] = {};
+						}
+						this.inputs[ lid ].colorHex = el.value;
+						if (
+							[ 'clipart', 'lineart' ].includes(
+								this.getLayerById( lid )?.type
+							)
+						) {
+							this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
+						}
+						this.requestPreviewFocus();
+						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
-		// Clipart items
+		// Image filters
 		document
 			.querySelectorAll( '[data-oc-layer-image-filter]' )
 			.forEach( ( el ) => {
@@ -571,63 +700,82 @@ const inputControlMethods = {
 				}
 				this.inputs[ lid ].imageFilterId =
 					parseInt( el.value, 10 ) || 0;
-				el.addEventListener( 'change', async () => {
-					if ( ! this.inputs[ lid ] ) {
-						this.inputs[ lid ] = {};
-					}
-					this.inputs[ lid ].imageFilterId =
-						parseInt( el.value, 10 ) || 0;
-					el.disabled = true;
-					try {
-						await this.applyAiImageFilter(
-							lid,
-							this.inputs[ lid ].imageFilterId
-						);
-					} finally {
-						el.disabled = this._controlLocks.size > 0;
-					}
-					this.syncLinkedLayerInput( lid, [ 'imageFilterId' ] );
-					this.requestPreviewFocus();
-					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-					this.updateHiddenField();
-				} );
+				el.addEventListener(
+					'change',
+					async () => {
+						if ( ! this.inputs[ lid ] ) {
+							this.inputs[ lid ] = {};
+						}
+						const filterId = parseInt( el.value, 10 ) || 0;
+						el.disabled = true;
+						try {
+							await this.applyAiImageFilter( lid, filterId );
+						} finally {
+							if (
+								designGeneration === this._designGeneration &&
+								! stateSignal?.aborted &&
+								el.isConnected
+							) {
+								el.disabled = this._controlLocks.size > 0;
+							}
+						}
+						if (
+							designGeneration !== this._designGeneration ||
+							stateSignal?.aborted
+						) {
+							return;
+						}
+						this.requestPreviewFocus();
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Clipart items
 		document
 			.querySelectorAll( '[data-oc-layer-clipart]' )
 			.forEach( ( btn ) => {
-				btn.addEventListener( 'click', () => {
-					const lid = parseInt( btn.dataset.ocLayerClipart, 10 );
-					if ( ! this.inputs[ lid ] ) {
-						this.inputs[ lid ] = {};
-					}
-					this.inputs[ lid ].clipartId = parseInt(
-						btn.dataset.ocClipart,
-						10
-					);
-					this.inputs[ lid ].clipartUrl = btn.dataset.ocClipartUrl;
-					this.inputs[ lid ].clipartRecolourable =
-						btn.dataset.ocClipartRecolourable === '1';
-					this.syncLinkedLayerInput( lid, [
-						'clipartId',
-						'clipartUrl',
-						'clipartRecolourable',
-					] );
-					btn.closest( '.oc-clipart-grid' )
-						?.querySelectorAll( '.oc-clipart-item' )
-						.forEach( ( i ) => {
-							const isSelected = i === btn;
-							i.classList.toggle( 'oc-selected', isSelected );
-							i.setAttribute(
-								'aria-pressed',
-								isSelected ? 'true' : 'false'
-							);
-						} );
-					this.requestPreviewFocus();
-					this.scheduleRedraw( this.areaIndexForLayer( lid ) );
-					this.updateHiddenField();
-				} );
+				btn.addEventListener(
+					'click',
+					() => {
+						const lid = parseInt( btn.dataset.ocLayerClipart, 10 );
+						if ( ! this.inputs[ lid ] ) {
+							this.inputs[ lid ] = {};
+						}
+						this.inputs[ lid ].clipartId = parseInt(
+							btn.dataset.ocClipart,
+							10
+						);
+						this.inputs[ lid ].clipartUrl =
+							btn.dataset.ocClipartUrl;
+						this.inputs[ lid ].clipartRecolourable =
+							btn.dataset.ocClipartRecolourable === '1';
+						this.syncLinkedLayerInput( lid, [
+							'clipartId',
+							'clipartUrl',
+							'clipartRecolourable',
+						] );
+						btn.closest( '.oc-clipart-grid' )
+							?.querySelectorAll( '.oc-clipart-item' )
+							.forEach( ( i ) => {
+								const isSelected = i === btn;
+								i.classList.toggle( 'oc-selected', isSelected );
+								i.setAttribute(
+									'aria-pressed',
+									isSelected ? 'true' : 'false'
+								);
+								i.setAttribute(
+									'aria-checked',
+									isSelected ? 'true' : 'false'
+								);
+							} );
+						this.requestPreviewFocus();
+						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		if ( ! this.carouselResizeBound ) {
@@ -650,13 +798,23 @@ const inputControlMethods = {
 			.forEach( ( input ) => {
 				const lid = parseInt( input.dataset.ocClipartSearch, 10 );
 				this.clipartSearchTerms[ lid ] = '';
-				input.addEventListener( 'input', () => {
-					this.clipartSearchTerms[ lid ] = input.value;
-					clearTimeout( this.clipartSearchTimers[ lid ] );
-					this.clipartSearchTimers[ lid ] = setTimeout( () => {
-						this.filterClipart( lid );
-					}, 200 );
-				} );
+				input.addEventListener(
+					'input',
+					() => {
+						this.clipartSearchTerms[ lid ] = input.value;
+						this.clearStateTimeout(
+							this.clipartSearchTimers[ lid ]
+						);
+						this.clipartSearchTimers[ lid ] = this.setStateTimeout(
+							() => {
+								delete this.clipartSearchTimers[ lid ];
+								this.filterClipart( lid );
+							},
+							200
+						);
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Clipart category filter
@@ -665,29 +823,223 @@ const inputControlMethods = {
 			.forEach( ( select ) => {
 				const lid = parseInt( select.dataset.ocClipartCategory, 10 );
 				this.clipartCategoryFilters[ lid ] = '';
-				select.addEventListener( 'change', () => {
-					this.clipartCategoryFilters[ lid ] = select.value;
-					this.filterClipart( lid );
-				} );
+				select.addEventListener(
+					'change',
+					() => {
+						this.clipartCategoryFilters[ lid ] = select.value;
+						this.filterClipart( lid );
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Dismiss resolution warning
 		document
 			.querySelectorAll( '.oc-resolution-warning' )
 			.forEach( ( warnEl ) => {
-				warnEl.addEventListener( 'click', ( e ) => {
-					if (
-						e.target === warnEl &&
-						warnEl.classList.contains( 'oc-res-warning' )
-					) {
-						warnEl.style.display = 'none';
-					}
-				} );
+				warnEl.addEventListener(
+					'click',
+					( e ) => {
+						if (
+							e.target === warnEl &&
+							warnEl.classList.contains( 'oc-res-warning' )
+						) {
+							warnEl.style.display = 'none';
+						}
+					},
+					{ signal: stateSignal }
+				);
 			} );
 	},
 
 	getLayerById( layerId ) {
 		return this.layersById[ layerId ] || null;
+	},
+
+	ensureLayerControlHeader( layer, control, required ) {
+		const section = control?.closest( '.oc-layer-section' );
+		const body = control?.closest( '.oc-layer-body' );
+		if ( ! section || ! body ) {
+			return;
+		}
+		const hasHeader = Array.from( section.children ).some( ( child ) =>
+			child.classList.contains( 'oc-layer-header' )
+		);
+		if ( hasHeader ) {
+			return;
+		}
+
+		const header = document.createElement( 'div' );
+		header.className = 'oc-layer-header';
+		const label = document.createElement( 'span' );
+		label.textContent = layer.label || 'Personalisation option';
+		header.appendChild( label );
+		if ( required ) {
+			const requiredLabel = document.createElement( 'span' );
+			requiredLabel.className = 'oc-layer-required';
+			requiredLabel.textContent = '* Required';
+			header.appendChild( requiredLabel );
+		}
+		section.insertBefore( header, body );
+	},
+
+	setupControlAccessibility() {
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				const required = Boolean(
+					layer.required || layer.settings?.required
+				);
+				const label = layer.label || 'Personalisation option';
+				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+					const input = document.querySelector(
+						`[data-oc-layer-text="${ layer.id }"]`
+					);
+					if ( input ) {
+						input.required = required;
+						input.setAttribute(
+							'aria-required',
+							required ? 'true' : 'false'
+						);
+					}
+					return;
+				}
+
+				if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+					const zone = document.querySelector(
+						`[data-oc-upload-zone="${ layer.id }"]`
+					);
+					const fallback = document.querySelector(
+						`[data-oc-default-image="${ layer.id }"]`
+					);
+					this.ensureLayerControlHeader(
+						layer,
+						zone || fallback,
+						required
+					);
+					if ( zone ) {
+						zone.setAttribute( 'role', 'group' );
+						zone.setAttribute( 'aria-label', label );
+						zone.setAttribute(
+							'aria-required',
+							required ? 'true' : 'false'
+						);
+					}
+					return;
+				}
+
+				if ( layer.type === 'clipart' ) {
+					const grid = document.querySelector(
+						`[data-oc-clipart-grid="${ layer.id }"]`
+					);
+					this.ensureLayerControlHeader( layer, grid, required );
+					grid?.setAttribute( 'role', 'radiogroup' );
+					grid?.setAttribute( 'aria-label', label );
+					grid?.setAttribute(
+						'aria-required',
+						required ? 'true' : 'false'
+					);
+					document
+						.querySelectorAll(
+							`[data-oc-layer-clipart="${ layer.id }"]`
+						)
+						.forEach( ( option ) => {
+							option.setAttribute( 'role', 'radio' );
+							option.setAttribute(
+								'aria-checked',
+								option.classList.contains( 'oc-selected' )
+									? 'true'
+									: 'false'
+							);
+						} );
+					const search = document.querySelector(
+						`[data-oc-clipart-search="${ layer.id }"]`
+					);
+					const category = document.querySelector(
+						`[data-oc-clipart-category="${ layer.id }"]`
+					);
+					search?.setAttribute( 'aria-label', `Search ${ label }` );
+					category?.setAttribute(
+						'aria-label',
+						`Filter ${ label } by category`
+					);
+					return;
+				}
+
+				if ( layer.type === 'spotify' ) {
+					const input = document.querySelector(
+						`[data-oc-layer-spotify="${ layer.id }"]`
+					);
+					if ( input ) {
+						input.required = required;
+						input.setAttribute(
+							'aria-required',
+							required ? 'true' : 'false'
+						);
+						input.setAttribute( 'aria-label', label );
+					}
+				}
+			} );
+		} );
+	},
+
+	applyUploadZoneAccessibility( zone, layer ) {
+		if ( ! zone || ! layer ) {
+			return;
+		}
+		const required = Boolean( layer.required || layer.settings?.required );
+		const label = layer.label || 'Upload artwork';
+		zone.setAttribute( 'aria-label', label );
+		zone.setAttribute( 'aria-required', required ? 'true' : 'false' );
+		zone.querySelectorAll( 'input[type="file"]' ).forEach( ( input ) => {
+			input.setAttribute( 'aria-label', label );
+			input.setAttribute( 'aria-required', required ? 'true' : 'false' );
+		} );
+	},
+
+	seedLayerFontDefaults() {
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				if ( ! [ 'text', 'textarea' ].includes( layer.type ) ) {
+					return;
+				}
+				if ( ! this.inputs[ layer.id ] ) {
+					this.inputs[ layer.id ] = {};
+				}
+				const select = document.querySelector(
+					`[data-oc-layer-font="${ layer.id }"]`
+				);
+				if ( select ) {
+					const allowedIds = Array.from( select.options )
+						.map( ( option ) => parseInt( option.value, 10 ) || 0 )
+						.filter( Boolean );
+					const configured =
+						parseInt( this.inputs[ layer.id ].fontId, 10 ) ||
+						parseInt( layer.settings?.default_font_id, 10 ) ||
+						0;
+					const selected = allowedIds.includes( configured )
+						? configured
+						: parseInt( select.value, 10 ) || allowedIds[ 0 ] || 0;
+					this.inputs[ layer.id ].fontId = selected;
+					if ( selected ) {
+						select.value = String( selected );
+					}
+					return;
+				}
+
+				const activeIds = this.fonts.map( ( font ) =>
+					Number( font.id )
+				);
+				const configured =
+					parseInt( this.inputs[ layer.id ].fontId, 10 ) ||
+					parseInt( layer.settings?.default_font_id, 10 ) ||
+					0;
+				this.inputs[ layer.id ].fontId = activeIds.includes(
+					configured
+				)
+					? configured
+					: activeIds[ 0 ] || 0;
+			} );
+		} );
 	},
 
 	seedLockedLayerDefaults() {
@@ -730,8 +1082,63 @@ const inputControlMethods = {
 					this.inputs[ layerId ].sourceAttachmentId =
 						this.inputs[ layerId ].attachmentId;
 					this.inputs[ layerId ].sourceAttachmentUrl = url;
+					this.inputs[ layerId ].originalAttachmentUrl = url;
+					this.inputs[ layerId ].sourceOriginalAttachmentUrl = url;
+					const extension = url.match(
+						/\.([a-z0-9]+)(?:[?#]|$)/i
+					)?.[ 1 ];
+					if ( extension ) {
+						this.inputs[ layerId ].artworkFileType =
+							extension.toLowerCase();
+						this.inputs[ layerId ].sourceArtworkFileType =
+							extension.toLowerCase();
+					}
 				}
 			} );
+	},
+
+	seedLinkedImageInputs() {
+		const seeded = new Set();
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				if ( ! [ 'image', 'clipmask' ].includes( layer.type ) ) {
+					return;
+				}
+				const canonicalId = this.canonicalLinkedLayerId( layer.id );
+				const members = this.linkedLayerMembers( layer.id );
+				if ( members.length < 2 || seeded.has( canonicalId ) ) {
+					return;
+				}
+				seeded.add( canonicalId );
+				const source = this.inputs[ canonicalId ] || {};
+				members.forEach( ( layerId ) => {
+					if ( layerId === canonicalId ) {
+						return;
+					}
+					this.inputs[ layerId ] = this.inputs[ layerId ] || {};
+					LINKED_IMAGE_INPUT_KEYS.forEach( ( key ) => {
+						if ( source[ key ] === undefined ) {
+							delete this.inputs[ layerId ][ key ];
+						} else {
+							this.inputs[ layerId ][ key ] = source[ key ];
+						}
+					} );
+				} );
+			} );
+		} );
+	},
+
+	isProductionImageInput( input ) {
+		return Number( input?.attachmentId || 0 ) > 0;
+	},
+
+	imageLayerRequiresAttachment( layer ) {
+		return Boolean(
+			layer?.locked ||
+				layer?.required ||
+				layer?.settings?.required ||
+				layer?.settings?.allow_image_change === false
+		);
 	},
 
 	charLimitForLayer( layerId ) {
@@ -797,30 +1204,52 @@ const inputControlMethods = {
 		}
 	},
 
-	linkedLayerIds( sourceLayerId ) {
+	isLinkedLayerEligible( layer ) {
+		if ( ! layer || layer.visible === false || layer.locked ) {
+			return false;
+		}
+		if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+			return layer.settings?.allow_image_change !== false;
+		}
+		if ( layer.type === 'clipart' ) {
+			return layer.settings?.allow_clipart_change !== false;
+		}
+		return true;
+	},
+
+	linkedLayerMembers( sourceLayerId ) {
 		const source = this.getLayerById( sourceLayerId );
 		const group = String( source?.settings?.link_group || '' ).trim();
 		if ( ! source || ! group ) {
-			return [];
+			return this.isLinkedLayerEligible( source ) ? [ source.id ] : [];
 		}
 
-		const ids = [];
+		const members = [];
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
-				if (
-					layer.id === sourceLayerId ||
-					layer.type !== source.type
-				) {
+				if ( layer.type !== source.type ) {
 					return;
 				}
 				if (
-					String( layer.settings?.link_group || '' ).trim() === group
+					String( layer.settings?.link_group || '' ).trim() ===
+						group &&
+					this.isLinkedLayerEligible( layer )
 				) {
-					ids.push( layer.id );
+					members.push( layer.id );
 				}
 			} );
 		} );
-		return ids;
+		return members;
+	},
+
+	linkedLayerIds( sourceLayerId ) {
+		return this.linkedLayerMembers( sourceLayerId ).filter(
+			( layerId ) => Number( layerId ) !== Number( sourceLayerId )
+		);
+	},
+
+	syncLinkedImageInput( sourceLayerId ) {
+		this.syncLinkedLayerInput( sourceLayerId, LINKED_IMAGE_INPUT_KEYS );
 	},
 
 	canonicalLinkedLayerId( layerId ) {
@@ -830,18 +1259,7 @@ const inputControlMethods = {
 			return layerId;
 		}
 
-		for ( const area of this.areas ) {
-			for ( const candidate of area.layers || [] ) {
-				if (
-					candidate.type === layer.type &&
-					String( candidate.settings?.link_group || '' ).trim() ===
-						group
-				) {
-					return candidate.id;
-				}
-			}
-		}
-		return layerId;
+		return this.linkedLayerMembers( layerId )[ 0 ] || layerId;
 	},
 
 	syncLinkedLayerInput( sourceLayerId, keys ) {
@@ -849,22 +1267,13 @@ const inputControlMethods = {
 		if ( ! sourceInput ) {
 			return;
 		}
+		const sourceLayer = this.getLayerById( sourceLayerId );
+		if ( ! this.isLinkedLayerEligible( sourceLayer ) ) {
+			return;
+		}
 
+		const targetAreaIndexes = new Set();
 		this.linkedLayerIds( sourceLayerId ).forEach( ( layerId ) => {
-			const targetLayer = this.getLayerById( layerId );
-			if (
-				targetLayer?.type === 'image' &&
-				targetLayer.settings?.allow_image_change === false
-			) {
-				return;
-			}
-			if (
-				targetLayer?.type === 'clipart' &&
-				targetLayer.settings?.allow_clipart_change === false
-			) {
-				return;
-			}
-
 			if ( ! this.inputs[ layerId ] ) {
 				this.inputs[ layerId ] = {};
 			}
@@ -877,7 +1286,11 @@ const inputControlMethods = {
 			} );
 			this.clampLayerInputValue( layerId );
 			this.updateLinkedLayerControls( layerId, keys );
+			targetAreaIndexes.add( this.areaIndexForLayer( layerId ) );
 		} );
+		targetAreaIndexes.forEach( ( areaIndex ) =>
+			this.scheduleRedraw( areaIndex )
+		);
 	},
 
 	updateLinkedLayerControls( layerId, keys ) {
@@ -934,6 +1347,10 @@ const inputControlMethods = {
 						'aria-pressed',
 						isSelected ? 'true' : 'false'
 					);
+					item.setAttribute(
+						'aria-checked',
+						isSelected ? 'true' : 'false'
+					);
 				} );
 		}
 		if (
@@ -945,7 +1362,7 @@ const inputControlMethods = {
 				.forEach( ( zone ) => {
 					this.setUploadZoneState(
 						zone,
-						input.attachmentUrl ? 'uploaded' : ''
+						this.isProductionImageInput( input ) ? 'uploaded' : ''
 					);
 				} );
 		}
@@ -1038,6 +1455,10 @@ const inputControlMethods = {
 							'aria-pressed',
 							selected ? 'true' : 'false'
 						);
+						i.setAttribute(
+							'aria-checked',
+							selected ? 'true' : 'false'
+						);
 					} );
 			}
 
@@ -1053,7 +1474,7 @@ const inputControlMethods = {
 				.forEach( ( zone ) => {
 					this.setUploadZoneState(
 						zone,
-						inp.attachmentUrl ? 'uploaded' : ''
+						this.isProductionImageInput( inp ) ? 'uploaded' : ''
 					);
 				} );
 		}
@@ -1147,23 +1568,37 @@ const inputControlMethods = {
 		this.updateHiddenField();
 	},
 
-	switchArea( index ) {
-		this.activeArea = index;
+	applyActiveAreaState( index ) {
+		this.activeArea = Math.max(
+			0,
+			Math.min(
+				Math.max( 0, this.areas.length - 1 ),
+				Number( index ) || 0
+			)
+		);
 		document.querySelectorAll( '.oc-area-tab' ).forEach( ( btn, i ) => {
-			btn.classList.toggle( 'oc-active', i === index );
-			btn.setAttribute( 'aria-selected', i === index ? 'true' : 'false' );
-			btn.setAttribute( 'tabindex', i === index ? '0' : '-1' );
+			btn.classList.toggle( 'oc-active', i === this.activeArea );
+			btn.setAttribute(
+				'aria-selected',
+				i === this.activeArea ? 'true' : 'false'
+			);
+			btn.setAttribute( 'tabindex', i === this.activeArea ? '0' : '-1' );
 		} );
 		document.querySelectorAll( '.oc-area-controls' ).forEach( ( el ) => {
-			const isActive = parseInt( el.dataset.areaIndex, 10 ) === index;
+			const isActive =
+				parseInt( el.dataset.areaIndex, 10 ) === this.activeArea;
 			el.hidden = ! isActive;
 			el.setAttribute( 'aria-hidden', isActive ? 'false' : 'true' );
 		} );
-		this.redraw( index );
+	},
+
+	switchArea( index ) {
+		this.applyActiveAreaState( index );
+		this.redraw( this.activeArea );
 		document
 			.querySelectorAll(
 				'.oc-area-controls[data-area-index="' +
-					index +
+					this.activeArea +
 					'"] [data-oc-clipart-carousel]'
 			)
 			.forEach( ( carousel ) => {

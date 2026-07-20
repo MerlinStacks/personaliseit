@@ -55,10 +55,12 @@ class OC_Admin_Print_Methods {
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
+		$saved = is_array( $saved ) ? $saved : [];
 		$all   = [];
 
 		foreach ( $defaults as $key => $def ) {
-			$all[ $key ] = wp_parse_args( $saved[ $key ] ?? [], $def );
+			$row = is_array( $saved[ $key ] ?? null ) ? $saved[ $key ] : [];
+			$all[ $key ] = self::normalise_method_settings( $key, wp_parse_args( $row, $def ), $def );
 		}
 
 		if ( '' !== $method ) {
@@ -66,6 +68,17 @@ class OC_Admin_Print_Methods {
 		}
 
 		return $all;
+	}
+
+	/** Return whether a method may be selected for a new or edited design. */
+	public static function is_enabled( string $method ): bool {
+		$settings = self::get( sanitize_key( $method ) );
+		return is_array( $settings ) && ! empty( $settings['enabled'] );
+	}
+
+	/** Return method keys currently available for new admin selections. */
+	public static function enabled_methods(): array {
+		return array_keys( array_filter( self::get(), static fn ( $settings ): bool => ! empty( $settings['enabled'] ) ) );
 	}
 
 	public function render(): void {
@@ -160,6 +173,7 @@ class OC_Admin_Print_Methods {
 								       min="72" step="1" class="small-text oc-input" style="width:90px;" />
 								<span style="font-size:13px;color:var(--oc-gray-400);">DPI</span>
 							</div>
+							<p class="oc-form-help"><?php esc_html_e( 'Stored as method metadata. Generated dimensions use the DPI saved on each design print area.', 'overcustomise' ); ?></p>
 						</div>
 					</div>
 					<div class="oc-form-row">
@@ -265,6 +279,7 @@ class OC_Admin_Print_Methods {
 								<input type="number" name="<?php echo esc_attr( "oc_pm[{$key}][max_colours]" ); ?>"
 								       value="<?php echo esc_attr( $m['max_colours'] ); ?>"
 								       min="1" max="32" step="1" class="small-text oc-input" style="width:80px;" />
+								<p class="oc-form-help"><?php esc_html_e( 'Production metadata only; the current EPS generator does not reduce artwork colours to this limit.', 'overcustomise' ); ?></p>
 							</div>
 						</div>
 						<div class="oc-form-row">
@@ -279,7 +294,7 @@ class OC_Admin_Print_Methods {
 										</option>
 									<?php endforeach; ?>
 								</select>
-								<p class="oc-form-help"><?php esc_html_e( 'Used for thread colour mapping in embroidery production briefs.', 'overcustomise' ); ?></p>
+								<p class="oc-form-help"><?php esc_html_e( 'Production metadata only; the current EPS generator does not perform thread-brand mapping.', 'overcustomise' ); ?></p>
 							</div>
 						</div>
 					<?php endif; ?>
@@ -307,7 +322,7 @@ class OC_Admin_Print_Methods {
 							<textarea name="<?php echo esc_attr( "oc_pm[{$key}][notes]" ); ?>"
 							          rows="3" class="oc-textarea"
 							><?php echo esc_textarea( $m['notes'] ); ?></textarea>
-							<p class="oc-form-help"><?php esc_html_e( 'Appears on production briefs for this method.', 'overcustomise' ); ?></p>
+							<p class="oc-form-help"><?php esc_html_e( 'Stored for operator reference only; it is not embedded in generated files.', 'overcustomise' ); ?></p>
 						</div>
 					</div>
 				</div>
@@ -317,6 +332,9 @@ class OC_Admin_Print_Methods {
 	}
 
 	private function save(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
 		if ( ! wp_verify_nonce( sanitize_key( $_POST['oc_print_methods_nonce'] ?? '' ), 'oc_save_print_methods' ) ) {
 			add_settings_error( 'oc_print_methods', 'invalid_nonce', __( 'Security check failed.', 'overcustomise' ), 'error' );
 			return;
@@ -348,7 +366,7 @@ class OC_Admin_Print_Methods {
 			'label'        => $current['label'],
 			'colour_space' => $current['colour_space'],
 			'enabled'      => ! empty( $posted['enabled'] ),
-			'dpi'          => max( 72, (int) ( $posted['dpi'] ?? $current['dpi'] ) ),
+			'dpi'          => max( 72, min( 2400, (int) ( $posted['dpi'] ?? $current['dpi'] ) ) ),
 			'notes'        => sanitize_textarea_field( wp_unslash( (string) ( $posted['notes'] ?? '' ) ) ),
 		];
 
@@ -387,5 +405,55 @@ class OC_Admin_Print_Methods {
 		}
 
 		return $sanitised;
+	}
+
+	/** Apply a strict schema to saved settings before any frontend or cron consumer reads them. */
+	private static function normalise_method_settings( string $key, array $settings, array $defaults ): array {
+		$normalised = $defaults;
+		$normalised['label']        = $defaults['label'];
+		$normalised['colour_space'] = $defaults['colour_space'];
+		$normalised['enabled']      = self::normalise_boolean( $settings['enabled'] ?? $defaults['enabled'] );
+		$normalised['dpi']          = max( 72, min( 2400, is_numeric( $settings['dpi'] ?? null ) ? (int) $settings['dpi'] : (int) $defaults['dpi'] ) );
+		$normalised['notes']        = is_scalar( $settings['notes'] ?? null ) ? sanitize_textarea_field( (string) $settings['notes'] ) : '';
+
+		if ( 'uv' === $key ) {
+			$normalised['white_ink_layer'] = self::normalise_boolean( $settings['white_ink_layer'] ?? $defaults['white_ink_layer'] );
+			$spot_name = is_scalar( $settings['white_spot_name'] ?? null ) ? (string) $settings['white_spot_name'] : (string) $defaults['white_spot_name'];
+			$spot_name = trim( (string) preg_replace( '/[^A-Za-z0-9_\- ]+/', '', $spot_name ) );
+			$normalised['white_spot_name'] = '' !== $spot_name ? substr( $spot_name, 0, 64 ) : 'WHITE';
+		}
+
+		if ( 'engraving' === $key ) {
+			$material = is_scalar( $settings['material'] ?? null ) ? sanitize_key( (string) $settings['material'] ) : 'default';
+			$dithering = is_scalar( $settings['dithering'] ?? null ) ? sanitize_key( (string) $settings['dithering'] ) : 'none';
+			$normalised['material']   = in_array( $material, [ 'default', 'wood', 'glass' ], true ) ? $material : 'default';
+			$normalised['gamma']      = max( 0.2, min( 4.0, is_numeric( $settings['gamma'] ?? null ) ? (float) $settings['gamma'] : (float) $defaults['gamma'] ) );
+			$normalised['contrast']   = max( -100, min( 100, is_numeric( $settings['contrast'] ?? null ) ? (int) $settings['contrast'] : (int) $defaults['contrast'] ) );
+			$normalised['edge_boost'] = max( 0, min( 100, is_numeric( $settings['edge_boost'] ?? null ) ? (int) $settings['edge_boost'] : (int) $defaults['edge_boost'] ) );
+			$normalised['dithering']  = in_array( $dithering, [ 'none', 'floyd_steinberg' ], true ) ? $dithering : 'none';
+		}
+
+		if ( 'embroidery' === $key ) {
+			$brand = is_scalar( $settings['thread_brand'] ?? null ) ? (string) $settings['thread_brand'] : (string) $defaults['thread_brand'];
+			$normalised['max_colours']  = max( 1, min( 32, is_numeric( $settings['max_colours'] ?? null ) ? (int) $settings['max_colours'] : (int) $defaults['max_colours'] ) );
+			$normalised['thread_brand'] = in_array( $brand, [ 'Madeira', 'Isacord', 'Robison-Anton', 'Sulky', 'Brother' ], true ) ? $brand : $defaults['thread_brand'];
+		}
+
+		if ( 'sublimation' === $key ) {
+			$normalised['full_bleed'] = self::normalise_boolean( $settings['full_bleed'] ?? $defaults['full_bleed'] );
+		}
+
+		return $normalised;
+	}
+
+	private static function normalise_boolean( mixed $value ): bool {
+		if ( is_bool( $value ) ) {
+			return $value;
+		}
+		if ( is_scalar( $value ) ) {
+			$normalised = filter_var( $value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE );
+			return null === $normalised ? false : $normalised;
+		}
+		return false;
 	}
 }

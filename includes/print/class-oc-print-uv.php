@@ -44,9 +44,9 @@ class OC_Print_UV extends OC_Print_Base {
 		self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
 
 		// ── Page 2: White ink mask (optional) ─────────────────────────────
-		$methods_settings = get_option( 'oc_print_methods', [] );
-		if ( ! empty( $methods_settings['uv']['white_ink_layer'] ) ) {
-			$white_spot_name = self::resolve_white_spot_name( $methods_settings );
+		$method_settings = OC_Admin_Print_Methods::get( 'uv' );
+		if ( is_array( $method_settings ) && ! empty( $method_settings['white_ink_layer'] ) ) {
+			$white_spot_name = self::resolve_white_spot_name( $method_settings );
 			$pdf->AddPage();
 			self::render_white_ink_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $white_spot_name, $area_data );
 		}
@@ -79,9 +79,9 @@ class OC_Print_UV extends OC_Print_Base {
 		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed, $slug );
 		$pdf->SetTitle( sprintf( 'UV Print - Order #%d - Combined', $order->get_id() ) );
 
-		$methods_settings = get_option( 'oc_print_methods', [] );
-		$add_white_page   = ! empty( $methods_settings['uv']['white_ink_layer'] );
-		$white_spot_name  = $add_white_page ? self::resolve_white_spot_name( $methods_settings ) : '';
+		$method_settings = OC_Admin_Print_Methods::get( 'uv' );
+		$add_white_page  = is_array( $method_settings ) && ! empty( $method_settings['white_ink_layer'] );
+		$white_spot_name = $add_white_page ? self::resolve_white_spot_name( $method_settings ) : '';
 
 		foreach ( $areas as $entry ) {
 			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
@@ -196,8 +196,8 @@ class OC_Print_UV extends OC_Print_Base {
 		}
 	}
 
-	private static function resolve_white_spot_name( array $methods_settings ): string {
-		$spot_name = (string) ( $methods_settings['uv']['white_spot_name'] ?? '' );
+	private static function resolve_white_spot_name( array $method_settings ): string {
+		$spot_name = (string) ( $method_settings['white_spot_name'] ?? '' );
 		$spot_name = sanitize_text_field( $spot_name );
 		$spot_name = preg_replace( '/[^A-Za-z0-9_\- ]+/', '', $spot_name );
 		$spot_name = trim( (string) $spot_name );

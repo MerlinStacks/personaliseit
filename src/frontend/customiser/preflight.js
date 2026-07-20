@@ -4,14 +4,6 @@
  * Preflight validation and validation message rendering.
  */
 
-const INVALID_SPOTIFY_STATUSES = [
-	'invalid_format',
-	'playlist_private_or_invalid',
-	'invalid_or_unavailable',
-	'unreachable',
-	'rate_limited',
-];
-
 const preflightMethods = {
 	clearCustomValidity() {
 		document
@@ -126,14 +118,34 @@ const preflightMethods = {
 			return null;
 		}
 
+		const request = this.createStateAbortController( 10000 );
 		return new Promise( ( resolve ) => {
 			const img = new Image();
+			let settled = false;
+			const finish = ( result ) => {
+				if ( settled ) {
+					return;
+				}
+				settled = true;
+				img.onload = null;
+				img.onerror = null;
+				request.release();
+				resolve( result );
+			};
 			img.onload = () =>
-				resolve( {
+				finish( {
 					width: img.naturalWidth || 0,
 					height: img.naturalHeight || 0,
 				} );
-			img.onerror = () => resolve( null );
+			img.onerror = () => finish( null );
+			request.controller.signal.addEventListener(
+				'abort',
+				() => {
+					img.src = '';
+					finish( null );
+				},
+				{ once: true }
+			);
 			img.src = url;
 		} );
 	},
@@ -147,12 +159,15 @@ const preflightMethods = {
 
 		for ( const area of this.areas ) {
 			for ( const layer of area.layers || [] ) {
-				if ( layer.locked ) {
+				const isImageLayer = [ 'image', 'clipmask' ].includes(
+					layer.type
+				);
+				if ( layer.locked && ! isImageLayer ) {
 					continue;
 				}
 				const input = this.inputs[ layer.id ] || {};
 				const settings = layer.settings || {};
-				const required = Boolean( settings.required );
+				const required = Boolean( layer.required || settings.required );
 				const label = layer.label || layer.type;
 				const fieldEl = this.getLayerInputEl( layer );
 				let value = '';
@@ -176,6 +191,28 @@ const preflightMethods = {
 							}
 						}
 						if ( value ) {
+							const fontId = Number( input.fontId || 0 );
+							const fontSelect = document.querySelector(
+								`[data-oc-layer-font="${ layer.id }"]`
+							);
+							const permittedFontIds = fontSelect
+								? Array.from( fontSelect.options ).map(
+										( option ) => Number( option.value )
+								  )
+								: this.fonts.map( ( font ) =>
+										Number( font.id )
+								  );
+							if (
+								! fontId ||
+								! permittedFontIds.includes( fontId )
+							) {
+								errors.push(
+									`${ label } needs an available font.`
+								);
+								fieldEl?.classList.add(
+									'oc-preflight-field-error'
+								);
+							}
 							const charLimit =
 								parseInt( settings.char_limit, 10 ) || 0;
 							if (
@@ -206,15 +243,24 @@ const preflightMethods = {
 
 					case 'image':
 					case 'clipmask':
-						if ( required && ! input.attachmentId ) {
+						if (
+							! this.isProductionImageInput( input ) &&
+							( this.imageLayerRequiresAttachment( layer ) ||
+								Boolean( input.attachmentUrl ) )
+						) {
 							errors.push(
-								`${ label } needs an uploaded image.`
+								input.attachmentUrl
+									? `${ label } has no production attachment. Please upload the image again.`
+									: `${ label } needs an uploaded image.`
 							);
 							fieldEl?.classList.add(
 								'oc-preflight-field-error'
 							);
 						}
-						if ( input.attachmentUrl ) {
+						if (
+							this.isProductionImageInput( input ) &&
+							input.attachmentUrl
+						) {
 							let imageMeta = input.imageMeta || null;
 							if ( ! imageMeta ) {
 								imageMeta = await this.getTrackedImageMeta(
@@ -295,20 +341,28 @@ const preflightMethods = {
 							break;
 						}
 
-						if ( value && ! spotifyValidated.has( layer.id ) ) {
+						const canonicalId = this.canonicalLinkedLayerId(
+							layer.id
+						);
+						if ( value && ! spotifyValidated.has( canonicalId ) ) {
+							const canonicalLayer =
+								this.getLayerById( canonicalId );
+							const canonicalInput =
+								this.inputs[ canonicalId ] || input;
 							await this.validateSpotifyLayer(
-								layer.id,
-								value,
-								fieldEl
+								canonicalId,
+								canonicalInput.value || value,
+								this.getLayerInputEl( canonicalLayer ) ||
+									fieldEl
 							);
-							spotifyValidated.add( layer.id );
+							spotifyValidated.add( canonicalId );
 						}
 
 						if ( value ) {
 							const status = String(
 								this.inputs[ layer.id ]?.spotifyStatus || ''
 							);
-							if ( INVALID_SPOTIFY_STATUSES.includes( status ) ) {
+							if ( status !== 'ok' ) {
 								errors.push(
 									`${ label } has an invalid or unavailable Spotify link.`
 								);
@@ -344,7 +398,10 @@ const preflightMethods = {
 
 		for ( const area of this.areas ) {
 			for ( const layer of area.layers || [] ) {
-				if ( layer.locked ) {
+				const isImageLayer = [ 'image', 'clipmask' ].includes(
+					layer.type
+				);
+				if ( layer.locked && ! isImageLayer ) {
 					continue;
 				}
 
@@ -353,7 +410,19 @@ const preflightMethods = {
 				const label = layer.label || layer.type;
 				const fieldEl = this.getLayerInputEl( layer );
 
-				if ( ! settings.required ) {
+				const hasUrlOnlyImage =
+					isImageLayer &&
+					Boolean( input.attachmentUrl ) &&
+					! this.isProductionImageInput( input );
+				if (
+					! layer.required &&
+					! settings.required &&
+					! hasUrlOnlyImage &&
+					! (
+						isImageLayer &&
+						this.imageLayerRequiresAttachment( layer )
+					)
+				) {
 					continue;
 				}
 
@@ -367,7 +436,7 @@ const preflightMethods = {
 
 					case 'image':
 					case 'clipmask':
-						filled = Boolean( input.attachmentId );
+						filled = this.isProductionImageInput( input );
 						break;
 
 					case 'clipart':

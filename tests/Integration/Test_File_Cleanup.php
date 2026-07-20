@@ -216,4 +216,49 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		] );
 		$this->assertTrue( $method->invoke( null, 45672 ) );
 	}
+
+	#[Test]
+	public function security_budget_cleanup_does_not_delete_its_cursor_option(): void {
+		global $wpdb;
+		$expired = 'oc_budget_' . str_repeat( 'a', 64 );
+		$active  = 'oc_budget_' . str_repeat( 'b', 64 );
+		delete_option( $expired );
+		delete_option( $active );
+		update_option( 'oc_budget_cleanup_cursor', 0, false );
+		$cursor_id = (int) $wpdb->get_var( $wpdb->prepare(
+			"SELECT option_id FROM {$wpdb->options} WHERE option_name = %s",
+			'oc_budget_cleanup_cursor'
+		) );
+		$window_start = time() - 10;
+		add_option( $expired, wp_json_encode( [
+			'version'      => 1,
+			'window_start' => $window_start - HOUR_IN_SECONDS,
+			'window_end'   => time() - 1,
+			'count'        => 1,
+			'bytes'        => 0,
+		] ), '', false );
+		add_option( $active, wp_json_encode( [
+			'version'      => 1,
+			'window_start' => $window_start,
+			'window_end'   => time() + HOUR_IN_SECONDS,
+			'count'        => 1,
+			'bytes'        => 0,
+		] ), '', false );
+
+		try {
+			$method = new ReflectionMethod( OC_File_Cleanup::class, 'cleanup_security_budgets' );
+			$method->invoke( null );
+
+			$this->assertFalse( get_option( $expired, false ) );
+			$this->assertNotFalse( get_option( $active, false ) );
+			$this->assertSame( $cursor_id, (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT option_id FROM {$wpdb->options} WHERE option_name = %s",
+				'oc_budget_cleanup_cursor'
+			) ) );
+		} finally {
+			delete_option( $expired );
+			delete_option( $active );
+			delete_option( 'oc_budget_cleanup_cursor' );
+		}
+	}
 }

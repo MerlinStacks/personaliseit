@@ -247,6 +247,7 @@ import {
 				layers: ( a.layers || [] ).map( normaliseLayer ),
 			} );
 		} );
+		normaliseAreaLayerDefaults();
 		selectedIndex = areas.length > 0 ? 0 : -1;
 		selectedLayerIndex = -1;
 		activeLayerTab = 'general';
@@ -500,11 +501,12 @@ import {
 			...normaliseArea( a, i ),
 			layers: layersByAreaId[ Number( a.id ) ] || [],
 		} ) );
+		const defaultsChanged = normaliseAreaLayerDefaults();
 		selectedIndex = areas.length > 0 ? 0 : -1;
 		renderAll();
 		snapshot(); // seed initial history state
-		isDirty = false; // reset after seed
-		hasUnsavedChanges = false;
+		isDirty = defaultsChanged;
+		hasUnsavedChanges = defaultsChanged;
 		autosaveError = '';
 		finishHydration();
 	}
@@ -550,6 +552,8 @@ import {
 			initCanvasInteractions: ( ...args ) =>
 				initCanvasInteractions( ...args ),
 			markDirty,
+			normaliseLayerDefaults: ( ...args ) =>
+				normaliseLayerDefaults( ...args ),
 			normaliseArea,
 			normaliseDpi,
 			normaliseUnit,
@@ -606,7 +610,7 @@ import {
 		snapshot,
 		updateAspectRatio,
 	} );
-	const { buildTabContent, bindSettingsHandlers } =
+	const { buildTabContent, bindSettingsHandlers, normaliseLayerDefaults } =
 		createProductsPageSettings( {
 			commitChange,
 			esc,
@@ -619,6 +623,15 @@ import {
 			selectedArea,
 			syncBoundsFromInputs,
 		} );
+	function normaliseAreaLayerDefaults() {
+		let changed = false;
+		areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				changed = normaliseLayerDefaults( layer, area ) || changed;
+			} );
+		} );
+		return changed;
+	}
 	function renderAll() {
 		renderAreasList();
 		renderAreaStrip();

@@ -124,15 +124,15 @@ class OC_Admin_Print_Queue {
 
 	/** Handle queue management actions. */
 	private function handle_actions(): void {
-		$action = isset( $_GET['oc_queue_action'] ) ? sanitize_key( wp_unslash( $_GET['oc_queue_action'] ) ) : '';
-		$job_id = absint( $_GET['job_id'] ?? 0 );
+		$action = isset( $_POST['oc_queue_action'] ) ? sanitize_key( wp_unslash( $_POST['oc_queue_action'] ) ) : '';
+		$job_id = absint( $_POST['job_id'] ?? 0 );
 
 		if ( '' === $action ) {
 			return;
 		}
 
 		$nonce_action = 0 < $job_id ? 'oc_queue_' . $action . '_' . $job_id : 'oc_queue_' . $action;
-		if ( ! wp_verify_nonce( (string) ( $_GET['_wpnonce'] ?? '' ), $nonce_action ) ) {
+		if ( ! wp_verify_nonce( (string) ( $_POST['_wpnonce'] ?? '' ), $nonce_action ) ) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
@@ -204,7 +204,7 @@ class OC_Admin_Print_Queue {
 			$args['oc_queue_value'] = $value;
 		}
 
-		$status = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
+		$status = isset( $_POST['status'] ) ? sanitize_key( wp_unslash( $_POST['status'] ) ) : '';
 		if ( in_array( $status, [ 'pending', 'processing', 'done', 'failed' ], true ) ) {
 			$args['status'] = $status;
 		}
@@ -216,10 +216,6 @@ class OC_Admin_Print_Queue {
 	/** Render an orphaned generating print file row. */
 	private function render_orphan_row( object $file ): void {
 		$order_url = $this->order_url( (int) $file->order_id );
-		$regen_url = wp_nonce_url(
-			add_query_arg( [ 'oc_regenerate' => (int) $file->id ], $order_url ?: admin_url( 'admin.php?page=wc-orders' ) ),
-			'oc_regenerate_' . (int) $file->id
-		);
 		?>
 		<tr>
 			<td><strong>#<?php echo esc_html( (string) $file->id ); ?></strong><br><span class="description"><?php echo esc_html( sprintf( __( 'Item %1$d, area %2$d', 'overcustomise' ), (int) $file->order_item_id, (int) $file->print_area_id ) ); ?></span></td>
@@ -227,7 +223,12 @@ class OC_Admin_Print_Queue {
 			<td><?php echo esc_html( ucwords( str_replace( '_', ' ', (string) $file->file_type ) ) ); ?></td>
 			<td><?php echo esc_html( $this->format_date( $file->generated_at ) ); ?></td>
 			<td class="oc-queue-actions">
-				<a class="button button-small" href="<?php echo esc_url( $regen_url ); ?>"><?php esc_html_e( 'Regenerate', 'overcustomise' ); ?></a>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;margin:0;">
+					<input type="hidden" name="action" value="oc_regenerate_print_file" />
+					<input type="hidden" name="file_id" value="<?php echo esc_attr( (int) $file->id ); ?>" />
+					<?php wp_nonce_field( 'oc_regenerate_' . (int) $file->id ); ?>
+					<button type="submit" class="button button-small"><?php esc_html_e( 'Regenerate', 'overcustomise' ); ?></button>
+				</form>
 			</td>
 		</tr>
 		<?php
@@ -258,21 +259,24 @@ class OC_Admin_Print_Queue {
 		<?php
 	}
 
-	/** Render a nonce-protected action link. */
+	/** Render a nonce-protected action form. */
 	private function render_action_button( string $action, int $job_id, string $label, string $class, string $confirm = '' ): void {
-		$args = [
-			'page'            => 'overcustomise-print-queue',
-			'oc_queue_action' => $action,
-		];
-		if ( $job_id > 0 ) {
-			$args['job_id'] = $job_id;
-		}
-
 		$nonce_action = $job_id > 0 ? 'oc_queue_' . $action . '_' . $job_id : 'oc_queue_' . $action;
-		$url          = wp_nonce_url( add_query_arg( $args, admin_url( 'admin.php' ) ), $nonce_action );
 		$confirm_attr = '' !== $confirm ? ' onclick="return confirm(\'' . esc_js( $confirm ) . '\');"' : '';
+		$status       = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
 
-		echo '<a class="' . esc_attr( $class ) . '" href="' . esc_url( $url ) . '"' . $confirm_attr . '>' . esc_html( $label ) . '</a>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin.php' ) ) . '" style="display:inline-block;margin:0;">';
+		echo '<input type="hidden" name="page" value="overcustomise-print-queue" />';
+		echo '<input type="hidden" name="oc_queue_action" value="' . esc_attr( $action ) . '" />';
+		if ( $job_id > 0 ) {
+			echo '<input type="hidden" name="job_id" value="' . esc_attr( (string) $job_id ) . '" />';
+		}
+		if ( in_array( $status, [ 'pending', 'processing', 'done', 'failed' ], true ) ) {
+			echo '<input type="hidden" name="status" value="' . esc_attr( $status ) . '" />';
+		}
+		wp_nonce_field( $nonce_action );
+		echo '<button type="submit" class="' . esc_attr( $class ) . '"' . $confirm_attr . '>' . esc_html( $label ) . '</button>';
+		echo '</form>';
 	}
 
 	/** Return an admin URL filtered by queue status. */

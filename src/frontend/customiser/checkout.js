@@ -2,7 +2,10 @@
  * Cart submission, mobile preview confirmation, and preview capture helpers.
  */
 
-/* eslint-disable no-console, no-alert */
+/* eslint-disable no-console, no-alert, import/no-unresolved */
+
+import { dispatch } from '@wordpress/data';
+import { CART_STORE_KEY } from '@woocommerce/block-data';
 
 const QUALITY_WARNING_MESSAGE =
 	'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
@@ -20,15 +23,22 @@ const checkoutMethods = {
 			return true;
 		}
 		if ( ! this._variationSwitchFailed ) {
-			return false;
+			const variationId = this.currentVariationId();
+			if (
+				! variationId ||
+				String( variationId ) === this._activeVariationKey
+			) {
+				return false;
+			}
+
+			window.alert(
+				'Please wait while the personalisation options load for this variation.'
+			);
+			this.switchProductVariation( variationId );
+			return true;
 		}
 
-		const variationId =
-			parseInt(
-				document.querySelector( 'form.cart input.variation_id' )
-					?.value || '0',
-				10
-			) || 0;
+		const variationId = this.currentVariationId();
 		window.alert(
 			'Retrying the personalisation options for this variation.'
 		);
@@ -162,60 +172,8 @@ const checkoutMethods = {
 					return;
 				}
 				try {
-					this.syncInputsFromDOM();
-
-					const preflight = await this.runPreflight();
-					this.renderPreflightMessages(
-						preflight.errors,
-						preflight.warnings
-					);
-					if ( ! preflight.ok ) {
-						this.resetCartSubmitState( form );
-						return;
-					}
-
-					if ( preflight.warnings.length ) {
-						const proceed = window.confirm(
-							QUALITY_WARNING_MESSAGE
-						);
-						if ( ! proceed ) {
-							this.resetCartSubmitState( form );
-							return;
-						}
-					}
-
-					await this.flushRedraw( this.inputs, {
-						pushGallery: false,
-					} );
-					const generation = this.createSubmissionGeneration();
-					const acceptedPreview =
-						await this.confirmMobileCartPreview( generation );
-					if ( ! acceptedPreview ) {
-						this.restoreGalleryPreview();
-						this.resetCartSubmitState( form );
-						return;
-					}
-
-					const previewImage =
-						this.getSubmissionPreviewImage( generation );
-					await this.updateHiddenField( {
-						generation,
-						previewImage,
-					} );
-					const payload = document.getElementById(
-						'oc-customisation-data'
-					)?.value;
-					if (
-						payload &&
-						new Blob( [ payload ] ).size > MAX_CUSTOMISATION_BYTES
-					) {
-						this.renderPreflightMessages(
-							[
-								'This personalisation is too large to add safely. Please simplify the design or contact us for help.',
-							],
-							[]
-						);
-						this.restoreGalleryPreview();
+					const prepared = await this.prepareCartCustomisation();
+					if ( ! prepared ) {
 						this.resetCartSubmitState( form );
 						return;
 					}
@@ -235,7 +193,7 @@ const checkoutMethods = {
 					this.restoreGalleryPreview();
 					this.renderPreflightMessages(
 						[
-							'Could not prepare your customisation. Please try again.',
+							'The customisation preview could not be prepared. Please wait for all artwork to load and try again.',
 						],
 						[]
 					);
@@ -244,6 +202,74 @@ const checkoutMethods = {
 			},
 			true
 		);
+	},
+
+	async prepareCartCustomisation() {
+		this.syncInputsFromDOM();
+		const preflight = await this.runPreflight();
+		this.renderPreflightMessages( preflight.errors, preflight.warnings );
+		if ( ! preflight.ok ) {
+			return null;
+		}
+
+		if (
+			preflight.warnings.length &&
+			! window.confirm( QUALITY_WARNING_MESSAGE )
+		) {
+			return null;
+		}
+
+		await this.flushRedraw( this.inputs, { pushGallery: false } );
+		const generation = this.createSubmissionGeneration();
+		const previews = this.getSubmissionPreviewAreas( generation );
+		const acceptedPreview = await this.confirmMobileCartPreview(
+			generation,
+			previews
+		);
+		if ( ! acceptedPreview ) {
+			this.restoreGalleryPreview();
+			return null;
+		}
+
+		const previewImage = this.getSubmissionPreviewImage(
+			generation,
+			previews
+		);
+		const payload = this.buildCustomisationPayload( generation, {
+			previewImage,
+		} );
+		if (
+			this.customisationPayloadBytes( payload ) >
+			MAX_INLINE_CUSTOMISATION_BYTES
+		) {
+			this.renderPreflightMessages(
+				[
+					'This personalisation preview is too large to add safely. Please simplify the design or contact us for help.',
+				],
+				[]
+			);
+			return null;
+		}
+
+		const serialisedPayload = JSON.stringify( payload );
+		if (
+			new Blob( [ serialisedPayload ] ).size > MAX_CUSTOMISATION_BYTES
+		) {
+			this.renderPreflightMessages(
+				[
+					'This personalisation is too large to add safely. Please simplify the design or contact us for help.',
+				],
+				[]
+			);
+			return null;
+		}
+
+		const hiddenField = document.getElementById( 'oc-customisation-data' );
+		if ( hiddenField ) {
+			hiddenField.disabled = false;
+			hiddenField.value = serialisedPayload;
+		}
+		return { generation, payload, serialisedPayload };
 	},
 
 	resetCartSubmitState( form ) {
@@ -255,6 +281,148 @@ const checkoutMethods = {
 		).forEach( ( button ) => {
 			button.classList.remove( 'loading', 'processing' );
 		} );
+	},
+
+	setupStoreApiIntegration() {
+		if ( this._storeApiSubmitBound ) {
+			return;
+		}
+		const form = document.querySelector(
+			'form[data-wp-on--submit*="addToCart"]:not(.cart)'
+		);
+		if ( ! form ) {
+			return;
+		}
+
+		this._storeApiSubmitBound = true;
+		form.addEventListener(
+			'submit',
+			( event ) => {
+				if ( ! this._customisationActive ) {
+					return;
+				}
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				this.closeFontComboboxes( true );
+
+				if ( ! form.checkValidity() ) {
+					form.reportValidity?.();
+					return;
+				}
+				if ( this._storeApiPreparationPromise ) {
+					return;
+				}
+
+				const task = this.submitStoreApiCart( form );
+				this._storeApiPreparationPromise = task;
+				task.finally( () => {
+					if ( this._storeApiPreparationPromise === task ) {
+						this._storeApiPreparationPromise = null;
+					}
+				} );
+			},
+			true
+		);
+	},
+
+	getStoreApiCartRequest( form ) {
+		if ( form.querySelector( '[name^="quantity["]' ) ) {
+			throw new Error(
+				'Personalised grouped products require the standard add-to-cart form.'
+			);
+		}
+
+		const variationField = form.querySelector( '[name="variation_id"]' );
+		const variationId = parseInt( variationField?.value || '0', 10 ) || 0;
+		const parentId =
+			parseInt(
+				form.querySelector( '[name="product_id"]' )?.value ||
+					form.querySelector( '[name="add-to-cart"]' )?.value ||
+					this.data.productId ||
+					'0',
+				10
+			) || 0;
+		if ( variationField && ! variationId ) {
+			throw new Error(
+				'Please select all product options before adding this item to your cart.'
+			);
+		}
+
+		const productId = variationId || parentId;
+		if ( ! productId ) {
+			throw new Error( 'The selected product could not be identified.' );
+		}
+
+		const variation = [];
+		const attributes = new Map();
+		new FormData( form ).forEach( ( value, name ) => {
+			if ( name.startsWith( 'attribute_' ) ) {
+				attributes.set( name, String( value ) );
+			}
+		} );
+		attributes.forEach( ( value, attribute ) => {
+			if ( ! value ) {
+				throw new Error(
+					'Please select all product options before adding this item to your cart.'
+				);
+			}
+			variation.push( { attribute, value } );
+		} );
+
+		const quantity = Number(
+			form.querySelector( '[name="quantity"]' )?.value || 1
+		);
+		if ( ! Number.isFinite( quantity ) || quantity <= 0 ) {
+			throw new Error( 'Please enter a valid product quantity.' );
+		}
+
+		return { productId, quantity, variation };
+	},
+
+	async submitStoreApiCart( form ) {
+		let request;
+		try {
+			request = this.getStoreApiCartRequest( form );
+		} catch ( error ) {
+			this.renderPreflightMessages( [ error.message ], [] );
+			return;
+		}
+		if ( ! this.acquireCartSubmitGuard( form ) ) {
+			return;
+		}
+
+		try {
+			const prepared = await this.prepareCartCustomisation();
+			if ( ! prepared ) {
+				return;
+			}
+
+			await dispatch( CART_STORE_KEY ).addItemToCart(
+				request.productId,
+				request.quantity,
+				request.variation,
+				{
+					extensions: {
+						overcustomise: {
+							customisation: prepared.payload,
+						},
+					},
+				}
+			);
+			this.restoreProductGallery();
+		} catch ( error ) {
+			console.error( '[OC] Store API cart submission failed:', error );
+			this.restoreGalleryPreview();
+			this.renderPreflightMessages(
+				[
+					error?.message ||
+						'Could not add this personalisation to the cart. Please try again.',
+				],
+				[]
+			);
+		} finally {
+			this.resetCartSubmitState( form );
+		}
 	},
 
 	isMobileCartPreviewRequired() {
@@ -321,20 +489,31 @@ const checkoutMethods = {
 		return new Blob( [ JSON.stringify( payload ) ] ).size;
 	},
 
-	getSubmissionPreviewImage( generation ) {
+	getSubmissionPreviewAreas( generation ) {
 		if ( generation.designGeneration !== this._designGeneration ) {
 			throw new Error( 'The selected design changed while rendering.' );
 		}
+		if ( ! this.areas.length ) {
+			throw new Error( 'The customisation has no preview areas.' );
+		}
 
-		let previewImage = '';
-		try {
-			previewImage = this.getCurrentPreviewDataUrl();
-		} catch ( error ) {
-			console.warn(
-				'[OC] Could not capture preview for cart:',
-				error.message
+		return this.areas.map( ( area, index ) => ( {
+			index,
+			label: area?.name || `Area ${ index + 1 }`,
+			url: this.getCanvasPreviewDataUrl( index ),
+		} ) );
+	},
+
+	getSubmissionPreviewImage( generation, previews = null ) {
+		const availablePreviews =
+			previews || this.getSubmissionPreviewAreas( generation );
+		const previewImage = availablePreviews.find(
+			( preview ) => preview.index === this.activeArea
+		)?.url;
+		if ( ! previewImage ) {
+			throw new Error(
+				'The active customisation preview is unavailable.'
 			);
-			return '';
 		}
 
 		const payload = this.buildCustomisationPayload( generation, {
@@ -344,10 +523,9 @@ const checkoutMethods = {
 			this.customisationPayloadBytes( payload ) >
 			MAX_INLINE_CUSTOMISATION_BYTES
 		) {
-			console.warn(
-				'[OC] Cart preview omitted because the submission would be too large.'
+			throw new Error(
+				'The customisation preview is too large to add safely.'
 			);
-			return '';
 		}
 
 		return previewImage;
@@ -355,32 +533,19 @@ const checkoutMethods = {
 
 	restoreGalleryPreview() {
 		this.redraw( this.activeArea ).catch( ( error ) => {
-			console.warn( '[OC] Could not restore gallery preview:', error.message );
+			console.warn(
+				'[OC] Could not restore gallery preview:',
+				error.message
+			);
 		} );
 	},
 
-	async getMobileCartPreviewAreas() {
-		const activeArea = this.activeArea;
-		const previews = [];
-		for ( let index = 0; index < this.areas.length; index++ ) {
-			if ( index !== activeArea ) {
-				await this.redraw( index, { pushGallery: false } );
-			}
-			try {
-				previews.push( {
-					index,
-					label: this.areas[ index ]?.name || `Area ${ index + 1 }`,
-					url: this.getCanvasPreviewDataUrl( index ),
-				} );
-			} catch {
-				// Omit an area only when its canvas cannot be safely exported.
-			}
-		}
-		return previews;
+	getMobileCartPreviewAreas( generation ) {
+		return this.getSubmissionPreviewAreas( generation );
 	},
 
 	getMobileCartPreviewDialog() {
-		if ( this.mobileCartPreviewDialog ) {
+		if ( this.mobileCartPreviewDialog?.isConnected ) {
 			return this.mobileCartPreviewDialog;
 		}
 
@@ -392,42 +557,73 @@ const checkoutMethods = {
 			document.body.appendChild( dialogRoot );
 		}
 
-		const dialog = document.createElement( 'dialog' );
-		dialog.id = 'oc-cart-preview-dialog';
-		dialog.className = 'oc-cart-preview-dialog';
-		dialog.setAttribute( 'aria-labelledby', 'oc-cart-preview-title' );
-		dialog.setAttribute( 'aria-describedby', 'oc-cart-preview-desc' );
-		dialog.innerHTML =
-			'<div class="oc-cart-preview-card">' +
-			'<div class="oc-cart-preview-copy">' +
-			'<h2 id="oc-cart-preview-title">Check your preview</h2>' +
-			'<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' +
-			'</div>' +
-			'<div class="oc-cart-preview-tabs" role="tablist" aria-label="Preview areas"></div>' +
-			'<div class="oc-cart-preview-panels"></div>' +
-			'<div class="oc-cart-preview-actions">' +
-			'<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' +
-			'<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' +
-			'</div>' +
-			'</div>';
-
-		dialogRoot.appendChild( dialog );
+		let dialog = document.getElementById( 'oc-cart-preview-dialog' );
+		if ( ! dialog ) {
+			const nativeDialog = document.createElement( 'dialog' );
+			dialog = nativeDialog.showModal
+				? nativeDialog
+				: document.createElement( 'div' );
+			dialog.id = 'oc-cart-preview-dialog';
+			dialog.className = 'oc-cart-preview-dialog';
+			dialog.setAttribute( 'aria-labelledby', 'oc-cart-preview-title' );
+			dialog.setAttribute( 'aria-describedby', 'oc-cart-preview-desc' );
+			dialog.innerHTML =
+				'<div class="oc-cart-preview-card">' +
+				'<div class="oc-cart-preview-copy">' +
+				'<h2 id="oc-cart-preview-title">Check your preview</h2>' +
+				'<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' +
+				'</div>' +
+				'<div class="oc-cart-preview-tabs" role="tablist" aria-label="Preview areas"></div>' +
+				'<div class="oc-cart-preview-panels"></div>' +
+				'<div class="oc-cart-preview-actions">' +
+				'<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' +
+				'<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' +
+				'</div>' +
+				'</div>';
+			dialogRoot.appendChild( dialog );
+		}
 		this.mobileCartPreviewDialog = dialog;
 		return dialog;
 	},
 
-	async confirmMobileCartPreview() {
-		if ( ! this.isMobileCartPreviewRequired() ) {
-			return true;
+	dismissMobileCartPreview() {
+		if ( this._mobileCartPreviewResolve ) {
+			this._mobileCartPreviewResolve( false );
+			return;
 		}
 
-		const customiserPanel = document.getElementById(
-			'oc-customiser-panel'
-		);
-		const previousFocus = customiserPanel?.ownerDocument.activeElement;
+		const dialog = this.mobileCartPreviewDialog;
+		if ( ! dialog ) {
+			return;
+		}
+		dialog.classList.remove( 'is-visible' );
+		if ( typeof dialog.showModal === 'function' && dialog.open ) {
+			dialog.close?.();
+		} else {
+			dialog.removeAttribute( 'open' );
+		}
+		if ( ! dialog.showModal ) {
+			dialog.hidden = true;
+		}
+		document.documentElement.classList.remove( 'oc-cart-preview-open' );
+	},
+
+	confirmMobileCartPreview( generation, suppliedPreviews = null ) {
+		if ( ! this.isMobileCartPreviewRequired() ) {
+			return Promise.resolve( true );
+		}
+		if ( this._mobileCartPreviewPromise ) {
+			return this._mobileCartPreviewPromise;
+		}
+
+		const ownerDocument =
+			document.getElementById( 'oc-customiser-panel' )?.ownerDocument ||
+			window.document;
+		const previousFocus = ownerDocument.activeElement;
 		this.closeFontComboboxes( true );
 
-		const previews = await this.getMobileCartPreviewAreas();
+		const previews =
+			suppliedPreviews || this.getMobileCartPreviewAreas( generation );
 		if ( ! previews.length ) {
 			this.renderPreflightMessages(
 				[
@@ -435,9 +631,16 @@ const checkoutMethods = {
 				],
 				[]
 			);
-			return false;
+			return Promise.resolve( false );
 		}
 		const dialog = this.getMobileCartPreviewDialog();
+		const supportsModal = typeof dialog.showModal === 'function';
+		dialog.classList.toggle(
+			'oc-cart-preview-dialog--fallback',
+			! supportsModal
+		);
+		dialog.setAttribute( 'role', 'dialog' );
+		dialog.setAttribute( 'aria-modal', 'true' );
 		dialog.ownerDocument.activeElement?.blur?.();
 		const tabs = dialog.querySelector( '.oc-cart-preview-tabs' );
 		const panels = dialog.querySelector( '.oc-cart-preview-panels' );
@@ -516,18 +719,20 @@ const checkoutMethods = {
 			} );
 		} );
 
-		if ( ! dialog.showModal ) {
-			return true;
-		}
-
-		return new Promise( ( resolve ) => {
+		const promise = new Promise( ( resolve ) => {
 			const acceptBtn = dialog.querySelector(
 				'[data-oc-cart-preview-accept]'
 			);
 			const changeBtn = dialog.querySelector(
 				'[data-oc-cart-preview-change]'
 			);
+			let settled = false;
 			const finish = ( accepted ) => {
+				if ( settled ) {
+					return;
+				}
+				settled = true;
+				this._mobileCartPreviewResolve = null;
 				if ( ! accepted ) {
 					this.mobileCartPreviewDismissedAt = Date.now();
 				}
@@ -535,14 +740,22 @@ const checkoutMethods = {
 				dialog.classList.remove( 'is-visible' );
 				dialog.removeEventListener( 'click', onBackdropClick );
 				dialog.removeEventListener( 'cancel', onCancel );
+				dialog.removeEventListener( 'keydown', onDialogKeydown );
 				acceptBtn?.removeEventListener( 'click', onAccept );
 				changeBtn?.removeEventListener( 'click', onChange );
-				if ( dialog.open ) {
-					dialog.close();
+				if ( supportsModal && dialog.open ) {
+					dialog.close?.();
+				} else {
+					dialog.removeAttribute( 'open' );
+					dialog.hidden = true;
 				}
-				window.setTimeout( () => previousFocus?.focus?.(), 0 );
+				document.documentElement.classList.remove(
+					'oc-cart-preview-open'
+				);
+				this.setStateTimeout( () => previousFocus?.focus?.(), 0 );
 				resolve( accepted );
 			};
+			this._mobileCartPreviewResolve = finish;
 
 			const stopModalAction = ( event ) => {
 				event?.preventDefault?.();
@@ -567,18 +780,67 @@ const checkoutMethods = {
 				event.preventDefault();
 				finish( false );
 			};
+			const onDialogKeydown = ( event ) => {
+				if ( event.key === 'Escape' && ! supportsModal ) {
+					event.preventDefault();
+					finish( false );
+					return;
+				}
+				if ( event.key !== 'Tab' || supportsModal ) {
+					return;
+				}
+				const focusable = Array.from(
+					dialog.querySelectorAll(
+						'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
+					)
+				).filter( ( control ) => ! control.closest( '[hidden]' ) );
+				const first = focusable[ 0 ];
+				const last = focusable[ focusable.length - 1 ];
+				if ( ! first || ! last ) {
+					event.preventDefault();
+					return;
+				}
+				if (
+					event.shiftKey &&
+					dialog.ownerDocument.activeElement === first
+				) {
+					event.preventDefault();
+					last.focus();
+				} else if (
+					! event.shiftKey &&
+					dialog.ownerDocument.activeElement === last
+				) {
+					event.preventDefault();
+					first.focus();
+				}
+			};
 
 			acceptBtn?.addEventListener( 'click', onAccept );
 			changeBtn?.addEventListener( 'click', onChange );
 			dialog.addEventListener( 'click', onBackdropClick );
 			dialog.addEventListener( 'cancel', onCancel );
+			dialog.addEventListener( 'keydown', onDialogKeydown );
 
-			dialog.showModal();
-			window.requestAnimationFrame( () =>
+			if ( supportsModal ) {
+				dialog.hidden = false;
+				dialog.showModal();
+			} else {
+				dialog.hidden = false;
+				dialog.setAttribute( 'open', '' );
+				document.documentElement.classList.add(
+					'oc-cart-preview-open'
+				);
+			}
+			this.requestStateAnimationFrame( () =>
 				dialog.classList.add( 'is-visible' )
 			);
 			acceptBtn?.focus?.();
 		} );
+
+		this._mobileCartPreviewPromise = promise.finally( () => {
+			this._mobileCartPreviewPromise = null;
+		} );
+		return this._mobileCartPreviewPromise;
 	},
 };
 

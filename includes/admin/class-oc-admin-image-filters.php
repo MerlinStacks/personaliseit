@@ -21,32 +21,38 @@ class OC_Admin_Image_Filters {
 		}
 
 		$prompt = isset( $_POST['prompt'] ) ? trim( (string) wp_unslash( $_POST['prompt'] ) ) : '';
-		if ( '' === $prompt || empty( $_FILES['test_image'] ) ) {
+		if ( '' === $prompt || strlen( $prompt ) > 10000 || empty( $_FILES['test_image'] ) ) {
 			wp_send_json_error( [ 'message' => __( 'Enter a prompt and choose a test image.', 'overcustomise' ) ], 400 );
 		}
 
 		$source_id = 0;
+		$response  = null;
+		$error     = null;
+		$status    = 422;
 		try {
 			$uploaded  = OC_Upload_Handler::process( $_FILES['test_image'], [ 'formats' => [ 'jpg', 'jpeg', 'png', 'webp' ] ] );
 			$source_id = (int) $uploaded['attachment_id'];
 			$result    = OC_AI_Image_Filter::generate( $source_id, $prompt );
 			if ( is_wp_error( $result ) ) {
-				wp_send_json_error( [ 'message' => $result->get_error_message() ], 422 );
+				$error = $result->get_error_message();
+			} else {
+				$response = [
+					'image' => 'data:' . $result['mime'] . ';base64,' . base64_encode( $result['bytes'] ),
+					'model' => $result['model'],
+				];
 			}
-			$response = [
-				'image' => 'data:' . $result['mime'] . ';base64,' . base64_encode( $result['bytes'] ),
-				'model' => $result['model'],
-			];
-			wp_delete_attachment( $source_id, true );
-			$source_id = 0;
-			wp_send_json_success( $response );
-		} catch ( \RuntimeException $e ) {
-			wp_send_json_error( [ 'message' => $e->getMessage() ], 422 );
+		} catch ( \Throwable $e ) {
+			$error = $e->getMessage();
 		} finally {
 			if ( $source_id ) {
 				wp_delete_attachment( $source_id, true );
 			}
 		}
+
+		if ( null !== $error || ! is_array( $response ) ) {
+			wp_send_json_error( [ 'message' => $error ?: __( 'Test failed.', 'overcustomise' ) ], $status );
+		}
+		wp_send_json_success( $response );
 	}
 
 	public function render(): void {
@@ -61,8 +67,17 @@ class OC_Admin_Image_Filters {
 			$this->handle_toggle();
 		}
 
-		if ( isset( $_POST['oc_image_filter_nonce'] ) && wp_verify_nonce( sanitize_key( wp_unslash( $_POST['oc_image_filter_nonce'] ) ), 'oc_image_filter_save' ) ) {
-			$this->handle_save();
+		if ( isset( $_POST['oc_image_filter_nonce'] ) ) {
+			if ( ! wp_verify_nonce( sanitize_key( wp_unslash( $_POST['oc_image_filter_nonce'] ) ), 'oc_image_filter_save' ) ) {
+				wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
+			}
+			$saved = $this->handle_save();
+			wp_safe_redirect( add_query_arg(
+				'oc_filter_notice',
+				$saved ? 'saved' : 'error',
+				admin_url( 'admin.php?page=overcustomise-image-filters' )
+			) );
+			exit;
 		}
 
 		$edit_id = 'edit' === $action ? absint( $_GET['id'] ?? 0 ) : 0;
@@ -70,6 +85,11 @@ class OC_Admin_Image_Filters {
 		$filters = OC_DB::get_image_filters( false );
 		?>
 		<div class="wrap oc-page">
+			<?php if ( 'saved' === sanitize_key( wp_unslash( $_GET['oc_filter_notice'] ?? '' ) ) ) : ?>
+				<div class="notice notice-success is-dismissible"><p><?php esc_html_e( 'Image filter saved.', 'overcustomise' ); ?></p></div>
+			<?php elseif ( 'error' === sanitize_key( wp_unslash( $_GET['oc_filter_notice'] ?? '' ) ) ) : ?>
+				<div class="notice notice-error is-dismissible"><p><?php esc_html_e( 'Could not save the image filter.', 'overcustomise' ); ?></p></div>
+			<?php endif; ?>
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
 					<h1 class="oc-page-title"><?php esc_html_e( 'AI Image Filters', 'overcustomise' ); ?></h1>
@@ -143,20 +163,25 @@ class OC_Admin_Image_Filters {
 		return null;
 	}
 
-	private function handle_save(): void {
+	private function handle_save(): bool {
 		$name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$prompt = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) );
 		$id = absint( $_POST['filter_id'] ?? 0 );
-		if ( '' === $name || '' === trim( $prompt ) ) return;
+		if ( '' === $name || '' === trim( $prompt ) || strlen( $name ) > 100 || strlen( $prompt ) > 10000 ) return false;
 
 		global $wpdb;
 		$data = [ 'name' => $name, 'filter_key' => 'ai', 'value' => 1, 'prompt' => $prompt, 'active' => 1 ];
-		if ( $id && $this->get_filter( $id ) ) {
-			$wpdb->update( $wpdb->prefix . 'oc_image_filters', $data, [ 'id' => $id ], [ '%s', '%s', '%f', '%s', '%d' ], [ '%d' ] );
-		} else {
-			$wpdb->insert( $wpdb->prefix . 'oc_image_filters', $data, [ '%s', '%s', '%f', '%s', '%d' ] );
+		if ( $id && ! $this->get_filter( $id ) ) {
+			return false;
 		}
+		if ( $id ) {
+			$result = $wpdb->update( $wpdb->prefix . 'oc_image_filters', $data, [ 'id' => $id ], [ '%s', '%s', '%f', '%s', '%d' ], [ '%d' ] );
+		} else {
+			$result = $wpdb->insert( $wpdb->prefix . 'oc_image_filters', $data, [ '%s', '%s', '%f', '%s', '%d' ] );
+		}
+		if ( false === $result ) return false;
 		OC_DB::clear_image_filter_cache();
+		return true;
 	}
 
 	private function handle_toggle(): void {

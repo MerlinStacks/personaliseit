@@ -47,6 +47,8 @@ function createProductsPageCanvas(deps) {
   let drawState = null;
   let drawEl = null;
   let drawPopup = null;
+  let drawModeArea = null;
+  let drawModeButton = null;
   function renderCanvas() {
     const stage = document.getElementById('oc-canvas-stage');
     const noMockup = document.getElementById('oc-canvas-no-mockup');
@@ -57,6 +59,7 @@ function createProductsPageCanvas(deps) {
     }
     const area = selectedArea();
     if (!area || !area.mockupUrl) {
+      drawModeArea = null;
       stage.style.display = 'none';
       noMockup.style.display = '';
       if (coords) {
@@ -65,6 +68,7 @@ function createProductsPageCanvas(deps) {
       if (noMsg) {
         noMsg.textContent = getAreas().length === 0 ? 'Click \u201c+ Add\u201d on the left to create a print area.' : 'Select a print area and choose its mockup image.';
       }
+      updateDrawModeControl();
       return;
     }
     noMockup.style.display = 'none';
@@ -88,6 +92,7 @@ function createProductsPageCanvas(deps) {
     }
     const entity = getSelectedLayerIndex() >= 0 ? area.layers[getSelectedLayerIndex()] || area : area;
     updateCoordsReadout(entity);
+    updateDrawModeControl();
   }
   function updateBoundsBox() {
     const box = document.getElementById('oc-bounds-box');
@@ -115,6 +120,7 @@ function createProductsPageCanvas(deps) {
     pos(box, display, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area) : null);
     box.style.borderColor = color;
     box.style.background = hexRgba(color, 0.12);
+    box.title = layer ? 'Drag to move this layer.' : 'Drag to move this area, or use Draw layer to create a layer.';
     box.classList.toggle('oc-bounds-box--locked', isLocked);
     box.classList.toggle('oc-bounds-box--rotatable', !layer);
     box.querySelectorAll('.oc-bounds-handle').forEach(h => {
@@ -231,6 +237,8 @@ function createProductsPageCanvas(deps) {
     }
   }
   function initCanvasInteractions() {
+    initDrawModeControl();
+    document.getElementById('oc-canvas-stage')?.addEventListener('mousedown', routeCanvasMouseDown, true);
     const box = document.getElementById('oc-bounds-box');
     if (box) {
       box.addEventListener('mousedown', e => {
@@ -256,14 +264,6 @@ function createProductsPageCanvas(deps) {
         });
       });
     }
-    document.getElementById('oc-canvas-mockup-img')?.addEventListener('mousedown', e => {
-      const area = selectedArea();
-      if (!area || area.locked || getSelectedLayerIndex() >= 0) {
-        return;
-      }
-      e.preventDefault();
-      startDrawRect(e);
-    });
     document.addEventListener('mousemove', e => {
       if (drag) {
         onDragMove(e);
@@ -282,35 +282,102 @@ function createProductsPageCanvas(deps) {
         onDrawEnd(e);
       }
     });
+    document.addEventListener('keydown', e => {
+      if (e.key !== 'Escape' || drawPopup) {
+        return;
+      }
+      if (drawState) {
+        cancelDraw();
+        e.preventDefault();
+      } else if (drawModeArea) {
+        setDrawMode(false);
+        e.preventDefault();
+      }
+    });
   }
-  function startDrawRect(e) {
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
+  function initDrawModeControl() {
+    const wrap = document.querySelector('.oc-editor-canvas-wrap');
+    if (!wrap) {
       return;
     }
+    drawModeButton = document.createElement('button');
+    drawModeButton.type = 'button';
+    drawModeButton.className = 'oc-canvas-draw-toggle';
+    drawModeButton.textContent = 'Draw layer';
+    drawModeButton.setAttribute('aria-pressed', 'false');
+    drawModeButton.addEventListener('click', () => {
+      setDrawMode(drawModeArea !== selectedArea());
+    });
+    wrap.appendChild(drawModeButton);
+    updateDrawModeControl();
+  }
+  function canDrawInArea(area) {
+    return !!(area?.mockupUrl && area.visible && !area.locked && getSelectedLayerIndex() < 0);
+  }
+  function setDrawMode(enabled) {
     const area = selectedArea();
-    if (!area) {
+    drawModeArea = enabled && canDrawInArea(area) ? area : null;
+    updateDrawModeControl();
+  }
+  function updateDrawModeControl() {
+    const area = selectedArea();
+    const available = canDrawInArea(area);
+    if (drawModeArea && (drawModeArea !== area || !available)) {
+      drawModeArea = null;
+    }
+    const active = !!drawModeArea;
+    if (drawModeButton) {
+      let title = 'Select an unlocked, visible area to draw a layer';
+      if (available) {
+        title = active ? 'Cancel drawing' : 'Draw a layer inside the selected area';
+      }
+      drawModeButton.hidden = !area?.mockupUrl;
+      drawModeButton.disabled = !available;
+      drawModeButton.setAttribute('aria-pressed', active ? 'true' : 'false');
+      drawModeButton.title = title;
+    }
+    document.getElementById('oc-canvas-stage')?.classList.toggle('oc-canvas-stage--draw-mode', active);
+  }
+  function routeCanvasMouseDown(e) {
+    if (e.button !== 0 || !drawModeArea) {
       return;
+    }
+    if (startDrawRect(e, drawModeArea)) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  }
+  function startDrawRect(e, area) {
+    const img = document.getElementById('oc-canvas-mockup-img');
+    if (!img) {
+      return false;
     }
     const scale = getScale(img);
     if (!scale) {
-      return;
+      return false;
     }
     const rect = img.getBoundingClientRect();
-    const sx = clamp(Math.round((e.clientX - rect.left) / scale), area.x, area.x + area.w);
-    const sy = clamp(Math.round((e.clientY - rect.top) / scale), area.y, area.y + area.h);
+    const pointX = (e.clientX - rect.left) / scale;
+    const pointY = (e.clientY - rect.top) / scale;
+    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area);
+    if (pointX < bounds.x || pointX > bounds.x + bounds.w || pointY < bounds.y || pointY > bounds.y + bounds.h) {
+      return false;
+    }
+    const sx = clamp(Math.round(pointX), bounds.x, bounds.x + bounds.w);
+    const sy = clamp(Math.round(pointY), bounds.y, bounds.y + bounds.h);
     drawState = {
+      area,
+      bounds,
       startX: sx,
       startY: sy,
       curX: sx,
-      curY: sy,
-      startClientX: e.clientX,
-      startClientY: e.clientY
+      curY: sy
     };
     drawEl = document.createElement('div');
     drawEl.className = 'oc-canvas-draw-preview';
     document.getElementById('oc-canvas-stage')?.appendChild(drawEl);
     updateDrawEl();
+    return true;
   }
   function onDrawMove(e) {
     if (!drawState) {
@@ -320,14 +387,13 @@ function createProductsPageCanvas(deps) {
     if (!img) {
       return;
     }
-    const area = selectedArea();
-    if (!area) {
+    const scale = getScale(img);
+    if (!scale) {
       return;
     }
-    const scale = getScale(img);
     const rect = img.getBoundingClientRect();
-    drawState.curX = clamp(Math.round((e.clientX - rect.left) / scale), area.x, area.x + area.w);
-    drawState.curY = clamp(Math.round((e.clientY - rect.top) / scale), area.y, area.y + area.h);
+    drawState.curX = clamp(Math.round((e.clientX - rect.left) / scale), drawState.bounds.x, drawState.bounds.x + drawState.bounds.w);
+    drawState.curY = clamp(Math.round((e.clientY - rect.top) / scale), drawState.bounds.y, drawState.bounds.y + drawState.bounds.h);
     updateDrawEl();
   }
   function updateDrawEl() {
@@ -365,15 +431,26 @@ function createProductsPageCanvas(deps) {
     if (w < 10 || h < 10) {
       return;
     } // too small — treat as click miss
-    showDrawTypePicker(x, y, w, h, e.clientX, e.clientY);
+    setDrawMode(false);
+    showDrawTypePicker(state.area, x, y, w, h, e.clientX, e.clientY);
   }
-  function showDrawTypePicker(natX, natY, natW, natH, clientX, clientY) {
+  function cancelDraw() {
+    drawState = null;
+    if (drawEl) {
+      drawEl.remove();
+      drawEl = null;
+    }
+  }
+  function showDrawTypePicker(area, natX, natY, natW, natH, clientX, clientY) {
     closeDrawTypePicker();
     const backdrop = document.createElement('div');
     backdrop.className = 'oc-draw-popup-backdrop';
     const popup = document.createElement('div');
     popup.className = 'oc-draw-type-popup';
     popup.id = 'oc-draw-type-popup';
+    popup.setAttribute('role', 'dialog');
+    popup.setAttribute('aria-label', 'Choose layer type');
+    popup.setAttribute('aria-modal', 'true');
     Object.keys(_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_TYPES).forEach(type => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -381,7 +458,7 @@ function createProductsPageCanvas(deps) {
       btn.innerHTML = '<span style="font-size:18px;color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(type) + ';">' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(type) + '</span><span>' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(type) + '</span>';
       btn.addEventListener('click', e => {
         e.stopPropagation();
-        addLayerAt(type, natX, natY, natW, natH);
+        addLayerAt(type, area, natX, natY, natW, natH);
         closeDrawTypePicker();
       });
       popup.appendChild(btn);
@@ -390,9 +467,13 @@ function createProductsPageCanvas(deps) {
     document.body.appendChild(popup);
     drawPopup = {
       popup,
-      backdrop
+      backdrop,
+      returnFocus: drawModeButton
     };
     window.requestAnimationFrame(() => {
+      if (drawPopup?.popup !== popup) {
+        return;
+      }
       const pw = popup.offsetWidth,
         ph = popup.offsetHeight;
       const vw = window.innerWidth,
@@ -407,6 +488,7 @@ function createProductsPageCanvas(deps) {
       }
       popup.style.left = Math.max(8, left) + 'px';
       popup.style.top = Math.max(8, top) + 'px';
+      popup.querySelector('button')?.focus();
     });
     backdrop.addEventListener('click', closeDrawTypePicker);
     document.addEventListener('keydown', onDrawPickerKey);
@@ -418,16 +500,20 @@ function createProductsPageCanvas(deps) {
     }
   }
   function closeDrawTypePicker() {
+    let returnFocus = null;
     if (drawPopup) {
+      returnFocus = drawPopup.returnFocus;
       drawPopup.popup.remove();
       drawPopup.backdrop.remove();
       drawPopup = null;
     }
     document.removeEventListener('keydown', onDrawPickerKey);
+    if (returnFocus?.isConnected && !returnFocus.hidden && !returnFocus.disabled) {
+      returnFocus.focus();
+    }
   }
-  function addLayerAt(type, x, y, w, h) {
-    const area = selectedArea();
-    if (!area) {
+  function addLayerAt(type, area, x, y, w, h) {
+    if (!area || selectedArea() !== area) {
       return;
     }
     const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
@@ -451,7 +537,12 @@ function createProductsPageCanvas(deps) {
     if (layer ? layer.locked : area && area.locked) {
       return;
     }
+    const unitScale = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
+    const entityScale = layer ? 1 : unitScale;
     drag = {
+      area,
+      entity,
+      layer,
       type,
       dir,
       startClientX: e.clientX,
@@ -460,17 +551,39 @@ function createProductsPageCanvas(deps) {
       startY: entity.y,
       startW: entity.w,
       startH: entity.h,
-      startRotation: normaliseRotation(entity.rotation)
+      startRight: entity.x + entity.w * entityScale,
+      startBottom: entity.y + entity.h * entityScale,
+      unitScale,
+      childGeometry: layer ? [] : (area.layers || []).map(child => ({
+        child,
+        x: child.x,
+        y: child.y,
+        w: child.w,
+        h: child.h
+      }))
     };
+  }
+  function restoreChildrenFromDrag(area, shouldClamp) {
+    const deltaX = area.x - drag.startX;
+    const deltaY = area.y - drag.startY;
+    drag.childGeometry.forEach(start => {
+      start.child.x = start.x + deltaX;
+      start.child.y = start.y + deltaY;
+      start.child.w = start.w;
+      start.child.h = start.h;
+      if (shouldClamp) {
+        clampLayerToArea(start.child, area);
+      }
+    });
   }
   function onDragMove(e) {
     if (!drag) {
       return;
     }
-    const entity = activeEntity();
+    const entity = drag.entity;
     const img = document.getElementById('oc-canvas-mockup-img');
-    const area = selectedArea();
-    const layer = selectedLayer();
+    const area = drag.area;
+    const layer = drag.layer;
     if (!entity || !img) {
       return;
     }
@@ -491,67 +604,80 @@ function createProductsPageCanvas(deps) {
       renderHiddenFields();
       return;
     }
-    const unitScale = layer || drag.type !== 'move' ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area) : 1;
-    const dx = Math.round((e.clientX - drag.startClientX) / scale / unitScale);
-    const dy = Math.round((e.clientY - drag.startClientY) / scale / unitScale);
+    const displayDx = (e.clientX - drag.startClientX) / scale;
+    const displayDy = (e.clientY - drag.startClientY) / scale;
+    const unitScale = drag.unitScale;
+    const dx = Math.round(displayDx / (layer ? unitScale : 1));
+    const dy = Math.round(displayDy / (layer ? unitScale : 1));
     const natW = img.naturalWidth || 2000;
     const natH = img.naturalHeight || 2000;
     const d = drag.dir;
-    const minX = layer ? area.x : 0;
-    const minY = layer ? area.y : 0;
-    const maxX = layer ? area.x + area.w : natW;
-    const maxY = layer ? area.y + area.h : natH;
-    const maxW = layer ? maxX - entity.x : (maxX - entity.x) / unitScale;
-    const maxH = layer ? maxY - entity.y : (maxY - entity.y) / unitScale;
     if (drag.type === 'move') {
-      entity.x = clamp(drag.startX + dx, minX, maxX - entity.w);
-      entity.y = clamp(drag.startY + dy, minY, maxY - entity.h);
-    } else {
-      let nx = drag.startX,
-        ny = drag.startY,
-        nw = drag.startW,
-        nh = drag.startH;
+      if (layer) {
+        entity.x = clamp(drag.startX + dx, area.x, area.x + area.w - drag.startW);
+        entity.y = clamp(drag.startY + dy, area.y, area.y + area.h - drag.startH);
+      } else {
+        entity.x = clamp(Math.round(drag.startX + displayDx), 0, Math.max(0, natW - drag.startW * unitScale));
+        entity.y = clamp(Math.round(drag.startY + displayDy), 0, Math.max(0, natH - drag.startH * unitScale));
+        restoreChildrenFromDrag(area, false);
+      }
+    } else if (layer) {
+      let left = drag.startX;
+      let right = drag.startRight;
+      let top = drag.startY;
+      let bottom = drag.startBottom;
       if (d.includes('e')) {
-        nw = Math.max(1, drag.startW + dx);
+        right = clamp(drag.startRight + dx, drag.startX + 1, area.x + area.w);
       }
       if (d.includes('s')) {
-        nh = Math.max(1, drag.startH + dy);
+        bottom = clamp(drag.startBottom + dy, drag.startY + 1, area.y + area.h);
       }
       if (d.includes('w')) {
-        nw = Math.max(1, drag.startW - dx);
-        nx = drag.startX + drag.startW - nw;
+        left = clamp(drag.startX + dx, area.x, drag.startRight - 1);
       }
       if (d.includes('n')) {
-        nh = Math.max(1, drag.startH - dy);
-        ny = drag.startY + drag.startH - nh;
+        top = clamp(drag.startY + dy, area.y, drag.startBottom - 1);
       }
-      if (!layer && area.ratioLocked) {
+      entity.x = left;
+      entity.y = top;
+      entity.w = right - left;
+      entity.h = bottom - top;
+    } else {
+      const maxW = Math.max(1, (d.includes('w') ? drag.startRight : natW - drag.startX) / unitScale);
+      const maxH = Math.max(1, (d.includes('n') ? drag.startBottom : natH - drag.startY) / unitScale);
+      let nw = drag.startW;
+      let nh = drag.startH;
+      if (area.ratioLocked) {
         const ratio = currentAspectRatio(area);
         if (d === 'n' || d === 's') {
-          nw = Math.max(1, nh * ratio);
+          const desiredH = d === 'n' ? drag.startH - displayDy / unitScale : drag.startH + displayDy / unitScale;
+          nh = clamp(Math.round(desiredH), 1, Math.max(1, Math.floor(Math.min(maxH, maxW / ratio))));
+          nw = Math.max(1, Math.round(nh * ratio));
         } else {
-          nh = Math.max(1, nw / ratio);
+          const desiredW = d.includes('w') ? drag.startW - displayDx / unitScale : drag.startW + displayDx / unitScale;
+          nw = clamp(Math.round(desiredW), 1, Math.max(1, Math.floor(Math.min(maxW, maxH * ratio))));
+          nh = Math.max(1, Math.round(nw / ratio));
+        }
+      } else {
+        if (d.includes('e')) {
+          nw = clamp(Math.round(drag.startW + displayDx / unitScale), 1, Math.max(1, Math.floor(maxW)));
         }
         if (d.includes('w')) {
-          nx = drag.startX + drag.startW - nw;
+          nw = clamp(Math.round(drag.startW - displayDx / unitScale), 1, Math.max(1, Math.floor(maxW)));
+        }
+        if (d.includes('s')) {
+          nh = clamp(Math.round(drag.startH + displayDy / unitScale), 1, Math.max(1, Math.floor(maxH)));
         }
         if (d.includes('n')) {
-          ny = drag.startY + drag.startH - nh;
+          nh = clamp(Math.round(drag.startH - displayDy / unitScale), 1, Math.max(1, Math.floor(maxH)));
         }
       }
-      entity.x = clamp(nx, minX, maxX);
-      entity.y = clamp(ny, minY, maxY);
-      entity.w = Math.min(nw, maxW);
-      entity.h = Math.min(nh, maxH);
-      if (!layer && area.ratioLocked) {
-        const ratio = currentAspectRatio(area);
-        if (d === 'n' || d === 's') {
-          entity.w = Math.min(maxW, Math.max(1, Math.round(entity.h * ratio)));
-        } else {
-          entity.h = Math.min(maxH, Math.max(1, Math.round(entity.w / ratio)));
-        }
-      }
-      if (!layer && !area.ratioLocked) {
+      entity.x = d.includes('w') ? Math.max(0, Math.round(drag.startRight - nw * unitScale)) : drag.startX;
+      entity.y = d.includes('n') ? Math.max(0, Math.round(drag.startBottom - nh * unitScale)) : drag.startY;
+      entity.w = nw;
+      entity.h = nh;
+      restoreChildrenFromDrag(area, true);
+      if (!area.ratioLocked) {
         updateAspectRatio(area);
       }
     }
@@ -574,16 +700,18 @@ function createProductsPageCanvas(deps) {
     }
     const layer = changedId.startsWith('oc-layer-') && getSelectedLayerIndex() >= 0 ? area.layers[getSelectedLayerIndex()] : null;
     const entity = layer || area;
+    const previousAreaX = area.x;
+    const previousAreaY = area.y;
     const inputPrefix = layer ? 'oc-layer' : 'oc-prop';
     const readInt = (id, fallback) => {
       const value = parseInt(document.getElementById(id)?.value || fallback, 10);
       return Number.isFinite(value) ? value : fallback;
     };
     if (changedId === inputPrefix + '-x') {
-      entity.x = readInt(changedId, entity.x || 0);
+      entity.x = Math.max(0, readInt(changedId, entity.x || 0));
     }
     if (changedId === inputPrefix + '-y') {
-      entity.y = readInt(changedId, entity.y || 0);
+      entity.y = Math.max(0, readInt(changedId, entity.y || 0));
     }
     if (changedId === inputPrefix + '-w') {
       entity.w = Math.max(1, readInt(changedId, entity.w || 1));
@@ -608,6 +736,18 @@ function createProductsPageCanvas(deps) {
     }
     if (layer) {
       clampLayerToArea(layer, area);
+    } else {
+      const deltaX = area.x - previousAreaX;
+      const deltaY = area.y - previousAreaY;
+      if (deltaX || deltaY) {
+        (area.layers || []).forEach(child => {
+          child.x += deltaX;
+          child.y += deltaY;
+        });
+      }
+      if (changedId === 'oc-prop-w' || changedId === 'oc-prop-h') {
+        (area.layers || []).forEach(child => clampLayerToArea(child, area));
+      }
     }
     updateBoundsBox();
     renderGhosts();
@@ -1075,6 +1215,7 @@ __webpack_require__.r(__webpack_exports__);
         layers: (a.layers || []).map(normaliseLayer)
       });
     });
+    normaliseAreaLayerDefaults();
     selectedIndex = areas.length > 0 ? 0 : -1;
     selectedLayerIndex = -1;
     activeLayerTab = 'general';
@@ -1289,11 +1430,12 @@ __webpack_require__.r(__webpack_exports__);
       ...normaliseArea(a, i),
       layers: layersByAreaId[Number(a.id)] || []
     }));
+    const defaultsChanged = normaliseAreaLayerDefaults();
     selectedIndex = areas.length > 0 ? 0 : -1;
     renderAll();
     snapshot(); // seed initial history state
-    isDirty = false; // reset after seed
-    hasUnsavedChanges = false;
+    isDirty = defaultsChanged;
+    hasUnsavedChanges = defaultsChanged;
     autosaveError = '';
     finishHydration();
   }
@@ -1338,6 +1480,7 @@ __webpack_require__.r(__webpack_exports__);
     getSelectedLayerIndex: () => selectedLayerIndex,
     initCanvasInteractions: (...args) => initCanvasInteractions(...args),
     markDirty,
+    normaliseLayerDefaults: (...args) => normaliseLayerDefaults(...args),
     normaliseArea,
     normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
     normaliseUnit: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit,
@@ -1395,7 +1538,8 @@ __webpack_require__.r(__webpack_exports__);
   });
   const {
     buildTabContent,
-    bindSettingsHandlers
+    bindSettingsHandlers,
+    normaliseLayerDefaults
   } = (0,_products_page_settings__WEBPACK_IMPORTED_MODULE_1__.createProductsPageSettings)({
     commitChange,
     esc: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.esc,
@@ -1408,6 +1552,15 @@ __webpack_require__.r(__webpack_exports__);
     selectedArea,
     syncBoundsFromInputs
   });
+  function normaliseAreaLayerDefaults() {
+    let changed = false;
+    areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        changed = normaliseLayerDefaults(layer, area) || changed;
+      });
+    });
+    return changed;
+  }
   function renderAll() {
     renderAreasList();
     renderAreaStrip();
@@ -1880,6 +2033,7 @@ function createProductsPageInteractions(deps) {
     markDirty,
     normaliseArea,
     normaliseDpi,
+    normaliseLayerDefaults,
     normaliseUnit,
     nextUid,
     openMockupPicker,
@@ -1943,6 +2097,7 @@ function createProductsPageInteractions(deps) {
         if (area.method === 'engraving' && !area.material) {
           area.material = 'silver_metal';
         }
+        (area.layers || []).forEach(layer => normaliseLayerDefaults(layer, area));
         commitChange({
           all: true
         });
@@ -1985,7 +2140,6 @@ function createProductsPageInteractions(deps) {
     ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
       document.getElementById(id)?.addEventListener('input', () => {
         syncBoundsFromInputs(id);
-        markDirty();
       });
     });
     ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
@@ -2626,12 +2780,13 @@ function createProductsPageSettings(deps) {
   }
   function ensureDefaultClipartInList(settings, items) {
     if (!settings.default_clipart_id) {
-      return;
+      return false;
     }
     if ((items || []).some(item => Number(item.id) === Number(settings.default_clipart_id))) {
-      return;
+      return false;
     }
     setDefaultClipart(settings, 0, items);
+    return true;
   }
   function mediaDefaultField(settings) {
     const hasDefault = !!settings.default_attachment_url;
@@ -2731,14 +2886,30 @@ function createProductsPageSettings(deps) {
     }).join('');
   }
   function ensureDefaultFontInList(settings, fonts) {
-    if (!fonts.length) {
-      settings.default_font_id = 0;
-      return;
+    const currentId = Number(settings.default_font_id) || 0;
+    if (!currentId) {
+      return false;
     }
-    if (fonts.some(font => Number(font.id) === Number(settings.default_font_id || 0))) {
-      return;
+    if (fonts.some(font => Number(font.id) === currentId)) {
+      return false;
     }
-    settings.default_font_id = Number(fonts[0].id) || 0;
+    settings.default_font_id = 0;
+    return true;
+  }
+  function normaliseLayerDefaults(layer, area = selectedArea()) {
+    if (!layer?.settings) {
+      return false;
+    }
+    const settings = layer.settings;
+    const data = window.ocProductsData || {};
+    let changed = false;
+    if (layer.type === 'text' || layer.type === 'textarea') {
+      changed = ensureDefaultFontInList(settings, fontsForSelectedGroups(data.fonts || [], data.fontGroups || [], selectedGroupIds(settings.font_groups)));
+    }
+    if (layer.type === 'clipart') {
+      changed = ensureDefaultClipartInList(settings, clipartForSelectedGroups(data.clipartItems || [], settings.clipart_groups, area?.method || '')) || changed;
+    }
+    return changed;
   }
   function ensureDefaultColourInList(settings, colours) {
     if (!colours.length) {
@@ -2767,26 +2938,20 @@ function createProductsPageSettings(deps) {
     const area = selectedArea();
     const printMethod = area?.method || '';
     const aGroups = data.clipartGroups || [];
-    const allClipartItems = clipartForSelectedGroups(data.clipartItems || [], [], printMethod);
     const isEngraving = area && area.method === 'engraving';
-    const fontGroupIds = selectedGroupIds(s.font_groups);
-    const colourGroupIds = selectedGroupIds(s.colour_groups);
-    const availableFonts = fontsForSelectedGroups(fonts, fGroups, fontGroupIds);
-    const availableColours = coloursForSelectedGroups(colours, cGroups, colourGroupIds);
-    if (fontGroupIds.length) {
-      ensureDefaultFontInList(s, availableFonts);
-    }
-    if (!isEngraving && colourGroupIds.length) {
-      ensureDefaultColourInList(s, availableColours);
-    }
-    ensureDefaultClipartInList(s, allClipartItems);
     switch (tabId) {
       case 'general':
         return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
-        return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupIds.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupIds.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        {
+          const fontGroupsSelected = selectedGroupIds(s.font_groups);
+          const colourGroupsSelected = selectedGroupIds(s.colour_groups);
+          const availableFonts = fontsForSelectedGroups(fonts, fGroups, fontGroupsSelected);
+          const availableColours = coloursForSelectedGroups(colours, cGroups, colourGroupsSelected);
+          return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupsSelected.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupsSelected.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        }
       case 'file':
         return field('Default image', mediaDefaultField(s)) + field('Enabled image filters <span class="oc-hint">(available choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
       case 'mask':
@@ -2798,7 +2963,10 @@ function createProductsPageSettings(deps) {
         }
         return cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
       case 'library':
-        return (aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>') + field('Default clipart', allClipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions(allClipartItems, s.default_clipart_id || 0) + '</select>' : '<span class="oc-settings-empty">No active clipart is available.</span>');
+        {
+          const availableClipartItems = clipartForSelectedGroups(data.clipartItems || [], selectedGroupIds(s.clipart_groups), printMethod);
+          return (aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>') + field('Default clipart', availableClipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions(availableClipartItems, s.default_clipart_id || 0) + '</select>' : '<span class="oc-settings-empty">No active clipart is available.</span>');
+        }
       case 'validation':
         return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
       case 'properties':
@@ -2951,10 +3119,7 @@ function createProductsPageSettings(deps) {
     document.querySelectorAll('.oc-fg-check').forEach(cb => {
       cb.addEventListener('change', () => {
         s.font_groups = [...document.querySelectorAll('.oc-fg-check:checked')].map(c => Number(c.value));
-        const selected = selectedGroupIds(s.font_groups);
-        if (selected.length) {
-          ensureDefaultFontInList(s, fontsForSelectedGroups(data.fonts || [], data.fontGroups || [], selected));
-        }
+        normaliseLayerDefaults(layer, area);
         commitChange({
           canvas: true,
           rightColumn: true
@@ -3001,7 +3166,7 @@ function createProductsPageSettings(deps) {
       });
     });
     document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
-      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], [], area?.method || ''));
+      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups, area?.method || ''));
       commitChange({
         canvas: true
       });
@@ -3061,7 +3226,8 @@ function createProductsPageSettings(deps) {
   }
   return {
     buildTabContent,
-    bindSettingsHandlers
+    bindSettingsHandlers,
+    normaliseLayerDefaults
   };
 }
 
@@ -3176,7 +3342,7 @@ function normaliseUnit(value) {
   return VALID_UNITS.includes(value) ? value : 'px';
 }
 function normaliseDpi(value) {
-  return Math.min(1200, Math.max(1, Math.round(Number(value) || 300)));
+  return Math.min(1200, Math.max(36, Math.round(Number(value) || 300)));
 }
 function unitPxScale(areaOrBounds) {
   const dpi = normaliseDpi(areaOrBounds?.dpi);

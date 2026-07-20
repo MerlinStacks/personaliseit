@@ -17,6 +17,11 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Print_Generator {
+	public const OUTPUT_LOCK_CONTENTION_CODE = 40901;
+	private const ORDER_GENERATION_RETRY_HOOK = 'oc_retry_order_print_generation';
+	private const ORDER_GENERATION_RECOVERY_HOOK = 'oc_recover_order_print_generation';
+	private const ORDER_GENERATION_PENDING_META = '_oc_print_generation_pending';
+
 	/** @var array<int,true> Orders deferred until request data has been persisted. */
 	private array $deferred_order_ids = [];
 
@@ -24,13 +29,16 @@ class OC_Print_Generator {
 		add_action( 'init', [ OC_Print_Base::class, 'ensure_output_storage_protected' ] );
 
 		// Primary: order created at checkout.
-		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order' ], 20, 1 );
+		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order_safely' ], 20, 1 );
 
 		// Admin/API orders receive line items after woocommerce_new_order, so defer
 		// fallback generation until the request has finished persisting item meta.
 		add_action( 'woocommerce_new_order', [ $this, 'defer_order_generation' ], 30, 2 );
 		add_action( 'woocommerce_update_order', [ $this, 'defer_order_generation' ], 30, 2 );
 		add_action( 'shutdown', [ $this, 'generate_deferred_orders' ], 20 );
+		add_action( self::ORDER_GENERATION_RETRY_HOOK, [ $this, 'retry_order_generation' ], 10, 1 );
+		add_action( self::ORDER_GENERATION_RECOVERY_HOOK, [ $this, 'recover_pending_order_generation' ] );
+		add_action( 'init', [ $this, 'ensure_order_generation_recovery_schedule' ] );
 
 		// Admin handlers.
 		add_action( 'admin_init', [ $this, 'handle_admin_download' ] );
@@ -81,14 +89,28 @@ class OC_Print_Generator {
 			throw new \RuntimeException( 'No customisation data on order item.' );
 		}
 
-		// Prefer the immutable order-time snapshot, then use the explicitly named source table.
+		// Prefer immutable file/spec snapshots; current design rows are legacy-only fallback.
 		global $wpdb;
 		$area_snapshot = json_decode( (string) ( $record->area_snapshot ?? '' ), true );
 		$area          = is_array( $area_snapshot ) && ! empty( $area_snapshot ) ? (object) $area_snapshot : null;
 		$area_source   = (string) ( $record->area_source ?? 'unknown' );
 		$is_v2_area    = 'design' === $area_source;
+		$has_render_spec = array_key_exists( 'renderSpec', $customisation );
+		$stored_spec     = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		if ( $has_render_spec && empty( $stored_spec ) ) {
+			throw new \RuntimeException( 'The order contains an invalid stored render specification.' );
+		}
+		$spec_area_data = $is_v2_area && ! empty( $stored_spec )
+			? OC_Render_Spec::area_from_spec( $stored_spec, (int) $record->print_area_id )
+			: [];
+		if ( $is_v2_area && $has_render_spec && empty( $spec_area_data ) ) {
+			throw new \RuntimeException( 'The print file area is not present in the authoritative stored render specification.' );
+		}
+		if ( ! $area && ! empty( $spec_area_data['renderSpecArea'] ) ) {
+			$area = OC_Render_Spec::area_object( $spec_area_data['renderSpecArea'], absint( $stored_spec['designId'] ?? 0 ) );
+		}
 
-		if ( ! $area && in_array( $area_source, [ 'design', 'legacy' ], true ) ) {
+		if ( ! $area && ( 'legacy' === $area_source || ( 'design' === $area_source && ! $has_render_spec ) ) ) {
 			$table = 'design' === $area_source ? 'oc_design_print_areas' : 'oc_print_areas';
 			$area  = $wpdb->get_row( $wpdb->prepare(
 				"SELECT * FROM {$wpdb->prefix}{$table} WHERE id = %d LIMIT 1",
@@ -103,18 +125,19 @@ class OC_Print_Generator {
 		$persisted_area_data = self::persisted_area_data( $record );
 		if ( is_array( $persisted_area_data ) ) {
 			$area_data = $persisted_area_data;
-			if ( $is_v2_area ) {
-				$area = self::area_object_for_generation( $area, $area_data );
-			}
+		} elseif ( $is_v2_area && ! empty( $spec_area_data ) ) {
+			$area_data = $spec_area_data;
 		} elseif ( $is_v2_area ) {
 			$area_data = self::build_v2_area_data( (int) $area->design_id, (int) $area->id, $customisation );
-			$area      = self::area_object_for_generation( $area, $area_data );
 		} else {
 			$area_data = $customisation[ $area->area_key ] ?? null;
 		}
 
 		if ( ! is_array( $area_data ) ) {
 			throw new \RuntimeException( "No customisation data for area '{$area->area_key}'." );
+		}
+		if ( $is_v2_area ) {
+			$area = self::area_object_for_generation( $area, $area_data );
 		}
 
 		$combined_entries = self::persisted_combined_entries( $record );
@@ -244,6 +267,7 @@ class OC_Print_Generator {
 		if ( ! OC_Preview_Generator::from_pdf( $file_path, $thumb_path ) ) {
 			return null;
 		}
+		@touch( $thumb_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 
 		return $thumb_path;
 	}
@@ -261,6 +285,7 @@ class OC_Print_Generator {
 		$target    = $directory . '/' . preg_replace( '/-f\d+$/', '', $filename ) . '-f' . $print_file_id . $suffix;
 
 		if ( $target === $file_path ) {
+			@touch( $target ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			return $target;
 		}
 
@@ -274,16 +299,38 @@ class OC_Print_Generator {
 	/** Serialize driver writes for one order item because legacy drivers use position-based temporary names. */
 	public static function with_output_lock( int $order_id, int $item_id, callable $generate ): array {
 		global $wpdb;
-		$lock_name = 'oc_print_' . $order_id . '_' . $item_id;
-		$acquired  = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 5)', $lock_name ) );
+		$lock_name    = 'oc_print_' . $order_id . '_' . $item_id;
+		$wait_seconds = apply_filters( 'oc_print_output_lock_wait_seconds', 5, $order_id, $item_id );
+		$wait_seconds = is_numeric( $wait_seconds ) ? max( 0, min( 30, (int) $wait_seconds ) ) : 5;
+		$acquired     = (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, %d)', $lock_name, $wait_seconds ) );
 		if ( 1 !== $acquired ) {
-			throw new \RuntimeException( 'Could not acquire the print output lock.' );
+			throw new \RuntimeException( 'Print output is currently locked by another worker.', self::OUTPUT_LOCK_CONTENTION_CODE );
 		}
 
 		try {
 			return $generate();
 		} finally {
 			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+		}
+	}
+
+	/** Remove uncommitted worker output only when no print-file row references it. */
+	public static function remove_uncommitted_artifacts( array $paths ): void {
+		global $wpdb;
+		foreach ( array_unique( array_filter( $paths, 'is_string' ) ) as $path ) {
+			$real = self::resolve_print_storage_path( $path );
+			if ( null === $real ) {
+				continue;
+			}
+
+			$references = (int) $wpdb->get_var( $wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files WHERE file_path = %s OR thumbnail_path = %s",
+				$path,
+				$path
+			) );
+			if ( 0 === $references && ! @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				OC_Logger::warning( 'Could not remove uncommitted print artifact: ' . basename( $real ) );
+			}
 		}
 	}
 
@@ -395,6 +442,12 @@ class OC_Print_Generator {
 
 	/** Generate print files for all customised items in a new order. */
 	public function generate_for_order( \WC_Order $order ): void {
+		if ( ! OC_DB::print_pipeline_available() ) {
+			self::mark_order_generation_pending( $order );
+			self::schedule_order_generation_retry( (int) $order->get_id() );
+			return;
+		}
+
 		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90;
 		$now            = current_time( 'mysql', true );
 		$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
@@ -426,14 +479,11 @@ class OC_Print_Generator {
 					continue;
 				}
 
-				$areas      = OC_DB::get_design_print_areas( $design_id );
+				$areas      = self::v2_print_areas( $design_id, $customisation );
 				$print_jobs = [];
-				foreach ( $areas as $area ) {
-					if ( isset( $area->visible ) && ! (bool) $area->visible ) {
-						continue;
-					}
-					$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
-					$area      = self::area_object_for_generation( $area, $area_data );
+				foreach ( $areas as $entry ) {
+					$area      = $entry['area'];
+					$area_data = $entry['area_data'];
 					if ( ! self::area_has_printable_data( $area_data ) ) {
 						$order->add_order_note( sprintf( __( 'OverCustomise skipped print area "%s": no printable customer data was found.', 'overcustomise' ), $area->label ?: $area->area_key ) );
 						continue;
@@ -538,6 +588,21 @@ class OC_Print_Generator {
 		}
 		if ( $failed_count > 0 ) {
 			$order->add_order_note( sprintf( __( 'OverCustomise could not queue %d print file(s). Review the print queue and error log.', 'overcustomise' ), $failed_count ) );
+			self::mark_order_generation_pending( $order );
+			self::schedule_order_generation_retry( (int) $order->get_id() );
+		} else {
+			self::clear_order_generation_pending( $order );
+		}
+
+		unset( $this->deferred_order_ids[ (int) $order->get_id() ] );
+	}
+
+	/** Keep production failures from aborting checkout and retain a durable retry marker. */
+	public function generate_for_order_safely( \WC_Order $order ): void {
+		try {
+			$this->generate_for_order( $order );
+		} catch ( \Throwable $e ) {
+			self::retain_failed_order_generation( $order, $e, 'Print generation failed' );
 		}
 	}
 
@@ -563,12 +628,46 @@ class OC_Print_Generator {
 			return null;
 		}
 
+		$stored_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : null;
+		if ( null === $stored_spec ) {
+			$order->add_order_note( __( 'OverCustomise VDP requires the order-time render snapshot. A standard single-output print job was queued instead.', 'overcustomise' ) );
+			return null;
+		}
+		$stored_design_id = absint( $stored_spec['designId'] ?? 0 );
+		if ( $stored_design_id > 0 && $stored_design_id !== $design_id ) {
+			$order->add_order_note( __( 'OverCustomise VDP render snapshot does not match the order design. A standard single-output print job was queued instead.', 'overcustomise' ) );
+			return null;
+		}
+		try {
+			$snapshot_areas = OC_Render_Spec::print_areas( $stored_spec );
+		} catch ( \RuntimeException $e ) {
+			OC_Logger::warning( 'VDP fallback for design #' . $design_id . ': ' . $e->getMessage() );
+			return null;
+		}
+		if ( empty( $snapshot_areas ) ) {
+			return [ 'queued' => 0, 'failed' => 0, 'queue_ids' => [] ];
+		}
+
 		$layers_by_id = [];
-		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
-			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || ! empty( $layer->locked ) ) {
-				continue;
+		foreach ( $stored_spec['areas'] as $spec_area ) {
+			foreach ( is_array( $spec_area['layers'] ?? null ) ? $spec_area['layers'] : [] as $spec_layer ) {
+				if ( ! is_array( $spec_layer ) ) {
+					continue;
+				}
+				$layer_id = absint( $spec_layer['id'] ?? 0 );
+				if ( $layer_id <= 0 || isset( $layers_by_id[ $layer_id ] ) ) {
+					$order->add_order_note( __( 'OverCustomise VDP mappings are ambiguous in the stored render snapshot. A standard single-output print job was queued instead.', 'overcustomise' ) );
+					return null;
+				}
+				$layers_by_id[ $layer_id ] = (object) [
+					'id'        => $layer_id,
+					'type'      => (string) ( $spec_layer['type'] ?? '' ),
+					'label'     => (string) ( $spec_layer['label'] ?? '' ),
+					'locked'    => ! empty( $spec_layer['locked'] ),
+					'has_input' => is_array( $spec_layer['input'] ?? null ),
+					'settings'  => wp_json_encode( is_array( $spec_layer['settings'] ?? null ) ? $spec_layer['settings'] : [] ),
+				];
 			}
-			$layers_by_id[ (int) $layer->id ] = $layer;
 		}
 
 		$header_lookup = array_fill_keys( $headers, true );
@@ -578,8 +677,8 @@ class OC_Print_Generator {
 			$layer_id  = absint( $field['layer_id'] ?? 0 );
 			$field_name = sanitize_key( (string) ( $field['field_name'] ?? '' ) );
 			$layer      = $layers_by_id[ $layer_id ] ?? null;
-			if ( ! $layer || ! isset( $header_lookup[ $field_name ] ) || isset( $field_map[ $layer_id ] ) || isset( $used_headers[ $field_name ] ) || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true ) ) {
-				$order->add_order_note( __( 'OverCustomise VDP fields no longer match the visible design layers. A standard single-output print job was queued instead.', 'overcustomise' ) );
+			if ( ! $layer || empty( $layer->has_input ) || ! isset( $header_lookup[ $field_name ] ) || isset( $field_map[ $layer_id ] ) || isset( $used_headers[ $field_name ] ) || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true ) || ! empty( $layer->locked ) ) {
+				$order->add_order_note( __( 'OverCustomise VDP fields do not match editable layers in the stored render snapshot. A standard single-output print job was queued instead.', 'overcustomise' ) );
 				return null;
 			}
 			$field_map[ $layer_id ]     = [ 'field' => $field_name, 'layer' => $layer ];
@@ -607,33 +706,42 @@ class OC_Print_Generator {
 			$normalised_rows[] = [ 'row' => $row, 'values' => $row_values ];
 		}
 
-		$areas = array_values( array_filter(
-			OC_DB::get_design_print_areas( $design_id ),
-			static fn( object $area ): bool => ! isset( $area->visible ) || (bool) $area->visible
-		) );
-		if ( empty( $areas ) ) {
-			return null;
-		}
-
-		$queued   = 0;
-		$failed   = 0;
+		$queued    = 0;
+		$failed    = 0;
 		$queue_ids = [];
 		foreach ( $normalised_rows as $row_offset => $row_data ) {
-			$row_index    = $row_offset + 1;
-			$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
-			foreach ( $row_data['values'] as $layer_id => $value ) {
-				$layer_inputs[ $layer_id ] = is_array( $layer_inputs[ $layer_id ] ?? null ) ? $layer_inputs[ $layer_id ] : [];
-				$layer_inputs[ $layer_id ]['value'] = $value;
+			$row_index = $row_offset + 1;
+			$row_spec  = $stored_spec;
+			$remaining = array_fill_keys( array_map( 'intval', array_keys( $row_data['values'] ) ), true );
+			foreach ( $row_spec['areas'] as &$spec_area ) {
+				if ( ! is_array( $spec_area['layers'] ?? null ) ) {
+					continue;
+				}
+				foreach ( $spec_area['layers'] as &$spec_layer ) {
+					if ( ! is_array( $spec_layer ) ) {
+						continue;
+					}
+					$layer_id = absint( $spec_layer['id'] ?? 0 );
+					if ( ! array_key_exists( $layer_id, $row_data['values'] ) ) {
+						continue;
+					}
+					if ( ! is_array( $spec_layer['input'] ?? null ) ) {
+						throw new \RuntimeException( 'A VDP mapping no longer targets a stored customer input.' );
+					}
+					$spec_layer['input']['value'] = $row_data['values'][ $layer_id ];
+					unset( $remaining[ $layer_id ] );
+				}
+				unset( $spec_layer );
+			}
+			unset( $spec_area );
+			if ( ! empty( $remaining ) ) {
+				throw new \RuntimeException( 'A VDP mapping disappeared from the stored render snapshot.' );
 			}
 
-			$merged_customisation               = $customisation;
-			$merged_customisation['layers']     = $layer_inputs;
-			$merged_customisation['renderSpec'] = OC_Render_Spec::build( $design_id, $layer_inputs );
 			$row_key = hash( 'sha256', (string) wp_json_encode( $row_data['row'] ) );
-
-			foreach ( $areas as $area_row ) {
-				$area_data = self::build_v2_area_data( $design_id, (int) $area_row->id, $merged_customisation );
-				$area      = self::area_object_for_generation( $area_row, $area_data );
+			foreach ( OC_Render_Spec::print_areas( $row_spec ) as $entry ) {
+				$area      = $entry['area'];
+				$area_data = $entry['area_data'];
 				if ( ! self::area_has_printable_data( $area_data ) ) {
 					$order->add_order_note( sprintf( __( 'OverCustomise skipped VDP row %1$d, print area "%2$s": no printable data was found.', 'overcustomise' ), $row_index, $area->label ?: $area->area_key ) );
 					continue;
@@ -694,19 +802,176 @@ class OC_Print_Generator {
 		}
 	}
 
+	/** Retry idempotent order generation until the print schema is available. */
+	public function retry_order_generation( int $order_id ): void {
+		if ( ! OC_DB::print_pipeline_available() ) {
+			self::schedule_order_generation_retry( $order_id );
+			return;
+		}
+
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof \WC_Order ) {
+			return;
+		}
+
+		try {
+			$this->generate_for_order( $order );
+		} catch ( \Throwable $e ) {
+			self::retain_failed_order_generation( $order, $e, 'Deferred print generation failed' );
+		}
+	}
+
+	/** Persist one deduplicated retry for an order whose schema is unavailable. */
+	public static function schedule_order_generation_retry( int $order_id ): bool {
+		if ( $order_id <= 0 ) {
+			return false;
+		}
+		if ( function_exists( 'wc_get_order' ) ) {
+			try {
+				$order = wc_get_order( $order_id );
+				if ( $order instanceof \WC_Order ) {
+					self::mark_order_generation_pending( $order );
+				}
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( sprintf( 'Could not persist the print-generation retry marker for order #%d: %s', $order_id, $e->getMessage() ) );
+			}
+		}
+
+		$args = [ $order_id ];
+		$delay = (int) apply_filters( 'oc_print_schema_retry_delay', 300, $order_id );
+		$delay = max( 60, min( DAY_IN_SECONDS, $delay ) );
+		$run_at = time() + $delay;
+
+		if ( function_exists( 'as_next_scheduled_action' ) && function_exists( 'as_schedule_single_action' ) ) {
+			try {
+				$scheduled = as_next_scheduled_action( self::ORDER_GENERATION_RETRY_HOOK, $args, 'overcustomise' );
+				if ( false !== $scheduled ) {
+					return true;
+				}
+
+				if ( 0 < (int) as_schedule_single_action( $run_at, self::ORDER_GENERATION_RETRY_HOOK, $args, 'overcustomise', true ) ) {
+					return true;
+				}
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( sprintf( 'Action Scheduler could not retain print generation for order #%d: %s', $order_id, $e->getMessage() ) );
+			}
+		}
+
+		if ( wp_next_scheduled( self::ORDER_GENERATION_RETRY_HOOK, $args ) ) {
+			return true;
+		}
+
+		return false !== wp_schedule_single_event( $run_at, self::ORDER_GENERATION_RETRY_HOOK, $args );
+	}
+
+	/** Ensure durable pending markers are swept even if an individual event was lost. */
+	public function ensure_order_generation_recovery_schedule(): void {
+		if ( ! wp_next_scheduled( self::ORDER_GENERATION_RECOVERY_HOOK ) ) {
+			wp_schedule_event( time() + 300, 'hourly', self::ORDER_GENERATION_RECOVERY_HOOK );
+		}
+	}
+
+	/** Retry a bounded HPOS-compatible batch of orders carrying durable pending markers. */
+	public function recover_pending_order_generation(): void {
+		if ( ! OC_DB::print_pipeline_available() || ! function_exists( 'wc_get_orders' ) ) {
+			return;
+		}
+
+		$limit = apply_filters( 'oc_print_generation_recovery_batch_size', 20 );
+		$limit = is_numeric( $limit ) ? max( 1, min( 100, (int) $limit ) ) : 20;
+		$order_ids = wc_get_orders( [
+			'limit'        => $limit,
+			'return'       => 'ids',
+			'orderby'      => 'date',
+			'order'        => 'ASC',
+			'meta_query'   => [
+				[
+					'key'     => self::ORDER_GENERATION_PENDING_META,
+					'compare' => 'EXISTS',
+				],
+			],
+		] );
+		foreach ( is_array( $order_ids ) ? $order_ids : [] as $order_id ) {
+			$this->retry_order_generation( absint( $order_id ) );
+		}
+	}
+
+	/** Persist the retry marker through WooCommerce's active order datastore. */
+	private static function mark_order_generation_pending( \WC_Order $order ): void {
+		if ( '' !== (string) $order->get_meta( self::ORDER_GENERATION_PENDING_META, true ) ) {
+			return;
+		}
+		$order->update_meta_data( self::ORDER_GENERATION_PENDING_META, time() );
+		$order->save_meta_data();
+	}
+
+	/** Clear the durable retry marker only after schema-backed generation ran. */
+	private static function clear_order_generation_pending( \WC_Order $order ): void {
+		if ( '' === (string) $order->get_meta( self::ORDER_GENERATION_PENDING_META, true ) ) {
+			return;
+		}
+		$order->delete_meta_data( self::ORDER_GENERATION_PENDING_META );
+		$order->save_meta_data();
+	}
+
+	/** Preserve recovery state without allowing a secondary failure to escape checkout or cron. */
+	private static function retain_failed_order_generation( \WC_Order $order, \Throwable $error, string $context ): void {
+		$order_id = (int) $order->get_id();
+		try {
+			self::mark_order_generation_pending( $order );
+		} catch ( \Throwable $marker_error ) {
+			OC_Logger::error( sprintf( 'Could not persist the print-generation retry marker for order #%d: %s', $order_id, $marker_error->getMessage() ) );
+		}
+
+		try {
+			if ( ! self::schedule_order_generation_retry( $order_id ) ) {
+				OC_Logger::error( sprintf( 'Could not schedule deferred print generation for order #%d.', $order_id ) );
+			}
+		} catch ( \Throwable $schedule_error ) {
+			OC_Logger::error( sprintf( 'Could not schedule deferred print generation for order #%d: %s', $order_id, $schedule_error->getMessage() ) );
+		}
+
+		OC_Logger::error( sprintf( '%s for order #%d and was deferred: %s', $context, $order_id, $error->getMessage() ) );
+	}
+
 	/** Queue an order for idempotent generation after all line-item writes finish. */
 	public function defer_order_generation( int $order_id, $order = null ): void {
 		if ( $order_id > 0 ) {
 			$this->deferred_order_ids[ $order_id ] = true;
+			if ( ! OC_DB::print_pipeline_available() ) {
+				self::schedule_order_generation_retry( $order_id );
+			}
 		}
 	}
 
 	/** Process deferred admin/API orders at shutdown. */
 	public function generate_deferred_orders(): void {
 		foreach ( array_keys( $this->deferred_order_ids ) as $order_id ) {
-			$this->generate_for_order_id( (int) $order_id );
+			$this->retry_order_generation( (int) $order_id );
 		}
 		$this->deferred_order_ids = [];
+	}
+
+	/** Return v2 production areas, treating an order's renderSpec as the area authority. */
+	private static function v2_print_areas( int $design_id, array $customisation ): array {
+		if ( array_key_exists( 'renderSpec', $customisation ) ) {
+			if ( ! is_array( $customisation['renderSpec'] ) ) {
+				throw new \RuntimeException( 'The order contains an invalid stored render specification.' );
+			}
+			$render_spec = $customisation['renderSpec'];
+			$stored_design_id = absint( $render_spec['designId'] ?? 0 );
+			if ( $stored_design_id > 0 && $stored_design_id !== $design_id ) {
+				throw new \RuntimeException( 'The stored render specification does not match the order design.' );
+			}
+
+			return OC_Render_Spec::print_areas( $render_spec );
+		}
+
+		// Historical v2 orders without a renderSpec retain the old reconstruction path.
+		$layer_inputs = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+		$layer_inputs = self::normalise_v2_layer_font_inputs( $design_id, $layer_inputs );
+
+		return OC_Render_Spec::print_areas( OC_Render_Spec::build( $design_id, $layer_inputs ) );
 	}
 
 	private static function area_has_printable_data( array $area_data ): bool {
@@ -958,15 +1223,17 @@ class OC_Print_Generator {
 				return [];
 			}
 
-			foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
-				if ( isset( $area->visible ) && ! (bool) $area->visible ) {
-					continue;
-				}
+			$stored_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : null;
+			$area_entries = null !== $stored_spec
+				? OC_Render_Spec::print_areas( $stored_spec )
+				: self::v2_print_areas( $design_id, $customisation );
+			foreach ( $area_entries as $entry ) {
+				$area      = $entry['area'];
+				$area_data = $entry['area_data'];
 				if ( sanitize_key( (string) $area->print_method ) !== $method ) {
 					continue;
 				}
 
-				$area_data = self::build_v2_area_data( $design_id, (int) $area->id, $customisation );
 				if ( ! self::area_has_printable_data( $area_data ) ) {
 					continue;
 				}
@@ -976,7 +1243,7 @@ class OC_Print_Generator {
 				}
 
 				$entries[] = [
-					'area'      => self::area_object_for_generation( $area, $area_data ),
+					'area'      => $area,
 					'area_data' => $area_data,
 				];
 			}
@@ -1131,7 +1398,7 @@ class OC_Print_Generator {
 		return ! empty( $area_data ) ? $area_data : [];
 	}
 
-	/** Use the order-time renderSpec area snapshot for generation, falling back to the current DB row. */
+	/** Use the order-time renderSpec area snapshot for generation, falling back to a historical row. */
 	public static function area_object_for_generation( object $current_area, array $area_data ): object {
 		$snapshot = is_array( $area_data['renderSpecArea'] ?? null ) ? $area_data['renderSpecArea'] : [];
 		$bounds   = is_array( $snapshot['bounds'] ?? null ) ? $snapshot['bounds'] : [];
@@ -1140,20 +1407,7 @@ class OC_Print_Generator {
 			return $current_area;
 		}
 
-		$area = clone $current_area;
-		$area->id              = (int) ( $snapshot['id'] ?? $current_area->id ?? 0 );
-		$area->area_key        = (string) ( $snapshot['areaKey'] ?? $current_area->area_key ?? '' );
-		$area->label           = (string) ( $snapshot['label'] ?? $current_area->label ?? '' );
-		$area->print_method    = (string) ( $snapshot['printMethod'] ?? $current_area->print_method ?? '' );
-		$area->canvas_unit     = (string) ( $snapshot['unit'] ?? $current_area->canvas_unit ?? 'px' );
-		$area->canvas_x        = (float) ( $bounds['x'] ?? $current_area->canvas_x ?? 0 );
-		$area->canvas_y        = (float) ( $bounds['y'] ?? $current_area->canvas_y ?? 0 );
-		$area->canvas_w        = (float) ( $bounds['w'] ?? $current_area->canvas_w ?? 1 );
-		$area->canvas_h        = (float) ( $bounds['h'] ?? $current_area->canvas_h ?? 1 );
-		$area->canvas_dpi      = (int) ( $bounds['dpi'] ?? $current_area->canvas_dpi ?? 300 );
-		$area->canvas_rotation = (float) ( $bounds['rotation'] ?? $current_area->canvas_rotation ?? 0 );
-
-		return $area;
+		return OC_Render_Spec::area_object( $snapshot, absint( $current_area->design_id ?? 0 ) );
 	}
 
 	private static function normalise_v2_layer_font_inputs( int $design_id, array $layer_inputs ): array {

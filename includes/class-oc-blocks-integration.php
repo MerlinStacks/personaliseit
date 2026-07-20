@@ -41,7 +41,7 @@ class OC_Blocks_Integration {
 	/** Return OC extension data for a single cart item. */
 	public function cart_item_data( array $cart_item ): array {
 		return [
-			'preview_url' => $cart_item['_oc_preview_url'] ?? '',
+			'preview_url' => is_string( $cart_item['_oc_preview_url'] ?? null ) ? esc_url_raw( $cart_item['_oc_preview_url'] ) : '',
 			'summary'     => $this->build_summary( $cart_item ),
 		];
 	}
@@ -68,7 +68,7 @@ class OC_Blocks_Integration {
 		}
 
 		$lines = [];
-		if ( ! empty( $customisation['designVariantLabel'] ) ) {
+		if ( is_scalar( $customisation['designVariantLabel'] ?? null ) && '' !== trim( (string) $customisation['designVariantLabel'] ) ) {
 			$lines[] = [
 				'key'   => __( 'Artwork Option', 'overcustomise' ),
 				'value' => (string) $customisation['designVariantLabel'],
@@ -81,7 +81,7 @@ class OC_Blocks_Integration {
 			$layer = $layer_map[ (int) $layer_id ] ?? null;
 			$label = $layer
 				? ( $layer->label ?: ucfirst( $layer->type ) )
-				: ucfirst( $layer_data['type'] ?? 'Layer' );
+				: ucfirst( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : 'Layer' );
 
 			$value = $this->layer_value( $layer_data );
 			if ( ! $value ) continue;
@@ -99,8 +99,8 @@ class OC_Blocks_Integration {
 			if ( ! is_array( $area_data ) ) continue;
 
 			$parts = [];
-			if ( ! empty( $area_data['text'] ) ) {
-				$parts[] = (string) $area_data['text'];
+			if ( is_scalar( $area_data['text'] ?? null ) && '' !== trim( (string) $area_data['text'] ) ) {
+				$parts[] = sanitize_textarea_field( (string) $area_data['text'] );
 			}
 			if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
 				$parts[] = __( 'Artwork attached', 'overcustomise' );
@@ -117,11 +117,12 @@ class OC_Blocks_Integration {
 	}
 
 	private function layer_value( array $layer_data ): string {
-		switch ( $layer_data['type'] ?? '' ) {
+		$type = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
+		switch ( $type ) {
 			case 'text':
 			case 'textarea':
 			case 'spotify':
-				return trim( $layer_data['value'] ?? '' );
+				return is_scalar( $layer_data['value'] ?? null ) ? trim( sanitize_textarea_field( (string) $layer_data['value'] ) ) : '';
 			case 'image':
 			case 'clipmask':
 				return ! empty( $layer_data['attachmentId'] )

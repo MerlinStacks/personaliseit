@@ -12,6 +12,9 @@ class OC_Admin_Clipart {
 	private const CLIPART_SUBDIR = 'overcustomise/clipart';
 	private const PRINT_METHODS = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
 	private const INITIAL_CARD_LIMIT = 60;
+	private const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+	private const MAX_RASTER_DIMENSION = 6000;
+	private const MAX_RASTER_PIXELS = 16000000;
 
 	/** Clear cached clipart and clipart-group data after manager changes. */
 	private static function clear_clipart_cache(): void {
@@ -35,10 +38,17 @@ class OC_Admin_Clipart {
 
 	public static function get_clipart_url( string $file_path ): string {
 		$upload_dir = wp_upload_dir();
-		$base_dir   = trailingslashit( wp_normalize_path( $upload_dir['basedir'] ) );
-		$norm_path  = wp_normalize_path( $file_path );
-		if ( str_starts_with( $norm_path, $base_dir ) ) {
-			return trailingslashit( $upload_dir['baseurl'] ) . substr( $norm_path, strlen( $base_dir ) );
+		$base_dir   = realpath( (string) ( $upload_dir['basedir'] ?? '' ) );
+		$real_path  = realpath( $file_path );
+		$clipart_dir = realpath( trailingslashit( (string) ( $upload_dir['basedir'] ?? '' ) ) . self::CLIPART_SUBDIR );
+		$base_path    = $base_dir ? rtrim( wp_normalize_path( $base_dir ), '/' ) : '';
+		$clipart_path = $clipart_dir ? rtrim( wp_normalize_path( $clipart_dir ), '/' ) : '';
+		$real         = $real_path ? wp_normalize_path( $real_path ) : '';
+		if ( '' !== $base_path && '' !== $clipart_path && '' !== $real && is_file( $real_path )
+			&& str_starts_with( $clipart_path, $base_path . '/' )
+			&& str_starts_with( $real, $clipart_path . '/' )
+		) {
+			return trailingslashit( (string) $upload_dir['baseurl'] ) . ltrim( substr( $real, strlen( $base_path ) ), '/' );
 		}
 		return '';
 	}
@@ -426,8 +436,8 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'No file received or upload error.', 'overcustomise' ) ] );
 		}
 
-		$name = sanitize_text_field( $_POST['name'] ?? '' );
-		if ( ! $name ) {
+		$name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		if ( ! $name || strlen( $name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Clipart name is required.', 'overcustomise' ) ] );
 		}
 
@@ -463,7 +473,7 @@ class OC_Admin_Clipart {
 			$id
 		) );
 
-		if ( ! $row || empty( $row->file_path ) || ! file_exists( $row->file_path ) ) {
+		if ( ! $row || empty( $row->file_path ) || ! self::managed_clipart_path( (string) $row->file_path ) ) {
 			wp_send_json_error( [ 'message' => __( 'Clipart file was not found.', 'overcustomise' ) ] );
 		}
 
@@ -513,15 +523,18 @@ class OC_Admin_Clipart {
 		}
 
 		$id   = (int) ( $_POST['id'] ?? 0 );
-		$name              = sanitize_text_field( $_POST['name'] ?? '' );
+		$name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$colour_changeable = ! empty( $_POST['colour_changeable'] );
 		$allowed_methods   = self::normalise_print_methods( $_POST['allowed_print_methods'] ?? [] );
 
-		if ( ! $id || ! $name ) {
+		if ( ! $id || ! $name || strlen( $name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
 		}
 
 		global $wpdb;
+		if ( ! $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1", $id ) ) ) {
+			wp_send_json_error( [ 'message' => __( 'Clipart not found.', 'overcustomise' ) ], 404 );
+		}
 		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_clipart",
 			[
@@ -553,10 +566,13 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$name        = sanitize_text_field( $_POST['name'] ?? '' );
-		$clipart_ids = array_values( array_filter( array_map( 'intval', (array) ( $_POST['clipart_ids'] ?? [] ) ) ) );
-		if ( ! $name ) {
+		$name        = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$clipart_ids = self::normalise_clipart_ids( $_POST['clipart_ids'] ?? [] );
+		if ( ! $name || strlen( $name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
+		}
+		if ( is_wp_error( $clipart_ids ) ) {
+			wp_send_json_error( [ 'message' => $clipart_ids->get_error_message() ], 400 );
 		}
 
 		global $wpdb;
@@ -597,11 +613,14 @@ class OC_Admin_Clipart {
 		}
 
 		$id          = (int) ( $_POST['id'] ?? 0 );
-		$name        = sanitize_text_field( $_POST['name'] ?? '' );
-		$clipart_ids = array_filter( array_map( 'intval', (array) ( $_POST['clipart_ids'] ?? [] ) ) );
+		$name        = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$clipart_ids = self::normalise_clipart_ids( $_POST['clipart_ids'] ?? [] );
 
-		if ( ! $id || ! $name ) {
+		if ( ! $id || ! $name || strlen( $name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
+		if ( is_wp_error( $clipart_ids ) ) {
+			wp_send_json_error( [ 'message' => $clipart_ids->get_error_message() ], 400 );
 		}
 
 		global $wpdb;
@@ -656,9 +675,14 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$deleted_items = $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] );
-		$deleted_group = $wpdb->delete( "{$wpdb->prefix}oc_clipart_groups",      [ 'id'       => $id ], [ '%d' ] );
-		if ( false === $deleted_items || false === $deleted_group ) {
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not delete clipart group.', 'overcustomise' ) ], 500 );
+		}
+		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart_groups WHERE id = %d FOR UPDATE", $id ) );
+		$deleted_items = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
+		$deleted_group = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_clipart_groups", [ 'id' => $id ], [ '%d' ] ) : false;
+		if ( false === $deleted_items || 1 !== $deleted_group || false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not delete clipart group.', 'overcustomise' ) ] );
 		}
 		self::clear_clipart_cache();
@@ -671,7 +695,7 @@ class OC_Admin_Clipart {
 		$id    = isset( $_GET['id'] )    ? (int) $_GET['id']    : 0;
 		$state = isset( $_GET['state'] ) ? (int) $_GET['state'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_clipart_toggle_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
@@ -690,35 +714,17 @@ class OC_Admin_Clipart {
 	private function handle_delete(): void {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_clipart_delete_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
 		global $wpdb;
-
-		// Capture the physical file path before deleting the database row.
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT file_path FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
-			$id
-		) );
-
-		$deleted_items   = $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'clipart_id' => $id ], [ '%d' ] );
-		$deleted_clipart = $wpdb->delete( "{$wpdb->prefix}oc_clipart", [ 'id' => $id ], [ '%d' ] );
-		if ( false === $deleted_items || false === $deleted_clipart ) {
-			wp_die( esc_html__( 'Could not delete clipart.', 'overcustomise' ) );
-		}
-
-		if ( $row && $row->file_path && file_exists( $row->file_path ) ) {
-			// Only unlink files that live under wp-content/uploads.
-			$upload    = wp_upload_dir();
-			$base_real = realpath( $upload['basedir'] );
-			$path_real = realpath( $row->file_path );
-			$base_prefix = $base_real ? rtrim( $base_real, '/\\' ) . DIRECTORY_SEPARATOR : '';
-			if ( $path_real && '' !== $base_prefix && str_starts_with( $path_real, $base_prefix ) && is_file( $path_real ) ) {
-				wp_delete_file( $path_real );
-			}
+		$exists  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1", $id ) );
+		$updated = $exists ? $wpdb->update( "{$wpdb->prefix}oc_clipart", [ 'active' => 0 ], [ 'id' => $id ], [ '%d' ], [ '%d' ] ) : false;
+		if ( false === $updated ) {
+			wp_die( esc_html__( 'Could not deactivate clipart.', 'overcustomise' ) );
 		}
 		self::clear_clipart_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-clipart' ) );
@@ -737,14 +743,27 @@ class OC_Admin_Clipart {
 			'gif'  => 'image/gif',
 		];
 
-		$original_name = $file['name'];
-		$tmp           = $file['tmp_name'];
+		$original_name = is_scalar( $file['name'] ?? null ) ? basename( (string) $file['name'] ) : '';
+		$tmp           = is_scalar( $file['tmp_name'] ?? null ) ? (string) $file['tmp_name'] : '';
+		$size          = (int) ( $file['size'] ?? 0 );
+		if ( UPLOAD_ERR_OK !== (int) ( $file['error'] ?? UPLOAD_ERR_NO_FILE ) || ! $tmp || ! is_uploaded_file( $tmp ) ) {
+			return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
+		}
+		if ( $size <= 0 || $size > self::MAX_UPLOAD_BYTES ) {
+			return new \WP_Error( 'too_large', __( 'Clipart files must be no larger than 15 MB.', 'overcustomise' ) );
+		}
 
 		$file_type = wp_check_filetype( $original_name );
 		$ext       = strtolower( $file_type['ext'] ?? '' );
 
 		if ( ! $ext || ! array_key_exists( $ext, $allowed_types ) ) {
 			return new \WP_Error( 'invalid_type', __( 'Unsupported file type. Allowed: SVG, PNG, JPG, WEBP, GIF.', 'overcustomise' ) );
+		}
+		if ( 'svg' !== $ext ) {
+			$validated = self::validate_raster_file( $tmp, $ext );
+			if ( is_wp_error( $validated ) ) {
+				return $validated;
+			}
 		}
 
 		// Prepare target directory.
@@ -757,19 +776,21 @@ class OC_Admin_Clipart {
 		if ( ! wp_mkdir_p( $target_dir ) ) {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create upload directory.', 'overcustomise' ) );
 		}
+		$base_dir   = realpath( (string) $upload_dir['basedir'] );
+		$target_real = realpath( $target_dir );
+		$base_path   = $base_dir ? rtrim( wp_normalize_path( $base_dir ), '/' ) : '';
+		$target_path = $target_real ? rtrim( wp_normalize_path( $target_real ), '/' ) : '';
+		if ( '' === $base_path || '' === $target_path || ! str_starts_with( $target_path, $base_path . '/' ) ) {
+			return new \WP_Error( 'unsafe_upload_dir', __( 'The clipart upload directory is not safe.', 'overcustomise' ) );
+		}
+		$target_dir = trailingslashit( $target_path );
 
 		// Build unique SVG filename. Raster uploads are converted before storage.
-		$safe_name = sanitize_file_name( preg_replace( '/\.[^.]+$/', '.svg', $original_name ) );
-		$dest      = $target_dir . $safe_name;
-		if ( file_exists( $dest ) ) {
-			$dest = $target_dir . uniqid( '', true ) . '-' . $safe_name;
-		}
+		$safe_name = sanitize_file_name( preg_replace( '/\.[^.]+$/', '.svg', $original_name ) ) ?: 'clipart.svg';
+		$dest      = $target_dir . wp_unique_filename( $target_dir, $safe_name );
 
 		// Save as SVG.
 		if ( 'svg' === $ext ) {
-			if ( ! is_uploaded_file( $tmp ) ) {
-				return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
-			}
 			$raw = file_get_contents( $tmp ); // phpcs:ignore WordPress.WP.AlternativeFunctions
 			if ( false === $raw ) {
 				return new \WP_Error( 'read_failed', __( 'Could not read uploaded file.', 'overcustomise' ) );
@@ -783,9 +804,6 @@ class OC_Admin_Clipart {
 				return new \WP_Error( 'write_failed', __( 'Could not save file.', 'overcustomise' ) );
 			}
 		} else {
-			if ( ! is_uploaded_file( $tmp ) ) {
-				return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
-			}
 			$converted = self::raster_to_svg( $tmp, $dest, $ext );
 			if ( is_wp_error( $converted ) ) {
 				return $converted;
@@ -865,7 +883,58 @@ class OC_Admin_Clipart {
 
 	private static function normalise_print_methods( mixed $methods ): array {
 		$methods = is_array( $methods ) ? $methods : [ $methods ];
-		return array_values( array_intersect( self::PRINT_METHODS, array_map( 'sanitize_key', $methods ) ) );
+		$normalised = [];
+		foreach ( $methods as $method ) {
+			if ( is_scalar( $method ) ) {
+				$normalised[] = sanitize_key( (string) $method );
+			}
+		}
+		return array_values( array_unique( array_intersect( self::PRINT_METHODS, $normalised ) ) );
+	}
+
+	/** Return distinct existing clipart IDs or an error for a stale group submission. */
+	private static function normalise_clipart_ids( mixed $raw_ids ): array|\WP_Error {
+		if ( ! is_array( $raw_ids ) || count( $raw_ids ) > 500 ) {
+			return new \WP_Error( 'invalid_clipart', __( 'The submitted clipart list is invalid.', 'overcustomise' ) );
+		}
+		$ids = [];
+		foreach ( $raw_ids as $raw_id ) {
+			if ( ! is_scalar( $raw_id ) ) {
+				return new \WP_Error( 'invalid_clipart', __( 'The submitted clipart list is invalid.', 'overcustomise' ) );
+			}
+			$id = absint( $raw_id );
+			if ( $id ) $ids[] = $id;
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) return [];
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$existing = array_map( 'intval', $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id IN ($placeholders)",
+			...$ids
+		) ) ?: [] );
+		return array_diff( $ids, $existing )
+			? new \WP_Error( 'stale_clipart', __( 'One or more selected clipart items no longer exist.', 'overcustomise' ) )
+			: $ids;
+	}
+
+	/** Return the canonical managed path for a stored clipart file. */
+	private static function managed_clipart_path( string $path ): string|false {
+		$upload = wp_upload_dir();
+		$base   = realpath( (string) ( $upload['basedir'] ?? '' ) );
+		$root   = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . self::CLIPART_SUBDIR );
+		$real   = realpath( $path );
+		$base_path = $base ? rtrim( wp_normalize_path( $base ), '/' ) : '';
+		$root_path = $root ? rtrim( wp_normalize_path( $root ), '/' ) : '';
+		$real_path = $real ? wp_normalize_path( $real ) : '';
+		if ( '' === $base_path || '' === $root_path || '' === $real_path || ! is_file( $real )
+			|| ! str_starts_with( $root_path, $base_path . '/' )
+			|| ! str_starts_with( $real_path, $root_path . '/' )
+		) {
+			return false;
+		}
+		return $real_path;
 	}
 
 	private static function encode_print_methods( array $methods ): string {
@@ -904,8 +973,15 @@ class OC_Admin_Clipart {
 	}
 
 	private static function save_uploaded_svg_replacement( array $file, string $old_path ): string|\WP_Error {
-		if ( empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
+		if ( UPLOAD_ERR_OK !== (int) ( $file['error'] ?? UPLOAD_ERR_NO_FILE )
+			|| empty( $file['tmp_name'] )
+			|| ! is_uploaded_file( $file['tmp_name'] )
+		) {
 			return new \WP_Error( 'bad_upload', __( 'Invalid upload.', 'overcustomise' ) );
+		}
+		$size = (int) ( $file['size'] ?? 0 );
+		if ( $size <= 0 || $size > self::MAX_UPLOAD_BYTES ) {
+			return new \WP_Error( 'too_large', __( 'Converted SVG files must be no larger than 15 MB.', 'overcustomise' ) );
 		}
 
 		$raw = file_get_contents( $file['tmp_name'] ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
@@ -942,9 +1018,9 @@ class OC_Admin_Clipart {
 			return new \WP_Error( 'not_found', __( 'Source image was not found.', 'overcustomise' ) );
 		}
 
-		$image_info = @getimagesize( $source_path );
-		if ( ! $image_info || empty( $image_info[0] ) || empty( $image_info[1] ) ) {
-			return new \WP_Error( 'not_image', __( 'File is not a valid image.', 'overcustomise' ) );
+		$image_info = self::validate_raster_file( $source_path, $ext );
+		if ( is_wp_error( $image_info ) ) {
+			return $image_info;
 		}
 
 		$src = match ( $ext ) {
@@ -962,6 +1038,10 @@ class OC_Admin_Clipart {
 		$width = (int) $image_info[0];
 		$height = (int) $image_info[1];
 		$canvas = imagecreatetruecolor( $width, $height );
+		if ( false === $canvas ) {
+			imagedestroy( $src );
+			return new \WP_Error( 'memory_limit', __( 'The image could not be allocated safely for conversion.', 'overcustomise' ) );
+		}
 		imagealphablending( $canvas, false );
 		imagesavealpha( $canvas, true );
 		$transparent = imagecolorallocatealpha( $canvas, 255, 255, 255, 127 );
@@ -1003,5 +1083,34 @@ class OC_Admin_Clipart {
 		}
 
 		return $dest;
+	}
+
+	/** Validate raster bytes and dimensions before any GD allocation or decode. */
+	private static function validate_raster_file( string $path, string $ext ): array|\WP_Error {
+		$size = filesize( $path );
+		if ( false === $size || $size <= 0 || $size > self::MAX_UPLOAD_BYTES ) {
+			return new \WP_Error( 'too_large', __( 'Clipart files must be no larger than 15 MB.', 'overcustomise' ) );
+		}
+		$image_info = @getimagesize( $path );
+		$expected_mime = [
+			'png'  => 'image/png',
+			'jpg'  => 'image/jpeg',
+			'jpeg' => 'image/jpeg',
+			'webp' => 'image/webp',
+			'gif'  => 'image/gif',
+		][ $ext ] ?? '';
+		if ( ! is_array( $image_info ) || (string) ( $image_info['mime'] ?? '' ) !== $expected_mime ) {
+			return new \WP_Error( 'not_image', __( 'The file contents do not match the selected image type.', 'overcustomise' ) );
+		}
+		$width  = (int) ( $image_info[0] ?? 0 );
+		$height = (int) ( $image_info[1] ?? 0 );
+		if ( $width <= 0 || $height <= 0
+			|| $width > self::MAX_RASTER_DIMENSION
+			|| $height > self::MAX_RASTER_DIMENSION
+			|| $width * $height > self::MAX_RASTER_PIXELS
+		) {
+			return new \WP_Error( 'image_dimensions', __( 'Clipart dimensions are too large to process safely.', 'overcustomise' ) );
+		}
+		return $image_info;
 	}
 }

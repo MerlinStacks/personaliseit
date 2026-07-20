@@ -46,10 +46,81 @@ class OC_Render_Spec {
 
 	/** Return a single area from an existing full render spec. */
 	public static function area_from_spec( array $render_spec, int $area_id ): array {
-		$areas = is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : [];
-		$area  = $areas[ $area_id ] ?? $areas[ (string) $area_id ] ?? null;
+		$match = null;
+		foreach ( self::print_areas( $render_spec ) as $entry ) {
+			if ( (int) $entry['area']->id !== $area_id ) {
+				continue;
+			}
+			if ( null !== $match ) {
+				throw new \RuntimeException( 'The stored render specification contains duplicate print area IDs.' );
+			}
+			$match = $entry['area_data'];
+		}
 
-		return is_array( $area ) ? self::area_to_print_data( $area ) : [];
+		return is_array( $match ) ? $match : [];
+	}
+
+	/** Materialise the stored area set without consulting mutable design rows. */
+	public static function print_areas( array $render_spec ): array {
+		$areas = is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : null;
+		if ( null === $areas ) {
+			throw new \RuntimeException( 'The stored render specification has no area collection.' );
+		}
+
+		$design_id = absint( $render_spec['designId'] ?? 0 );
+		$result    = [];
+		$seen      = [];
+		foreach ( $areas as $area ) {
+			if ( ! is_array( $area ) ) {
+				throw new \RuntimeException( 'The stored render specification contains an invalid print area.' );
+			}
+
+			$area_object = self::area_object( $area, $design_id );
+			if ( isset( $seen[ $area_object->id ] ) ) {
+				throw new \RuntimeException( 'The stored render specification contains duplicate print area IDs.' );
+			}
+			$seen[ $area_object->id ] = true;
+			$result[] = [
+				'area'      => $area_object,
+				'area_data' => self::area_to_print_data( $area ),
+			];
+		}
+
+		return $result;
+	}
+
+	/** Create the legacy-shaped area object expected by production renderers. */
+	public static function area_object( array $area, int $design_id = 0 ): object {
+		$bounds = is_array( $area['bounds'] ?? null ) ? $area['bounds'] : [];
+		$id     = absint( $area['id'] ?? 0 );
+		$method = sanitize_key( (string) ( $area['printMethod'] ?? '' ) );
+		$width  = (float) ( $bounds['w'] ?? 0 );
+		$height = (float) ( $bounds['h'] ?? 0 );
+		if ( $id <= 0 || ! in_array( $method, [ 'engraving', 'uv', 'embroidery', 'sublimation' ], true ) || $width <= 0.0 || $height <= 0.0 ) {
+			throw new \RuntimeException( 'The stored render specification contains incomplete print-area geometry.' );
+		}
+
+		$unit = (string) ( $area['unit'] ?? $bounds['unit'] ?? 'px' );
+		if ( ! in_array( $unit, [ 'px', 'mm', 'cm', 'in' ], true ) ) {
+			$unit = 'px';
+		}
+
+		return (object) [
+			'id'                   => $id,
+			'design_id'            => $design_id,
+			'area_key'             => (string) ( $area['areaKey'] ?? '' ),
+			'label'                => (string) ( $area['label'] ?? '' ),
+			'print_method'         => $method,
+			'engraving_material'   => (string) ( $area['engravingMaterial'] ?? 'silver_metal' ),
+			'canvas_unit'          => $unit,
+			'canvas_x'             => (float) ( $bounds['x'] ?? 0 ),
+			'canvas_y'             => (float) ( $bounds['y'] ?? 0 ),
+			'canvas_w'             => $width,
+			'canvas_h'             => $height,
+			'canvas_dpi'           => OC_Render_Math::normalise_dpi( $bounds['dpi'] ?? 300 ),
+			'canvas_rotation'      => (float) ( $bounds['rotation'] ?? 0 ),
+			'visible'              => 1,
+		];
 	}
 
 	/** Build legacy-compatible print data from a full spec area. */
@@ -154,6 +225,7 @@ class OC_Render_Spec {
 				'h'        => (int) $layer->h,
 				'settings' => $settings,
 				'input'    => $input,
+				'locked'   => ! empty( $layer->locked ),
 			];
 			if ( isset( $layer->rotation ) ) {
 				$spec_layer['rotation'] = (float) $layer->rotation;
@@ -187,7 +259,7 @@ class OC_Render_Spec {
 				'w'        => (int) $area->canvas_w,
 				'h'        => (int) $area->canvas_h,
 				'unit'     => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
-				'dpi'      => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
+				'dpi'      => OC_Render_Math::normalise_dpi( $area->canvas_dpi ?? 300 ),
 				'rotation' => (int) ( $area->canvas_rotation ?? 0 ),
 			],
 			'layers'      => $spec_layers,

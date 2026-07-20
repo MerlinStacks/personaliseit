@@ -54,12 +54,13 @@ class Test_Upload_Handler_Validation extends TestCase {
 		$GLOBALS['oc_test_post_meta']       = [];
 		$GLOBALS['oc_test_attached_files']  = [];
 		$GLOBALS['oc_test_post_mime_types'] = [];
+		$GLOBALS['oc_test_transients']      = [];
 		parent::tearDown();
 	}
 
 	private function create_test_artwork( int $attachment_id, array $context = [], string $token = '' ): void {
-		$directory = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/artwork';
-		wp_mkdir_p( $directory );
+		$directory = OC_Upload_Handler::private_storage_path( 'artwork' );
+		$this->assertIsString( $directory );
 		$file = tempnam( $directory, 'oc_artwork_' );
 		file_put_contents( $file, base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true ) );
 		$this->temporary_files[] = $file;
@@ -73,6 +74,16 @@ class Test_Upload_Handler_Validation extends TestCase {
 			'_oc_artwork_token'   => '' !== $token ? hash( 'sha256', $token ) : '',
 			'_oc_artwork_session' => '',
 		];
+		if ( '' !== $token ) {
+			$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+			$GLOBALS['oc_test_transients'][ 'oc_pubtok_' . hash( 'sha256', $token ) ] = [
+				'version'      => 2,
+				'binding_type' => 'ip',
+				'binding_hash' => hash( 'sha256', '127.0.0.1' ),
+				'created_at'   => time(),
+				'expires_at'   => time() + HOUR_IN_SECONDS,
+			];
+		}
 	}
 
 	// ── NONCE_ACTION constant ─────────────────────────────────────────────
@@ -173,21 +184,23 @@ class Test_Upload_Handler_Validation extends TestCase {
 
 	#[Test]
 	public function customer_artwork_requires_the_exact_variation_context(): void {
-		$this->create_test_artwork( 41, [ 10, 12, 20, 30 ], 'owner-token' );
+		$token = str_repeat( 'A', 64 );
+		$this->create_test_artwork( 41, [ 10, 12, 20, 30 ], $token );
 
-		$this->assertTrue( OC_Upload_Handler::attachment_is_accepted( 41, 10, 12, 20, 30, 'owner-token' ) );
-		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 41, 10, 0, 20, 30, 'owner-token' ) );
-		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 41, 10, 13, 20, 30, 'owner-token' ) );
+		$this->assertTrue( OC_Upload_Handler::attachment_is_accepted( 41, 10, 12, 20, 30, $token ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 41, 10, 0, 20, 30, $token ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 41, 10, 13, 20, 30, $token ) );
 	}
 
 	#[Test]
 	public function legacy_artwork_requires_owned_exact_product_context(): void {
-		$this->create_test_artwork( 43, [ 10, 12, 0, 0 ], 'legacy-token' );
+		$token = str_repeat( 'C', 64 );
+		$this->create_test_artwork( 43, [ 10, 12, 0, 0 ], $token );
 
-		$this->assertTrue( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 12, 'legacy-token' ) );
-		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 0, 'legacy-token' ) );
-		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 11, 12, 'legacy-token' ) );
-		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 12, 'wrong-token' ) );
+		$this->assertTrue( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 12, $token ) );
+		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 0, $token ) );
+		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 11, 12, $token ) );
+		$this->assertFalse( OC_Upload_Handler::legacy_attachment_is_accepted( 43, 10, 12, str_repeat( 'D', 64 ) ) );
 	}
 
 	// ── process() — missing file throws ──────────────────────────────────

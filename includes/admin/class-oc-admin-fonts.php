@@ -116,18 +116,20 @@ class OC_Admin_Fonts {
 						<div class="oc-font-grid" id="oc-font-grid" style="display:none;"></div>
 					<?php else : ?>
 						<div class="oc-font-grid" id="oc-font-grid">
-							<?php foreach ( array_slice( $fonts, 0, self::INITIAL_CARD_LIMIT ) as $font ) :
+			<?php foreach ( array_slice( $fonts, 0, self::INITIAL_CARD_LIMIT ) as $font ) :
 								$font_url   = self::get_font_url( $font->file_path );
 								$ext        = strtoupper( pathinfo( $font->file_path, PATHINFO_EXTENSION ) );
 								$can_convert = self::can_convert_for_print( (string) $font->file_path );
 								$preview_id = 'oc-preview-' . (int) $font->id;
+								$font_weight = self::normalise_font_weight( $font->weight ?? 'normal' );
+								$font_style  = self::normalise_font_style( $font->style ?? 'normal' );
 								?>
 								<style>
 									@font-face {
 										font-family: '<?php echo esc_attr( $preview_id ); ?>';
 										src: url('<?php echo esc_url( $font_url ); ?>');
-										font-weight: <?php echo esc_attr( $font->weight ); ?>;
-										font-style: <?php echo esc_attr( $font->style ); ?>;
+										font-weight: <?php echo esc_attr( $font_weight ); ?>;
+										font-style: <?php echo esc_attr( $font_style ); ?>;
 									}
 								</style>
 								<div class="oc-font-card<?php echo $font->active ? '' : ' oc-font-card--inactive'; ?>"
@@ -137,7 +139,7 @@ class OC_Admin_Fonts {
 
 									<div class="oc-font-preview">
 										<span class="oc-font-preview-text"
-										      style="font-family:'<?php echo esc_attr( $preview_id ); ?>';font-weight:<?php echo esc_attr( $font->weight ); ?>;font-style:<?php echo esc_attr( $font->style ); ?>;">
+										      style="font-family:'<?php echo esc_attr( $preview_id ); ?>';font-weight:<?php echo esc_attr( $font_weight ); ?>;font-style:<?php echo esc_attr( $font_style ); ?>;">
 											AaBbCc 123
 										</span>
 									</div>
@@ -153,8 +155,8 @@ class OC_Admin_Fonts {
 										</div>
 										<div class="oc-font-card-meta">
 											<span class="oc-badge oc-badge-format"><?php echo esc_html( $ext ); ?></span>
-											<span class="oc-code"><?php echo esc_html( $font->weight ); ?></span>
-											<?php if ( 'italic' === $font->style ) : ?>
+											<span class="oc-code"><?php echo esc_html( $font_weight ); ?></span>
+											<?php if ( 'italic' === $font_style ) : ?>
 												<span class="oc-badge oc-badge-inactive"><?php esc_html_e( 'Italic', 'overcustomise' ); ?></span>
 											<?php endif; ?>
 											<?php if ( $font->embroidery_suitable ) : ?>
@@ -239,7 +241,7 @@ class OC_Admin_Fonts {
 												}
 												if ( ! $fdata ) continue;
 												?>
-												<span style="font-family:'oc-preview-<?php echo (int) $fid; ?>';font-weight:<?php echo esc_attr( $fdata->weight ); ?>;font-style:<?php echo esc_attr( $fdata->style ); ?>;"
+												<span style="font-family:'oc-preview-<?php echo (int) $fid; ?>';font-weight:<?php echo esc_attr( self::normalise_font_weight( $fdata->weight ?? 'normal' ) ); ?>;font-style:<?php echo esc_attr( self::normalise_font_style( $fdata->style ?? 'normal' ) ); ?>;"
 												      title="<?php echo esc_attr( $fdata->name ); ?>">Aa</span>
 											<?php endforeach; ?>
 											<?php if ( $member_count > 5 ) : ?>
@@ -411,9 +413,9 @@ class OC_Admin_Fonts {
 		}
 
 		$id       = (int) ( $_POST['id'] ?? 0 );
-		$new_name = sanitize_text_field( $_POST['name'] ?? '' );
+		$new_name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 
-		if ( ! $id || ! $new_name ) {
+		if ( ! $id || ! $new_name || strlen( $new_name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
 		}
 
@@ -426,12 +428,15 @@ class OC_Admin_Fonts {
 			wp_send_json_error( [ 'message' => __( 'Font not found.', 'overcustomise' ) ] );
 		}
 
-		$wpdb->update(
+		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_fonts",
 			[ 'name' => $new_name ],
 			[ 'id' => $id ],
 			[ '%s' ], [ '%d' ]
 		);
+		if ( false === $updated ) {
+			wp_send_json_error( [ 'message' => __( 'Could not rename font.', 'overcustomise' ) ], 500 );
+		}
 		self::clear_font_cache();
 
 		wp_send_json_success( [ 'newName' => $new_name, 'oldName' => $old_name ] );
@@ -479,10 +484,13 @@ class OC_Admin_Fonts {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$name     = sanitize_text_field( $_POST['name'] ?? '' );
-		$font_ids = array_values( array_filter( array_map( 'intval', (array) ( $_POST['font_ids'] ?? [] ) ) ) );
-		if ( ! $name ) {
+		$name     = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$font_ids = self::normalise_font_ids( $_POST['font_ids'] ?? [] );
+		if ( ! $name || strlen( $name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Group name is required.', 'overcustomise' ) ] );
+		}
+		if ( is_wp_error( $font_ids ) ) {
+			wp_send_json_error( [ 'message' => $font_ids->get_error_message() ], 400 );
 		}
 
 		global $wpdb;
@@ -524,11 +532,14 @@ class OC_Admin_Fonts {
 		}
 
 		$id       = (int) ( $_POST['id'] ?? 0 );
-		$name     = sanitize_text_field( $_POST['name'] ?? '' );
-		$font_ids = array_filter( array_map( 'intval', (array) ( $_POST['font_ids'] ?? [] ) ) );
+		$name     = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$font_ids = self::normalise_font_ids( $_POST['font_ids'] ?? [] );
 
-		if ( ! $id || ! $name ) {
+		if ( ! $id || ! $name || strlen( $name ) > 100 ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
+		if ( is_wp_error( $font_ids ) ) {
+			wp_send_json_error( [ 'message' => $font_ids->get_error_message() ], 400 );
 		}
 
 		global $wpdb;
@@ -591,8 +602,16 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
-		$wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'group_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_font_groups", [ 'id' => $id ], [ '%d' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not delete font group.', 'overcustomise' ) ], 500 );
+		}
+		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_font_groups WHERE id = %d FOR UPDATE", $id ) );
+		$deleted_items = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
+		$deleted_group = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_font_groups", [ 'id' => $id ], [ '%d' ] ) : false;
+		if ( false === $deleted_items || 1 !== $deleted_group || false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not delete font group.', 'overcustomise' ) ], 500 );
+		}
 		self::clear_font_cache();
 
 		wp_send_json_success();
@@ -615,7 +634,7 @@ class OC_Admin_Fonts {
 		}
 
 		// Cap to 10 MB — fonts are small.
-		if ( (int) ( $file['size'] ?? 0 ) > 10 * 1024 * 1024 ) {
+		if ( (int) ( $file['size'] ?? 0 ) <= 0 || (int) ( $file['size'] ?? 0 ) > 10 * 1024 * 1024 ) {
 			return new \WP_Error( 'too_large', __( 'Font file exceeds size limit.', 'overcustomise' ) );
 		}
 
@@ -638,6 +657,10 @@ class OC_Admin_Fonts {
 		if ( ! wp_mkdir_p( $font_dir ) ) {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
 		}
+		$font_dir = self::managed_font_directory( $upload );
+		if ( false === $font_dir ) {
+			return new \WP_Error( 'unsafe_upload_dir', __( 'The font upload directory is not safe.', 'overcustomise' ) );
+		}
 
 		$htaccess = $font_dir . '/.htaccess';
 		if ( ! file_exists( $htaccess ) ) {
@@ -646,22 +669,21 @@ class OC_Admin_Fonts {
 			}
 		}
 
-		$base = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) ) . '-' . time();
-		if ( '' === trim( $base, '-' ) || '-' === substr( $base, 0, 1 ) && strlen( $base ) === 11 ) {
-			$base = 'font-' . time();
-		}
-
-		$dest = $font_dir . '/' . $base . '.' . $ext;
+		$base = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) ) ?: 'font';
+		$dest = trailingslashit( $font_dir ) . wp_unique_filename( $font_dir, $base . '.' . $ext );
 		if ( ! move_uploaded_file( $file['tmp_name'], $dest ) ) {
 			return new \WP_Error( 'upload_failed', __( 'File upload failed.', 'overcustomise' ) );
 		}
-		$rel_path = self::FONT_SUBDIR . '/' . $base . '.' . $ext;
+		$rel_path = self::FONT_SUBDIR . '/' . basename( $dest );
 
-		$name       = sanitize_text_field( $_POST['oc_font_name'] ?? '' );
-		$weight     = sanitize_text_field( $_POST['oc_font_weight'] ?? 'normal' );
-		$style      = in_array( $_POST['oc_font_style'] ?? '', [ 'normal', 'italic' ], true )
-			? sanitize_key( $_POST['oc_font_style'] ) : 'normal';
+		$name       = sanitize_text_field( wp_unslash( $_POST['oc_font_name'] ?? '' ) );
+		$weight     = self::normalise_font_weight( $_POST['oc_font_weight'] ?? 'normal' );
+		$style      = self::normalise_font_style( $_POST['oc_font_style'] ?? 'normal' );
 		$embroidery = isset( $_POST['oc_font_embroidery'] ) ? 1 : 0;
+		if ( '' === $name || strlen( $name ) > 100 ) {
+			wp_delete_file( $dest );
+			return new \WP_Error( 'invalid_name', __( 'A valid font family name is required.', 'overcustomise' ) );
+		}
 
 		global $wpdb;
 		$inserted = $wpdb->insert(
@@ -714,13 +736,14 @@ class OC_Admin_Fonts {
 
 		$source = trailingslashit( $upload['basedir'] ) . ltrim( (string) $font->file_path, '/' );
 		$real   = realpath( $source );
-		$base   = realpath( $upload['basedir'] );
-		$base_prefix = $base ? rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR : '';
+		$real   = $real ? wp_normalize_path( $real ) : '';
+		$base   = self::managed_font_directory( $upload );
+		$base_prefix = $base ? rtrim( $base, '/' ) . '/' : '';
 		if ( ! $real || '' === $base_prefix || ! str_starts_with( $real, $base_prefix ) || ! is_file( $real ) ) {
 			return new \WP_Error( 'missing_file', __( 'Stored font file could not be found.', 'overcustomise' ) );
 		}
 
-		$font_dir = trailingslashit( $upload['basedir'] ) . self::FONT_SUBDIR;
+		$font_dir = $base;
 		if ( ! wp_mkdir_p( $font_dir ) ) {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
 		}
@@ -781,7 +804,7 @@ class OC_Admin_Fonts {
 		if ( empty( $file['tmp_name'] ) || ! is_uploaded_file( $file['tmp_name'] ) ) {
 			return new \WP_Error( 'no_file', __( 'Converted font file was not received.', 'overcustomise' ) );
 		}
-		if ( (int) ( $file['size'] ?? 0 ) > 20 * 1024 * 1024 ) {
+		if ( (int) ( $file['size'] ?? 0 ) <= 0 || (int) ( $file['size'] ?? 0 ) > 20 * 1024 * 1024 ) {
 			return new \WP_Error( 'too_large', __( 'Converted font file exceeds the size limit.', 'overcustomise' ) );
 		}
 
@@ -803,6 +826,10 @@ class OC_Admin_Fonts {
 		$font_dir = trailingslashit( $upload['basedir'] ) . self::FONT_SUBDIR;
 		if ( ! wp_mkdir_p( $font_dir ) ) {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create font directory.', 'overcustomise' ) );
+		}
+		$font_dir = self::managed_font_directory( $upload );
+		if ( false === $font_dir ) {
+			return new \WP_Error( 'unsafe_upload_dir', __( 'The font upload directory is not safe.', 'overcustomise' ) );
 		}
 
 		$base = sanitize_file_name( pathinfo( (string) $font->file_path, PATHINFO_FILENAME ) ) ?: 'font-' . $id;
@@ -836,8 +863,8 @@ class OC_Admin_Fonts {
 		return [
 			'id'                  => (int) $font->id,
 			'name'                => $font->name,
-			'weight'              => $font->weight,
-			'style'               => $font->style,
+			'weight'              => self::normalise_font_weight( $font->weight ?? 'normal' ),
+			'style'               => self::normalise_font_style( $font->style ?? 'normal' ),
 			'embroidery_suitable' => (bool) $font->embroidery_suitable,
 			'active'              => (bool) $font->active,
 			'url'                 => self::get_font_url( (string) $font->file_path ),
@@ -853,6 +880,49 @@ class OC_Admin_Fonts {
 				'oc_font_delete_' . (int) $font->id
 			),
 		];
+	}
+
+	/** Return distinct existing font IDs or an error for a stale group submission. */
+	private static function normalise_font_ids( mixed $raw_ids ): array|\WP_Error {
+		if ( ! is_array( $raw_ids ) || count( $raw_ids ) > 500 ) {
+			return new \WP_Error( 'invalid_fonts', __( 'The submitted font list is invalid.', 'overcustomise' ) );
+		}
+		$ids = [];
+		foreach ( $raw_ids as $raw_id ) {
+			if ( ! is_scalar( $raw_id ) ) {
+				return new \WP_Error( 'invalid_fonts', __( 'The submitted font list is invalid.', 'overcustomise' ) );
+			}
+			$id = absint( $raw_id );
+			if ( $id ) {
+				$ids[] = $id;
+			}
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) {
+			return [];
+		}
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$existing = array_map( 'intval', $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_fonts WHERE id IN ($placeholders)",
+			...$ids
+		) ) ?: [] );
+		if ( array_diff( $ids, $existing ) ) {
+			return new \WP_Error( 'stale_fonts', __( 'One or more selected fonts no longer exist.', 'overcustomise' ) );
+		}
+
+		return $ids;
+	}
+
+	private static function normalise_font_weight( mixed $weight ): string {
+		$weight = is_scalar( $weight ) ? strtolower( trim( (string) $weight ) ) : 'normal';
+		return in_array( $weight, [ 'normal', 'bold', '100', '200', '300', '400', '500', '600', '700', '800', '900' ], true ) ? $weight : 'normal';
+	}
+
+	private static function normalise_font_style( mixed $style ): string {
+		$style = is_scalar( $style ) ? strtolower( trim( (string) $style ) ) : 'normal';
+		return in_array( $style, [ 'normal', 'italic' ], true ) ? $style : 'normal';
 	}
 
 	private static function can_convert_for_print( string $file_path ): bool {
@@ -888,14 +958,17 @@ class OC_Admin_Fonts {
 		$id    = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 		$state = isset( $_GET['state'] ) ? (int) $_GET['state'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_font_toggle_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
 		global $wpdb;
-		$wpdb->update( "{$wpdb->prefix}oc_fonts", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		$updated = $wpdb->update( "{$wpdb->prefix}oc_fonts", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		if ( false === $updated ) {
+			wp_die( esc_html__( 'Could not update font.', 'overcustomise' ) );
+		}
 		self::clear_font_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-fonts' ) );
 		exit;
@@ -904,26 +977,17 @@ class OC_Admin_Fonts {
 	private function handle_delete(): void {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_font_delete_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
 		global $wpdb;
-		$font = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_fonts WHERE id = %d", $id ) );
-
-		if ( $font ) {
-			$upload = wp_upload_dir();
-			$path   = $upload['basedir'] . '/' . ltrim( (string) $font->file_path, '/' );
-			$base   = realpath( $upload['basedir'] );
-			$real   = realpath( $path );
-			$base_prefix = $base ? rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR : '';
-			if ( $real && '' !== $base_prefix && str_starts_with( $real, $base_prefix ) && is_file( $real ) ) {
-				wp_delete_file( $real );
-			}
-			$wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'font_id' => $id ], [ '%d' ] );
-			$wpdb->delete( "{$wpdb->prefix}oc_fonts", [ 'id' => $id ], [ '%d' ] );
+		$exists  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1", $id ) );
+		$updated = $exists ? $wpdb->update( "{$wpdb->prefix}oc_fonts", [ 'active' => 0 ], [ 'id' => $id ], [ '%d' ], [ '%d' ] ) : false;
+		if ( false === $updated ) {
+			wp_die( esc_html__( 'Could not deactivate font.', 'overcustomise' ) );
 		}
 		self::clear_font_cache();
 
@@ -933,6 +997,27 @@ class OC_Admin_Fonts {
 
 	private static function get_font_url( string $rel_path ): string {
 		$upload = wp_upload_dir();
-		return $upload['baseurl'] . '/' . $rel_path;
+		$rel_path = ltrim( wp_normalize_path( $rel_path ), '/' );
+		if ( ! str_starts_with( $rel_path, self::FONT_SUBDIR . '/' ) || str_contains( $rel_path, '../' ) ) {
+			return '';
+		}
+		$font_dir = self::managed_font_directory( $upload );
+		$base_dir = realpath( (string) ( $upload['basedir'] ?? '' ) );
+		$real     = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . $rel_path );
+		$base_path = $base_dir ? rtrim( wp_normalize_path( $base_dir ), '/' ) : '';
+		$real_path = $real ? wp_normalize_path( $real ) : '';
+		if ( false === $font_dir || '' === $base_path || '' === $real_path || ! is_file( $real ) || ! str_starts_with( $real_path, rtrim( $font_dir, '/' ) . '/' ) ) {
+			return '';
+		}
+		return trailingslashit( (string) $upload['baseurl'] ) . ltrim( substr( $real_path, strlen( $base_path ) ), '/' );
+	}
+
+	/** Return the canonical font directory only when it remains inside uploads. */
+	private static function managed_font_directory( array $upload ): string|false {
+		$base = realpath( (string) ( $upload['basedir'] ?? '' ) );
+		$font = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . self::FONT_SUBDIR );
+		$base_path = $base ? rtrim( wp_normalize_path( $base ), '/' ) : '';
+		$font_path = $font ? rtrim( wp_normalize_path( $font ), '/' ) : '';
+		return '' !== $base_path && '' !== $font_path && str_starts_with( $font_path, $base_path . '/' ) ? $font_path : false;
 	}
 }

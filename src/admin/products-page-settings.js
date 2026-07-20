@@ -100,7 +100,7 @@ export function createProductsPageSettings( deps ) {
 	}
 	function ensureDefaultClipartInList( settings, items ) {
 		if ( ! settings.default_clipart_id ) {
-			return;
+			return false;
 		}
 		if (
 			( items || [] ).some(
@@ -108,9 +108,10 @@ export function createProductsPageSettings( deps ) {
 					Number( item.id ) === Number( settings.default_clipart_id )
 			)
 		) {
-			return;
+			return false;
 		}
 		setDefaultClipart( settings, 0, items );
+		return true;
 	}
 	function mediaDefaultField( settings ) {
 		const hasDefault = !! settings.default_attachment_url;
@@ -389,20 +390,47 @@ export function createProductsPageSettings( deps ) {
 			.join( '' );
 	}
 	function ensureDefaultFontInList( settings, fonts ) {
-		if ( ! fonts.length ) {
-			settings.default_font_id = 0;
-			return;
+		const currentId = Number( settings.default_font_id ) || 0;
+		if ( ! currentId ) {
+			return false;
 		}
-		if (
-			fonts.some(
-				( font ) =>
-					Number( font.id ) ===
-					Number( settings.default_font_id || 0 )
-			)
-		) {
-			return;
+		if ( fonts.some( ( font ) => Number( font.id ) === currentId ) ) {
+			return false;
 		}
-		settings.default_font_id = Number( fonts[ 0 ].id ) || 0;
+		settings.default_font_id = 0;
+		return true;
+	}
+	function normaliseLayerDefaults( layer, area = selectedArea() ) {
+		if ( ! layer?.settings ) {
+			return false;
+		}
+		const settings = layer.settings;
+		const data = window.ocProductsData || {};
+		let changed = false;
+
+		if ( layer.type === 'text' || layer.type === 'textarea' ) {
+			changed = ensureDefaultFontInList(
+				settings,
+				fontsForSelectedGroups(
+					data.fonts || [],
+					data.fontGroups || [],
+					selectedGroupIds( settings.font_groups )
+				)
+			);
+		}
+		if ( layer.type === 'clipart' ) {
+			changed =
+				ensureDefaultClipartInList(
+					settings,
+					clipartForSelectedGroups(
+						data.clipartItems || [],
+						settings.clipart_groups,
+						area?.method || ''
+					)
+				) || changed;
+		}
+
+		return changed;
 	}
 	function ensureDefaultColourInList( settings, colours ) {
 		if ( ! colours.length ) {
@@ -453,32 +481,7 @@ export function createProductsPageSettings( deps ) {
 		const area = selectedArea();
 		const printMethod = area?.method || '';
 		const aGroups = data.clipartGroups || [];
-		const allClipartItems = clipartForSelectedGroups(
-			data.clipartItems || [],
-			[],
-			printMethod
-		);
 		const isEngraving = area && area.method === 'engraving';
-		const fontGroupIds = selectedGroupIds( s.font_groups );
-		const colourGroupIds = selectedGroupIds( s.colour_groups );
-		const availableFonts = fontsForSelectedGroups(
-			fonts,
-			fGroups,
-			fontGroupIds
-		);
-		const availableColours = coloursForSelectedGroups(
-			colours,
-			cGroups,
-			colourGroupIds
-		);
-
-		if ( fontGroupIds.length ) {
-			ensureDefaultFontInList( s, availableFonts );
-		}
-		if ( ! isEngraving && colourGroupIds.length ) {
-			ensureDefaultColourInList( s, availableColours );
-		}
-		ensureDefaultClipartInList( s, allClipartItems );
 
 		switch ( tabId ) {
 			case 'general':
@@ -524,7 +527,21 @@ export function createProductsPageSettings( deps ) {
 							'" />'
 					)
 				);
-			case 'style':
+			case 'style': {
+				const fontGroupsSelected = selectedGroupIds( s.font_groups );
+				const colourGroupsSelected = selectedGroupIds(
+					s.colour_groups
+				);
+				const availableFonts = fontsForSelectedGroups(
+					fonts,
+					fGroups,
+					fontGroupsSelected
+				);
+				const availableColours = coloursForSelectedGroups(
+					colours,
+					cGroups,
+					colourGroupsSelected
+				);
 				return (
 					field( 'Alignment', alignBtns( s.alignment || 'center' ) ) +
 					( layer.type === 'textarea'
@@ -546,7 +563,7 @@ export function createProductsPageSettings( deps ) {
 						: field(
 								'Default font',
 								'<span class="oc-settings-empty">' +
-									( fontGroupIds.length
+									( fontGroupsSelected.length
 										? 'No fonts are available in the selected groups.'
 										: 'No fonts uploaded yet.' ) +
 									'</span>'
@@ -557,7 +574,7 @@ export function createProductsPageSettings( deps ) {
 					'" /></div>' +
 					( isEngraving
 						? ''
-						: colourGroupIds.length
+						: colourGroupsSelected.length
 						? availableColours.length
 							? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' +
 							  colourOptions(
@@ -607,6 +624,7 @@ export function createProductsPageSettings( deps ) {
 								'<span class="oc-settings-empty">No colour groups created yet.</span>'
 						  ) )
 				);
+			}
 			case 'file':
 				return (
 					field( 'Default image', mediaDefaultField( s ) ) +
@@ -669,7 +687,12 @@ export function createProductsPageSettings( deps ) {
 							)
 					  )
 					: '<span class="oc-settings-empty">No colour groups created yet.</span>';
-			case 'library':
+			case 'library': {
+				const availableClipartItems = clipartForSelectedGroups(
+					data.clipartItems || [],
+					selectedGroupIds( s.clipart_groups ),
+					printMethod
+				);
 				return (
 					( aGroups.length
 						? field(
@@ -683,16 +706,17 @@ export function createProductsPageSettings( deps ) {
 						: '<span class="oc-settings-empty">No clipart groups created yet.</span>' ) +
 					field(
 						'Default clipart',
-						allClipartItems.length
+						availableClipartItems.length
 							? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' +
 									clipartOptions(
-										allClipartItems,
+										availableClipartItems,
 										s.default_clipart_id || 0
 									) +
 									'</select>'
 							: '<span class="oc-settings-empty">No active clipart is available.</span>'
 					)
 				);
+			}
 			case 'validation':
 				return (
 					toggleField(
@@ -930,17 +954,7 @@ export function createProductsPageSettings( deps ) {
 				s.font_groups = [
 					...document.querySelectorAll( '.oc-fg-check:checked' ),
 				].map( ( c ) => Number( c.value ) );
-				const selected = selectedGroupIds( s.font_groups );
-				if ( selected.length ) {
-					ensureDefaultFontInList(
-						s,
-						fontsForSelectedGroups(
-							data.fonts || [],
-							data.fontGroups || [],
-							selected
-						)
-					);
-				}
+				normaliseLayerDefaults( layer, area );
 				commitChange( { canvas: true, rightColumn: true } );
 			} );
 		} );
@@ -1009,7 +1023,7 @@ export function createProductsPageSettings( deps ) {
 					e.target.value,
 					clipartForSelectedGroups(
 						data.clipartItems || [],
-						[],
+						s.clipart_groups,
 						area?.method || ''
 					)
 				);
@@ -1092,5 +1106,9 @@ export function createProductsPageSettings( deps ) {
 			} );
 	}
 
-	return { buildTabContent, bindSettingsHandlers };
+	return {
+		buildTabContent,
+		bindSettingsHandlers,
+		normaliseLayerDefaults,
+	};
 }

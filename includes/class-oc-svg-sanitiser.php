@@ -16,6 +16,7 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_SVG_Sanitiser {
+	private const MAX_BYTES = 5242880;
 	private const MAX_ELEMENTS = 50000;
 	private const MAX_DEPTH = 128;
 	private const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
@@ -80,7 +81,10 @@ class OC_SVG_Sanitiser {
 		$svg = trim( $svg );
 
 		// Hard cap input size (5 MB) to prevent memory abuse from malformed SVGs.
-		if ( strlen( $svg ) > 5 * 1024 * 1024 ) {
+		if ( '' === $svg ) {
+			throw new \InvalidArgumentException( 'SVG is empty.' );
+		}
+		if ( strlen( $svg ) > self::MAX_BYTES ) {
 			throw new \InvalidArgumentException( 'SVG exceeds size limit.' );
 		}
 
@@ -99,6 +103,12 @@ class OC_SVG_Sanitiser {
 			throw new \InvalidArgumentException( 'SVG processing instructions are not permitted.' );
 		}
 
+		// Count and bound the XML stream before allocating a DOM tree.
+		self::complexity_preflight( $svg );
+		if ( ! class_exists( 'DOMDocument' ) ) {
+			throw new \InvalidArgumentException( 'SVG DOM validation is unavailable.' );
+		}
+
 		$dom               = new \DOMDocument();
 		$dom->formatOutput = false;
 
@@ -112,12 +122,17 @@ class OC_SVG_Sanitiser {
 
 		// Suppress XML parse errors; we'll check $dom->documentElement after.
 		$previous = libxml_use_internal_errors( true );
-		$loaded   = $dom->loadXML( $svg, LIBXML_NONET | LIBXML_NOCDATA );
-		libxml_clear_errors();
-		libxml_use_internal_errors( $previous );
-
-		if ( null !== $prev_entity_loader && function_exists( 'libxml_disable_entity_loader' ) ) {
-			@libxml_disable_entity_loader( $prev_entity_loader ); // phpcs:ignore Generic.PHP.DeprecatedFunctions.Deprecated
+		$loaded   = false;
+		try {
+			$loaded = $dom->loadXML( $svg, LIBXML_NONET | LIBXML_NOCDATA | LIBXML_COMPACT );
+		} catch ( \Throwable $e ) {
+			$loaded = false;
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+			if ( null !== $prev_entity_loader && function_exists( 'libxml_disable_entity_loader' ) ) {
+				@libxml_disable_entity_loader( $prev_entity_loader ); // phpcs:ignore Generic.PHP.DeprecatedFunctions.Deprecated
+			}
 		}
 
 		if ( ! $loaded || ! $dom->documentElement ) {
@@ -141,8 +156,11 @@ class OC_SVG_Sanitiser {
 
 		// Serialise back to string, stripping the XML declaration.
 		$output = $dom->saveXML( $dom->documentElement );
+		if ( ! is_string( $output ) || '' === $output || strlen( $output ) > self::MAX_BYTES ) {
+			throw new \InvalidArgumentException( 'SVG could not be serialised safely.' );
+		}
 
-		return $output ?: '';
+		return $output;
 	}
 
 	/**
@@ -152,7 +170,7 @@ class OC_SVG_Sanitiser {
 	 * @return bool              True on success, false on failure.
 	 */
 	public static function sanitise_file( string $file_path ): bool {
-		if ( ! file_exists( $file_path ) ) {
+		if ( ! is_file( $file_path ) ) {
 			return false;
 		}
 
@@ -163,17 +181,90 @@ class OC_SVG_Sanitiser {
 
 		try {
 			$clean = self::sanitise( $raw );
-		} catch ( \InvalidArgumentException $e ) {
+		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'SVG sanitiser rejected file: ' . $e->getMessage() );
 			return false;
 		}
 
-		return (bool) file_put_contents( $file_path, $clean );
+		$directory = dirname( $file_path );
+		$tmp       = tempnam( $directory, '.oc-svg-' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_tempnam
+		if ( false === $tmp ) {
+			return false;
+		}
+
+		$written = false;
+		try {
+			$written = strlen( $clean ) === file_put_contents( $tmp, $clean, LOCK_EX )
+				&& @chmod( $tmp, 0640 ) // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				&& @rename( $tmp, $file_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		} finally {
+			if ( is_file( $tmp ) ) {
+				@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+
+		return $written;
 	}
 
 	// -------------------------------------------------------------------------
 	// Internal
 	// -------------------------------------------------------------------------
+
+	/** Reject oversized or deeply nested XML before DOMDocument allocation. */
+	private static function complexity_preflight( string $svg ): void {
+		if ( ! class_exists( 'XMLReader' ) ) {
+			throw new \InvalidArgumentException( 'SVG XML validation is unavailable.' );
+		}
+
+		$reader   = new \XMLReader();
+		$previous = libxml_use_internal_errors( true );
+		$opened   = false;
+		try {
+			$opened = $reader->XML( $svg, null, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING );
+			if ( ! $opened ) {
+				throw new \InvalidArgumentException( 'SVG could not be parsed as XML.' );
+			}
+
+			$elements = 0;
+			$roots    = 0;
+			while ( $reader->read() ) {
+				if ( in_array( $reader->nodeType, [ \XMLReader::DOC_TYPE, \XMLReader::ENTITY, \XMLReader::ENTITY_REF ], true ) ) {
+					throw new \InvalidArgumentException( 'SVG entity declarations are not permitted.' );
+				}
+				if ( \XMLReader::ELEMENT !== $reader->nodeType ) {
+					continue;
+				}
+
+				$elements++;
+				if ( 0 === $reader->depth ) {
+					$roots++;
+					if ( $roots > 1 ) {
+						throw new \InvalidArgumentException( 'SVG contains multiple root elements.' );
+					}
+				}
+				if ( $elements > self::MAX_ELEMENTS ) {
+					throw new \InvalidArgumentException( 'SVG element count exceeds the safe limit.' );
+				}
+				if ( $reader->depth > self::MAX_DEPTH ) {
+					throw new \InvalidArgumentException( 'SVG nesting exceeds the safe limit.' );
+				}
+			}
+
+			if ( 1 !== $roots || libxml_get_errors() ) {
+				throw new \InvalidArgumentException( 'SVG could not be parsed as XML.' );
+			}
+		} catch ( \InvalidArgumentException $e ) {
+			throw $e;
+		} catch ( \Throwable $e ) {
+			throw new \InvalidArgumentException( 'SVG could not be parsed as XML.' );
+		} finally {
+			if ( $opened ) {
+				$reader->close();
+			}
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+		}
+	}
 
 	/** Recursively clean a DOM node and all its descendants. */
 	private static function clean_node( \DOMNode $node, int $depth, int &$element_count ): void {

@@ -53,6 +53,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
 		$w_pt            = max( 1, (int) ceil( self::mm_to_pt( $w_mm ) ) );
 		$h_pt            = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
+		$method_settings = class_exists( 'OC_Admin_Print_Methods' ) ? OC_Admin_Print_Methods::get( 'embroidery' ) : [];
+		$method_settings = is_array( $method_settings ) ? $method_settings : [];
+		$output_dpi      = self::normalise_canvas_dpi( $method_settings['dpi'] ?? self::CANVAS_DPI );
+		$max_colours     = max( 1, min( 32, (int) ( $method_settings['max_colours'] ?? 8 ) ) );
+		$thread_brand    = sanitize_text_field( (string) ( $method_settings['thread_brand'] ?? 'Madeira' ) );
 		$lines           = [
 			'%!PS-Adobe-3.0 EPSF-3.0',
 			'%%Creator: OverCustomise',
@@ -65,6 +70,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'%%OCItemId: ' . $item_id,
 			'%%OCArea: ' . self::eps_comment( (string) ( $area->label ?? $area->area_key ) ),
 			'%%OCThreadColor: ' . strtoupper( self::normalise_hex( (string) ( $area_data['color'] ?? '#000000' ) ) ),
+			'%%OCThreadBrand: ' . self::eps_comment( $thread_brand ),
+			'%%OCMaxThreadColors: ' . $max_colours,
+			'%%OCOutputDPI: ' . $output_dpi,
 			'%%EndComments',
 			'gsave',
 		];
@@ -161,7 +169,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 						$input['value'] = $text_fallbacks[ $text_index ];
 					}
 					$text_index++;
-					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt, 'textarea' === $type ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center' );
+					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt, 'textarea' === $type ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center', 'textarea' === $type );
 					break;
 
 				case 'lineart':
@@ -191,7 +199,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Return layers in PostScript paint order: bottom layers first, top layers last. */
 	private static function eps_layer_paint_order( array $layers ): array {
-		return array_reverse( array_values( $layers ) );
+		return self::layer_paint_order( $layers );
 	}
 
 	/** Append legacy single-text/single-artwork payloads. */
@@ -203,7 +211,17 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$dpi             = self::normalise_canvas_dpi( $area->canvas_dpi ?? self::CANVAS_DPI );
 
 		if ( '' !== $text ) {
-			self::append_eps_text( $lines, [ 'value' => $text, 'colorHex' => (string) ( $area_data['color'] ?? '#000000' ) ], [], 0, 0, $w_pt, $h_pt, false, self::px_to_pt( 1.0, $dpi ) );
+			$input = [
+				'value'    => $text,
+				'colorHex' => (string) ( $area_data['color'] ?? '#000000' ),
+				'fontId'   => absint( $area_data['fontId'] ?? 0 ),
+				'fontSize' => (float) ( $area_data['fontSize'] ?? 0 ),
+			];
+			$settings = [
+				'min_font_size' => (float) ( $area_data['minFontSize'] ?? 0 ),
+				'max_font_size' => (float) ( $area_data['maxFontSize'] ?? 0 ),
+			];
+			self::append_eps_text( $lines, $input, $settings, 0, 0, $w_pt, $h_pt, false, self::px_to_pt( 1.0, $dpi ) );
 		}
 
 		$path = self::resolve_artwork_path( $area_data );
@@ -223,46 +241,90 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		float $h_pt,
 		bool $centered = false,
 		?float $font_px_to_pt = null,
-		string $line_alignment = 'center'
+		string $line_alignment = 'center',
+		bool $multiline = false
 	): void {
-		$text = trim( (string) ( $input['value'] ?? '' ) );
+		$text = trim( str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) ) );
 		if ( '' === $text ) {
 			return;
 		}
 		$text = self::normalise_engraving_text( $text );
+		$multiline = $multiline || str_contains( $text, "\n" );
 
-		$hex       = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
-		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
-			? max( 5.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * ( $font_px_to_pt ?? self::px_to_pt( 1.0 ) ) )
+		$hex        = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
+		$font_scale = $font_px_to_pt ?? self::px_to_pt( 1.0 );
+		$font_size  = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
+			? max( 5.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_scale )
 			: max( 8.0, $h_pt * 0.38 );
-		$font_size = min( $font_size, max( 5.0, $h_pt * 0.8 ) );
-		$font_id   = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+		$minimum_size = ! empty( $settings['min_font_size'] ) ? max( 5.0, (float) $settings['min_font_size'] * $font_scale ) : 5.0;
+		$maximum_size = ! empty( $settings['max_font_size'] ) ? max( $minimum_size, (float) $settings['max_font_size'] * $font_scale ) : max( 5.0, $h_pt * 0.8 );
+		$font_size    = max( $minimum_size, min( $font_size, $maximum_size, max( 5.0, $h_pt * 0.8 ) ) );
+		$font_id      = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 
 		[ $r, $g, $b ] = self::hex_to_unit_rgb( $hex );
 		$font          = $font_id ? self::get_font( $font_id ) : null;
-		$font_name     = self::eps_font_name_from_row( $font );
-		$font_path     = is_object( $font ) ? self::get_font_path( $font ) : null;
-		$align         = $centered ? (string) ( $settings['alignment'] ?? 'center' ) : 'left';
-		$anchor_x      = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt + 2;
-		$baseline_y    = $centered ? self::eps_text_baseline_y( $line_alignment, $y_pt, $h_pt, $font_size ) : $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 );
+		if ( $font_id > 0 && ! is_object( $font ) ) {
+			throw new \RuntimeException( sprintf( __( 'The selected embroidery font #%d is no longer retained.', 'overcustomise' ), $font_id ) );
+		}
+		$font_name = self::eps_font_name_from_row( $font );
+		$font_path = is_object( $font ) ? self::get_font_path( $font ) : null;
+		if ( $font_id > 0 && ( ! is_string( $font_path ) || '' === $font_path ) ) {
+			throw new \RuntimeException( sprintf( __( 'The selected embroidery font #%d has no renderable production outline.', 'overcustomise' ), $font_id ) );
+		}
+		$align    = $centered ? (string) ( $settings['alignment'] ?? 'center' ) : 'left';
+		$anchor_x = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt + 2;
 
-		$lines[] = '%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) );
-		$lines[] = '%%OCTextFont: ' . self::eps_comment( $font_name );
-		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
-		if ( is_string( $font_path ) && '' !== $font_path && self::append_eps_ttf_text_outline( $lines, $text, $align, $anchor_x, $baseline_y, $font_size, $font_path, $centered ? $x_pt : null, $centered ? $y_pt : null, $centered ? $w_pt : null, $centered ? $h_pt : null ) ) {
-			$lines[] = 'grestore';
-			return;
+		do {
+			$text_lines = $multiline ? self::wrap_eps_text_lines( $text, $font_path, $font_size, max( 1.0, $w_pt - 4.0 ) ) : [ preg_replace( '/\s+/u', ' ', $text ) ?? $text ];
+			$line_height = $font_size * 1.2;
+			$fits_height = count( $text_lines ) * $line_height <= $h_pt;
+			$fits_width  = true;
+			foreach ( $text_lines as $text_line ) {
+				if ( self::eps_text_width( $text_line, $font_path, $font_size ) > max( 1.0, $w_pt - 4.0 ) ) {
+					$fits_width = false;
+					break;
+				}
+			}
+			$shrink = ( ! $fits_height || ! $fits_width ) && $font_size > $minimum_size;
+			if ( $shrink ) {
+				$font_size = max( $minimum_size, $font_size - 0.5 );
+			}
+		} while ( $shrink );
+
+		$total_height  = count( $text_lines ) * $line_height;
+		$first_baseline = $multiline
+			? self::eps_multiline_first_baseline( $line_alignment, $y_pt, $h_pt, $total_height, $font_size )
+			: ( $centered ? self::eps_text_baseline_y( $line_alignment, $y_pt, $h_pt, $font_size ) : $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
+		$paint = [
+			'%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) ),
+			'%%OCTextFont: ' . self::eps_comment( $font_name ),
+			'gsave',
+		];
+		if ( $multiline ) {
+			$paint[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath clip newpath', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
+		}
+		$paint[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
+		if ( $font_id <= 0 ) {
+			$paint[] = '%%OCTextOutline: charpath';
+			$paint[] = '%%OCTextOutlineFallback: font-dependent';
+			$paint[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
 		}
 
-		$lines[] = '%%OCTextOutline: charpath';
-		$lines[] = '%%OCTextOutlineFallback: font-dependent';
-		$lines[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
-		if ( 'Helvetica' !== $font_name ) {
-			$lines[] = sprintf( '{ /%s findfont %.4F scalefont setfont } stopped { pop } if', self::ps_name_escape( $font_name ), $font_size );
+		foreach ( $text_lines as $index => $text_line ) {
+			if ( '' === $text_line ) {
+				continue;
+			}
+			$baseline_y = $first_baseline - $index * $line_height;
+			if ( $font_id > 0 ) {
+				if ( ! self::append_eps_ttf_text_outline( $paint, $text_line, $align, $anchor_x, $baseline_y, $font_size, $font_path ) ) {
+					throw new \RuntimeException( sprintf( __( 'The selected embroidery font #%d could not outline all customer text.', 'overcustomise' ), $font_id ) );
+				}
+			} else {
+				self::append_eps_text_line( $paint, $text_line, $align, $anchor_x, $baseline_y );
+			}
 		}
-		self::append_eps_text_line( $lines, $text, $align, $anchor_x, $baseline_y );
-		$lines[] = 'grestore';
+		$paint[] = 'grestore';
+		array_push( $lines, ...$paint );
 	}
 
 	/** Return x coordinate for aligned text inside a center-origin layer box. */
@@ -281,6 +343,78 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'bottom' => $y_pt + $font_size,
 			default => $y_pt + ( $h_pt + $font_size ) / 2,
 		};
+	}
+
+	/** Return the first (topmost) baseline for a vertically aligned text block. */
+	private static function eps_multiline_first_baseline( string $alignment, float $y_pt, float $h_pt, float $total_height, float $font_size ): float {
+		$block_bottom = match ( $alignment ) {
+			'top'    => $y_pt + max( 0.0, $h_pt - $total_height ),
+			'bottom' => $y_pt,
+			default  => $y_pt + max( 0.0, ( $h_pt - $total_height ) / 2 ),
+		};
+
+		return $block_bottom + $total_height - $font_size * 0.2;
+	}
+
+	/** Wrap textarea paragraphs to the exact retained font metrics when available. */
+	private static function wrap_eps_text_lines( string $text, ?string $font_path, float $font_size, float $max_width ): array {
+		$lines = [];
+		foreach ( explode( "\n", $text ) as $paragraph ) {
+			$paragraph = trim( $paragraph );
+			if ( '' === $paragraph ) {
+				$lines[] = '';
+				continue;
+			}
+
+			$current = '';
+			foreach ( preg_split( '/\s+/u', $paragraph ) ?: [] as $word ) {
+				$candidate = '' === $current ? (string) $word : $current . ' ' . $word;
+				if ( self::eps_text_width( $candidate, $font_path, $font_size ) <= $max_width ) {
+					$current = $candidate;
+					continue;
+				}
+				if ( '' !== $current ) {
+					$lines[] = $current;
+				}
+				$pieces = self::wrap_eps_text_word( (string) $word, $font_path, $font_size, $max_width );
+				array_push( $lines, ...array_slice( $pieces, 0, -1 ) );
+				$current = (string) end( $pieces );
+			}
+			if ( '' !== $current ) {
+				$lines[] = $current;
+			}
+		}
+
+		return $lines;
+	}
+
+	private static function wrap_eps_text_word( string $word, ?string $font_path, float $font_size, float $max_width ): array {
+		$characters = preg_split( '//u', $word, -1, PREG_SPLIT_NO_EMPTY ) ?: str_split( $word );
+		$pieces = [];
+		$current = '';
+		foreach ( $characters as $character ) {
+			$candidate = $current . $character;
+			if ( '' === $current || self::eps_text_width( $candidate, $font_path, $font_size ) <= $max_width ) {
+				$current = $candidate;
+				continue;
+			}
+			$pieces[] = $current;
+			$current = $character;
+		}
+		if ( '' !== $current ) {
+			$pieces[] = $current;
+		}
+
+		return ! empty( $pieces ) ? $pieces : [ '' ];
+	}
+
+	private static function eps_text_width( string $text, ?string $font_path, float $font_size ): float {
+		if ( is_string( $font_path ) && '' !== $font_path ) {
+			$outline = self::ttf_text_outline( $font_path, $text, $font_size );
+			return is_array( $outline ) ? (float) ( $outline['width'] ?? INF ) : INF;
+		}
+
+		return count( self::utf8_codepoints( $text ) ) * $font_size * 0.55;
 	}
 
 	/** Return the PostScript command needed to align and outline text. */
@@ -377,6 +511,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$previous_gid = null;
 		foreach ( $codepoints as $codepoint ) {
 			$gid = self::ttf_glyph_id( $font, $codepoint );
+			if ( 0 === $gid && 0 !== $codepoint ) {
+				return null;
+			}
 			if ( null !== $previous_gid ) {
 				$x_offset += self::ttf_glyph_kerning( $font, $previous_gid, $gid ) * $scale;
 			}
@@ -1499,11 +1636,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( $vb_w, $vb_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
 
-		$before  = count( $lines );
-		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F translate', $draw_x, $draw_y + $draw_h );
-		$lines[] = sprintf( '%.8F %.8F scale', $draw_w / $vb_w, -$draw_h / $vb_h );
-		$lines[] = sprintf( '%.4F %.4F translate', -$vb_x, -$vb_y );
+		$vector_lines   = [];
+		$vector_lines[] = 'gsave';
+		$vector_lines[] = sprintf( '%.4F %.4F translate', $draw_x, $draw_y + $draw_h );
+		$vector_lines[] = sprintf( '%.8F %.8F scale', $draw_w / $vb_w, -$draw_h / $vb_h );
+		$vector_lines[] = sprintf( '%.4F %.4F translate', -$vb_x, -$vb_y );
 		$context = [
 			'css'      => self::svg_css_rules( $dom ),
 			'ids'      => self::svg_id_map( $dom ),
@@ -1511,15 +1648,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'depth'    => 0,
 			'use_stack' => [],
 		];
-		self::append_svg_element_eps( $lines, $dom->documentElement, [], $context );
-		$lines[] = 'grestore';
-
-		$body = array_slice( $lines, $before );
-		if ( ! self::eps_lines_have_paint( $body ) ) {
-			array_splice( $lines, $before );
+		if ( ! self::append_svg_element_eps( $vector_lines, $dom->documentElement, [], $context ) ) {
+			return false;
+		}
+		$vector_lines[] = 'grestore';
+		if ( ! self::eps_lines_have_paint( $vector_lines ) ) {
 			return false;
 		}
 
+		array_push( $lines, ...$vector_lines );
 		return true;
 	}
 
@@ -1537,33 +1674,47 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return [ 0.0, 0.0, max( 1.0, $w ), max( 1.0, $h ) ];
 	}
 
-	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style, array $context = [] ): void {
+	private static function append_svg_element_eps( array &$lines, \DOMElement $element, array $style, array $context = [] ): bool {
 		$depth = (int) ( $context['depth'] ?? 0 );
 		if ( $depth > self::MAX_SVG_DEPTH ) {
-			return;
+			return false;
 		}
 		$context['depth'] = $depth + 1;
 		$style = self::svg_style_for_element( $element, $style, $context['css'] ?? [] );
 		$name  = strtolower( $element->localName );
 		if ( in_array( $name, [ 'defs', 'style', 'metadata', 'title', 'desc' ], true ) || ( 'symbol' === $name && empty( $context['from_use'] ) ) ) {
-			return;
+			return true;
 		}
 		if ( 'rect' === $name && self::is_svg_background_rect( $element, $style, $context['view_box'] ?? null ) ) {
-			return;
+			return true;
+		}
+		foreach ( [ 'fill', 'stroke' ] as $paint_key ) {
+			if ( str_starts_with( strtolower( trim( (string) ( $style[ $paint_key ] ?? '' ) ) ), 'url(' ) ) {
+				return false;
+			}
+		}
+		foreach ( [ 'clip-path', 'mask', 'filter' ] as $unsupported_attribute ) {
+			$value = (string) ( $style[ $unsupported_attribute ] ?? $element->getAttribute( $unsupported_attribute ) );
+			if ( '' !== trim( $value ) && 'none' !== strtolower( trim( $value ) ) ) {
+				return false;
+			}
 		}
 		$has_transform = $element->hasAttribute( 'transform' ) && '' !== trim( $element->getAttribute( 'transform' ) );
 
 		if ( $has_transform ) {
 			$lines[] = 'gsave';
-			self::append_svg_transform_eps( $lines, $element->getAttribute( 'transform' ) );
+			if ( ! self::append_svg_transform_eps( $lines, $element->getAttribute( 'transform' ) ) ) {
+				return false;
+			}
 		}
 
-			switch ( $name ) {
+		$valid = true;
+		switch ( $name ) {
 			case 'use':
-				self::append_svg_use_eps( $lines, $element, $style, $context );
+				$valid = self::append_svg_use_eps( $lines, $element, $style, $context );
 				break;
 			case 'path':
-				self::append_svg_path_eps( $lines, $element->getAttribute( 'd' ), $style );
+				$valid = self::append_svg_path_eps( $lines, $element->getAttribute( 'd' ), $style );
 				break;
 			case 'rect':
 				self::append_svg_rect_eps( $lines, $element, $style );
@@ -1584,36 +1735,53 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			case 'polygon':
 				self::append_svg_polyline_eps( $lines, self::svg_points( $element->getAttribute( 'points' ) ), $style, 'polygon' === $name );
 				break;
+			case 'svg':
+				$valid = 0 === $depth;
+				break;
+			case 'g':
+			case 'a':
+				break;
+			case 'symbol':
+				$valid = ! $element->hasAttribute( 'viewBox' );
+				break;
+			default:
+				$valid = false;
+				break;
+		}
+		if ( ! $valid ) {
+			return false;
 		}
 
 		foreach ( $element->childNodes as $child ) {
-			if ( $child instanceof \DOMElement ) {
-				self::append_svg_element_eps( $lines, $child, $style, $context );
+			if ( $child instanceof \DOMElement && ! self::append_svg_element_eps( $lines, $child, $style, $context ) ) {
+				return false;
 			}
 		}
 
 		if ( $has_transform ) {
 			$lines[] = 'grestore';
 		}
+
+		return true;
 	}
 
-	private static function append_svg_use_eps( array &$lines, \DOMElement $element, array $style, array $context ): void {
+	private static function append_svg_use_eps( array &$lines, \DOMElement $element, array $style, array $context ): bool {
 		$href = $element->getAttribute( 'href' );
 		if ( '' === $href ) {
 			$href = $element->getAttributeNS( 'http://www.w3.org/1999/xlink', 'href' );
 		}
 		if ( ! str_starts_with( $href, '#' ) ) {
-			return;
+			return false;
 		}
 
 		$id  = substr( $href, 1 );
 		$ids = is_array( $context['ids'] ?? null ) ? $context['ids'] : [];
 		if ( ! isset( $ids[ $id ] ) || ! $ids[ $id ] instanceof \DOMElement ) {
-			return;
+			return false;
 		}
 		$use_stack = is_array( $context['use_stack'] ?? null ) ? $context['use_stack'] : [];
 		if ( in_array( $id, $use_stack, true ) || count( $use_stack ) >= self::MAX_SVG_USE_DEPTH ) {
-			return;
+			return false;
 		}
 
 		$lines[] = 'gsave';
@@ -1625,41 +1793,67 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$use_context = $context;
 		$use_context['from_use'] = true;
 		$use_context['use_stack'] = array_merge( $use_stack, [ $id ] );
-		self::append_svg_element_eps( $lines, $ids[ $id ], $style, $use_context );
+		if ( ! self::append_svg_element_eps( $lines, $ids[ $id ], $style, $use_context ) ) {
+			return false;
+		}
 		$lines[] = 'grestore';
+		return true;
 	}
 
-	private static function append_svg_transform_eps( array &$lines, string $transform ): void {
-		preg_match_all( '/(matrix|translate|scale|rotate)\s*\(([^)]*)\)/i', $transform, $matches, PREG_SET_ORDER );
+	private static function append_svg_transform_eps( array &$lines, string $transform ): bool {
+		$pattern = '/(matrix|translate|scale|rotate)\s*\(([^)]*)\)/i';
+		preg_match_all( $pattern, $transform, $matches, PREG_SET_ORDER );
+		$remaining = preg_replace( $pattern, '', $transform );
+		if ( empty( $matches ) || ! is_string( $remaining ) || '' !== trim( $remaining ) ) {
+			return false;
+		}
 		foreach ( $matches as $match ) {
 			$name   = strtolower( (string) $match[1] );
 			$values = preg_split( '/[\s,]+/', trim( (string) $match[2] ) );
 			$values = array_values( array_filter( array_map( 'trim', is_array( $values ) ? $values : [] ), static fn ( string $value ): bool => '' !== $value ) );
+			if ( array_filter( $values, static fn ( string $value ): bool => ! preg_match( '/^[-+]?(?:(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?)$/D', $value ) ) ) {
+				return false;
+			}
 			$nums   = array_map( 'floatval', $values );
+			if ( array_filter( $nums, static fn ( float $value ): bool => ! is_finite( $value ) ) ) {
+				return false;
+			}
 
 			switch ( $name ) {
 				case 'matrix':
-					if ( count( $nums ) >= 6 ) {
-						$lines[] = sprintf( '[%.8F %.8F %.8F %.8F %.8F %.8F] concat', $nums[0], $nums[1], $nums[2], $nums[3], $nums[4], $nums[5] );
+					if ( 6 !== count( $nums ) ) {
+						return false;
 					}
+					$lines[] = sprintf( '[%.8F %.8F %.8F %.8F %.8F %.8F] concat', $nums[0], $nums[1], $nums[2], $nums[3], $nums[4], $nums[5] );
 					break;
 				case 'translate':
-					$lines[] = sprintf( '%.4F %.4F translate', $nums[0] ?? 0.0, $nums[1] ?? 0.0 );
+					if ( count( $nums ) < 1 || count( $nums ) > 2 ) {
+						return false;
+					}
+					$lines[] = sprintf( '%.4F %.4F translate', $nums[0], $nums[1] ?? 0.0 );
 					break;
 				case 'scale':
-					$sx = $nums[0] ?? 1.0;
+					if ( count( $nums ) < 1 || count( $nums ) > 2 ) {
+						return false;
+					}
+					$sx = $nums[0];
 					$sy = $nums[1] ?? $sx;
 					$lines[] = sprintf( '%.8F %.8F scale', $sx, $sy );
 					break;
 				case 'rotate':
-					if ( count( $nums ) >= 3 ) {
+					if ( ! in_array( count( $nums ), [ 1, 3 ], true ) ) {
+						return false;
+					}
+					if ( 3 === count( $nums ) ) {
 						$lines[] = sprintf( '%.4F %.4F translate %.4F rotate %.4F %.4F translate', $nums[1], $nums[2], $nums[0], -$nums[1], -$nums[2] );
 					} else {
-						$lines[] = sprintf( '%.4F rotate', $nums[0] ?? 0.0 );
+						$lines[] = sprintf( '%.4F rotate', $nums[0] );
 					}
 					break;
 			}
 		}
+
+		return true;
 	}
 
 	private static function svg_style_for_element( \DOMElement $element, array $parent, array $css = [] ): array {
@@ -1752,29 +1946,47 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return $ids;
 	}
 
-	private static function append_svg_path_eps( array &$lines, string $d, array $style ): void {
+	private static function append_svg_path_eps( array &$lines, string $d, array $style ): bool {
 		$commands = self::svg_path_to_eps( $d );
+		if ( null === $commands ) {
+			return false;
+		}
 		if ( empty( $commands ) ) {
-			return;
+			return true;
 		}
 
 		self::append_svg_paint_eps( $lines, $commands, $style );
+		return true;
 	}
 
-	private static function svg_path_to_eps( string $d ): array {
+	private static function svg_path_to_eps( string $d ): ?array {
 		if ( strlen( $d ) > self::MAX_SVG_PATH_BYTES ) {
-			return [];
+			return null;
 		}
-		preg_match_all( '/[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $d, $matches );
+		$token_pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?)/';
+		preg_match_all( $token_pattern, $d, $matches );
 		$tokens = $matches[0] ?? [];
-		if ( count( $tokens ) > self::MAX_SVG_PATH_TOKENS ) {
-			return [];
+		$remaining = preg_replace( $token_pattern, '', $d );
+		if ( ! is_string( $remaining ) || preg_match( '/[^\s,]/', $remaining ) || count( $tokens ) > self::MAX_SVG_PATH_TOKENS ) {
+			return null;
 		}
-		$out = [];
-		$i = 0;
-		$cmd = '';
-		$x = 0.0;
-		$y = 0.0;
+		if ( empty( $tokens ) ) {
+			return '' === trim( $d ) ? [] : null;
+		}
+		if ( ! in_array( $tokens[0], [ 'M', 'm' ], true ) ) {
+			return null;
+		}
+		foreach ( $tokens as $token ) {
+			if ( ! preg_match( '/^[A-Za-z]$/', $token ) && ! is_finite( (float) $token ) ) {
+				return null;
+			}
+		}
+
+		$out     = [];
+		$i       = 0;
+		$cmd     = '';
+		$x       = 0.0;
+		$y       = 0.0;
 		$start_x = 0.0;
 		$start_y = 0.0;
 		$prev_cx = null;
@@ -1783,28 +1995,38 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$prev_qy = null;
 
 		while ( $i < count( $tokens ) ) {
-			$iteration_start = $i;
+			$explicit_command = false;
 			if ( preg_match( '/^[A-Za-z]$/', $tokens[ $i ] ) ) {
-				$cmd = $tokens[ $i++ ];
+				$cmd              = $tokens[ $i++ ];
+				$explicit_command = true;
 			}
 			if ( '' === $cmd ) {
-				break;
+				return null;
 			}
 
-			$relative = ctype_lower( $cmd );
-			switch ( strtoupper( $cmd ) ) {
+			$relative      = ctype_lower( $cmd );
+			$command_type  = strtoupper( $cmd );
+			$parameter_start = $i;
+			switch ( $command_type ) {
 				case 'M':
+					if ( ! self::svg_has_numbers( $tokens, $i, 2 ) ) {
+						return null;
+					}
+					$first_point = true;
 					while ( self::svg_has_numbers( $tokens, $i, 2 ) ) {
 						$nx = (float) $tokens[ $i++ ];
 						$ny = (float) $tokens[ $i++ ];
-						$x = $relative ? $x + $nx : $nx;
-						$y = $relative ? $y + $ny : $ny;
-						$out[] = sprintf( '%.4F %.4F moveto', $x, $y );
-						$start_x = $x;
-						$start_y = $y;
-						$cmd = $relative ? 'l' : 'L';
+						$x  = $relative ? $x + $nx : $nx;
+						$y  = $relative ? $y + $ny : $ny;
+						$out[] = sprintf( '%.4F %.4F %s', $x, $y, $first_point ? 'moveto' : 'lineto' );
+						if ( $first_point ) {
+							$start_x    = $x;
+							$start_y    = $y;
+							$first_point = false;
+						}
 						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
+					$cmd = $relative ? 'l' : 'L';
 					break;
 				case 'L':
 					while ( self::svg_has_numbers( $tokens, $i, 2 ) ) {
@@ -1899,34 +2121,138 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					while ( self::svg_has_numbers( $tokens, $i, 7 ) ) {
 						$vals = array_map( 'floatval', array_slice( $tokens, $i, 7 ) );
 						$i += 7;
-						$ex = $vals[5];
-						$ey = $vals[6];
+						[ $rx, $ry, $rotation, $large_arc, $sweep, $ex, $ey ] = $vals;
+						if ( ! in_array( $large_arc, [ 0.0, 1.0 ], true ) || ! in_array( $sweep, [ 0.0, 1.0 ], true ) ) {
+							return null;
+						}
 						if ( $relative ) {
 							$ex += $x; $ey += $y;
 						}
-						$out[] = sprintf( '%.4F %.4F lineto', $ex, $ey );
+						$arc_commands = self::svg_arc_to_eps( $x, $y, $rx, $ry, $rotation, 1.0 === $large_arc, 1.0 === $sweep, $ex, $ey );
+						if ( null === $arc_commands ) {
+							return null;
+						}
+						array_push( $out, ...$arc_commands );
 						$x = $ex; $y = $ey;
 						$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					}
 					break;
 				case 'Z':
+					if ( ! $explicit_command ) {
+						return null;
+					}
 					$out[] = 'closepath';
-					$x = $start_x;
-					$y = $start_y;
+					$x     = $start_x;
+					$y     = $start_y;
+					$cmd   = '';
 					$prev_cx = $prev_cy = $prev_qx = $prev_qy = null;
 					break;
 				default:
-					return $out;
+					return null;
 			}
-			if ( $i <= $iteration_start ) {
-				break;
+			if ( 'Z' !== $command_type && $i === $parameter_start ) {
+				return null;
 			}
-			if ( count( $out ) >= self::MAX_SVG_PATH_TOKENS ) {
-				break;
+			if ( count( $out ) > self::MAX_SVG_PATH_TOKENS ) {
+				return null;
 			}
 		}
 
 		return $out;
+	}
+
+	/** Convert one SVG endpoint arc to one or more cubic PostScript curves. */
+	private static function svg_arc_to_eps( float $x1, float $y1, float $rx, float $ry, float $rotation, bool $large_arc, bool $sweep, float $x2, float $y2 ): ?array {
+		if ( ! is_finite( $x1 ) || ! is_finite( $y1 ) || ! is_finite( $rx ) || ! is_finite( $ry ) || ! is_finite( $rotation ) || ! is_finite( $x2 ) || ! is_finite( $y2 ) ) {
+			return null;
+		}
+		if ( abs( $x1 - $x2 ) < 1.0e-12 && abs( $y1 - $y2 ) < 1.0e-12 ) {
+			return [];
+		}
+
+		$rx = abs( $rx );
+		$ry = abs( $ry );
+		if ( $rx < 1.0e-12 || $ry < 1.0e-12 ) {
+			return [ sprintf( '%.4F %.4F lineto', $x2, $y2 ) ];
+		}
+
+		$phi     = fmod( $rotation, 360.0 ) * M_PI / 180.0;
+		$cos_phi = cos( $phi );
+		$sin_phi = sin( $phi );
+		$half_dx = ( $x1 - $x2 ) / 2.0;
+		$half_dy = ( $y1 - $y2 ) / 2.0;
+		$x_prime = $cos_phi * $half_dx + $sin_phi * $half_dy;
+		$y_prime = -$sin_phi * $half_dx + $cos_phi * $half_dy;
+
+		$radius_scale = ( $x_prime * $x_prime ) / ( $rx * $rx ) + ( $y_prime * $y_prime ) / ( $ry * $ry );
+		if ( $radius_scale > 1.0 ) {
+			$scale = sqrt( $radius_scale );
+			$rx   *= $scale;
+			$ry   *= $scale;
+		}
+
+		$rx_sq = $rx * $rx;
+		$ry_sq = $ry * $ry;
+		$x_sq  = $x_prime * $x_prime;
+		$y_sq  = $y_prime * $y_prime;
+		$denominator = $rx_sq * $y_sq + $ry_sq * $x_sq;
+		if ( $denominator <= 0.0 || ! is_finite( $denominator ) ) {
+			return null;
+		}
+		$numerator = max( 0.0, $rx_sq * $ry_sq - $rx_sq * $y_sq - $ry_sq * $x_sq );
+		$factor    = ( $large_arc === $sweep ? -1.0 : 1.0 ) * sqrt( $numerator / $denominator );
+		$cx_prime  = $factor * $rx * $y_prime / $ry;
+		$cy_prime  = -$factor * $ry * $x_prime / $rx;
+		$cx        = $cos_phi * $cx_prime - $sin_phi * $cy_prime + ( $x1 + $x2 ) / 2.0;
+		$cy        = $sin_phi * $cx_prime + $cos_phi * $cy_prime + ( $y1 + $y2 ) / 2.0;
+
+		$ux = ( $x_prime - $cx_prime ) / $rx;
+		$uy = ( $y_prime - $cy_prime ) / $ry;
+		$vx = ( -$x_prime - $cx_prime ) / $rx;
+		$vy = ( -$y_prime - $cy_prime ) / $ry;
+		$start_angle = atan2( $uy, $ux );
+		$delta_angle = atan2( $ux * $vy - $uy * $vx, $ux * $vx + $uy * $vy );
+		if ( ! $sweep && $delta_angle > 0.0 ) {
+			$delta_angle -= 2.0 * M_PI;
+		} elseif ( $sweep && $delta_angle < 0.0 ) {
+			$delta_angle += 2.0 * M_PI;
+		}
+		$segments = max( 1, (int) ceil( abs( $delta_angle ) / ( M_PI / 2.0 ) ) );
+		$step     = $delta_angle / $segments;
+		$commands = [];
+
+		for ( $segment = 0; $segment < $segments; $segment++ ) {
+			$from  = $start_angle + $segment * $step;
+			$to    = $from + $step;
+			$alpha = 4.0 / 3.0 * tan( $step / 4.0 );
+			$cos_from = cos( $from );
+			$sin_from = sin( $from );
+			$cos_to   = cos( $to );
+			$sin_to   = sin( $to );
+
+			$from_x = $cx + $cos_phi * $rx * $cos_from - $sin_phi * $ry * $sin_from;
+			$from_y = $cy + $sin_phi * $rx * $cos_from + $cos_phi * $ry * $sin_from;
+			$to_x   = $cx + $cos_phi * $rx * $cos_to - $sin_phi * $ry * $sin_to;
+			$to_y   = $cy + $sin_phi * $rx * $cos_to + $cos_phi * $ry * $sin_to;
+			$from_dx = -$cos_phi * $rx * $sin_from - $sin_phi * $ry * $cos_from;
+			$from_dy = -$sin_phi * $rx * $sin_from + $cos_phi * $ry * $cos_from;
+			$to_dx   = -$cos_phi * $rx * $sin_to - $sin_phi * $ry * $cos_to;
+			$to_dy   = -$sin_phi * $rx * $sin_to + $cos_phi * $ry * $cos_to;
+			$end_x   = $segment === $segments - 1 ? $x2 : $to_x;
+			$end_y   = $segment === $segments - 1 ? $y2 : $to_y;
+
+			$commands[] = sprintf(
+				'%.4F %.4F %.4F %.4F %.4F %.4F curveto',
+				$from_x + $alpha * $from_dx,
+				$from_y + $alpha * $from_dy,
+				$to_x - $alpha * $to_dx,
+				$to_y - $alpha * $to_dy,
+				$end_x,
+				$end_y
+			);
+		}
+
+		return $commands;
 	}
 
 	private static function svg_has_numbers( array $tokens, int $offset, int $count ): bool {

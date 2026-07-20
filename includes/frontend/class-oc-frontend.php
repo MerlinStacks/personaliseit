@@ -39,41 +39,25 @@ class OC_Frontend {
 			return;
 		}
 
-		$selected_design_id = (int) $assignment->design_id;
+		$requested_design_id = 0;
 		$requested_variant  = isset( $_GET['oc_design_variant'] ) ? sanitize_key( wp_unslash( $_GET['oc_design_variant'] ) ) : '';
-		if ( '' !== $requested_variant ) {
-			$decoded = json_decode( (string) ( $assignment->design_variants ?? '' ), true );
-			if ( is_array( $decoded ) ) {
-				foreach ( $decoded as $item ) {
-					$variant_design_id = absint( $item['designId'] ?? 0 );
-					if ( $variant_design_id && 'design-' . $variant_design_id === $requested_variant ) {
-						$selected_design_id = $variant_design_id;
-						break;
-					}
-				}
-			}
+		if ( preg_match( '/^design-(\d+)$/', $requested_variant, $matches ) ) {
+			$requested_design_id = absint( $matches[1] );
 		}
 
-		$design = OC_DB::get_design( $selected_design_id );
-		if ( ! $design ) {
-			OC_Logger::warning( "OC Frontend: design {$selected_design_id} not found." );
+		$context = $this->resolve_assignment_design( $assignment, $requested_design_id );
+		if ( ! $context ) {
+			OC_Logger::info( "OC Frontend: assignment for product {$product_id} has no active design with visible customisation content." );
 			return;
 		}
-		if ( ! (bool) $design->active ) {
-			OC_Logger::info( "OC Frontend: design {$design->id} is inactive." );
-			return;
-		}
-
-		$areas = OC_DB::get_design_print_areas( (int) $design->id );
-		if ( empty( $areas ) ) {
-			OC_Logger::info( "OC Frontend: design {$design->id} has no print areas." );
-			return;
-		}
+		$design = $context['design'];
+		$areas  = $context['areas'];
+		$layers = $context['layers'];
 
 		$this->design = $design;
 		$this->areas  = $areas;
-		$this->layers = OC_DB::get_design_layers( (int) $design->id );
-		$this->design_variants = $this->build_design_variants( (string) ( $assignment->design_variants ?? '' ), (int) $assignment->design_id, (int) $design->id );
+		$this->layers = $layers;
+		$this->design_variants = $this->build_design_variants( is_scalar( $assignment->design_variants ?? null ) ? (string) $assignment->design_variants : '', (int) $assignment->design_id, (int) $design->id );
 		$this->selected_design_variant = 'design-' . (int) $design->id;
 	}
 
@@ -122,10 +106,11 @@ class OC_Frontend {
 		$state['applyImageFilterUrl']   = rest_url( 'overcustomise/v1/apply-image-filter' );
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
+		$state['requestTokenUrl']       = rest_url( 'overcustomise/v1/session-token' );
 		$state['productDesignUrl']      = rest_url( 'overcustomise/v1/product-design/' . (int) get_queried_object_id() );
 		$state['productId']             = (int) get_queried_object_id();
 		$state['uploadNonce']           = wp_create_nonce( 'wp_rest' );
-		$state['requestToken']          = OC_Rest_API::issue_public_token();
+		$state['requestToken']          = '';
 		$state['maxUploadSizeMb']       = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
 		$state['allowedFormats']        = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
 
@@ -142,22 +127,18 @@ class OC_Frontend {
 			];
 		}
 
-		$design = OC_DB::get_design( (int) $assignment->design_id );
-		if ( ! $design || ! (bool) $design->active ) {
+		$self = new self();
+		$context = $self->resolve_assignment_design( $assignment );
+		if ( ! $context ) {
 			return [
 				'design_id' => (int) $assignment->design_id,
 				'active'    => false,
 			];
 		}
-
-		$areas = OC_DB::get_design_print_areas( (int) $design->id );
-		if ( empty( $areas ) ) {
-			return new \WP_Error( 'no_areas', __( 'Assigned design has no print areas.', 'overcustomise' ), [ 'status' => 404 ] );
-		}
-
-		$self = new self();
-		$layers = OC_DB::get_design_layers( (int) $design->id );
-		$design_variants = $self->build_design_variants( (string) ( $assignment->design_variants ?? '' ), (int) $assignment->design_id, (int) $design->id );
+		$design = $context['design'];
+		$areas  = $context['areas'];
+		$layers = $context['layers'];
+		$design_variants = $self->build_design_variants( is_scalar( $assignment->design_variants ?? null ) ? (string) $assignment->design_variants : '', (int) $assignment->design_id, (int) $design->id );
 		$selected_design_variant = 'design-' . (int) $design->id;
 
 		$self->design = $design;
@@ -177,13 +158,70 @@ class OC_Frontend {
 		return $state;
 	}
 
+	/** Resolve the requested, default, or first active variant to visible frontend content. */
+	private function resolve_assignment_design( object $assignment, int $requested_design_id = 0 ): ?array {
+		$candidates = [];
+		$allowed    = [ absint( $assignment->design_id ?? 0 ) ];
+		$variants   = json_decode( is_scalar( $assignment->design_variants ?? null ) ? (string) $assignment->design_variants : '', true );
+		foreach ( is_array( $variants ) ? $variants : [] as $variant ) {
+			if ( is_array( $variant ) ) {
+				$allowed[] = absint( $variant['designId'] ?? 0 );
+			}
+		}
+		$allowed = array_values( array_unique( array_filter( $allowed ) ) );
+		if ( $requested_design_id && in_array( $requested_design_id, $allowed, true ) ) {
+			$candidates[] = $requested_design_id;
+		}
+		$candidates = array_values( array_unique( array_merge( $candidates, $allowed ) ) );
+
+		foreach ( $candidates as $design_id ) {
+			$context = $this->get_usable_design_context( $design_id );
+			if ( $context ) {
+				return $context;
+			}
+		}
+		return null;
+	}
+
+	/** Return only visible areas and layers for an active design. */
+	private function get_usable_design_context( int $design_id ): ?array {
+		$design = $design_id ? OC_DB::get_design( $design_id ) : null;
+		if ( ! $design || ! (bool) $design->active ) {
+			return null;
+		}
+		$areas = array_values( array_filter(
+			OC_DB::get_design_print_areas( $design_id ),
+			static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible
+		) );
+		if ( ! $areas ) {
+			return null;
+		}
+		$area_ids = array_fill_keys( array_filter( array_map( static fn ( $area ): int => (int) $area->id, $areas ) ), true );
+		$layers = array_values( array_filter(
+			OC_DB::get_design_layers( $design_id ),
+			static fn ( $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $area_ids[ (int) ( $layer->area_id ?? 0 ) ] )
+		) );
+		if ( ! $layers ) {
+			return null;
+		}
+		return [ 'design' => $design, 'areas' => $areas, 'layers' => $layers ];
+	}
+
 	/** Build reusable frontend state for one design. */
 	private function build_design_state( object $design, array $areas, array $layers ): array {
-		global $wpdb;
+		$areas = array_values( array_filter( $areas, static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible ) );
+		$visible_area_ids = array_fill_keys( array_filter( array_map( static fn ( $area ): int => absint( $area->id ?? 0 ), $areas ) ), true );
+		$layers = array_values( array_filter(
+			$layers,
+			static fn ( $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] )
+		) );
 
-		$all_fonts   = OC_Font_Registry::get_fonts_for_js();
+		$all_fonts   = OC_Plugin::browser_fonts();
+		$active_browser_font_ids = array_map( static fn ( array $font ): int => (int) $font['id'], $all_fonts );
+		$valid_font_group_ids = array_map( static fn ( $group ): int => (int) $group->id, OC_DB::get_font_groups() );
 		$all_colours = OC_DB::get_colours( true );
 		$image_filters = OC_DB::get_image_filters( true );
+		$active_filter_ids = array_fill_keys( array_map( static fn ( $filter ): int => (int) $filter->id, $image_filters ), true );
 
 		// Group layers by area ID.
 		$layers_by_area = [];
@@ -215,22 +253,42 @@ class OC_Frontend {
 			}
 
 			foreach ( $area_layers as $layer ) {
-				if ( ! (bool) $layer->visible ) continue;
+				if ( isset( $layer->visible ) && ! (bool) $layer->visible ) continue;
 
-				$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-				if ( ! is_array( $settings ) ) $settings = [];
+				$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
+				$font_group_ids = array_values( array_intersect( array_map( 'absint', $settings['font_groups'] ), $valid_font_group_ids ) );
+				$allowed_font_ids = $font_group_ids
+					? array_values( array_intersect( $active_browser_font_ids, OC_DB::get_font_ids_for_groups( $font_group_ids ) ) )
+					: $active_browser_font_ids;
+				$default_font_id = absint( $settings['default_font_id'] ?? 0 );
+				if ( ! in_array( $default_font_id, $allowed_font_ids, true ) ) {
+					$default_font_id = (int) ( $allowed_font_ids[0] ?? 0 );
+				}
+				$settings['font_groups']     = $font_group_ids;
+				$settings['default_font_id'] = $default_font_id;
 
-				$colour_group_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['colour_groups'] ?? null ) ? $settings['colour_groups'] : [] ) ) );
+				$colour_group_ids = array_values( array_filter( array_map( 'absint', $settings['colour_groups'] ) ) );
 				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
 				$default_attachment_id  = absint( $settings['default_attachment_id'] ?? 0 );
+				if ( $default_attachment_id && ( ! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id ) || ! str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' ) ) ) {
+					$default_attachment_id = 0;
+				}
 				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
 				$default_image_filter_id = absint( $settings['default_image_filter_id'] ?? 0 );
-				$image_filter_ids = array_values( array_filter( array_map( 'absint', is_array( $settings['image_filter_ids'] ?? null ) ? $settings['image_filter_ids'] : [] ) ) );
+				$image_filter_ids = array_values( array_filter( array_map(
+					'absint',
+					array_filter( $settings['image_filter_ids'], static fn ( $filter_id ): bool => ! empty( $active_filter_ids[ absint( $filter_id ) ] ) )
+				) ) );
 				if ( $default_image_filter_id && ! in_array( $default_image_filter_id, $image_filter_ids, true ) ) {
 					$default_image_filter_id = 0;
 				}
-				if ( '' === $default_attachment_url && ! empty( $settings['default_attachment_url'] ) ) {
-					$default_attachment_url = esc_url_raw( (string) $settings['default_attachment_url'] );
+				$settings['default_attachment_id']   = $default_attachment_id;
+				$settings['default_attachment_url']  = $default_attachment_url;
+				$settings['image_filter_ids']        = $image_filter_ids;
+				$settings['default_image_filter_id'] = $default_image_filter_id;
+				if ( 'clipart' === (string) $layer->type ) {
+					$settings['default_clipart_url']          = '';
+					$settings['default_clipart_recolourable'] = false;
 				}
 				if ( ! empty( $colour_group_ids ) ) {
 					$allowed_colours = OC_DB::get_colours_for_groups( $colour_group_ids );
@@ -305,38 +363,23 @@ class OC_Frontend {
 			$layer_id = (int) $layer->id;
 			if ( ! isset( $layer_inputs[ $layer_id ] ) ) continue;
 
-			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			if ( ! is_array( $settings ) ) $settings = [];
+			$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], 'clipart' );
 
 			$default_clipart_id = absint( $settings['default_clipart_id'] ?? 0 );
-			if ( ! $default_clipart_id ) continue;
-
+			$selected_item = null;
 			foreach ( $clipart_by_layer[ $layer_id ] ?? [] as $item ) {
-				if ( (int) $item['id'] !== $default_clipart_id ) continue;
-				$layer_inputs[ $layer_id ]['clipartId'] = (int) $item['id'];
-				$layer_inputs[ $layer_id ]['clipartUrl'] = (string) $item['url'];
-				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ! empty( $item['recolourable'] );
-				break;
+				if ( (int) $item['id'] === $default_clipart_id ) {
+					$selected_item = $item;
+					break;
+				}
 			}
-
-			if ( ! empty( $layer_inputs[ $layer_id ]['clipartUrl'] ) ) continue;
-
-			$default_clipart = $wpdb->get_row( $wpdb->prepare(
-				"SELECT id, file_path, file_type, colour_changeable, allowed_print_methods FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
-				$default_clipart_id
-			) );
-			if ( $default_clipart && ! empty( $default_clipart->file_path ) ) {
-				$upload_dir = wp_upload_dir();
-				$layer_inputs[ $layer_id ]['clipartId'] = (int) $default_clipart->id;
-				$layer_inputs[ $layer_id ]['clipartUrl'] = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $default_clipart->file_path );
-				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ( ! property_exists( $default_clipart, 'colour_changeable' ) || (bool) $default_clipart->colour_changeable ) && 'svg' === strtolower( (string) $default_clipart->file_type );
-				continue;
+			if ( ! $selected_item && ( ! empty( $settings['required'] ) || empty( $settings['allow_clipart_change'] ) ) ) {
+				$selected_item = $clipart_by_layer[ $layer_id ][0] ?? null;
 			}
-
-			if ( ! empty( $settings['default_clipart_url'] ) ) {
-				$layer_inputs[ $layer_id ]['clipartId'] = $default_clipart_id;
-				$layer_inputs[ $layer_id ]['clipartUrl'] = esc_url_raw( (string) $settings['default_clipart_url'] );
-				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ! empty( $settings['default_clipart_recolourable'] );
+			if ( is_array( $selected_item ) ) {
+				$layer_inputs[ $layer_id ]['clipartId'] = (int) $selected_item['id'];
+				$layer_inputs[ $layer_id ]['clipartUrl'] = (string) $selected_item['url'];
+				$layer_inputs[ $layer_id ]['clipartRecolourable'] = ! empty( $selected_item['recolourable'] );
 			}
 		}
 
@@ -390,11 +433,14 @@ class OC_Frontend {
 		}
 
 		foreach ( $decoded as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
 			$design_id = absint( $item['designId'] ?? 0 );
 			if ( ! $design_id || $design_id === $default_design_id ) {
 				continue;
 			}
-			$option = $this->build_design_variant_option( $design_id, (string) ( $item['label'] ?? '' ), $selected_design_id );
+			$option = $this->build_design_variant_option( $design_id, is_scalar( $item['label'] ?? null ) ? (string) $item['label'] : '', $selected_design_id );
 			if ( $option ) {
 				$options[] = $option;
 			}
@@ -405,11 +451,12 @@ class OC_Frontend {
 
 	/** Build one selectable design option from a design's artwork content. */
 	private function build_design_variant_option( int $design_id, string $label, int $selected_design_id ): ?array {
-		$design = OC_DB::get_design( $design_id );
-		if ( ! $design || ! (bool) $design->active ) {
+		$context = $this->get_usable_design_context( $design_id );
+		if ( ! $context ) {
 			return null;
 		}
-		$areas = OC_DB::get_design_print_areas( $design_id );
+		$design = $context['design'];
+		$areas  = $context['areas'];
 		$area  = $areas[0] ?? null;
 		if ( ! $area ) {
 			return null;
@@ -453,14 +500,11 @@ class OC_Frontend {
 		$items    = [];
 
 		foreach ( $layers as $layer ) {
-			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id ) {
+			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || (int) $layer->area_id !== (int) $area->id ) {
 				continue;
 			}
 
-			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			if ( ! is_array( $settings ) ) {
-				$settings = [];
-			}
+			$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
 
 			$item = [
 				'type' => (string) $layer->type,
@@ -515,7 +559,7 @@ class OC_Frontend {
 		$max_y = null;
 
 		foreach ( $layers as $layer ) {
-			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'image', 'clipart' ], true ) ) {
+			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'image', 'clipart' ], true ) ) {
 				continue;
 			}
 
@@ -548,11 +592,11 @@ class OC_Frontend {
 
 		if ( null === $fonts_by_id ) {
 			$fonts_by_id = [];
-			foreach ( OC_DB::get_fonts( true ) as $font ) {
-				$fonts_by_id[ (int) $font->id ] = [
-					'family' => (string) $font->name,
-					'weight' => (string) ( $font->weight ?: 'normal' ),
-					'style'  => (string) ( $font->style ?: 'normal' ),
+			foreach ( OC_Plugin::browser_fonts() as $font ) {
+				$fonts_by_id[ (int) $font['id'] ] = [
+					'family' => (string) $font['name'],
+					'weight' => (string) $font['weight'],
+					'style'  => (string) $font['style'],
 				];
 			}
 		}
@@ -579,14 +623,14 @@ class OC_Frontend {
 
 		if ( 'image' === (string) $layer->type ) {
 			$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
-			if ( $attachment_id ) {
+			if ( $attachment_id && OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) && str_starts_with( (string) get_post_mime_type( $attachment_id ), 'image/' ) ) {
 				$url = wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: wp_get_attachment_url( $attachment_id );
 				if ( $url ) {
 					return (string) $url;
 				}
 			}
 
-			return ! empty( $settings['default_attachment_url'] ) ? esc_url_raw( (string) $settings['default_attachment_url'] ) : '';
+			return '';
 		}
 
 		if ( 'clipart' === (string) $layer->type ) {
@@ -597,12 +641,11 @@ class OC_Frontend {
 					$clipart_id
 				) );
 				if ( $clipart && ! empty( $clipart->file_path ) ) {
-					$upload_dir = wp_upload_dir();
-					return $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $clipart->file_path );
+					return self::clipart_public_url( (string) $clipart->file_path );
 				}
 			}
 
-			return ! empty( $settings['default_clipart_url'] ) ? esc_url_raw( (string) $settings['default_clipart_url'] ) : '';
+			return '';
 		}
 
 		return '';
@@ -619,27 +662,21 @@ class OC_Frontend {
 
 		$area_ids = array_map( fn( $area ) => (int) $area->id, $areas );
 		foreach ( $layers as $layer ) {
-			if ( ! (bool) $layer->visible || ! in_array( (int) $layer->area_id, $area_ids, true ) ) {
+			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || ! in_array( (int) $layer->area_id, $area_ids, true ) ) {
 				continue;
 			}
 
-			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			if ( ! is_array( $settings ) ) {
-				$settings = [];
-			}
+			$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
 
 			if ( 'image' === (string) $layer->type ) {
 				$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
-				if ( $attachment_id ) {
+				if ( $attachment_id && OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) && str_starts_with( (string) get_post_mime_type( $attachment_id ), 'image/' ) ) {
 					$url = wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: wp_get_attachment_url( $attachment_id );
 					if ( $url ) {
 						return (string) $url;
 					}
 				}
 
-				if ( ! empty( $settings['default_attachment_url'] ) ) {
-					return esc_url_raw( (string) $settings['default_attachment_url'] );
-				}
 			}
 
 			if ( 'clipart' === (string) $layer->type ) {
@@ -650,14 +687,10 @@ class OC_Frontend {
 						$clipart_id
 					) );
 					if ( $clipart && ! empty( $clipart->file_path ) ) {
-						$upload_dir = wp_upload_dir();
-						return $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( (string) $clipart->file_path );
+						return self::clipart_public_url( (string) $clipart->file_path );
 					}
 				}
 
-				if ( ! empty( $settings['default_clipart_url'] ) ) {
-					return esc_url_raw( (string) $settings['default_clipart_url'] );
-				}
 			}
 		}
 
@@ -675,14 +708,11 @@ class OC_Frontend {
 		$items  = [];
 
 		foreach ( $layers as $layer ) {
-			if ( ! (bool) $layer->visible || (int) $layer->area_id !== (int) $area->id || 'text' !== (string) $layer->type ) {
+			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || (int) $layer->area_id !== (int) $area->id || 'text' !== (string) $layer->type ) {
 				continue;
 			}
 
-			$settings = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			if ( ! is_array( $settings ) ) {
-				$settings = [];
-			}
+			$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], 'text' );
 
 			$text = trim( (string) ( $settings['default_text'] ?? $layer->label ?? '' ) );
 			if ( '' === $text ) {
@@ -716,17 +746,13 @@ class OC_Frontend {
 				continue;
 			}
 
-			$design = OC_DB::get_design( $design_id );
-			if ( ! $design || ! (bool) $design->active ) {
+			$context = $this->get_usable_design_context( $design_id );
+			if ( ! $context ) {
 				continue;
 			}
-
-			$areas = OC_DB::get_design_print_areas( $design_id );
-			if ( empty( $areas ) ) {
-				continue;
-			}
-
-			$layers = OC_DB::get_design_layers( $design_id );
+			$design = $context['design'];
+			$areas  = $context['areas'];
+			$layers = $context['layers'];
 			$design_variants = $this->mark_design_variants_selected( $variant_id );
 			$state = $this->build_design_state( $design, $areas, $layers );
 			$state['designVariants']        = $design_variants;
@@ -765,7 +791,6 @@ class OC_Frontend {
 		global $wpdb;
 
 		$by_layer   = [];
-		$upload_dir = wp_upload_dir();
 		$layers     = $layers ?? $this->layers;
 		$areas      = $areas ?? $this->areas;
 
@@ -775,10 +800,10 @@ class OC_Frontend {
 		}
 
 		foreach ( $layers as $layer ) {
-			if ( $layer->type !== 'clipart' ) continue;
+			if ( $layer->type !== 'clipart' || ( isset( $layer->visible ) && ! (bool) $layer->visible ) || ! isset( $methods_by_area[ (int) $layer->area_id ] ) ) continue;
 
-			$settings   = $layer->settings ? json_decode( $layer->settings, true ) : [];
-			$group_ids  = is_array( $settings ) ? ( $settings['clipart_groups'] ?? [] ) : [];
+			$settings   = OC_Cart::normalise_layer_settings( $layer->settings ?? [], 'clipart' );
+			$group_ids  = $settings['clipart_groups'];
 			$layer_id   = (int) $layer->id;
 
 			if ( ! empty( $group_ids ) ) {
@@ -813,8 +838,8 @@ class OC_Frontend {
 				return empty( $allowed ) || in_array( $print_method, $allowed, true );
 			} ) );
 
-			$by_layer[ $layer_id ] = array_map( function ( $item ) use ( $upload_dir ) {
-				$url = $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $item->file_path );
+			$by_layer[ $layer_id ] = array_values( array_filter( array_map( function ( $item ) {
+				$url = self::clipart_public_url( (string) $item->file_path );
 				$groupNames = $item->group_names ? array_filter( array_map( 'trim', explode( '||', $item->group_names ) ) ) : [];
 				return [
 					'id'         => (int) $item->id,
@@ -825,10 +850,29 @@ class OC_Frontend {
 					'allowedPrintMethods' => self::normalise_clipart_print_methods( (string) ( $item->allowed_print_methods ?? '' ) ),
 					'groupNames' => $groupNames,
 				];
-			}, $items );
+			}, $items ), static fn ( array $item ): bool => '' !== $item['url'] ) );
 		}
 
 		return $by_layer;
+	}
+
+	/** Resolve a stored clipart file only when it remains inside the managed directory. */
+	private static function clipart_public_url( string $path ): string {
+		$uploads = wp_upload_dir();
+		$base    = realpath( (string) ( $uploads['basedir'] ?? '' ) );
+		$root    = realpath( trailingslashit( (string) ( $uploads['basedir'] ?? '' ) ) . 'overcustomise/clipart' );
+		$real    = realpath( $path );
+		$base_path = $base ? rtrim( wp_normalize_path( $base ), '/' ) : '';
+		$root_path = $root ? rtrim( wp_normalize_path( $root ), '/' ) : '';
+		$real_path = $real ? wp_normalize_path( $real ) : '';
+		if ( '' === $base_path || '' === $root_path || '' === $real_path || ! is_file( $real )
+			|| ! str_starts_with( $root_path, $base_path . '/' )
+			|| ! str_starts_with( $real_path, $root_path . '/' )
+		) {
+			return '';
+		}
+		$relative = ltrim( substr( $real_path, strlen( $base_path ) ), '/' );
+		return esc_url_raw( trailingslashit( (string) $uploads['baseurl'] ) . $relative );
 	}
 
 	private static function normalise_clipart_print_methods( string $raw ): array {
@@ -839,8 +883,14 @@ class OC_Frontend {
 		$decoded = json_decode( $raw, true );
 		$methods = is_array( $decoded ) ? $decoded : explode( ',', $raw );
 		$allowed = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+		$normalised = [];
+		foreach ( $methods as $method ) {
+			if ( is_scalar( $method ) ) {
+				$normalised[] = sanitize_key( (string) $method );
+			}
+		}
 
-		return array_values( array_intersect( $allowed, array_map( 'sanitize_key', $methods ) ) );
+		return array_values( array_unique( array_intersect( $allowed, $normalised ) ) );
 	}
 
 	// ── Panel injection ───────────────────────────────────────────────────────
@@ -884,7 +934,8 @@ class OC_Frontend {
 			return false;
 		}
 
-		if ( ! OC_DB::get_assignment_for_product( $product_id, $variation_id ) ) {
+		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
+		if ( ! $assignment || ! OC_Cart::assignment_has_usable_design( $assignment ) ) {
 			return $passed;
 		}
 

@@ -23,14 +23,17 @@ const canvasRendererMethods = {
 
 	startCanvasInitialisation() {
 		const generation = this._designGeneration;
-		const task = this.initAllCanvases();
 		this._canvasReadyGeneration = generation;
+		const task = this.initAllCanvases( generation );
 		this._canvasReadyPromise = task;
 		return task;
 	},
 
 	async awaitCanvasReady( generation = this._designGeneration ) {
 		const task = this._canvasReadyPromise;
+		if ( ! task || this._canvasReadyGeneration !== generation ) {
+			throw new Error( 'The customisation preview is not ready.' );
+		}
 		await task;
 		if (
 			generation !== this._designGeneration ||
@@ -43,23 +46,28 @@ const canvasRendererMethods = {
 		}
 	},
 
-	async initAllCanvases() {
-		const designGeneration = this._designGeneration;
+	async initAllCanvases( designGeneration = this._designGeneration ) {
 		for ( let i = 0; i < this.areas.length; i++ ) {
 			if ( designGeneration !== this._designGeneration ) {
 				return;
 			}
 			const el = document.getElementById( `oc-canvas-${ i }` );
 			if ( el ) {
-				await this.initCanvas( el, i );
+				await this.initCanvas( el, i, designGeneration );
+				if ( designGeneration !== this._designGeneration ) {
+					return;
+				}
 				// Full redraw AFTER init picks up any text the user already typed.
 				await this.redraw( i );
 			}
 		}
 	},
 
-	async initCanvas( canvasEl, areaIndex ) {
-		const designGeneration = this._designGeneration;
+	async initCanvas(
+		canvasEl,
+		areaIndex,
+		designGeneration = this._designGeneration
+	) {
 		const area = this.areas[ areaIndex ];
 		const bounds = this.areaBounds( area );
 
@@ -85,21 +93,10 @@ const canvasRendererMethods = {
 		}
 
 		let mockupImg;
-		let loadTimeout = null;
 		try {
 			// Do NOT use crossOrigin:'anonymous' — WordPress uploads are same-origin
 			// and CORS headers aren't sent, which would taint the canvas and break toDataURL.
-			const timeoutPromise = new Promise( ( _, reject ) => {
-				loadTimeout = setTimeout(
-					() => reject( new Error( 'timeout' ) ),
-					10000
-				);
-				this._canvasLoadTimers.add( loadTimeout );
-			} );
-			mockupImg = await Promise.race( [
-				FabricImage.fromURL( area.mockupUrl ),
-				timeoutPromise,
-			] );
+			mockupImg = await this.loadFabricImage( area.mockupUrl, {}, 10000 );
 		} catch ( e ) {
 			if ( designGeneration !== this._designGeneration ) {
 				return;
@@ -117,11 +114,6 @@ const canvasRendererMethods = {
 			);
 			this.canvases[ areaIndex ]._ocMissingMockup = true;
 			return;
-		} finally {
-			if ( loadTimeout ) {
-				clearTimeout( loadTimeout );
-				this._canvasLoadTimers.delete( loadTimeout );
-			}
 		}
 
 		const mockupEl = mockupImg.getElement?.();
@@ -158,6 +150,23 @@ const canvasRendererMethods = {
 		canvas._ocArea = area;
 		canvas.renderAll();
 		this.canvases[ areaIndex ] = canvas;
+	},
+
+	async loadFabricImage( url, options = {}, timeoutMs = 10000 ) {
+		const request = this.createStateAbortController( timeoutMs );
+		try {
+			return await FabricImage.fromURL( url, {
+				...options,
+				signal: request.controller.signal,
+			} );
+		} catch ( error ) {
+			if ( request.timedOut() ) {
+				throw new Error( 'Image load timed out.' );
+			}
+			throw error;
+		} finally {
+			request.release();
+		}
 	},
 
 	areaBounds( area ) {
@@ -244,23 +253,11 @@ const canvasRendererMethods = {
 		const index = Number.isInteger( areaIndex )
 			? areaIndex
 			: this.activeArea;
-		this.activeArea = Math.max(
-			0,
-			Math.min( this.areas.length - 1, index )
-		);
-		document.querySelectorAll( '.oc-area-tab' ).forEach( ( btn, i ) => {
-			btn.classList.toggle( 'oc-active', i === this.activeArea );
-			btn.setAttribute(
-				'aria-selected',
-				i === this.activeArea ? 'true' : 'false'
-			);
-			btn.setAttribute( 'tabindex', i === this.activeArea ? '0' : '-1' );
-		} );
+		this.applyActiveAreaState( index );
 	},
 
 	scheduleRedraw( areaIndex = this.activeArea ) {
 		clearTimeout( this._redrawTimers[ areaIndex ] );
-		this.focusPreviewArea( areaIndex );
 		this._redrawTimers[ areaIndex ] = setTimeout(
 			() => this.redraw( areaIndex ),
 			120
@@ -273,9 +270,19 @@ const canvasRendererMethods = {
 		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
 			this._redrawGenerations[ areaIndex ] += 1;
 		} );
-		await Promise.allSettled( Object.values( this._redrawPromises ) );
+		await Promise.all( Object.values( this._redrawPromises ) );
 		await this.awaitCanvasReady();
-		await this.redraw( this.activeArea, { ...options, inputs } );
+		await Promise.all(
+			this.areas.map( ( _, areaIndex ) =>
+				this.redraw( areaIndex, {
+					...options,
+					inputs,
+					pushGallery:
+						options.pushGallery !== false &&
+						areaIndex === this.activeArea,
+				} )
+			)
+		);
 	},
 
 	redraw( areaIndex, options = {} ) {
@@ -840,9 +847,12 @@ const canvasRendererMethods = {
 					const selectedClipartColor = String(
 						input.colorHex || ''
 					).trim();
-					const shouldRecolourClipart =
+					const shouldRecolourClipart = Boolean(
 						input.clipartRecolourable &&
-						( isEngraving || isEmbroidery );
+							( selectedClipartColor ||
+								isEngraving ||
+								isEmbroidery )
+					);
 					const clipartColor = shouldRecolourClipart
 						? isEngraving
 							? engravingPalette.text
@@ -1680,10 +1690,12 @@ const canvasRendererMethods = {
 			return this.clipartSvgCache[ key ];
 		}
 
+		const request = this.createStateAbortController( 10000 );
 		try {
 			const response = await fetch( url, {
 				credentials: 'same-origin',
 				cache: 'force-cache',
+				signal: request.controller.signal,
 			} );
 			if ( ! response.ok ) {
 				throw new Error(
@@ -1704,6 +1716,7 @@ const canvasRendererMethods = {
 			const paint =
 				effect === 'embroidery' ? 'url(#oc-embroidery-stitch)' : color;
 			svg.setAttribute( 'color', color );
+			svg.setAttribute( 'fill', paint );
 			this.forceSvgPreviewColour( svg, paint );
 			if ( effect === 'embroidery' ) {
 				this.addEmbroiderySvgPattern( svg, color );
@@ -1719,6 +1732,8 @@ const canvasRendererMethods = {
 		} catch ( e ) {
 			console.warn( '[OC] SVG clipart recolour failed:', e, 'URL:', url );
 			return url;
+		} finally {
+			request.release();
 		}
 	},
 
@@ -1732,10 +1747,12 @@ const canvasRendererMethods = {
 			return this.clipartSvgCache[ key ];
 		}
 
+		const request = this.createStateAbortController( 10000 );
 		try {
 			const response = await fetch( url, {
 				credentials: 'same-origin',
 				cache: 'force-cache',
+				signal: request.controller.signal,
 			} );
 			if ( ! response.ok ) {
 				throw new Error(
@@ -1768,6 +1785,8 @@ const canvasRendererMethods = {
 		} catch {
 			this.clipartSvgCache[ key ] = url;
 			return url;
+		} finally {
+			request.release();
 		}
 	},
 
@@ -1975,10 +1994,7 @@ const canvasRendererMethods = {
 			return;
 		}
 
-		element.setAttribute(
-			attribute,
-			this.isSvgWhite( value ) ? 'none' : color
-		);
+		element.setAttribute( attribute, color );
 	},
 
 	recolourSvgStyle( style, color ) {
@@ -1990,9 +2006,7 @@ const canvasRendererMethods = {
 					return match;
 				}
 
-				return `${ property }:${
-					this.isSvgWhite( trimmed ) ? 'none' : color
-				}`;
+				return `${ property }:${ color }`;
 			}
 		);
 	},
@@ -2006,25 +2020,9 @@ const canvasRendererMethods = {
 					return match;
 				}
 
-				return `${ property }:${
-					this.isSvgWhite( trimmed ) ? 'none' : color
-				}`;
+				return `${ property }:${ color }`;
 			}
 		);
-	},
-
-	isSvgWhite( value ) {
-		const normalised = String( value || '' )
-			.trim()
-			.toLowerCase()
-			.replace( /\s+/g, '' );
-		return [
-			'#fff',
-			'#ffffff',
-			'white',
-			'rgb(255,255,255)',
-			'rgba(255,255,255,1)',
-		].includes( normalised );
 	},
 
 	async renderFabricImg(
@@ -2047,7 +2045,7 @@ const canvasRendererMethods = {
 	) {
 		try {
 			const imgLoadOpts = crossOrigin ? { crossOrigin } : {};
-			const img = await FabricImage.fromURL( url, imgLoadOpts );
+			const img = await this.loadFabricImage( url, imgLoadOpts, 10000 );
 			if ( ! isCurrent() ) {
 				return false;
 			}

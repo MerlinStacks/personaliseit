@@ -176,11 +176,7 @@ class OC_WOFF_Converter {
 			}
 		}
 
-		if ( ! file_exists( dirname( $dest_path ) ) || ! is_writable( dirname( $dest_path ) ) ) {
-			OC_Logger::warning( 'WOFF conversion failed: destination not writable.' );
-			return false;
-		}
-		if ( strlen( $woff ) !== $total_size || false === file_put_contents( $dest_path, $woff, LOCK_EX ) ) {
+		if ( strlen( $woff ) !== $total_size || ! self::atomic_write( $dest_path, $woff ) ) {
 			OC_Logger::warning( 'WOFF conversion failed: could not write output file.' );
 			return false;
 		}
@@ -310,11 +306,61 @@ class OC_WOFF_Converter {
 			}
 		}
 
-		if ( ! file_exists( dirname( $dest_path ) ) || ! is_writable( dirname( $dest_path ) ) ) {
-			OC_Logger::warning( 'WOFF extraction failed: destination not writable.' );
+		return strlen( $out ) === $output_size && self::atomic_write( $dest_path, $out );
+	}
+
+	/** Write a complete font beside its destination, then install it with one rename. */
+	private static function atomic_write( string $dest_path, string $contents ): bool {
+		$directory = dirname( $dest_path );
+		if ( ! is_dir( $directory ) || ! is_writable( $directory ) ) {
+			return false;
+		}
+		$existing_mode = is_file( $dest_path ) ? @fileperms( $dest_path ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		$output_mode   = false === $existing_mode ? 0644 : ( $existing_mode & 0777 );
+
+		try {
+			$temp_path = $directory . '/.' . basename( $dest_path ) . '.tmp-' . bin2hex( random_bytes( 12 ) );
+		} catch ( \Throwable $e ) {
 			return false;
 		}
 
-		return strlen( $out ) === $output_size && false !== file_put_contents( $dest_path, $out, LOCK_EX );
+		$handle = @fopen( $temp_path, 'xb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		if ( false === $handle ) {
+			return false;
+		}
+
+		$length  = strlen( $contents );
+		$written = 0;
+		$success = true;
+		while ( $written < $length ) {
+			$count = @fwrite( $handle, substr( $contents, $written ) ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+			if ( false === $count || 0 === $count ) {
+				$success = false;
+				break;
+			}
+			$written += $count;
+		}
+
+		if ( $success ) {
+			$success = @fflush( $handle ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( $success && function_exists( 'fsync' ) ) {
+				$success = @fsync( $handle ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+		@fclose( $handle ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+
+		if ( ! $success || $written !== $length ) {
+			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		@chmod( $temp_path, $output_mode ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		if ( ! @rename( $temp_path, $dest_path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.rename_rename
+			@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			return false;
+		}
+
+		clearstatcache( true, $dest_path );
+		return is_file( $dest_path ) && filesize( $dest_path ) === $length;
 	}
 }

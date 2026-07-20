@@ -64,6 +64,8 @@ class OC_Admin_Order_Metabox {
 		}
 
 		echo '<style>@keyframes oc-spin{to{transform:rotate(360deg)}}</style>';
+		$has_missing_print_files = false;
+		$has_queue_work          = false;
 
 		foreach ( $items as $item_id => $item ) {
 			$product_id = $item->get_product_id();
@@ -87,8 +89,7 @@ class OC_Admin_Order_Metabox {
 			$design_areas = $design_id ? OC_DB::get_design_print_areas( $design_id ) : [];
 
 			if ( empty( $print_files ) && is_array( $customisation ) && ( ! empty( $legacy_areas ) || ! empty( $design_areas ) ) ) {
-				( new OC_Print_Generator() )->generate_for_order( $order );
-				$print_files = OC_DB::get_print_files_for_item( $item_id );
+				$has_missing_print_files = true;
 			}
 
 			// Skip items that have no OverCustomise data at all.
@@ -111,8 +112,8 @@ class OC_Admin_Order_Metabox {
 					foreach ( $customisation as $area_key => $area_data ) {
 						if ( is_array( $area_data ) ) {
 							// Nested structure: { areaKey: { text, fontId, color } }.
-							$text      = $area_data['text']  ?? '';
-							$color     = $area_data['color'] ?? '';
+							$text      = is_scalar( $area_data['text'] ?? null ) ? (string) $area_data['text'] : '';
+							$color     = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
 							$font_name = '';
 							if ( ! empty( $area_data['fontId'] ) ) {
 								global $wpdb;
@@ -137,7 +138,7 @@ class OC_Admin_Order_Metabox {
 							printf(
 								'<li><strong>%s:</strong> %s</li>',
 								esc_html( ucfirst( str_replace( '_', ' ', $area_key ) ) ),
-								esc_html( (string) $area_data )
+									esc_html( is_scalar( $area_data ) ? (string) $area_data : '' )
 							);
 						}
 					}
@@ -157,6 +158,7 @@ class OC_Admin_Order_Metabox {
 					);
 
 					$queue_info = OC_Print_Queue::instance()->get_status( (int) $file->id );
+					$has_queue_work = $has_queue_work || ! empty( $queue_info['in_queue'] ) || ! empty( $queue_info['has_failed_job'] );
 
 					echo '<div style="margin-bottom:8px;padding:8px;background:#f9f9f9;border-radius:3px;">';
 					printf(
@@ -200,14 +202,12 @@ class OC_Admin_Order_Metabox {
 					$can_regenerate = in_array( (string) $file->file_status, [ 'files_ready', 'expired', 'brief_ready', 'awaiting_dst_upload' ], true )
 						|| ( in_array( (string) $file->file_status, [ 'generating', 'pending' ], true ) && ! $queue_info['in_queue'] && ! $queue_info['is_processing'] );
 					if ( $can_regenerate ) {
-						$regen_url = add_query_arg( [
-							'oc_regenerate' => $file->id,
-							'_wpnonce'      => wp_create_nonce( 'oc_regenerate_' . $file->id ),
-						], $order->get_edit_order_url() );
-						printf(
-							' &nbsp;<a href="%s" class="button button-small">%s</a>',
-							esc_url( $regen_url ),
-							esc_html__( 'Regenerate Print File', 'overcustomise' )
+						echo '&nbsp;';
+						$this->render_print_action_form(
+							'oc_regenerate_print_file',
+							[ 'file_id' => (int) $file->id ],
+							'oc_regenerate_' . (int) $file->id,
+							__( 'Regenerate Print File', 'overcustomise' )
 						);
 					}
 
@@ -221,6 +221,28 @@ class OC_Admin_Order_Metabox {
 			}
 
 			echo '</div>';
+		}
+
+		if ( $has_missing_print_files ) {
+			echo '<p>';
+			$this->render_print_action_form(
+				'oc_generate_print_files',
+				[ 'order_id' => (int) $order->get_id() ],
+				'oc_generate_print_files_' . (int) $order->get_id(),
+				__( 'Generate Missing Print Files', 'overcustomise' ),
+				'button button-primary'
+			);
+			echo '</p>';
+		}
+		if ( $has_queue_work ) {
+			echo '<p>';
+			$this->render_print_action_form(
+				'oc_process_print_queue_order',
+				[ 'order_id' => (int) $order->get_id() ],
+				'oc_process_print_queue_order_' . (int) $order->get_id(),
+				__( 'Process This Order Queue', 'overcustomise' )
+			);
+			echo '</p>';
 		}
 	}
 
@@ -249,7 +271,7 @@ class OC_Admin_Order_Metabox {
 			if ( $this->is_fixed_clipart_layer( $layer_obj, $layer_data ) ) {
 				continue;
 			}
-			$label      = $layer_obj ? ( $layer_obj->label ?: ucfirst( $layer_obj->type ) ) : ucfirst( $type );
+			$label      = $layer_obj ? ( $layer_obj->label ?: ucfirst( (string) $layer_obj->type ) ) : ucfirst( $type );
 			$value_html = $this->v2_layer_display_value( $layer_data, $layer_obj );
 
 			if ( '' === $value_html ) {
@@ -269,7 +291,7 @@ class OC_Admin_Order_Metabox {
 		$type = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
 
 		if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) ) {
-			$value     = trim( (string) ( $layer_data['value'] ?? '' ) );
+			$value     = is_scalar( $layer_data['value'] ?? null ) ? trim( (string) $layer_data['value'] ) : '';
 			$font_name = '';
 			if ( ! empty( $layer_data['fontId'] ) ) {
 				global $wpdb;
@@ -422,6 +444,19 @@ class OC_Admin_Order_Metabox {
 		}
 
 		echo '</div>';
+	}
+
+	/** Render a POST submit button that uses the surrounding order edit form. */
+	private function render_print_action_form( string $action, array $fields, string $nonce_action, string $label, string $class = 'button button-small' ): void {
+		$name  = (string) array_key_first( $fields );
+		$value = $fields[ $name ] ?? '';
+		$url   = add_query_arg(
+			[ 'action' => $action, '_wpnonce' => wp_create_nonce( $nonce_action ), $name => $value ],
+			admin_url( 'admin-post.php' )
+		);
+		echo '<button type="submit" name="action" value="' . esc_attr( $action )
+			. '" class="' . esc_attr( $class ) . '" formmethod="post" formaction="' . esc_url( $url ) . '" formnovalidate>'
+			. esc_html( $label ) . '</button>';
 	}
 
 	private function get_status_label( string $status ): string {

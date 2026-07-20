@@ -2,16 +2,19 @@
  * Spotify modal, URI parsing, code URL building, and validation.
  */
 
-/* eslint-disable no-console, no-undef */
+/* eslint-disable no-console */
 
 const SPOTIFY_LINK_SYNC_KEYS = [ 'value', 'spotifyStatus', 'spotifyUri' ];
 
 const spotifyMethods = {
 	invalidateSpotifyValidation( layerId ) {
+		this.clearStateTimeout( this.spotifyValidateTimers[ layerId ] );
+		delete this.spotifyValidateTimers[ layerId ];
 		this.spotifyValidateTokens[ layerId ] =
 			( this.spotifyValidateTokens[ layerId ] || 0 ) + 1;
 		this.spotifyAbortControllers[ layerId ]?.abort();
 		delete this.spotifyAbortControllers[ layerId ];
+		delete this.spotifyValidationPromises[ layerId ];
 	},
 
 	extractSpotifyUri( inputValue ) {
@@ -19,8 +22,13 @@ const spotifyMethods = {
 		if ( ! raw ) {
 			return '';
 		}
-		if ( /^spotify:[a-z]+:[A-Za-z0-9]+$/i.test( raw ) ) {
-			return raw;
+		const uriMatch = raw.match(
+			/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]{1,128})$/i
+		);
+		if ( uriMatch ) {
+			return `spotify:${ uriMatch[ 1 ].toLowerCase() }:${
+				uriMatch[ 2 ]
+			}`;
 		}
 
 		let parsed;
@@ -38,7 +46,10 @@ const spotifyMethods = {
 		const parts = parsed.pathname
 			.split( '/' )
 			.filter( Boolean )
-			.filter( ( p ) => ! /^intl-[a-z]{2}$/i.test( p ) );
+			.filter(
+				( part ) =>
+					! /^(?:intl-[a-z]{2}(?:-[a-z]{2})?|embed)$/i.test( part )
+			);
 
 		if ( ! parts.length ) {
 			return '';
@@ -52,17 +63,19 @@ const spotifyMethods = {
 			'episode',
 			'show',
 		];
-		const typeIndex = parts.findIndex( ( p ) => validTypes.includes( p ) );
+		const typeIndex = parts.findIndex( ( part ) =>
+			validTypes.includes( part.toLowerCase() )
+		);
 		if ( typeIndex < 0 || ! parts[ typeIndex + 1 ] ) {
 			return '';
 		}
 
-		const type = parts[ typeIndex ];
 		const id = parts[ typeIndex + 1 ];
-		if ( ! /^[A-Za-z0-9]+$/.test( id ) ) {
+		if ( ! /^[A-Za-z0-9]{1,128}$/.test( id ) ) {
 			return '';
 		}
 
+		const type = parts[ typeIndex ].toLowerCase();
 		return `spotify:${ type }:${ id }`;
 	},
 
@@ -90,73 +103,137 @@ const spotifyMethods = {
 			return;
 		}
 
+		const stateSignal = this._panelListenerController?.signal;
+		dialog.setAttribute( 'role', 'dialog' );
+		dialog.setAttribute( 'aria-modal', 'true' );
 		document
 			.querySelectorAll( '.oc-spotify-modal-trigger' )
 			.forEach( ( trigger ) => {
-				trigger.addEventListener( 'click', ( event ) => {
-					event.preventDefault();
-					event.stopPropagation();
-					this.openSpotifyModal();
-				} );
+				trigger.addEventListener(
+					'click',
+					( event ) => {
+						event.preventDefault();
+						event.stopPropagation();
+						this.openSpotifyModal();
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		dialog
 			.querySelectorAll( '[data-oc-spotify-modal-close]' )
 			.forEach( ( closeBtn ) => {
-				closeBtn.addEventListener( 'click', () =>
-					this.closeSpotifyModal()
+				closeBtn.addEventListener(
+					'click',
+					() => this.closeSpotifyModal(),
+					{ signal: stateSignal }
 				);
 			} );
 
-		dialog.addEventListener( 'click', ( event ) => {
-			const rect = dialog.getBoundingClientRect();
-			const inDialog =
-				rect.top <= event.clientY &&
-				event.clientY <= rect.top + rect.height &&
-				rect.left <= event.clientX &&
-				event.clientX <= rect.left + rect.width;
+		dialog.addEventListener(
+			'click',
+			( event ) => {
+				if ( dialog.classList.contains( 'oc-dialog-fallback' ) ) {
+					if (
+						! dialog
+							.querySelector( '.oc-sp-modal-card' )
+							?.contains( event.target )
+					) {
+						this.closeSpotifyModal();
+					}
+					return;
+				}
 
-			if ( ! inDialog ) {
-				this.closeSpotifyModal();
-			}
-		} );
+				const rect = dialog.getBoundingClientRect();
+				const inDialog =
+					rect.top <= event.clientY &&
+					event.clientY <= rect.top + rect.height &&
+					rect.left <= event.clientX &&
+					event.clientX <= rect.left + rect.width;
 
-		dialog.addEventListener( 'close', () => {
-			dialog.classList.remove( 'is-visible' );
-			document.body.style.overflow = '';
-		} );
+				if ( ! inDialog ) {
+					this.closeSpotifyModal();
+				}
+			},
+			{ signal: stateSignal }
+		);
+		dialog.addEventListener(
+			'keydown',
+			( event ) => {
+				if ( event.key === 'Escape' && ! dialog.showModal ) {
+					event.preventDefault();
+					this.closeSpotifyModal();
+				}
+			},
+			{ signal: stateSignal }
+		);
+
+		dialog.addEventListener(
+			'close',
+			() => {
+				dialog.classList.remove( 'is-visible' );
+				document.body.style.overflow = '';
+			},
+			{ signal: stateSignal }
+		);
 	},
 
 	openSpotifyModal() {
 		const dialog = document.getElementById( 'oc-spotify-share-dialog' );
-		if ( ! dialog || dialog.open ) {
+		if ( ! dialog || dialog.hasAttribute( 'open' ) ) {
 			return;
 		}
 
-		clearTimeout( this.spotifyModalCloseTimer );
-		dialog.showModal();
-		requestAnimationFrame( () => {
-			requestAnimationFrame( () => {
+		this.clearStateTimeout( this.spotifyModalCloseTimer );
+		if ( typeof dialog.showModal === 'function' ) {
+			dialog.showModal();
+		} else {
+			dialog.hidden = false;
+			dialog.setAttribute( 'open', '' );
+			dialog.classList.add( 'oc-dialog-fallback' );
+		}
+		this.requestStateAnimationFrame( () => {
+			this.requestStateAnimationFrame( () => {
 				dialog.classList.add( 'is-visible' );
 			} );
 		} );
 		document.body.style.overflow = 'hidden';
+		dialog.querySelector( '[data-oc-spotify-modal-close]' )?.focus?.();
 	},
 
 	closeSpotifyModal() {
 		const dialog = document.getElementById( 'oc-spotify-share-dialog' );
-		if ( ! dialog || ! dialog.open ) {
+		if ( ! dialog || ! dialog.hasAttribute( 'open' ) ) {
 			return;
 		}
 
 		dialog.classList.remove( 'is-visible' );
-		clearTimeout( this.spotifyModalCloseTimer );
-		this.spotifyModalCloseTimer = setTimeout( () => {
-			if ( dialog.open ) {
+		this.clearStateTimeout( this.spotifyModalCloseTimer );
+		this.spotifyModalCloseTimer = this.setStateTimeout( () => {
+			if ( typeof dialog.close === 'function' && dialog.open ) {
 				dialog.close();
+			} else {
+				dialog.removeAttribute( 'open' );
+				dialog.hidden = true;
 			}
 			document.body.style.overflow = '';
 		}, 300 );
+	},
+
+	dismissSpotifyModal() {
+		this.clearStateTimeout( this.spotifyModalCloseTimer );
+		this.spotifyModalCloseTimer = null;
+		const dialog = document.getElementById( 'oc-spotify-share-dialog' );
+		if ( dialog ) {
+			dialog.classList.remove( 'is-visible' );
+			if ( typeof dialog.close === 'function' && dialog.open ) {
+				dialog.close();
+			} else {
+				dialog.removeAttribute( 'open' );
+				dialog.hidden = true;
+			}
+		}
+		document.body.style.overflow = '';
 	},
 
 	setSpotifyError( layerId, message, inputEl = null ) {
@@ -198,145 +275,170 @@ const spotifyMethods = {
 		this.updateHiddenField();
 	},
 
-	async validateSpotifyLayer( layerId, rawValue, inputEl = null ) {
+	validateSpotifyLayer( layerId, rawValue, inputEl = null ) {
 		const value = String( rawValue || '' ).trim();
 		if ( ! this.inputs[ layerId ] ) {
 			this.inputs[ layerId ] = {};
 		}
+		this.clearStateTimeout( this.spotifyValidateTimers[ layerId ] );
+		delete this.spotifyValidateTimers[ layerId ];
+		const existing = this.spotifyValidationPromises[ layerId ];
+		if ( existing?.value === value ) {
+			return existing.promise;
+		}
 		this.invalidateSpotifyValidation( layerId );
 		const token = this.spotifyValidateTokens[ layerId ];
-		this.spotifyValidateTokens[ layerId ] = token;
-
-		if ( ! value ) {
-			this.clearSpotifyLayerStatus( layerId, inputEl );
-			return;
-		}
-
+		const designGeneration = this._designGeneration;
+		const input = this.inputs[ layerId ];
+		input.value = value;
 		const localUri = this.extractSpotifyUri( value );
-		if ( ! localUri ) {
-			this.setSpotifyValidationResult(
-				layerId,
-				'invalid_format',
-				'',
-				'Invalid Spotify link format.',
-				inputEl
-			);
-			return;
-		}
+		const isCurrent = () =>
+			this.spotifyValidateTokens[ layerId ] === token &&
+			this._designGeneration === designGeneration &&
+			this.inputs[ layerId ] === input &&
+			String( input.value || '' ).trim() === value &&
+			( ! inputEl || String( inputEl.value || '' ).trim() === value );
 
-		if ( ! this.data.validateSpotifyUrl ) {
+		const promise = ( async () => {
+			if ( ! value ) {
+				this.clearSpotifyLayerStatus( layerId, inputEl );
+				return true;
+			}
+			if ( ! localUri ) {
+				this.setSpotifyValidationResult(
+					layerId,
+					'invalid_format',
+					'',
+					'Invalid Spotify link format.',
+					inputEl
+				);
+				return false;
+			}
+
 			this.setSpotifyValidationResult(
 				layerId,
-				'ok',
+				'pending',
 				localUri,
 				'',
 				inputEl
 			);
-			return;
-		}
-
-		const controller = new AbortController();
-		this.spotifyAbortControllers[ layerId ] = controller;
-		try {
-			const res = await fetch( this.data.validateSpotifyUrl, {
-				method: 'POST',
-				headers: this.restHeaders( {
-					'Content-Type': 'application/json',
-				} ),
-				body: JSON.stringify( { url: value } ),
-				signal: controller.signal,
-			} );
-			const isJson = res.headers
-				.get( 'content-type' )
-				?.includes( 'application/json' );
-			let json = null;
-			let text = '';
-			if ( isJson ) {
-				try {
-					json = await res.json();
-				} catch ( err ) {
-					console.warn(
-						'[OC] Spotify validation JSON parse failed:',
-						err
-					);
-				}
-			} else {
-				text = await res.text();
-			}
-			if (
-				this.spotifyValidateTokens[ layerId ] !== token ||
-				String( this.inputs[ layerId ]?.value || '' ).trim() !==
-					value ||
-				( inputEl && String( inputEl.value || '' ).trim() !== value )
-			) {
-				return;
-			}
-			if ( ! res.ok ) {
-				const statusReason =
-					json?.code === 'rate_limited' || res.status === 429
-						? 'rate_limited'
-						: 'unreachable';
-				const statusMessage =
-					json?.message ||
-					text ||
-					'Could not validate Spotify right now. Please try again.';
+			if ( ! this.data.validateSpotifyUrl ) {
 				this.setSpotifyValidationResult(
 					layerId,
-					statusReason,
+					'ok',
+					localUri,
 					'',
-					statusMessage,
 					inputEl
 				);
-				return;
+				return true;
 			}
 
-			if ( ! json ) {
+			const request = this.createStateAbortController( 12000 );
+			const controller = request.controller;
+			this.spotifyAbortControllers[ layerId ] = controller;
+			try {
+				const res = await fetch( this.data.validateSpotifyUrl, {
+					method: 'POST',
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+					} ),
+					body: JSON.stringify( { url: localUri } ),
+					signal: controller.signal,
+				} );
+				const isJson = res.headers
+					.get( 'content-type' )
+					?.includes( 'application/json' );
+				let json = null;
+				let text = '';
+				if ( isJson ) {
+					try {
+						json = await res.json();
+					} catch ( err ) {
+						console.warn(
+							'[OC] Spotify validation JSON parse failed:',
+							err
+						);
+					}
+				} else {
+					text = await res.text();
+				}
+				if ( ! isCurrent() ) {
+					return false;
+				}
+				if ( ! res.ok ) {
+					const statusReason =
+						json?.code === 'rate_limited' || res.status === 429
+							? 'rate_limited'
+							: 'unreachable';
+					const statusMessage =
+						json?.message ||
+						text ||
+						'Could not validate Spotify right now. Please try again.';
+					this.setSpotifyValidationResult(
+						layerId,
+						statusReason,
+						'',
+						statusMessage,
+						inputEl
+					);
+					return false;
+				}
+
+				if ( ! json ) {
+					this.setSpotifyValidationResult(
+						layerId,
+						'unreachable',
+						'',
+						'Could not validate Spotify right now. Please try again.',
+						inputEl
+					);
+					return false;
+				}
+
+				const canonicalUri = this.extractSpotifyUri(
+					json?.spotifyUri || localUri
+				);
+				if ( json?.valid === true && canonicalUri ) {
+					this.setSpotifyValidationResult(
+						layerId,
+						'ok',
+						canonicalUri,
+						'',
+						inputEl
+					);
+					return true;
+				}
+				this.setSpotifyValidationResult(
+					layerId,
+					json?.reason || 'invalid_or_unavailable',
+					'',
+					json?.message || 'Spotify link is invalid or unavailable.',
+					inputEl
+				);
+				return false;
+			} catch {
+				if ( ! isCurrent() ) {
+					return false;
+				}
 				this.setSpotifyValidationResult(
 					layerId,
 					'unreachable',
 					'',
-					'Could not validate Spotify right now. Please try again.',
+					request.timedOut()
+						? 'Spotify validation timed out. Please try again.'
+						: 'Could not validate Spotify right now. Please try again.',
 					inputEl
 				);
-				return;
+				return false;
+			} finally {
+				request.release();
+				if ( this.spotifyAbortControllers[ layerId ] === controller ) {
+					delete this.spotifyAbortControllers[ layerId ];
+				}
 			}
-
-			if ( Boolean( json?.valid ) ) {
-				this.inputs[ layerId ].spotifyStatus = 'ok';
-				this.inputs[ layerId ].spotifyUri = json.spotifyUri || localUri;
-				this.setSpotifyError( layerId, '', inputEl );
-			} else {
-				this.inputs[ layerId ].spotifyStatus =
-					json?.reason || 'invalid_or_unavailable';
-				this.inputs[ layerId ].spotifyUri = '';
-				this.setSpotifyError(
-					layerId,
-					json?.message || 'Spotify link is invalid or unavailable.',
-					inputEl
-				);
-			}
-		} catch ( error ) {
-			if ( error?.name === 'AbortError' ) {
-				return;
-			}
-			if ( this.spotifyValidateTokens[ layerId ] !== token ) {
-				return;
-			}
-			this.inputs[ layerId ].spotifyStatus = 'unreachable';
-			this.inputs[ layerId ].spotifyUri = '';
-			this.setSpotifyError(
-				layerId,
-				'Could not validate Spotify right now. Please try again.',
-				inputEl
-			);
-		}
-
-		this.syncLinkedLayerInput( layerId, SPOTIFY_LINK_SYNC_KEYS );
-		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
-		this.updateHiddenField();
-		if ( this.spotifyAbortControllers[ layerId ] === controller ) {
-			delete this.spotifyAbortControllers[ layerId ];
-		}
+		} )();
+		this.spotifyValidationPromises[ layerId ] = { value, promise };
+		return promise;
 	},
 };
 

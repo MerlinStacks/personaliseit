@@ -313,18 +313,21 @@ class OC_Admin_Colours {
 		}
 
 		$id   = (int) ( $_POST['id'] ?? 0 );
-		$name = sanitize_text_field( $_POST['name'] ?? '' );
+		$name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$hex  = sanitize_hex_color( $_POST['hex'] ?? '' );
 
-		if ( ! $name || ! $hex ) {
+		if ( ! $name || strlen( $name ) > 100 || ! $hex ) {
 			wp_send_json_error( [ 'message' => __( 'Name and hex colour are required.', 'overcustomise' ) ] );
 		}
 
 		global $wpdb;
 
 		if ( $id ) {
+			if ( ! $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colours WHERE id = %d LIMIT 1", $id ) ) ) {
+				wp_send_json_error( [ 'message' => __( 'Colour not found.', 'overcustomise' ) ], 404 );
+			}
 			// Update existing.
-			$wpdb->update(
+			$result = $wpdb->update(
 				"{$wpdb->prefix}oc_colours",
 				[ 'name' => $name, 'hex' => $hex ],
 				[ 'id'   => $id ],
@@ -332,12 +335,15 @@ class OC_Admin_Colours {
 			);
 		} else {
 			// Create new.
-			$wpdb->insert(
+			$result = $wpdb->insert(
 				"{$wpdb->prefix}oc_colours",
 				[ 'name' => $name, 'hex' => $hex, 'active' => 1 ],
 				[ '%s', '%s', '%d' ]
 			);
 			$id = (int) $wpdb->insert_id;
+		}
+		if ( false === $result || $id <= 0 ) {
+			wp_send_json_error( [ 'message' => __( 'Could not save colour.', 'overcustomise' ) ], 500 );
 		}
 
 		$active = (bool) $wpdb->get_var( $wpdb->prepare(
@@ -369,19 +375,35 @@ class OC_Admin_Colours {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
-		$name = sanitize_text_field( $_POST['name'] ?? '' );
-		$colour_ids = array_values( array_filter( array_map( 'intval', (array) ( $_POST['colour_ids'] ?? [] ) ) ) );
-		if ( ! $name ) wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
+		$name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$colour_ids = self::normalise_colour_ids( $_POST['colour_ids'] ?? [] );
+		if ( ! $name || strlen( $name ) > 100 ) wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
+		if ( is_wp_error( $colour_ids ) ) wp_send_json_error( [ 'message' => $colour_ids->get_error_message() ], 400 );
 
 		global $wpdb;
-		$wpdb->insert( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ '%s' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
+		}
+		$inserted = $wpdb->insert( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ '%s' ] );
 		$id = (int) $wpdb->insert_id;
+		if ( false === $inserted || $id <= 0 ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
+		}
 		foreach ( $colour_ids as $order => $colour_id ) {
-			$wpdb->insert(
+			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_colour_group_items",
 				[ 'group_id' => $id, 'colour_id' => $colour_id, 'sort_order' => $order ],
 				[ '%d', '%d', '%d' ]
 			);
+			if ( false === $inserted ) {
+				$wpdb->query( 'ROLLBACK' );
+				wp_send_json_error( [ 'message' => __( 'Could not save colour group items.', 'overcustomise' ) ], 500 );
+			}
+		}
+		if ( false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
 		}
 		self::clear_colour_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'colourIds' => $colour_ids ] );
@@ -396,20 +418,37 @@ class OC_Admin_Colours {
 		}
 
 		$id         = (int) ( $_POST['id'] ?? 0 );
-		$name       = sanitize_text_field( $_POST['name'] ?? '' );
-		$colour_ids = array_filter( array_map( 'intval', (array) ( $_POST['colour_ids'] ?? [] ) ) );
+		$name       = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$colour_ids = self::normalise_colour_ids( $_POST['colour_ids'] ?? [] );
 
-		if ( ! $id || ! $name ) wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		if ( ! $id || ! $name || strlen( $name ) > 100 ) wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		if ( is_wp_error( $colour_ids ) ) wp_send_json_error( [ 'message' => $colour_ids->get_error_message() ], 400 );
 
 		global $wpdb;
-		$wpdb->update( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
+		}
+		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colour_groups WHERE id = %d FOR UPDATE", $id ) );
+		$updated = $group_exists ? $wpdb->update( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] ) : false;
+		$deleted = false !== $updated ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
+		if ( false === $updated || false === $deleted ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
+		}
 		foreach ( array_values( $colour_ids ) as $order => $colour_id ) {
-			$wpdb->insert(
+			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_colour_group_items",
 				[ 'group_id' => $id, 'colour_id' => $colour_id, 'sort_order' => $order ],
 				[ '%d', '%d', '%d' ]
 			);
+			if ( false === $inserted ) {
+				$wpdb->query( 'ROLLBACK' );
+				wp_send_json_error( [ 'message' => __( 'Could not save colour group items.', 'overcustomise' ) ], 500 );
+			}
+		}
+		if ( false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
 		}
 		self::clear_colour_cache();
 		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'colourIds' => array_values( $colour_ids ) ] );
@@ -426,8 +465,16 @@ class OC_Admin_Colours {
 		if ( ! $id ) wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
 
 		global $wpdb;
-		$wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] );
-		$wpdb->delete( "{$wpdb->prefix}oc_colour_groups",      [ 'id'       => $id ], [ '%d' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Could not delete colour group.', 'overcustomise' ) ], 500 );
+		}
+		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colour_groups WHERE id = %d FOR UPDATE", $id ) );
+		$deleted_items = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
+		$deleted_group = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_groups", [ 'id' => $id ], [ '%d' ] ) : false;
+		if ( false === $deleted_items || 1 !== $deleted_group || false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_send_json_error( [ 'message' => __( 'Could not delete colour group.', 'overcustomise' ) ], 500 );
+		}
 		self::clear_colour_cache();
 		wp_send_json_success();
 	}
@@ -438,30 +485,69 @@ class OC_Admin_Colours {
 		$id    = isset( $_GET['id'] )    ? (int) $_GET['id']    : 0;
 		$state = isset( $_GET['state'] ) ? (int) $_GET['state'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_colour_toggle_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
 		global $wpdb;
-		$wpdb->update( "{$wpdb->prefix}oc_colours", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		$updated = $wpdb->update( "{$wpdb->prefix}oc_colours", [ 'active' => (int) (bool) $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		if ( false === $updated ) {
+			wp_die( esc_html__( 'Could not update colour.', 'overcustomise' ) );
+		}
 		self::clear_colour_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-colours' ) );
 		exit;
 	}
 
+	/** Return distinct existing colour IDs or an error for a stale group submission. */
+	private static function normalise_colour_ids( mixed $raw_ids ): array|\WP_Error {
+		if ( ! is_array( $raw_ids ) || count( $raw_ids ) > 500 ) {
+			return new \WP_Error( 'invalid_colours', __( 'The submitted colour list is invalid.', 'overcustomise' ) );
+		}
+		$ids = [];
+		foreach ( $raw_ids as $raw_id ) {
+			if ( ! is_scalar( $raw_id ) ) {
+				return new \WP_Error( 'invalid_colours', __( 'The submitted colour list is invalid.', 'overcustomise' ) );
+			}
+			$id = absint( $raw_id );
+			if ( $id ) $ids[] = $id;
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) return [];
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$existing = array_map( 'intval', $wpdb->get_col( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_colours WHERE id IN ($placeholders)",
+			...$ids
+		) ) ?: [] );
+		return array_diff( $ids, $existing )
+			? new \WP_Error( 'stale_colours', __( 'One or more selected colours no longer exist.', 'overcustomise' ) )
+			: $ids;
+	}
+
 	private function handle_delete(): void {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
-		if ( ! $id || ! isset( $_GET['_wpnonce'] )
+		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
 		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_colour_delete_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
 		global $wpdb;
-		$wpdb->delete( "{$wpdb->prefix}oc_colours", [ 'id' => $id ], [ '%d' ] );
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_die( esc_html__( 'Could not delete colour.', 'overcustomise' ) );
+		}
+		$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colours WHERE id = %d FOR UPDATE", $id ) );
+		$deleted_items = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'colour_id' => $id ], [ '%d' ] ) : false;
+		$deleted_colour = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_colours", [ 'id' => $id ], [ '%d' ] ) : false;
+		if ( false === $deleted_items || 1 !== $deleted_colour || false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_die( esc_html__( 'Could not delete colour.', 'overcustomise' ) );
+		}
 		self::clear_colour_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-colours' ) );
 		exit;

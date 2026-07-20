@@ -127,25 +127,27 @@ class OC_Admin_Customer_Uploads {
 
 	/** Handle destructive admin actions. */
 	private function handle_actions(): void {
-		$action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
-		$id     = absint( $_GET['id'] ?? 0 );
+		$action = isset( $_POST['oc_customer_upload_action'] ) ? sanitize_key( wp_unslash( $_POST['oc_customer_upload_action'] ) ) : '';
+		$id     = absint( $_POST['id'] ?? 0 );
 
 		if ( 'delete' !== $action || ! $id ) {
 			return;
 		}
 
-		if ( ! wp_verify_nonce( (string) ( $_GET['_wpnonce'] ?? '' ), 'oc_customer_upload_delete_' . $id ) ) {
+		if ( ! wp_verify_nonce( (string) ( $_POST['_wpnonce'] ?? '' ), 'oc_customer_upload_delete_' . $id ) ) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
 
-		if ( ! self::is_customer_upload( $id ) ) {
+		if ( ! self::is_customer_upload( $id ) || ! current_user_can( 'delete_post', $id ) ) {
 			wp_die( esc_html__( 'Upload not found.', 'overcustomise' ) );
 		}
 		if ( OC_File_Cleanup::customer_artwork_is_referenced( $id ) ) {
 			wp_die( esc_html__( 'This artwork is still referenced by an order or active cart and cannot be deleted.', 'overcustomise' ) );
 		}
 
-		wp_delete_attachment( $id, true );
+		if ( ! wp_delete_attachment( $id, true ) ) {
+			wp_die( esc_html__( 'Could not delete this customer upload.', 'overcustomise' ) );
+		}
 
 		wp_safe_redirect( add_query_arg( 'deleted', '1', admin_url( 'admin.php?page=overcustomise-customer-uploads' ) ) );
 		exit;
@@ -166,10 +168,6 @@ class OC_Admin_Customer_Uploads {
 		if ( $preview_url && ( $preview_id || str_starts_with( (string) $mime, 'image/' ) ) ) {
 			$thumb = sprintf( '<img src="%s" alt="" loading="lazy" />', esc_url( $preview_url ) );
 		}
-		$delete_url = wp_nonce_url(
-			admin_url( 'admin.php?page=overcustomise-customer-uploads&action=delete&id=' . $id ),
-			'oc_customer_upload_delete_' . $id
-		);
 		?>
 		<div class="oc-customer-upload-card">
 			<div class="oc-customer-upload-preview">
@@ -188,7 +186,12 @@ class OC_Admin_Customer_Uploads {
 						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View', 'overcustomise' ); ?></a>
 						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $download_url ); ?>"><?php esc_html_e( 'Download', 'overcustomise' ); ?></a>
 					<?php endif; ?>
-					<a class="oc-btn oc-btn-danger oc-btn-sm" href="<?php echo esc_url( $delete_url ); ?>" onclick="return confirm('<?php esc_attr_e( 'Delete this customer upload? This cannot be undone.', 'overcustomise' ); ?>');"><?php esc_html_e( 'Delete', 'overcustomise' ); ?></a>
+					<form method="post" style="display:inline;margin:0;">
+						<input type="hidden" name="oc_customer_upload_action" value="delete" />
+						<input type="hidden" name="id" value="<?php echo esc_attr( $id ); ?>" />
+						<?php wp_nonce_field( 'oc_customer_upload_delete_' . $id ); ?>
+						<button type="submit" class="oc-btn oc-btn-danger oc-btn-sm" onclick="return confirm('<?php esc_attr_e( 'Delete this customer upload? This cannot be undone.', 'overcustomise' ); ?>');"><?php esc_html_e( 'Delete', 'overcustomise' ); ?></button>
+					</form>
 				</div>
 			</div>
 		</div>

@@ -249,6 +249,10 @@ class OC_Print_Engraving extends OC_Print_Base {
 			imagedestroy( $src );
 			return null;
 		}
+		if ( ! self::image_has_engraving_mark( $src ) ) {
+			imagedestroy( $src );
+			return null;
+		}
 
 		$dst = imagecreatetruecolor( $w, $h );
 		imagealphablending( $dst, false );
@@ -348,13 +352,22 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 	}
 
-	/** A fully transparent conversion is not a successful production file. */
+	/** Reject transparent and opaque white/near-white artwork with no engraving mark. */
 	private static function image_has_engraving_mark( $image ): bool {
 		$width  = imagesx( $image );
 		$height = imagesy( $image );
 		for ( $y = 0; $y < $height; $y++ ) {
 			for ( $x = 0; $x < $width; $x++ ) {
-				if ( ( ( imagecolorat( $image, $x, $y ) >> 24 ) & 0x7F ) < 120 ) {
+				$rgba  = imagecolorat( $image, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				if ( $alpha >= 120 ) {
+					continue;
+				}
+				$r = ( $rgba >> 16 ) & 0xFF;
+				$g = ( $rgba >> 8 ) & 0xFF;
+				$b = $rgba & 0xFF;
+				$luminance = 0.2126 * $r + 0.7152 * $g + 0.0722 * $b;
+				if ( $luminance < 245.0 ) {
 					return true;
 				}
 			}

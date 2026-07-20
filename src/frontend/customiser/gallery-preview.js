@@ -2,7 +2,7 @@
  * Product gallery preview integration for the frontend customiser.
  */
 
-/* eslint-disable no-console, no-undef */
+/* eslint-disable no-console */
 
 const GALLERY_IMAGE_SELECTORS = [
 	// True Video Product Gallery (Swiper): prefer active non-video slide.
@@ -97,6 +97,27 @@ const galleryPreviewMethods = {
 			delete node._ocOriginalPreviewState;
 		} );
 		this._galleryPreviewNodes.clear();
+		this._galleryFallbackNodeStates.forEach( ( state, node ) => {
+			if ( state.parent ) {
+				const reference =
+					state.nextSibling?.parentNode === state.parent
+						? state.nextSibling
+						: null;
+				state.parent.insertBefore( node, reference );
+			}
+			const currentNames = Array.from( node.attributes || [] ).map(
+				( attribute ) => attribute.name
+			);
+			currentNames.forEach( ( name ) => {
+				if ( ! state.attributes.has( name ) ) {
+					node.removeAttribute( name );
+				}
+			} );
+			state.attributes.forEach( ( value, name ) =>
+				node.setAttribute( name, value )
+			);
+		} );
+		this._galleryFallbackNodeStates.clear();
 		this.releaseTVPGPreviewLock( true );
 		this.setPanelPreviewHandoff( false );
 		this.findGalleryImage();
@@ -291,6 +312,13 @@ const galleryPreviewMethods = {
 		if ( ! canvasWrap ) {
 			return false;
 		}
+		if ( ! this._galleryFallbackNodeStates.has( canvasWrap ) ) {
+			this._galleryFallbackNodeStates.set( canvasWrap, {
+				parent: canvasWrap.parentNode,
+				nextSibling: canvasWrap.nextSibling,
+				attributes: this.captureGalleryNodeState( canvasWrap ),
+			} );
+		}
 
 		const gallery = document.querySelector(
 			'.product-gallery, .product-images, .woocommerce-product-gallery, .product .images'
@@ -313,7 +341,18 @@ const galleryPreviewMethods = {
 	},
 
 	stopTVPGAutoScroll( ...swipers ) {
-		swipers.forEach( ( swiper ) => swiper?.autoplay?.stop?.() );
+		swipers.forEach( ( swiper ) => {
+			if ( ! swiper ) {
+				return;
+			}
+			if ( ! this._tvpgLockedSwipers.has( swiper ) ) {
+				swiper._ocPreviewAutoplayWasRunning = Boolean(
+					swiper.autoplay?.running
+				);
+				this._tvpgLockedSwipers.add( swiper );
+			}
+			swiper.autoplay?.stop?.();
+		} );
 	},
 
 	releaseTVPGPreviewLock( resumeAutoplay = false ) {
@@ -324,13 +363,23 @@ const galleryPreviewMethods = {
 			return;
 		}
 
-		const mainSwiper =
-			document.querySelector( '.tvpg-main-slider' )?.swiper;
-		const thumbSwiper =
-			document.querySelector( '.tvpg-thumb-slider' )?.swiper;
-		[ mainSwiper, thumbSwiper ].forEach( ( swiper ) =>
-			swiper?.autoplay?.start?.()
-		);
+		this._tvpgLockedSwipers.forEach( ( swiper ) => {
+			if ( swiper._ocPreviewLockHandler ) {
+				( swiper._ocPreviewLockEvents || [] ).forEach( ( eventName ) =>
+					swiper.off?.( eventName, swiper._ocPreviewLockHandler )
+				);
+			}
+			if ( swiper._ocPreviewAutoplayWasRunning ) {
+				swiper.autoplay?.start?.();
+			}
+			delete swiper._ocPreviewLockHandler;
+			delete swiper._ocPreviewLockEvents;
+			delete swiper._ocPreviewLockBound;
+			delete swiper._ocPreviewSlideIndex;
+			delete swiper._ocPreviewLocking;
+			delete swiper._ocPreviewAutoplayWasRunning;
+		} );
+		this._tvpgLockedSwipers.clear();
 	},
 
 	setupCartGalleryUnlock() {
@@ -339,12 +388,9 @@ const galleryPreviewMethods = {
 		}
 		this._cartGalleryUnlockBound = true;
 
-		window
-			.jQuery?.( document.body )
-			.on?.( 'added_to_cart', () => {
-				this.releaseTVPGPreviewLock( true );
-				this.restoreGalleryPreview();
-			} );
+		window.jQuery?.( document.body ).on?.( 'added_to_cart', () => {
+			this.restoreProductGallery();
+		} );
 	},
 
 	lockTVPGPreviewSlide( swiper, slide ) {
@@ -374,18 +420,25 @@ const galleryPreviewMethods = {
 			}
 
 			swiper._ocPreviewLocking = true;
-			requestAnimationFrame( () => {
+			this.requestStateAnimationFrame( () => {
 				swiper.slideTo?.( targetIndex, 0, false );
 				swiper._ocPreviewLocking = false;
 			} );
 		};
 
-		swiper.on?.(
-			'activeIndexChange slideChange transitionStart',
-			keepPreviewActive
+		const lockEvents = [
+			'activeIndexChange',
+			'slideChange',
+			'transitionStart',
+		];
+		lockEvents.forEach( ( eventName ) =>
+			swiper.on?.( eventName, keepPreviewActive )
 		);
 
 		swiper._ocPreviewLockBound = true;
+		swiper._ocPreviewLockHandler = keepPreviewActive;
+		swiper._ocPreviewLockEvents = lockEvents;
+		this._tvpgLockedSwipers.add( swiper );
 	},
 
 	applyTVPGOverlayPreview( dataUrl, dimensions = null ) {
@@ -560,8 +613,12 @@ const galleryPreviewMethods = {
 
 		if ( document.querySelector( '.product-gallery-slider' ) ) {
 			this.refreshFlatsomeGallery();
-			requestAnimationFrame( applyTargets );
-			setTimeout( applyTargets, 250 );
+			this.requestStateAnimationFrame( applyTargets );
+			this.clearStateTimeout( this._galleryPreviewTimer );
+			this._galleryPreviewTimer = this.setStateTimeout( () => {
+				this._galleryPreviewTimer = null;
+				applyTargets();
+			}, 250 );
 		}
 
 		this.setPanelPreviewHandoff(
@@ -576,9 +633,99 @@ const galleryPreviewMethods = {
 		this._focusPreviewSlide = true;
 	},
 
+	saveActiveVariationState() {
+		if ( ! this._customisationActive ) {
+			return null;
+		}
+
+		this.syncInputsFromDOM();
+		const snapshot = {
+			designId: parseInt( this.data.designId, 10 ) || 0,
+			selectedDesignVariant: this.selectedDesignVariant || '',
+			layerInputs: this.cloneLayerInputs(),
+		};
+		const state = this.productVariationStates[ this._activeVariationKey ];
+		if ( ! state ) {
+			return snapshot;
+		}
+
+		state.selectedDesignVariant = snapshot.selectedDesignVariant;
+		const selectedState =
+			state.designVariantStates?.[ snapshot.selectedDesignVariant ];
+		if ( selectedState ) {
+			selectedState.layerInputs = this.cloneLayerInputs(
+				snapshot.layerInputs
+			);
+		}
+		if (
+			parseInt( state.designId || state.design_id, 10 ) ===
+			snapshot.designId
+		) {
+			state.layerInputs = this.cloneLayerInputs( snapshot.layerInputs );
+		}
+		return snapshot;
+	},
+
+	scheduleProductVariationSwitch( variationId ) {
+		this.clearStateTimeout( this._variationChangeTimer );
+		this._variationChangeTimer = this.setStateTimeout( () => {
+			this._variationChangeTimer = null;
+			this.switchProductVariation( variationId );
+		}, 100 );
+	},
+
+	async fetchProductVariationState( key, requestSeq ) {
+		const designUrl =
+			this.data.productDesignUrl ||
+			`${
+				window.location.origin
+			}/wp-json/overcustomise/v1/product-design/${
+				this.data.productId || 0
+			}`;
+		const url = new URL( designUrl, window.location.origin );
+		url.searchParams.set( 'variant_id', key );
+		const request = this.createStateAbortController( 10000 );
+		this._variationAbortController = request.controller;
+
+		try {
+			const response = await fetch( url.toString(), {
+				credentials: 'same-origin',
+				headers: { Accept: 'application/json' },
+				signal: request.controller.signal,
+			} );
+			if ( ! response.ok ) {
+				throw new Error(
+					`Variation design request failed (${ response.status })`
+				);
+			}
+			const state = await response.json();
+			if (
+				! state ||
+				typeof state !== 'object' ||
+				Array.isArray( state )
+			) {
+				throw new Error( 'Variation design response was invalid.' );
+			}
+			if ( requestSeq === this._variationRequestSeq ) {
+				this.productVariationStates[ key ] = state;
+			}
+			return state;
+		} catch ( error ) {
+			if ( request.timedOut() ) {
+				throw new Error( 'Variation design request timed out.' );
+			}
+			throw error;
+		} finally {
+			request.release();
+			if ( this._variationAbortController === request.controller ) {
+				this._variationAbortController = null;
+			}
+		}
+	},
+
 	setupVariationGalleryHandoff() {
 		const form = document.querySelector(
-			'form.variations_form, form.cart'
+			'form.variations_form, form.cart, form[data-wp-on--submit*="addToCart"]'
 		);
 		if ( ! form || form._ocVariationGalleryHandoffBound ) {
 			return;
@@ -587,12 +734,15 @@ const galleryPreviewMethods = {
 		form._ocVariationGalleryHandoffBound = true;
 		const getSelectedVariationId = () =>
 			parseInt(
-				form.querySelector( 'input.variation_id' )?.value || '0',
+				form.querySelector( 'input[name="variation_id"]' )?.value ||
+					'0',
 				10
 			) || 0;
 		const releasePreviewLock = () => this.releaseTVPGPreviewLock();
 		const handleVariationChange = ( variation ) => {
 			releasePreviewLock();
+			this.clearStateTimeout( this._variationChangeTimer );
+			this._variationChangeTimer = null;
 			this.switchProductVariation(
 				parseInt(
 					variation?.variation_id || getSelectedVariationId(),
@@ -602,13 +752,11 @@ const galleryPreviewMethods = {
 		};
 
 		form.addEventListener( 'change', ( event ) => {
-			if ( event.target.closest( '.variations, [name^="attribute_"]' ) ) {
+			if (
+				event.target?.closest?.( '.variations, [name^="attribute_"]' )
+			) {
 				releasePreviewLock();
-				setTimeout(
-					() =>
-						this.switchProductVariation( getSelectedVariationId() ),
-					0
-				);
+				this.scheduleProductVariationSwitch( getSelectedVariationId() );
 			}
 		} );
 
@@ -617,7 +765,7 @@ const galleryPreviewMethods = {
 			.on?.( 'woocommerce_variation_select_change', releasePreviewLock );
 		window.jQuery?.( form ).on?.( 'reset_data', () => {
 			releasePreviewLock();
-			this.switchProductVariation( 0 );
+			this.scheduleProductVariationSwitch( 0 );
 		} );
 		window
 			.jQuery?.( form )
@@ -633,119 +781,136 @@ const galleryPreviewMethods = {
 
 	async switchProductVariation( variationId ) {
 		const key = String( Math.max( 0, parseInt( variationId, 10 ) || 0 ) );
-		const requestSeq = ++this._variationRequestSeq;
-		this._variationSwitchPending = true;
-		this._variationSwitchFailed = false;
-		let initialLayerInputs = null;
-		if ( this._customisationActive ) {
-			this.syncInputsFromDOM();
-			if ( this._activeVariationKey ) {
-				const previousState =
-					this.productVariationStates[ this._activeVariationKey ];
-				if ( previousState ) {
-					previousState.layerInputs = JSON.parse(
-						JSON.stringify( this.inputs || {} )
-					);
-				}
-			} else {
-				initialLayerInputs = JSON.parse(
-					JSON.stringify( this.inputs || {} )
-				);
-			}
-		}
-		let state = this.productVariationStates[ key ];
-
-		if ( ! state ) {
-			const designUrl =
-				this.data.productDesignUrl ||
-				`${
-					window.location.origin
-				}/wp-json/overcustomise/v1/product-design/${
-					this.data.productId || 0
-				}`;
-			const url = new URL( designUrl, window.location.origin );
-			url.searchParams.set( 'variant_id', key );
-
-			try {
-				const response = await fetch( url.toString(), {
-					credentials: 'same-origin',
-					headers: { Accept: 'application/json' },
-				} );
-				if ( ! response.ok ) {
-					throw new Error(
-						`Variation design request failed (${ response.status })`
-					);
-				}
-				state = await response.json();
-				this.productVariationStates[ key ] = state;
-			} catch ( err ) {
-				console.warn( '[OC] Variation design load failed:', err );
-				if ( requestSeq === this._variationRequestSeq ) {
-					this._variationSwitchPending = false;
-					this._variationSwitchFailed = true;
-					this.renderPreflightMessages(
-						[
-							'We could not load the personalisation options for this variation. Check your connection, then press Add to cart to retry.',
-						],
-						[]
-					);
-				}
-				return;
-			}
-		}
-
-		if ( requestSeq !== this._variationRequestSeq ) {
-			return;
+		if (
+			this._variationSwitchPromise &&
+			this._pendingVariationKey === key
+		) {
+			return this._variationSwitchPromise;
 		}
 		if (
-			initialLayerInputs &&
-			state?.active &&
-			parseInt( state.designId || state.design_id, 10 ) ===
-				parseInt( this.data.designId, 10 )
+			! this._variationSwitchPromise &&
+			this._activeVariationKey === key &&
+			! this._variationSwitchFailed
 		) {
-			state.layerInputs = initialLayerInputs;
-		}
-		if ( ! state?.active || ! state?.panelHtml ) {
-			this._variationSwitchPending = false;
-			this.deactivateCustomisation();
-			this._activeVariationKey = key;
-			return;
+			return true;
 		}
 
-		await this.applyDesignState(
-			state,
-			state.selectedDesignVariant ||
-				`design-${ state.designId || state.design_id }`,
-			false
-		);
-		if ( requestSeq === this._variationRequestSeq ) {
-			this._activeVariationKey = key;
-			this._variationSwitchPending = false;
-			this._variationSwitchFailed = false;
-			this.applyInitialAiFilters();
+		const previousSwitch = this._variationSwitchPromise;
+		const previousKey = this._activeVariationKey;
+		const initialSnapshot = this.saveActiveVariationState();
+		const requestSeq = ++this._variationRequestSeq;
+		this._variationAbortController?.abort();
+		this._pendingVariationKey = key;
+		this._variationSwitchPending = true;
+		this._variationSwitchFailed = false;
+		this.setControlLock( 'variation', true );
+
+		const switchPromise = ( async () => {
+			try {
+				if ( previousSwitch ) {
+					await previousSwitch;
+				}
+				if ( requestSeq !== this._variationRequestSeq ) {
+					return false;
+				}
+
+				let state = this.productVariationStates[ key ];
+				if ( ! state ) {
+					state = await this.fetchProductVariationState(
+						key,
+						requestSeq
+					);
+				}
+				if ( requestSeq !== this._variationRequestSeq ) {
+					return false;
+				}
+
+				if ( ! previousKey && initialSnapshot && state.active ) {
+					const initialVariantState =
+						state.designVariantStates?.[
+							initialSnapshot.selectedDesignVariant
+						];
+					if (
+						initialVariantState &&
+						parseInt( initialVariantState.designId, 10 ) ===
+							initialSnapshot.designId
+					) {
+						state.selectedDesignVariant =
+							initialSnapshot.selectedDesignVariant;
+						initialVariantState.layerInputs = this.cloneLayerInputs(
+							initialSnapshot.layerInputs
+						);
+					}
+				}
+
+				if ( ! state.active || ! state.panelHtml ) {
+					this._activeVariationKey = key;
+					this.deactivateCustomisation();
+					return true;
+				}
+
+				const selectedVariant =
+					state.selectedDesignVariant ||
+					`design-${ state.designId || state.design_id }`;
+				const selectedState =
+					state.designVariantStates?.[ selectedVariant ] || state;
+				const nextState = {
+					...selectedState,
+					designVariants:
+						selectedState.designVariants ||
+						state.designVariants ||
+						[],
+					designVariantStates: state.designVariantStates || {},
+					selectedDesignVariant: selectedVariant,
+				};
+				const applied = await this.applyDesignState(
+					nextState,
+					selectedVariant,
+					false
+				);
+				if ( ! applied || requestSeq !== this._variationRequestSeq ) {
+					return false;
+				}
+
+				state.selectedDesignVariant = selectedVariant;
+				this._activeVariationKey = key;
+				return true;
+			} catch ( error ) {
+				if ( requestSeq !== this._variationRequestSeq ) {
+					return false;
+				}
+				console.warn( '[OC] Variation design load failed:', error );
+				this._variationSwitchFailed = true;
+				this.renderPreflightMessages(
+					[
+						'We could not load the personalisation options for this variation. Check your connection, then press Add to cart to retry.',
+					],
+					[]
+				);
+				return false;
+			}
+		} )();
+
+		this._variationSwitchPromise = switchPromise;
+		try {
+			const switched = await switchPromise;
+			if ( requestSeq === this._variationRequestSeq && switched ) {
+				this._variationSwitchFailed = false;
+			}
+			return switched;
+		} finally {
+			if ( this._variationSwitchPromise === switchPromise ) {
+				this._variationSwitchPromise = null;
+				this._pendingVariationKey = '';
+				this._variationSwitchPending = false;
+				this.setControlLock( 'variation', false );
+			}
 		}
 	},
 
 	deactivateCustomisation() {
+		this.invalidateDesignState();
 		this._customisationActive = false;
-		this._designGeneration += 1;
-		Object.keys( this.aiFilterGenerations ).forEach( ( layerId ) => {
-			this.aiFilterGenerations[ layerId ] += 1;
-		} );
-		Object.values( this.aiFilterAbortControllers ).forEach(
-			( controller ) => controller.abort()
-		);
-		this.aiFilterAbortControllers = {};
-		this.aiFilterErrors = {};
-		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
-			this.uploadGenerations[ layerId ] += 1;
-		} );
-		Object.keys( this.spotifyValidateTokens ).forEach( ( layerId ) =>
-			this.invalidateSpotifyValidation( layerId )
-		);
-		Object.keys( this._redrawGenerations ).forEach( ( areaIndex ) => {
-			this._redrawGenerations[ areaIndex ] += 1;
-		} );
 		const panel = document.getElementById( 'oc-customiser-panel' );
 		if ( panel ) {
 			panel.hidden = true;

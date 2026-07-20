@@ -23,13 +23,16 @@ const canvasRendererMethods = {
 
   startCanvasInitialisation() {
     const generation = this._designGeneration;
-    const task = this.initAllCanvases();
     this._canvasReadyGeneration = generation;
+    const task = this.initAllCanvases(generation);
     this._canvasReadyPromise = task;
     return task;
   },
   async awaitCanvasReady(generation = this._designGeneration) {
     const task = this._canvasReadyPromise;
+    if (!task || this._canvasReadyGeneration !== generation) {
+      throw new Error('The customisation preview is not ready.');
+    }
     await task;
     if (generation !== this._designGeneration || this._canvasReadyGeneration !== generation) {
       throw new Error('The selected design changed while rendering.');
@@ -38,22 +41,23 @@ const canvasRendererMethods = {
       throw new Error('The customisation preview is not ready.');
     }
   },
-  async initAllCanvases() {
-    const designGeneration = this._designGeneration;
+  async initAllCanvases(designGeneration = this._designGeneration) {
     for (let i = 0; i < this.areas.length; i++) {
       if (designGeneration !== this._designGeneration) {
         return;
       }
       const el = document.getElementById(`oc-canvas-${i}`);
       if (el) {
-        await this.initCanvas(el, i);
+        await this.initCanvas(el, i, designGeneration);
+        if (designGeneration !== this._designGeneration) {
+          return;
+        }
         // Full redraw AFTER init picks up any text the user already typed.
         await this.redraw(i);
       }
     }
   },
-  async initCanvas(canvasEl, areaIndex) {
-    const designGeneration = this._designGeneration;
+  async initCanvas(canvasEl, areaIndex, designGeneration = this._designGeneration) {
     const area = this.areas[areaIndex];
     const bounds = this.areaBounds(area);
 
@@ -70,15 +74,10 @@ const canvasRendererMethods = {
       return;
     }
     let mockupImg;
-    let loadTimeout = null;
     try {
       // Do NOT use crossOrigin:'anonymous' — WordPress uploads are same-origin
       // and CORS headers aren't sent, which would taint the canvas and break toDataURL.
-      const timeoutPromise = new Promise((_, reject) => {
-        loadTimeout = setTimeout(() => reject(new Error('timeout')), 10000);
-        this._canvasLoadTimers.add(loadTimeout);
-      });
-      mockupImg = await Promise.race([fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(area.mockupUrl), timeoutPromise]);
+      mockupImg = await this.loadFabricImage(area.mockupUrl, {}, 10000);
     } catch (e) {
       if (designGeneration !== this._designGeneration) {
         return;
@@ -87,11 +86,6 @@ const canvasRendererMethods = {
       this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'Mockup image could not load.');
       this.canvases[areaIndex]._ocMissingMockup = true;
       return;
-    } finally {
-      if (loadTimeout) {
-        clearTimeout(loadTimeout);
-        this._canvasLoadTimers.delete(loadTimeout);
-      }
     }
     const mockupEl = mockupImg.getElement?.();
     const sourceW = mockupEl?.naturalWidth || mockupImg.width || area.mockupW || 1;
@@ -123,6 +117,22 @@ const canvasRendererMethods = {
     canvas._ocArea = area;
     canvas.renderAll();
     this.canvases[areaIndex] = canvas;
+  },
+  async loadFabricImage(url, options = {}, timeoutMs = 10000) {
+    const request = this.createStateAbortController(timeoutMs);
+    try {
+      return await fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(url, {
+        ...options,
+        signal: request.controller.signal
+      });
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('Image load timed out.');
+      }
+      throw error;
+    } finally {
+      request.release();
+    }
   },
   areaBounds(area) {
     return {
@@ -188,16 +198,10 @@ const canvasRendererMethods = {
   },
   focusPreviewArea(areaIndex) {
     const index = Number.isInteger(areaIndex) ? areaIndex : this.activeArea;
-    this.activeArea = Math.max(0, Math.min(this.areas.length - 1, index));
-    document.querySelectorAll('.oc-area-tab').forEach((btn, i) => {
-      btn.classList.toggle('oc-active', i === this.activeArea);
-      btn.setAttribute('aria-selected', i === this.activeArea ? 'true' : 'false');
-      btn.setAttribute('tabindex', i === this.activeArea ? '0' : '-1');
-    });
+    this.applyActiveAreaState(index);
   },
   scheduleRedraw(areaIndex = this.activeArea) {
     clearTimeout(this._redrawTimers[areaIndex]);
-    this.focusPreviewArea(areaIndex);
     this._redrawTimers[areaIndex] = setTimeout(() => this.redraw(areaIndex), 120);
   },
   async flushRedraw(inputs = this.inputs, options = {}) {
@@ -206,12 +210,13 @@ const canvasRendererMethods = {
     Object.keys(this._redrawGenerations).forEach(areaIndex => {
       this._redrawGenerations[areaIndex] += 1;
     });
-    await Promise.allSettled(Object.values(this._redrawPromises));
+    await Promise.all(Object.values(this._redrawPromises));
     await this.awaitCanvasReady();
-    await this.redraw(this.activeArea, {
+    await Promise.all(this.areas.map((_, areaIndex) => this.redraw(areaIndex, {
       ...options,
-      inputs
-    });
+      inputs,
+      pushGallery: options.pushGallery !== false && areaIndex === this.activeArea
+    })));
   },
   redraw(areaIndex, options = {}) {
     const canvas = this.canvases[areaIndex];
@@ -593,7 +598,7 @@ const canvasRendererMethods = {
         {
           if (input.clipartUrl) {
             const selectedClipartColor = String(input.colorHex || '').trim();
-            const shouldRecolourClipart = input.clipartRecolourable && (isEngraving || isEmbroidery);
+            const shouldRecolourClipart = Boolean(input.clipartRecolourable && (selectedClipartColor || isEngraving || isEmbroidery));
             const clipartColor = shouldRecolourClipart ? isEngraving ? engravingPalette.text : selectedClipartColor : '';
             const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl(input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '') : await this.normaliseSvgClipartUrl(input.clipartUrl);
             const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
@@ -1189,10 +1194,12 @@ const canvasRendererMethods = {
     if (this.clipartSvgCache[key]) {
       return this.clipartSvgCache[key];
     }
+    const request = this.createStateAbortController(10000);
     try {
       const response = await fetch(url, {
         credentials: 'same-origin',
-        cache: 'force-cache'
+        cache: 'force-cache',
+        signal: request.controller.signal
       });
       if (!response.ok) {
         throw new Error(`Could not load clipart SVG (${response.status}).`);
@@ -1205,6 +1212,7 @@ const canvasRendererMethods = {
       }
       const paint = effect === 'embroidery' ? 'url(#oc-embroidery-stitch)' : color;
       svg.setAttribute('color', color);
+      svg.setAttribute('fill', paint);
       this.forceSvgPreviewColour(svg, paint);
       if (effect === 'embroidery') {
         this.addEmbroiderySvgPattern(svg, color);
@@ -1216,6 +1224,8 @@ const canvasRendererMethods = {
     } catch (e) {
       console.warn('[OC] SVG clipart recolour failed:', e, 'URL:', url);
       return url;
+    } finally {
+      request.release();
     }
   },
   async normaliseSvgClipartUrl(url) {
@@ -1226,10 +1236,12 @@ const canvasRendererMethods = {
     if (this.clipartSvgCache[key]) {
       return this.clipartSvgCache[key];
     }
+    const request = this.createStateAbortController(10000);
     try {
       const response = await fetch(url, {
         credentials: 'same-origin',
-        cache: 'force-cache'
+        cache: 'force-cache',
+        signal: request.controller.signal
       });
       if (!response.ok) {
         throw new Error(`Could not load clipart SVG (${response.status}).`);
@@ -1250,6 +1262,8 @@ const canvasRendererMethods = {
     } catch {
       this.clipartSvgCache[key] = url;
       return url;
+    } finally {
+      request.release();
     }
   },
   isSvgClipartUrl(url) {
@@ -1372,7 +1386,7 @@ const canvasRendererMethods = {
     if (value.toLowerCase() === 'none') {
       return;
     }
-    element.setAttribute(attribute, this.isSvgWhite(value) ? 'none' : color);
+    element.setAttribute(attribute, color);
   },
   recolourSvgStyle(style, color) {
     return style.replace(/\b(fill|stroke)\s*:\s*([^;]+)/gi, (match, property, value) => {
@@ -1380,7 +1394,7 @@ const canvasRendererMethods = {
       if (trimmed.toLowerCase() === 'none') {
         return match;
       }
-      return `${property}:${this.isSvgWhite(trimmed) ? 'none' : color}`;
+      return `${property}:${color}`;
     });
   },
   recolourSvgCss(css, color) {
@@ -1389,19 +1403,15 @@ const canvasRendererMethods = {
       if (trimmed.toLowerCase() === 'none') {
         return match;
       }
-      return `${property}:${this.isSvgWhite(trimmed) ? 'none' : color}`;
+      return `${property}:${color}`;
     });
-  },
-  isSvgWhite(value) {
-    const normalised = String(value || '').trim().toLowerCase().replace(/\s+/g, '');
-    return ['#fff', '#ffffff', 'white', 'rgb(255,255,255)', 'rgba(255,255,255,1)'].includes(normalised);
   },
   async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '', effects = {}, isCurrent = () => true) {
     try {
       const imgLoadOpts = crossOrigin ? {
         crossOrigin
       } : {};
-      const img = await fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(url, imgLoadOpts);
+      const img = await this.loadFabricImage(url, imgLoadOpts, 10000);
       if (!isCurrent()) {
         return false;
       }
@@ -1620,17 +1630,22 @@ const cartSerializationMethods = {
         }
         if (['image', 'clipmask'].includes(layer.type)) {
           const canonicalId = this.canonicalLinkedLayerId(layer.id);
-          const canonicalInput = inputs[canonicalId] || {};
-          const sameAttachment = canonicalId !== layer.id && layer.settings?.allow_image_change !== false && (Number(input.attachmentId || 0) > 0 && Number(input.attachmentId) === Number(canonicalInput.attachmentId || 0) || input.attachmentUrl && input.attachmentUrl === canonicalInput.attachmentUrl);
-          if (sameAttachment) {
-            ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'imageMeta', 'sourceImageMeta'].forEach(key => delete input[key]);
+          const linkedMembers = this.linkedLayerMembers(layer.id);
+          if (linkedMembers.length > 1) {
             input.linkedSourceLayerId = canonicalId;
           }
           if (canonicalId === layer.id) {
-            const linkedIds = this.linkedLayerIds(layer.id);
+            const linkedIds = linkedMembers.filter(layerId => Number(layerId) !== Number(canonicalId));
             if (linkedIds.length) {
               input.linkedLayerIds = linkedIds;
             }
+          }
+        }
+        if (layer.type === 'spotify') {
+          const spotifyUri = this.extractSpotifyUri(input.spotifyUri || input.value);
+          if (spotifyUri) {
+            input.value = spotifyUri;
+            input.spotifyUri = spotifyUri;
           }
         }
         layers[layer.id] = {
@@ -1719,11 +1734,17 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
+/* harmony import */ var _wordpress_data__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @wordpress/data */ "@wordpress/data");
+/* harmony import */ var _wordpress_data__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_wordpress_data__WEBPACK_IMPORTED_MODULE_0__);
+/* harmony import */ var _woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @woocommerce/block-data */ "@woocommerce/block-data");
+/* harmony import */ var _woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1__);
 /**
  * Cart submission, mobile preview confirmation, and preview capture helpers.
  */
 
-/* eslint-disable no-console, no-alert */
+/* eslint-disable no-console, no-alert, import/no-unresolved */
+
+
 
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
@@ -1737,9 +1758,15 @@ const checkoutMethods = {
       return true;
     }
     if (!this._variationSwitchFailed) {
-      return false;
+      const variationId = this.currentVariationId();
+      if (!variationId || String(variationId) === this._activeVariationKey) {
+        return false;
+      }
+      window.alert('Please wait while the personalisation options load for this variation.');
+      this.switchProductVariation(variationId);
+      return true;
     }
-    const variationId = parseInt(document.querySelector('form.cart input.variation_id')?.value || '0', 10) || 0;
+    const variationId = this.currentVariationId();
     window.alert('Retrying the personalisation options for this variation.');
     this.switchProductVariation(variationId);
     return true;
@@ -1837,39 +1864,8 @@ const checkoutMethods = {
         return;
       }
       try {
-        this.syncInputsFromDOM();
-        const preflight = await this.runPreflight();
-        this.renderPreflightMessages(preflight.errors, preflight.warnings);
-        if (!preflight.ok) {
-          this.resetCartSubmitState(form);
-          return;
-        }
-        if (preflight.warnings.length) {
-          const proceed = window.confirm(QUALITY_WARNING_MESSAGE);
-          if (!proceed) {
-            this.resetCartSubmitState(form);
-            return;
-          }
-        }
-        await this.flushRedraw(this.inputs, {
-          pushGallery: false
-        });
-        const generation = this.createSubmissionGeneration();
-        const acceptedPreview = await this.confirmMobileCartPreview(generation);
-        if (!acceptedPreview) {
-          this.restoreGalleryPreview();
-          this.resetCartSubmitState(form);
-          return;
-        }
-        const previewImage = this.getSubmissionPreviewImage(generation);
-        await this.updateHiddenField({
-          generation,
-          previewImage
-        });
-        const payload = document.getElementById('oc-customisation-data')?.value;
-        if (payload && new Blob([payload]).size > MAX_CUSTOMISATION_BYTES) {
-          this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
-          this.restoreGalleryPreview();
+        const prepared = await this.prepareCartCustomisation();
+        if (!prepared) {
           this.resetCartSubmitState(form);
           return;
         }
@@ -1885,10 +1881,54 @@ const checkoutMethods = {
       } catch (error) {
         console.error('[OC] Cart submission failed:', error);
         this.restoreGalleryPreview();
-        this.renderPreflightMessages(['Could not prepare your customisation. Please try again.'], []);
+        this.renderPreflightMessages(['The customisation preview could not be prepared. Please wait for all artwork to load and try again.'], []);
         this.resetCartSubmitState(form);
       }
     }, true);
+  },
+  async prepareCartCustomisation() {
+    this.syncInputsFromDOM();
+    const preflight = await this.runPreflight();
+    this.renderPreflightMessages(preflight.errors, preflight.warnings);
+    if (!preflight.ok) {
+      return null;
+    }
+    if (preflight.warnings.length && !window.confirm(QUALITY_WARNING_MESSAGE)) {
+      return null;
+    }
+    await this.flushRedraw(this.inputs, {
+      pushGallery: false
+    });
+    const generation = this.createSubmissionGeneration();
+    const previews = this.getSubmissionPreviewAreas(generation);
+    const acceptedPreview = await this.confirmMobileCartPreview(generation, previews);
+    if (!acceptedPreview) {
+      this.restoreGalleryPreview();
+      return null;
+    }
+    const previewImage = this.getSubmissionPreviewImage(generation, previews);
+    const payload = this.buildCustomisationPayload(generation, {
+      previewImage
+    });
+    if (this.customisationPayloadBytes(payload) > MAX_INLINE_CUSTOMISATION_BYTES) {
+      this.renderPreflightMessages(['This personalisation preview is too large to add safely. Please simplify the design or contact us for help.'], []);
+      return null;
+    }
+    const serialisedPayload = JSON.stringify(payload);
+    if (new Blob([serialisedPayload]).size > MAX_CUSTOMISATION_BYTES) {
+      this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
+      return null;
+    }
+    const hiddenField = document.getElementById('oc-customisation-data');
+    if (hiddenField) {
+      hiddenField.disabled = false;
+      hiddenField.value = serialisedPayload;
+    }
+    return {
+      generation,
+      payload,
+      serialisedPayload
+    };
   },
   resetCartSubmitState(form) {
     this._submitInProgress = false;
@@ -1897,6 +1937,110 @@ const checkoutMethods = {
     form.querySelectorAll('[type="submit"], .single_add_to_cart_button').forEach(button => {
       button.classList.remove('loading', 'processing');
     });
+  },
+  setupStoreApiIntegration() {
+    if (this._storeApiSubmitBound) {
+      return;
+    }
+    const form = document.querySelector('form[data-wp-on--submit*="addToCart"]:not(.cart)');
+    if (!form) {
+      return;
+    }
+    this._storeApiSubmitBound = true;
+    form.addEventListener('submit', event => {
+      if (!this._customisationActive) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      this.closeFontComboboxes(true);
+      if (!form.checkValidity()) {
+        form.reportValidity?.();
+        return;
+      }
+      if (this._storeApiPreparationPromise) {
+        return;
+      }
+      const task = this.submitStoreApiCart(form);
+      this._storeApiPreparationPromise = task;
+      task.finally(() => {
+        if (this._storeApiPreparationPromise === task) {
+          this._storeApiPreparationPromise = null;
+        }
+      });
+    }, true);
+  },
+  getStoreApiCartRequest(form) {
+    if (form.querySelector('[name^="quantity["]')) {
+      throw new Error('Personalised grouped products require the standard add-to-cart form.');
+    }
+    const variationField = form.querySelector('[name="variation_id"]');
+    const variationId = parseInt(variationField?.value || '0', 10) || 0;
+    const parentId = parseInt(form.querySelector('[name="product_id"]')?.value || form.querySelector('[name="add-to-cart"]')?.value || this.data.productId || '0', 10) || 0;
+    if (variationField && !variationId) {
+      throw new Error('Please select all product options before adding this item to your cart.');
+    }
+    const productId = variationId || parentId;
+    if (!productId) {
+      throw new Error('The selected product could not be identified.');
+    }
+    const variation = [];
+    const attributes = new Map();
+    new FormData(form).forEach((value, name) => {
+      if (name.startsWith('attribute_')) {
+        attributes.set(name, String(value));
+      }
+    });
+    attributes.forEach((value, attribute) => {
+      if (!value) {
+        throw new Error('Please select all product options before adding this item to your cart.');
+      }
+      variation.push({
+        attribute,
+        value
+      });
+    });
+    const quantity = Number(form.querySelector('[name="quantity"]')?.value || 1);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new Error('Please enter a valid product quantity.');
+    }
+    return {
+      productId,
+      quantity,
+      variation
+    };
+  },
+  async submitStoreApiCart(form) {
+    let request;
+    try {
+      request = this.getStoreApiCartRequest(form);
+    } catch (error) {
+      this.renderPreflightMessages([error.message], []);
+      return;
+    }
+    if (!this.acquireCartSubmitGuard(form)) {
+      return;
+    }
+    try {
+      const prepared = await this.prepareCartCustomisation();
+      if (!prepared) {
+        return;
+      }
+      await (0,_wordpress_data__WEBPACK_IMPORTED_MODULE_0__.dispatch)(_woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1__.CART_STORE_KEY).addItemToCart(request.productId, request.quantity, request.variation, {
+        extensions: {
+          overcustomise: {
+            customisation: prepared.payload
+          }
+        }
+      });
+      this.restoreProductGallery();
+    } catch (error) {
+      console.error('[OC] Store API cart submission failed:', error);
+      this.restoreGalleryPreview();
+      this.renderPreflightMessages([error?.message || 'Could not add this personalisation to the cart. Please try again.'], []);
+    } finally {
+      this.resetCartSubmitState(form);
+    }
   },
   isMobileCartPreviewRequired() {
     return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
@@ -1937,23 +2081,30 @@ const checkoutMethods = {
   customisationPayloadBytes(payload) {
     return new Blob([JSON.stringify(payload)]).size;
   },
-  getSubmissionPreviewImage(generation) {
+  getSubmissionPreviewAreas(generation) {
     if (generation.designGeneration !== this._designGeneration) {
       throw new Error('The selected design changed while rendering.');
     }
-    let previewImage = '';
-    try {
-      previewImage = this.getCurrentPreviewDataUrl();
-    } catch (error) {
-      console.warn('[OC] Could not capture preview for cart:', error.message);
-      return '';
+    if (!this.areas.length) {
+      throw new Error('The customisation has no preview areas.');
+    }
+    return this.areas.map((area, index) => ({
+      index,
+      label: area?.name || `Area ${index + 1}`,
+      url: this.getCanvasPreviewDataUrl(index)
+    }));
+  },
+  getSubmissionPreviewImage(generation, previews = null) {
+    const availablePreviews = previews || this.getSubmissionPreviewAreas(generation);
+    const previewImage = availablePreviews.find(preview => preview.index === this.activeArea)?.url;
+    if (!previewImage) {
+      throw new Error('The active customisation preview is unavailable.');
     }
     const payload = this.buildCustomisationPayload(generation, {
       previewImage
     });
     if (this.customisationPayloadBytes(payload) > MAX_INLINE_CUSTOMISATION_BYTES) {
-      console.warn('[OC] Cart preview omitted because the submission would be too large.');
-      return '';
+      throw new Error('The customisation preview is too large to add safely.');
     }
     return previewImage;
   },
@@ -1962,29 +2113,11 @@ const checkoutMethods = {
       console.warn('[OC] Could not restore gallery preview:', error.message);
     });
   },
-  async getMobileCartPreviewAreas() {
-    const activeArea = this.activeArea;
-    const previews = [];
-    for (let index = 0; index < this.areas.length; index++) {
-      if (index !== activeArea) {
-        await this.redraw(index, {
-          pushGallery: false
-        });
-      }
-      try {
-        previews.push({
-          index,
-          label: this.areas[index]?.name || `Area ${index + 1}`,
-          url: this.getCanvasPreviewDataUrl(index)
-        });
-      } catch {
-        // Omit an area only when its canvas cannot be safely exported.
-      }
-    }
-    return previews;
+  getMobileCartPreviewAreas(generation) {
+    return this.getSubmissionPreviewAreas(generation);
   },
   getMobileCartPreviewDialog() {
-    if (this.mobileCartPreviewDialog) {
+    if (this.mobileCartPreviewDialog?.isConnected) {
       return this.mobileCartPreviewDialog;
     }
     let dialogRoot = document.getElementById('oc-cart-preview-root');
@@ -1994,29 +2127,60 @@ const checkoutMethods = {
       dialogRoot.className = 'oc-customiser-panel oc-cart-preview-root';
       document.body.appendChild(dialogRoot);
     }
-    const dialog = document.createElement('dialog');
-    dialog.id = 'oc-cart-preview-dialog';
-    dialog.className = 'oc-cart-preview-dialog';
-    dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
-    dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
-    dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-tabs" role="tablist" aria-label="Preview areas"></div>' + '<div class="oc-cart-preview-panels"></div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
-    dialogRoot.appendChild(dialog);
+    let dialog = document.getElementById('oc-cart-preview-dialog');
+    if (!dialog) {
+      const nativeDialog = document.createElement('dialog');
+      dialog = nativeDialog.showModal ? nativeDialog : document.createElement('div');
+      dialog.id = 'oc-cart-preview-dialog';
+      dialog.className = 'oc-cart-preview-dialog';
+      dialog.setAttribute('aria-labelledby', 'oc-cart-preview-title');
+      dialog.setAttribute('aria-describedby', 'oc-cart-preview-desc');
+      dialog.innerHTML = '<div class="oc-cart-preview-card">' + '<div class="oc-cart-preview-copy">' + '<h2 id="oc-cart-preview-title">Check your preview</h2>' + '<p id="oc-cart-preview-desc">Please confirm your customisation looks correct before adding this product to your cart.</p>' + '</div>' + '<div class="oc-cart-preview-tabs" role="tablist" aria-label="Preview areas"></div>' + '<div class="oc-cart-preview-panels"></div>' + '<div class="oc-cart-preview-actions">' + '<button type="button" class="oc-cart-preview-change" data-oc-cart-preview-change>Change</button>' + '<button type="button" class="oc-cart-preview-accept" data-oc-cart-preview-accept>Accept</button>' + '</div>' + '</div>';
+      dialogRoot.appendChild(dialog);
+    }
     this.mobileCartPreviewDialog = dialog;
     return dialog;
   },
-  async confirmMobileCartPreview() {
-    if (!this.isMobileCartPreviewRequired()) {
-      return true;
+  dismissMobileCartPreview() {
+    if (this._mobileCartPreviewResolve) {
+      this._mobileCartPreviewResolve(false);
+      return;
     }
-    const customiserPanel = document.getElementById('oc-customiser-panel');
-    const previousFocus = customiserPanel?.ownerDocument.activeElement;
+    const dialog = this.mobileCartPreviewDialog;
+    if (!dialog) {
+      return;
+    }
+    dialog.classList.remove('is-visible');
+    if (typeof dialog.showModal === 'function' && dialog.open) {
+      dialog.close?.();
+    } else {
+      dialog.removeAttribute('open');
+    }
+    if (!dialog.showModal) {
+      dialog.hidden = true;
+    }
+    document.documentElement.classList.remove('oc-cart-preview-open');
+  },
+  confirmMobileCartPreview(generation, suppliedPreviews = null) {
+    if (!this.isMobileCartPreviewRequired()) {
+      return Promise.resolve(true);
+    }
+    if (this._mobileCartPreviewPromise) {
+      return this._mobileCartPreviewPromise;
+    }
+    const ownerDocument = document.getElementById('oc-customiser-panel')?.ownerDocument || window.document;
+    const previousFocus = ownerDocument.activeElement;
     this.closeFontComboboxes(true);
-    const previews = await this.getMobileCartPreviewAreas();
+    const previews = suppliedPreviews || this.getMobileCartPreviewAreas(generation);
     if (!previews.length) {
       this.renderPreflightMessages(['The customisation preview is unavailable. Please wait for it to finish loading and try again.'], []);
-      return false;
+      return Promise.resolve(false);
     }
     const dialog = this.getMobileCartPreviewDialog();
+    const supportsModal = typeof dialog.showModal === 'function';
+    dialog.classList.toggle('oc-cart-preview-dialog--fallback', !supportsModal);
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
     dialog.ownerDocument.activeElement?.blur?.();
     const tabs = dialog.querySelector('.oc-cart-preview-tabs');
     const panels = dialog.querySelector('.oc-cart-preview-panels');
@@ -2076,27 +2240,36 @@ const checkoutMethods = {
         selectPreview(next, true);
       });
     });
-    if (!dialog.showModal) {
-      return true;
-    }
-    return new Promise(resolve => {
+    const promise = new Promise(resolve => {
       const acceptBtn = dialog.querySelector('[data-oc-cart-preview-accept]');
       const changeBtn = dialog.querySelector('[data-oc-cart-preview-change]');
+      let settled = false;
       const finish = accepted => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        this._mobileCartPreviewResolve = null;
         if (!accepted) {
           this.mobileCartPreviewDismissedAt = Date.now();
         }
         dialog.classList.remove('is-visible');
         dialog.removeEventListener('click', onBackdropClick);
         dialog.removeEventListener('cancel', onCancel);
+        dialog.removeEventListener('keydown', onDialogKeydown);
         acceptBtn?.removeEventListener('click', onAccept);
         changeBtn?.removeEventListener('click', onChange);
-        if (dialog.open) {
-          dialog.close();
+        if (supportsModal && dialog.open) {
+          dialog.close?.();
+        } else {
+          dialog.removeAttribute('open');
+          dialog.hidden = true;
         }
-        window.setTimeout(() => previousFocus?.focus?.(), 0);
+        document.documentElement.classList.remove('oc-cart-preview-open');
+        this.setStateTimeout(() => previousFocus?.focus?.(), 0);
         resolve(accepted);
       };
+      this._mobileCartPreviewResolve = finish;
       const stopModalAction = event => {
         event?.preventDefault?.();
         event?.stopPropagation?.();
@@ -2119,14 +2292,50 @@ const checkoutMethods = {
         event.preventDefault();
         finish(false);
       };
+      const onDialogKeydown = event => {
+        if (event.key === 'Escape' && !supportsModal) {
+          event.preventDefault();
+          finish(false);
+          return;
+        }
+        if (event.key !== 'Tab' || supportsModal) {
+          return;
+        }
+        const focusable = Array.from(dialog.querySelectorAll('button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])')).filter(control => !control.closest('[hidden]'));
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!first || !last) {
+          event.preventDefault();
+          return;
+        }
+        if (event.shiftKey && dialog.ownerDocument.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && dialog.ownerDocument.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      };
       acceptBtn?.addEventListener('click', onAccept);
       changeBtn?.addEventListener('click', onChange);
       dialog.addEventListener('click', onBackdropClick);
       dialog.addEventListener('cancel', onCancel);
-      dialog.showModal();
-      window.requestAnimationFrame(() => dialog.classList.add('is-visible'));
+      dialog.addEventListener('keydown', onDialogKeydown);
+      if (supportsModal) {
+        dialog.hidden = false;
+        dialog.showModal();
+      } else {
+        dialog.hidden = false;
+        dialog.setAttribute('open', '');
+        document.documentElement.classList.add('oc-cart-preview-open');
+      }
+      this.requestStateAnimationFrame(() => dialog.classList.add('is-visible'));
       acceptBtn?.focus?.();
     });
+    this._mobileCartPreviewPromise = promise.finally(() => {
+      this._mobileCartPreviewPromise = null;
+    });
+    return this._mobileCartPreviewPromise;
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (checkoutMethods);
@@ -2296,6 +2505,7 @@ const designVariantMethods = {
     if (!this.designVariants.length) {
       return;
     }
+    const stateSignal = this._panelListenerController?.signal;
     document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
       btn.addEventListener('click', () => {
         const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
@@ -2303,6 +2513,8 @@ const designVariantMethods = {
           return;
         }
         this.switchDesignVariant(variant.id);
+      }, {
+        signal: stateSignal
       });
     });
   },
@@ -2381,11 +2593,15 @@ const designVariantMethods = {
     carousel.querySelector('[data-oc-design-variant-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
   },
   async renderDesignVariantThumbnails() {
+    const designGeneration = this._designGeneration;
     const canvases = Array.from(document.querySelectorAll('[data-oc-design-variant-thumb]'));
     if (!canvases.length) {
       return;
     }
     for (const canvasEl of canvases) {
+      if (designGeneration !== this._designGeneration) {
+        return;
+      }
       if (canvasEl.dataset.ocThumbRendered === '1') {
         continue;
       }
@@ -2423,6 +2639,7 @@ const designVariantMethods = {
       height: size,
       backgroundColor: 'rgba(255,255,255,0)'
     });
+    this._thumbnailCanvases.add(canvas);
     const scale = Math.min(size / Math.max(1, bounds.w || 1), size / Math.max(1, bounds.h || 1));
     const offsetX = (size - (bounds.w || 1) * scale) / 2;
     const offsetY = (size - (bounds.h || 1) * scale) / 2;
@@ -2474,40 +2691,39 @@ const designVariantMethods = {
   },
   async switchDesignVariant(variantId) {
     const state = this.data.designVariantStates?.[variantId];
-    if (!state?.panelHtml) {
+    if (!state?.panelHtml || this._variationSwitchPending || this._controlLocks.has('design')) {
       return;
     }
-    await this.applyDesignState(state, variantId, true);
+    this.setControlLock('design', true);
+    try {
+      await this.applyDesignState(state, variantId, true);
+    } catch (error) {
+      console.error('[OC] Design option switch failed:', error);
+      this.renderPreflightMessages(['The selected artwork option could not be loaded. Please try again.'], []);
+    } finally {
+      this.setControlLock('design', false);
+    }
+  },
+  cloneLayerInputs(inputs = this.inputs) {
+    return JSON.parse(JSON.stringify(inputs || {}));
+  },
+  saveCurrentDesignVariantInputs() {
+    this.syncInputsFromDOM();
+    const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
+    if (currentState) {
+      currentState.layerInputs = this.cloneLayerInputs();
+    }
   },
   async applyDesignState(state, variantId, preserveCurrentState = true) {
     if (!state?.panelHtml) {
       return;
     }
     if (preserveCurrentState) {
-      this.syncInputsFromDOM();
-      const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
-      if (currentState) {
-        currentState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
-      }
+      this.saveCurrentDesignVariantInputs();
     }
-    this._designGeneration += 1;
-    Object.keys(this.aiFilterGenerations).forEach(layerId => {
-      this.aiFilterGenerations[layerId] += 1;
-    });
-    Object.values(this.aiFilterAbortControllers).forEach(controller => controller.abort());
-    this.aiFilterAbortControllers = {};
-    this.aiFilterErrors = {};
-    Object.keys(this.uploadGenerations).forEach(layerId => {
-      this.uploadGenerations[layerId] += 1;
-    });
-    Object.keys(this.spotifyValidateTokens).forEach(layerId => this.invalidateSpotifyValidation(layerId));
-    Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
-    Object.keys(this._redrawGenerations).forEach(areaIndex => {
-      this._redrawGenerations[areaIndex] += 1;
-    });
-    this.canvases = {};
+    const designGeneration = this.invalidateDesignState();
     this.activeArea = 0;
-    this.selectedDesignVariant = variantId;
+    this.selectedDesignVariant = variantId || state.selectedDesignVariant || '';
     this._customisationActive = true;
     const currentPanel = document.getElementById('oc-customiser-panel');
     if (currentPanel) {
@@ -2522,35 +2738,51 @@ const designVariantMethods = {
     this.data.clipartGroups = state.clipartGroups || [];
     this.data.designVariants = state.designVariants || this.designVariants;
     this.data.designVariantStates = state.designVariantStates || this.data.designVariantStates || {};
-    this.data.selectedDesignVariant = variantId;
+    this.data.selectedDesignVariant = this.selectedDesignVariant;
+    this.data.fonts = state.fonts || this.data.fonts || [];
+    this.data.colours = state.colours || this.data.colours || [];
+    this.data.imageFilters = state.imageFilters || this.data.imageFilters || [];
+    this.data.restrictedLayerColours = state.restrictedLayerColours || this.data.restrictedLayerColours || {};
     this.areas = this.data.areas || [];
+    this.fonts = this.data.fonts || [];
     this.designVariants = this.data.designVariants || [];
     this.layersById = {};
     this.areas.forEach(area => (area.layers || []).forEach(layer => {
       this.layersById[layer.id] = layer;
     }));
     this.inputs = {};
-    Object.entries(this.data.layerInputs || {}).forEach(([k, v]) => {
+    Object.entries(this.cloneLayerInputs(state.layerInputs)).forEach(([k, v]) => {
       const layerId = parseInt(k, 10);
       this.inputs[layerId] = {
         ...v
       };
       this.clampLayerInputValue(layerId);
     });
+    this.data.layerInputs = this.cloneLayerInputs(this.inputs);
     this.preflightRoot = document.getElementById('oc-preflight-messages');
-    this.mobileCartPreviewDialog = null;
-    this.setupInputListeners();
+    this.beginDesignStateListeners();
+    this.seedLockedLayerDefaults();
     this.seedTemplateImageDefaults();
+    this.seedLayerFontDefaults();
+    this.seedLinkedImageInputs();
+    this.applyInputsToDOM({
+      redraw: false
+    });
+    this.setupInputListeners();
     this.setupDesignVariantOptions();
     this.setupDesignVariantCarousel();
     this.renderDesignVariantThumbnails();
     this.setupClipartCarousels();
-    this.setupUploadZones();
-    this.applyInitialAiFilters();
-    this.setupVariationGalleryHandoff();
-    this.applyInputsToDOM();
+    this._uploadSetupPromise = this.setupUploadZones();
+    this._initialAiFilterPromise = this.applyInitialAiFilters();
+    this.applyActiveAreaState(0);
+    if (preserveCurrentState) {
+      this.requestPreviewFocus();
+    }
+    this.applyControlLocks();
     this.updateHiddenField();
-    await this.initAllCanvases();
+    await this.startCanvasInitialisation();
+    return designGeneration === this._designGeneration;
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (designVariantMethods);
@@ -2571,7 +2803,7 @@ __webpack_require__.r(__webpack_exports__);
  * Product gallery preview integration for the frontend customiser.
  */
 
-/* eslint-disable no-console, no-undef */
+/* eslint-disable no-console */
 
 const GALLERY_IMAGE_SELECTORS = [
 // True Video Product Gallery (Swiper): prefer active non-video slide.
@@ -2637,6 +2869,20 @@ const galleryPreviewMethods = {
       delete node._ocOriginalPreviewState;
     });
     this._galleryPreviewNodes.clear();
+    this._galleryFallbackNodeStates.forEach((state, node) => {
+      if (state.parent) {
+        const reference = state.nextSibling?.parentNode === state.parent ? state.nextSibling : null;
+        state.parent.insertBefore(node, reference);
+      }
+      const currentNames = Array.from(node.attributes || []).map(attribute => attribute.name);
+      currentNames.forEach(name => {
+        if (!state.attributes.has(name)) {
+          node.removeAttribute(name);
+        }
+      });
+      state.attributes.forEach((value, name) => node.setAttribute(name, value));
+    });
+    this._galleryFallbackNodeStates.clear();
     this.releaseTVPGPreviewLock(true);
     this.setPanelPreviewHandoff(false);
     this.findGalleryImage();
@@ -2786,6 +3032,13 @@ const galleryPreviewMethods = {
     if (!canvasWrap) {
       return false;
     }
+    if (!this._galleryFallbackNodeStates.has(canvasWrap)) {
+      this._galleryFallbackNodeStates.set(canvasWrap, {
+        parent: canvasWrap.parentNode,
+        nextSibling: canvasWrap.nextSibling,
+        attributes: this.captureGalleryNodeState(canvasWrap)
+      });
+    }
     const gallery = document.querySelector('.product-gallery, .product-images, .woocommerce-product-gallery, .product .images');
     if (!gallery) {
       canvasWrap.classList.add('oc-preview-visible');
@@ -2798,7 +3051,16 @@ const galleryPreviewMethods = {
     return true;
   },
   stopTVPGAutoScroll(...swipers) {
-    swipers.forEach(swiper => swiper?.autoplay?.stop?.());
+    swipers.forEach(swiper => {
+      if (!swiper) {
+        return;
+      }
+      if (!this._tvpgLockedSwipers.has(swiper)) {
+        swiper._ocPreviewAutoplayWasRunning = Boolean(swiper.autoplay?.running);
+        this._tvpgLockedSwipers.add(swiper);
+      }
+      swiper.autoplay?.stop?.();
+    });
   },
   releaseTVPGPreviewLock(resumeAutoplay = false) {
     this._focusPreviewSlide = false;
@@ -2806,9 +3068,21 @@ const galleryPreviewMethods = {
     if (!resumeAutoplay) {
       return;
     }
-    const mainSwiper = document.querySelector('.tvpg-main-slider')?.swiper;
-    const thumbSwiper = document.querySelector('.tvpg-thumb-slider')?.swiper;
-    [mainSwiper, thumbSwiper].forEach(swiper => swiper?.autoplay?.start?.());
+    this._tvpgLockedSwipers.forEach(swiper => {
+      if (swiper._ocPreviewLockHandler) {
+        (swiper._ocPreviewLockEvents || []).forEach(eventName => swiper.off?.(eventName, swiper._ocPreviewLockHandler));
+      }
+      if (swiper._ocPreviewAutoplayWasRunning) {
+        swiper.autoplay?.start?.();
+      }
+      delete swiper._ocPreviewLockHandler;
+      delete swiper._ocPreviewLockEvents;
+      delete swiper._ocPreviewLockBound;
+      delete swiper._ocPreviewSlideIndex;
+      delete swiper._ocPreviewLocking;
+      delete swiper._ocPreviewAutoplayWasRunning;
+    });
+    this._tvpgLockedSwipers.clear();
   },
   setupCartGalleryUnlock() {
     if (this._cartGalleryUnlockBound) {
@@ -2816,8 +3090,7 @@ const galleryPreviewMethods = {
     }
     this._cartGalleryUnlockBound = true;
     window.jQuery?.(document.body).on?.('added_to_cart', () => {
-      this.releaseTVPGPreviewLock(true);
-      this.restoreGalleryPreview();
+      this.restoreProductGallery();
     });
   },
   lockTVPGPreviewSlide(swiper, slide) {
@@ -2841,13 +3114,17 @@ const galleryPreviewMethods = {
         return;
       }
       swiper._ocPreviewLocking = true;
-      requestAnimationFrame(() => {
+      this.requestStateAnimationFrame(() => {
         swiper.slideTo?.(targetIndex, 0, false);
         swiper._ocPreviewLocking = false;
       });
     };
-    swiper.on?.('activeIndexChange slideChange transitionStart', keepPreviewActive);
+    const lockEvents = ['activeIndexChange', 'slideChange', 'transitionStart'];
+    lockEvents.forEach(eventName => swiper.on?.(eventName, keepPreviewActive));
     swiper._ocPreviewLockBound = true;
+    swiper._ocPreviewLockHandler = keepPreviewActive;
+    swiper._ocPreviewLockEvents = lockEvents;
+    this._tvpgLockedSwipers.add(swiper);
   },
   applyTVPGOverlayPreview(dataUrl, dimensions = null) {
     const mainSliderEl = document.querySelector('.tvpg-main-slider');
@@ -2962,8 +3239,12 @@ const galleryPreviewMethods = {
     applyTargets();
     if (document.querySelector('.product-gallery-slider')) {
       this.refreshFlatsomeGallery();
-      requestAnimationFrame(applyTargets);
-      setTimeout(applyTargets, 250);
+      this.requestStateAnimationFrame(applyTargets);
+      this.clearStateTimeout(this._galleryPreviewTimer);
+      this._galleryPreviewTimer = this.setStateTimeout(() => {
+        this._galleryPreviewTimer = null;
+        applyTargets();
+      }, 250);
     }
     this.setPanelPreviewHandoff(targets.size > 0 || this.mountPreviewInGallery());
     this._focusPreviewSlide = false;
@@ -2972,28 +3253,98 @@ const galleryPreviewMethods = {
     this._hasCustomerPersonalisation = true;
     this._focusPreviewSlide = true;
   },
+  saveActiveVariationState() {
+    if (!this._customisationActive) {
+      return null;
+    }
+    this.syncInputsFromDOM();
+    const snapshot = {
+      designId: parseInt(this.data.designId, 10) || 0,
+      selectedDesignVariant: this.selectedDesignVariant || '',
+      layerInputs: this.cloneLayerInputs()
+    };
+    const state = this.productVariationStates[this._activeVariationKey];
+    if (!state) {
+      return snapshot;
+    }
+    state.selectedDesignVariant = snapshot.selectedDesignVariant;
+    const selectedState = state.designVariantStates?.[snapshot.selectedDesignVariant];
+    if (selectedState) {
+      selectedState.layerInputs = this.cloneLayerInputs(snapshot.layerInputs);
+    }
+    if (parseInt(state.designId || state.design_id, 10) === snapshot.designId) {
+      state.layerInputs = this.cloneLayerInputs(snapshot.layerInputs);
+    }
+    return snapshot;
+  },
+  scheduleProductVariationSwitch(variationId) {
+    this.clearStateTimeout(this._variationChangeTimer);
+    this._variationChangeTimer = this.setStateTimeout(() => {
+      this._variationChangeTimer = null;
+      this.switchProductVariation(variationId);
+    }, 100);
+  },
+  async fetchProductVariationState(key, requestSeq) {
+    const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
+    const url = new URL(designUrl, window.location.origin);
+    url.searchParams.set('variant_id', key);
+    const request = this.createStateAbortController(10000);
+    this._variationAbortController = request.controller;
+    try {
+      const response = await fetch(url.toString(), {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json'
+        },
+        signal: request.controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`Variation design request failed (${response.status})`);
+      }
+      const state = await response.json();
+      if (!state || typeof state !== 'object' || Array.isArray(state)) {
+        throw new Error('Variation design response was invalid.');
+      }
+      if (requestSeq === this._variationRequestSeq) {
+        this.productVariationStates[key] = state;
+      }
+      return state;
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('Variation design request timed out.');
+      }
+      throw error;
+    } finally {
+      request.release();
+      if (this._variationAbortController === request.controller) {
+        this._variationAbortController = null;
+      }
+    }
+  },
   setupVariationGalleryHandoff() {
-    const form = document.querySelector('form.variations_form, form.cart');
+    const form = document.querySelector('form.variations_form, form.cart, form[data-wp-on--submit*="addToCart"]');
     if (!form || form._ocVariationGalleryHandoffBound) {
       return;
     }
     form._ocVariationGalleryHandoffBound = true;
-    const getSelectedVariationId = () => parseInt(form.querySelector('input.variation_id')?.value || '0', 10) || 0;
+    const getSelectedVariationId = () => parseInt(form.querySelector('input[name="variation_id"]')?.value || '0', 10) || 0;
     const releasePreviewLock = () => this.releaseTVPGPreviewLock();
     const handleVariationChange = variation => {
       releasePreviewLock();
+      this.clearStateTimeout(this._variationChangeTimer);
+      this._variationChangeTimer = null;
       this.switchProductVariation(parseInt(variation?.variation_id || getSelectedVariationId(), 10) || 0);
     };
     form.addEventListener('change', event => {
-      if (event.target.closest('.variations, [name^="attribute_"]')) {
+      if (event.target?.closest?.('.variations, [name^="attribute_"]')) {
         releasePreviewLock();
-        setTimeout(() => this.switchProductVariation(getSelectedVariationId()), 0);
+        this.scheduleProductVariationSwitch(getSelectedVariationId());
       }
     });
     window.jQuery?.(form).on?.('woocommerce_variation_select_change', releasePreviewLock);
     window.jQuery?.(form).on?.('reset_data', () => {
       releasePreviewLock();
-      this.switchProductVariation(0);
+      this.scheduleProductVariationSwitch(0);
     });
     window.jQuery?.(form).on?.('found_variation show_variation', (event, variation) => handleVariationChange(variation));
     const initialVariationId = getSelectedVariationId();
@@ -3003,84 +3354,92 @@ const galleryPreviewMethods = {
   },
   async switchProductVariation(variationId) {
     const key = String(Math.max(0, parseInt(variationId, 10) || 0));
+    if (this._variationSwitchPromise && this._pendingVariationKey === key) {
+      return this._variationSwitchPromise;
+    }
+    if (!this._variationSwitchPromise && this._activeVariationKey === key && !this._variationSwitchFailed) {
+      return true;
+    }
+    const previousSwitch = this._variationSwitchPromise;
+    const previousKey = this._activeVariationKey;
+    const initialSnapshot = this.saveActiveVariationState();
     const requestSeq = ++this._variationRequestSeq;
+    this._variationAbortController?.abort();
+    this._pendingVariationKey = key;
     this._variationSwitchPending = true;
     this._variationSwitchFailed = false;
-    let initialLayerInputs = null;
-    if (this._customisationActive) {
-      this.syncInputsFromDOM();
-      if (this._activeVariationKey) {
-        const previousState = this.productVariationStates[this._activeVariationKey];
-        if (previousState) {
-          previousState.layerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
-        }
-      } else {
-        initialLayerInputs = JSON.parse(JSON.stringify(this.inputs || {}));
-      }
-    }
-    let state = this.productVariationStates[key];
-    if (!state) {
-      const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
-      const url = new URL(designUrl, window.location.origin);
-      url.searchParams.set('variant_id', key);
+    this.setControlLock('variation', true);
+    const switchPromise = (async () => {
       try {
-        const response = await fetch(url.toString(), {
-          credentials: 'same-origin',
-          headers: {
-            Accept: 'application/json'
+        if (previousSwitch) {
+          await previousSwitch;
+        }
+        if (requestSeq !== this._variationRequestSeq) {
+          return false;
+        }
+        let state = this.productVariationStates[key];
+        if (!state) {
+          state = await this.fetchProductVariationState(key, requestSeq);
+        }
+        if (requestSeq !== this._variationRequestSeq) {
+          return false;
+        }
+        if (!previousKey && initialSnapshot && state.active) {
+          const initialVariantState = state.designVariantStates?.[initialSnapshot.selectedDesignVariant];
+          if (initialVariantState && parseInt(initialVariantState.designId, 10) === initialSnapshot.designId) {
+            state.selectedDesignVariant = initialSnapshot.selectedDesignVariant;
+            initialVariantState.layerInputs = this.cloneLayerInputs(initialSnapshot.layerInputs);
           }
-        });
-        if (!response.ok) {
-          throw new Error(`Variation design request failed (${response.status})`);
         }
-        state = await response.json();
-        this.productVariationStates[key] = state;
-      } catch (err) {
-        console.warn('[OC] Variation design load failed:', err);
-        if (requestSeq === this._variationRequestSeq) {
-          this._variationSwitchPending = false;
-          this._variationSwitchFailed = true;
-          this.renderPreflightMessages(['We could not load the personalisation options for this variation. Check your connection, then press Add to cart to retry.'], []);
+        if (!state.active || !state.panelHtml) {
+          this._activeVariationKey = key;
+          this.deactivateCustomisation();
+          return true;
         }
-        return;
+        const selectedVariant = state.selectedDesignVariant || `design-${state.designId || state.design_id}`;
+        const selectedState = state.designVariantStates?.[selectedVariant] || state;
+        const nextState = {
+          ...selectedState,
+          designVariants: selectedState.designVariants || state.designVariants || [],
+          designVariantStates: state.designVariantStates || {},
+          selectedDesignVariant: selectedVariant
+        };
+        const applied = await this.applyDesignState(nextState, selectedVariant, false);
+        if (!applied || requestSeq !== this._variationRequestSeq) {
+          return false;
+        }
+        state.selectedDesignVariant = selectedVariant;
+        this._activeVariationKey = key;
+        return true;
+      } catch (error) {
+        if (requestSeq !== this._variationRequestSeq) {
+          return false;
+        }
+        console.warn('[OC] Variation design load failed:', error);
+        this._variationSwitchFailed = true;
+        this.renderPreflightMessages(['We could not load the personalisation options for this variation. Check your connection, then press Add to cart to retry.'], []);
+        return false;
       }
-    }
-    if (requestSeq !== this._variationRequestSeq) {
-      return;
-    }
-    if (initialLayerInputs && state?.active && parseInt(state.designId || state.design_id, 10) === parseInt(this.data.designId, 10)) {
-      state.layerInputs = initialLayerInputs;
-    }
-    if (!state?.active || !state?.panelHtml) {
-      this._variationSwitchPending = false;
-      this.deactivateCustomisation();
-      this._activeVariationKey = key;
-      return;
-    }
-    await this.applyDesignState(state, state.selectedDesignVariant || `design-${state.designId || state.design_id}`, false);
-    if (requestSeq === this._variationRequestSeq) {
-      this._activeVariationKey = key;
-      this._variationSwitchPending = false;
-      this._variationSwitchFailed = false;
-      this.applyInitialAiFilters();
+    })();
+    this._variationSwitchPromise = switchPromise;
+    try {
+      const switched = await switchPromise;
+      if (requestSeq === this._variationRequestSeq && switched) {
+        this._variationSwitchFailed = false;
+      }
+      return switched;
+    } finally {
+      if (this._variationSwitchPromise === switchPromise) {
+        this._variationSwitchPromise = null;
+        this._pendingVariationKey = '';
+        this._variationSwitchPending = false;
+        this.setControlLock('variation', false);
+      }
     }
   },
   deactivateCustomisation() {
+    this.invalidateDesignState();
     this._customisationActive = false;
-    this._designGeneration += 1;
-    Object.keys(this.aiFilterGenerations).forEach(layerId => {
-      this.aiFilterGenerations[layerId] += 1;
-    });
-    Object.values(this.aiFilterAbortControllers).forEach(controller => controller.abort());
-    this.aiFilterAbortControllers = {};
-    this.aiFilterErrors = {};
-    Object.keys(this.uploadGenerations).forEach(layerId => {
-      this.uploadGenerations[layerId] += 1;
-    });
-    Object.keys(this.spotifyValidateTokens).forEach(layerId => this.invalidateSpotifyValidation(layerId));
-    Object.keys(this._redrawGenerations).forEach(areaIndex => {
-      this._redrawGenerations[areaIndex] += 1;
-    });
     const panel = document.getElementById('oc-customiser-panel');
     if (panel) {
       panel.hidden = true;
@@ -3109,6 +3468,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* eslint-disable no-console, @wordpress/no-unused-vars-before-return */
 
+const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId'];
 const inputControlMethods = {
   // ── Input listeners ─────────────────────────────────────────────────────────
 
@@ -3147,6 +3507,7 @@ const inputControlMethods = {
     combo.querySelector('[data-oc-font-empty]')?.setAttribute('hidden', '');
   },
   setupFontComboboxes() {
+    const stateSignal = this._panelListenerController?.signal;
     const useNativeFontSelect = window.matchMedia?.('(max-width: 639px) and (hover: none) and (pointer: coarse)')?.matches;
     document.querySelectorAll('[data-oc-layer-font]').forEach(select => {
       if (useNativeFontSelect) {
@@ -3195,7 +3556,7 @@ const inputControlMethods = {
         if (filterFrame) {
           window.cancelAnimationFrame(filterFrame);
         }
-        filterFrame = window.requestAnimationFrame(() => {
+        filterFrame = this.requestStateAnimationFrame(() => {
           filterFrame = null;
           filterOptions();
         });
@@ -3225,14 +3586,20 @@ const inputControlMethods = {
           scheduleFilterOptions();
         }
         setOpen(true);
+      }, {
+        signal: stateSignal
       });
       input.addEventListener('input', () => {
         scheduleFilterOptions();
         setOpen(true);
+      }, {
+        signal: stateSignal
       });
       input.addEventListener('search', () => {
         scheduleFilterOptions();
         setOpen(true);
+      }, {
+        signal: stateSignal
       });
       input.addEventListener('keydown', e => {
         if (e.key === 'Escape') {
@@ -3258,21 +3625,32 @@ const inputControlMethods = {
             this.updateFontCombobox(select);
           }
         }
+      }, {
+        signal: stateSignal
       });
       input.addEventListener('blur', () => {
-        window.setTimeout(() => {
+        this.setStateTimeout(() => {
+          if (stateSignal?.aborted) {
+            return;
+          }
           if (!combo.contains(combo.ownerDocument.activeElement)) {
             setOpen(false);
             this.updateFontCombobox(select);
           }
         }, 120);
+      }, {
+        signal: stateSignal
       });
       options.forEach(option => {
         option.addEventListener('pointerdown', e => {
           e.preventDefault();
           selectFont(option.dataset.ocFontOption);
+        }, {
+          signal: stateSignal
         });
-        option.addEventListener('click', () => selectFont(option.dataset.ocFontOption));
+        option.addEventListener('click', () => selectFont(option.dataset.ocFontOption), {
+          signal: stateSignal
+        });
         option.addEventListener('keydown', e => {
           const visible = options.filter(item => !item.hidden);
           const index = visible.indexOf(option);
@@ -3286,6 +3664,8 @@ const inputControlMethods = {
             setOpen(false);
             input.focus();
           }
+        }, {
+          signal: stateSignal
         });
       });
     });
@@ -3299,17 +3679,23 @@ const inputControlMethods = {
     }
   },
   setupInputListeners() {
+    const stateSignal = this._panelListenerController?.signal;
+    const designGeneration = this._designGeneration;
+    this.setupControlAccessibility();
     this.setupFontComboboxes();
 
     // Area tabs
     const areaTabs = Array.from(document.querySelectorAll('.oc-area-tab'));
     areaTabs.forEach(btn => {
-      btn.addEventListener('click', () => this.switchArea(parseInt(btn.dataset.areaIndex, 10)));
+      btn.addEventListener('click', () => this.switchArea(parseInt(btn.dataset.areaIndex, 10)), {
+        signal: stateSignal
+      });
       btn.addEventListener('touchend', e => {
         e.preventDefault();
         this.switchArea(parseInt(btn.dataset.areaIndex, 10));
       }, {
-        passive: false
+        passive: false,
+        signal: stateSignal
       });
       btn.addEventListener('keydown', e => {
         if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
@@ -3332,6 +3718,8 @@ const inputControlMethods = {
         }
         areaTabs[nextIndex]?.focus();
         this.switchArea(parseInt(areaTabs[nextIndex]?.dataset.areaIndex || '0', 10));
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3371,9 +3759,14 @@ const inputControlMethods = {
         this.syncLinkedLayerInput(lid, ['value']);
         updateCounter();
         await this.updateTextSizeSliderCap(lid);
+        if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+          return;
+        }
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3392,20 +3785,26 @@ const inputControlMethods = {
           this.inputs[lid] = {};
         }
         this.inputs[lid].value = el.value;
-        this.inputs[lid].spotifyStatus = '';
-        this.inputs[lid].spotifyUri = '';
+        this.inputs[lid].spotifyStatus = el.value.trim() ? 'pending' : '';
+        this.inputs[lid].spotifyUri = this.extractSpotifyUri(el.value);
         this.syncLinkedLayerInput(lid, ['value', 'spotifyStatus', 'spotifyUri']);
         this.setSpotifyError(lid, '', el);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
-        clearTimeout(this.spotifyValidateTimers[lid]);
-        this.spotifyValidateTimers[lid] = setTimeout(() => {
+        this.spotifyValidateTimers[lid] = this.setStateTimeout(() => {
+          delete this.spotifyValidateTimers[lid];
           this.validateSpotifyLayer(lid, el.value, el);
         }, 450);
+      }, {
+        signal: stateSignal
       });
       el.addEventListener('blur', () => {
+        this.clearStateTimeout(this.spotifyValidateTimers[lid]);
+        delete this.spotifyValidateTimers[lid];
         this.validateSpotifyLayer(lid, el.value, el);
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3430,6 +3829,8 @@ const inputControlMethods = {
           help.classList.add('oc-open');
           btn.setAttribute('aria-expanded', 'true');
         }
+      }, {
+        signal: stateSignal
       });
     });
     if (!this.helpTooltipDocumentClickBound) {
@@ -3473,6 +3874,9 @@ const inputControlMethods = {
           } catch (err) {
             console.warn('[OC] Font load failed:', err);
           }
+          if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+            return;
+          }
         }
         reflectFontOnSelect(el);
         this.updateFontCombobox(el);
@@ -3481,9 +3885,14 @@ const inputControlMethods = {
           preview.style.fontFamily = font.name;
         }
         await this.updateTextSizeSliderCap(lid);
+        if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+          return;
+        }
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3510,6 +3919,8 @@ const inputControlMethods = {
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3521,7 +3932,7 @@ const inputControlMethods = {
           this.inputs[lid] = {};
         }
         this.inputs[lid].colorHex = btn.dataset.hex;
-        if (this.getLayerById(lid)?.type === 'lineart') {
+        if (['clipart', 'lineart'].includes(this.getLayerById(lid)?.type)) {
           this.syncLinkedLayerInput(lid, ['colorHex']);
         }
         btn.closest('.oc-colour-swatches')?.querySelectorAll('.oc-colour-swatch').forEach(s => {
@@ -3532,6 +3943,8 @@ const inputControlMethods = {
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3543,16 +3956,18 @@ const inputControlMethods = {
           this.inputs[lid] = {};
         }
         this.inputs[lid].colorHex = el.value;
-        if (this.getLayerById(lid)?.type === 'lineart') {
+        if (['clipart', 'lineart'].includes(this.getLayerById(lid)?.type)) {
           this.syncLinkedLayerInput(lid, ['colorHex']);
         }
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
 
-    // Clipart items
+    // Image filters
     document.querySelectorAll('[data-oc-layer-image-filter]').forEach(el => {
       const lid = parseInt(el.dataset.ocLayerImageFilter, 10);
       if (!this.inputs[lid]) {
@@ -3563,17 +3978,22 @@ const inputControlMethods = {
         if (!this.inputs[lid]) {
           this.inputs[lid] = {};
         }
-        this.inputs[lid].imageFilterId = parseInt(el.value, 10) || 0;
+        const filterId = parseInt(el.value, 10) || 0;
         el.disabled = true;
         try {
-          await this.applyAiImageFilter(lid, this.inputs[lid].imageFilterId);
+          await this.applyAiImageFilter(lid, filterId);
         } finally {
-          el.disabled = this._controlLocks.size > 0;
+          if (designGeneration === this._designGeneration && !stateSignal?.aborted && el.isConnected) {
+            el.disabled = this._controlLocks.size > 0;
+          }
         }
-        this.syncLinkedLayerInput(lid, ['imageFilterId']);
+        if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+          return;
+        }
         this.requestPreviewFocus();
-        this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3592,10 +4012,13 @@ const inputControlMethods = {
           const isSelected = i === btn;
           i.classList.toggle('oc-selected', isSelected);
           i.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+          i.setAttribute('aria-checked', isSelected ? 'true' : 'false');
         });
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
+      }, {
+        signal: stateSignal
       });
     });
     if (!this.carouselResizeBound) {
@@ -3614,10 +4037,13 @@ const inputControlMethods = {
       this.clipartSearchTerms[lid] = '';
       input.addEventListener('input', () => {
         this.clipartSearchTerms[lid] = input.value;
-        clearTimeout(this.clipartSearchTimers[lid]);
-        this.clipartSearchTimers[lid] = setTimeout(() => {
+        this.clearStateTimeout(this.clipartSearchTimers[lid]);
+        this.clipartSearchTimers[lid] = this.setStateTimeout(() => {
+          delete this.clipartSearchTimers[lid];
           this.filterClipart(lid);
         }, 200);
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3628,6 +4054,8 @@ const inputControlMethods = {
       select.addEventListener('change', () => {
         this.clipartCategoryFilters[lid] = select.value;
         this.filterClipart(lid);
+      }, {
+        signal: stateSignal
       });
     });
 
@@ -3637,11 +4065,126 @@ const inputControlMethods = {
         if (e.target === warnEl && warnEl.classList.contains('oc-res-warning')) {
           warnEl.style.display = 'none';
         }
+      }, {
+        signal: stateSignal
       });
     });
   },
   getLayerById(layerId) {
     return this.layersById[layerId] || null;
+  },
+  ensureLayerControlHeader(layer, control, required) {
+    const section = control?.closest('.oc-layer-section');
+    const body = control?.closest('.oc-layer-body');
+    if (!section || !body) {
+      return;
+    }
+    const hasHeader = Array.from(section.children).some(child => child.classList.contains('oc-layer-header'));
+    if (hasHeader) {
+      return;
+    }
+    const header = document.createElement('div');
+    header.className = 'oc-layer-header';
+    const label = document.createElement('span');
+    label.textContent = layer.label || 'Personalisation option';
+    header.appendChild(label);
+    if (required) {
+      const requiredLabel = document.createElement('span');
+      requiredLabel.className = 'oc-layer-required';
+      requiredLabel.textContent = '* Required';
+      header.appendChild(requiredLabel);
+    }
+    section.insertBefore(header, body);
+  },
+  setupControlAccessibility() {
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        const required = Boolean(layer.required || layer.settings?.required);
+        const label = layer.label || 'Personalisation option';
+        if (['text', 'textarea'].includes(layer.type)) {
+          const input = document.querySelector(`[data-oc-layer-text="${layer.id}"]`);
+          if (input) {
+            input.required = required;
+            input.setAttribute('aria-required', required ? 'true' : 'false');
+          }
+          return;
+        }
+        if (['image', 'clipmask'].includes(layer.type)) {
+          const zone = document.querySelector(`[data-oc-upload-zone="${layer.id}"]`);
+          const fallback = document.querySelector(`[data-oc-default-image="${layer.id}"]`);
+          this.ensureLayerControlHeader(layer, zone || fallback, required);
+          if (zone) {
+            zone.setAttribute('role', 'group');
+            zone.setAttribute('aria-label', label);
+            zone.setAttribute('aria-required', required ? 'true' : 'false');
+          }
+          return;
+        }
+        if (layer.type === 'clipart') {
+          const grid = document.querySelector(`[data-oc-clipart-grid="${layer.id}"]`);
+          this.ensureLayerControlHeader(layer, grid, required);
+          grid?.setAttribute('role', 'radiogroup');
+          grid?.setAttribute('aria-label', label);
+          grid?.setAttribute('aria-required', required ? 'true' : 'false');
+          document.querySelectorAll(`[data-oc-layer-clipart="${layer.id}"]`).forEach(option => {
+            option.setAttribute('role', 'radio');
+            option.setAttribute('aria-checked', option.classList.contains('oc-selected') ? 'true' : 'false');
+          });
+          const search = document.querySelector(`[data-oc-clipart-search="${layer.id}"]`);
+          const category = document.querySelector(`[data-oc-clipart-category="${layer.id}"]`);
+          search?.setAttribute('aria-label', `Search ${label}`);
+          category?.setAttribute('aria-label', `Filter ${label} by category`);
+          return;
+        }
+        if (layer.type === 'spotify') {
+          const input = document.querySelector(`[data-oc-layer-spotify="${layer.id}"]`);
+          if (input) {
+            input.required = required;
+            input.setAttribute('aria-required', required ? 'true' : 'false');
+            input.setAttribute('aria-label', label);
+          }
+        }
+      });
+    });
+  },
+  applyUploadZoneAccessibility(zone, layer) {
+    if (!zone || !layer) {
+      return;
+    }
+    const required = Boolean(layer.required || layer.settings?.required);
+    const label = layer.label || 'Upload artwork';
+    zone.setAttribute('aria-label', label);
+    zone.setAttribute('aria-required', required ? 'true' : 'false');
+    zone.querySelectorAll('input[type="file"]').forEach(input => {
+      input.setAttribute('aria-label', label);
+      input.setAttribute('aria-required', required ? 'true' : 'false');
+    });
+  },
+  seedLayerFontDefaults() {
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        if (!['text', 'textarea'].includes(layer.type)) {
+          return;
+        }
+        if (!this.inputs[layer.id]) {
+          this.inputs[layer.id] = {};
+        }
+        const select = document.querySelector(`[data-oc-layer-font="${layer.id}"]`);
+        if (select) {
+          const allowedIds = Array.from(select.options).map(option => parseInt(option.value, 10) || 0).filter(Boolean);
+          const configured = parseInt(this.inputs[layer.id].fontId, 10) || parseInt(layer.settings?.default_font_id, 10) || 0;
+          const selected = allowedIds.includes(configured) ? configured : parseInt(select.value, 10) || allowedIds[0] || 0;
+          this.inputs[layer.id].fontId = selected;
+          if (selected) {
+            select.value = String(selected);
+          }
+          return;
+        }
+        const activeIds = this.fonts.map(font => Number(font.id));
+        const configured = parseInt(this.inputs[layer.id].fontId, 10) || parseInt(layer.settings?.default_font_id, 10) || 0;
+        this.inputs[layer.id].fontId = activeIds.includes(configured) ? configured : activeIds[0] || 0;
+      });
+    });
   },
   seedLockedLayerDefaults() {
     this.areas.forEach(area => {
@@ -3674,8 +4217,51 @@ const inputControlMethods = {
         this.inputs[layerId].attachmentUrl = url;
         this.inputs[layerId].sourceAttachmentId = this.inputs[layerId].attachmentId;
         this.inputs[layerId].sourceAttachmentUrl = url;
+        this.inputs[layerId].originalAttachmentUrl = url;
+        this.inputs[layerId].sourceOriginalAttachmentUrl = url;
+        const extension = url.match(/\.([a-z0-9]+)(?:[?#]|$)/i)?.[1];
+        if (extension) {
+          this.inputs[layerId].artworkFileType = extension.toLowerCase();
+          this.inputs[layerId].sourceArtworkFileType = extension.toLowerCase();
+        }
       }
     });
+  },
+  seedLinkedImageInputs() {
+    const seeded = new Set();
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        if (!['image', 'clipmask'].includes(layer.type)) {
+          return;
+        }
+        const canonicalId = this.canonicalLinkedLayerId(layer.id);
+        const members = this.linkedLayerMembers(layer.id);
+        if (members.length < 2 || seeded.has(canonicalId)) {
+          return;
+        }
+        seeded.add(canonicalId);
+        const source = this.inputs[canonicalId] || {};
+        members.forEach(layerId => {
+          if (layerId === canonicalId) {
+            return;
+          }
+          this.inputs[layerId] = this.inputs[layerId] || {};
+          LINKED_IMAGE_INPUT_KEYS.forEach(key => {
+            if (source[key] === undefined) {
+              delete this.inputs[layerId][key];
+            } else {
+              this.inputs[layerId][key] = source[key];
+            }
+          });
+        });
+      });
+    });
+  },
+  isProductionImageInput(input) {
+    return Number(input?.attachmentId || 0) > 0;
+  },
+  imageLayerRequiresAttachment(layer) {
+    return Boolean(layer?.locked || layer?.required || layer?.settings?.required || layer?.settings?.allow_image_change === false);
   },
   charLimitForLayer(layerId) {
     return Math.max(0, parseInt(this.getLayerById(layerId)?.settings?.char_limit, 10) || 0);
@@ -3710,24 +4296,42 @@ const inputControlMethods = {
       this.inputs[layerId].value = this.normaliseLayerTextValue(layerId, this.inputs[layerId].value);
     }
   },
-  linkedLayerIds(sourceLayerId) {
+  isLinkedLayerEligible(layer) {
+    if (!layer || layer.visible === false || layer.locked) {
+      return false;
+    }
+    if (['image', 'clipmask'].includes(layer.type)) {
+      return layer.settings?.allow_image_change !== false;
+    }
+    if (layer.type === 'clipart') {
+      return layer.settings?.allow_clipart_change !== false;
+    }
+    return true;
+  },
+  linkedLayerMembers(sourceLayerId) {
     const source = this.getLayerById(sourceLayerId);
     const group = String(source?.settings?.link_group || '').trim();
     if (!source || !group) {
-      return [];
+      return this.isLinkedLayerEligible(source) ? [source.id] : [];
     }
-    const ids = [];
+    const members = [];
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
-        if (layer.id === sourceLayerId || layer.type !== source.type) {
+        if (layer.type !== source.type) {
           return;
         }
-        if (String(layer.settings?.link_group || '').trim() === group) {
-          ids.push(layer.id);
+        if (String(layer.settings?.link_group || '').trim() === group && this.isLinkedLayerEligible(layer)) {
+          members.push(layer.id);
         }
       });
     });
-    return ids;
+    return members;
+  },
+  linkedLayerIds(sourceLayerId) {
+    return this.linkedLayerMembers(sourceLayerId).filter(layerId => Number(layerId) !== Number(sourceLayerId));
+  },
+  syncLinkedImageInput(sourceLayerId) {
+    this.syncLinkedLayerInput(sourceLayerId, LINKED_IMAGE_INPUT_KEYS);
   },
   canonicalLinkedLayerId(layerId) {
     const layer = this.getLayerById(layerId);
@@ -3735,28 +4339,19 @@ const inputControlMethods = {
     if (!layer || !group) {
       return layerId;
     }
-    for (const area of this.areas) {
-      for (const candidate of area.layers || []) {
-        if (candidate.type === layer.type && String(candidate.settings?.link_group || '').trim() === group) {
-          return candidate.id;
-        }
-      }
-    }
-    return layerId;
+    return this.linkedLayerMembers(layerId)[0] || layerId;
   },
   syncLinkedLayerInput(sourceLayerId, keys) {
     const sourceInput = this.inputs[sourceLayerId];
     if (!sourceInput) {
       return;
     }
+    const sourceLayer = this.getLayerById(sourceLayerId);
+    if (!this.isLinkedLayerEligible(sourceLayer)) {
+      return;
+    }
+    const targetAreaIndexes = new Set();
     this.linkedLayerIds(sourceLayerId).forEach(layerId => {
-      const targetLayer = this.getLayerById(layerId);
-      if (targetLayer?.type === 'image' && targetLayer.settings?.allow_image_change === false) {
-        return;
-      }
-      if (targetLayer?.type === 'clipart' && targetLayer.settings?.allow_clipart_change === false) {
-        return;
-      }
       if (!this.inputs[layerId]) {
         this.inputs[layerId] = {};
       }
@@ -3769,7 +4364,9 @@ const inputControlMethods = {
       });
       this.clampLayerInputValue(layerId);
       this.updateLinkedLayerControls(layerId, keys);
+      targetAreaIndexes.add(this.areaIndexForLayer(layerId));
     });
+    targetAreaIndexes.forEach(areaIndex => this.scheduleRedraw(areaIndex));
   },
   updateLinkedLayerControls(layerId, keys) {
     const input = this.inputs[layerId] || {};
@@ -3802,11 +4399,12 @@ const inputControlMethods = {
         const isSelected = Number(item.dataset.ocClipart) === Number(input.clipartId);
         item.classList.toggle('oc-selected', isSelected);
         item.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
+        item.setAttribute('aria-checked', isSelected ? 'true' : 'false');
       });
     }
     if (keys.includes('attachmentId') || keys.includes('attachmentUrl')) {
       document.querySelectorAll(`[data-oc-upload-zone="${layerId}"]`).forEach(zone => {
-        this.setUploadZoneState(zone, input.attachmentUrl ? 'uploaded' : '');
+        this.setUploadZoneState(zone, this.isProductionImageInput(input) ? 'uploaded' : '');
       });
     }
     if (keys.includes('imageFilterId')) {
@@ -3859,6 +4457,7 @@ const inputControlMethods = {
           const selected = i === clipartBtn;
           i.classList.toggle('oc-selected', selected);
           i.setAttribute('aria-pressed', selected ? 'true' : 'false');
+          i.setAttribute('aria-checked', selected ? 'true' : 'false');
         });
       }
       const imageFilterEl = document.querySelector(`[data-oc-layer-image-filter="${layerId}"]`);
@@ -3866,7 +4465,7 @@ const inputControlMethods = {
         imageFilterEl.value = String(inp.imageFilterId || 0);
       }
       document.querySelectorAll(`[data-oc-upload-zone="${layerId}"]`).forEach(zone => {
-        this.setUploadZoneState(zone, inp.attachmentUrl ? 'uploaded' : '');
+        this.setUploadZoneState(zone, this.isProductionImageInput(inp) ? 'uploaded' : '');
       });
     }
     this.updateHiddenField();
@@ -3922,20 +4521,23 @@ const inputControlMethods = {
     });
     this.updateHiddenField();
   },
-  switchArea(index) {
-    this.activeArea = index;
+  applyActiveAreaState(index) {
+    this.activeArea = Math.max(0, Math.min(Math.max(0, this.areas.length - 1), Number(index) || 0));
     document.querySelectorAll('.oc-area-tab').forEach((btn, i) => {
-      btn.classList.toggle('oc-active', i === index);
-      btn.setAttribute('aria-selected', i === index ? 'true' : 'false');
-      btn.setAttribute('tabindex', i === index ? '0' : '-1');
+      btn.classList.toggle('oc-active', i === this.activeArea);
+      btn.setAttribute('aria-selected', i === this.activeArea ? 'true' : 'false');
+      btn.setAttribute('tabindex', i === this.activeArea ? '0' : '-1');
     });
     document.querySelectorAll('.oc-area-controls').forEach(el => {
-      const isActive = parseInt(el.dataset.areaIndex, 10) === index;
+      const isActive = parseInt(el.dataset.areaIndex, 10) === this.activeArea;
       el.hidden = !isActive;
       el.setAttribute('aria-hidden', isActive ? 'false' : 'true');
     });
-    this.redraw(index);
-    document.querySelectorAll('.oc-area-controls[data-area-index="' + index + '"] [data-oc-clipart-carousel]').forEach(carousel => {
+  },
+  switchArea(index) {
+    this.applyActiveAreaState(index);
+    this.redraw(this.activeArea);
+    document.querySelectorAll('.oc-area-controls[data-area-index="' + this.activeArea + '"] [data-oc-clipart-carousel]').forEach(carousel => {
       this.refreshClipartCarousel(parseInt(carousel.dataset.ocClipartCarousel, 10));
     });
     if (window.innerWidth < 640) {
@@ -3970,7 +4572,6 @@ __webpack_require__.r(__webpack_exports__);
  * Preflight validation and validation message rendering.
  */
 
-const INVALID_SPOTIFY_STATUSES = ['invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited'];
 const preflightMethods = {
   clearCustomValidity() {
     document.querySelectorAll('[data-oc-layer-text], [data-oc-layer-spotify]').forEach(el => {
@@ -4060,13 +4661,31 @@ const preflightMethods = {
     if (!url) {
       return null;
     }
+    const request = this.createStateAbortController(10000);
     return new Promise(resolve => {
       const img = new Image();
-      img.onload = () => resolve({
+      let settled = false;
+      const finish = result => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        img.onload = null;
+        img.onerror = null;
+        request.release();
+        resolve(result);
+      };
+      img.onload = () => finish({
         width: img.naturalWidth || 0,
         height: img.naturalHeight || 0
       });
-      img.onerror = () => resolve(null);
+      img.onerror = () => finish(null);
+      request.controller.signal.addEventListener('abort', () => {
+        img.src = '';
+        finish(null);
+      }, {
+        once: true
+      });
       img.src = url;
     });
   },
@@ -4077,12 +4696,13 @@ const preflightMethods = {
     const spotifyValidated = new Set();
     for (const area of this.areas) {
       for (const layer of area.layers || []) {
-        if (layer.locked) {
+        const isImageLayer = ['image', 'clipmask'].includes(layer.type);
+        if (layer.locked && !isImageLayer) {
           continue;
         }
         const input = this.inputs[layer.id] || {};
         const settings = layer.settings || {};
-        const required = Boolean(settings.required);
+        const required = Boolean(layer.required || settings.required);
         const label = layer.label || layer.type;
         const fieldEl = this.getLayerInputEl(layer);
         let value = '';
@@ -4099,6 +4719,13 @@ const preflightMethods = {
               }
             }
             if (value) {
+              const fontId = Number(input.fontId || 0);
+              const fontSelect = document.querySelector(`[data-oc-layer-font="${layer.id}"]`);
+              const permittedFontIds = fontSelect ? Array.from(fontSelect.options).map(option => Number(option.value)) : this.fonts.map(font => Number(font.id));
+              if (!fontId || !permittedFontIds.includes(fontId)) {
+                errors.push(`${label} needs an available font.`);
+                fieldEl?.classList.add('oc-preflight-field-error');
+              }
               const charLimit = parseInt(settings.char_limit, 10) || 0;
               if (charLimit > 0 && this.textLength(value) > charLimit) {
                 errors.push(`${label} exceeds the ${charLimit} character limit.`);
@@ -4112,11 +4739,11 @@ const preflightMethods = {
             break;
           case 'image':
           case 'clipmask':
-            if (required && !input.attachmentId) {
-              errors.push(`${label} needs an uploaded image.`);
+            if (!this.isProductionImageInput(input) && (this.imageLayerRequiresAttachment(layer) || Boolean(input.attachmentUrl))) {
+              errors.push(input.attachmentUrl ? `${label} has no production attachment. Please upload the image again.` : `${label} needs an uploaded image.`);
               fieldEl?.classList.add('oc-preflight-field-error');
             }
-            if (input.attachmentUrl) {
+            if (this.isProductionImageInput(input) && input.attachmentUrl) {
               let imageMeta = input.imageMeta || null;
               if (!imageMeta) {
                 imageMeta = await this.getTrackedImageMeta(input.attachmentUrl, layer.id);
@@ -4158,13 +4785,16 @@ const preflightMethods = {
               }
               break;
             }
-            if (value && !spotifyValidated.has(layer.id)) {
-              await this.validateSpotifyLayer(layer.id, value, fieldEl);
-              spotifyValidated.add(layer.id);
+            const canonicalId = this.canonicalLinkedLayerId(layer.id);
+            if (value && !spotifyValidated.has(canonicalId)) {
+              const canonicalLayer = this.getLayerById(canonicalId);
+              const canonicalInput = this.inputs[canonicalId] || input;
+              await this.validateSpotifyLayer(canonicalId, canonicalInput.value || value, this.getLayerInputEl(canonicalLayer) || fieldEl);
+              spotifyValidated.add(canonicalId);
             }
             if (value) {
               const status = String(this.inputs[layer.id]?.spotifyStatus || '');
-              if (INVALID_SPOTIFY_STATUSES.includes(status)) {
+              if (status !== 'ok') {
                 errors.push(`${label} has an invalid or unavailable Spotify link.`);
                 fieldEl?.classList.add('oc-preflight-field-error');
                 if (typeof fieldEl?.setCustomValidity === 'function') {
@@ -4188,14 +4818,16 @@ const preflightMethods = {
     const errors = [];
     for (const area of this.areas) {
       for (const layer of area.layers || []) {
-        if (layer.locked) {
+        const isImageLayer = ['image', 'clipmask'].includes(layer.type);
+        if (layer.locked && !isImageLayer) {
           continue;
         }
         const input = this.inputs[layer.id] || {};
         const settings = layer.settings || {};
         const label = layer.label || layer.type;
         const fieldEl = this.getLayerInputEl(layer);
-        if (!settings.required) {
+        const hasUrlOnlyImage = isImageLayer && Boolean(input.attachmentUrl) && !this.isProductionImageInput(input);
+        if (!layer.required && !settings.required && !hasUrlOnlyImage && !(isImageLayer && this.imageLayerRequiresAttachment(layer))) {
           continue;
         }
         let filled = true;
@@ -4207,7 +4839,7 @@ const preflightMethods = {
             break;
           case 'image':
           case 'clipmask':
-            filled = Boolean(input.attachmentId);
+            filled = this.isProductionImageInput(input);
             break;
           case 'clipart':
             filled = Boolean(input.clipartId);
@@ -4250,22 +4882,26 @@ __webpack_require__.r(__webpack_exports__);
  * Spotify modal, URI parsing, code URL building, and validation.
  */
 
-/* eslint-disable no-console, no-undef */
+/* eslint-disable no-console */
 
 const SPOTIFY_LINK_SYNC_KEYS = ['value', 'spotifyStatus', 'spotifyUri'];
 const spotifyMethods = {
   invalidateSpotifyValidation(layerId) {
+    this.clearStateTimeout(this.spotifyValidateTimers[layerId]);
+    delete this.spotifyValidateTimers[layerId];
     this.spotifyValidateTokens[layerId] = (this.spotifyValidateTokens[layerId] || 0) + 1;
     this.spotifyAbortControllers[layerId]?.abort();
     delete this.spotifyAbortControllers[layerId];
+    delete this.spotifyValidationPromises[layerId];
   },
   extractSpotifyUri(inputValue) {
     const raw = String(inputValue || '').trim();
     if (!raw) {
       return '';
     }
-    if (/^spotify:[a-z]+:[A-Za-z0-9]+$/i.test(raw)) {
-      return raw;
+    const uriMatch = raw.match(/^spotify:(track|album|artist|playlist|episode|show):([A-Za-z0-9]{1,128})$/i);
+    if (uriMatch) {
+      return `spotify:${uriMatch[1].toLowerCase()}:${uriMatch[2]}`;
     }
     let parsed;
     try {
@@ -4277,20 +4913,20 @@ const spotifyMethods = {
     if (host !== 'open.spotify.com' && host !== 'play.spotify.com') {
       return '';
     }
-    const parts = parsed.pathname.split('/').filter(Boolean).filter(p => !/^intl-[a-z]{2}$/i.test(p));
+    const parts = parsed.pathname.split('/').filter(Boolean).filter(part => !/^(?:intl-[a-z]{2}(?:-[a-z]{2})?|embed)$/i.test(part));
     if (!parts.length) {
       return '';
     }
     const validTypes = ['track', 'album', 'artist', 'playlist', 'episode', 'show'];
-    const typeIndex = parts.findIndex(p => validTypes.includes(p));
+    const typeIndex = parts.findIndex(part => validTypes.includes(part.toLowerCase()));
     if (typeIndex < 0 || !parts[typeIndex + 1]) {
       return '';
     }
-    const type = parts[typeIndex];
     const id = parts[typeIndex + 1];
-    if (!/^[A-Za-z0-9]+$/.test(id)) {
+    if (!/^[A-Za-z0-9]{1,128}$/.test(id)) {
       return '';
     }
+    const type = parts[typeIndex].toLowerCase();
     return `spotify:${type}:${id}`;
   },
   buildSpotifyCodeUrl(inputValue, isEngraving, engravingPalette = null) {
@@ -4314,55 +4950,105 @@ const spotifyMethods = {
     if (!dialog) {
       return;
     }
+    const stateSignal = this._panelListenerController?.signal;
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-modal', 'true');
     document.querySelectorAll('.oc-spotify-modal-trigger').forEach(trigger => {
       trigger.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
         this.openSpotifyModal();
+      }, {
+        signal: stateSignal
       });
     });
     dialog.querySelectorAll('[data-oc-spotify-modal-close]').forEach(closeBtn => {
-      closeBtn.addEventListener('click', () => this.closeSpotifyModal());
+      closeBtn.addEventListener('click', () => this.closeSpotifyModal(), {
+        signal: stateSignal
+      });
     });
     dialog.addEventListener('click', event => {
+      if (dialog.classList.contains('oc-dialog-fallback')) {
+        if (!dialog.querySelector('.oc-sp-modal-card')?.contains(event.target)) {
+          this.closeSpotifyModal();
+        }
+        return;
+      }
       const rect = dialog.getBoundingClientRect();
       const inDialog = rect.top <= event.clientY && event.clientY <= rect.top + rect.height && rect.left <= event.clientX && event.clientX <= rect.left + rect.width;
       if (!inDialog) {
         this.closeSpotifyModal();
       }
+    }, {
+      signal: stateSignal
+    });
+    dialog.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && !dialog.showModal) {
+        event.preventDefault();
+        this.closeSpotifyModal();
+      }
+    }, {
+      signal: stateSignal
     });
     dialog.addEventListener('close', () => {
       dialog.classList.remove('is-visible');
       document.body.style.overflow = '';
+    }, {
+      signal: stateSignal
     });
   },
   openSpotifyModal() {
     const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog || dialog.open) {
+    if (!dialog || dialog.hasAttribute('open')) {
       return;
     }
-    clearTimeout(this.spotifyModalCloseTimer);
-    dialog.showModal();
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
+    this.clearStateTimeout(this.spotifyModalCloseTimer);
+    if (typeof dialog.showModal === 'function') {
+      dialog.showModal();
+    } else {
+      dialog.hidden = false;
+      dialog.setAttribute('open', '');
+      dialog.classList.add('oc-dialog-fallback');
+    }
+    this.requestStateAnimationFrame(() => {
+      this.requestStateAnimationFrame(() => {
         dialog.classList.add('is-visible');
       });
     });
     document.body.style.overflow = 'hidden';
+    dialog.querySelector('[data-oc-spotify-modal-close]')?.focus?.();
   },
   closeSpotifyModal() {
     const dialog = document.getElementById('oc-spotify-share-dialog');
-    if (!dialog || !dialog.open) {
+    if (!dialog || !dialog.hasAttribute('open')) {
       return;
     }
     dialog.classList.remove('is-visible');
-    clearTimeout(this.spotifyModalCloseTimer);
-    this.spotifyModalCloseTimer = setTimeout(() => {
-      if (dialog.open) {
+    this.clearStateTimeout(this.spotifyModalCloseTimer);
+    this.spotifyModalCloseTimer = this.setStateTimeout(() => {
+      if (typeof dialog.close === 'function' && dialog.open) {
         dialog.close();
+      } else {
+        dialog.removeAttribute('open');
+        dialog.hidden = true;
       }
       document.body.style.overflow = '';
     }, 300);
+  },
+  dismissSpotifyModal() {
+    this.clearStateTimeout(this.spotifyModalCloseTimer);
+    this.spotifyModalCloseTimer = null;
+    const dialog = document.getElementById('oc-spotify-share-dialog');
+    if (dialog) {
+      dialog.classList.remove('is-visible');
+      if (typeof dialog.close === 'function' && dialog.open) {
+        dialog.close();
+      } else {
+        dialog.removeAttribute('open');
+        dialog.hidden = true;
+      }
+    }
+    document.body.style.overflow = '';
   },
   setSpotifyError(layerId, message, inputEl = null) {
     const msg = String(message || '');
@@ -4392,91 +5078,102 @@ const spotifyMethods = {
     this.scheduleRedraw(this.areaIndexForLayer(layerId));
     this.updateHiddenField();
   },
-  async validateSpotifyLayer(layerId, rawValue, inputEl = null) {
+  validateSpotifyLayer(layerId, rawValue, inputEl = null) {
     const value = String(rawValue || '').trim();
     if (!this.inputs[layerId]) {
       this.inputs[layerId] = {};
     }
+    this.clearStateTimeout(this.spotifyValidateTimers[layerId]);
+    delete this.spotifyValidateTimers[layerId];
+    const existing = this.spotifyValidationPromises[layerId];
+    if (existing?.value === value) {
+      return existing.promise;
+    }
     this.invalidateSpotifyValidation(layerId);
     const token = this.spotifyValidateTokens[layerId];
-    this.spotifyValidateTokens[layerId] = token;
-    if (!value) {
-      this.clearSpotifyLayerStatus(layerId, inputEl);
-      return;
-    }
+    const designGeneration = this._designGeneration;
+    const input = this.inputs[layerId];
+    input.value = value;
     const localUri = this.extractSpotifyUri(value);
-    if (!localUri) {
-      this.setSpotifyValidationResult(layerId, 'invalid_format', '', 'Invalid Spotify link format.', inputEl);
-      return;
-    }
-    if (!this.data.validateSpotifyUrl) {
-      this.setSpotifyValidationResult(layerId, 'ok', localUri, '', inputEl);
-      return;
-    }
-    const controller = new AbortController();
-    this.spotifyAbortControllers[layerId] = controller;
-    try {
-      const res = await fetch(this.data.validateSpotifyUrl, {
-        method: 'POST',
-        headers: this.restHeaders({
-          'Content-Type': 'application/json'
-        }),
-        body: JSON.stringify({
-          url: value
-        }),
-        signal: controller.signal
-      });
-      const isJson = res.headers.get('content-type')?.includes('application/json');
-      let json = null;
-      let text = '';
-      if (isJson) {
-        try {
-          json = await res.json();
-        } catch (err) {
-          console.warn('[OC] Spotify validation JSON parse failed:', err);
+    const isCurrent = () => this.spotifyValidateTokens[layerId] === token && this._designGeneration === designGeneration && this.inputs[layerId] === input && String(input.value || '').trim() === value && (!inputEl || String(inputEl.value || '').trim() === value);
+    const promise = (async () => {
+      if (!value) {
+        this.clearSpotifyLayerStatus(layerId, inputEl);
+        return true;
+      }
+      if (!localUri) {
+        this.setSpotifyValidationResult(layerId, 'invalid_format', '', 'Invalid Spotify link format.', inputEl);
+        return false;
+      }
+      this.setSpotifyValidationResult(layerId, 'pending', localUri, '', inputEl);
+      if (!this.data.validateSpotifyUrl) {
+        this.setSpotifyValidationResult(layerId, 'ok', localUri, '', inputEl);
+        return true;
+      }
+      const request = this.createStateAbortController(12000);
+      const controller = request.controller;
+      this.spotifyAbortControllers[layerId] = controller;
+      try {
+        const res = await fetch(this.data.validateSpotifyUrl, {
+          method: 'POST',
+          headers: this.restHeaders({
+            'Content-Type': 'application/json'
+          }),
+          body: JSON.stringify({
+            url: localUri
+          }),
+          signal: controller.signal
+        });
+        const isJson = res.headers.get('content-type')?.includes('application/json');
+        let json = null;
+        let text = '';
+        if (isJson) {
+          try {
+            json = await res.json();
+          } catch (err) {
+            console.warn('[OC] Spotify validation JSON parse failed:', err);
+          }
+        } else {
+          text = await res.text();
         }
-      } else {
-        text = await res.text();
+        if (!isCurrent()) {
+          return false;
+        }
+        if (!res.ok) {
+          const statusReason = json?.code === 'rate_limited' || res.status === 429 ? 'rate_limited' : 'unreachable';
+          const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
+          this.setSpotifyValidationResult(layerId, statusReason, '', statusMessage, inputEl);
+          return false;
+        }
+        if (!json) {
+          this.setSpotifyValidationResult(layerId, 'unreachable', '', 'Could not validate Spotify right now. Please try again.', inputEl);
+          return false;
+        }
+        const canonicalUri = this.extractSpotifyUri(json?.spotifyUri || localUri);
+        if (json?.valid === true && canonicalUri) {
+          this.setSpotifyValidationResult(layerId, 'ok', canonicalUri, '', inputEl);
+          return true;
+        }
+        this.setSpotifyValidationResult(layerId, json?.reason || 'invalid_or_unavailable', '', json?.message || 'Spotify link is invalid or unavailable.', inputEl);
+        return false;
+      } catch {
+        if (!isCurrent()) {
+          return false;
+        }
+        this.setSpotifyValidationResult(layerId, 'unreachable', '', request.timedOut() ? 'Spotify validation timed out. Please try again.' : 'Could not validate Spotify right now. Please try again.', inputEl);
+        return false;
+      } finally {
+        request.release();
+        if (this.spotifyAbortControllers[layerId] === controller) {
+          delete this.spotifyAbortControllers[layerId];
+        }
       }
-      if (this.spotifyValidateTokens[layerId] !== token || String(this.inputs[layerId]?.value || '').trim() !== value || inputEl && String(inputEl.value || '').trim() !== value) {
-        return;
-      }
-      if (!res.ok) {
-        const statusReason = json?.code === 'rate_limited' || res.status === 429 ? 'rate_limited' : 'unreachable';
-        const statusMessage = json?.message || text || 'Could not validate Spotify right now. Please try again.';
-        this.setSpotifyValidationResult(layerId, statusReason, '', statusMessage, inputEl);
-        return;
-      }
-      if (!json) {
-        this.setSpotifyValidationResult(layerId, 'unreachable', '', 'Could not validate Spotify right now. Please try again.', inputEl);
-        return;
-      }
-      if (Boolean(json?.valid)) {
-        this.inputs[layerId].spotifyStatus = 'ok';
-        this.inputs[layerId].spotifyUri = json.spotifyUri || localUri;
-        this.setSpotifyError(layerId, '', inputEl);
-      } else {
-        this.inputs[layerId].spotifyStatus = json?.reason || 'invalid_or_unavailable';
-        this.inputs[layerId].spotifyUri = '';
-        this.setSpotifyError(layerId, json?.message || 'Spotify link is invalid or unavailable.', inputEl);
-      }
-    } catch (error) {
-      if (error?.name === 'AbortError') {
-        return;
-      }
-      if (this.spotifyValidateTokens[layerId] !== token) {
-        return;
-      }
-      this.inputs[layerId].spotifyStatus = 'unreachable';
-      this.inputs[layerId].spotifyUri = '';
-      this.setSpotifyError(layerId, 'Could not validate Spotify right now. Please try again.', inputEl);
-    }
-    this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
-    this.scheduleRedraw(this.areaIndexForLayer(layerId));
-    this.updateHiddenField();
-    if (this.spotifyAbortControllers[layerId] === controller) {
-      delete this.spotifyAbortControllers[layerId];
-    }
+    })();
+    this.spotifyValidationPromises[layerId] = {
+      value,
+      promise
+    };
+    return promise;
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (spotifyMethods);
@@ -4556,13 +5253,23 @@ const uploadMethods = {
     if (this._variationSwitchPending) {
       return;
     }
+    const designGeneration = this._designGeneration;
+    const started = new Set();
     for (const [layerId, input] of Object.entries(this.inputs)) {
+      const canonicalId = this.canonicalLinkedLayerId(Number(layerId));
+      if (canonicalId !== Number(layerId) || started.has(canonicalId) || this.aiFilterAbortControllers[canonicalId]) {
+        continue;
+      }
+      started.add(canonicalId);
       const filterId = Number(input?.imageFilterId || 0);
       const sourceId = Number(input?.sourceAttachmentId || 0);
       const attachmentId = Number(input?.attachmentId || 0);
       const filter = (this.data?.imageFilters || []).find(item => Number(item.id) === filterId);
       if (filter?.isAi && sourceId && attachmentId === sourceId) {
-        await this.applyAiImageFilter(Number(layerId), filterId);
+        await this.applyAiImageFilter(canonicalId, filterId);
+        if (designGeneration !== this._designGeneration) {
+          return;
+        }
       }
     }
   },
@@ -4572,13 +5279,22 @@ const uploadMethods = {
     if (!zoneEls.length) {
       return;
     }
+    let modules;
+    try {
+      modules = await Promise.all([Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_uppy_core_lib_UIPlugin_js"), __webpack_require__.e("vendors-node_modules_uppy_core_lib_index_js")]).then(__webpack_require__.bind(__webpack_require__, /*! @uppy/core */ "./node_modules/@uppy/core/lib/index.js")), Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_uppy_core_lib_UIPlugin_js"), __webpack_require__.e("vendors-node_modules_uppy_drag-drop_lib_index_js")]).then(__webpack_require__.bind(__webpack_require__, /*! @uppy/drag-drop */ "./node_modules/@uppy/drag-drop/lib/index.js")), __webpack_require__.e(/*! import() */ "vendors-node_modules_uppy_xhr-upload_lib_index_js").then(__webpack_require__.bind(__webpack_require__, /*! @uppy/xhr-upload */ "./node_modules/@uppy/xhr-upload/lib/index.js"))]);
+    } catch (error) {
+      if (designGeneration === this._designGeneration) {
+        zoneEls.forEach(zoneEl => this.showUploadImportFailure(zoneEl, error));
+      }
+      return;
+    }
     const [{
       default: Uppy
     }, {
       default: DragDrop
     }, {
       default: XHRUpload
-    }] = await Promise.all([Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_uppy_core_lib_UIPlugin_js"), __webpack_require__.e("vendors-node_modules_uppy_core_lib_index_js")]).then(__webpack_require__.bind(__webpack_require__, /*! @uppy/core */ "./node_modules/@uppy/core/lib/index.js")), Promise.all(/*! import() */[__webpack_require__.e("vendors-node_modules_uppy_core_lib_UIPlugin_js"), __webpack_require__.e("vendors-node_modules_uppy_drag-drop_lib_index_js")]).then(__webpack_require__.bind(__webpack_require__, /*! @uppy/drag-drop */ "./node_modules/@uppy/drag-drop/lib/index.js")), __webpack_require__.e(/*! import() */ "vendors-node_modules_uppy_xhr-upload_lib_index_js").then(__webpack_require__.bind(__webpack_require__, /*! @uppy/xhr-upload */ "./node_modules/@uppy/xhr-upload/lib/index.js"))]);
+    }] = modules;
     if (designGeneration !== this._designGeneration) {
       return;
     }
@@ -4669,11 +5385,18 @@ const uploadMethods = {
       uppy.use(XHRUpload, {
         endpoint: this.uploadEndpoint(uploadUrl, lid),
         formData: true,
-        fieldName: 'artwork'
+        fieldName: 'artwork',
+        headers: this.restHeaders()
       });
       zoneEl.dataset.ocUppyReady = '1';
       this.uppyInstances.add(uppy);
-      if (this.inputs[lid]?.attachmentUrl) {
+      this.applyUploadZoneAccessibility(zoneEl, layer);
+      this.requestStateAnimationFrame(() => {
+        if (zoneEl.isConnected) {
+          this.applyUploadZoneAccessibility(zoneEl, layer);
+        }
+      });
+      if (this.isProductionImageInput(this.inputs[lid])) {
         this.setUploadZoneState(zoneEl, 'uploaded');
       }
       uppy.on('upload-progress', (file, progress) => {
@@ -4691,14 +5414,14 @@ const uploadMethods = {
         }
         this.setUploadProgress(zoneEl, 100, '');
         if (!res?.body) {
-          this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+          this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
           this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
           return;
         }
         const attachmentId = Number(res.body.attachment_id || 0);
         const attachmentUrl = String(res.body.preview_url || '');
         if (!attachmentId || !attachmentUrl) {
-          this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+          this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
           this.showUploadError(zoneEl, 'Server did not return usable artwork data.');
           return;
         }
@@ -4714,6 +5437,7 @@ const uploadMethods = {
           artworkFileType,
           sourceArtworkFileType: artworkFileType,
           previewAttachmentId: Number(res.body.preview_attachment_id || 0),
+          sourcePreviewAttachmentId: Number(res.body.preview_attachment_id || 0),
           imageMeta: null,
           sourceImageMeta: null
         };
@@ -4734,7 +5458,7 @@ const uploadMethods = {
             warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${threshold.width} x ${threshold.height} pixels.`;
             warnEl.style.display = '';
           }
-          this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+          this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
           this.showUploadError(zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
           return;
         }
@@ -4748,12 +5472,13 @@ const uploadMethods = {
           }
         }
         this.inputs[lid] = candidate;
+        this.syncLinkedImageInput(lid);
         const filterApplied = await this.applyAiImageFilter(lid, candidate.imageFilterId || 0, zoneEl);
         if (generation !== this.uploadGenerations[lid]) {
           return;
         }
         this.setUploadZoneState(zoneEl, filterApplied ? 'uploaded' : 'uploaded-error');
-        this.syncLinkedLayerInput(lid, ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'imageMeta', 'sourceImageMeta']);
+        this.syncLinkedImageInput(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
@@ -4778,13 +5503,13 @@ const uploadMethods = {
         }
         const msg = responseBody?.message || error?.message || 'Upload failed.';
         console.warn('[OC] Upload error:', msg, response);
-        this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+        this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
         this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, msg);
       });
       uppy.on('restriction-failed', (file, error) => {
         finishFileTransfer(file?.id);
-        this.setUploadZoneState(zoneEl, this.inputs[lid]?.attachmentUrl ? 'uploaded-error' : 'error');
+        this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
         this.setUploadProgress(zoneEl, 0, '');
         this.showUploadError(zoneEl, error?.message || 'File not allowed.');
       });
@@ -4795,35 +5520,39 @@ const uploadMethods = {
     if (!input) {
       return false;
     }
+    filterId = Number(filterId || 0);
+    this.cancelAiFilterForLayer(layerId);
+    const generation = this.aiFilterGenerations[layerId];
+    const designGeneration = this._designGeneration;
+    input.imageFilterId = filterId;
     const sourceId = Number(input.sourceAttachmentId || input.attachmentId || 0);
     const sourceUrl = input.sourceAttachmentUrl || input.attachmentUrl || '';
+    const isCurrent = () => generation === this.aiFilterGenerations[layerId] && designGeneration === this._designGeneration && this.inputs[layerId] === input && Number(input.imageFilterId || 0) === filterId && this._customisationActive;
     if (!filterId) {
-      if (sourceId && sourceUrl) {
-        input.attachmentId = sourceId;
-        input.attachmentUrl = sourceUrl;
-        input.imageMeta = input.sourceImageMeta || input.imageMeta;
-      }
+      this.restoreSourceArtwork(input, sourceId, sourceUrl);
       delete this.aiFilterErrors[layerId];
+      this.syncLinkedImageInput(layerId);
+      this.scheduleRedraw(this.areaIndexForLayer(layerId));
+      this.updateHiddenField();
       return true;
     }
     const filter = (this.data?.imageFilters || []).find(item => Number(item.id) === Number(filterId));
     if (!filter?.isAi) {
-      if (sourceId && sourceUrl) {
-        input.attachmentId = sourceId;
-        input.attachmentUrl = sourceUrl;
-        input.imageMeta = input.sourceImageMeta || input.imageMeta;
-      }
+      this.restoreSourceArtwork(input, sourceId, sourceUrl);
       delete this.aiFilterErrors[layerId];
+      this.syncLinkedImageInput(layerId);
+      this.scheduleRedraw(this.areaIndexForLayer(layerId));
+      this.updateHiddenField();
       return true;
     }
     if (!sourceId || !sourceUrl || !this.data?.applyImageFilterUrl) {
       this.aiFilterErrors[layerId] = 'Upload an image before applying this filter.';
+      this.syncLinkedImageInput(layerId);
+      this.updateHiddenField();
       return false;
     }
-    const generation = (this.aiFilterGenerations[layerId] || 0) + 1;
-    this.aiFilterGenerations[layerId] = generation;
-    this.aiFilterAbortControllers[layerId]?.abort();
-    const controller = new AbortController();
+    const request = this.createStateAbortController(30000);
+    const controller = request.controller;
     this.aiFilterAbortControllers[layerId] = controller;
     // The handle is deliberately consumed in finally across every return path.
     // eslint-disable-next-line @wordpress/no-unused-vars-before-return
@@ -4834,7 +5563,7 @@ const uploadMethods = {
       this.setUploadProgress(targetZone, 100, 'Creating AI preview...');
       this.showUploadError(targetZone, '');
     }
-    const variationId = parseInt(document.querySelector('form.cart input.variation_id')?.value || '0', 10) || 0;
+    const variationId = this.currentVariationId();
     try {
       const response = await fetch(this.data.applyImageFilterUrl, {
         method: 'POST',
@@ -4848,42 +5577,43 @@ const uploadMethods = {
           layer_id: Number(layerId),
           design_id: Number(this.data.designId || 0),
           product_id: Number(this.data.productId || 0),
-          variation_id: variationId,
-          oc_token: this.data.requestToken || ''
+          variation_id: variationId
         })
       });
-      const json = await response.json();
+      const json = await response.json().catch(() => null);
       if (!response.ok || !json?.attachment_id || !json?.preview_url) {
         throw new Error(json?.message || 'The AI filter could not be applied.');
       }
-      if (generation !== this.aiFilterGenerations[layerId]) {
+      if (!isCurrent()) {
         return false;
       }
       const filteredAttachmentId = Number(json.attachment_id);
       const filteredAttachmentUrl = String(json.preview_url);
       const filteredArtworkFileType = String(json.file_type || input.artworkFileType || '').toLowerCase();
       const imageMeta = await this.getTrackedImageMeta(filteredAttachmentUrl, layerId);
-      if (generation !== this.aiFilterGenerations[layerId]) {
+      if (!isCurrent()) {
         return false;
       }
       input.attachmentId = filteredAttachmentId;
       input.attachmentUrl = filteredAttachmentUrl;
       input.imageFilterId = Number(filterId);
       input.artworkFileType = filteredArtworkFileType;
+      input.originalAttachmentUrl = String(json.original_url || filteredAttachmentUrl);
+      input.previewAttachmentId = Number(json.preview_attachment_id || 0);
       input.imageMeta = imageMeta;
       delete this.aiFilterErrors[layerId];
-      this.requestPreviewFocus();
+      this.syncLinkedImageInput(layerId);
       this.scheduleRedraw(this.areaIndexForLayer(layerId));
       this.updateHiddenField();
       return true;
     } catch (error) {
-      if (generation !== this.aiFilterGenerations[layerId]) {
+      if (!isCurrent()) {
         return false;
       }
-      const message = error?.message || 'The AI filter could not be applied.';
+      const message = request.timedOut() ? 'The AI filter timed out. Please try again.' : error?.message || 'The AI filter could not be applied.';
       this.aiFilterErrors[layerId] = message;
-      input.attachmentId = sourceId;
-      input.attachmentUrl = sourceUrl;
+      this.restoreSourceArtwork(input, sourceId, sourceUrl);
+      this.syncLinkedImageInput(layerId);
       if (targetZone) {
         this.showUploadError(targetZone, message);
       }
@@ -4892,6 +5622,7 @@ const uploadMethods = {
       return false;
     } finally {
       this.finishArtworkOperation(operation);
+      request.release();
       if (this.aiFilterAbortControllers[layerId] === controller) {
         delete this.aiFilterAbortControllers[layerId];
         if (targetZone) {
@@ -4899,6 +5630,17 @@ const uploadMethods = {
         }
       }
     }
+  },
+  restoreSourceArtwork(input, sourceId, sourceUrl) {
+    if (!sourceId || !sourceUrl) {
+      return;
+    }
+    input.attachmentId = sourceId;
+    input.attachmentUrl = sourceUrl;
+    input.originalAttachmentUrl = input.sourceOriginalAttachmentUrl || sourceUrl;
+    input.artworkFileType = input.sourceArtworkFileType || input.artworkFileType || '';
+    input.previewAttachmentId = Number(input.sourcePreviewAttachmentId || 0);
+    input.imageMeta = input.sourceImageMeta || input.imageMeta || null;
   },
   setUploadZoneState(zoneEl, state) {
     zoneEl.classList.toggle('oc-upload-zone--uploaded', state === 'uploaded' || state === 'uploaded-error');
@@ -4933,14 +5675,38 @@ const uploadMethods = {
     const bar = progressEl.querySelector('.oc-upload-progress-bar');
     if (labelEl) {
       labelEl.textContent = label || '';
+      labelEl.setAttribute('aria-live', 'polite');
     }
     if (track) {
       track.setAttribute('aria-valuenow', String(safePercent));
+      track.setAttribute('aria-label', label || 'Upload progress');
     }
     if (bar) {
       bar.style.width = `${safePercent}%`;
     }
     progressEl.style.display = label ? '' : 'none';
+  },
+  showUploadImportFailure(zoneEl, error) {
+    console.warn('[OC] Upload controls failed to load:', error);
+    this.setUploadZoneState(zoneEl, 'error');
+    this.showUploadError(zoneEl, 'Upload controls could not load. Check your connection and retry.');
+    const errorEl = zoneEl.closest('.oc-artwork-wrap')?.querySelector('.oc-artwork-error');
+    if (!errorEl || errorEl.querySelector('[data-oc-upload-retry]')) {
+      return;
+    }
+    const retry = document.createElement('button');
+    retry.type = 'button';
+    retry.className = 'oc-upload-retry';
+    retry.dataset.ocUploadRetry = '1';
+    retry.textContent = 'Retry upload controls';
+    retry.addEventListener('click', () => {
+      retry.disabled = true;
+      zoneEl.removeAttribute('data-oc-uppy-ready');
+      this._uploadSetupPromise = this.setupUploadZones();
+    }, {
+      signal: this._panelListenerController?.signal
+    });
+    errorEl.append(document.createTextNode(' '), retry);
   },
   showUploadError(zoneEl, message) {
     const wrap = zoneEl.closest('.oc-artwork-wrap');
@@ -4952,10 +5718,19 @@ const uploadMethods = {
       err = document.createElement('div');
       err.className = 'oc-artwork-error';
       err.style.cssText = 'color:#b32d2e;font-size:12px;margin-top:6px;';
+      err.id = `oc-artwork-error-${zoneEl.dataset.ocUploadZone || 'upload'}`;
+      err.setAttribute('role', 'status');
+      err.setAttribute('aria-live', 'polite');
+      err.setAttribute('aria-atomic', 'true');
       wrap.appendChild(err);
     }
-    err.textContent = message || '';
+    err.replaceChildren(document.createTextNode(message || ''));
     err.style.display = message ? '' : 'none';
+    if (message) {
+      const describedBy = new Set(String(zoneEl.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean));
+      describedBy.add(err.id);
+      zoneEl.setAttribute('aria-describedby', Array.from(describedBy).join(' '));
+    }
   }
 };
 /* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (uploadMethods);
@@ -4985,7 +5760,7 @@ function normaliseUnit(value) {
   return VALID_UNITS.includes(value) ? value : 'px';
 }
 function normaliseDpi(value) {
-  return Math.min(1200, Math.max(1, Math.round(Number(value) || 300)));
+  return Math.min(1200, Math.max(36, Math.round(Number(value) || 300)));
 }
 function unitPxScale(areaOrBounds) {
   const dpi = normaliseDpi(areaOrBounds?.dpi);
@@ -5071,6 +5846,26 @@ __webpack_require__.r(__webpack_exports__);
 __webpack_require__.r(__webpack_exports__);
 // extracted by mini-css-extract-plugin
 
+
+/***/ },
+
+/***/ "@woocommerce/block-data"
+/*!**************************************!*\
+  !*** external ["wc","wcBlocksData"] ***!
+  \**************************************/
+(module) {
+
+module.exports = window["wc"]["wcBlocksData"];
+
+/***/ },
+
+/***/ "@wordpress/data"
+/*!******************************!*\
+  !*** external ["wp","data"] ***!
+  \******************************/
+(module) {
+
+module.exports = window["wp"]["data"];
 
 /***/ },
 
@@ -5627,6 +6422,18 @@ void main() {
 /******/ 	__webpack_require__.m = __webpack_modules__;
 /******/ 	
 /************************************************************************/
+/******/ 	/* webpack/runtime/compat get default export */
+/******/ 	(() => {
+/******/ 		// getDefaultExport function for compatibility with non-harmony modules
+/******/ 		__webpack_require__.n = (module) => {
+/******/ 			var getter = module && module.__esModule ?
+/******/ 				() => (module['default']) :
+/******/ 				() => (module);
+/******/ 			__webpack_require__.d(getter, { a: getter });
+/******/ 			return getter;
+/******/ 		};
+/******/ 	})();
+/******/
 /******/ 	/* webpack/runtime/define property getters */
 /******/ 	(() => {
 /******/ 		// define getter functions for harmony exports
@@ -5926,9 +6733,12 @@ class OCCustomiser {
     this._redrawTimers = {};
     this._redrawGenerations = {};
     this._redrawPromises = {};
-    this._canvasReadyPromise = Promise.resolve();
-    this._canvasReadyGeneration = 0;
-    this._canvasLoadTimers = new Set();
+    this._canvasReadyPromise = null;
+    this._canvasReadyGeneration = -1;
+    this._stateAbortControllers = new Set();
+    this._stateTimers = new Set();
+    this._stateAnimationFrames = new Set();
+    this._panelListenerController = null;
     this.fontCache = {}; // font family/weight/style/URL -> load Promise
     this.clipartSvgCache = {};
     this.galleryImg = null; // the main <img> in the product gallery
@@ -5937,14 +6747,21 @@ class OCCustomiser {
     this._tvpgPreviewLocked = false;
     this._galleryPreviewGeneration = 0;
     this._galleryPreviewNodes = new Set();
+    this._galleryFallbackNodeStates = new Map();
+    this._tvpgLockedSwipers = new Set();
     this.productVariationStates = {};
     this._variationRequestSeq = 0;
     this._variationSwitchPending = false;
     this._variationSwitchFailed = false;
+    this._activeVariationKey = '';
+    this._pendingVariationKey = '';
+    this._variationAbortController = null;
+    this._variationSwitchPromise = null;
     this._designGeneration = 0;
     this.spotifyValidateTimers = {};
     this.spotifyValidateTokens = {};
     this.spotifyAbortControllers = {};
+    this.spotifyValidationPromises = {};
     this.uploadGenerations = {};
     this.aiFilterGenerations = {};
     this.aiFilterAbortControllers = {};
@@ -5959,6 +6776,7 @@ class OCCustomiser {
     this.clipartCategoryFilters = {};
     this.spotifyModalCloseTimer = null;
     this.mobileCartPreviewDialog = null;
+    this.mobileCartPreviewDismissedAt = 0;
     this.formSubmitBound = false;
     this.fontComboboxDocumentClickBound = false;
     this._customisationActive = true;
@@ -5967,6 +6785,114 @@ class OCCustomiser {
     this._galleryPreviewTimer = null;
     this._variationChangeTimer = null;
     this._mobileCartPreviewResolve = null;
+    this._mobileCartPreviewPromise = null;
+    this._storeApiPreparationPromise = null;
+    this._storeApiSubmitBound = false;
+  }
+  beginDesignStateListeners() {
+    this._panelListenerController?.abort();
+    this._panelListenerController = new AbortController();
+    return this._panelListenerController.signal;
+  }
+  setStateTimeout(callback, delay) {
+    const timer = window.setTimeout(() => {
+      this._stateTimers.delete(timer);
+      callback();
+    }, delay);
+    this._stateTimers.add(timer);
+    return timer;
+  }
+  clearStateTimeout(timer) {
+    if (timer !== null && timer !== undefined) {
+      window.clearTimeout(timer);
+      this._stateTimers.delete(timer);
+    }
+  }
+  requestStateAnimationFrame(callback) {
+    const frame = window.requestAnimationFrame(() => {
+      this._stateAnimationFrames.delete(frame);
+      callback();
+    });
+    this._stateAnimationFrames.add(frame);
+    return frame;
+  }
+  createStateAbortController(timeoutMs = 10000) {
+    const controller = new AbortController();
+    let timedOut = false;
+    let timer = null;
+    this._stateAbortControllers.add(controller);
+    if (timeoutMs > 0) {
+      timer = this.setStateTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs);
+    }
+    return {
+      controller,
+      timedOut: () => timedOut,
+      release: () => {
+        if (timer !== null) {
+          this.clearStateTimeout(timer);
+        }
+        this._stateAbortControllers.delete(controller);
+      }
+    };
+  }
+  invalidateDesignState() {
+    this._designGeneration += 1;
+    this.teardownDesignState();
+    this._canvasReadyGeneration = -1;
+    this._canvasReadyPromise = null;
+    return this._designGeneration;
+  }
+  teardownDesignState() {
+    this.restoreProductGallery?.();
+    this.dismissMobileCartPreview?.();
+    this.dismissSpotifyModal?.();
+    this._panelListenerController?.abort();
+    this._panelListenerController = null;
+    Object.values(this._redrawTimers).forEach(window.clearTimeout);
+    this._redrawTimers = {};
+    Object.keys(this._redrawGenerations).forEach(areaIndex => {
+      this._redrawGenerations[areaIndex] += 1;
+    });
+    this._redrawPromises = {};
+    new Set([...Object.keys(this.spotifyValidateTokens), ...Object.keys(this.spotifyValidationPromises)]).forEach(layerId => this.invalidateSpotifyValidation(layerId));
+    this.spotifyValidationPromises = {};
+    this.spotifyAbortControllers = {};
+    Object.keys(this.aiFilterGenerations).forEach(layerId => {
+      this.aiFilterGenerations[layerId] += 1;
+    });
+    Object.values(this.aiFilterAbortControllers).forEach(controller => controller.abort());
+    this.aiFilterAbortControllers = {};
+    this.aiFilterErrors = {};
+    Object.keys(this.uploadGenerations).forEach(layerId => {
+      this.uploadGenerations[layerId] += 1;
+    });
+    this.uppyInstances.forEach(uppy => {
+      try {
+        uppy.cancelAll?.();
+        uppy.destroy?.();
+      } catch {
+        // The instance may already have been destroyed by its own teardown.
+      }
+    });
+    this.uppyInstances.clear();
+    this.cancelArtworkOperations?.();
+    this.clipartSearchTimers = {};
+    this._stateTimers.forEach(window.clearTimeout);
+    this._stateTimers.clear();
+    this._stateAnimationFrames.forEach(window.cancelAnimationFrame);
+    this._stateAnimationFrames.clear();
+    this.spotifyModalCloseTimer = null;
+    this._galleryPreviewTimer = null;
+    this._variationChangeTimer = null;
+    this._stateAbortControllers.forEach(controller => controller.abort());
+    this._stateAbortControllers.clear();
+    Object.values(this.canvases || {}).forEach(canvas => canvas?.dispose?.());
+    this.canvases = {};
+    this._thumbnailCanvases.forEach(canvas => canvas?.dispose?.());
+    this._thumbnailCanvases.clear();
   }
   setControlLock(reason, locked) {
     if (locked) {
@@ -5979,11 +6905,12 @@ class OCCustomiser {
   applyControlLocks() {
     const locked = this._controlLocks.size > 0;
     const panel = document.getElementById('oc-customiser-panel');
+    const cartForm = panel?.closest('form') || document.querySelector('form.cart, form[data-wp-on--submit*="addToCart"]');
     if (panel) {
       panel.inert = locked;
       panel.setAttribute('aria-busy', locked ? 'true' : 'false');
     }
-    const controls = new Set([...(panel?.querySelectorAll('input:not([type="hidden"]), select, textarea, button') || []), ...(document.querySelector('form.cart')?.querySelectorAll('input:not([type="hidden"]), select, textarea, button') || [])]);
+    const controls = new Set([...(panel?.querySelectorAll('input:not([type="hidden"]), select, textarea, button') || []), ...(cartForm?.querySelectorAll('input:not([type="hidden"]), select, textarea, button') || [])]);
     controls.forEach(control => {
       if (locked) {
         if (control.dataset.ocLockDisabled === undefined) {
@@ -6011,47 +6938,57 @@ class OCCustomiser {
     }
     return headers;
   }
+  async ensureRequestToken() {
+    if (this.data.requestToken || !this.data.requestTokenUrl) {
+      return;
+    }
+    const response = await fetch(this.data.requestTokenUrl, {
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: {
+        Accept: 'application/json'
+      }
+    });
+    const body = await response.json().catch(() => null);
+    const token = typeof body?.token === 'string' ? body.token : '';
+    if (!response.ok || !/^[A-Za-z0-9]{64}$/.test(token)) {
+      throw new Error(body?.message || 'Security verification could not be started.');
+    }
+    this.data.requestToken = token;
+  }
+  currentVariationId() {
+    const panelForm = document.getElementById('oc-customiser-panel')?.closest('form');
+    return parseInt(panelForm?.querySelector('[name="variation_id"]')?.value || document.querySelector('[name="variation_id"]')?.value || '0', 10) || 0;
+  }
   uploadEndpoint(uploadUrl, layerId) {
-    const variationId = parseInt(document.querySelector('form.cart input.variation_id')?.value || '0', 10) || 0;
+    const variationId = this.currentVariationId();
     const params = new URLSearchParams({
       layer_id: String(layerId),
       design_id: String(this.data.designId || ''),
       product_id: String(this.data.productId || ''),
       variation_id: String(variationId)
     });
-    if (this.data.uploadNonce) {
-      params.set('_wpnonce', this.data.uploadNonce);
-    }
-    if (this.data.requestToken) {
-      params.set('oc_token', this.data.requestToken);
-    }
     return uploadUrl + (uploadUrl.includes('?') ? '&' : '?') + params.toString();
   }
 
   // ── Init ───────────────────────────────────────────────────────────────────
 
-  init() {
+  async init() {
     this.findGalleryImage();
     this.preflightRoot = document.getElementById('oc-preflight-messages');
-
-    // Seed configured/default fonts for text layers so they render immediately.
-    if (this.fonts.length) {
-      const firstFont = this.fonts[0];
-      this.areas.forEach(area => {
-        (area.layers || []).forEach(layer => {
-          if (layer.type === 'text' || layer.type === 'textarea') {
-            const inp = this.inputs[layer.id];
-            if (inp && !inp.fontId) {
-              inp.fontId = layer.settings?.default_font_id || firstFont.id;
-            }
-          }
-        });
-      });
+    this.beginDesignStateListeners();
+    try {
+      await this.ensureRequestToken();
+    } catch (error) {
+      this._requestTokenError = error?.message || 'Security verification is unavailable.';
+      this.renderPreflightMessages([this._requestTokenError], []);
     }
 
     // Hydrate state before listeners read values from the template controls.
     this.seedLockedLayerDefaults();
     this.seedTemplateImageDefaults();
+    this.seedLayerFontDefaults();
+    this.seedLinkedImageInputs();
     this.applyInputsToDOM({
       redraw: false
     });
@@ -6063,6 +7000,7 @@ class OCCustomiser {
     this._uploadSetupPromise = this.setupUploadZones();
     this.applyInitialAiFilters();
     this.setupFormSubmit();
+    this.setupStoreApiIntegration();
     this.updateHiddenField();
     this.setupDesignVariantCarousel();
     this.renderDesignVariantThumbnails();

@@ -35,8 +35,8 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		$slug  = self::crop_mark_slug_mm( $bleed );
 		$live_origin = $slug + $bleed;
 
-		$methods_settings = get_option( 'oc_print_methods', [] );
-		$full_bleed       = ! empty( $methods_settings['sublimation']['full_bleed'] );
+		$method_settings = OC_Admin_Print_Methods::get( 'sublimation' );
+		$full_bleed      = is_array( $method_settings ) && ! empty( $method_settings['full_bleed'] );
 
 		$pdf = self::make_pdf( $w_mm, $h_mm, $bleed, $slug );
 		$pdf->SetTitle( sprintf( 'Sublimation — Order #%d — %s', $order->get_id(), $area->label ) );
@@ -54,7 +54,11 @@ class OC_Print_Sublimation extends OC_Print_Base {
 				$area_data,
 				$live_origin,
 				$live_origin,
-				'colour'
+				'colour',
+				[
+					'full_bleed_artwork' => $full_bleed,
+					'bleed_mm'            => $bleed,
+				]
 			);
 			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
 
@@ -141,8 +145,8 @@ class OC_Print_Sublimation extends OC_Print_Base {
 		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
 		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed, $slug );
 		$pdf->SetTitle( sprintf( 'Sublimation - Order #%d - Combined', $order->get_id() ) );
-		$methods_settings = get_option( 'oc_print_methods', [] );
-		$full_bleed       = ! empty( $methods_settings['sublimation']['full_bleed'] );
+		$method_settings = OC_Admin_Print_Methods::get( 'sublimation' );
+		$full_bleed      = is_array( $method_settings ) && ! empty( $method_settings['full_bleed'] );
 
 		foreach ( $areas as $entry ) {
 			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
@@ -163,7 +167,11 @@ class OC_Print_Sublimation extends OC_Print_Base {
 					$entry['area_data'],
 					$live_origin,
 					$live_origin,
-					'colour'
+					'colour',
+					[
+						'full_bleed_artwork' => $full_bleed,
+						'bleed_mm'            => $bleed,
+					]
 				);
 				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
 				continue;

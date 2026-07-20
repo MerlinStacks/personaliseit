@@ -16,6 +16,7 @@ export function createProductsPageInteractions( deps ) {
 		markDirty,
 		normaliseArea,
 		normaliseDpi,
+		normaliseLayerDefaults,
 		normaliseUnit,
 		nextUid,
 		openMockupPicker,
@@ -89,6 +90,9 @@ export function createProductsPageInteractions( deps ) {
 					if ( area.method === 'engraving' && ! area.material ) {
 						area.material = 'silver_metal';
 					}
+					( area.layers || [] ).forEach( ( layer ) =>
+						normaliseLayerDefaults( layer, area )
+					);
 					commitChange( { all: true } );
 				}
 			} );
@@ -149,7 +153,6 @@ export function createProductsPageInteractions( deps ) {
 		].forEach( ( id ) => {
 			document.getElementById( id )?.addEventListener( 'input', () => {
 				syncBoundsFromInputs( id );
-				markDirty();
 			} );
 		} );
 		[ 'oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h' ].forEach(

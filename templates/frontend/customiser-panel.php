@@ -10,17 +10,27 @@ defined( 'ABSPATH' ) || exit;
 
 if ( empty( $areas ) ) return;
 
+$areas = array_values( array_filter( $areas, static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible ) );
+$visible_area_ids = array_fill_keys( array_filter( array_map( static fn ( $area ): int => absint( $area->id ?? 0 ), $areas ) ), true );
+$layers = array_values( array_filter(
+	$layers,
+	static fn ( $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] )
+) );
+if ( empty( $areas ) || empty( $layers ) ) return;
+
 $layers_by_area = [];
 foreach ( $layers as $layer ) {
 	$layers_by_area[ (int) $layer->area_id ][] = $layer;
 }
 
-$all_fonts          = OC_Font_Registry::get_fonts_for_js();
+$all_fonts          = OC_Plugin::browser_fonts();
 $fonts_by_id        = [];
 foreach ( $all_fonts as $font ) {
 	$fonts_by_id[ (int) $font['id'] ] = $font;
 }
-$upload_dir         = wp_upload_dir();
+$all_image_filters  = OC_DB::get_image_filters( true );
+$active_image_filter_ids = array_map( static fn ( $filter ): int => (int) $filter->id, $all_image_filters );
+$valid_font_group_ids = array_map( static fn ( $group ): int => (int) $group->id, OC_DB::get_font_groups() );
 $has_multiple_areas = count( $areas ) > 1;
 $has_spotify_layer  = false;
 $colour_label_threshold = 12;
@@ -149,7 +159,7 @@ foreach ( $layers as $layer ) {
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
 					if ( (bool) ( $layer->locked ?? false ) ) continue; // Locked layers: no customer input
-					$s         = json_decode( $layer->settings ?: '{}', true ) ?: [];
+					$s         = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
 					$link_group = trim( (string) ( $s['link_group'] ?? '' ) );
 					if ( '' !== $link_group ) {
 						$link_group_key = (string) $layer->type . '|' . $link_group;
@@ -174,19 +184,19 @@ foreach ( $layers as $layer ) {
 					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $s ) || ! empty( $s['allow_image_filter_change'] );
 					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
 					if ( 'clipart' === $layer->type && ! $allow_clipart_change ) continue;
-					$cg_ids    = $s['colour_groups'] ?? [];
-					$fg_ids    = $s['font_groups']   ?? [];
-					$clipart_groups = $s['clipart_groups'] ?? [];
-					$clipart_group_ids = array_values( array_filter( array_map( 'absint', is_array( $clipart_groups ) ? $clipart_groups : [] ) ) );
+					$cg_ids    = $s['colour_groups'];
+					$fg_ids    = $s['font_groups'];
+					$clipart_groups = $s['clipart_groups'];
+					$clipart_group_ids = array_values( array_filter( array_map( 'absint', $clipart_groups ) ) );
 					$clipart_display = 'carousel' === (string) ( $s['clipart_display'] ?? 'grid' ) ? 'carousel' : 'grid';
-					$image_filter_ids = array_values( array_filter( array_map( 'absint', is_array( $s['image_filter_ids'] ?? null ) ? $s['image_filter_ids'] : [] ) ) );
+					$image_filter_ids = array_values( array_intersect( $s['image_filter_ids'], $active_image_filter_ids ) );
 					$default_image_filter_id = absint( $s['default_image_filter_id'] ?? 0 );
 					if ( $default_image_filter_id && ! in_array( $default_image_filter_id, $image_filter_ids, true ) ) {
 						$default_image_filter_id = 0;
 					}
 
 					// Colour list for this layer.
-					$cg_ids = array_values( array_filter( array_map( 'absint', is_array( $cg_ids ) ? $cg_ids : [] ) ) );
+					$cg_ids = array_values( array_filter( array_map( 'absint', $cg_ids ) ) );
 					$layer_colours = OC_DB::get_colours_for_groups( $cg_ids );
 					if ( ! empty( $cg_ids ) && ! empty( $layer_colours ) ) {
 						$allowed_hexes = array_map( fn( $colour ) => strtolower( (string) ( $colour->hex ?? '' ) ), $layer_colours );
@@ -195,7 +205,7 @@ foreach ( $layers as $layer ) {
 						}
 					}
 					$colour_swatch_class = 'oc-colour-swatches' . ( count( $layer_colours ) >= $colour_label_threshold ? ' oc-colour-swatches--labels' : '' );
-					$fg_ids = array_values( array_filter( array_map( 'absint', is_array( $fg_ids ) ? $fg_ids : [] ) ) );
+					$fg_ids = array_values( array_intersect( array_filter( array_map( 'absint', $fg_ids ) ), $valid_font_group_ids ) );
 					$layer_fonts = $all_fonts;
 					if ( ! empty( $fg_ids ) ) {
 						$layer_fonts = [];
@@ -205,6 +215,11 @@ foreach ( $layers as $layer ) {
 							}
 						}
 					}
+					$layer_font_ids = array_map( static fn ( array $font ): int => (int) $font['id'], $layer_fonts );
+					$default_font_id = absint( $s['default_font_id'] ?? 0 );
+					if ( ! in_array( $default_font_id, $layer_font_ids, true ) ) {
+						$default_font_id = (int) ( $layer_font_ids[0] ?? 0 );
+					}
 					?>
 					<?php
 					// These layer types either show their label inline or do not need a section header.
@@ -212,10 +227,10 @@ foreach ( $layers as $layer ) {
 					$show_header_label  = ! in_array( $layer->type, $inline_label_types, true );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					$default_attachment_id = absint( $s['default_attachment_id'] ?? 0 );
-					$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
-					if ( '' === $default_attachment_url && ! empty( $s['default_attachment_url'] ) ) {
-						$default_attachment_url = esc_url_raw( (string) $s['default_attachment_url'] );
+					if ( $default_attachment_id && ( ! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id ) || ! str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' ) ) ) {
+						$default_attachment_id = 0;
 					}
+					$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
 					?>
 					<div class="oc-layer-section">
 						<?php if ( in_array( $layer->type, [ 'image', 'clipmask' ], true ) && $default_attachment_url ) : ?>
@@ -279,7 +294,7 @@ foreach ( $layers as $layer ) {
 										<p class="oc-settings-empty"><?php esc_html_e( 'Image is fixed for this product.', 'overcustomise' ); ?></p>
 									<?php endif; ?>
 									<?php if ( 'image' === $layer->type && ! empty( $image_filter_ids ) && $allow_image_filter_change ) : ?>
-										<?php $available_filters = array_filter( OC_DB::get_image_filters( true ), fn( $filter ) => in_array( (int) $filter->id, $image_filter_ids, true ) ); ?>
+										<?php $available_filters = array_filter( $all_image_filters, fn( $filter ) => in_array( (int) $filter->id, $image_filter_ids, true ) ); ?>
 										<?php if ( ! empty( $available_filters ) ) : ?>
 											<div class="oc-control-group oc-control-group--side-label" style="margin-top:10px;">
 												<label for="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></label>
@@ -296,36 +311,16 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
 								<?php
-								if ( isset( $clipart_by_layer[ (int) $layer->id ] ) ) {
-									$items = array_map( static function ( array $item ) {
-										return (object) [
-											'id' => $item['id'] ?? 0,
-											'name' => $item['name'] ?? '',
-											'url' => $item['url'] ?? '',
-											'file_type' => $item['fileType'] ?? 'svg',
-											'recolourable' => ! empty( $item['recolourable'] ),
-											'group_names' => implode( '||', $item['groupNames'] ?? [] ),
-										];
-									}, $clipart_by_layer[ (int) $layer->id ] );
-								} elseif ( ! empty( $clipart_group_ids ) ) {
-									global $wpdb;
-									$phs   = implode( ',', array_fill( 0, count( $clipart_group_ids ), '%d' ) );
-									$items = $wpdb->get_results( $wpdb->prepare(
-										"SELECT DISTINCT c.id, c.name, c.file_path, c.file_type, c.colour_changeable, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
-										 JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
-										 JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
-										 WHERE gi.group_id IN ($phs) AND c.active = 1
-										 GROUP BY c.id, c.name, c.file_path, c.file_type, c.colour_changeable ORDER BY c.name ASC",
-										...$clipart_group_ids
-									) ) ?: [];
-								} else {
-									global $wpdb;
-									$items = $wpdb->get_results( "SELECT id, name, file_path, file_type, colour_changeable, GROUP_CONCAT(DISTINCT cg.name SEPARATOR '||') AS group_names FROM {$wpdb->prefix}oc_clipart c
-									 LEFT JOIN {$wpdb->prefix}oc_clipart_group_items gi ON gi.clipart_id = c.id
-									 LEFT JOIN {$wpdb->prefix}oc_clipart_groups cg ON cg.id = gi.group_id
-									 WHERE c.active = 1
-									 GROUP BY c.id, c.name, c.file_path, c.file_type, c.colour_changeable ORDER BY c.name ASC" ) ?: [];
-								}
+								$items = array_map( static function ( array $item ) {
+									return (object) [
+										'id' => $item['id'] ?? 0,
+										'name' => $item['name'] ?? '',
+										'url' => $item['url'] ?? '',
+										'file_type' => $item['fileType'] ?? 'svg',
+										'recolourable' => ! empty( $item['recolourable'] ),
+										'group_names' => implode( '||', is_array( $item['groupNames'] ?? null ) ? $item['groupNames'] : [] ),
+									];
+								}, is_array( $clipart_by_layer[ (int) $layer->id ] ?? null ) ? $clipart_by_layer[ (int) $layer->id ] : [] );
 								$group_names = [];
 								foreach ( $items as $ci ) {
 									if ( ! empty( $ci->group_names ) ) {
@@ -357,7 +352,8 @@ foreach ( $layers as $layer ) {
 								<?php endif; ?>
 								<div class="oc-clipart-grid<?php echo 'carousel' === $clipart_display ? ' oc-clipart-grid--carousel' : ''; ?>" data-oc-clipart-grid="<?php echo esc_attr( $layer->id ); ?>">
 									<?php foreach ( $items as $ci ) :
-										$curl = ! empty( $ci->url ) ? (string) $ci->url : $upload_dir['baseurl'] . '/overcustomise/clipart/' . basename( $ci->file_path );
+										$curl = ! empty( $ci->url ) ? esc_url_raw( (string) $ci->url ) : '';
+										if ( '' === $curl ) continue;
 										$ci_group_names = $ci->group_names ? array_filter( array_map( 'trim', explode( '||', $ci->group_names ) ) ) : [];
 										$ci_groups_attr = implode( '||', $ci_group_names );
 										$ci_recolourable = property_exists( $ci, 'recolourable' ) ? (bool) $ci->recolourable : ( ( ! property_exists( $ci, 'colour_changeable' ) || (bool) $ci->colour_changeable ) && 'svg' === strtolower( (string) $ci->file_type ) );
@@ -460,7 +456,7 @@ foreach ( $layers as $layer ) {
 									<select class="oc-font-native-select" data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>" aria-hidden="true" tabindex="-1">
 										<?php foreach ( $layer_fonts as $font ) : ?>
 											<option value="<?php echo esc_attr( $font['id'] ); ?>"
-												<?php selected( absint( $s['default_font_id'] ?? 0 ), absint( $font['id'] ) ); ?>
+											<?php selected( $default_font_id, absint( $font['id'] ) ); ?>
 												style="font-family:'<?php echo esc_attr( $font['name'] ); ?>';">
 												<?php echo esc_html( $font['name'] ); ?>
 											</option>

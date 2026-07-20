@@ -1006,6 +1006,32 @@
 .oc-customiser-panel .oc-spotify-share-dialog.is-visible::backdrop {
   opacity: 1;
 }
+.oc-customiser-panel .oc-spotify-share-dialog.oc-dialog-fallback {
+  position: fixed;
+  z-index: 100000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: none;
+  padding: 16px;
+  margin: 0;
+  background: rgba(0, 0, 0, 0.85);
+  overflow: auto;
+  transform: none;
+}
+.oc-customiser-panel .oc-spotify-share-dialog.oc-dialog-fallback[hidden] {
+  display: none;
+}
+.oc-customiser-panel .oc-spotify-share-dialog.oc-dialog-fallback[open].is-visible {
+  transform: none;
+}
+.oc-customiser-panel .oc-spotify-share-dialog.oc-dialog-fallback .oc-sp-modal-card {
+  width: min(900px, 100%);
+  max-height: calc(100vh - 32px);
+  overflow: auto;
+}
 .oc-customiser-panel .oc-sp-modal-card {
   background-color: var(--sp-bg-dark);
   border: 1px solid var(--sp-border);
@@ -1193,6 +1219,21 @@
 .oc-customiser-panel .oc-upload-error:empty {
   display: none;
 }
+.oc-customiser-panel .oc-upload-retry {
+  appearance: none;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.oc-customiser-panel .oc-upload-retry:focus-visible {
+  outline: 2px solid currentcolor;
+  outline-offset: 2px;
+}
 .oc-customiser-panel .oc-font-preview {
   height: 48px;
   display: flex;
@@ -1286,6 +1327,32 @@
 .oc-customiser-panel .oc-cart-preview-dialog.is-visible {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+.oc-customiser-panel .oc-cart-preview-dialog--fallback {
+  position: fixed;
+  z-index: 100000;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-height: none;
+  padding: 12px;
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.62);
+  overflow: auto;
+  transform: none;
+}
+.oc-customiser-panel .oc-cart-preview-dialog--fallback[hidden] {
+  display: none;
+}
+.oc-customiser-panel .oc-cart-preview-dialog--fallback.is-visible {
+  transform: none;
+}
+.oc-customiser-panel .oc-cart-preview-dialog--fallback .oc-cart-preview-card {
+  width: min(420px, 100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: auto;
 }
 .oc-customiser-panel .oc-cart-preview-card {
   display: flex;
@@ -1564,6 +1631,9 @@
   .oc-customiser-panel .oc-canvas-wrap {
     display: none !important;
   }
+}
+.oc-cart-preview-open {
+  overflow: hidden;
 }
 .oc-canvas-wrap.oc-gallery-mounted-preview {
   display: block !important;

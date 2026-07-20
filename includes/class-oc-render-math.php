@@ -13,7 +13,7 @@ class OC_Render_Math {
 
 	/** Clamp DPI to the supported render range. */
 	public static function normalise_dpi( mixed $value ): int {
-		return min( 1200, max( 1, (int) round( (float) ( $value ?: 300 ) ) ) );
+		return min( 1200, max( 36, (int) round( (float) ( $value ?: 300 ) ) ) );
 	}
 
 	/** Return a physical-unit to canvas-pixel scale for preview/render geometry. */

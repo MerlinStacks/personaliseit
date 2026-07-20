@@ -11,6 +11,8 @@ class OC_DB {
 
 	private const PRINT_FILE_CACHE_GROUP = 'oc_print_files';
 	private const PRINT_FILE_CACHE_TTL = 3600;
+	private const UPGRADE_LEASE_OPTION = 'oc_db_upgrade_lock';
+	private const UPGRADE_LEASE_SECONDS = 900;
 
 	private static ?bool $schema_ready = null;
 
@@ -366,8 +368,7 @@ class OC_DB {
 
 	/** Run migrations if DB version is outdated. */
 	public static function maybe_upgrade(): void {
-		$lock_name = 'oc_db_upgrade_lock';
-		self::clear_stale_upgrade_lock( $lock_name );
+		$lock_name = self::upgrade_lock_name();
 
 		$installed = (string) get_option( 'oc_db_version', '0' );
 		$outdated  = version_compare( $installed, OC_DB_VERSION, '<' );
@@ -385,6 +386,7 @@ class OC_DB {
 			$installed = (string) get_option( 'oc_db_version', '0' );
 			self::$schema_ready = null;
 			self::create_tables();
+			self::renew_upgrade_lock( $lock_owner );
 
 			global $wpdb;
 
@@ -524,9 +526,12 @@ class OC_DB {
 				self::create_tables();
 			}
 
+			self::renew_upgrade_lock( $lock_owner );
 			self::repair_current_print_schema();
+			self::renew_upgrade_lock( $lock_owner );
 			self::$schema_ready = null;
 			$backfilled = self::backfill_print_pipeline_schema();
+			self::renew_upgrade_lock( $lock_owner );
 
 			if ( $backfilled && self::print_pipeline_schema_ready() ) {
 				update_option( 'oc_db_version', OC_DB_VERSION );
@@ -545,11 +550,17 @@ class OC_DB {
 
 	/** Return whether requests may safely use the current print-pipeline schema. */
 	public static function print_pipeline_available(): bool {
-		if ( get_option( 'oc_db_upgrade_lock', 0 ) ) {
+		if ( version_compare( (string) get_option( 'oc_db_version', '0' ), OC_DB_VERSION, '<' ) ) {
+			return false;
+		}
+		if ( self::upgrade_lease_is_active() ) {
 			return false;
 		}
 
-		return ! version_compare( (string) get_option( 'oc_db_version', '0' ), OC_DB_VERSION, '<' );
+		global $wpdb;
+		$is_free = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_FREE_LOCK(%s)', self::upgrade_lock_name() ) );
+
+		return 1 === (int) $is_free;
 	}
 
 	/** Confirm every current plugin column and index required at runtime is present. */
@@ -742,51 +753,156 @@ class OC_DB {
 			&& $columns === array_map( static fn ( object $row ): string => (string) $row->COLUMN_NAME, $rows );
 	}
 
-	/** Atomically acquire the upgrade lock and return this process's owner token. */
-	private static function acquire_upgrade_lock( string $lock_name ): ?string {
-		self::clear_stale_upgrade_lock( $lock_name );
-		if ( '' !== (string) get_option( $lock_name, '' ) ) {
+	/** Build a database-specific advisory lock name within MySQL's 64-byte limit. */
+	private static function upgrade_lock_name(): string {
+		global $wpdb;
+
+		$database = defined( 'DB_NAME' ) ? (string) DB_NAME : '';
+		return 'oc_db_upgrade_' . substr( hash( 'sha256', $database . '|' . (string) $wpdb->prefix ), 0, 32 );
+	}
+
+	/** Acquire both a renewable owner lease and a connection-held MySQL lock. */
+	private static function acquire_upgrade_lock( string $lock_name ): ?array {
+		global $wpdb;
+		$acquired = $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock_name ) );
+		if ( 1 !== (int) $acquired ) {
 			return null;
 		}
 
-		$owner = time() . '|' . ( function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'oc-', true ) );
-		return add_option( $lock_name, $owner, '', false ) ? $owner : null;
-	}
+		self::clear_stale_upgrade_lease();
+		try {
+			$token = function_exists( 'wp_generate_uuid4' ) ? wp_generate_uuid4() : uniqid( 'oc-', true );
+			$value = self::upgrade_lease_value( $token );
+			if ( ! add_option( self::UPGRADE_LEASE_OPTION, $value, '', false ) ) {
+				$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+				return null;
+			}
 
-	/** Remove an abandoned or malformed upgrade lock without touching an active owner. */
-	private static function clear_stale_upgrade_lock( string $lock_name ): void {
-		$current = (string) get_option( $lock_name, '' );
-		if ( '' === $current ) {
-			return;
+			return [
+				'name'          => $lock_name,
+				'connection_id' => (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' ),
+				'token'         => $token,
+				'lease_value'   => $value,
+			];
+		} catch ( \Throwable $e ) {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+			throw $e;
 		}
-
-		$locked_at = (int) strtok( $current, '|' );
-		if ( $locked_at <= 0 || $locked_at < time() - 300 ) {
-			self::delete_owned_option( $lock_name, $current );
-		}
 	}
 
-	/** Release the upgrade lock only when it still belongs to this process. */
-	private static function release_upgrade_lock( string $lock_name, string $owner ): void {
-		self::delete_owned_option( $lock_name, $owner );
-	}
-
-	/** Conditionally delete an option without allowing an old owner to remove a new lock. */
-	private static function delete_owned_option( string $option_name, string $expected_value ): bool {
+	/** Verify advisory ownership and renew the durable lease after migration phases. */
+	private static function renew_upgrade_lock( array &$owner ): void {
 		global $wpdb;
+		$lock_name = (string) ( $owner['name'] ?? '' );
+		$token     = (string) ( $owner['token'] ?? '' );
+		$old_value = (string) ( $owner['lease_value'] ?? '' );
+		if ( '' === $lock_name || '' === $token || '' === $old_value ) {
+			throw new \RuntimeException( 'The database upgrade lock owner is invalid.' );
+		}
 
+		$current_connection = (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' );
+		$used_by            = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name ) );
+		if ( $current_connection <= 0 || $current_connection !== (int) $used_by ) {
+			$is_free = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_FREE_LOCK(%s)', $lock_name ) );
+			if ( 1 !== (int) $is_free || 1 !== (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock_name ) ) ) {
+				throw new \RuntimeException( 'The database upgrade advisory lock was lost.' );
+			}
+			$current_connection = (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' );
+		}
+
+		$new_value = self::upgrade_lease_value( $token );
+		$updated   = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s AND option_value = %s",
+			$new_value,
+			self::UPGRADE_LEASE_OPTION,
+			$old_value
+		) );
+		if ( 1 !== $updated ) {
+			throw new \RuntimeException( 'The database upgrade owner lease was lost.' );
+		}
+
+		self::clear_option_cache( self::UPGRADE_LEASE_OPTION );
+		$owner['connection_id'] = $current_connection;
+		$owner['lease_value']   = $new_value;
+	}
+
+	/** Release only locks that still belong to this migration owner. */
+	private static function release_upgrade_lock( string $lock_name, array $owner ): void {
+		global $wpdb;
+		$current_connection = (int) $wpdb->get_var( 'SELECT CONNECTION_ID()' );
+		$used_by            = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_USED_LOCK(%s)', $lock_name ) );
+		if ( $current_connection > 0 && $current_connection === (int) $used_by ) {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock_name ) );
+		}
+
+		self::delete_owned_upgrade_lease( (string) ( $owner['lease_value'] ?? '' ) );
+	}
+
+	/** Build a renewable lease value without relying on a request-local transient. */
+	private static function upgrade_lease_value( string $token ): string {
+		return (string) wp_json_encode( [
+			'token'   => $token,
+			'expires' => time() + self::upgrade_lease_seconds(),
+			'renewed' => sprintf( '%.6F', microtime( true ) ),
+		] );
+	}
+
+	/** Return a safely bounded migration lease duration. */
+	private static function upgrade_lease_seconds(): int {
+		$value = apply_filters( 'oc_db_upgrade_lease_seconds', self::UPGRADE_LEASE_SECONDS );
+		$value = is_numeric( $value ) ? (int) $value : self::UPGRADE_LEASE_SECONDS;
+
+		return max( 300, min( HOUR_IN_SECONDS, $value ) );
+	}
+
+	/** Return whether a current or legacy migration lease is still active. */
+	private static function upgrade_lease_is_active(): bool {
+		$value = (string) get_option( self::UPGRADE_LEASE_OPTION, '' );
+		if ( '' === $value ) {
+			return false;
+		}
+
+		$decoded = json_decode( $value, true );
+		if ( is_array( $decoded ) && is_numeric( $decoded['expires'] ?? null ) ) {
+			return (int) $decoded['expires'] >= time();
+		}
+
+		$legacy_time = (int) strtok( $value, '|' );
+		return $legacy_time > 0 && $legacy_time >= time() - self::upgrade_lease_seconds();
+	}
+
+	/** Delete an expired lease with compare-and-set semantics. */
+	private static function clear_stale_upgrade_lease(): void {
+		$value = (string) get_option( self::UPGRADE_LEASE_OPTION, '' );
+		if ( '' !== $value && ! self::upgrade_lease_is_active() ) {
+			self::delete_owned_upgrade_lease( $value );
+		}
+	}
+
+	/** Conditionally delete this owner's durable lease. */
+	private static function delete_owned_upgrade_lease( string $expected_value ): bool {
+		if ( '' === $expected_value ) {
+			return false;
+		}
+
+		global $wpdb;
 		$deleted = $wpdb->query( $wpdb->prepare(
 			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
-			$option_name,
+			self::UPGRADE_LEASE_OPTION,
 			$expected_value
 		) );
 		if ( 1 === $deleted ) {
-			wp_cache_delete( $option_name, 'options' );
-			wp_cache_delete( 'alloptions', 'options' );
+			self::clear_option_cache( self::UPGRADE_LEASE_OPTION );
 			return true;
 		}
 
 		return false;
+	}
+
+	/** Invalidate both individual and all-options cache entries after direct SQL. */
+	private static function clear_option_cache( string $option_name ): void {
+		wp_cache_delete( $option_name, 'options' );
+		wp_cache_delete( 'alloptions', 'options' );
 	}
 
 	/** Log an upgrade failure without assuming the normal plugin bootstrap has loaded the logger. */
@@ -898,87 +1014,73 @@ class OC_DB {
 	/** Fetch a product config row by WC product ID. */
 	public static function get_config_by_product( int $product_id ): ?object {
 		$cache_key = 'product_config_' . $product_id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$row = $wpdb->get_row(
-			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_product_configs WHERE product_id = %d LIMIT 1",
-				$product_id
-			)
-		) ?: null;
-		OC_Cache::set( $cache_key, $row );
-		return $row;
+
+		return OC_Cache::remember( $cache_key, static function () use ( $product_id ): ?object {
+			global $wpdb;
+			return $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_product_configs WHERE product_id = %d LIMIT 1",
+					$product_id
+				)
+			) ?: null;
+		} );
 	}
 
 	/** Fetch all print areas for a given config ID. */
 	public static function get_print_areas( int $config_id ): array {
 		$cache_key = 'print_areas_' . $config_id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$results = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_print_areas WHERE config_id = %d ORDER BY sort_order ASC",
-				$config_id
-			)
-		) ?: [];
-		OC_Cache::set( $cache_key, $results );
-		return $results;
+
+		return OC_Cache::remember( $cache_key, static function () use ( $config_id ): array {
+			global $wpdb;
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_print_areas WHERE config_id = %d ORDER BY sort_order ASC",
+					$config_id
+				)
+			) ?: [];
+		} );
 	}
 
 	/** Fetch all colours (optionally active-only). */
 	public static function get_colours( bool $active_only = true ): array {
 		$cache_key = 'colours_' . ( $active_only ? 'active' : 'all' );
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		if ( $active_only ) {
-			$results = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_colours WHERE active = %d ORDER BY name ASC",
-					1
-				)
-			) ?: [];
-		} else {
-			$results = $wpdb->get_results(
+
+		return OC_Cache::remember( $cache_key, static function () use ( $active_only ): array {
+			global $wpdb;
+			if ( $active_only ) {
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_colours WHERE active = %d ORDER BY name ASC",
+						1
+					)
+				) ?: [];
+			}
+
+			return $wpdb->get_results(
 				"SELECT * FROM {$wpdb->prefix}oc_colours ORDER BY name ASC"
 			) ?: [];
-		}
-		OC_Cache::set( $cache_key, $results );
-		return $results;
+		} );
 	}
 
 	/** Fetch all image filters (optionally active-only). */
 	public static function get_image_filters( bool $active_only = true ): array {
 		$cache_key = 'image_filters_' . ( $active_only ? 'active' : 'all' );
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
 
-		global $wpdb;
-		if ( $active_only ) {
-			$results = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_image_filters WHERE active = %d ORDER BY name ASC",
-					1
-				)
-			) ?: [];
-		} else {
-			$results = $wpdb->get_results(
+		return OC_Cache::remember( $cache_key, static function () use ( $active_only ): array {
+			global $wpdb;
+			if ( $active_only ) {
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_image_filters WHERE active = %d ORDER BY name ASC",
+						1
+					)
+				) ?: [];
+			}
+
+			return $wpdb->get_results(
 				"SELECT * FROM {$wpdb->prefix}oc_image_filters ORDER BY name ASC"
 			) ?: [];
-		}
-
-		OC_Cache::set( $cache_key, $results );
-		return $results;
+		} );
 	}
 
 	/** Clear cached image filter query results. */
@@ -990,36 +1092,29 @@ class OC_DB {
 	/** Fetch all colour groups with their associated colour IDs. */
 	public static function get_colour_groups(): array {
 		$cache_key = 'colour_groups';
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
 
-		$groups = $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_colour_groups ORDER BY name ASC"
-		) ?: [];
+		return OC_Cache::remember( $cache_key, static function (): array {
+			global $wpdb;
+			$groups = $wpdb->get_results(
+				"SELECT * FROM {$wpdb->prefix}oc_colour_groups ORDER BY name ASC"
+			) ?: [];
+			if ( empty( $groups ) ) {
+				return [];
+			}
 
-		if ( empty( $groups ) ) {
-			OC_Cache::set( $cache_key, [] );
-			return [];
-		}
+			$all_items = $wpdb->get_results(
+				"SELECT group_id, colour_id FROM {$wpdb->prefix}oc_colour_group_items ORDER BY sort_order ASC"
+			) ?: [];
+			$by_group = [];
+			foreach ( $all_items as $item ) {
+				$by_group[ (int) $item->group_id ][] = (int) $item->colour_id;
+			}
+			foreach ( $groups as $group ) {
+				$group->colour_ids = $by_group[ (int) $group->id ] ?? [];
+			}
 
-		$all_items = $wpdb->get_results(
-			"SELECT group_id, colour_id FROM {$wpdb->prefix}oc_colour_group_items ORDER BY sort_order ASC"
-		) ?: [];
-
-		$by_group = [];
-		foreach ( $all_items as $item ) {
-			$by_group[ (int) $item->group_id ][] = (int) $item->colour_id;
-		}
-
-		foreach ( $groups as $group ) {
-			$group->colour_ids = $by_group[ (int) $group->id ] ?? [];
-		}
-
-		OC_Cache::set( $cache_key, $groups );
-		return $groups;
+			return $groups;
+		} );
 	}
 
 	/** Fetch active colours available to the supplied colour group IDs. Empty IDs mean all active colours. */
@@ -1066,60 +1161,50 @@ class OC_DB {
 	/** Fetch all font groups with their associated font IDs. */
 	public static function get_font_groups(): array {
 		$cache_key = 'font_groups';
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
 
-		$groups = $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_font_groups ORDER BY name ASC"
-		) ?: [];
+		return OC_Cache::remember( $cache_key, static function (): array {
+			global $wpdb;
+			$groups = $wpdb->get_results(
+				"SELECT * FROM {$wpdb->prefix}oc_font_groups ORDER BY name ASC"
+			) ?: [];
+			if ( empty( $groups ) ) {
+				return [];
+			}
 
-		if ( empty( $groups ) ) {
-			OC_Cache::set( $cache_key, [] );
-			return [];
-		}
+			$all_items = $wpdb->get_results(
+				"SELECT group_id, font_id FROM {$wpdb->prefix}oc_font_group_items ORDER BY sort_order ASC"
+			) ?: [];
+			$by_group = [];
+			foreach ( $all_items as $item ) {
+				$by_group[ (int) $item->group_id ][] = (int) $item->font_id;
+			}
+			foreach ( $groups as $group ) {
+				$group->font_ids = $by_group[ (int) $group->id ] ?? [];
+			}
 
-		$all_items = $wpdb->get_results(
-			"SELECT group_id, font_id FROM {$wpdb->prefix}oc_font_group_items ORDER BY sort_order ASC"
-		) ?: [];
-
-		$by_group = [];
-		foreach ( $all_items as $item ) {
-			$by_group[ (int) $item->group_id ][] = (int) $item->font_id;
-		}
-
-		foreach ( $groups as $group ) {
-			$group->font_ids = $by_group[ (int) $group->id ] ?? [];
-		}
-
-		OC_Cache::set( $cache_key, $groups );
-		return $groups;
+			return $groups;
+		} );
 	}
 
 	/** Fetch all active fonts. */
 	public static function get_fonts( bool $active_only = true ): array {
 		$cache_key = 'fonts_v2_' . ( $active_only ? 'active' : 'all' );
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		if ( $active_only ) {
-			$results = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE active = %d ORDER BY name ASC",
-					1
-				)
-			) ?: [];
-		} else {
-			$results = $wpdb->get_results(
+
+		return OC_Cache::remember( $cache_key, static function () use ( $active_only ): array {
+			global $wpdb;
+			if ( $active_only ) {
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE active = %d ORDER BY name ASC",
+						1
+					)
+				) ?: [];
+			}
+
+			return $wpdb->get_results(
 				"SELECT * FROM {$wpdb->prefix}oc_fonts ORDER BY name ASC"
 			) ?: [];
-		}
-		OC_Cache::set( $cache_key, $results );
-		return $results;
+		} );
 	}
 
 	/** Fetch active font IDs assigned to any of the supplied font groups. */
@@ -1150,44 +1235,32 @@ class OC_DB {
 
 	/** Fetch print files for a given order item. */
 	public static function get_print_files_for_item( int $order_item_id ): array {
-		$cache_key  = 'print_files_item_' . $order_item_id;
-		$generation = wp_cache_get_last_changed( self::PRINT_FILE_CACHE_GROUP );
-		$found      = false;
-		$cached     = wp_cache_get( $generation . ':' . $cache_key, self::PRINT_FILE_CACHE_GROUP, false, $found );
-		if ( $found ) {
-			return $cached;
-		}
-		global $wpdb;
-		$results = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_item_id = %d",
-				$order_item_id
-			)
-		) ?: [];
-		// Use the generation captured before the query. A concurrent writer can
-		// advance the group without this stale result entering the new generation.
-		wp_cache_set( $generation . ':' . $cache_key, $results, self::PRINT_FILE_CACHE_GROUP, self::PRINT_FILE_CACHE_TTL );
-		return $results;
+		$cache_key = 'print_files_item_' . $order_item_id;
+
+		return OC_Cache::remember_in_group( self::PRINT_FILE_CACHE_GROUP, $cache_key, static function () use ( $order_item_id ): array {
+			global $wpdb;
+			return $wpdb->get_results(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE order_item_id = %d",
+					$order_item_id
+				)
+			) ?: [];
+		}, self::PRINT_FILE_CACHE_TTL );
 	}
 
 	/** Fetch a single print file record by ID. */
 	public static function get_print_file( int $id ): ?object {
-		$cache_key  = 'print_file_' . $id;
-		$generation = wp_cache_get_last_changed( self::PRINT_FILE_CACHE_GROUP );
-		$found      = false;
-		$cached     = wp_cache_get( $generation . ':' . $cache_key, self::PRINT_FILE_CACHE_GROUP, false, $found );
-		if ( $found ) {
-			return $cached;
-		}
-		global $wpdb;
-		$row = $wpdb->get_row(
-			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE id = %d LIMIT 1",
-				$id
-			)
-		) ?: null;
-		wp_cache_set( $generation . ':' . $cache_key, $row, self::PRINT_FILE_CACHE_GROUP, self::PRINT_FILE_CACHE_TTL );
-		return $row;
+		$cache_key = 'print_file_' . $id;
+
+		return OC_Cache::remember_in_group( self::PRINT_FILE_CACHE_GROUP, $cache_key, static function () use ( $id ): ?object {
+			global $wpdb;
+			return $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_print_files WHERE id = %d LIMIT 1",
+					$id
+				)
+			) ?: null;
+		}, self::PRINT_FILE_CACHE_TTL );
 	}
 
 	/**
@@ -1351,7 +1424,7 @@ class OC_DB {
 	}
 
 	/** Atomically move a claimed or exhausted queue job and its files to failed. */
-	public static function fail_queue_job( int $job_id, string $expected_status, int $attempts, string $error_message, array $file_ids ): bool {
+	public static function fail_queue_job( int $job_id, string $expected_status, int $attempts, string $error_message, array $file_ids, ?string $expected_processed_at = null, bool $compare_processed_at = false ): bool {
 		global $wpdb;
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return false;
@@ -1360,10 +1433,15 @@ class OC_DB {
 		$file_ids = array_values( array_unique( array_filter( array_map( 'absint', $file_ids ) ) ) );
 		try {
 			$queue = $wpdb->get_row( $wpdb->prepare(
-				"SELECT status, attempts FROM {$wpdb->prefix}oc_print_queue WHERE id = %d FOR UPDATE",
+				"SELECT status, attempts, processed_at FROM {$wpdb->prefix}oc_print_queue WHERE id = %d FOR UPDATE",
 				$job_id
 			) );
-			if ( ! $queue || $expected_status !== (string) $queue->status || $attempts !== (int) $queue->attempts ) {
+			if (
+				! $queue
+				|| $expected_status !== (string) $queue->status
+				|| $attempts !== (int) $queue->attempts
+				|| ( $compare_processed_at && (string) ( $expected_processed_at ?? '' ) !== (string) ( $queue->processed_at ?? '' ) )
+			) {
 				throw new \RuntimeException( 'The queue state changed before it could be failed.' );
 			}
 
@@ -1387,6 +1465,10 @@ class OC_DB {
 				}
 			}
 
+			$queue_where = [ 'id' => $job_id, 'status' => $expected_status, 'attempts' => $attempts ];
+			if ( $compare_processed_at ) {
+				$queue_where['processed_at'] = $expected_processed_at;
+			}
 			$queue_updated = $wpdb->update(
 				$wpdb->prefix . 'oc_print_queue',
 				[
@@ -1394,7 +1476,7 @@ class OC_DB {
 					'error_message' => $error_message,
 					'processed_at'  => current_time( 'mysql', true ),
 				],
-				[ 'id' => $job_id, 'status' => $expected_status, 'attempts' => $attempts ]
+				$queue_where
 			);
 			if ( 1 !== $queue_updated || false === $wpdb->query( 'COMMIT' ) ) {
 				throw new \RuntimeException( 'The terminal queue failure could not be committed.' );
@@ -1514,84 +1596,71 @@ class OC_DB {
 
 	/** Advance the print-file cache generation after a committed write. */
 	private static function invalidate_print_file_cache(): void {
-		wp_cache_set_last_changed( self::PRINT_FILE_CACHE_GROUP );
+		OC_Cache::invalidate_group( self::PRINT_FILE_CACHE_GROUP );
 	}
 
 	/** Fetch all layers for a design, ordered by area then sort_order. */
 	public static function get_design_layers( int $design_id ): array {
 		$cache_key = 'design_layers_' . $design_id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$results = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_design_layers
-			 WHERE design_id = %d
-			 ORDER BY area_id ASC, sort_order ASC",
-			$design_id
-		) ) ?: [];
-		OC_Cache::set( $cache_key, $results, OC_Cache::TTL_SHORT );
-		return $results;
+
+		return OC_Cache::remember( $cache_key, static function () use ( $design_id ): array {
+			global $wpdb;
+			return $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_design_layers
+				 WHERE design_id = %d
+				 ORDER BY area_id ASC, sort_order ASC",
+				$design_id
+			) ) ?: [];
+		}, OC_Cache::TTL_SHORT );
 	}
 
 	/** Fetch all clipart (optionally active-only). */
 	public static function get_clipart( bool $active_only = true ): array {
 		$cache_key = 'clipart_' . ( $active_only ? 'active' : 'all' );
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		if ( $active_only ) {
-			$results = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_clipart WHERE active = %d ORDER BY name ASC",
-					1
-				)
-			) ?: [];
-		} else {
-			$results = $wpdb->get_results(
+
+		return OC_Cache::remember( $cache_key, static function () use ( $active_only ): array {
+			global $wpdb;
+			if ( $active_only ) {
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_clipart WHERE active = %d ORDER BY name ASC",
+						1
+					)
+				) ?: [];
+			}
+
+			return $wpdb->get_results(
 				"SELECT * FROM {$wpdb->prefix}oc_clipart ORDER BY name ASC"
 			) ?: [];
-		}
-		OC_Cache::set( $cache_key, $results );
-		return $results;
+		} );
 	}
 
 	/** Fetch all clipart groups with their clipart IDs. */
 	public static function get_clipart_groups(): array {
 		$cache_key = 'clipart_groups';
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
 
-		$groups = $wpdb->get_results(
-			"SELECT * FROM {$wpdb->prefix}oc_clipart_groups ORDER BY name ASC"
-		) ?: [];
+		return OC_Cache::remember( $cache_key, static function (): array {
+			global $wpdb;
+			$groups = $wpdb->get_results(
+				"SELECT * FROM {$wpdb->prefix}oc_clipart_groups ORDER BY name ASC"
+			) ?: [];
+			if ( empty( $groups ) ) {
+				return [];
+			}
 
-		if ( empty( $groups ) ) {
-			OC_Cache::set( $cache_key, [] );
-			return [];
-		}
+			$all_items = $wpdb->get_results(
+				"SELECT group_id, clipart_id FROM {$wpdb->prefix}oc_clipart_group_items ORDER BY sort_order ASC"
+			) ?: [];
+			$by_group = [];
+			foreach ( $all_items as $item ) {
+				$by_group[ (int) $item->group_id ][] = (int) $item->clipart_id;
+			}
+			foreach ( $groups as $group ) {
+				$group->clipart_ids = $by_group[ (int) $group->id ] ?? [];
+			}
 
-		$all_items = $wpdb->get_results(
-			"SELECT group_id, clipart_id FROM {$wpdb->prefix}oc_clipart_group_items ORDER BY sort_order ASC"
-		) ?: [];
-
-		$by_group = [];
-		foreach ( $all_items as $item ) {
-			$by_group[ (int) $item->group_id ][] = (int) $item->clipart_id;
-		}
-
-		foreach ( $groups as $group ) {
-			$group->clipart_ids = $by_group[ (int) $group->id ] ?? [];
-		}
-
-		OC_Cache::set( $cache_key, $groups );
-		return $groups;
+			return $groups;
+		} );
 	}
 
 	// ── Designs ───────────────────────────────────────────────────────────────
@@ -1599,59 +1668,50 @@ class OC_DB {
 	/** Fetch a single design by ID. */
 	public static function get_design( int $id ): ?object {
 		$cache_key = 'design_' . $id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_designs WHERE id = %d LIMIT 1", $id
-		) ) ?: null;
-		OC_Cache::set( $cache_key, $row, OC_Cache::TTL_SHORT );
-		return $row;
+
+		return OC_Cache::remember( $cache_key, static function () use ( $id ): ?object {
+			global $wpdb;
+			return $wpdb->get_row( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_designs WHERE id = %d LIMIT 1", $id
+			) ) ?: null;
+		}, OC_Cache::TTL_SHORT );
 	}
 
 	/** Fetch all designs (optionally active-only). */
 	public static function get_designs( bool $active_only = false ): array {
 		$cache_key = 'designs_' . ( $active_only ? 'active' : 'all' );
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		if ( $active_only ) {
-			$results = $wpdb->get_results(
-				$wpdb->prepare(
-					"SELECT * FROM {$wpdb->prefix}oc_designs WHERE active = %d ORDER BY clone_priority DESC, name ASC",
-					1
-				)
-			) ?: [];
-		} else {
-			$results = $wpdb->get_results(
+
+		return OC_Cache::remember( $cache_key, static function () use ( $active_only ): array {
+			global $wpdb;
+			if ( $active_only ) {
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT * FROM {$wpdb->prefix}oc_designs WHERE active = %d ORDER BY clone_priority DESC, name ASC",
+						1
+					)
+				) ?: [];
+			}
+
+			return $wpdb->get_results(
 				"SELECT * FROM {$wpdb->prefix}oc_designs ORDER BY clone_priority DESC, name ASC"
 			) ?: [];
-		}
-		OC_Cache::set( $cache_key, $results, OC_Cache::TTL_SHORT );
-		return $results;
+		}, OC_Cache::TTL_SHORT );
 	}
 
 	/** Fetch all designs with their print area counts. */
 	public static function get_designs_with_area_counts(): array {
 		$cache_key = 'designs_area_counts';
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$results = $wpdb->get_results(
-			"SELECT d.*, COUNT(a.id) AS area_count
-			 FROM {$wpdb->prefix}oc_designs d
-			 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
-			 GROUP BY d.id
-			 ORDER BY d.clone_priority DESC, d.name ASC"
-		) ?: [];
-		OC_Cache::set( $cache_key, $results, OC_Cache::TTL_SHORT );
-		return $results;
+
+		return OC_Cache::remember( $cache_key, static function (): array {
+			global $wpdb;
+			return $wpdb->get_results(
+				"SELECT d.*, COUNT(a.id) AS area_count
+				 FROM {$wpdb->prefix}oc_designs d
+				 LEFT JOIN {$wpdb->prefix}oc_design_print_areas a ON a.design_id = d.id
+				 GROUP BY d.id
+				 ORDER BY d.clone_priority DESC, d.name ASC"
+			) ?: [];
+		}, OC_Cache::TTL_SHORT );
 	}
 
 	/** Fetch a page of designs with their print area counts. */
@@ -1692,17 +1752,14 @@ class OC_DB {
 	/** Fetch print areas for a design. */
 	public static function get_design_print_areas( int $design_id ): array {
 		$cache_key = 'design_areas_' . $design_id;
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$results = $wpdb->get_results( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d ORDER BY sort_order ASC",
-			$design_id
-		) ) ?: [];
-		OC_Cache::set( $cache_key, $results, OC_Cache::TTL_SHORT );
-		return $results;
+
+		return OC_Cache::remember( $cache_key, static function () use ( $design_id ): array {
+			global $wpdb;
+			return $wpdb->get_results( $wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d ORDER BY sort_order ASC",
+				$design_id
+			) ) ?: [];
+		}, OC_Cache::TTL_SHORT );
 	}
 
 	// ── Product assignments ───────────────────────────────────────────────────
@@ -1710,24 +1767,22 @@ class OC_DB {
 	/** Fetch all product design assignments keyed as [product_id][variant_id]. */
 	public static function get_all_assignments(): array {
 		$cache_key = 'all_assignments_v2';
-		$cached    = OC_Cache::get( $cache_key );
-		if ( null !== $cached ) {
-			return $cached;
-		}
-		global $wpdb;
-		$rows = $wpdb->get_results(
-			"SELECT product_id, variant_id, design_id, design_variants FROM {$wpdb->prefix}oc_product_assignments"
-		) ?: [];
 
-		$map = [];
-		foreach ( $rows as $row ) {
-			$map[ (int) $row->product_id ][ (int) $row->variant_id ] = [
-				'design_id'       => (int) $row->design_id,
-				'design_variants' => (string) ( $row->design_variants ?? '' ),
-			];
-		}
-		OC_Cache::set( $cache_key, $map );
-		return $map;
+		return OC_Cache::remember( $cache_key, static function (): array {
+			global $wpdb;
+			$rows = $wpdb->get_results(
+				"SELECT product_id, variant_id, design_id, design_variants FROM {$wpdb->prefix}oc_product_assignments"
+			) ?: [];
+			$map = [];
+			foreach ( $rows as $row ) {
+				$map[ (int) $row->product_id ][ (int) $row->variant_id ] = [
+					'design_id'       => (int) $row->design_id,
+					'design_variants' => (string) ( $row->design_variants ?? '' ),
+				];
+			}
+
+			return $map;
+		} );
 	}
 
 	/** Fetch product design assignments for a specific set of parent product IDs. */
@@ -1777,59 +1832,54 @@ class OC_DB {
 		}
 
 		$cache_key = 'assignment_' . $product_id . '_' . $variant_id . '_' . ( $allow_variant_fallback ? '1' : '0' );
-		$cached    = OC_Cache::get( $cache_key );
-		if ( '__oc_no_assignment__' === $cached ) {
-			return null;
-		}
-		if ( null !== $cached ) {
-			return $cached;
-		}
-
-		if ( $variant_id > 0 ) {
-			$row = $wpdb->get_row( $wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_product_assignments
-				 WHERE product_id = %d AND variant_id = %d LIMIT 1",
-				$product_id,
-				$variant_id
-			) );
-			if ( $row ) {
-				OC_Cache::set( $cache_key, $row );
-				return $row;
-			}
-		}
-
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_product_assignments
-			 WHERE product_id = %d AND variant_id = 0 LIMIT 1",
-			$product_id
-		) );
-		if ( $row ) {
-			OC_Cache::set( $cache_key, $row );
-			return $row;
-		}
-
-		if ( $allow_variant_fallback && $product->is_type( 'variable' ) ) {
-			$variation_ids = $product->get_children();
-			if ( ! empty( $variation_ids ) ) {
-				$placeholders = implode( ',', array_fill( 0, count( $variation_ids ), '%d' ) );
-				$row = $wpdb->get_row(
-					$wpdb->prepare(
+		$cached = OC_Cache::remember(
+			$cache_key,
+			static function () use ( $wpdb, $product, $product_id, $variant_id, $allow_variant_fallback ) {
+				if ( $variant_id > 0 ) {
+					$row = $wpdb->get_row( $wpdb->prepare(
 						"SELECT * FROM {$wpdb->prefix}oc_product_assignments
-						 WHERE product_id = %d AND variant_id IN ($placeholders)
-						 ORDER BY variant_id ASC LIMIT 1",
+						 WHERE product_id = %d AND variant_id = %d LIMIT 1",
 						$product_id,
-						...$variation_ids
-					)
-				);
+						$variant_id
+					) );
+					if ( $row ) {
+						return $row;
+					}
+				}
+
+				$row = $wpdb->get_row( $wpdb->prepare(
+					"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+					 WHERE product_id = %d AND variant_id = 0 LIMIT 1",
+					$product_id
+				) );
 				if ( $row ) {
-					OC_Cache::set( $cache_key, $row );
 					return $row;
 				}
-			}
-		}
 
-		OC_Cache::set( $cache_key, '__oc_no_assignment__' );
-		return null;
+				if ( $allow_variant_fallback && $product->is_type( 'variable' ) ) {
+					$variation_ids = $product->get_children();
+					if ( ! empty( $variation_ids ) ) {
+						$placeholders = implode( ',', array_fill( 0, count( $variation_ids ), '%d' ) );
+						$row = $wpdb->get_row(
+							$wpdb->prepare(
+								"SELECT * FROM {$wpdb->prefix}oc_product_assignments
+								 WHERE product_id = %d AND variant_id IN ($placeholders)
+								 ORDER BY variant_id ASC LIMIT 1",
+								$product_id,
+								...$variation_ids
+							)
+						);
+						if ( $row ) {
+							return $row;
+						}
+					}
+				}
+
+				return '__oc_no_assignment__';
+			}
+		);
+
+		return '__oc_no_assignment__' === $cached ? null : $cached;
 	}
 
 	/** Check whether an assignment allows the supplied design, including enabled design variants. */
@@ -1963,6 +2013,107 @@ class OC_DB {
 		) );
 
 		return 1 === $claimed ? self::get_queue_job( $id ) : null;
+	}
+
+	/** Renew a processing claim without changing its compare-and-set attempt token. */
+	public static function heartbeat_queue_job( int $id, int $attempts ): bool {
+		global $wpdb;
+		$now = current_time( 'mysql', true );
+
+		$renewed = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->prefix}oc_print_queue
+			 SET processed_at = CASE
+				 WHEN processed_at IS NULL OR processed_at < %s THEN %s
+				 ELSE DATE_ADD(processed_at, INTERVAL 1 SECOND)
+			 END
+			 WHERE id = %d AND status = 'processing' AND attempts = %d",
+			$now,
+			$now,
+			$id,
+			$attempts
+		) );
+
+		return 1 === $renewed;
+	}
+
+	/** Return output-lock contention to pending without spending an attempt. */
+	public static function requeue_contended_job( int $id, int $attempts, string $retry_at, string $message ): bool {
+		global $wpdb;
+		if ( $attempts < 1 ) {
+			return false;
+		}
+
+		$updated = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->prefix}oc_print_queue
+			 SET status = 'pending', attempts = attempts - 1, processed_at = %s, error_message = %s
+			 WHERE id = %d AND status = 'processing' AND attempts = %d",
+			$retry_at,
+			$message,
+			$id,
+			$attempts
+		) );
+
+		return 1 === $updated;
+	}
+
+	/** Return a pending job's 1-based position among jobs that are currently due. */
+	public static function get_due_queue_position( int $id, int $max_attempts ): int {
+		$positions = self::get_due_queue_positions( [ $id ], $max_attempts );
+
+		return (int) ( $positions[ $id ] ?? 0 );
+	}
+
+	/** Return real queue positions for several due jobs in one query. */
+	public static function get_due_queue_positions( array $ids, int $max_attempts ): array {
+		global $wpdb;
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
+		if ( empty( $ids ) ) {
+			return [];
+		}
+
+		$now          = current_time( 'mysql', true );
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$params       = array_merge( [ $max_attempts, $now ], $ids, [ $max_attempts, $now ] );
+		$rows         = $wpdb->get_results( $wpdb->prepare(
+			"SELECT target.id, COUNT(ahead.id) + 1 AS queue_position
+			 FROM {$wpdb->prefix}oc_print_queue target
+			 LEFT JOIN {$wpdb->prefix}oc_print_queue ahead
+			 ON ahead.status = 'pending' AND ahead.attempts < %d
+			 AND (ahead.processed_at IS NULL OR ahead.processed_at <= %s)
+			 AND (ahead.created_at < target.created_at OR (ahead.created_at = target.created_at AND ahead.id < target.id))
+			 WHERE target.id IN ({$placeholders})
+			 AND target.status = 'pending' AND target.attempts < %d
+			 AND (target.processed_at IS NULL OR target.processed_at <= %s)
+			 GROUP BY target.id",
+			...$params
+		) ) ?: [];
+
+		$positions = [];
+		foreach ( $rows as $row ) {
+			$positions[ (int) $row->id ] = (int) $row->queue_position;
+		}
+
+		return $positions;
+	}
+
+	/** Return seconds until the earliest pending job may be claimed, or null if none exist. */
+	public static function seconds_until_next_queue_job( int $max_attempts ): ?int {
+		global $wpdb;
+		$now  = current_time( 'mysql', true );
+		$next = $wpdb->get_var( $wpdb->prepare(
+			"SELECT MIN(CASE WHEN processed_at IS NULL THEN %s ELSE processed_at END)
+			 FROM {$wpdb->prefix}oc_print_queue
+			 WHERE status = 'pending' AND attempts < %d",
+			$now,
+			$max_attempts,
+		) );
+		if ( ! is_string( $next ) || '' === $next ) {
+			return null;
+		}
+
+		$timestamp = strtotime( $next . ' UTC' );
+
+		return false === $timestamp ? 0 : max( 0, $timestamp - time() );
 	}
 
 	/** Fetch queue jobs for admin management. */

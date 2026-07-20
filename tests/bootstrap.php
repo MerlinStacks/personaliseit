@@ -51,7 +51,7 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 if ( ! function_exists( 'wp_upload_dir' ) ) {
 	function wp_upload_dir(): array {
 		return [
-			'basedir' => sys_get_temp_dir(),
+			'basedir' => sys_get_temp_dir() . '/overcustomise-test-uploads',
 			'baseurl' => 'http://example.com/wp-content/uploads',
 		];
 	}
@@ -72,6 +72,21 @@ if ( ! function_exists( 'trailingslashit' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_normalize_path' ) ) {
+	function wp_normalize_path( string $path ): string {
+		return str_replace( '\\', '/', $path );
+	}
+}
+
+if ( ! function_exists( 'apply_filters' ) ) {
+	function apply_filters( string $hook_name, mixed $value, mixed ...$args ): mixed {
+		if ( 'oc_private_storage_root' === $hook_name ) {
+			return sys_get_temp_dir() . '/overcustomise-test-private';
+		}
+		return $value;
+	}
+}
+
 if ( ! function_exists( 'sanitize_file_name' ) ) {
 	function sanitize_file_name( string $name ): string {
 		return preg_replace( '/[^a-zA-Z0-9._-]/', '-', $name );
@@ -87,6 +102,12 @@ if ( ! function_exists( 'current_time' ) ) {
 if ( ! function_exists( 'get_option' ) ) {
 	function get_option( string $option, $default = false ) {
 		return $default;
+	}
+}
+
+if ( ! function_exists( 'get_transient' ) ) {
+	function get_transient( string $transient ) {
+		return $GLOBALS['oc_test_transients'][ $transient ] ?? false;
 	}
 }
 
@@ -241,6 +262,7 @@ if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
 require_once OC_PATH . 'includes/class-oc-command-runner.php';
 require_once OC_PATH . 'includes/class-oc-woff-converter.php';
+require_once OC_PATH . 'includes/class-oc-rest-api.php';
 require_once OC_PATH . 'includes/class-oc-upload-handler.php';
 require_once OC_PATH . 'includes/class-oc-ai-image-filter.php';
 require_once OC_PATH . 'includes/class-oc-render-math.php';
