@@ -5,7 +5,8 @@
 /* eslint-disable no-console, no-alert, import/no-unresolved */
 
 import { dispatch } from '@wordpress/data';
-import { CART_STORE_KEY } from '@woocommerce/block-data';
+
+const CART_STORE_KEY = 'wc/store/cart';
 
 const QUALITY_WARNING_MESSAGE =
 	'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';

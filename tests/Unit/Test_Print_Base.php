@@ -49,7 +49,7 @@ if ( ! class_exists( 'OC_Test_Layer_Rotation_PDF' ) && class_exists( 'TCPDF' ) )
 		public function Rotate( $_angle, $_x = null, $_y = null ) {
 			$this->rotations[] = [ (float) $_angle, (float) $_x, (float) $_y ];
 		}
-		public function SetFillColorArray( $color ) {}
+		public function SetFillColorArray( $color, $_ret = false ) {}
 		public function Rect( $_x, $_y, $_w, $_h, $_style = '', $_border_style = [], $_fill_color = [] ) {}
 	}
 }

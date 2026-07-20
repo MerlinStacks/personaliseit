@@ -1741,8 +1741,6 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _wordpress_data__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @wordpress/data */ "@wordpress/data");
 /* harmony import */ var _wordpress_data__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_wordpress_data__WEBPACK_IMPORTED_MODULE_0__);
-/* harmony import */ var _woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @woocommerce/block-data */ "@woocommerce/block-data");
-/* harmony import */ var _woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1___default = /*#__PURE__*/__webpack_require__.n(_woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1__);
 /**
  * Cart submission, mobile preview confirmation, and preview capture helpers.
  */
@@ -1750,7 +1748,7 @@ __webpack_require__.r(__webpack_exports__);
 /* eslint-disable no-console, no-alert, import/no-unresolved */
 
 
-
+const CART_STORE_KEY = 'wc/store/cart';
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
 const MAX_INLINE_CUSTOMISATION_BYTES = 768 * 1024;
@@ -2031,7 +2029,7 @@ const checkoutMethods = {
       if (!prepared) {
         return;
       }
-      await (0,_wordpress_data__WEBPACK_IMPORTED_MODULE_0__.dispatch)(_woocommerce_block_data__WEBPACK_IMPORTED_MODULE_1__.CART_STORE_KEY).addItemToCart(request.productId, request.quantity, request.variation, {
+      await (0,_wordpress_data__WEBPACK_IMPORTED_MODULE_0__.dispatch)(CART_STORE_KEY).addItemToCart(request.productId, request.quantity, request.variation, {
         extensions: {
           overcustomise: {
             customisation: prepared.payload
@@ -5918,16 +5916,6 @@ __webpack_require__.r(__webpack_exports__);
 __webpack_require__.r(__webpack_exports__);
 // extracted by mini-css-extract-plugin
 
-
-/***/ },
-
-/***/ "@woocommerce/block-data"
-/*!**************************************!*\
-  !*** external ["wc","wcBlocksData"] ***!
-  \**************************************/
-(module) {
-
-module.exports = window["wc"]["wcBlocksData"];
 
 /***/ },
 
