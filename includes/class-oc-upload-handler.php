@@ -589,47 +589,24 @@ class OC_Upload_Handler {
 			}
 			return new \WP_Error( 'generated_image_save_failed', __( 'Could not stage the generated image.', 'overcustomise' ) );
 		}
+		if ( $remove_background ) {
+			$processed = self::remove_background_via_imagick( $tmp );
+			if ( is_wp_error( $processed ) ) {
+				@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				return $processed;
+			}
+			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			$tmp  = $processed;
+			$mime = 'image/png';
+		}
 
-		$attachment_id = 0;
-		$result        = [];
 		try {
 			$attachment_id = self::save_to_media_library( $tmp, 'ai-filter.' . $extensions[ $mime ], $mime );
-			if ( is_wp_error( $attachment_id ) ) {
-				return $attachment_id;
-			}
-
-			$result = [
-				'attachment_id' => $attachment_id,
-				'preview_url'   => '',
-				'original_url'  => '',
-				'file_type'     => $extensions[ $mime ],
-			];
-			if ( $remove_background ) {
-				if ( ! has_filter( 'oc_upload_remove_background' ) ) {
-					throw new \RuntimeException( __( 'The background-removal service is not configured.', 'overcustomise' ) );
-				}
-				$filtered = apply_filters(
-					'oc_upload_remove_background',
-					$result,
-					[ 'name' => 'ai-filter.' . $extensions[ $mime ], 'tmp_name' => $tmp, 'type' => $mime ],
-					$extensions[ $mime ]
-				);
-				if ( ! is_array( $filtered )
-					|| absint( $filtered['attachment_id'] ?? 0 ) !== $attachment_id
-					|| ! empty( $filtered['related_attachment_ids'] )
-					|| ! self::artwork_file_is_valid( $attachment_id )
-				) {
-					throw new \RuntimeException( __( 'The background-removal result could not be validated.', 'overcustomise' ) );
-				}
-				$result = $filtered;
-			}
-		} catch ( \Throwable $e ) {
-			if ( $attachment_id > 0 ) {
-				wp_delete_attachment( $attachment_id, true );
-			}
-			return new \WP_Error( 'generated_background_removal_failed', $e->getMessage() );
 		} finally {
 			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		if ( is_wp_error( $attachment_id ) ) {
+			return $attachment_id;
 		}
 
 		if ( ! self::record_ownership( $attachment_id, $context, 'ai-filter.' . $extensions[ $mime ] ) ) {
@@ -650,9 +627,12 @@ class OC_Upload_Handler {
 			wp_delete_attachment( $attachment_id, true );
 			return new \WP_Error( 'generated_image_save_failed', __( 'Could not retain the generated image.', 'overcustomise' ) );
 		}
-		$result['preview_url']  = $url;
-		$result['original_url'] = $url;
-		return $result;
+		return [
+			'attachment_id' => $attachment_id,
+			'preview_url'   => $url,
+			'original_url'  => $url,
+			'file_type'     => $extensions[ $mime ],
+		];
 	}
 
 	/** Verify that customer artwork belongs to this customer and exact layer context. */
@@ -1142,6 +1122,94 @@ class OC_Upload_Handler {
 	// -------------------------------------------------------------------------
 	// Conversion helpers
 	// -------------------------------------------------------------------------
+
+	/** Remove a uniform, edge-connected background and return a temporary PNG path. */
+	private static function remove_background_via_imagick( string $source ): string|\WP_Error {
+		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\Imagick' ) ) {
+			return new \WP_Error( 'background_removal_unavailable', __( 'Local background removal requires the PHP ImageMagick extension.', 'overcustomise' ) );
+		}
+
+		$image  = null;
+		$output = self::temp_path( 'oc-background-' );
+		if ( false === $output ) {
+			return new \WP_Error( 'background_removal_failed', __( 'The background-removed image could not be staged.', 'overcustomise' ) );
+		}
+
+		try {
+			$image = new \Imagick();
+			$image->setResourceLimit( \Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024 );
+			$image->setResourceLimit( \Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024 );
+			$image->setResourceLimit( \Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024 );
+			if ( defined( '\Imagick::RESOURCETYPE_AREA' ) ) {
+				$image->setResourceLimit( \Imagick::RESOURCETYPE_AREA, self::MAX_IMAGE_PIXELS );
+			}
+			$image->readImage( $source . '[0]' );
+			$image->setIteratorIndex( 0 );
+			$width  = $image->getImageWidth();
+			$height = $image->getImageHeight();
+			self::validate_image_dimensions( $width, $height );
+
+			$positions = [ [ 0, 0 ], [ $width - 1, 0 ], [ 0, $height - 1 ], [ $width - 1, $height - 1 ] ];
+			$samples   = [];
+			foreach ( $positions as [ $x, $y ] ) {
+				$pixel  = $image->getImagePixelColor( $x, $y );
+				$colour = $pixel->getColor( true );
+				$samples[] = [
+					'x'     => $x,
+					'y'     => $y,
+					'pixel' => $pixel,
+					'rgb'   => [ (float) $colour['r'], (float) $colour['g'], (float) $colour['b'] ],
+				];
+			}
+
+			$background = [];
+			foreach ( $samples as $candidate ) {
+				$matching = array_values( array_filter( $samples, static function ( array $sample ) use ( $candidate ): bool {
+					$distance = sqrt(
+						( $sample['rgb'][0] - $candidate['rgb'][0] ) ** 2
+						+ ( $sample['rgb'][1] - $candidate['rgb'][1] ) ** 2
+						+ ( $sample['rgb'][2] - $candidate['rgb'][2] ) ** 2
+					);
+					return $distance <= 0.18;
+				} ) );
+				if ( count( $matching ) > count( $background ) ) {
+					$background = $matching;
+				}
+			}
+			if ( count( $background ) < 3 ) {
+				throw new \RuntimeException( __( 'Local background removal requires a plain, consistent background around the image edges.', 'overcustomise' ) );
+			}
+
+			$quantum = $image->getQuantumRange();
+			$fuzz    = (float) ( $quantum['quantumRangeLong'] ?? 65535 ) * 0.12;
+			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
+			$transparent = new \ImagickPixel( 'transparent' );
+			foreach ( $background as $corner ) {
+				$image->floodFillPaintImage( $transparent, $fuzz, $corner['pixel'], $corner['x'], $corner['y'], false );
+			}
+
+			$image->setImageFormat( 'png' );
+			$image->stripImage();
+			if ( ! $image->writeImage( $output ) ) {
+				throw new \RuntimeException( __( 'The background-removed image could not be written.', 'overcustomise' ) );
+			}
+			$size = filesize( $output );
+			$info = @getimagesize( $output );
+			if ( false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES || ! is_array( $info ) || 'image/png' !== (string) ( $info['mime'] ?? '' ) ) {
+				throw new \RuntimeException( __( 'The background-removed image is invalid or too large.', 'overcustomise' ) );
+			}
+			return $output;
+		} catch ( \Throwable $e ) {
+			@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			OC_Logger::warning( 'Local background removal failed: ' . $e->getMessage() );
+			return new \WP_Error( 'background_removal_failed', $e->getMessage() );
+		} finally {
+			if ( $image instanceof \Imagick ) {
+				$image->clear();
+				$image->destroy();
+			}
+		}
+	}
 
 	/** Convert PDF/EPS page 1 to PNG via PHP Imagick extension. */
 	private static function convert_via_imagick( string $source, string $dest ): bool {

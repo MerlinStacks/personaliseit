@@ -120,6 +120,9 @@ class OC_Admin_Image_Filters {
 			<?php if ( '' === OC_Admin_Settings::get_openrouter_api_key() ) : ?>
 				<div class="notice notice-warning inline"><p><?php esc_html_e( 'Add an OpenRouter API key in Settings > AI Image Filters before testing or using AI filters.', 'overcustomise' ); ?></p></div>
 			<?php endif; ?>
+			<?php if ( ! extension_loaded( 'imagick' ) ) : ?>
+				<div class="notice notice-warning inline"><p><?php esc_html_e( 'Enable the PHP ImageMagick extension to use AI filter background removal.', 'overcustomise' ); ?></p></div>
+			<?php endif; ?>
 
 			<div class="oc-card" style="margin-bottom:18px;">
 				<div class="oc-card-header"><h2><?php echo $editing ? esc_html__( 'Edit Filter', 'overcustomise' ) : esc_html__( 'Add Filter', 'overcustomise' ); ?></h2></div>
@@ -137,7 +140,7 @@ class OC_Admin_Image_Filters {
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_remove_background"><?php esc_html_e( 'Remove background', 'overcustomise' ); ?></label></div>
-							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Remove the generated image background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Runs the generated image through the configured background-removal service after the AI filter.', 'overcustomise' ); ?></p></div>
+							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Remove the generated image background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Uses local ImageMagick processing after the AI filter. Best results require a plain, consistent background around the subject.', 'overcustomise' ); ?></p></div>
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_test_image"><?php esc_html_e( 'Test image', 'overcustomise' ); ?></label></div>
