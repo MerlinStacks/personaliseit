@@ -42,6 +42,12 @@ class UploadHandlerReflector {
 		$m->setAccessible( true );
 		return $m->invoke( null, $ext );
 	}
+
+	public static function protected_uploads_storage_root(): ?string {
+		$m = self::rc()->getMethod( 'protected_uploads_storage_root' );
+		$m->setAccessible( true );
+		return $m->invoke( null );
+	}
 }
 
 class Test_Upload_Handler_Validation extends TestCase {
@@ -55,6 +61,7 @@ class Test_Upload_Handler_Validation extends TestCase {
 		$GLOBALS['oc_test_attached_files']  = [];
 		$GLOBALS['oc_test_post_mime_types'] = [];
 		$GLOBALS['oc_test_transients']      = [];
+		$GLOBALS['oc_test_options']         = [];
 		parent::tearDown();
 	}
 
@@ -91,6 +98,28 @@ class Test_Upload_Handler_Validation extends TestCase {
 	#[Test]
 	public function nonce_action_constant_is_defined(): void {
 		$this->assertSame( 'oc_upload_artwork', OC_Upload_Handler::NONCE_ACTION );
+	}
+
+	#[Test]
+	public function uploads_fallback_is_stable_and_deny_protected(): void {
+		$uploads = wp_upload_dir();
+		if ( ! is_dir( $uploads['basedir'] ) ) {
+			mkdir( $uploads['basedir'], 0755, true );
+		}
+
+		$root = UploadHandlerReflector::protected_uploads_storage_root();
+		$this->assertIsString( $root );
+		$this->assertMatchesRegularExpression( '/\/\.overcustomise-private-[a-z0-9]{32}$/D', $root );
+		$this->assertSame( $root, UploadHandlerReflector::protected_uploads_storage_root() );
+		$this->assertFileExists( $root . '/.htaccess' );
+		$this->assertFileExists( $root . '/web.config' );
+		$this->assertFileExists( $root . '/index.php' );
+		$this->assertStringContainsString( 'Require all denied', (string) file_get_contents( $root . '/.htaccess' ) );
+
+		foreach ( [ '.htaccess', 'web.config', 'index.php' ] as $filename ) {
+			@unlink( $root . '/' . $filename );
+		}
+		@rmdir( $root );
 	}
 
 	// ── MIME detection — SVG fallback ─────────────────────────────────────

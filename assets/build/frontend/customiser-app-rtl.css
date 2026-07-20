@@ -646,8 +646,14 @@
 }
 .oc-customiser-panel .oc-colour-swatches--modal .oc-colour-swatch {
   width: 48px;
+  height: 48px;
   min-width: 48px;
+  min-height: 48px;
   max-width: 48px;
+  max-height: 48px;
+  aspect-ratio: auto;
+  padding: 0;
+  line-height: 0;
   justify-self: center;
 }
 .oc-customiser-panel input[type=color] {

@@ -101,7 +101,23 @@ if ( ! function_exists( 'current_time' ) ) {
 
 if ( ! function_exists( 'get_option' ) ) {
 	function get_option( string $option, $default = false ) {
-		return $default;
+		return $GLOBALS['oc_test_options'][ $option ] ?? $default;
+	}
+}
+
+if ( ! function_exists( 'add_option' ) ) {
+	function add_option( string $option, mixed $value, string $deprecated = '', ?bool $autoload = null ): bool {
+		if ( isset( $GLOBALS['oc_test_options'][ $option ] ) ) {
+			return false;
+		}
+		$GLOBALS['oc_test_options'][ $option ] = $value;
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_generate_password' ) ) {
+	function wp_generate_password( int $length = 12, bool $special_chars = true, bool $extra_special_chars = false ): string {
+		return substr( bin2hex( random_bytes( (int) ceil( $length / 2 ) ) ), 0, $length );
 	}
 }
 

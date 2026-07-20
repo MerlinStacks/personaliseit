@@ -10,12 +10,13 @@ defined( 'ABSPATH' ) || exit;
 class OC_Admin_Settings {
 
 	private const OPTION_KEY = 'oc_settings';
-	private const OPENROUTER_MODELS_TRANSIENT = 'oc_openrouter_image_models';
+	private const OPENROUTER_MODELS_TRANSIENT = 'oc_openrouter_image_models_v2';
+	private const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
 
 	private const OPENROUTER_IMAGE_MODELS = [
-		'google/gemini-2.5-flash-image-preview' => 'Google Gemini 2.5 Flash Image Preview',
-		'google/gemini-2.0-flash-exp'           => 'Google Gemini 2.0 Flash Experimental',
-		'openai/gpt-image-1'                    => 'OpenAI GPT Image 1',
+		'google/gemini-2.5-flash-image' => 'Google: Nano Banana (Gemini 2.5 Flash Image)',
+		'google/gemini-3.1-flash-image' => 'Google: Nano Banana 2 (Gemini 3.1 Flash Image)',
+		'openai/gpt-5-image'             => 'OpenAI: GPT-5 Image',
 	];
 
 	/** Return the full settings array with defaults applied. */
@@ -38,7 +39,7 @@ class OC_Admin_Settings {
 
 			// AI image filter generation.
 			'openrouter_api_key_enc' => '',
-			'openrouter_image_model' => 'google/gemini-2.5-flash-image-preview',
+			'openrouter_image_model' => self::DEFAULT_OPENROUTER_IMAGE_MODEL,
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
@@ -81,7 +82,13 @@ class OC_Admin_Settings {
 	public static function get_openrouter_image_model(): string {
 		$model = (string) self::get( 'openrouter_image_model' );
 		$models = self::get_openrouter_image_models();
-		return isset( $models[ $model ] ) ? $model : 'google/gemini-2.5-flash-image-preview';
+		if ( isset( $models[ $model ] ) ) {
+			return $model;
+		}
+
+		return isset( $models[ self::DEFAULT_OPENROUTER_IMAGE_MODEL ] )
+			? self::DEFAULT_OPENROUTER_IMAGE_MODEL
+			: (string) array_key_first( $models );
 	}
 
 	/** Return image-capable OpenRouter models, cached with a safe built-in fallback. */
@@ -135,11 +142,11 @@ class OC_Admin_Settings {
 				continue;
 			}
 			$architecture = is_array( $model['architecture'] ?? null ) ? $model['architecture'] : [];
+			$inputs       = is_array( $architecture['input_modalities'] ?? null ) ? array_map( 'strtolower', $architecture['input_modalities'] ) : [];
 			$outputs      = is_array( $architecture['output_modalities'] ?? null ) ? array_map( 'strtolower', $architecture['output_modalities'] ) : [];
-			$modality     = strtolower( (string) ( $architecture['modality'] ?? '' ) );
 			$model_id     = sanitize_text_field( (string) $model['id'] );
 
-			if ( ! in_array( 'image', $outputs, true ) && ! str_contains( $modality, 'image' ) && ! str_contains( strtolower( $model_id ), 'image' ) ) {
+			if ( ! in_array( 'image', $inputs, true ) || ! in_array( 'image', $outputs, true ) ) {
 				continue;
 			}
 
@@ -162,6 +169,7 @@ class OC_Admin_Settings {
 
 		$s = self::get();
 		$image_models = self::get_openrouter_image_models();
+		$s['openrouter_image_model'] = self::get_openrouter_image_model();
 
 		$tabs = [
 			'general'    => __( 'General', 'overcustomise' ),
@@ -389,7 +397,7 @@ class OC_Admin_Settings {
 														</option>
 													<?php endforeach; ?>
 												</select>
-												<p class="oc-form-help"><?php esc_html_e( 'Fetched from OpenRouter and cached for 6 hours. Falls back to known image models if OpenRouter is unavailable.', 'overcustomise' ); ?></p>
+												<p class="oc-form-help"><?php esc_html_e( 'Shows models that accept an image and generate an image. Fetched from OpenRouter and cached for 6 hours.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 									</div>
@@ -676,7 +684,9 @@ class OC_Admin_Settings {
 		$model = sanitize_text_field( wp_unslash( $_POST['oc_openrouter_image_model'] ?? '' ) );
 		$image_models = self::get_openrouter_image_models();
 		if ( ! isset( $image_models[ $model ] ) ) {
-			$model = 'google/gemini-2.5-flash-image-preview';
+			$model = isset( $image_models[ self::DEFAULT_OPENROUTER_IMAGE_MODEL ] )
+				? self::DEFAULT_OPENROUTER_IMAGE_MODEL
+				: (string) array_key_first( $image_models );
 		}
 
 		$flat_rate = is_numeric( $_POST['oc_flat_rate_default'] ?? null ) ? (float) $_POST['oc_flat_rate_default'] : 0.0;

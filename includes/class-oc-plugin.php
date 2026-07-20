@@ -465,17 +465,27 @@ class OC_Plugin {
 
 		$private_root = OC_Upload_Handler::private_storage_root();
 		if ( is_string( $private_root ) ) {
-			foreach ( [ 'artwork', 'previews', 'vdp' ] as $subdirectory ) {
-				$path = $private_root . DIRECTORY_SEPARATOR . $subdirectory;
-				if ( is_dir( $path ) || is_link( $path ) ) {
-					self::delete_directory( $path );
+			$private_real = realpath( $private_root );
+			$uploads_real = realpath( (string) ( $upload_dir['basedir'] ?? '' ) );
+			$is_fallback  = false !== $private_real && false !== $uploads_real
+				&& wp_normalize_path( dirname( $private_real ) ) === wp_normalize_path( $uploads_real )
+				&& (bool) preg_match( '/^\.overcustomise-private-[a-z0-9]{32}$/D', basename( $private_real ) );
+			if ( $is_fallback ) {
+				self::delete_directory( $private_real );
+			} else {
+				foreach ( [ 'artwork', 'previews', 'vdp' ] as $subdirectory ) {
+					$path = $private_root . DIRECTORY_SEPARATOR . $subdirectory;
+					if ( is_dir( $path ) || is_link( $path ) ) {
+						self::delete_directory( $path );
+					}
+				}
+				$remaining = is_dir( $private_root ) ? scandir( $private_root ) : false;
+				if ( is_array( $remaining ) && empty( array_diff( $remaining, [ '.', '..' ] ) ) ) {
+					rmdir( $private_root );
 				}
 			}
-			$remaining = is_dir( $private_root ) ? scandir( $private_root ) : false;
-			if ( is_array( $remaining ) && empty( array_diff( $remaining, [ '.', '..' ] ) ) ) {
-				rmdir( $private_root );
-			}
 		}
+		delete_option( 'oc_private_storage_token' );
 
 		wp_cache_flush_group( 'oc_data' );
 		self::delete_runtime_options( true );

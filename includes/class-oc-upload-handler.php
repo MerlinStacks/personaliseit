@@ -23,6 +23,7 @@ class OC_Upload_Handler {
 	private const MAX_GENERATED_IMAGE_BYTES = 15728640;
 	private const ACCESS_URL_TTL = DAY_IN_SECONDS;
 	private const STORAGE_VERSION = 2;
+	private const FALLBACK_STORAGE_TOKEN_OPTION = 'oc_private_storage_token';
 
 	/** Nonce action used to authenticate upload requests. */
 	public const NONCE_ACTION = 'oc_upload_artwork';
@@ -218,25 +219,40 @@ class OC_Upload_Handler {
 	/**
 	 * Return the configured private storage root, creating it when safe.
 	 *
-	 * The default is a site-specific sibling of ABSPATH. Filtered paths must also
-	 * be absolute and outside both ABSPATH and the public uploads directory.
+	 * The preferred default is a site-specific sibling of ABSPATH. When PHP cannot
+	 * create it, an unguessable, deny-protected uploads directory is used instead.
+	 * Explicitly configured or filtered paths remain fail-closed.
 	 */
 	public static function private_storage_root(): ?string {
 		$default_root = dirname( rtrim( ABSPATH, '/\\' ) ) . DIRECTORY_SEPARATOR
 			. '.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 );
 		$configured   = defined( 'OC_PRIVATE_STORAGE_ROOT' ) ? OC_PRIVATE_STORAGE_ROOT : $default_root;
 		$filtered     = apply_filters( 'oc_private_storage_root', $configured, $default_root );
-		if ( ! is_string( $filtered ) || '' === trim( $filtered ) || str_contains( $filtered, "\0" ) ) {
+		$root         = self::prepare_storage_root( $filtered );
+		if ( null !== $root ) {
+			return $root;
+		}
+
+		if ( defined( 'OC_PRIVATE_STORAGE_ROOT' ) || $filtered !== $default_root ) {
 			return null;
 		}
 
-		$candidate = rtrim( wp_normalize_path( trim( $filtered ) ), '/' );
+		return self::protected_uploads_storage_root();
+	}
+
+	/** Validate and create a storage root, optionally deferring public-path checks to the caller. */
+	private static function prepare_storage_root( mixed $path, bool $allow_public_path = false ): ?string {
+		if ( ! is_string( $path ) || '' === trim( $path ) || str_contains( $path, "\0" ) ) {
+			return null;
+		}
+
+		$candidate = rtrim( wp_normalize_path( trim( $path ) ), '/' );
 		if ( ! self::is_absolute_path( $candidate ) || '/' === $candidate || preg_match( '#^[A-Za-z]:$#D', $candidate ) ) {
 			return null;
 		}
 
 		$abspath = rtrim( wp_normalize_path( realpath( ABSPATH ) ?: ABSPATH ), '/' );
-		if ( self::path_is_within( $candidate, $abspath, true ) || self::path_is_within( $abspath, $candidate, true ) ) {
+		if ( ! $allow_public_path && ( self::path_is_within( $candidate, $abspath, true ) || self::path_is_within( $abspath, $candidate, true ) ) ) {
 			return null;
 		}
 
@@ -244,7 +260,7 @@ class OC_Upload_Handler {
 		$uploads_base = empty( $uploads['error'] ) && ! empty( $uploads['basedir'] )
 			? rtrim( wp_normalize_path( realpath( (string) $uploads['basedir'] ) ?: (string) $uploads['basedir'] ), '/' )
 			: '';
-		if ( '' !== $uploads_base
+		if ( ! $allow_public_path && '' !== $uploads_base
 			&& ( self::path_is_within( $candidate, $uploads_base, true ) || self::path_is_within( $uploads_base, $candidate, true ) )
 		) {
 			return null;
@@ -258,14 +274,71 @@ class OC_Upload_Handler {
 			return null;
 		}
 		$real = rtrim( wp_normalize_path( $real ), '/' );
-		if ( self::path_is_within( $real, $abspath, true ) || self::path_is_within( $abspath, $real, true )
+		if ( ! $allow_public_path && ( self::path_is_within( $real, $abspath, true ) || self::path_is_within( $abspath, $real, true )
 			|| ( '' !== $uploads_base && ( self::path_is_within( $real, $uploads_base, true ) || self::path_is_within( $uploads_base, $real, true ) ) )
-		) {
+		) ) {
 			return null;
 		}
 
 		@chmod( $real, 0750 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		return $real;
+	}
+
+	/** Create a deny-protected fallback beneath uploads when no private parent is writable. */
+	private static function protected_uploads_storage_root(): ?string {
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+			return null;
+		}
+
+		$uploads_real = realpath( (string) $uploads['basedir'] );
+		if ( false === $uploads_real || ! is_dir( $uploads_real ) || ! is_writable( $uploads_real ) ) {
+			return null;
+		}
+
+		$token = self::fallback_storage_token();
+		if ( null === $token ) {
+			return null;
+		}
+		$directory   = rtrim( wp_normalize_path( $uploads_real ), '/' )
+			. '/.overcustomise-private-' . $token;
+		$root        = self::prepare_storage_root( $directory, true );
+		$uploads_real = rtrim( wp_normalize_path( $uploads_real ), '/' );
+		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root ) ) {
+			return null;
+		}
+
+		return $root;
+	}
+
+	/** Return a persistent random token so salt rotation cannot orphan stored files. */
+	private static function fallback_storage_token(): ?string {
+		$token = get_option( self::FALLBACK_STORAGE_TOKEN_OPTION, '' );
+		if ( is_string( $token ) && preg_match( '/^[a-z0-9]{32}$/D', $token ) ) {
+			return $token;
+		}
+
+		$generated = strtolower( wp_generate_password( 32, false, false ) );
+		if ( ! preg_match( '/^[a-z0-9]{32}$/D', $generated ) ) {
+			return null;
+		}
+		if ( add_option( self::FALLBACK_STORAGE_TOKEN_OPTION, $generated, '', false ) ) {
+			return $generated;
+		}
+
+		$token = get_option( self::FALLBACK_STORAGE_TOKEN_OPTION, '' );
+		return is_string( $token ) && preg_match( '/^[a-z0-9]{32}$/D', $token ) ? $token : null;
+	}
+
+	/** Whether a validated storage path uses the protected public-uploads fallback. */
+	private static function storage_path_uses_uploads_fallback( string $path ): bool {
+		$uploads = wp_upload_dir();
+		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
+			return false;
+		}
+
+		$uploads_real = realpath( (string) $uploads['basedir'] );
+		return false !== $uploads_real && self::path_is_within( $path, wp_normalize_path( $uploads_real ) );
 	}
 
 	/** Return a validated private subdirectory for other plugin components. */
@@ -289,6 +362,9 @@ class OC_Upload_Handler {
 		}
 		$real = realpath( $directory );
 		if ( false === $real || ! self::path_is_within( wp_normalize_path( $real ), $root ) ) {
+			return null;
+		}
+		if ( self::storage_path_uses_uploads_fallback( $root ) && ! self::protect_artwork_directory( $real ) ) {
 			return null;
 		}
 
