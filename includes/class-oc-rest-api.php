@@ -994,7 +994,7 @@ class OC_Rest_API {
 	}
 
 	/** Fetch a visible, editable layer whose containing area is also visible. */
-	private static function public_design_layer( int $design_id, int $layer_id, array $eligible_types ): object|\WP_Error {
+	private static function public_design_layer( int $design_id, int $layer_id, array $eligible_types ): object {
 		global $wpdb;
 		$layer = $wpdb->get_row( $wpdb->prepare(
 			"SELECT l.id, l.design_id, l.area_id, l.type, l.visible, l.locked, l.settings
