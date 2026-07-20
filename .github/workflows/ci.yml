@@ -29,6 +29,8 @@ jobs:
           php-version: '8.4'
           extensions: dom, gd, libxml, mbstring, xml, xmlwriter
           coverage: none
+      - name: Verify bundled production autoloader
+        run: php -r "require 'vendor/autoload.php';"
       - run: composer install --no-interaction --prefer-dist
       - run: composer test:unit
 
