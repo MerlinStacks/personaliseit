@@ -422,6 +422,7 @@ const designVariantMethods = {
 		this.seedTemplateImageDefaults();
 		this.seedLayerFontDefaults();
 		this.seedLinkedImageInputs();
+		this.seedLinkedColourInputs();
 		this.applyInputsToDOM( { redraw: false } );
 		this.setupInputListeners();
 		this.setupDesignVariantOptions();

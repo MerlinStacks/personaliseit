@@ -3,7 +3,7 @@
 ## 1.16.1 - 2026-07-20
 
 ### Added
-- Added a per-AI-filter option to remove the image background and return the filtered subject with transparency.
+- Added a per-AI-filter option that runs generated artwork through the configured background-removal service.
 
 ## 1.16.0 - 2026-07-17
 

@@ -206,6 +206,16 @@ const inputControlMethods = {
 					{ signal: stateSignal }
 				);
 				input.addEventListener(
+					'click',
+					() => {
+						if ( input.value.trim() === selectedFontLabel() ) {
+							filterOptions( '' );
+						}
+						setOpen( true );
+					},
+					{ signal: stateSignal }
+				);
+				input.addEventListener(
 					'input',
 					() => {
 						scheduleFilterOptions();
@@ -727,13 +737,7 @@ const inputControlMethods = {
 							this.inputs[ lid ] = {};
 						}
 						this.inputs[ lid ].colorHex = btn.dataset.hex;
-						if (
-							[ 'clipart', 'lineart' ].includes(
-								this.getLayerById( lid )?.type
-							)
-						) {
-							this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
-						}
+						this.syncLinkedColourInput( lid );
 						btn.closest( '.oc-colour-swatches' )
 							?.querySelectorAll( '.oc-colour-swatch' )
 							.forEach( ( s ) => {
@@ -768,13 +772,7 @@ const inputControlMethods = {
 							this.inputs[ lid ] = {};
 						}
 						this.inputs[ lid ].colorHex = el.value;
-						if (
-							[ 'clipart', 'lineart' ].includes(
-								this.getLayerById( lid )?.type
-							)
-						) {
-							this.syncLinkedLayerInput( lid, [ 'colorHex' ] );
-						}
+						this.syncLinkedColourInput( lid );
 						this.requestPreviewFocus();
 						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 						this.updateHiddenField();
@@ -1221,6 +1219,32 @@ const inputControlMethods = {
 		} );
 	},
 
+	seedLinkedColourInputs() {
+		const seeded = new Set();
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				const group = String(
+					layer.settings?.colour_link_group || ''
+				).trim();
+				if ( ! group || seeded.has( group ) ) {
+					return;
+				}
+				const members = this.linkedColourLayerMembers( layer.id );
+				if ( members.length < 2 ) {
+					return;
+				}
+				seeded.add( group );
+				const sourceId =
+					members.find(
+						( layerId ) =>
+							this.getLayerById( layerId )?.settings
+								?.allow_colour_change !== false
+					) || members[ 0 ];
+				this.syncLinkedColourInput( sourceId );
+			} );
+		} );
+	},
+
 	isProductionImageInput( input ) {
 		return Number( input?.attachmentId || 0 ) > 0;
 	},
@@ -1343,6 +1367,62 @@ const inputControlMethods = {
 
 	syncLinkedImageInput( sourceLayerId ) {
 		this.syncLinkedLayerInput( sourceLayerId, LINKED_IMAGE_INPUT_KEYS );
+	},
+
+	linkedColourLayerMembers( sourceLayerId ) {
+		const source = this.getLayerById( sourceLayerId );
+		const group = String(
+			source?.settings?.colour_link_group || ''
+		).trim();
+		if ( ! source || ! group ) {
+			return source ? [ source.id ] : [];
+		}
+
+		const members = [];
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				const colourEnabled =
+					layer.type !== 'image' ||
+					layer.settings?.enable_image_colour === true;
+				if (
+					[
+						'text',
+						'textarea',
+						'image',
+						'clipart',
+						'lineart',
+					].includes( layer.type ) &&
+					layer.visible !== false &&
+					! layer.locked &&
+					colourEnabled &&
+					String( layer.settings?.colour_link_group || '' ).trim() ===
+						group
+				) {
+					members.push( layer.id );
+				}
+			} );
+		} );
+		return members;
+	},
+
+	syncLinkedColourInput( sourceLayerId ) {
+		const sourceInput = this.inputs[ sourceLayerId ];
+		if ( ! sourceInput?.colorHex ) {
+			return;
+		}
+		const targetAreaIndexes = new Set();
+		this.linkedColourLayerMembers( sourceLayerId ).forEach( ( layerId ) => {
+			if ( layerId === sourceLayerId ) {
+				return;
+			}
+			this.inputs[ layerId ] = this.inputs[ layerId ] || {};
+			this.inputs[ layerId ].colorHex = sourceInput.colorHex;
+			this.updateLinkedLayerControls( layerId, [ 'colorHex' ] );
+			targetAreaIndexes.add( this.areaIndexForLayer( layerId ) );
+		} );
+		targetAreaIndexes.forEach( ( areaIndex ) =>
+			this.scheduleRedraw( areaIndex )
+		);
 	},
 
 	canonicalLinkedLayerId( layerId ) {

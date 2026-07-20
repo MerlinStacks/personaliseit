@@ -2739,7 +2739,7 @@ abstract class OC_Print_Base {
 
 	protected static function build_filtered_image( string $path, array $layer, array $input ): ?string {
 		$filter_id = absint( $input['imageFilterId'] ?? 0 );
-		if ( ! $filter_id || ! function_exists( 'imagefilter' ) ) {
+		if ( ! $filter_id ) {
 			return null;
 		}
 
@@ -2765,8 +2765,14 @@ abstract class OC_Print_Base {
 			$key   = sanitize_key( (string) $filter->filter_key );
 			$value = (float) $filter->value;
 		}
-		if ( 'ai' === $key ) {
+		$colour = ! empty( $settings['enable_image_colour'] )
+			? sanitize_hex_color( (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '' ) )
+			: null;
+		if ( 'ai' === $key && ! $colour ) {
 			return $path;
+		}
+		if ( ! function_exists( 'imagefilter' ) ) {
+			return null;
 		}
 
 		$src = self::open_raster_resource( $path );
@@ -2778,6 +2784,7 @@ abstract class OC_Print_Base {
 		imagesavealpha( $src, true );
 
 		$ok    = match ( $key ) {
+			'ai'         => true,
 			'grayscale'  => imagefilter( $src, IMG_FILTER_GRAYSCALE ),
 			'sepia'      => imagefilter( $src, IMG_FILTER_GRAYSCALE ) && imagefilter( $src, IMG_FILTER_COLORIZE, 90, 45, 0 ),
 			'brightness' => imagefilter( $src, IMG_FILTER_BRIGHTNESS, max( -255, min( 255, (int) round( $value * 255 ) ) ) ),
@@ -2790,6 +2797,9 @@ abstract class OC_Print_Base {
 		if ( ! $ok ) {
 			imagedestroy( $src );
 			return null;
+		}
+		if ( $colour ) {
+			self::recolour_raster_pixels( $src, $colour );
 		}
 
 		$temp = self::temp_path_with_extension( 'oc-filtered-image-' . wp_generate_uuid4() . '.png', 'png' );
@@ -2806,6 +2816,25 @@ abstract class OC_Print_Base {
 		}
 
 		return $temp;
+	}
+
+	/** Replace visible filtered pixels with one production colour while retaining alpha. */
+	private static function recolour_raster_pixels( $img, string $hex ): void {
+		$rgb = sscanf( ltrim( $hex, '#' ), '%02x%02x%02x' );
+		if ( ! is_array( $rgb ) || 3 !== count( $rgb ) ) {
+			return;
+		}
+		$w = imagesx( $img );
+		$h = imagesy( $img );
+		$colours = [];
+		for ( $y = 0; $y < $h; $y++ ) {
+			for ( $x = 0; $x < $w; $x++ ) {
+				$rgba = imagecolorat( $img, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				$colours[ $alpha ] ??= imagecolorallocatealpha( $img, $rgb[0], $rgb[1], $rgb[2], $alpha );
+				imagesetpixel( $img, $x, $y, $colours[ $alpha ] );
+			}
+		}
 	}
 
 	private static function adjust_raster_saturation( $img, float $amount ): bool {

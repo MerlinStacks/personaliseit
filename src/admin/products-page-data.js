@@ -79,6 +79,7 @@ export function createProductsPageDataNormalisers( deps ) {
 					allow_size_change: false,
 					required: false,
 					link_group: '',
+					colour_link_group: '',
 				};
 			case 'textarea':
 				return {
@@ -98,6 +99,7 @@ export function createProductsPageDataNormalisers( deps ) {
 					allow_size_change: false,
 					required: false,
 					link_group: '',
+					colour_link_group: '',
 				};
 			case 'image':
 				return {
@@ -106,12 +108,17 @@ export function createProductsPageDataNormalisers( deps ) {
 					remove_background: false,
 					image_filter_ids: [],
 					default_image_filter_id: 0,
+					enable_image_colour: false,
+					default_color: '#000000',
+					colour_groups: [],
 					default_attachment_id: 0,
 					default_attachment_url: '',
 					allow_image_change: true,
 					allow_image_filter_change: true,
+					allow_colour_change: true,
 					required: false,
 					link_group: '',
+					colour_link_group: '',
 				};
 			case 'clipmask':
 				return {
@@ -127,7 +134,12 @@ export function createProductsPageDataNormalisers( deps ) {
 			case 'spotify':
 				return { colour_groups: [], required: false, link_group: '' };
 			case 'lineart':
-				return { colour_groups: [], required: false, link_group: '' };
+				return {
+					colour_groups: [],
+					required: false,
+					link_group: '',
+					colour_link_group: '',
+				};
 			case 'clipart':
 				return {
 					clipart_groups: [],
@@ -138,6 +150,7 @@ export function createProductsPageDataNormalisers( deps ) {
 					required: false,
 					clipart_display: 'grid',
 					link_group: '',
+					colour_link_group: '',
 				};
 			default:
 				return { required: false, link_group: '' };
@@ -188,6 +201,9 @@ export function createProductsPageDataNormalisers( deps ) {
 			settings.allow_image_change = settings.allow_image_change !== false;
 			settings.allow_image_filter_change =
 				settings.allow_image_filter_change !== false;
+			settings.enable_image_colour = !! settings.enable_image_colour;
+			settings.allow_colour_change =
+				settings.allow_colour_change !== false;
 		}
 		return settings;
 	}

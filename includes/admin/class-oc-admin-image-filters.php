@@ -26,17 +26,33 @@ class OC_Admin_Image_Filters {
 			wp_send_json_error( [ 'message' => __( 'Enter a prompt and choose a test image.', 'overcustomise' ) ], 400 );
 		}
 
-		$source_id = 0;
-		$response  = null;
-		$error     = null;
-		$status    = 422;
+		$source_id    = 0;
+		$generated_id = 0;
+		$response     = null;
+		$error        = null;
+		$status       = 422;
 		try {
 			$uploaded  = OC_Upload_Handler::process( $_FILES['test_image'], [ 'formats' => [ 'jpg', 'jpeg', 'png', 'webp' ] ] );
 			$source_id = (int) $uploaded['attachment_id'];
-			$result    = OC_AI_Image_Filter::generate( $source_id, $prompt, $remove_background );
+			$result    = OC_AI_Image_Filter::generate( $source_id, $prompt );
 			if ( is_wp_error( $result ) ) {
 				$error = $result->get_error_message();
 			} else {
+				if ( $remove_background ) {
+					$saved = OC_Upload_Handler::save_generated_image( $result['bytes'], $result['mime'], [], [], true );
+					if ( is_wp_error( $saved ) ) {
+						throw new \RuntimeException( $saved->get_error_message() );
+					}
+					$generated_id = (int) $saved['attachment_id'];
+					$path         = get_attached_file( $generated_id );
+					$bytes        = is_string( $path ) ? file_get_contents( $path ) : false;
+					$mime         = (string) get_post_mime_type( $generated_id );
+					if ( ! is_string( $bytes ) || '' === $bytes || ! in_array( $mime, [ 'image/png', 'image/jpeg', 'image/webp' ], true ) ) {
+						throw new \RuntimeException( __( 'The background-removed test image could not be read.', 'overcustomise' ) );
+					}
+					$result['bytes'] = $bytes;
+					$result['mime']  = $mime;
+				}
 				$response = [
 					'image' => 'data:' . $result['mime'] . ';base64,' . base64_encode( $result['bytes'] ),
 					'model' => $result['model'],
@@ -45,6 +61,9 @@ class OC_Admin_Image_Filters {
 		} catch ( \Throwable $e ) {
 			$error = $e->getMessage();
 		} finally {
+			if ( $generated_id ) {
+				wp_delete_attachment( $generated_id, true );
+			}
 			if ( $source_id ) {
 				wp_delete_attachment( $source_id, true );
 			}
@@ -118,7 +137,7 @@ class OC_Admin_Image_Filters {
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_remove_background"><?php esc_html_e( 'Remove background', 'overcustomise' ); ?></label></div>
-							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Return the filtered subject on a transparent background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Adds a strict transparency instruction to this filter and requests PNG output.', 'overcustomise' ); ?></p></div>
+							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Remove the generated image background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Runs the generated image through the configured background-removal service after the AI filter.', 'overcustomise' ); ?></p></div>
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_test_image"><?php esc_html_e( 'Test image', 'overcustomise' ); ?></label></div>

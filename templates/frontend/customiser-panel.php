@@ -242,6 +242,7 @@ foreach ( $layers as $layer ) {
 					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
 					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $s ) || ! empty( $s['allow_image_filter_change'] );
 					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
+					$enable_image_colour = ! empty( $s['enable_image_colour'] );
 					if ( 'clipart' === $layer->type && ! $allow_clipart_change ) continue;
 					$cg_ids    = $s['colour_groups'];
 					$fg_ids    = $s['font_groups'];
@@ -364,6 +365,18 @@ foreach ( $layers as $layer ) {
 												</select>
 											</div>
 										<?php endif; ?>
+									<?php endif; ?>
+									<?php if ( 'image' === $layer->type && $enable_image_colour && ! $is_engraving && $allow_colour_change && ! empty( $image_filter_ids ) ) : ?>
+										<div class="oc-control-group" style="margin-top:10px;">
+											<label><?php echo 'embroidery' === (string) ( $area->print_method ?? '' ) ? esc_html__( 'Thread colour', 'overcustomise' ) : esc_html__( 'Artwork colour', 'overcustomise' ); ?></label>
+											<?php if ( ! empty( $layer_colours ) ) : ?>
+												<?php $render_colour_picker( $layer_colours, (int) $layer->id, $default_colour, 'artwork' ); ?>
+											<?php elseif ( empty( $cg_ids ) ) : ?>
+												<input type="color" value="<?php echo esc_attr( $default_colour ); ?>" data-oc-layer-color="<?php echo esc_attr( $layer->id ); ?>" />
+											<?php else : ?>
+												<p class="oc-settings-empty"><?php esc_html_e( 'No colours are available for this option.', 'overcustomise' ); ?></p>
+											<?php endif; ?>
+										</div>
 									<?php endif; ?>
 								</div>
 

@@ -566,7 +566,7 @@ class OC_Upload_Handler {
 	}
 
 	/** Save an AI-generated raster image as owned customer artwork. */
-	public static function save_generated_image( string $bytes, string $mime, array $context, array $provenance = [] ): array|\WP_Error {
+	public static function save_generated_image( string $bytes, string $mime, array $context, array $provenance = [], bool $remove_background = false ): array|\WP_Error {
 		$extensions = [
 			'image/png'  => 'png',
 			'image/jpeg' => 'jpg',
@@ -590,13 +590,46 @@ class OC_Upload_Handler {
 			return new \WP_Error( 'generated_image_save_failed', __( 'Could not stage the generated image.', 'overcustomise' ) );
 		}
 
+		$attachment_id = 0;
+		$result        = [];
 		try {
 			$attachment_id = self::save_to_media_library( $tmp, 'ai-filter.' . $extensions[ $mime ], $mime );
+			if ( is_wp_error( $attachment_id ) ) {
+				return $attachment_id;
+			}
+
+			$result = [
+				'attachment_id' => $attachment_id,
+				'preview_url'   => '',
+				'original_url'  => '',
+				'file_type'     => $extensions[ $mime ],
+			];
+			if ( $remove_background ) {
+				if ( ! has_filter( 'oc_upload_remove_background' ) ) {
+					throw new \RuntimeException( __( 'The background-removal service is not configured.', 'overcustomise' ) );
+				}
+				$filtered = apply_filters(
+					'oc_upload_remove_background',
+					$result,
+					[ 'name' => 'ai-filter.' . $extensions[ $mime ], 'tmp_name' => $tmp, 'type' => $mime ],
+					$extensions[ $mime ]
+				);
+				if ( ! is_array( $filtered )
+					|| absint( $filtered['attachment_id'] ?? 0 ) !== $attachment_id
+					|| ! empty( $filtered['related_attachment_ids'] )
+					|| ! self::artwork_file_is_valid( $attachment_id )
+				) {
+					throw new \RuntimeException( __( 'The background-removal result could not be validated.', 'overcustomise' ) );
+				}
+				$result = $filtered;
+			}
+		} catch ( \Throwable $e ) {
+			if ( $attachment_id > 0 ) {
+				wp_delete_attachment( $attachment_id, true );
+			}
+			return new \WP_Error( 'generated_background_removal_failed', $e->getMessage() );
 		} finally {
 			@unlink( $tmp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		}
-		if ( is_wp_error( $attachment_id ) ) {
-			return $attachment_id;
 		}
 
 		if ( ! self::record_ownership( $attachment_id, $context, 'ai-filter.' . $extensions[ $mime ] ) ) {
@@ -617,12 +650,9 @@ class OC_Upload_Handler {
 			wp_delete_attachment( $attachment_id, true );
 			return new \WP_Error( 'generated_image_save_failed', __( 'Could not retain the generated image.', 'overcustomise' ) );
 		}
-		return [
-			'attachment_id' => $attachment_id,
-			'preview_url'   => $url,
-			'original_url'  => $url,
-			'file_type'     => $extensions[ $mime ],
-		];
+		$result['preview_url']  = $url;
+		$result['original_url'] = $url;
+		return $result;
 	}
 
 	/** Verify that customer artwork belongs to this customer and exact layer context. */

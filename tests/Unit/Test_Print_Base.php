@@ -117,6 +117,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_render_layer_payload( \TCPDF $pdf, object $area, array $area_data ): void {
 		self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0 );
 	}
+
+	public static function test_build_filtered_image( string $path, array $layer, array $input ): ?string {
+		return self::build_filtered_image( $path, $layer, $input );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -611,6 +615,44 @@ class Test_Print_Base extends TestCase {
 			@unlink( $path );
 			$oc_test_attached_files = [];
 			$oc_test_post_meta = [];
+		}
+	}
+
+	#[Test]
+	public function filtered_image_can_be_recoloured_for_production(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) || ! function_exists( 'imagefilter' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$temp_source = tempnam( sys_get_temp_dir(), 'oc-filter-source-' );
+		$source = $temp_source . '.png';
+		rename( $temp_source, $source );
+		$image  = imagecreatetruecolor( 2, 2 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		imagefilledrectangle( $image, 0, 0, 1, 1, imagecolorallocatealpha( $image, 120, 140, 160, 0 ) );
+		imagepng( $image, $source );
+		imagedestroy( $image );
+
+		$result = null;
+		try {
+			$result = OC_Print_Base_Testable::test_build_filtered_image(
+				$source,
+				[ 'settings' => [ 'image_filter_ids' => [ 7 ], 'enable_image_colour' => true ] ],
+				[ 'imageFilterId' => 7, 'imageFilterKey' => 'grayscale', 'colorHex' => '#336699' ]
+			);
+			$this->assertIsString( $result );
+			$filtered = imagecreatefrompng( $result );
+			$pixel = imagecolorat( $filtered, 0, 0 );
+			$this->assertSame( 0x33, ( $pixel >> 16 ) & 0xFF );
+			$this->assertSame( 0x66, ( $pixel >> 8 ) & 0xFF );
+			$this->assertSame( 0x99, $pixel & 0xFF );
+			imagedestroy( $filtered );
+		} finally {
+			@unlink( $source );
+			if ( is_string( $result ) ) {
+				@unlink( $result );
+			}
 		}
 	}
 }

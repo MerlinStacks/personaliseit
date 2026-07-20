@@ -564,6 +564,7 @@ class OC_Cart {
 			return new \WP_Error( 'invalid_design', __( 'This design has no available personalisation areas.', 'overcustomise' ) );
 		}
 		$raw_layers = self::synchronise_linked_layer_inputs( $design_layers, $raw_layers );
+		$raw_layers = self::synchronise_linked_layer_colours( $design_layers, $raw_layers );
 
 		$active_font_ids = array_map( static fn( $font ) => (int) $font->id, OC_DB::get_fonts( true ) );
 		$fallback_font_id = (int) ( $active_font_ids[0] ?? 0 );
@@ -731,6 +732,8 @@ class OC_Cart {
 			];
 		}
 
+		$normalised = self::synchronise_normalised_linked_colours( $design_layers, $normalised );
+
 		return $normalised ? [ 'design' => $design, 'layers' => $normalised ] : new \WP_Error( 'invalid_design', __( 'Design has no valid layers.', 'overcustomise' ) );
 	}
 
@@ -769,6 +772,95 @@ class OC_Cart {
 		}
 
 		return $raw_layers;
+	}
+
+	/** Keep a colour selected on one control identical across colour-linked layer types. */
+	private static function synchronise_linked_layer_colours( array $layers, array $raw_layers ): array {
+		$groups = [];
+		foreach ( $layers as $layer ) {
+			$type = sanitize_key( (string) ( $layer->type ?? '' ) );
+			if ( ! in_array( $type, [ 'text', 'textarea', 'image', 'clipart', 'lineart' ], true )
+				|| ( isset( $layer->visible ) && ! (bool) $layer->visible )
+				|| ! empty( $layer->locked )
+			) {
+				continue;
+			}
+			$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
+			if ( 'image' === $type && empty( $settings['enable_image_colour'] ) ) {
+				continue;
+			}
+			$group = $settings['colour_link_group'];
+			if ( '' !== $group ) {
+				$groups[ $group ][] = [ 'id' => (int) $layer->id, 'settings' => $settings ];
+			}
+		}
+
+		foreach ( $groups as $members ) {
+			if ( count( $members ) < 2 ) {
+				continue;
+			}
+			$colour = '';
+			foreach ( $members as $member ) {
+				$candidate = $raw_layers[ $member['id'] ]['colorHex'] ?? '';
+				if ( ! empty( $member['settings']['allow_colour_change'] ) && is_string( $candidate ) && sanitize_hex_color( $candidate ) ) {
+					$colour = sanitize_hex_color( $candidate );
+					break;
+				}
+			}
+			if ( '' === $colour ) {
+				$colour = $members[0]['settings']['default_color'];
+			}
+			foreach ( $members as $member ) {
+				$raw_layers[ $member['id'] ] = is_array( $raw_layers[ $member['id'] ] ?? null ) ? $raw_layers[ $member['id'] ] : [];
+				$raw_layers[ $member['id'] ]['colorHex'] = $colour;
+				$raw_layers[ $member['id'] ]['_oc_linked_colour'] = true;
+			}
+		}
+
+		return $raw_layers;
+	}
+
+	/** Apply the validated source colour after target defaults and restrictions are normalised. */
+	private static function synchronise_normalised_linked_colours( array $layers, array $normalised ): array {
+		$groups = [];
+		foreach ( $layers as $layer ) {
+			$type = sanitize_key( (string) ( $layer->type ?? '' ) );
+			if ( ! isset( $normalised[ (int) $layer->id ] )
+				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'clipart', 'lineart' ], true )
+				|| ! empty( $layer->locked )
+			) {
+				continue;
+			}
+			$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
+			if ( 'image' === $type && empty( $settings['enable_image_colour'] ) ) {
+				continue;
+			}
+			if ( '' !== $settings['colour_link_group'] ) {
+				$groups[ $settings['colour_link_group'] ][] = [
+					'id'       => (int) $layer->id,
+					'editable' => ! empty( $settings['allow_colour_change'] ),
+				];
+			}
+		}
+
+		foreach ( $groups as $members ) {
+			if ( count( $members ) < 2 ) {
+				continue;
+			}
+			$source = $members[0];
+			foreach ( $members as $member ) {
+				if ( $member['editable'] ) {
+					$source = $member;
+					break;
+				}
+			}
+			$colour = $normalised[ $source['id'] ]['colorHex'];
+			foreach ( $members as $member ) {
+				$normalised[ $member['id'] ]['colorHex'] = $colour;
+			}
+		}
+
+		return $normalised;
 	}
 
 	public static function normalise_spotify_value( string $value ): string {
@@ -857,6 +949,7 @@ class OC_Cart {
 		$default_attachment_url = substr( esc_url_raw( $string( $value['default_attachment_url'] ?? '' ) ), 0, 2048 );
 		$default_clipart_url    = substr( esc_url_raw( $string( $value['default_clipart_url'] ?? '' ) ), 0, 2048 );
 		$link_group             = substr( sanitize_key( $string( $value['link_group'] ?? '' ) ), 0, 64 );
+		$colour_link_group      = substr( sanitize_key( $string( $value['colour_link_group'] ?? '' ) ), 0, 64 );
 
 		return [
 			'default_text'                => $default_text,
@@ -873,6 +966,7 @@ class OC_Cart {
 			'clipart_groups'              => self::id_list( $value['clipart_groups'] ?? [] ),
 			'image_filter_ids'            => self::id_list( $value['image_filter_ids'] ?? [] ),
 			'default_image_filter_id'     => max( 0, $number( $value['default_image_filter_id'] ?? 0 ) ),
+			'enable_image_colour'         => $boolean( $value['enable_image_colour'] ?? false ),
 			'default_attachment_id'       => max( 0, $number( $value['default_attachment_id'] ?? 0 ) ),
 			'default_attachment_url'      => $default_attachment_url,
 			'default_clipart_id'          => max( 0, $number( $value['default_clipart_id'] ?? 0 ) ),
@@ -891,6 +985,7 @@ class OC_Cart {
 			'mask_shape'                  => in_array( $mask_shape, [ 'circle', 'square', 'rectangle' ], true ) ? $mask_shape : 'circle',
 			'clipart_display'             => 'carousel' === sanitize_key( $string( $value['clipart_display'] ?? 'grid', 'grid' ) ) ? 'carousel' : 'grid',
 			'link_group'                  => $link_group,
+			'colour_link_group'           => $colour_link_group,
 		];
 	}
 

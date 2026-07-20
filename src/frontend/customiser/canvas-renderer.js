@@ -781,6 +781,14 @@ const canvasRendererMethods = {
 					);
 					const imageEffects = {
 						...( imageFilter ? { imageFilter } : {} ),
+						...( imageFilter && layer.settings?.enable_image_colour
+							? {
+									imageColor:
+										input.colorHex ||
+										layer.settings?.default_color ||
+										'#000000',
+							  }
+							: {} ),
 						...( isEmbroidery ? { embroidery: true } : {} ),
 					};
 					const rendered = await this.renderFabricImg(
@@ -2110,6 +2118,15 @@ const canvasRendererMethods = {
 			if ( effects.imageFilter ) {
 				this.addConfiguredImageFilter( filters, effects.imageFilter );
 			}
+			if ( effects.imageColor && FabricFilters.BlendColor ) {
+				filters.push(
+					new FabricFilters.BlendColor( {
+						color: effects.imageColor,
+						mode: 'tint',
+						alpha: 1,
+					} )
+				);
+			}
 			if ( isEngraving && ! effects.preserveRecolouredPixels ) {
 				const palette = engravingPalette || this.engravingPalette();
 				filters.push(
@@ -2175,7 +2192,11 @@ const canvasRendererMethods = {
 
 			img._ocContent = true;
 			img._ocSourceUrl = url;
-			img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
+			img._ocSnapshotColor =
+				effects.imageColor ||
+				effects.embroideryColor ||
+				tintColor ||
+				'';
 			img._ocSnapshotInlineSvg = filters.length === 0;
 			this.applyContentClip( img, clipPath );
 			if ( ! isCurrent() ) {

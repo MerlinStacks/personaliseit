@@ -102,6 +102,14 @@ export function createLayerPreviewRenderer( deps ) {
 		}
 
 		const s = layer.settings || {};
+		const selectedClipart =
+			layer.type === 'clipart'
+				? ( window.ocProductsData?.clipartItems || [] ).find(
+						( item ) =>
+							Number( item.id ) === Number( s.default_clipart_id )
+				  )
+				: null;
+		const clipartUrl = s.default_clipart_url || selectedClipart?.url || '';
 
 		if ( layer.type === 'text' || layer.type === 'textarea' ) {
 			const isSingleLine = layer.type === 'text';
@@ -220,12 +228,17 @@ export function createLayerPreviewRenderer( deps ) {
 				d.style.borderRadius = '999px';
 			}
 			el.appendChild( d );
-		} else if ( layer.type === 'clipart' && s.default_clipart_url ) {
+		} else if ( layer.type === 'clipart' && clipartUrl ) {
 			const img = document.createElement( 'img' );
 			img.className = 'oc-lp oc-lp-media';
-			img.src = s.default_clipart_url;
+			img.src = clipartUrl;
 			img.alt = '';
-			if ( isEngraving && s.default_clipart_recolourable ) {
+			if (
+				isEngraving &&
+				( s.default_clipart_recolourable ||
+					( selectedClipart?.fileType === 'svg' &&
+						selectedClipart.colourChangeable !== false ) )
+			) {
 				img.style.filter =
 					'brightness(0) saturate(100%) invert(91%) opacity(0.9)';
 			}

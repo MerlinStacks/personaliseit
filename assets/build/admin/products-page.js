@@ -881,7 +881,8 @@ function createProductsPageDataNormalisers(deps) {
           allow_colour_change: true,
           allow_size_change: false,
           required: false,
-          link_group: ''
+          link_group: '',
+          colour_link_group: ''
         };
       case 'textarea':
         return {
@@ -900,7 +901,8 @@ function createProductsPageDataNormalisers(deps) {
           allow_colour_change: true,
           allow_size_change: false,
           required: false,
-          link_group: ''
+          link_group: '',
+          colour_link_group: ''
         };
       case 'image':
         return {
@@ -909,12 +911,17 @@ function createProductsPageDataNormalisers(deps) {
           remove_background: false,
           image_filter_ids: [],
           default_image_filter_id: 0,
+          enable_image_colour: false,
+          default_color: '#000000',
+          colour_groups: [],
           default_attachment_id: 0,
           default_attachment_url: '',
           allow_image_change: true,
           allow_image_filter_change: true,
+          allow_colour_change: true,
           required: false,
-          link_group: ''
+          link_group: '',
+          colour_link_group: ''
         };
       case 'clipmask':
         return {
@@ -940,7 +947,8 @@ function createProductsPageDataNormalisers(deps) {
         return {
           colour_groups: [],
           required: false,
-          link_group: ''
+          link_group: '',
+          colour_link_group: ''
         };
       case 'clipart':
         return {
@@ -951,7 +959,8 @@ function createProductsPageDataNormalisers(deps) {
           allow_clipart_change: true,
           required: false,
           clipart_display: 'grid',
-          link_group: ''
+          link_group: '',
+          colour_link_group: ''
         };
       default:
         return {
@@ -981,6 +990,8 @@ function createProductsPageDataNormalisers(deps) {
       }
       settings.allow_image_change = settings.allow_image_change !== false;
       settings.allow_image_filter_change = settings.allow_image_filter_change !== false;
+      settings.enable_image_colour = !!settings.enable_image_colour;
+      settings.allow_colour_change = settings.allow_colour_change !== false;
     }
     return settings;
   }
@@ -2406,6 +2417,10 @@ const LAYER_TABS = {
     label: 'File',
     icon: '\ud83d\uddbc'
   }, {
+    id: 'colours',
+    label: 'Colours',
+    icon: '\u25cf'
+  }, {
     id: 'validation',
     label: 'Validation',
     icon: '\u2713'
@@ -2631,6 +2646,8 @@ function createLayerPreviewRenderer(deps) {
       return;
     }
     const s = layer.settings || {};
+    const selectedClipart = layer.type === 'clipart' ? (window.ocProductsData?.clipartItems || []).find(item => Number(item.id) === Number(s.default_clipart_id)) : null;
+    const clipartUrl = s.default_clipart_url || selectedClipart?.url || '';
     if (layer.type === 'text' || layer.type === 'textarea') {
       const isSingleLine = layer.type === 'text';
       const text = s.default_text || layer.label || layerLabel(layer.type);
@@ -2685,12 +2702,12 @@ function createLayerPreviewRenderer(deps) {
         d.style.borderRadius = '999px';
       }
       el.appendChild(d);
-    } else if (layer.type === 'clipart' && s.default_clipart_url) {
+    } else if (layer.type === 'clipart' && clipartUrl) {
       const img = document.createElement('img');
       img.className = 'oc-lp oc-lp-media';
-      img.src = s.default_clipart_url;
+      img.src = clipartUrl;
       img.alt = '';
-      if (isEngraving && s.default_clipart_recolourable) {
+      if (isEngraving && (s.default_clipart_recolourable || selectedClipart?.fileType === 'svg' && selectedClipart.colourChangeable !== false)) {
         img.style.filter = 'brightness(0) saturate(100%) invert(91%) opacity(0.9)';
       }
       el.appendChild(img);
@@ -2816,11 +2833,11 @@ function createProductsPageSettings(deps) {
     const items = (filters || []).filter(filter => allowed.includes(Number(filter.id)));
     return '<option value="0">Original</option>' + items.map(filter => '<option value="' + esc(filter.id) + '"' + (Number(filter.id) === Number(selectedId || 0) ? ' selected' : '') + '>' + esc(filter.name) + '</option>').join('');
   }
-  function linkGroupOptions(current) {
+  function linkGroupOptions(current, setting = 'link_group') {
     const groups = [];
     getAreas().forEach(area => {
       (area.layers || []).forEach(layer => {
-        const group = normaliseLinkGroup(layer.settings?.link_group);
+        const group = normaliseLinkGroup(layer.settings?.[setting]);
         if (group && groups.indexOf(group) === -1) {
           groups.push(group);
         }
@@ -2832,13 +2849,15 @@ function createProductsPageSettings(deps) {
     }
     return groups.sort((a, b) => a.localeCompare(b));
   }
-  function linkGroupField(current) {
-    const groups = linkGroupOptions(current);
+  function linkGroupField(current, setting = 'link_group') {
+    const groups = linkGroupOptions(current, setting);
     current = normaliseLinkGroup(current);
+    const id = setting === 'colour_link_group' ? 'oc-set-colour-link-group' : 'oc-set-link-group';
+    const newId = `${id}-new`;
     if (!groups.length) {
-      return '<input type="text" id="oc-set-link-group" class="oc-input" style="width:100%;" placeholder="Create a link group, e.g. name" value="" />';
+      return `<input type="text" id="${id}" class="oc-input" style="width:100%;" placeholder="Create a link group, e.g. name" value="" />`;
     }
-    return '<select id="oc-set-link-group" class="oc-input" style="width:100%;">' + '<option value="">No link group</option>' + groups.map(group => '<option value="' + esc(group) + '"' + (group === current ? ' selected' : '') + '>' + esc(group) + '</option>').join('') + '<option value="__new">Create new link group...</option>' + '</select>' + '<input type="text" id="oc-set-link-group-new" class="oc-input" style="width:100%;margin-top:8px;display:none;" placeholder="New link group name" value="" />';
+    return `<select id="${id}" class="oc-input" style="width:100%;">` + '<option value="">No link group</option>' + groups.map(group => '<option value="' + esc(group) + '"' + (group === current ? ' selected' : '') + '>' + esc(group) + '</option>').join('') + '<option value="__new">Create new link group...</option>' + '</select>' + `<input type="text" id="${newId}" class="oc-input" style="width:100%;margin-top:8px;display:none;" placeholder="New link group name" value="" />`;
   }
   function fontOptions(fonts, selected) {
     return '<option value="0">Auto / first available</option>' + fonts.map(f => '<option value="' + esc(f.id) + '"' + (Number(selected) === Number(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('');
@@ -2939,9 +2958,10 @@ function createProductsPageSettings(deps) {
     const printMethod = area?.method || '';
     const aGroups = data.clipartGroups || [];
     const isEngraving = area && area.method === 'engraving';
+    const supportsColourLink = ['text', 'textarea', 'image', 'clipart', 'lineart'].includes(layer.type);
     switch (tabId) {
       case 'general':
-        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
+        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + (supportsColourLink ? field('Colour link group <span class="oc-hint">(keeps colour identical across text and artwork layers)</span>', linkGroupField(s.colour_link_group || '', 'colour_link_group')) : '') + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
       case 'content':
         return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
       case 'style':
@@ -2961,6 +2981,11 @@ function createProductsPageSettings(deps) {
         if (isEngraving) {
           return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
         }
+        if (layer.type === 'image') {
+          const selected = selectedGroupIds(s.colour_groups);
+          const available = coloursForSelectedGroups(colours, cGroups, selected);
+          return toggleField('Enable colour for filtered image', 'oc-set-enable-image-colour', !!s.enable_image_colour) + field('Default colour', selected.length && available.length ? '<select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(available, s.default_color) + '</select>' : '<input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" />') + (cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
+        }
         return cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : '<span class="oc-settings-empty">No colour groups created yet.</span>';
       case 'library':
         {
@@ -2971,7 +2996,7 @@ function createProductsPageSettings(deps) {
         return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
       case 'properties':
         if (layer.type === 'image') {
-          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Image', 'oc-set-allow-image-change', s.allow_image_change !== false) + toggleField('Filter', 'oc-set-allow-image-filter-change', s.allow_image_filter_change !== false);
+          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Image', 'oc-set-allow-image-change', s.allow_image_change !== false) + toggleField('Filter', 'oc-set-allow-image-filter-change', s.allow_image_filter_change !== false) + (s.enable_image_colour ? toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false) : '');
         }
         if (layer.type === 'clipart') {
           return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Clipart', 'oc-set-allow-clipart-change', s.allow_clipart_change !== false);
@@ -3020,6 +3045,27 @@ function createProductsPageSettings(deps) {
     });
     newLinkGroupControl?.addEventListener('input', e => {
       s.link_group = normaliseLinkGroup(e.target.value);
+      commitChange();
+    });
+    const colourLinkGroupControl = document.getElementById('oc-set-colour-link-group');
+    const newColourLinkGroupControl = document.getElementById('oc-set-colour-link-group-new');
+    colourLinkGroupControl?.addEventListener(colourLinkGroupControl.tagName === 'SELECT' ? 'change' : 'input', e => {
+      if (e.target.value === '__new') {
+        if (newColourLinkGroupControl) {
+          newColourLinkGroupControl.style.display = '';
+          newColourLinkGroupControl.focus();
+          s.colour_link_group = normaliseLinkGroup(newColourLinkGroupControl.value);
+        }
+      } else {
+        if (newColourLinkGroupControl) {
+          newColourLinkGroupControl.style.display = 'none';
+        }
+        s.colour_link_group = normaliseLinkGroup(e.target.value);
+      }
+      commitChange();
+    });
+    newColourLinkGroupControl?.addEventListener('input', e => {
+      s.colour_link_group = normaliseLinkGroup(e.target.value);
       commitChange();
     });
     document.getElementById('oc-set-char-limit')?.addEventListener('input', e => {
@@ -3198,6 +3244,12 @@ function createProductsPageSettings(deps) {
     document.getElementById('oc-set-clipart-display')?.addEventListener('change', e => {
       s.clipart_display = e.target.value === 'carousel' ? 'carousel' : 'grid';
       commitChange();
+    });
+    document.getElementById('oc-set-enable-image-colour')?.addEventListener('change', e => {
+      s.enable_image_colour = e.target.checked;
+      commitChange({
+        canvas: true
+      });
     });
     document.getElementById('oc-set-allow-font-change')?.addEventListener('change', e => {
       s.allow_font_change = e.target.checked;

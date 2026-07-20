@@ -59,6 +59,7 @@ export const LAYER_TABS = {
 	image: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'file', label: 'File', icon: '\ud83d\uddbc' },
+		{ id: 'colours', label: 'Colours', icon: '\u25cf' },
 		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		{ id: 'properties', label: 'Properties', icon: '\u2699' },
 	],

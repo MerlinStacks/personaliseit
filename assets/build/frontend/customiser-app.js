@@ -579,6 +579,9 @@ const canvasRendererMethods = {
               ...(imageFilter ? {
                 imageFilter
               } : {}),
+              ...(imageFilter && layer.settings?.enable_image_colour ? {
+                imageColor: input.colorHex || layer.settings?.default_color || '#000000'
+              } : {}),
               ...(isEmbroidery ? {
                 embroidery: true
               } : {})
@@ -1459,6 +1462,13 @@ const canvasRendererMethods = {
       if (effects.imageFilter) {
         this.addConfiguredImageFilter(filters, effects.imageFilter);
       }
+      if (effects.imageColor && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
+          color: effects.imageColor,
+          mode: 'tint',
+          alpha: 1
+        }));
+      }
       if (isEngraving && !effects.preserveRecolouredPixels) {
         const palette = engravingPalette || this.engravingPalette();
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale(), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness({
@@ -1515,7 +1525,7 @@ const canvasRendererMethods = {
       }
       img._ocContent = true;
       img._ocSourceUrl = url;
-      img._ocSnapshotColor = effects.embroideryColor || tintColor || '';
+      img._ocSnapshotColor = effects.imageColor || effects.embroideryColor || tintColor || '';
       img._ocSnapshotInlineSvg = filters.length === 0;
       this.applyContentClip(img, clipPath);
       if (!isCurrent()) {
@@ -2777,6 +2787,7 @@ const designVariantMethods = {
     this.seedTemplateImageDefaults();
     this.seedLayerFontDefaults();
     this.seedLinkedImageInputs();
+    this.seedLinkedColourInputs();
     this.applyInputsToDOM({
       redraw: false
     });
@@ -3623,6 +3634,14 @@ const inputControlMethods = {
       }, {
         signal: stateSignal
       });
+      input.addEventListener('click', () => {
+        if (input.value.trim() === selectedFontLabel()) {
+          filterOptions('');
+        }
+        setOpen(true);
+      }, {
+        signal: stateSignal
+      });
       input.addEventListener('input', () => {
         scheduleFilterOptions();
         setOpen(true);
@@ -4008,9 +4027,7 @@ const inputControlMethods = {
           this.inputs[lid] = {};
         }
         this.inputs[lid].colorHex = btn.dataset.hex;
-        if (['clipart', 'lineart'].includes(this.getLayerById(lid)?.type)) {
-          this.syncLinkedLayerInput(lid, ['colorHex']);
-        }
+        this.syncLinkedColourInput(lid);
         btn.closest('.oc-colour-swatches')?.querySelectorAll('.oc-colour-swatch').forEach(s => {
           const isSelected = s === btn;
           s.classList.toggle('oc-selected', isSelected);
@@ -4034,9 +4051,7 @@ const inputControlMethods = {
           this.inputs[lid] = {};
         }
         this.inputs[lid].colorHex = el.value;
-        if (['clipart', 'lineart'].includes(this.getLayerById(lid)?.type)) {
-          this.syncLinkedLayerInput(lid, ['colorHex']);
-        }
+        this.syncLinkedColourInput(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
@@ -4335,6 +4350,24 @@ const inputControlMethods = {
       });
     });
   },
+  seedLinkedColourInputs() {
+    const seeded = new Set();
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        const group = String(layer.settings?.colour_link_group || '').trim();
+        if (!group || seeded.has(group)) {
+          return;
+        }
+        const members = this.linkedColourLayerMembers(layer.id);
+        if (members.length < 2) {
+          return;
+        }
+        seeded.add(group);
+        const sourceId = members.find(layerId => this.getLayerById(layerId)?.settings?.allow_colour_change !== false) || members[0];
+        this.syncLinkedColourInput(sourceId);
+      });
+    });
+  },
   isProductionImageInput(input) {
     return Number(input?.attachmentId || 0) > 0;
   },
@@ -4410,6 +4443,40 @@ const inputControlMethods = {
   },
   syncLinkedImageInput(sourceLayerId) {
     this.syncLinkedLayerInput(sourceLayerId, LINKED_IMAGE_INPUT_KEYS);
+  },
+  linkedColourLayerMembers(sourceLayerId) {
+    const source = this.getLayerById(sourceLayerId);
+    const group = String(source?.settings?.colour_link_group || '').trim();
+    if (!source || !group) {
+      return source ? [source.id] : [];
+    }
+    const members = [];
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        const colourEnabled = layer.type !== 'image' || layer.settings?.enable_image_colour === true;
+        if (['text', 'textarea', 'image', 'clipart', 'lineart'].includes(layer.type) && layer.visible !== false && !layer.locked && colourEnabled && String(layer.settings?.colour_link_group || '').trim() === group) {
+          members.push(layer.id);
+        }
+      });
+    });
+    return members;
+  },
+  syncLinkedColourInput(sourceLayerId) {
+    const sourceInput = this.inputs[sourceLayerId];
+    if (!sourceInput?.colorHex) {
+      return;
+    }
+    const targetAreaIndexes = new Set();
+    this.linkedColourLayerMembers(sourceLayerId).forEach(layerId => {
+      if (layerId === sourceLayerId) {
+        return;
+      }
+      this.inputs[layerId] = this.inputs[layerId] || {};
+      this.inputs[layerId].colorHex = sourceInput.colorHex;
+      this.updateLinkedLayerControls(layerId, ['colorHex']);
+      targetAreaIndexes.add(this.areaIndexForLayer(layerId));
+    });
+    targetAreaIndexes.forEach(areaIndex => this.scheduleRedraw(areaIndex));
   },
   canonicalLinkedLayerId(layerId) {
     const layer = this.getLayerById(layerId);
@@ -6459,7 +6526,7 @@ void main() {
 /************************************************************************/
 /******/ 	// The module cache
 /******/ 	var __webpack_module_cache__ = {};
-/******/
+/******/ 	
 /******/ 	// The require function
 /******/ 	function __webpack_require__(moduleId) {
 /******/ 		// Check if module is in cache
@@ -6473,7 +6540,7 @@ void main() {
 /******/ 			// no module.loaded needed
 /******/ 			exports: {}
 /******/ 		};
-/******/
+/******/ 	
 /******/ 		// Execute the module function
 /******/ 		if (!(moduleId in __webpack_modules__)) {
 /******/ 			delete __webpack_module_cache__[moduleId];
@@ -6502,7 +6569,7 @@ void main() {
 /******/ 			return getter;
 /******/ 		};
 /******/ 	})();
-/******/
+/******/ 	
 /******/ 	/* webpack/runtime/define property getters */
 /******/ 	(() => {
 /******/ 		// define getter functions for harmony exports
@@ -7058,6 +7125,7 @@ class OCCustomiser {
     this.seedTemplateImageDefaults();
     this.seedLayerFontDefaults();
     this.seedLinkedImageInputs();
+    this.seedLinkedColourInputs();
     this.applyInputsToDOM({
       redraw: false
     });

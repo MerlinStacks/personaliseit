@@ -1511,7 +1511,7 @@ class OC_Rest_API {
 			}
 
 			try {
-				$generated = OC_AI_Image_Filter::generate( $source_attachment_id, $prompt, ! empty( $filter->remove_background ) );
+				$generated = OC_AI_Image_Filter::generate( $source_attachment_id, $prompt );
 			} catch ( \Throwable $e ) {
 				self::release_budget_reservation( $storage_reservation );
 				OC_Logger::error( 'AI image generation threw an exception after quota reservation: ' . $e->getMessage() );
@@ -1539,7 +1539,8 @@ class OC_Rest_API {
 						'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id,
 						'layer_id' => $layer_id, 'token_hash' => $token ? hash( 'sha256', $token ) : '',
 					],
-					[ 'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id, 'model' => (string) ( $generated['model'] ?? $model ) ]
+					[ 'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id, 'model' => (string) ( $generated['model'] ?? $model ) ],
+					! empty( $filter->remove_background )
 				);
 			} catch ( \Throwable $e ) {
 				self::release_budget_reservation( $storage_reservation );
