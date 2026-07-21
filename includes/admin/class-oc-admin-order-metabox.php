@@ -451,7 +451,7 @@ class OC_Admin_Order_Metabox {
 		$name  = (string) array_key_first( $fields );
 		$value = $fields[ $name ] ?? '';
 		$url   = add_query_arg(
-			[ 'action' => $action, '_wpnonce' => wp_create_nonce( $nonce_action ), $name => $value ],
+			[ 'action' => $action, 'oc_print_nonce' => wp_create_nonce( $nonce_action ), $name => $value ],
 			admin_url( 'admin-post.php' )
 		);
 		echo '<button type="submit" name="action" value="' . esc_attr( $action )

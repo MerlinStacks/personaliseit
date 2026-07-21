@@ -43,6 +43,12 @@ class UploadHandlerReflector {
 		return $m->invoke( null, $ext );
 	}
 
+	public static function document_content_is_valid( string $path, string $type ): bool {
+		$m = self::rc()->getMethod( 'document_content_is_valid' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $path, $type );
+	}
+
 	public static function protected_uploads_storage_root(): ?string {
 		$m = self::rc()->getMethod( 'protected_uploads_storage_root' );
 		$m->setAccessible( true );
@@ -167,6 +173,35 @@ class Test_Upload_Handler_Validation extends TestCase {
 			|| str_contains( $mime, 'pdf' )  // Some systems report PDF for EPS
 			|| str_contains( $mime, 'octet' ) // Raw fallback
 		);
+	}
+
+	#[Test]
+	public function validates_eps_with_a_dsc_bounding_box(): void {
+		$tmp = tempnam( sys_get_temp_dir(), 'oc_test_' );
+		file_put_contents( $tmp, "%!PS-Adobe-3.0\n%%BoundingBox: 0 0 100 100\nshowpage\n" );
+
+		$this->assertTrue( UploadHandlerReflector::document_content_is_valid( $tmp, 'eps' ) );
+		@unlink( $tmp );
+	}
+
+	#[Test]
+	public function validates_dos_binary_eps_wrapper(): void {
+		$postscript = "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 100 100\nshowpage\n";
+		$tmp        = tempnam( sys_get_temp_dir(), 'oc_test_' );
+		$header     = "\xC5\xD0\xD3\xC6" . pack( 'V', 30 ) . pack( 'V', strlen( $postscript ) ) . str_repeat( "\0", 18 );
+		file_put_contents( $tmp, $header . $postscript );
+
+		$this->assertTrue( UploadHandlerReflector::document_content_is_valid( $tmp, 'eps' ) );
+		@unlink( $tmp );
+	}
+
+	#[Test]
+	public function rejects_postscript_without_eps_markers(): void {
+		$tmp = tempnam( sys_get_temp_dir(), 'oc_test_' );
+		file_put_contents( $tmp, "%!PS-Adobe-3.0\nshowpage\n" );
+
+		$this->assertFalse( UploadHandlerReflector::document_content_is_valid( $tmp, 'eps' ) );
+		@unlink( $tmp );
 	}
 
 	// ── SUPPORTED_TYPES constant ──────────────────────────────────────────

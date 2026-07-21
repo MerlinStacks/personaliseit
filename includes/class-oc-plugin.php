@@ -291,7 +291,7 @@ class OC_Plugin {
 	public static function handle_regenerate_print_file(): void {
 		self::require_print_admin_post();
 		$file_id = absint( $_GET['file_id'] ?? $_POST['file_id'] ?? 0 );
-		check_admin_referer( 'oc_regenerate_' . $file_id );
+		check_admin_referer( 'oc_regenerate_' . $file_id, 'oc_print_nonce' );
 		$record = $file_id ? OC_DB::get_print_file( $file_id ) : null;
 		if ( ! $record ) {
 			wp_die( esc_html__( 'Print file record not found.', 'overcustomise' ), '', [ 'response' => 404 ] );
@@ -317,7 +317,7 @@ class OC_Plugin {
 	public static function handle_generate_print_files(): void {
 		self::require_print_admin_post();
 		$order_id = absint( $_GET['order_id'] ?? $_POST['order_id'] ?? 0 );
-		check_admin_referer( 'oc_generate_print_files_' . $order_id );
+		check_admin_referer( 'oc_generate_print_files_' . $order_id, 'oc_print_nonce' );
 		$order = $order_id ? wc_get_order( $order_id ) : null;
 		if ( ! $order instanceof WC_Order ) {
 			wp_die( esc_html__( 'Order not found.', 'overcustomise' ), '', [ 'response' => 404 ] );
@@ -338,7 +338,7 @@ class OC_Plugin {
 	public static function handle_process_print_queue_order(): void {
 		self::require_print_admin_post();
 		$order_id = absint( $_GET['order_id'] ?? $_POST['order_id'] ?? 0 );
-		check_admin_referer( 'oc_process_print_queue_order_' . $order_id );
+		check_admin_referer( 'oc_process_print_queue_order_' . $order_id, 'oc_print_nonce' );
 		$order = $order_id ? wc_get_order( $order_id ) : null;
 		if ( ! $order instanceof WC_Order ) {
 			wp_die( esc_html__( 'Order not found.', 'overcustomise' ), '', [ 'response' => 404 ] );

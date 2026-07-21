@@ -464,12 +464,7 @@ class OC_Upload_Handler {
 				throw new \RuntimeException( __( 'The SVG file is not safe to process.', 'overcustomise' ) );
 			}
 		} elseif ( in_array( $type_key, [ 'pdf', 'eps' ], true ) ) {
-			$header = file_get_contents( (string) $_file['tmp_name'], false, null, 0, 1024 );
-			$valid  = is_string( $header ) && ( 'pdf' === $type_key
-				? str_starts_with( $header, '%PDF-' )
-				: str_starts_with( $header, '%!PS-Adobe-' ) && false !== strpos( substr( $header, 0, 256 ), 'EPSF-' )
-			);
-			if ( ! $valid ) {
+			if ( ! self::document_content_is_valid( (string) $_file['tmp_name'], $type_key ) ) {
 				throw new \RuntimeException( __( 'The document content does not match its artwork format.', 'overcustomise' ) );
 			}
 		}
@@ -718,16 +713,44 @@ class OC_Upload_Handler {
 				return false;
 			}
 		} elseif ( in_array( $type, [ 'pdf', 'eps' ], true ) ) {
-			$header = file_get_contents( $path, false, null, 0, 1024 );
-			if ( ! is_string( $header ) || ( 'pdf' === $type
-				? ! str_starts_with( $header, '%PDF-' )
-				: ! str_starts_with( $header, '%!PS-Adobe-' ) || false === strpos( substr( $header, 0, 256 ), 'EPSF-' )
-			) ) {
+			if ( ! self::document_content_is_valid( $path, $type ) ) {
 				return false;
 			}
 		}
 
 		return true;
+	}
+
+	/** Validate PDF and EPS signatures, including DOS binary EPS wrappers. */
+	private static function document_content_is_valid( string $path, string $type ): bool {
+		$header = file_get_contents( $path, false, null, 0, 1024 );
+		if ( ! is_string( $header ) ) {
+			return false;
+		}
+		if ( 'pdf' === $type ) {
+			return str_starts_with( $header, '%PDF-' );
+		}
+		if ( 'eps' !== $type ) {
+			return false;
+		}
+
+		if ( str_starts_with( $header, "\xC5\xD0\xD3\xC6" ) ) {
+			$binary_header = unpack( 'Voffset/Vlength', substr( $header, 4, 8 ) );
+			$file_size     = filesize( $path );
+			$offset        = (int) ( $binary_header['offset'] ?? 0 );
+			$length        = (int) ( $binary_header['length'] ?? 0 );
+			if ( false === $file_size || $offset < 30 || $length <= 0 || $offset + $length > $file_size ) {
+				return false;
+			}
+			$header = file_get_contents( $path, false, null, $offset, min( 1024, $length ) );
+			if ( ! is_string( $header ) ) {
+				return false;
+			}
+		}
+
+		return str_starts_with( $header, '%!PS-Adobe-' )
+			&& ( false !== strpos( substr( $header, 0, 256 ), 'EPSF-' )
+				|| 1 === preg_match( '/^%%BoundingBox:\s+(?:-?\d|\(atend\))/m', $header ) );
 	}
 
 	/** Confirm a raster attachment is safe for the paid AI image service. */

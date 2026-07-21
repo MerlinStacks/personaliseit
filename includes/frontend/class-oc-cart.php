@@ -1715,9 +1715,9 @@ class OC_Cart {
 	private function render_admin_regenerate_button( int $file_id ): void {
 		$url = add_query_arg(
 			[
-				'action'   => 'oc_regenerate_print_file',
-				'_wpnonce' => wp_create_nonce( 'oc_regenerate_' . $file_id ),
-				'file_id'  => $file_id,
+				'action'         => 'oc_regenerate_print_file',
+				'oc_print_nonce' => wp_create_nonce( 'oc_regenerate_' . $file_id ),
+				'file_id'        => $file_id,
 			],
 			admin_url( 'admin-post.php' )
 		);
