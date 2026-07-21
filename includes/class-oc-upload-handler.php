@@ -1123,7 +1123,7 @@ class OC_Upload_Handler {
 	// Conversion helpers
 	// -------------------------------------------------------------------------
 
-	/** Remove a uniform background colour and return a temporary PNG path. */
+	/** Remove a uniform background connected to the image edges and return a temporary PNG path. */
 	private static function remove_background_via_imagick( string $source ): string|\WP_Error {
 		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\Imagick' ) ) {
 			return new \WP_Error( 'background_removal_unavailable', __( 'Local background removal requires the PHP ImageMagick extension.', 'overcustomise' ) );
@@ -1184,11 +1184,12 @@ class OC_Upload_Handler {
 			$quantum_range = (float) ( $quantum['quantumRangeLong'] ?? 65535 );
 			$fuzz          = $quantum_range * 0.01;
 			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
-			$image->transparentPaintImage( $background[0]['pixel'], 0.0, $fuzz, false );
+			$transparent = new \ImagickPixel( 'transparent' );
+			$image->floodFillPaintImage( $transparent, $fuzz, $background[0]['pixel'], $background[0]['x'], $background[0]['y'], false );
 
 			$alpha          = $image->getImageChannelMean( \Imagick::CHANNEL_ALPHA );
 			$visible_ratio  = $quantum_range > 0 ? (float) ( $alpha['mean'] ?? 0 ) / $quantum_range : 0.0;
-			if ( $visible_ratio < 0.002 ) {
+			if ( $visible_ratio < 0.01 ) {
 				throw new \RuntimeException( __( 'Background removal was stopped because it would remove nearly all visible artwork.', 'overcustomise' ) );
 			}
 
