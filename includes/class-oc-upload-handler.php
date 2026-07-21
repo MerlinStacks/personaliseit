@@ -1182,7 +1182,7 @@ class OC_Upload_Handler {
 
 			$quantum       = $image->getQuantumRange();
 			$quantum_range = (float) ( $quantum['quantumRangeLong'] ?? 65535 );
-			$fuzz          = $quantum_range * 0.06;
+			$fuzz          = $quantum_range * 0.01;
 			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$image->transparentPaintImage( $background[0]['pixel'], 0.0, $fuzz, false );
 
@@ -1513,14 +1513,32 @@ class OC_Upload_Handler {
 			OC_Logger::warning( 'Artwork migration rejected an unsafe legacy SVG.' );
 			return false;
 		}
-		$stored_mime = (string) get_post_mime_type( $attachment_id );
-		if ( ! isset( self::EXT_TO_TYPE[ $extension ], self::SUPPORTED_TYPES[ $stored_mime ] )
-			|| self::EXT_TO_TYPE[ $extension ] !== self::SUPPORTED_TYPES[ $stored_mime ]
-			|| ! self::artwork_content_is_valid( $dest, $stored_mime )
+		$stored_mime    = (string) get_post_mime_type( $attachment_id );
+		$detected_mime  = self::detect_mime( $dest, basename( $dest ) );
+		$extension_type = self::EXT_TO_TYPE[ $extension ] ?? null;
+		$detected_type   = self::SUPPORTED_TYPES[ $detected_mime ] ?? null;
+		if ( null === $extension_type || null === $detected_type
+			|| $extension_type !== $detected_type
+			|| ! self::artwork_content_is_valid( $dest, $detected_mime )
 		) {
 			@unlink( $dest ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			OC_Logger::warning( 'Artwork migration rejected invalid legacy artwork content.' );
+			OC_Logger::warning( sprintf(
+				'Artwork migration rejected invalid legacy artwork content (attachment %d, extension %s, stored MIME %s, detected MIME %s).',
+				$attachment_id,
+				$extension ?: '(none)',
+				$stored_mime ?: '(none)',
+				$detected_mime ?: '(none)'
+			) );
 			return false;
+		}
+		$stored_type = self::SUPPORTED_TYPES[ $stored_mime ] ?? null;
+		if ( $stored_type !== $detected_type ) {
+			$mime_update = wp_update_post( [ 'ID' => $attachment_id, 'post_mime_type' => $detected_mime ], true );
+			if ( is_wp_error( $mime_update ) ) {
+				@unlink( $dest ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				OC_Logger::warning( 'Artwork migration could not repair legacy MIME metadata: ' . $mime_update->get_error_message() );
+				return false;
+			}
 		}
 
 		$metadata   = wp_get_attachment_metadata( $attachment_id );
