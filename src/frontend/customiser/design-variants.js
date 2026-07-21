@@ -268,6 +268,7 @@ const designVariantMethods = {
 		] );
 		canvas._ocScaleX = scale;
 		const previousFonts = this.fonts;
+		const thumbnailArea = { ...area, printMethod: '' };
 		this.fonts = state.fonts || this.fonts || [];
 		try {
 			for ( const layer of area.layers || [] ) {
@@ -281,7 +282,7 @@ const designVariantMethods = {
 					input.value =
 						layer.settings?.default_text || layer.label || '';
 				}
-				await this.renderLayer( canvas, layer, input, area );
+				await this.renderLayer( canvas, layer, input, thumbnailArea );
 			}
 		} finally {
 			this.fonts = previousFonts;

@@ -3,7 +3,7 @@
 ## 1.16.1 - 2026-07-20
 
 ### Added
-- Added a per-AI-filter option that removes plain, edge-connected backgrounds locally with conservative ImageMagick processing.
+- Added a per-AI-filter option that converts plain line-art backgrounds into a smooth transparency mask with ImageMagick.
 
 ## 1.16.0 - 2026-07-17
 

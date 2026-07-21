@@ -2672,6 +2672,10 @@ const designVariantMethods = {
     canvas.setViewportTransform([1, 0, 0, 1, offsetX - Number(bounds.x || 0) * scale, offsetY - Number(bounds.y || 0) * scale]);
     canvas._ocScaleX = scale;
     const previousFonts = this.fonts;
+    const thumbnailArea = {
+      ...area,
+      printMethod: ''
+    };
     this.fonts = state.fonts || this.fonts || [];
     try {
       for (const layer of area.layers || []) {
@@ -2681,7 +2685,7 @@ const designVariantMethods = {
         if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
           input.value = layer.settings?.default_text || layer.label || '';
         }
-        await this.renderLayer(canvas, layer, input, area);
+        await this.renderLayer(canvas, layer, input, thumbnailArea);
       }
     } finally {
       this.fonts = previousFonts;
