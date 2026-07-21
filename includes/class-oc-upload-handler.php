@@ -1189,7 +1189,7 @@ class OC_Upload_Handler {
 
 			$alpha          = $image->getImageChannelMean( \Imagick::CHANNEL_ALPHA );
 			$visible_ratio  = $quantum_range > 0 ? (float) ( $alpha['mean'] ?? 0 ) / $quantum_range : 0.0;
-			if ( $visible_ratio < 0.01 ) {
+			if ( $visible_ratio < 0.002 ) {
 				throw new \RuntimeException( __( 'Background removal was stopped because it would remove nearly all visible artwork.', 'overcustomise' ) );
 			}
 
