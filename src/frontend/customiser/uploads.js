@@ -544,6 +544,14 @@ const uploadMethods = {
 			return false;
 		}
 
+		// Do not present the source upload as though it were the AI-filtered result.
+		input.attachmentId = 0;
+		input.attachmentUrl = '';
+		input.imageMeta = null;
+		this.syncLinkedImageInput( layerId );
+		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		this.updateHiddenField();
+
 		const request = this.createStateAbortController( 30000 );
 		const controller = request.controller;
 		this.aiFilterAbortControllers[ layerId ] = controller;
@@ -555,7 +563,11 @@ const uploadMethods = {
 			zoneEl ||
 			document.querySelector( `[data-oc-upload-zone="${ layerId }"]` );
 		if ( targetZone ) {
-			this.setUploadProgress( targetZone, 100, 'Doing the image thing...' );
+			this.setUploadProgress(
+				targetZone,
+				100,
+				'Doing the image thing...'
+			);
 			this.showUploadError( targetZone, '' );
 		}
 
@@ -625,7 +637,6 @@ const uploadMethods = {
 				? 'The AI filter timed out. Please try again.'
 				: error?.message || 'The AI filter could not be applied.';
 			this.aiFilterErrors[ layerId ] = message;
-			this.restoreSourceArtwork( input, sourceId, sourceUrl );
 			this.syncLinkedImageInput( layerId );
 			if ( targetZone ) {
 				this.showUploadError( targetZone, message );

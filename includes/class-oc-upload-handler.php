@@ -1123,7 +1123,7 @@ class OC_Upload_Handler {
 	// Conversion helpers
 	// -------------------------------------------------------------------------
 
-	/** Remove a uniform, edge-connected background and return a temporary PNG path. */
+	/** Remove a uniform background colour and return a temporary PNG path. */
 	private static function remove_background_via_imagick( string $source ): string|\WP_Error {
 		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\Imagick' ) ) {
 			return new \WP_Error( 'background_removal_unavailable', __( 'Local background removal requires the PHP ImageMagick extension.', 'overcustomise' ) );
@@ -1180,12 +1180,16 @@ class OC_Upload_Handler {
 				throw new \RuntimeException( __( 'Local background removal requires a plain, consistent background around the image edges.', 'overcustomise' ) );
 			}
 
-			$quantum = $image->getQuantumRange();
-			$fuzz    = (float) ( $quantum['quantumRangeLong'] ?? 65535 ) * 0.12;
+			$quantum       = $image->getQuantumRange();
+			$quantum_range = (float) ( $quantum['quantumRangeLong'] ?? 65535 );
+			$fuzz          = $quantum_range * 0.06;
 			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
-			$transparent = new \ImagickPixel( 'transparent' );
-			foreach ( $background as $corner ) {
-				$image->floodFillPaintImage( $transparent, $fuzz, $corner['pixel'], $corner['x'], $corner['y'], false );
+			$image->transparentPaintImage( $background[0]['pixel'], 0.0, $fuzz, false );
+
+			$alpha          = $image->getImageChannelMean( \Imagick::CHANNEL_ALPHA );
+			$visible_ratio  = $quantum_range > 0 ? (float) ( $alpha['mean'] ?? 0 ) / $quantum_range : 0.0;
+			if ( $visible_ratio < 0.002 ) {
+				throw new \RuntimeException( __( 'Background removal was stopped because it would remove nearly all visible artwork.', 'overcustomise' ) );
 			}
 
 			$image->setImageFormat( 'png' );

@@ -963,11 +963,6 @@ class OC_Frontend {
 		return '
 		.oc-customiser-panel { margin-bottom: 24px; width: 100%; }
 
-		/* Area tabs */
-		.oc-area-tabs { display:flex; gap:6px; margin-bottom:12px; flex-wrap:wrap; }
-		.oc-area-tab { padding:6px 14px; border:1px solid #ddd; border-radius:3px; background:#fff; cursor:pointer; font-size:13px; transition:background .15s,border-color .15s; }
-		.oc-area-tab.oc-active { background:#0073aa; border-color:#0073aa; color:#fff; }
-
 		/* Hidden preview image used for cart confirmation fallback */
 		.oc-canvas-wrap { display:none; }
 		.oc-canvas-wrap img { width:100%; height:auto; display:block; border-radius:6px; border:1px solid #ddd; }
@@ -1167,24 +1162,6 @@ class OC_Frontend {
 		@media (max-width: 639px) {
 			.oc-customiser-panel {
 				padding-bottom: env(safe-area-inset-bottom, 0px);
-			}
-			.oc-area-tabs {
-				flex-wrap: nowrap;
-				overflow-x: auto;
-				-webkit-overflow-scrolling: touch;
-				scrollbar-width: none;
-				padding: 2px 0;
-				margin-inline: -8px;
-				padding-inline: 8px;
-			}
-			.oc-area-tabs::-webkit-scrollbar { display: none; }
-			.oc-area-tab {
-				min-width: 44px;
-				min-height: 44px;
-				padding: 8px 14px;
-				touch-action: manipulation;
-				-webkit-tap-highlight-color: transparent;
-				flex-shrink: 0;
 			}
 			.oc-canvas-wrap {
 				display: none;

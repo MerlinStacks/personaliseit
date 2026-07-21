@@ -903,6 +903,10 @@ class OC_Rest_API {
 
 	/** Build all-or-none paid AI actor/IP/site quota rows. */
 	private static function ai_quota_specs( string $actor ): array|\WP_Error {
+		if ( current_user_can( 'manage_options' ) ) {
+			return [];
+		}
+
 		$ip          = self::client_ip();
 		$actor_limit = self::filtered_limit( 'oc_ai_filter_actor_hourly_limit', 5, 1, 100 );
 		$ip_limit    = self::filtered_limit( 'oc_ai_filter_ip_hourly_limit', 10, 1, 500 );

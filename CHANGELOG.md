@@ -3,7 +3,7 @@
 ## 1.16.1 - 2026-07-20
 
 ### Added
-- Added a per-AI-filter option that removes plain, edge-connected backgrounds locally with ImageMagick.
+- Added a per-AI-filter option that removes plain backgrounds locally with conservative ImageMagick colour-key processing.
 
 ## 1.16.0 - 2026-07-17
 

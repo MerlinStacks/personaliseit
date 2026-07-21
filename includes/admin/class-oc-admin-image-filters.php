@@ -140,7 +140,7 @@ class OC_Admin_Image_Filters {
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_remove_background"><?php esc_html_e( 'Remove background', 'overcustomise' ); ?></label></div>
-							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Remove the generated image background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Uses local ImageMagick processing after the AI filter. Best results require a plain, consistent background around the subject.', 'overcustomise' ); ?></p></div>
+							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Remove the generated image background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Uses conservative local ImageMagick processing after the AI filter. Best results require a plain, consistent background around the subject.', 'overcustomise' ); ?></p></div>
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_test_image"><?php esc_html_e( 'Test image', 'overcustomise' ); ?></label></div>

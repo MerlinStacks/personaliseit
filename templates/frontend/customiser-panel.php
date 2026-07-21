@@ -31,7 +31,6 @@ foreach ( $all_fonts as $font ) {
 $all_image_filters  = OC_DB::get_image_filters( true );
 $active_image_filter_ids = array_map( static fn ( $filter ): int => (int) $filter->id, $all_image_filters );
 $valid_font_group_ids = array_map( static fn ( $group ): int => (int) $group->id, OC_DB::get_font_groups() );
-$has_multiple_areas = count( $areas ) > 1;
 $has_spotify_layer  = false;
 $colour_modal_threshold = 6;
 
@@ -193,27 +192,11 @@ foreach ( $layers as $layer ) {
 	</div>
 
 	<!-- Controls (one block per area) -->
-	<?php if ( $has_multiple_areas ) : ?>
-		<div class="oc-area-tabs" role="tablist" aria-label="<?php esc_attr_e( 'Customisation areas', 'overcustomise' ); ?>">
-			<?php foreach ( $areas as $i => $area ) : ?>
-				<button type="button"
-					class="oc-area-tab<?php echo 0 === $i ? ' oc-active' : ''; ?>"
-					id="oc-area-tab-<?php echo esc_attr( $i ); ?>"
-					role="tab"
-					aria-selected="<?php echo 0 === $i ? 'true' : 'false'; ?>"
-					aria-controls="oc-area-panel-<?php echo esc_attr( $i ); ?>"
-					tabindex="<?php echo 0 === $i ? '0' : '-1'; ?>"
-					data-area-index="<?php echo esc_attr( $i ); ?>">
-					<?php echo esc_html( $area->label ?? sprintf( __( 'Area %d', 'overcustomise' ), $i + 1 ) ); ?>
-				</button>
-			<?php endforeach; ?>
-		</div>
-	<?php endif; ?>
 	<?php $rendered_link_groups = []; ?>
 	<?php foreach ( $areas as $i => $area ) :
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
 		?>
-		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" role="tabpanel" <?php echo $has_multiple_areas ? 'aria-labelledby="oc-area-tab-' . esc_attr( $i ) . '"' : ''; ?> data-area-index="<?php echo esc_attr( $i ); ?>" <?php echo 0 === $i ? '' : 'hidden'; ?>>
+		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>">
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :

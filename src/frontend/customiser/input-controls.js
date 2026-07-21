@@ -333,64 +333,6 @@ const inputControlMethods = {
 		this.setupControlAccessibility();
 		this.setupFontComboboxes();
 
-		// Area tabs
-		const areaTabs = Array.from(
-			document.querySelectorAll( '.oc-area-tab' )
-		);
-		areaTabs.forEach( ( btn ) => {
-			btn.addEventListener(
-				'click',
-				() => this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) ),
-				{ signal: stateSignal }
-			);
-			btn.addEventListener(
-				'touchend',
-				( e ) => {
-					e.preventDefault();
-					this.switchArea( parseInt( btn.dataset.areaIndex, 10 ) );
-				},
-				{ passive: false, signal: stateSignal }
-			);
-			btn.addEventListener(
-				'keydown',
-				( e ) => {
-					if (
-						! [ 'ArrowLeft', 'ArrowRight', 'Home', 'End' ].includes(
-							e.key
-						)
-					) {
-						return;
-					}
-					e.preventDefault();
-					const currentIndex = areaTabs.indexOf( btn );
-					let nextIndex = currentIndex;
-					if ( e.key === 'ArrowLeft' ) {
-						nextIndex = Math.max( 0, currentIndex - 1 );
-					}
-					if ( e.key === 'ArrowRight' ) {
-						nextIndex = Math.min(
-							areaTabs.length - 1,
-							currentIndex + 1
-						);
-					}
-					if ( e.key === 'Home' ) {
-						nextIndex = 0;
-					}
-					if ( e.key === 'End' ) {
-						nextIndex = areaTabs.length - 1;
-					}
-					areaTabs[ nextIndex ]?.focus();
-					this.switchArea(
-						parseInt(
-							areaTabs[ nextIndex ]?.dataset.areaIndex || '0',
-							10
-						)
-					);
-				},
-				{ signal: stateSignal }
-			);
-		} );
-
 		// Text / textarea
 		document.querySelectorAll( '[data-oc-layer-text]' ).forEach( ( el ) => {
 			const lid = parseInt( el.dataset.ocLayerText, 10 );
@@ -1750,19 +1692,9 @@ const inputControlMethods = {
 				Number( index ) || 0
 			)
 		);
-		document.querySelectorAll( '.oc-area-tab' ).forEach( ( btn, i ) => {
-			btn.classList.toggle( 'oc-active', i === this.activeArea );
-			btn.setAttribute(
-				'aria-selected',
-				i === this.activeArea ? 'true' : 'false'
-			);
-			btn.setAttribute( 'tabindex', i === this.activeArea ? '0' : '-1' );
-		} );
 		document.querySelectorAll( '.oc-area-controls' ).forEach( ( el ) => {
-			const isActive =
-				parseInt( el.dataset.areaIndex, 10 ) === this.activeArea;
-			el.hidden = ! isActive;
-			el.setAttribute( 'aria-hidden', isActive ? 'false' : 'true' );
+			el.hidden = false;
+			el.removeAttribute( 'aria-hidden' );
 		} );
 	},
 
@@ -1780,19 +1712,6 @@ const inputControlMethods = {
 					parseInt( carousel.dataset.ocClipartCarousel, 10 )
 				);
 			} );
-
-		if ( window.innerWidth < 640 ) {
-			const activeTab = document.querySelector(
-				`.oc-area-tab[aria-selected="true"]`
-			);
-			if ( activeTab ) {
-				activeTab.scrollIntoView( {
-					behavior: 'smooth',
-					block: 'nearest',
-					inline: 'center',
-				} );
-			}
-		}
 	},
 };
 

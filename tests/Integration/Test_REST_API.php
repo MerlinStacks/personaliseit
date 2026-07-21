@@ -153,6 +153,14 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 		$this->assertSame( 'invalid_context', $response->get_data()['code'] );
 	}
 
+	#[Test]
+	public function administrators_are_exempt_from_ai_generation_quotas(): void {
+		wp_set_current_user( $this->admin_id );
+		$method = new ReflectionMethod( OC_Rest_API::class, 'ai_quota_specs' );
+
+		$this->assertSame( [], $method->invoke( null, 'user:' . $this->admin_id ) );
+	}
+
 	// ── /regenerate-files ─────────────────────────────────────────────────────
 
 	#[Test]

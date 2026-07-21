@@ -55,49 +55,6 @@
 .oc-customiser-panel *::after {
   box-sizing: border-box;
 }
-.oc-customiser-panel .oc-area-tabs {
-  display: flex;
-  gap: var(--oc-gap-xs);
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  -webkit-overflow-scrolling: touch;
-  padding-block: 4px;
-  margin-inline: calc(var(--oc-gap) * -1);
-  padding-inline: var(--oc-gap);
-  scrollbar-width: none;
-}
-.oc-customiser-panel .oc-area-tabs::-webkit-scrollbar {
-  display: none;
-}
-.oc-customiser-panel .oc-area-tab {
-  flex: 0 0 auto;
-  scroll-snap-align: start;
-  min-height: var(--oc-tap);
-  padding: 10px 18px;
-  border: 1px solid var(--oc-border);
-  border-radius: 999px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.05s ease;
-}
-.oc-customiser-panel .oc-area-tab:hover {
-  background: var(--oc-surface);
-}
-.oc-customiser-panel .oc-area-tab:active {
-  transform: scale(0.98);
-}
-.oc-customiser-panel .oc-area-tab:focus-visible {
-  outline: 2px solid var(--oc-accent);
-  outline-offset: 2px;
-}
-.oc-customiser-panel .oc-area-tab.oc-active {
-  background: var(--oc-accent);
-  color: var(--oc-accent-ink);
-  border-color: var(--oc-accent);
-}
 .oc-customiser-panel .oc-canvas-wrap {
   display: none;
   position: relative;
@@ -1574,18 +1531,6 @@
     gap: var(--oc-gap-sm);
     margin-block: var(--oc-gap);
     padding-bottom: env(safe-area-inset-bottom, 0);
-  }
-  .oc-customiser-panel .oc-area-tabs {
-    gap: var(--oc-gap-xs);
-    padding-block: 2px;
-  }
-  .oc-customiser-panel .oc-area-tab {
-    min-width: 44px;
-    min-height: 44px;
-    padding: 8px 14px;
-    font-size: 0.9em;
-    touch-action: manipulation;
-    -webkit-tap-highlight-color: transparent;
   }
   .oc-customiser-panel .oc-canvas-wrap {
     display: none;
