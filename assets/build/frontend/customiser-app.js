@@ -1774,7 +1774,6 @@ __webpack_require__.r(__webpack_exports__);
 const CART_STORE_KEY = 'wc/store/cart';
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
-const MAX_INLINE_CUSTOMISATION_BYTES = 768 * 1024;
 const CART_PREVIEW_MAX_DIMENSION = 640;
 const CART_PREVIEW_QUALITY = 0.82;
 const checkoutMethods = {
@@ -1933,13 +1932,10 @@ const checkoutMethods = {
       return null;
     }
     const previewImage = this.getSubmissionPreviewImage(generation, previews);
+    const previewUrl = await this.uploadCartPreview(previewImage, generation);
     const payload = this.buildCustomisationPayload(generation, {
-      previewImage
+      previewUrl
     });
-    if (this.customisationPayloadBytes(payload) > MAX_INLINE_CUSTOMISATION_BYTES) {
-      this.renderPreflightMessages(['This personalisation preview is too large to add safely. Please simplify the design or contact us for help.'], []);
-      return null;
-    }
     const serialisedPayload = JSON.stringify(payload);
     if (new Blob([serialisedPayload]).size > MAX_CUSTOMISATION_BYTES) {
       this.renderPreflightMessages(['This personalisation is too large to add safely. Please simplify the design or contact us for help.'], []);
@@ -2126,13 +2122,32 @@ const checkoutMethods = {
     if (!previewImage) {
       throw new Error('The active customisation preview is unavailable.');
     }
-    const payload = this.buildCustomisationPayload(generation, {
-      previewImage
-    });
-    if (this.customisationPayloadBytes(payload) > MAX_INLINE_CUSTOMISATION_BYTES) {
-      throw new Error('The customisation preview is too large to add safely.');
-    }
     return previewImage;
+  },
+  async uploadCartPreview(previewImage, generation) {
+    if (!this.data.savePreviewUrl) {
+      throw new Error('The preview upload service is unavailable.');
+    }
+    const response = await fetch(this.data.savePreviewUrl, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: this.restHeaders({
+        'Content-Type': 'application/json',
+        Accept: 'application/json'
+      }),
+      body: JSON.stringify({
+        image: previewImage
+      })
+    });
+    const body = await response.json().catch(() => null);
+    if (generation.designGeneration !== this._designGeneration) {
+      throw new Error('The selected design changed while saving.');
+    }
+    const previewUrl = typeof body?.url === 'string' ? body.url.trim() : '';
+    if (!response.ok || !previewUrl) {
+      throw new Error(body?.message || 'The customisation preview could not be saved.');
+    }
+    return previewUrl;
   },
   restoreGalleryPreview() {
     this.redraw(this.activeArea).catch(error => {

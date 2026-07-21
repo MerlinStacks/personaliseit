@@ -11,7 +11,6 @@ const CART_STORE_KEY = 'wc/store/cart';
 const QUALITY_WARNING_MESSAGE =
 	'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
-const MAX_INLINE_CUSTOMISATION_BYTES = 768 * 1024;
 const CART_PREVIEW_MAX_DIMENSION = 640;
 const CART_PREVIEW_QUALITY = 0.82;
 
@@ -236,21 +235,13 @@ const checkoutMethods = {
 			generation,
 			previews
 		);
-		const payload = this.buildCustomisationPayload( generation, {
+		const previewUrl = await this.uploadCartPreview(
 			previewImage,
+			generation
+		);
+		const payload = this.buildCustomisationPayload( generation, {
+			previewUrl,
 		} );
-		if (
-			this.customisationPayloadBytes( payload ) >
-			MAX_INLINE_CUSTOMISATION_BYTES
-		) {
-			this.renderPreflightMessages(
-				[
-					'This personalisation preview is too large to add safely. Please simplify the design or contact us for help.',
-				],
-				[]
-			);
-			return null;
-		}
 
 		const serialisedPayload = JSON.stringify( payload );
 		if (
@@ -517,19 +508,35 @@ const checkoutMethods = {
 			);
 		}
 
-		const payload = this.buildCustomisationPayload( generation, {
-			previewImage,
+		return previewImage;
+	},
+
+	async uploadCartPreview( previewImage, generation ) {
+		if ( ! this.data.savePreviewUrl ) {
+			throw new Error( 'The preview upload service is unavailable.' );
+		}
+
+		const response = await fetch( this.data.savePreviewUrl, {
+			method: 'POST',
+			credentials: 'same-origin',
+			headers: this.restHeaders( {
+				'Content-Type': 'application/json',
+				Accept: 'application/json',
+			} ),
+			body: JSON.stringify( { image: previewImage } ),
 		} );
-		if (
-			this.customisationPayloadBytes( payload ) >
-			MAX_INLINE_CUSTOMISATION_BYTES
-		) {
+		const body = await response.json().catch( () => null );
+		if ( generation.designGeneration !== this._designGeneration ) {
+			throw new Error( 'The selected design changed while saving.' );
+		}
+		const previewUrl = typeof body?.url === 'string' ? body.url.trim() : '';
+		if ( ! response.ok || ! previewUrl ) {
 			throw new Error(
-				'The customisation preview is too large to add safely.'
+				body?.message || 'The customisation preview could not be saved.'
 			);
 		}
 
-		return previewImage;
+		return previewUrl;
 	},
 
 	restoreGalleryPreview() {
