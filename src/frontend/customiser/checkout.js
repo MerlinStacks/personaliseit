@@ -63,7 +63,7 @@ const checkoutMethods = {
 				);
 			} else if ( Object.keys( this.aiFilterErrors || {} ).length > 0 ) {
 				window.alert(
-					'An AI image filter failed. Retry the filter before adding this product to your cart.'
+					'An image effect could not be applied. Retry it before adding this product to your cart.'
 				);
 			}
 			return false;

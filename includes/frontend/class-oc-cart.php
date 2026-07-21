@@ -672,8 +672,8 @@ class OC_Cart {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 
-			$filter_ids = array_values( array_intersect( self::id_list( $settings['image_filter_ids'] ?? [] ), array_keys( $active_filters ) ) );
-			$default_filter = absint( $settings['default_image_filter_id'] ?? 0 );
+			$filter_ids = 'image' === $type ? array_values( array_intersect( self::id_list( $settings['image_filter_ids'] ?? [] ), array_keys( $active_filters ) ) ) : [];
+			$default_filter = 'image' === $type ? absint( $settings['default_image_filter_id'] ?? 0 ) : 0;
 			$filter_id      = absint( $source['imageFilterId'] ?? $default_filter );
 			$can_filter_change = ! array_key_exists( 'allow_image_filter_change', $settings ) || ! empty( $settings['allow_image_filter_change'] );
 			if ( ! in_array( $default_filter, $filter_ids, true ) ) $default_filter = 0;
@@ -683,7 +683,7 @@ class OC_Cart {
 				$generated_filter_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_id', true ) );
 				$generated_source_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_source_id', true ) );
 				if ( $generated_filter_id !== $filter_id || $generated_source_id !== $source_attachment_id ) {
-					return new \WP_Error( 'ai_filter_required', sprintf( __( 'The AI filter for "%s" has not finished.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
+					return new \WP_Error( 'ai_filter_required', sprintf( __( 'The image effect for "%s" is still processing.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 				}
 			}
 

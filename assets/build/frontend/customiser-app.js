@@ -1805,7 +1805,7 @@ const checkoutMethods = {
       if (this.artworkPendingCount > 0) {
         window.alert('Please wait for artwork uploads and image processing to finish.');
       } else if (Object.keys(this.aiFilterErrors || {}).length > 0) {
-        window.alert('An AI image filter failed. Retry the filter before adding this product to your cart.');
+        window.alert('An image effect could not be applied. Retry it before adding this product to your cart.');
       }
       return false;
     }
@@ -5685,7 +5685,7 @@ const uploadMethods = {
       });
       const json = await response.json().catch(() => null);
       if (!response.ok || !json?.attachment_id || !json?.preview_url) {
-        throw new Error(json?.message || 'The AI filter could not be applied.');
+        throw new Error(json?.message || 'The image effect could not be applied.');
       }
       if (!isCurrent()) {
         return false;
@@ -5713,7 +5713,7 @@ const uploadMethods = {
       if (!isCurrent()) {
         return false;
       }
-      const message = request.timedOut() ? 'The AI filter timed out. Please try again.' : error?.message || 'The AI filter could not be applied.';
+      const message = request.timedOut() ? 'The image effect timed out. Please try again.' : error?.message || 'The image effect could not be applied.';
       this.aiFilterErrors[layerId] = message;
       this.syncLinkedImageInput(layerId);
       if (targetZone) {

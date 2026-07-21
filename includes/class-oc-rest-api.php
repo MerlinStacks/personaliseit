@@ -913,11 +913,11 @@ class OC_Rest_API {
 		$site_limit  = self::filtered_limit( 'oc_ai_filter_site_hourly_limit', 100, 1, 10000 );
 		if ( '' === $actor || '' === $ip || null === $actor_limit || null === $ip_limit || null === $site_limit ) {
 			OC_Logger::error( 'AI quota configuration is unavailable or malformed.' );
-			return new \WP_Error( 'ai_quota_unavailable', __( 'The AI image service is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+			return new \WP_Error( 'ai_quota_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
 		[ $window_start, $window_end ] = self::hourly_window();
-		$message = __( 'The AI image limit has been reached. Please try again later.', 'overcustomise' );
+		$message = __( 'The image processing limit has been reached. Please try again later.', 'overcustomise' );
 		$base    = [
 			'window_start' => $window_start, 'window_end' => $window_end, 'count' => 1, 'bytes' => 0, 'byte_limit' => 0,
 			'count_mode' => 'request', 'bytes_mode' => 'none', 'error_code' => 'ai_quota_exceeded', 'error_message' => $message,
@@ -1447,7 +1447,7 @@ class OC_Rest_API {
 		if ( ! $filter || 'ai' !== (string) $filter->filter_key || '' === $prompt || strlen( $prompt ) > self::MAX_AI_PROMPT_BYTES
 			|| wp_check_invalid_utf8( $prompt, true ) !== $prompt
 		) {
-			return new \WP_Error( 'invalid_filter', __( 'This AI filter is unavailable.', 'overcustomise' ), [ 'status' => 400 ] );
+			return new \WP_Error( 'invalid_filter', __( 'This image effect is unavailable.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
 		$api_key = OC_Admin_Settings::get_openrouter_api_key();
@@ -1456,7 +1456,7 @@ class OC_Rest_API {
 			|| ! preg_match( '#^[A-Za-z0-9._:-]+/[A-Za-z0-9._:-]+$#D', $model ) || strlen( $model ) > 200
 		) {
 			OC_Logger::warning( 'AI image filtering was requested with unavailable or malformed provider configuration.' );
-			return new \WP_Error( 'ai_unavailable', __( 'The AI image service is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+			return new \WP_Error( 'ai_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
 		$token       = trim( (string) $request->get_header( 'X-OC-Token' ) );
@@ -1500,7 +1500,7 @@ class OC_Rest_API {
 		$lock_key   = 'oc_ai_filter_lock_' . hash( 'sha256', $actor . '|' . $source_attachment_id . '|' . $filter_id );
 		$lock_owner = self::acquire_option_lock( $lock_key, self::AI_LOCK_TTL );
 		if ( is_wp_error( $lock_owner ) ) {
-			return new \WP_Error( 'ai_filter_in_progress', __( 'This AI filter is already being generated.', 'overcustomise' ), [ 'status' => 409 ] );
+			return new \WP_Error( 'ai_filter_in_progress', __( 'This image effect is already being applied.', 'overcustomise' ), [ 'status' => 409 ] );
 		}
 
 		try {
@@ -1519,7 +1519,7 @@ class OC_Rest_API {
 			} catch ( \Throwable $e ) {
 				self::release_budget_reservation( $storage_reservation );
 				OC_Logger::error( 'AI image generation threw an exception after quota reservation: ' . $e->getMessage() );
-				return new \WP_Error( 'ai_generation_failed', __( 'The AI image service could not process this image.', 'overcustomise' ), [ 'status' => 503 ] );
+				return new \WP_Error( 'ai_generation_failed', __( 'The image could not be processed. Please try again.', 'overcustomise' ), [ 'status' => 503 ] );
 			}
 			if ( is_wp_error( $generated ) ) {
 				self::release_budget_reservation( $storage_reservation );
@@ -1530,8 +1530,8 @@ class OC_Rest_API {
 					default                   => 422,
 				};
 				$message = 429 === $status
-					? __( 'The AI image service is busy. Please try again shortly.', 'overcustomise' )
-					: __( 'The AI image service could not process this image.', 'overcustomise' );
+					? __( 'Image processing is busy. Please try again shortly.', 'overcustomise' )
+					: __( 'The image could not be processed. Please try again.', 'overcustomise' );
 				return new \WP_Error( 'ai_generation_failed', $message, [ 'status' => $status ] );
 			}
 

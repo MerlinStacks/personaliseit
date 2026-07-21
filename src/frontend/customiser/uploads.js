@@ -595,7 +595,7 @@ const uploadMethods = {
 				! json?.preview_url
 			) {
 				throw new Error(
-					json?.message || 'The AI filter could not be applied.'
+					json?.message || 'The image effect could not be applied.'
 				);
 			}
 			if ( ! isCurrent() ) {
@@ -634,8 +634,8 @@ const uploadMethods = {
 				return false;
 			}
 			const message = request.timedOut()
-				? 'The AI filter timed out. Please try again.'
-				: error?.message || 'The AI filter could not be applied.';
+				? 'The image effect timed out. Please try again.'
+				: error?.message || 'The image effect could not be applied.';
 			this.aiFilterErrors[ layerId ] = message;
 			this.syncLinkedImageInput( layerId );
 			if ( targetZone ) {
