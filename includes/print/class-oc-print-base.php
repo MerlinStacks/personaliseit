@@ -644,6 +644,7 @@ abstract class OC_Print_Base {
 			$changed = true;
 		}
 
+		$changed = self::normalise_svg_path_decimals_for_tcpdf( $svg ) || $changed;
 		$changed = self::inline_svg_presentation_styles( $dom, $svg ) || $changed;
 		if ( ! $changed ) {
 			return null;
@@ -660,6 +661,32 @@ abstract class OC_Print_Base {
 		}
 
 		return $temp;
+	}
+
+	/** Add omitted leading zeroes that TCPDF misreads as whole path coordinates. */
+	private static function normalise_svg_path_decimals_for_tcpdf( \DOMElement $svg ): bool {
+		$changed = false;
+		foreach ( $svg->getElementsByTagName( 'path' ) as $path ) {
+			$data = $path->getAttribute( 'd' );
+			if ( '' === $data ) {
+				continue;
+			}
+
+			// SVG allows adjacent decimals such as "-2.72.1" to represent two numbers.
+			$normalised = preg_replace( '/(\.[0-9]+)(?=\.)/', '$1 ', $data ) ?? $data;
+			$normalised = preg_replace_callback(
+				'/(^|[\s,ACHLMQSTVZ]|[+-])\.(\d+)/i',
+				static fn( array $match ): string => $match[1] . '0.' . $match[2],
+				$normalised
+			) ?? $normalised;
+
+			if ( $normalised !== $data ) {
+				$path->setAttribute( 'd', $normalised );
+				$changed = true;
+			}
+		}
+
+		return $changed;
 	}
 
 	/** Inline simple SVG CSS presentation styles because TCPDF does not apply them reliably. */

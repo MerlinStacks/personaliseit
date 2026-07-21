@@ -393,6 +393,31 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function illustrator_compact_path_decimals_are_normalised_for_tcpdf_vector_rendering(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-svg-' );
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10" viewBox="0 0 20 10"><path d="M1,1l6.25,3.77-2.72.1h.01v-.02c-.09.03-.2-.04-.3-.5Z"/></svg>' );
+
+		$method = new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_intrinsic_size_for_tcpdf' );
+		$method->setAccessible( true );
+
+		try {
+			$normalised = $method->invoke( null, $path );
+
+			$this->assertIsString( $normalised );
+			$svg = file_get_contents( $normalised );
+			$this->assertStringContainsString( '-2.72 0.1', $svg );
+			$this->assertStringContainsString( 'h0.01', $svg );
+			$this->assertStringContainsString( 'v-0.02', $svg );
+			$this->assertStringContainsString( 'c-0.09 0.03-0.2-0.04-0.3-0.5', $svg );
+		} finally {
+			@unlink( $path );
+			if ( isset( $normalised ) && is_string( $normalised ) ) {
+				@unlink( $normalised );
+			}
+		}
+	}
+
+	#[Test]
 	public function svg_print_artwork_uses_tcpdf_vector_renderer_before_raster_fallback(): void {
 		if ( ! class_exists( 'TCPDF' ) ) {
 			$this->markTestSkipped( 'TCPDF is not available.' );

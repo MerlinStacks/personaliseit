@@ -1349,8 +1349,11 @@ class OC_Cart {
 
 		// ── Preview image ─────────────────────────────────────────────────────
 		if ( $preview_url ) {
+			$preview_link_url = is_admin()
+				? add_query_arg( 'TB_iframe', 'true', $preview_url )
+				: $preview_url;
 			echo '<div style="flex:0 0 auto;">'
-			   . '<a href="' . esc_url( $preview_url ) . '" class="thickbox" style="display:inline-block;">'
+			   . '<a href="' . esc_url( $preview_link_url ) . '" class="thickbox" style="display:inline-block;">'
 			   . '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
 			   . 'style="display:block;width:120px;height:120px;object-fit:contain;border:1px solid #dcdcde;border-radius:5px;background:#f6f7f7;cursor:zoom-in;" />'
 			   . '</a>'
