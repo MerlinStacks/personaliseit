@@ -1883,7 +1883,9 @@ class OC_Rest_API {
 		header( 'Content-Length: ' . (int) $record['bytes'] );
 		header( 'Cache-Control: private, max-age=86400, immutable' );
 		header( 'X-Content-Type-Options: nosniff' );
-		header( 'Cross-Origin-Resource-Policy: same-origin' );
+		// The storefront and WordPress admin may use different origins (for example,
+		// www and non-www hosts), while still belonging to the same trusted site.
+		header( 'Cross-Origin-Resource-Policy: same-site' );
 		header( "Content-Security-Policy: default-src 'none'; sandbox" );
 		while ( ob_get_level() ) {
 			ob_end_clean();
