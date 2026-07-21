@@ -279,7 +279,9 @@ const canvasRendererMethods = {
 					inputs,
 					pushGallery:
 						options.pushGallery !== false &&
-						areaIndex === this.activeArea,
+						this.areaCanvasGroupIndexes( areaIndex ).includes(
+							this.activeArea
+						),
 				} )
 			)
 		);
@@ -345,7 +347,9 @@ const canvasRendererMethods = {
 			canvas._ocCartPreviewDataUrl = '';
 			if (
 				options.pushGallery !== false &&
-				areaIndex === this.activeArea &&
+				this.areaCanvasGroupIndexes( areaIndex ).includes(
+					this.activeArea
+				) &&
 				! canvas._ocMissingMockup
 			) {
 				this.pushToGallery( canvas );

@@ -215,7 +215,7 @@ const canvasRendererMethods = {
     await Promise.all(this.areas.map((_, areaIndex) => this.redraw(areaIndex, {
       ...options,
       inputs,
-      pushGallery: options.pushGallery !== false && areaIndex === this.activeArea
+      pushGallery: options.pushGallery !== false && this.areaCanvasGroupIndexes(areaIndex).includes(this.activeArea)
     })));
   },
   redraw(areaIndex, options = {}) {
@@ -253,7 +253,7 @@ const canvasRendererMethods = {
       canvas.renderAll();
       canvas._ocCartPreviewRevision = '';
       canvas._ocCartPreviewDataUrl = '';
-      if (options.pushGallery !== false && areaIndex === this.activeArea && !canvas._ocMissingMockup) {
+      if (options.pushGallery !== false && this.areaCanvasGroupIndexes(areaIndex).includes(this.activeArea) && !canvas._ocMissingMockup) {
         this.pushToGallery(canvas);
       }
     })();
