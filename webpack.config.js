@@ -60,6 +60,7 @@ module.exports = {
 	devtool: false,
 	entry: {
 		// Admin pages
+		'admin/products-list': './src/admin/products-list.js',
 		'admin/products-page': './src/admin/products-page.js',
 		'admin/mockup-library': './src/admin/mockup-library.js',
 		'admin/font-manager': './src/admin/font-manager.js',

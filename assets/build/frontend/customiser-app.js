@@ -304,7 +304,10 @@ const canvasRendererMethods = {
       case 'textarea':
         {
           const isSingleLineText = layer.type === 'text';
-          const inputValue = input.value === undefined ? layer.settings?.default_text || '' : input.value;
+          let inputValue = input.value;
+          if (inputValue === undefined) {
+            inputValue = layer.locked ? layer.settings?.default_text || '' : '';
+          }
           const normalisedText = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(inputValue) : inputValue || '').replace(/\r\n?/g, '\n');
           const raw = isSingleLineText ? normalisedText.trim() : normalisedText;
           if (!raw.trim()) {
@@ -4381,8 +4384,11 @@ const inputControlMethods = {
         if (!this.inputs[layer.id]) {
           this.inputs[layer.id] = {};
         }
-        if (layer.locked || this.inputs[layer.id].value === undefined) {
+        if (layer.locked) {
           this.inputs[layer.id].value = layer.settings?.default_text || '';
+          this.clampLayerInputValue(layer.id);
+        } else if (this.inputs[layer.id].value === undefined) {
+          this.inputs[layer.id].value = '';
           this.clampLayerInputValue(layer.id);
         }
       });
@@ -5791,7 +5797,7 @@ const uploadMethods = {
     delete this.aiFilterErrors[layerId];
     const targetZone = zoneEl || document.querySelector(`[data-oc-upload-zone="${layerId}"]`);
     if (targetZone) {
-      this.setUploadProgress(targetZone, 100, 'Doing the image thing...');
+      this.setUploadProgress(targetZone, null, 'Applying image effect...');
       this.showUploadError(targetZone, '');
     }
     const variationId = this.currentVariationId();
@@ -5899,7 +5905,8 @@ const uploadMethods = {
       progressEl.innerHTML = '<div class="oc-upload-progress-label"></div><div class="oc-upload-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="oc-upload-progress-bar"></div></div>';
       zoneEl.insertAdjacentElement('afterend', progressEl);
     }
-    const safePercent = Math.max(0, Math.min(100, parseInt(percent, 10) || 0));
+    const isIndeterminate = percent === null;
+    const safePercent = isIndeterminate ? 0 : Math.max(0, Math.min(100, parseInt(percent, 10) || 0));
     const labelEl = progressEl.querySelector('.oc-upload-progress-label');
     const track = progressEl.querySelector('.oc-upload-progress-track');
     const bar = progressEl.querySelector('.oc-upload-progress-bar');
@@ -5908,11 +5915,16 @@ const uploadMethods = {
       labelEl.setAttribute('aria-live', 'polite');
     }
     if (track) {
-      track.setAttribute('aria-valuenow', String(safePercent));
+      track.classList.toggle('oc-upload-progress-track--indeterminate', isIndeterminate);
+      if (isIndeterminate) {
+        track.removeAttribute('aria-valuenow');
+      } else {
+        track.setAttribute('aria-valuenow', String(safePercent));
+      }
       track.setAttribute('aria-label', label || 'Upload progress');
     }
     if (bar) {
-      bar.style.width = `${safePercent}%`;
+      bar.style.width = isIndeterminate ? '' : `${safePercent}%`;
     }
     progressEl.style.display = label ? '' : 'none';
   },

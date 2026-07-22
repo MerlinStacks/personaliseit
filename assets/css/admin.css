@@ -3271,6 +3271,110 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 
 /* ── Products tab ──────────────────────────────────────────────────────── */
 
+.oc-products-page {
+	max-width: none;
+	margin-right: 20px;
+}
+
+.oc-products-page .oc-page-header {
+	margin-bottom: 14px;
+	padding-bottom: 12px;
+}
+
+.oc-products-page .oc-card-header {
+	padding: 9px 16px;
+}
+
+.oc-products-page .oc-table thead th {
+	padding: 8px 12px;
+}
+
+.oc-products-page .oc-table tbody td {
+	padding: 8px 12px;
+}
+
+.oc-list-filter,
+.oc-pagination,
+.oc-pagination-form {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.oc-list-filter {
+	gap: 8px;
+	margin: 0;
+}
+
+.oc-pagination {
+	justify-content: flex-end;
+	gap: 7px;
+	margin: 7px 12px;
+}
+
+.oc-pagination-form {
+	gap: 6px;
+	margin: 0;
+}
+
+.oc-products-filter-tabs {
+	margin: 0 !important;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--oc-gray-200);
+}
+
+#oc-products-app {
+	position: relative;
+}
+
+#oc-products-app.is-loading {
+	opacity: 0.55;
+	pointer-events: none;
+}
+
+#oc-products-app.is-loading::after {
+	content: "";
+	position: fixed;
+	top: 50%;
+	left: calc(50% + 80px);
+	width: 24px;
+	height: 24px;
+	border: 3px solid var(--oc-primary-border);
+	border-top-color: var(--oc-primary);
+	border-radius: 50%;
+	animation: oc-products-loading-spin 0.65s linear infinite;
+	z-index: 10000;
+}
+
+@keyframes oc-products-loading-spin {
+
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.oc-design-variants-admin {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.oc-design-variants-list:empty {
+	display: none;
+}
+
+@media (max-width: 782px) {
+
+	.oc-products-page {
+		margin-right: 10px;
+	}
+
+	#oc-products-app.is-loading::after {
+		left: 50%;
+	}
+}
+
 .oc-products-search {
 	max-width: 320px;
 }
@@ -3362,6 +3466,10 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 .oc-searchable-design-select-option.is-selected {
 	background: var(--oc-primary-light);
 	color: var(--oc-primary);
+}
+
+.oc-searchable-design-select-option.is-assigned:not(.is-selected) {
+	color: var(--oc-gray-400);
 }
 
 .oc-searchable-design-select-empty {

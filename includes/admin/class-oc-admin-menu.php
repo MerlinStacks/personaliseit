@@ -150,6 +150,19 @@ class OC_Admin_Menu {
 		// Products page — bounds drag editor.
 		// Note: ocProductsData is localised by OC_Admin_Products::render_edit().
 		if ( 'overcustomise_page_overcustomise-products' === $hook ) {
+			$list_asset = OC_PATH . 'assets/build/admin/products-list.asset.php';
+			$list_meta  = file_exists( $list_asset ) ? include $list_asset : [];
+			$list_deps  = is_array( $list_meta['dependencies'] ?? null ) ? $list_meta['dependencies'] : [];
+			$list_ver   = isset( $list_meta['version'] ) ? (string) $list_meta['version'] : OC_VERSION;
+
+			wp_enqueue_script(
+				'oc-products-list',
+				OC_ASSETS_URL . 'admin/products-list.js',
+				$list_deps,
+				$list_ver,
+				true
+			);
+
 			$products_asset = OC_PATH . 'assets/build/admin/products-page.asset.php';
 			$products_meta  = file_exists( $products_asset ) ? include $products_asset : [];
 			$products_deps  = is_array( $products_meta['dependencies'] ?? null ) ? array_merge( $products_meta['dependencies'], [ 'jquery', 'wp-util', 'wc-enhanced-select' ] ) : [ 'jquery', 'wp-util', 'wc-enhanced-select' ];

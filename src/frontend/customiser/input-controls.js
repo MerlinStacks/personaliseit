@@ -1084,12 +1084,12 @@ const inputControlMethods = {
 				if ( ! this.inputs[ layer.id ] ) {
 					this.inputs[ layer.id ] = {};
 				}
-				if (
-					layer.locked ||
-					this.inputs[ layer.id ].value === undefined
-				) {
+				if ( layer.locked ) {
 					this.inputs[ layer.id ].value =
 						layer.settings?.default_text || '';
+					this.clampLayerInputValue( layer.id );
+				} else if ( this.inputs[ layer.id ].value === undefined ) {
+					this.inputs[ layer.id ].value = '';
 					this.clampLayerInputValue( layer.id );
 				}
 			} );

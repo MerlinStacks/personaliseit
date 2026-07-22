@@ -234,7 +234,8 @@ class OC_Admin_Products {
 		$tab        = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : '';
 		$active_tab = 'designs' === $tab ? 'designs' : 'products';
 		?>
-		<div class="wrap oc-page">
+		<div class="wrap oc-page oc-products-page">
+			<div id="oc-products-app">
 
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
@@ -254,11 +255,11 @@ class OC_Admin_Products {
 			<!-- Tab bar -->
 			<div class="oc-tabs-bar">
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ); ?>"
-				   class="oc-tab<?php echo 'products' === $active_tab ? ' oc-tab--active' : ''; ?>">
+				   class="oc-tab oc-ajax-nav<?php echo 'products' === $active_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'Products', 'overcustomise' ); ?>
 				</a>
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>"
-				   class="oc-tab<?php echo 'designs' === $active_tab ? ' oc-tab--active' : ''; ?>">
+				   class="oc-tab oc-ajax-nav<?php echo 'designs' === $active_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'Designs', 'overcustomise' ); ?>
 				</a>
 			</div>
@@ -269,6 +270,7 @@ class OC_Admin_Products {
 				<?php $this->render_designs_tab(); ?>
 			<?php endif; ?>
 
+			</div>
 		</div>
 		<?php
 	}
@@ -283,8 +285,17 @@ class OC_Admin_Products {
 		$is_unassigned_tab = 'unassigned' === $product_filter;
 
 		// Load active designs for the assignment dropdown.
-		$designs       = OC_DB::get_designs( true );
-		$design_thumbs = $this->get_design_thumbnail_map( $designs );
+		$designs             = OC_DB::get_designs( true );
+		$design_thumbs       = $this->get_design_thumbnail_map( $designs );
+		$assigned_design_ids = [];
+		foreach ( OC_DB::get_all_assignments() as $product_assignments ) {
+			foreach ( $product_assignments as $assignment ) {
+				$design_id = absint( $assignment['design_id'] ?? 0 );
+				if ( $design_id ) {
+					$assigned_design_ids[ $design_id ] = true;
+				}
+			}
+		}
 
 		// Load one page of published WC products.
 		$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );
@@ -315,7 +326,7 @@ class OC_Admin_Products {
 		<div class="oc-card">
 			<div class="oc-card-header">
 				<h2><?php esc_html_e( 'Products & Variants', 'overcustomise' ); ?></h2>
-				<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
+				<form method="get" class="oc-list-filter oc-ajax-form">
 					<input type="hidden" name="page" value="overcustomise-products" />
 					<input type="hidden" name="tab" value="products" />
 					<input type="hidden" name="product_design_filter" value="<?php echo esc_attr( $product_filter ); ?>" />
@@ -326,18 +337,18 @@ class OC_Admin_Products {
 					       placeholder="<?php esc_attr_e( 'Filter all products…', 'overcustomise' ); ?>" />
 					<button type="submit" class="button"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></button>
 					<?php if ( '' !== $search ) : ?>
-						<a class="button" href="<?php echo esc_url( add_query_arg( 'product_design_filter', $product_filter, admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
+						<a class="button oc-ajax-nav" href="<?php echo esc_url( add_query_arg( 'product_design_filter', $product_filter, admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
 					<?php endif; ?>
 				</form>
 			</div>
 
-			<div class="oc-tabs-bar" style="margin:0 18px 12px;">
+			<div class="oc-tabs-bar oc-products-filter-tabs">
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ); ?>"
-				   class="oc-tab<?php echo ! $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
+				   class="oc-tab oc-ajax-nav<?php echo ! $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'All products', 'overcustomise' ); ?>
 				</a>
 				<a href="<?php echo esc_url( add_query_arg( 'product_design_filter', 'unassigned', admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"
-				   class="oc-tab<?php echo $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
+				   class="oc-tab oc-ajax-nav<?php echo $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'Without designs', 'overcustomise' ); ?>
 				</a>
 			</div>
@@ -391,7 +402,7 @@ class OC_Admin_Products {
 											<?php endif; ?>
 										</td>
 										<td>
-											<?php $this->render_design_select( $designs, $pid, 0, (int) $parent_assignment['design_id'] ); ?>
+											<?php $this->render_design_select( $designs, $assigned_design_ids, $pid, 0, (int) $parent_assignment['design_id'] ); ?>
 											<small style="color:var(--oc-gray-500);display:block;margin-top:3px;font-size:11px;"><?php esc_html_e( 'All variants (default)', 'overcustomise' ); ?></small>
 										</td>
 										<td><?php $this->render_design_variants_control( $designs, $design_thumbs, $pid, 0, $parent_assignment['design_variants'] ?? '' ); ?></td>
@@ -411,7 +422,7 @@ class OC_Admin_Products {
 											<td class="oc-col-variant"><?php echo esc_html( $vlabel ); ?></td>
 											<td><span class="oc-code"><?php echo esc_html( $vsku ); ?></span></td>
 											<td>
-												<?php $this->render_design_select( $designs, $pid, $vid, (int) $vassignment['design_id'] ); ?>
+												<?php $this->render_design_select( $designs, $assigned_design_ids, $pid, $vid, (int) $vassignment['design_id'] ); ?>
 											</td>
 											<td><?php $this->render_design_variants_control( $designs, $design_thumbs, $pid, $vid, $vassignment['design_variants'] ?? '' ); ?></td>
 											<td><span class="oc-assign-status" aria-live="polite"></span></td>
@@ -426,7 +437,7 @@ class OC_Admin_Products {
 										</td>
 										<td><span class="oc-code"><?php echo esc_html( $psku ); ?></span></td>
 										<td>
-											<?php $this->render_design_select( $designs, $pid, 0, (int) $assignment['design_id'] ); ?>
+											<?php $this->render_design_select( $designs, $assigned_design_ids, $pid, 0, (int) $assignment['design_id'] ); ?>
 										</td>
 										<td><?php $this->render_design_variants_control( $designs, $design_thumbs, $pid, 0, $assignment['design_variants'] ?? '' ); ?></td>
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
@@ -491,6 +502,7 @@ class OC_Admin_Products {
 							value: option.value,
 							label: option.textContent.trim(),
 							search: option.textContent.toLowerCase() + ' ' + option.value,
+							assigned: option.dataset.assigned === '1',
 						};
 					} );
 					return options;
@@ -498,6 +510,11 @@ class OC_Admin_Products {
 
 				function selectedLabel() {
 					return select.options[ select.selectedIndex ] ? select.options[ select.selectedIndex ].textContent.trim() : '';
+				}
+
+				function syncInput() {
+					input.value = '0' === select.value ? '' : selectedLabel();
+					input.placeholder = '0' === select.value ? selectedLabel() : 'Search designs...';
 				}
 
 				function renderList() {
@@ -508,7 +525,8 @@ class OC_Admin_Products {
 
 					list.innerHTML = matches.length ? matches.map( function ( option ) {
 						var selected = option.value === select.value ? ' is-selected' : '';
-						return '<button type="button" class="oc-searchable-design-select-option' + selected + '" data-value="' + escHtml( option.value ) + '">' + escHtml( option.label ) + '</button>';
+						var assigned = option.assigned ? ' is-assigned' : '';
+						return '<button type="button" class="oc-searchable-design-select-option' + assigned + selected + '" data-value="' + escHtml( option.value ) + '">' + escHtml( option.label ) + '</button>';
 					} ).join( '' ) : '<div class="oc-searchable-design-select-empty">No designs found</div>';
 				}
 
@@ -519,15 +537,14 @@ class OC_Admin_Products {
 
 				function closeList() {
 					wrapper.classList.remove( 'is-open' );
-					input.value = selectedLabel();
+					syncInput();
 				}
 
 				wrapper.className = 'oc-searchable-design-select';
 				input.type = 'search';
 				input.className = 'oc-input oc-searchable-design-select-input';
-				input.placeholder = 'Search designs...';
 				input.autocomplete = 'off';
-				input.value = selectedLabel();
+				syncInput();
 				list.className = 'oc-searchable-design-select-list';
 
 				select.classList.add( 'oc-design-assign-select--hidden' );
@@ -556,7 +573,7 @@ class OC_Admin_Products {
 					if ( ! option ) return;
 					e.preventDefault();
 					select.value = option.dataset.value;
-					input.value = selectedLabel();
+					syncInput();
 					closeList();
 					select.dispatchEvent( new Event( 'change', { bubbles: true } ) );
 				} );
@@ -729,10 +746,10 @@ class OC_Admin_Products {
 
 		$query_args = array_filter( $query_args, static fn ( $value ): bool => '' !== (string) $value );
 		$base_url   = add_query_arg( $query_args, admin_url( 'admin.php?page=overcustomise-products&tab=' . $tab ) );
-		$prev_url = add_query_arg( $param, max( 1, $current_page - 1 ), $base_url );
-		$next_url = add_query_arg( $param, min( $total_pages, $current_page + 1 ), $base_url );
+		$prev_url   = add_query_arg( $param, max( 1, $current_page - 1 ), $base_url );
+		$next_url   = add_query_arg( $param, min( $total_pages, $current_page + 1 ), $base_url );
 		?>
-		<div class="oc-pagination" style="display:flex;align-items:center;gap:8px;justify-content:flex-end;margin:12px 0;flex-wrap:wrap;">
+		<div class="oc-pagination">
 			<span style="font-size:12px;color:var(--oc-gray-500);">
 				<?php
 				echo esc_html( sprintf(
@@ -744,8 +761,8 @@ class OC_Admin_Products {
 				) );
 				?>
 			</span>
-			<a class="button<?php echo 1 === $current_page ? ' disabled' : ''; ?>" href="<?php echo esc_url( $prev_url ); ?>" <?php echo 1 === $current_page ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Prev', 'overcustomise' ); ?></a>
-			<form method="get" style="display:flex;align-items:center;gap:6px;margin:0;">
+			<a class="button oc-ajax-nav<?php echo 1 === $current_page ? ' disabled' : ''; ?>" href="<?php echo esc_url( $prev_url ); ?>" <?php echo 1 === $current_page ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Prev', 'overcustomise' ); ?></a>
+			<form method="get" class="oc-pagination-form oc-ajax-form">
 				<input type="hidden" name="page" value="overcustomise-products" />
 				<input type="hidden" name="tab" value="<?php echo esc_attr( $tab ); ?>" />
 				<?php foreach ( $query_args as $name => $value ) : ?>
@@ -755,13 +772,18 @@ class OC_Admin_Products {
 				<input id="oc-<?php echo esc_attr( $param ); ?>" class="oc-input" type="number" name="<?php echo esc_attr( $param ); ?>" value="<?php echo esc_attr( $current_page ); ?>" min="1" max="<?php echo esc_attr( $total_pages ); ?>" style="width:78px;" />
 				<button type="submit" class="button"><?php esc_html_e( 'Go', 'overcustomise' ); ?></button>
 			</form>
-			<a class="button<?php echo $current_page >= $total_pages ? ' disabled' : ''; ?>" href="<?php echo esc_url( $next_url ); ?>" <?php echo $current_page >= $total_pages ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Next', 'overcustomise' ); ?></a>
+			<a class="button oc-ajax-nav<?php echo $current_page >= $total_pages ? ' disabled' : ''; ?>" href="<?php echo esc_url( $next_url ); ?>" <?php echo $current_page >= $total_pages ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Next', 'overcustomise' ); ?></a>
 		</div>
 		<?php
 	}
 
 	/** Render a design assignment <select> for one product/variant row. */
-	private function render_design_select( array $designs, int $product_id, int $variant_id, int $assigned_id ): void {
+	private function render_design_select( array $designs, array $assigned_design_ids, int $product_id, int $variant_id, int $assigned_id ): void {
+		$is_assigned = static fn ( $design ): bool => isset( $assigned_design_ids[ (int) $design->id ] );
+		$designs     = array_merge(
+			array_values( array_filter( $designs, static fn ( $design ): bool => ! $is_assigned( $design ) ) ),
+			array_values( array_filter( $designs, $is_assigned ) )
+		);
 		?>
 		<select class="oc-design-assign-select oc-select"
 		        data-product-id="<?php echo esc_attr( $product_id ); ?>"
@@ -770,6 +792,7 @@ class OC_Admin_Products {
 			<option value="0"><?php esc_html_e( '— No Design —', 'overcustomise' ); ?></option>
 			<?php foreach ( $designs as $design ) : ?>
 				<option value="<?php echo esc_attr( $design->id ); ?>"
+				        data-assigned="<?php echo isset( $assigned_design_ids[ (int) $design->id ] ) ? '1' : '0'; ?>"
 				        <?php selected( $assigned_id, $design->id ); ?>>
 					<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
 				</option>
@@ -881,7 +904,7 @@ class OC_Admin_Products {
 		<div class="oc-card">
 			<div class="oc-card-header">
 				<h2><?php esc_html_e( 'Designs', 'overcustomise' ); ?></h2>
-				<form method="get" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0;">
+				<form method="get" class="oc-list-filter oc-ajax-form">
 					<input type="hidden" name="page" value="overcustomise-products" />
 					<input type="hidden" name="tab" value="designs" />
 					<span style="font-size:12px;color:var(--oc-gray-400);">
@@ -891,7 +914,7 @@ class OC_Admin_Products {
 					       placeholder="<?php esc_attr_e( 'Filter all designs…', 'overcustomise' ); ?>" />
 					<button type="submit" class="button"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></button>
 					<?php if ( '' !== $search ) : ?>
-						<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
+						<a class="button oc-ajax-nav" href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
 					<?php endif; ?>
 				</form>
 			</div>

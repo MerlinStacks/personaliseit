@@ -1,5 +1,7 @@
 /* eslint-disable no-nested-ternary */
 
+import { FabricText, StaticCanvas, Textbox } from 'fabric';
+
 export function createLayerPreviewRenderer( deps ) {
 	const { fontLimit, layerLabel, normaliseHex } = deps;
 
@@ -15,39 +17,133 @@ export function createLayerPreviewRenderer( deps ) {
 		return size;
 	}
 
-	function fitTextPreview( el, fontSize, minFontSize, singleLine = false ) {
-		if ( ! el || ! el.clientWidth || ! el.clientHeight ) {
-			return;
-		}
-
-		el.style.transform = '';
-		let size = fontSize;
-		const floor = Math.max( 1, minFontSize || 4 );
-		while (
-			size > floor &&
-			( singleLine
-				? el.scrollHeight > el.clientHeight
-				: el.scrollWidth > el.clientWidth ||
-				  el.scrollHeight > el.clientHeight )
-		) {
-			size = Math.max( floor, size - 1 );
-			el.style.fontSize = size + 'px';
-		}
-
-		if ( singleLine && el.scrollWidth > el.clientWidth ) {
-			el.style.transform =
-				'scaleX(' +
-				Math.max( 0.01, el.clientWidth / el.scrollWidth ) +
-				')';
-		}
-	}
-
 	function findFont( fontId ) {
 		const fonts = ( window.ocProductsData || {} ).fonts || [];
 		return (
-			fonts.find( ( f ) => Number( f.id ) === Number( fontId ) ) ||
-			( ! fontId ? fonts[ 0 ] : null )
+			fonts.find( ( f ) => Number( f.id ) === Number( fontId ) ) || null
 		);
+	}
+
+	function textPadding( fontSize ) {
+		return Math.max( 4, Math.ceil( fontSize * 0.18 ) );
+	}
+
+	function textFits( text, font, fontSize, width, height, multiline ) {
+		const TextClass = multiline ? Textbox : FabricText;
+		const measured = new TextClass( text, {
+			...( multiline ? { width } : {} ),
+			fontFamily: font?.name || 'sans-serif',
+			fontWeight: font?.weight || 'normal',
+			fontStyle: font?.style || 'normal',
+			fontSize,
+		} );
+		measured.initDimensions?.();
+		const marginX = Math.max( 1, Math.ceil( fontSize * 0.06 ) );
+		const marginY = Math.max( 2, Math.ceil( fontSize * 0.12 ) );
+
+		return (
+			( multiline || measured.width + marginX * 2 <= width ) &&
+			measured.height + marginY * 2 <= height
+		);
+	}
+
+	function renderTextPreview(
+		el,
+		text,
+		font,
+		fontSize,
+		minFontSize,
+		width,
+		height,
+		settings,
+		color,
+		isSingleLine
+	) {
+		const canvasEl = document.createElement( 'canvas' );
+		canvasEl.className = 'oc-lp oc-lp-text-canvas';
+		el.appendChild( canvasEl );
+		const canvas = new StaticCanvas( canvasEl, {
+			width: Math.max( 1, width ),
+			height: Math.max( 1, height ),
+		} );
+		el._ocTextPreviewCanvas = canvas;
+
+		const maxWidth = Math.max( 1, width - Math.max( 4, width * 0.02 ) );
+		const floor = Math.max( 1, minFontSize || 4 );
+		while (
+			fontSize > floor &&
+			! textFits(
+				text,
+				font,
+				fontSize,
+				isSingleLine ? maxWidth : width,
+				height,
+				! isSingleLine
+			)
+		) {
+			fontSize = Math.max( floor, fontSize - 1 );
+		}
+
+		const TextClass = isSingleLine ? FabricText : Textbox;
+		const textObject = new TextClass( text, {
+			left: width / 2,
+			top: height / 2,
+			originX: 'center',
+			originY: 'center',
+			...( isSingleLine ? {} : { width } ),
+			padding: textPadding( fontSize ),
+			fontFamily: font?.name || 'sans-serif',
+			fontWeight: font?.weight || 'normal',
+			fontStyle: font?.style || 'normal',
+			fontSize,
+			fill: color,
+			textAlign: settings.alignment || 'center',
+			selectable: false,
+			evented: false,
+			objectCaching: false,
+		} );
+		textObject.initDimensions?.();
+
+		if ( isSingleLine ) {
+			const renderedWidth = Math.max(
+				1,
+				Math.ceil( textObject.width + textPadding( fontSize ) * 2 )
+			);
+			textObject.set( {
+				scaleX: Math.min( 1, maxWidth / renderedWidth ),
+			} );
+		} else {
+			const lineAlign = [ 'top', 'center', 'bottom' ].includes(
+				settings.line_alignment
+			)
+				? settings.line_alignment
+				: 'top';
+			const freeY = Math.max(
+				0,
+				( height - Math.min( textObject.getScaledHeight(), height ) ) /
+					2
+			);
+			textObject.set( {
+				top:
+					height / 2 +
+					( lineAlign === 'bottom'
+						? freeY
+						: lineAlign === 'center'
+						? 0
+						: -freeY ),
+			} );
+		}
+
+		canvas.add( textObject );
+		canvas.renderAll();
+		Object.assign( canvasEl.style, {
+			display: 'block',
+			left: '50%',
+			top: '50%',
+			width: width + 'px',
+			height: height + 'px',
+			transform: 'translate(-50%, -50%)',
+		} );
 	}
 
 	function imageFilterCss( filterId ) {
@@ -119,6 +215,8 @@ export function createLayerPreviewRenderer( deps ) {
 		engravingMaterial = 'silver_metal'
 	) {
 		// Remove any existing preview children
+		el._ocTextPreviewCanvas?.dispose?.();
+		el._ocTextPreviewCanvas = null;
 		el.querySelectorAll( '.oc-lp' ).forEach( ( c ) => c.remove() );
 		if ( ! layer ) {
 			return;
@@ -140,23 +238,6 @@ export function createLayerPreviewRenderer( deps ) {
 			const text =
 				s.default_text || layer.label || layerLabel( layer.type );
 			const align = s.alignment || 'center';
-			const flexAlign =
-				align === 'left'
-					? 'flex-start'
-					: align === 'right'
-					? 'flex-end'
-					: 'center';
-			const lineAlign = [ 'top', 'center', 'bottom' ].includes(
-				s.line_alignment
-			)
-				? s.line_alignment
-				: 'top';
-			const flexLineAlign =
-				lineAlign === 'bottom'
-					? 'flex-end'
-					: lineAlign === 'center'
-					? 'center'
-					: 'flex-start';
 			const scale = renderedH / Math.max( 1, layer.h );
 			const defaultFontSize = fontLimit( s.default_font_size );
 			const autoFontSize = Math.max(
@@ -172,56 +253,48 @@ export function createLayerPreviewRenderer( deps ) {
 				scale
 			);
 			const font = findFont( s.default_font_id || 0 );
-
-			const d = document.createElement( 'div' );
-			d.className = 'oc-lp oc-lp-text';
-			d.style.fontSize = fs + 'px';
-			d.style.fontWeight = '400';
-			d.style.lineHeight = '1.16';
-			d.style.whiteSpace = isSingleLine ? 'nowrap' : 'normal';
-			d.style.transformOrigin =
-				align === 'left'
-					? 'left center'
-					: align === 'right'
-					? 'right center'
-					: 'center center';
-			d.style.textAlign = align;
-			d.style.alignItems = flexAlign;
-			d.style.maxWidth = Math.max( 1, renderedW ) + 'px';
-			d.style.maxHeight = Math.max( 1, renderedH ) + 'px';
-			d.style.color = isEngraving
+			const color = isEngraving
 				? engraving.color
 				: normaliseHex( s.default_color );
-			if ( isEngraving ) {
-				d.style.textShadow = engraving.shadow;
-			}
-			if ( font ) {
-				d.style.fontFamily =
-					"'" +
-					String( font.name ).replace( /'/g, "\\'" ) +
-					"', sans-serif";
-			}
-			if ( ! isSingleLine ) {
-				d.style.justifyContent = flexLineAlign;
-			}
-			d.textContent = text;
-			el.appendChild( d );
-
 			const minFontSize = fontLimit( s.min_font_size )
 				? fontLimit( s.min_font_size ) * scale
 				: 4;
-			fitTextPreview( d, fs, minFontSize, isSingleLine );
-			window.requestAnimationFrame( () =>
-				fitTextPreview( d, fs, minFontSize, isSingleLine )
-			);
-			document.fonts?.ready?.then?.( () =>
-				fitTextPreview(
-					d,
-					parseFloat( d.style.fontSize ) || fs,
+			const render = () =>
+				renderTextPreview(
+					el,
+					text,
+					font,
+					fs,
 					minFontSize,
+					Math.max( 1, renderedW ),
+					Math.max( 1, renderedH ),
+					{ ...s, alignment: align },
+					color,
 					isSingleLine
-				)
-			);
+				);
+			render();
+			if ( font && document.fonts?.load ) {
+				const preview = el._ocTextPreviewCanvas;
+				document.fonts
+					.load(
+						`${ font.style || 'normal' } ${
+							font.weight || 'normal'
+						} ${ Math.max( 1, fs ) }px "${ String(
+							font.name
+						).replace( /"/g, '\\"' ) }"`
+					)
+					.then( () => {
+						if ( el._ocTextPreviewCanvas !== preview ) {
+							return;
+						}
+						preview.dispose();
+						el.querySelectorAll( '.oc-lp' ).forEach( ( c ) =>
+							c.remove()
+						);
+						render();
+					} )
+					.catch( () => {} );
+			}
 		} else if ( layer.type === 'image' || layer.type === 'clipmask' ) {
 			if ( layer.type === 'image' && s.default_attachment_url ) {
 				const img = document.createElement( 'img' );

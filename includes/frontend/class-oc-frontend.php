@@ -315,7 +315,7 @@ class OC_Frontend {
 
 				// Default input per layer.
 				$layer_inputs[ (int) $layer->id ] = [
-					'value'         => in_array( $layer->type, [ 'text', 'textarea' ], true ) ? (string) ( $settings['default_text'] ?? '' ) : '',
+					'value'         => in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! empty( $layer->locked ) ? (string) ( $settings['default_text'] ?? '' ) : '',
 					'fontId'        => absint( $settings['default_font_id'] ?? 0 ),
 					'fontSize'      => absint( $settings['default_font_size'] ?? 0 ),
 					'colorHex'      => $default_colour,

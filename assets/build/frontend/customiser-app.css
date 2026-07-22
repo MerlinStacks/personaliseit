@@ -975,6 +975,26 @@
   background: var(--oc-accent);
   transition: width 0.18s ease;
 }
+.oc-customiser-panel .oc-upload-progress-track--indeterminate .oc-upload-progress-bar {
+  width: 40%;
+  animation: oc-upload-progress-indeterminate 1.2s ease-in-out infinite;
+  transition: none;
+}
+@keyframes oc-upload-progress-indeterminate {
+  from {
+    transform: translateX(-125%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .oc-customiser-panel .oc-upload-progress-track--indeterminate .oc-upload-progress-bar {
+    width: 100%;
+    animation: none;
+    opacity: 0.65;
+  }
+}
 .oc-customiser-panel .oc-help-tooltip, .oc-customiser-panel .oc-spotify-help {
   position: relative;
   display: inline-flex;

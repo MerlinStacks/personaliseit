@@ -417,10 +417,12 @@ const canvasRendererMethods = {
 			case 'text':
 			case 'textarea': {
 				const isSingleLineText = layer.type === 'text';
-				const inputValue =
-					input.value === undefined
+				let inputValue = input.value;
+				if ( inputValue === undefined ) {
+					inputValue = layer.locked
 						? layer.settings?.default_text || ''
-						: input.value;
+						: '';
+				}
 				const normalisedText = (
 					isEngraving || isEmbroidery
 						? this.stripUnsupportedPrintEmoji( inputValue )

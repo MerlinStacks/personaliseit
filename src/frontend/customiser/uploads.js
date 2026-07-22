@@ -565,8 +565,8 @@ const uploadMethods = {
 		if ( targetZone ) {
 			this.setUploadProgress(
 				targetZone,
-				100,
-				'Doing the image thing...'
+				null,
+				'Applying image effect...'
 			);
 			this.showUploadError( targetZone, '' );
 		}
@@ -715,10 +715,10 @@ const uploadMethods = {
 			zoneEl.insertAdjacentElement( 'afterend', progressEl );
 		}
 
-		const safePercent = Math.max(
-			0,
-			Math.min( 100, parseInt( percent, 10 ) || 0 )
-		);
+		const isIndeterminate = percent === null;
+		const safePercent = isIndeterminate
+			? 0
+			: Math.max( 0, Math.min( 100, parseInt( percent, 10 ) || 0 ) );
 		const labelEl = progressEl.querySelector( '.oc-upload-progress-label' );
 		const track = progressEl.querySelector( '.oc-upload-progress-track' );
 		const bar = progressEl.querySelector( '.oc-upload-progress-bar' );
@@ -728,11 +728,19 @@ const uploadMethods = {
 			labelEl.setAttribute( 'aria-live', 'polite' );
 		}
 		if ( track ) {
-			track.setAttribute( 'aria-valuenow', String( safePercent ) );
+			track.classList.toggle(
+				'oc-upload-progress-track--indeterminate',
+				isIndeterminate
+			);
+			if ( isIndeterminate ) {
+				track.removeAttribute( 'aria-valuenow' );
+			} else {
+				track.setAttribute( 'aria-valuenow', String( safePercent ) );
+			}
 			track.setAttribute( 'aria-label', label || 'Upload progress' );
 		}
 		if ( bar ) {
-			bar.style.width = `${ safePercent }%`;
+			bar.style.width = isIndeterminate ? '' : `${ safePercent }%`;
 		}
 		progressEl.style.display = label ? '' : 'none';
 	},

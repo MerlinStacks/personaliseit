@@ -1134,6 +1134,30 @@
 		transition: width 0.18s ease;
 	}
 
+	.oc-upload-progress-track--indeterminate .oc-upload-progress-bar {
+		width: 40%;
+		animation: oc-upload-progress-indeterminate 1.2s ease-in-out infinite;
+		transition: none;
+	}
+
+	@keyframes oc-upload-progress-indeterminate {
+		from {
+			transform: translateX(-125%);
+		}
+
+		to {
+			transform: translateX(250%);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.oc-upload-progress-track--indeterminate .oc-upload-progress-bar {
+			width: 100%;
+			animation: none;
+			opacity: 0.65;
+		}
+	}
+
 	// ── Generic help tooltip ──────────────────────────────────────────────────
 	.oc-help-tooltip {
 		position: relative;
