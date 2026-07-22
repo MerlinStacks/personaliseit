@@ -584,6 +584,9 @@ const canvasRendererMethods = {
               } : {}),
               ...(isEmbroidery ? {
                 embroidery: true
+              } : {}),
+              ...(isEngraving ? {
+                photoEngraving: true
               } : {})
             };
             const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageEffects, isCurrent);
@@ -596,7 +599,9 @@ const canvasRendererMethods = {
       case 'clipmask':
         {
           if (input.attachmentUrl) {
-            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover', '', {}, isCurrent);
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover', '', {
+              photoEngraving: isEngraving
+            }, isCurrent);
             if (!rendered && isCurrent()) {
               throw new Error('Masked artwork could not be rendered.');
             }
@@ -903,12 +908,13 @@ const canvasRendererMethods = {
         text: '#17191b',
         imageTint: '#111315',
         bg: 'ECEFF1',
-        highlight: 'rgba(255,255,255,0.16)',
+        highlight: 'rgba(255,255,255,0.08)',
         brightness: -0.08,
         contrast: 0.34,
-        opacity: 0.92,
+        opacity: 0.96,
         tintAlpha: 0.9,
-        composite: 'multiply'
+        composite: 'multiply',
+        photoDither: true
       },
       black_metal: {
         text: '#d8d8d8',
@@ -1001,6 +1007,51 @@ const canvasRendererMethods = {
       source,
       repeat: 'repeat'
     });
+  },
+  silverPlaquePhotoDither(element, displayW, displayH) {
+    try {
+      const sourceW = Number(element?.naturalWidth || element?.width || 0);
+      const sourceH = Number(element?.naturalHeight || element?.height || 0);
+      if (!sourceW || !sourceH) {
+        return null;
+      }
+      const maxDimension = Math.min(1200, Math.max(240, Math.round(Math.max(displayW, displayH) * 1.5)));
+      const scale = Math.min(1, maxDimension / Math.max(sourceW, sourceH));
+      const width = Math.max(1, Math.round(sourceW * scale));
+      const height = Math.max(1, Math.round(sourceH * scale));
+      const output = document.createElement('canvas');
+      output.width = width;
+      output.height = height;
+      const ctx = output.getContext('2d', {
+        willReadFrequently: true
+      });
+      if (!ctx) {
+        return null;
+      }
+      ctx.drawImage(element, 0, 0, width, height);
+      const image = ctx.getImageData(0, 0, width, height);
+      const pixels = image.data;
+      const matrix = [[0, 48, 12, 60, 3, 51, 15, 63], [32, 16, 44, 28, 35, 19, 47, 31], [8, 56, 4, 52, 11, 59, 7, 55], [40, 24, 36, 20, 43, 27, 39, 23], [2, 50, 14, 62, 1, 49, 13, 61], [34, 18, 46, 30, 33, 17, 45, 29], [10, 58, 6, 54, 9, 57, 5, 53], [42, 26, 38, 22, 41, 25, 37, 21]];
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = (y * width + x) * 4;
+          const alpha = pixels[index + 3];
+          const luminance = pixels[index] * 0.2126 + pixels[index + 1] * 0.7152 + pixels[index + 2] * 0.0722;
+          const contrasted = Math.max(0, Math.min(255, (luminance - 128) * 1.22 + 142));
+          const threshold = (matrix[y % 8][x % 8] + 0.5) * 4;
+          const engraved = contrasted < threshold;
+          pixels[index] = 17;
+          pixels[index + 1] = 19;
+          pixels[index + 2] = 21;
+          pixels[index + 3] = engraved ? alpha : 0;
+        }
+      }
+      ctx.putImageData(image, 0, 0);
+      return output;
+    } catch (error) {
+      console.warn('[OC] Silver plaque photo dithering failed:', error);
+      return null;
+    }
   },
   embroideryPattern(color, fontSize = 24) {
     const source = document.createElement('canvas');
@@ -1482,6 +1533,16 @@ const canvasRendererMethods = {
         console.warn('[OC] Image failed to load or has zero dimensions:', url);
         return false;
       }
+      const palette = engravingPalette || this.engravingPalette();
+      let isDitheredEngraving = Boolean(isEngraving && effects.photoEngraving && palette.photoDither);
+      if (isDitheredEngraving) {
+        const dithered = this.silverPlaquePhotoDither(img.getElement(), w, h);
+        if (dithered) {
+          img.setElement(dithered);
+        } else {
+          isDitheredEngraving = false;
+        }
+      }
       const s = fit === 'cover' ? Math.max(w / img.width, h / img.height) : Math.min(w / img.width, h / img.height);
       img.set({
         left: x + w / 2,
@@ -1492,10 +1553,11 @@ const canvasRendererMethods = {
         scaleY: s,
         angle,
         selectable: false,
-        evented: false
+        evented: false,
+        imageSmoothing: !isDitheredEngraving
       });
       const filters = [];
-      if (makeWhiteTransparent || isEngraving && !effects.preserveRecolouredPixels) {
+      if (makeWhiteTransparent || isEngraving && !effects.preserveRecolouredPixels && !isDitheredEngraving) {
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.RemoveColor({
           color: '#FFFFFF',
           distance: isEngraving ? 0.18 : 0.1
@@ -1508,18 +1570,17 @@ const canvasRendererMethods = {
           alpha: 1
         }));
       }
-      if (effects.imageFilter) {
+      if (effects.imageFilter && !isDitheredEngraving) {
         this.addConfiguredImageFilter(filters, effects.imageFilter);
       }
-      if (effects.imageColor && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor) {
+      if (effects.imageColor && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor && !isDitheredEngraving) {
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
           color: effects.imageColor,
           mode: 'tint',
           alpha: 1
         }));
       }
-      if (isEngraving && !effects.preserveRecolouredPixels) {
-        const palette = engravingPalette || this.engravingPalette();
+      if (isEngraving && !effects.preserveRecolouredPixels && !isDitheredEngraving) {
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale(), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness({
           brightness: palette.brightness
         }), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
@@ -1550,13 +1611,11 @@ const canvasRendererMethods = {
         img.applyFilters();
       }
       if (isEngraving && effects.preserveRecolouredPixels) {
-        const palette = engravingPalette || this.engravingPalette();
         img.set({
           opacity: palette.opacity,
           globalCompositeOperation: palette.composite || 'source-over'
         });
       } else if (isEngraving) {
-        const palette = engravingPalette || this.engravingPalette();
         img.set({
           opacity: palette.opacity,
           globalCompositeOperation: palette.composite || 'source-over',
