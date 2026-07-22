@@ -566,7 +566,19 @@ class OC_Cart {
 		$raw_layers = self::synchronise_linked_layer_inputs( $design_layers, $raw_layers );
 		$raw_layers = self::synchronise_linked_layer_colours( $design_layers, $raw_layers );
 
-		$active_font_ids = array_map( static fn( $font ) => (int) $font->id, OC_DB::get_fonts( true ) );
+		$active_fonts    = OC_DB::get_fonts( true );
+		$active_font_ids = array_map( static fn( $font ) => (int) $font->id, $active_fonts );
+		$font_names      = [];
+		foreach ( $active_fonts as $font ) {
+			$font_names[ (int) $font->id ] = sanitize_text_field( (string) $font->name );
+		}
+		$colour_names = [];
+		foreach ( OC_DB::get_colours( true ) as $available_colour ) {
+			$hex = sanitize_hex_color( (string) ( $available_colour->hex ?? '' ) );
+			if ( $hex ) {
+				$colour_names[ strtolower( $hex ) ] = sanitize_text_field( (string) ( $available_colour->name ?? '' ) );
+			}
+		}
 		$fallback_font_id = (int) ( $active_font_ids[0] ?? 0 );
 		$active_filters = [];
 		foreach ( OC_DB::get_image_filters( true ) as $filter ) {
@@ -721,8 +733,8 @@ class OC_Cart {
 
 			$preview_attachment_id = $attachment_id ? absint( get_post_meta( $attachment_id, '_oc_print_derivative_attachment_id', true ) ) : 0;
 			$normalised[ $layer_id ] = [
-				'type' => $type, 'value' => $value, 'fontId' => $font_id, 'fontSize' => $font_size,
-				'colorHex' => $colour, 'attachmentId' => $attachment_id, 'sourceAttachmentId' => $source_attachment_id, 'imageFilterId' => $filter_id,
+				'type' => $type, 'value' => $value, 'fontId' => $font_id, 'fontName' => $font_names[ $font_id ] ?? '', 'fontSize' => $font_size,
+				'colorHex' => $colour, 'colorName' => $colour_names[ strtolower( $colour ) ] ?? '', 'attachmentId' => $attachment_id, 'sourceAttachmentId' => $source_attachment_id, 'imageFilterId' => $filter_id,
 				'imageFilterKey' => $selected_filter ? sanitize_key( (string) $selected_filter->filter_key ) : '',
 				'imageFilterValue' => $selected_filter ? (float) $selected_filter->value : 0.0,
 				'previewAttachmentId' => $preview_attachment_id,

@@ -69,12 +69,23 @@ class OC_Command_Runner {
 		}
 
 		$descriptors = [ 0 => [ 'pipe', 'r' ], 1 => [ 'pipe', 'w' ], 2 => [ 'pipe', 'w' ] ];
+		$process_warning = '';
+		set_error_handler(
+			static function ( int $severity, string $message ) use ( &$process_warning ): bool {
+				$process_warning = $message;
+				return true;
+			}
+		);
 		try {
 			$process = proc_open( $parts, $descriptors, $pipes, null, null, [ 'bypass_shell' => true ] );
 		} catch ( \Throwable $e ) {
 			throw new \InvalidArgumentException( 'Could not start command.', 0, $e );
+		} finally {
+			restore_error_handler();
 		}
-		if ( ! is_resource( $process ) ) throw new \InvalidArgumentException( 'Could not start command.' );
+		if ( ! is_resource( $process ) ) {
+			throw new \InvalidArgumentException( '' !== $process_warning ? 'Could not start command: executable is unavailable.' : 'Could not start command.' );
+		}
 		fclose( $pipes[0] );
 		stream_set_blocking( $pipes[1], false );
 		stream_set_blocking( $pipes[2], false );

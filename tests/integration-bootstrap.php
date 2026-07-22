@@ -23,6 +23,7 @@ require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 require_once OC_PATH . 'includes/class-oc-db.php';
 require_once OC_PATH . 'includes/class-oc-logger.php';
 require_once OC_PATH . 'includes/class-oc-command-runner.php';
+require_once OC_PATH . 'includes/class-oc-system-status.php';
 require_once OC_PATH . 'includes/class-oc-font-registry.php';
 require_once OC_PATH . 'includes/class-oc-render-math.php';
 require_once OC_PATH . 'includes/class-oc-render-spec.php';

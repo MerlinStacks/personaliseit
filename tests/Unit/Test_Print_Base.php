@@ -54,6 +54,20 @@ if ( ! class_exists( 'OC_Test_Layer_Rotation_PDF' ) && class_exists( 'TCPDF' ) )
 	}
 }
 
+if ( ! class_exists( 'OC_Test_Text_Cell_PDF' ) && class_exists( 'TCPDF' ) ) {
+	class OC_Test_Text_Cell_PDF extends TCPDF {
+		public array $cell_args = [];
+
+		public function StartTransform() {}
+		public function StopTransform() {}
+		public function Rect( $_x, $_y, $_w, $_h, $_style = '', $_border_style = [], $_fill_color = [] ) {}
+		public function SetXY( $_x, $_y, $_rtloff = false ) {}
+		public function Cell( $_w, $_h = 0, $_txt = '', $_border = 0, $_ln = 0, $_align = '', $_fill = false, $_link = '', $_stretch = 0, $_ignore_min_height = false, $_calign = 'T', $_valign = 'M' ) {
+			$this->cell_args = func_get_args();
+		}
+	}
+}
+
 /**
  * Concrete subclass to expose the protected static methods for testing.
  */
@@ -120,6 +134,14 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 
 	public static function test_build_filtered_image( string $path, array $layer, array $input ): ?string {
 		return self::build_filtered_image( $path, $layer, $input );
+	}
+
+	public static function test_ghostscript_outline_command( string $binary, string $source, string $output ): array {
+		return self::ghostscript_outline_command( $binary, $source, $output );
+	}
+
+	public static function test_draw_clipped_text_cell( \TCPDF $pdf, string $text ): void {
+		self::draw_clipped_text_cell( $pdf, 0.0, 0.0, 20.0, 10.0, $text, 5.0 );
 	}
 }
 
@@ -237,6 +259,28 @@ class Test_Print_Base extends TestCase {
 	public function single_line_anchor_pad_matches_frontend_limits(): void {
 		$this->assertEqualsWithDelta( 0.2, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 100, 10 ), 0.001 );
 		$this->assertEqualsWithDelta( 1.0, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 1000, 100 ), 0.001 );
+	}
+
+	#[Test]
+	public function production_pdf_command_outlines_fonts_without_rasterising(): void {
+		$command = OC_Print_Base_Testable::test_ghostscript_outline_command( 'gs', '/tmp/source.pdf', '/tmp/output.pdf' );
+
+		$this->assertContains( '-sDEVICE=pdfwrite', $command );
+		$this->assertContains( '-dNoOutputFonts', $command );
+		$this->assertNotContains( '-sDEVICE=png16m', $command );
+		$this->assertSame( '/tmp/source.pdf', $command[ count( $command ) - 1 ] );
+	}
+
+	#[Test]
+	public function single_line_pdf_text_scales_to_fit_instead_of_wrapping(): void {
+		if ( ! class_exists( 'OC_Test_Text_Cell_PDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+
+		$pdf = ( new ReflectionClass( OC_Test_Text_Cell_PDF::class ) )->newInstanceWithoutConstructor();
+		OC_Print_Base_Testable::test_draw_clipped_text_cell( $pdf, 'DR ADELLINE CARDON' );
+
+		$this->assertSame( 1, $pdf->cell_args[8] );
 	}
 
 	#[Test]
@@ -405,10 +449,11 @@ class Test_Print_Base extends TestCase {
 
 			$this->assertIsString( $normalised );
 			$svg = file_get_contents( $normalised );
-			$this->assertStringContainsString( '-2.72 0.1', $svg );
-			$this->assertStringContainsString( 'h0.01', $svg );
-			$this->assertStringContainsString( 'v-0.02', $svg );
-			$this->assertStringContainsString( 'c-0.09 0.03-0.2-0.04-0.3-0.5', $svg );
+			$this->assertStringContainsString( 'l 6.25 3.77 -2.72 0.1', $svg );
+			$this->assertStringContainsString( 'h 0.01', $svg );
+			$this->assertStringContainsString( 'v -0.02', $svg );
+			$this->assertStringContainsString( 'c -0.09 0.03 -0.2 -0.04 -0.3 -0.5', $svg );
+			$this->assertStringContainsString( 'L 1 1 Z', $svg );
 		} finally {
 			@unlink( $path );
 			if ( isset( $normalised ) && is_string( $normalised ) ) {

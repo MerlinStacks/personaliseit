@@ -1203,8 +1203,10 @@ class OC_Admin_Products {
 										<option value="glass"><?php esc_html_e( 'Glass', 'overcustomise' ); ?></option>
 										<option value="gold_metal"><?php esc_html_e( 'Gold Metal', 'overcustomise' ); ?></option>
 										<option value="silver_metal"><?php esc_html_e( 'Silver Metal', 'overcustomise' ); ?></option>
+										<option value="silver_plaque"><?php esc_html_e( 'Silver Plaque (Black Engraving)', 'overcustomise' ); ?></option>
 										<option value="black_metal"><?php esc_html_e( 'Black Metal', 'overcustomise' ); ?></option>
 										<option value="wood"><?php esc_html_e( 'Wood', 'overcustomise' ); ?></option>
+										<option value="leather"><?php esc_html_e( 'Leather', 'overcustomise' ); ?></option>
 									</select>
 								</div>
 								<div class="oc-mockup-thumb" id="oc-mockup-thumb">
@@ -1522,7 +1524,7 @@ class OC_Admin_Products {
 				) {
 					throw new RuntimeException( 'The selected print method is disabled or invalid.' );
 				}
-				$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood' ], true )
+				$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather' ], true )
 					? sanitize_key( $area_data['engraving_material'] )
 					: 'silver_metal';
 				$unit       = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )

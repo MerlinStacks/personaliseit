@@ -10,8 +10,10 @@ export function createProductsPageDataNormalisers( deps ) {
 			'glass',
 			'gold_metal',
 			'silver_metal',
+			'silver_plaque',
 			'black_metal',
 			'wood',
+			'leather',
 		].includes( a.material )
 			? a.material
 			: 'silver_metal';

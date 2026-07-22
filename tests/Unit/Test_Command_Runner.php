@@ -33,4 +33,23 @@ class Test_Command_Runner extends TestCase {
 		$this->expectException( \InvalidArgumentException::class );
 		OC_Command_Runner::run( [ PHP_BINARY, "bad\0argument" ] );
 	}
+
+	#[Test]
+	public function unavailable_executable_does_not_emit_a_php_warning(): void {
+		$warnings = [];
+		set_error_handler( static function ( int $severity, string $message ) use ( &$warnings ): bool {
+			$warnings[] = $message;
+			return true;
+		} );
+		try {
+			$result = OC_Command_Runner::run( [ '/definitely/not/an/oc-command' ] );
+		} catch ( \InvalidArgumentException $e ) {
+			$result = [ 'code' => 127 ];
+		} finally {
+			restore_error_handler();
+		}
+
+		$this->assertEmpty( $warnings );
+		$this->assertNotSame( 0, $result['code'] );
+	}
 }

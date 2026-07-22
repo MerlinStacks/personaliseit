@@ -74,4 +74,17 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 
 		$this->assertSame( [ 'vendor/image-editor' => 'Image Editor' ], $models );
 	}
+
+	#[Test]
+	public function system_status_includes_production_runtime_dependencies(): void {
+		$checks = OC_System_Status::checks();
+		$by_key = array_column( $checks, null, 'key' );
+
+		$this->assertArrayHasKey( 'tcpdf', $by_key );
+		$this->assertArrayHasKey( 'proc_open', $by_key );
+		$this->assertArrayHasKey( 'ghostscript', $by_key );
+		$this->assertArrayHasKey( 'ext_imagick', $by_key );
+		$this->assertTrue( $by_key['ghostscript']['required'] );
+		$this->assertFalse( $by_key['ext_imagick']['required'] );
+	}
 }

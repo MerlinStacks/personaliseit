@@ -169,7 +169,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$snapshot = is_array( $area_data['renderSpecArea'] ?? null ) ? $area_data['renderSpecArea'] : [];
 		$area_material = (string) ( $snapshot['engravingMaterial'] ?? $area->engraving_material ?? '' );
 		$material = sanitize_key( '' !== $area_material ? $area_material : (string) ( $profile['material'] ?? 'default' ) );
-		if ( ! in_array( $material, [ 'default', 'wood', 'glass', 'gold_metal', 'silver_metal', 'black_metal' ], true ) ) {
+		if ( ! in_array( $material, [ 'default', 'wood', 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'leather' ], true ) ) {
 			$material = 'default';
 		}
 
@@ -191,6 +191,16 @@ class OC_Print_Engraving extends OC_Print_Base {
 			}
 		}
 
+		if ( 'leather' === $material ) {
+			$gamma = 1.7;
+			if ( 0 === $contrast ) {
+				$contrast = 15;
+			}
+			if ( 'none' === $dithering ) {
+				$dithering = 'floyd_steinberg';
+			}
+		}
+
 		if ( 'glass' === $material ) {
 			$gamma = 1.0;
 			if ( 0 === $edge_boost ) {
@@ -205,6 +215,16 @@ class OC_Print_Engraving extends OC_Print_Base {
 			$gamma = 1.4;
 			if ( 0 === $contrast ) {
 				$contrast = 15;
+			}
+		}
+
+		if ( 'silver_plaque' === $material ) {
+			$gamma = 1.25;
+			if ( 0 === $contrast ) {
+				$contrast = 25;
+			}
+			if ( 'none' === $dithering ) {
+				$dithering = 'floyd_steinberg';
 			}
 		}
 

@@ -443,7 +443,7 @@ const canvasRendererMethods = {
 						f.id ===
 						( input.fontId || layer.settings?.default_font_id || 0 )
 				);
-				// Engraving uses a fixed silver tone instead of a customer-selected colour.
+				// Engraving colour follows the substrate rather than the customer's ink colour.
 				const color = isEngraving
 					? engravingPalette.text
 					: input.colorHex ||
@@ -488,8 +488,10 @@ const canvasRendererMethods = {
 				let textPadding = this.textRenderPadding( fontSize );
 				const textFill = isEmbroidery
 					? this.embroideryPattern( color, fontSize )
-					: isEngraving && engravingPalette.grainPattern
+					: isEngraving && engravingPalette.pattern === 'wood'
 					? this.woodEngravingPattern( fontSize )
+					: isEngraving && engravingPalette.pattern === 'leather'
+					? this.leatherEngravingPattern( fontSize )
 					: color;
 				const textClass = isSingleLineText ? FabricText : Textbox;
 				const textBoxSize = isSingleLineText ? {} : { width: lw };
@@ -1317,6 +1319,17 @@ const canvasRendererMethods = {
 				contrast: 0.18,
 				opacity: 0.9,
 			},
+			silver_plaque: {
+				text: '#17191b',
+				imageTint: '#111315',
+				bg: 'ECEFF1',
+				highlight: 'rgba(255,255,255,0.16)',
+				brightness: -0.08,
+				contrast: 0.34,
+				opacity: 0.92,
+				tintAlpha: 0.9,
+				composite: 'multiply',
+			},
 			black_metal: {
 				text: '#d8d8d8',
 				imageTint: '#d8d8d8',
@@ -1336,7 +1349,20 @@ const canvasRendererMethods = {
 				opacity: 0.72,
 				tintAlpha: 0.72,
 				composite: 'multiply',
-				grainPattern: true,
+				pattern: 'wood',
+			},
+			leather: {
+				text: 'rgba(66,35,21,0.86)',
+				imageTint: '#4a2919',
+				bg: 'A66F45',
+				highlight: 'rgba(235,190,140,0.18)',
+				brightness: -0.2,
+				contrast: 0.24,
+				opacity: 0.84,
+				tintAlpha: 0.82,
+				composite: 'multiply',
+				pattern: 'leather',
+				noise: 5,
 			},
 		};
 
@@ -1392,6 +1418,54 @@ const canvasRendererMethods = {
 			);
 			ctx.stroke();
 		}
+
+		return new Pattern( { source, repeat: 'repeat' } );
+	},
+
+	leatherEngravingPattern( fontSize = 24 ) {
+		const source = document.createElement( 'canvas' );
+		const size = Math.max(
+			18,
+			Math.min( 36, Math.round( fontSize * 0.72 ) )
+		);
+		source.width = size;
+		source.height = size;
+
+		const ctx = source.getContext( '2d' );
+		if ( ! ctx ) {
+			return 'rgba(66,35,21,0.86)';
+		}
+
+		ctx.fillStyle = 'rgba(66,35,21,0.82)';
+		ctx.fillRect( 0, 0, size, size );
+
+		// Fixed pore positions keep the grain stable between preview redraws.
+		const pores = [
+			[ 0.12, 0.18, 0.035 ],
+			[ 0.43, 0.1, 0.025 ],
+			[ 0.76, 0.22, 0.04 ],
+			[ 0.26, 0.48, 0.03 ],
+			[ 0.61, 0.55, 0.035 ],
+			[ 0.9, 0.44, 0.025 ],
+			[ 0.08, 0.8, 0.025 ],
+			[ 0.48, 0.88, 0.04 ],
+			[ 0.8, 0.76, 0.03 ],
+		];
+		pores.forEach( ( [ x, y, radius ], index ) => {
+			ctx.beginPath();
+			ctx.fillStyle =
+				index % 2 ? 'rgba(235,190,140,0.12)' : 'rgba(27,13,8,0.18)';
+			ctx.ellipse(
+				x * size,
+				y * size,
+				Math.max( 0.55, radius * size ),
+				Math.max( 0.4, radius * size * 0.58 ),
+				( index * Math.PI ) / 7,
+				0,
+				Math.PI * 2
+			);
+			ctx.fill();
+		} );
 
 		return new Pattern( { source, repeat: 'repeat' } );
 	},
@@ -2147,6 +2221,11 @@ const canvasRendererMethods = {
 							mode: 'tint',
 							alpha: palette.tintAlpha ?? 1,
 						} )
+					);
+				}
+				if ( palette.noise && FabricFilters.Noise ) {
+					filters.push(
+						new FabricFilters.Noise( { noise: palette.noise } )
 					);
 				}
 			}

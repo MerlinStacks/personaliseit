@@ -152,7 +152,8 @@ export function createProductsPageCanvas( deps ) {
 			renderedW,
 			renderedH,
 			false,
-			area.method === 'engraving'
+			area.method === 'engraving',
+			area.material
 		);
 		if ( layer ) {
 			const pill = document.createElement( 'div' );
@@ -232,7 +233,8 @@ export function createProductsPageCanvas( deps ) {
 				Math.round( displayLayer.w * scale ),
 				Math.round( displayLayer.h * scale ),
 				true,
-				area.method === 'engraving'
+				area.method === 'engraving',
+				area.material
 			);
 			pos(
 				g,

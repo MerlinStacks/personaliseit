@@ -177,6 +177,7 @@ class OC_Admin_Settings {
 			'ai'         => __( 'AI Image Filters', 'overcustomise' ),
 			'embroidery' => __( 'Embroidery', 'overcustomise' ),
 			'print'      => __( 'Print Defaults', 'overcustomise' ),
+			'system'     => __( 'System Status', 'overcustomise' ),
 		];
 
 		$active_tab = 'general';
@@ -234,7 +235,7 @@ class OC_Admin_Settings {
 								<h2><?php esc_html_e( 'Quick Tips', 'overcustomise' ); ?></h2>
 							</div>
 							<div class="oc-card-body">
-								<p class="oc-form-help"><?php esc_html_e( 'Use tab links with #general, #files, #ai, #embroidery, or #print to open a section directly.', 'overcustomise' ); ?></p>
+								<p class="oc-form-help"><?php esc_html_e( 'Use tab links with #general, #files, #ai, #embroidery, #print, or #system to open a section directly.', 'overcustomise' ); ?></p>
 								<p class="oc-form-help"><?php esc_html_e( 'Your last open tab is preserved when saving.', 'overcustomise' ); ?></p>
 							</div>
 						</div>
@@ -492,6 +493,14 @@ class OC_Admin_Settings {
 							</div>
 						</div>
 
+						<div
+							id="oc-settings-panel-system"
+							class="oc-settings-tab-panel<?php echo $active_tab === 'system' ? ' is-active' : ''; ?>"
+							data-tab-panel="system"
+							role="tabpanel">
+							<?php $this->render_system_status(); ?>
+						</div>
+
 						<div class="oc-card">
 							<div class="oc-card-footer oc-settings-savebar">
 								<button type="submit" class="oc-btn oc-btn-primary">
@@ -511,6 +520,57 @@ class OC_Admin_Settings {
 		</div>
 		<?php
 		$this->render_tabs_script( $tabs, $active_tab );
+	}
+
+	/** Render live server dependency checks. */
+	private function render_system_status(): void {
+		$checks          = OC_System_Status::checks();
+		$required_failed = count( array_filter( $checks, static fn ( array $check ): bool => $check['required'] && ! $check['available'] ) );
+		?>
+		<div class="oc-card">
+			<div class="oc-card-header oc-system-status-header">
+				<div>
+					<h2><?php esc_html_e( 'System Status', 'overcustomise' ); ?></h2>
+					<p><?php esc_html_e( 'Live checks for the server components used by artwork and print generation.', 'overcustomise' ); ?></p>
+				</div>
+				<span class="oc-system-summary <?php echo 0 === $required_failed ? 'is-ready' : 'is-error'; ?>">
+					<?php
+					echo 0 === $required_failed
+						? esc_html__( 'All required dependencies ready', 'overcustomise' )
+						: esc_html( sprintf(
+							/* translators: %d: number of missing required dependencies. */
+							_n( '%d required dependency missing', '%d required dependencies missing', $required_failed, 'overcustomise' ),
+							$required_failed
+						) );
+					?>
+				</span>
+			</div>
+			<div class="oc-card-body oc-card-body-flush">
+				<div class="oc-system-checks">
+					<?php foreach ( $checks as $check ) : ?>
+						<div class="oc-system-check">
+							<span class="oc-system-check-icon <?php echo $check['available'] ? 'is-ready' : ( $check['required'] ? 'is-error' : 'is-warning' ); ?>" aria-hidden="true">
+								<span class="dashicons <?php echo $check['available'] ? 'dashicons-yes-alt' : ( $check['required'] ? 'dashicons-dismiss' : 'dashicons-warning' ); ?>"></span>
+							</span>
+							<div class="oc-system-check-copy">
+								<div class="oc-system-check-title">
+									<strong><?php echo esc_html( $check['label'] ); ?></strong>
+									<span class="oc-system-requirement"><?php echo $check['required'] ? esc_html__( 'Required', 'overcustomise' ) : esc_html__( 'Recommended', 'overcustomise' ); ?></span>
+								</div>
+								<p><?php echo esc_html( $check['description'] ); ?></p>
+							</div>
+							<div class="oc-system-check-result">
+								<strong><?php echo $check['available'] ? esc_html__( 'Available', 'overcustomise' ) : esc_html__( 'Missing', 'overcustomise' ); ?></strong>
+								<?php if ( '' !== $check['version'] ) : ?>
+									<code><?php echo esc_html( $check['version'] ); ?></code>
+								<?php endif; ?>
+							</div>
+						</div>
+					<?php endforeach; ?>
+				</div>
+			</div>
+		</div>
+		<?php
 	}
 
 	/**

@@ -514,11 +514,82 @@ abstract class OC_Print_Base {
 			throw new \RuntimeException( 'TCPDF returned an empty PDF document.' );
 		}
 
+		$raw = self::outline_pdf_text( $raw );
 		self::log_pdf_preflight_warnings( $raw, $output_path );
 
 		if ( false === file_put_contents( $output_path, $raw ) ) {
 			throw new \RuntimeException( sprintf( 'Could not write print PDF to %s', $output_path ) );
 		}
+	}
+
+	/** Convert every PDF text object to vector paths so production files need no fonts. */
+	private static function outline_pdf_text( string $raw ): string {
+		$binary = self::detect_ghostscript_binary();
+		if ( '' === $binary ) {
+			throw new \RuntimeException( __( 'Ghostscript is required to outline fonts in production print PDFs.', 'overcustomise' ) );
+		}
+
+		$source = self::temp_path_with_extension( 'oc-print-source', 'pdf' );
+		$output = self::temp_path_with_extension( 'oc-print-outlined', 'pdf' );
+		if ( ! is_string( $source ) || ! is_string( $output ) ) {
+			if ( is_string( $source ) ) {
+				@unlink( $source ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort temporary-file cleanup.
+			}
+			if ( is_string( $output ) ) {
+				@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort temporary-file cleanup.
+			}
+			throw new \RuntimeException( __( 'Could not create temporary files for font outlining.', 'overcustomise' ) );
+		}
+
+		try {
+			if ( false === file_put_contents( $source, $raw ) ) {
+				throw new \RuntimeException( __( 'Could not stage the print PDF for font outlining.', 'overcustomise' ) );
+			}
+			@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Ghostscript must create a new output file.
+			$result = OC_Command_Runner::run( self::ghostscript_outline_command( $binary, $source, $output ) );
+			if ( 0 !== (int) $result['code'] || ! is_file( $output ) ) {
+				$message = trim( implode( "\n", (array) $result['output'] ) );
+				throw new \RuntimeException( '' !== $message
+					? sprintf( __( 'Ghostscript could not outline the print PDF: %s', 'overcustomise' ), $message )
+					: __( 'Ghostscript could not outline the print PDF.', 'overcustomise' ) );
+			}
+
+			$outlined = file_get_contents( $output );
+			if ( ! is_string( $outlined ) || ! str_starts_with( $outlined, '%PDF-' ) ) {
+				throw new \RuntimeException( __( 'Font outlining returned an invalid print PDF.', 'overcustomise' ) );
+			}
+
+			return $outlined;
+		} catch ( \InvalidArgumentException $e ) {
+			throw new \RuntimeException( __( 'The font outlining command could not be started.', 'overcustomise' ), 0, $e );
+		} finally {
+			@unlink( $source ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort temporary-file cleanup.
+			@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- best-effort temporary-file cleanup.
+		}
+	}
+
+	/** Build the shell-free Ghostscript command used to replace fonts with paths. */
+	protected static function ghostscript_outline_command( string $binary, string $source, string $output ): array {
+		return [
+			$binary,
+			'-dSAFER',
+			'-dBATCH',
+			'-dNOPAUSE',
+			'-dQUIET',
+			'-sDEVICE=pdfwrite',
+			'-dCompatibilityLevel=1.7',
+			'-dAutoRotatePages=/None',
+			'-dNoOutputFonts',
+			'-sOutputFile=' . $output,
+			$source,
+		];
+	}
+
+	/** Detect the Ghostscript executable used for mandatory production outlining. */
+	private static function detect_ghostscript_binary(): string {
+		$status = class_exists( 'OC_System_Status' ) ? OC_System_Status::ghostscript() : [ 'binary' => '' ];
+
+		return is_string( $status['binary'] ?? null ) ? $status['binary'] : '';
 	}
 
 	/** Log lightweight generated-PDF checks before the file is written. */
@@ -644,7 +715,7 @@ abstract class OC_Print_Base {
 			$changed = true;
 		}
 
-		$changed = self::normalise_svg_path_decimals_for_tcpdf( $svg ) || $changed;
+		$changed = self::normalise_svg_paths_for_tcpdf( $svg ) || $changed;
 		$changed = self::inline_svg_presentation_styles( $dom, $svg ) || $changed;
 		if ( ! $changed ) {
 			return null;
@@ -663,8 +734,8 @@ abstract class OC_Print_Base {
 		return $temp;
 	}
 
-	/** Add omitted leading zeroes that TCPDF misreads as whole path coordinates. */
-	private static function normalise_svg_path_decimals_for_tcpdf( \DOMElement $svg ): bool {
+	/** Serialize compact path data and make closures explicit for TCPDF. */
+	private static function normalise_svg_paths_for_tcpdf( \DOMElement $svg ): bool {
 		$changed = false;
 		foreach ( $svg->getElementsByTagName( 'path' ) as $path ) {
 			$data = $path->getAttribute( 'd' );
@@ -672,13 +743,38 @@ abstract class OC_Print_Base {
 				continue;
 			}
 
-			// SVG allows adjacent decimals such as "-2.72.1" to represent two numbers.
-			$normalised = preg_replace( '/(\.[0-9]+)(?=\.)/', '$1 ', $data ) ?? $data;
-			$normalised = preg_replace_callback(
-				'/(^|[\s,ACHLMQSTVZ]|[+-])\.(\d+)/i',
-				static fn( array $match ): string => $match[1] . '0.' . $match[2],
-				$normalised
-			) ?? $normalised;
+			$pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?/';
+			preg_match_all( $pattern, $data, $matches );
+			$tokens = $matches[0] ?? [];
+			$residue = preg_replace( $pattern, '', $data ) ?? $data;
+			if ( empty( $tokens ) || '' !== trim( str_replace( ',', '', $residue ) ) ) {
+				continue;
+			}
+
+			$normalised_tokens = [];
+			$subpath_start     = null;
+			foreach ( $tokens as $index => $token ) {
+				if ( 1 === strlen( $token ) && ctype_alpha( $token ) ) {
+					if ( 'M' === $token && isset( $tokens[ $index + 1 ], $tokens[ $index + 2 ] ) ) {
+						$subpath_start = [
+							self::normalise_svg_path_number( $tokens[ $index + 1 ] ),
+							self::normalise_svg_path_number( $tokens[ $index + 2 ] ),
+						];
+					} elseif ( 'm' === $token ) {
+						$subpath_start = null;
+					} elseif ( 'Z' === strtoupper( $token ) && is_array( $subpath_start ) ) {
+						$normalised_tokens[] = 'L';
+						$normalised_tokens[] = $subpath_start[0];
+						$normalised_tokens[] = $subpath_start[1];
+					}
+
+					$normalised_tokens[] = strtoupper( $token ) === 'Z' ? 'Z' : $token;
+					continue;
+				}
+
+				$normalised_tokens[] = self::normalise_svg_path_number( $token );
+			}
+			$normalised = implode( ' ', $normalised_tokens );
 
 			if ( $normalised !== $data ) {
 				$path->setAttribute( 'd', $normalised );
@@ -687,6 +783,13 @@ abstract class OC_Print_Base {
 		}
 
 		return $changed;
+	}
+
+	/** Return a plain decimal that TCPDF's path-number parser accepts. */
+	private static function normalise_svg_path_number( string $number ): string {
+		$normalised = rtrim( rtrim( sprintf( '%.12F', (float) $number ), '0' ), '.' );
+
+		return '-0' === $normalised || '' === $normalised ? '0' : $normalised;
 	}
 
 	/** Inline simple SVG CSS presentation styles because TCPDF does not apply them reliably. */
@@ -1356,7 +1459,7 @@ abstract class OC_Print_Base {
 		if ( $multiline ) {
 			$pdf->MultiCell( $w_mm, $cell_h, $text, 0, $align, false, 1, $x_mm, $y_mm + $offset_y );
 		} else {
-			$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false );
+			$pdf->Cell( $w_mm, $cell_h, $text, 0, 0, $align, false, '', 1 );
 		}
 		$pdf->StopTransform();
 	}

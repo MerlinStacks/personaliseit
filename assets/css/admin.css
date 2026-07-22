@@ -3685,6 +3685,109 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	flex-shrink: 0;
 }
 
+.oc-system-status-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.oc-system-status-header p {
+	margin: 4px 0 0;
+	color: var(--oc-gray-500);
+}
+
+.oc-system-summary {
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 10px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.oc-system-summary.is-ready {
+	background: var(--oc-success-bg);
+	color: var(--oc-success);
+}
+
+.oc-system-summary.is-error {
+	background: var(--oc-danger-bg);
+	color: var(--oc-danger);
+}
+
+.oc-system-checks {
+	display: flex;
+	flex-direction: column;
+}
+
+.oc-system-check {
+	display: grid;
+	grid-template-columns: 34px minmax(0, 1fr) auto;
+	gap: 12px;
+	align-items: center;
+	padding: 14px 18px;
+	border-bottom: 1px solid var(--oc-gray-100);
+}
+
+.oc-system-check:last-child {
+	border-bottom: 0;
+}
+
+.oc-system-check-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	border-radius: 8px;
+}
+
+.oc-system-check-icon.is-ready {
+	background: var(--oc-success-bg);
+	color: var(--oc-success);
+}
+
+.oc-system-check-icon.is-error {
+	background: var(--oc-danger-bg);
+	color: var(--oc-danger);
+}
+
+.oc-system-check-icon.is-warning {
+	background: var(--oc-warning-bg);
+	color: var(--oc-warning);
+}
+
+.oc-system-check-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.oc-system-requirement {
+	color: var(--oc-gray-500);
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.oc-system-check-copy p {
+	margin: 3px 0 0;
+	color: var(--oc-gray-500);
+	font-size: 12px;
+}
+
+.oc-system-check-result {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+}
+
+.oc-system-check-result code {
+	font-size: 11px;
+}
+
 @media (max-width: 1100px) {
 
 	.oc-design-editor-topbar,
@@ -3793,5 +3896,19 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 
 	.oc-settings-content .oc-form-field {
 		padding-top: 0;
+	}
+
+	.oc-system-status-header {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.oc-system-check {
+		grid-template-columns: 34px minmax(0, 1fr);
+	}
+
+	.oc-system-check-result {
+		align-items: flex-start;
+		grid-column: 2;
 	}
 }

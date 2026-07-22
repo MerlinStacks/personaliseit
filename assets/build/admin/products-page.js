@@ -134,7 +134,7 @@ function createProductsPageCanvas(deps) {
     box.querySelectorAll('.oc-bounds-box-pill').forEach(el => el.remove());
     const renderedW = Math.round(display.w * scale);
     const renderedH = Math.round(display.h * scale);
-    applyLayerPreview(layer, box, renderedW, renderedH, false, area.method === 'engraving');
+    applyLayerPreview(layer, box, renderedW, renderedH, false, area.method === 'engraving', area.material);
     if (layer) {
       const pill = document.createElement('div');
       pill.className = 'oc-bounds-box-pill';
@@ -182,7 +182,7 @@ function createProductsPageCanvas(deps) {
       const g = ghost(layer, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type), 0.1);
       g.classList.add('oc-canvas-layer-ghost');
       g.appendChild(ghostLabel((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(layer.type) + ' ' + (layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(layer.type)), (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type)));
-      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, area.method === 'engraving');
+      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, area.method === 'engraving', area.material);
       pos(g, displayLayer, scale, normaliseRotation(area.rotation), (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area));
       if (layer.locked) {
         g.style.cursor = 'not-allowed';
@@ -823,7 +823,7 @@ function createProductsPageDataNormalisers(deps) {
   } = deps;
   function normaliseArea(a, i) {
     const unit = ['px', 'mm', 'cm', 'in'].includes(a.unit) ? a.unit : 'px';
-    const material = ['glass', 'gold_metal', 'silver_metal', 'black_metal', 'wood'].includes(a.material) ? a.material : 'silver_metal';
+    const material = ['glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather'].includes(a.material) ? a.material : 'silver_metal';
     return {
       _uid: nextUid(),
       id: Number(a.id) || 0,
@@ -2636,16 +2636,36 @@ function createLayerPreviewRenderer(deps) {
         return '';
     }
   }
-  function engravingTextColor() {
-    return '#dadad6';
+  function engravingPreview(material) {
+    if (material === 'silver_plaque') {
+      return {
+        color: '#17191b',
+        filter: 'brightness(0) saturate(100%) opacity(0.92)',
+        photoFilter: 'grayscale(1) contrast(1.35) brightness(0.72) opacity(0.92)',
+        shadow: '0 1px 1px rgba(255, 255, 255, 0.18)'
+      };
+    }
+    if (material === 'leather') {
+      return {
+        color: '#4a2919',
+        filter: 'brightness(0) saturate(100%) invert(15%) sepia(31%) saturate(1334%) hue-rotate(343deg) brightness(91%) contrast(91%) opacity(0.86)',
+        shadow: '0 1px 1px rgba(225, 174, 121, 0.2)'
+      };
+    }
+    return {
+      color: '#dadad6',
+      filter: 'brightness(0) saturate(100%) invert(91%) opacity(0.9)',
+      shadow: ''
+    };
   }
-  function applyLayerPreview(layer, el, renderedW, renderedH, isGhost, isEngraving) {
+  function applyLayerPreview(layer, el, renderedW, renderedH, isGhost, isEngraving, engravingMaterial = 'silver_metal') {
     // Remove any existing preview children
     el.querySelectorAll('.oc-lp').forEach(c => c.remove());
     if (!layer) {
       return;
     }
     const s = layer.settings || {};
+    const engraving = engravingPreview(engravingMaterial);
     const selectedClipart = layer.type === 'clipart' ? (window.ocProductsData?.clipartItems || []).find(item => Number(item.id) === Number(s.default_clipart_id)) : null;
     const clipartUrl = s.default_clipart_url || selectedClipart?.url || '';
     if (layer.type === 'text' || layer.type === 'textarea') {
@@ -2671,7 +2691,10 @@ function createLayerPreviewRenderer(deps) {
       d.style.alignItems = flexAlign;
       d.style.maxWidth = Math.max(1, renderedW) + 'px';
       d.style.maxHeight = Math.max(1, renderedH) + 'px';
-      d.style.color = isEngraving ? engravingTextColor() : normaliseHex(s.default_color);
+      d.style.color = isEngraving ? engraving.color : normaliseHex(s.default_color);
+      if (isEngraving) {
+        d.style.textShadow = engraving.shadow;
+      }
       if (font) {
         d.style.fontFamily = "'" + String(font.name).replace(/'/g, "\\'") + "', sans-serif";
       }
@@ -2690,7 +2713,10 @@ function createLayerPreviewRenderer(deps) {
         img.className = 'oc-lp oc-lp-media';
         img.src = s.default_attachment_url;
         img.alt = '';
-        img.style.filter = imageFilterCss(s.default_image_filter_id);
+        img.style.filter = isEngraving ? engraving.photoFilter || engraving.filter : imageFilterCss(s.default_image_filter_id);
+        if (isEngraving && ['leather', 'silver_plaque'].includes(engravingMaterial)) {
+          img.style.mixBlendMode = 'multiply';
+        }
         el.appendChild(img);
         return;
       }
@@ -2708,7 +2734,10 @@ function createLayerPreviewRenderer(deps) {
       img.src = clipartUrl;
       img.alt = '';
       if (isEngraving && (s.default_clipart_recolourable || selectedClipart?.fileType === 'svg' && selectedClipart.colourChangeable !== false)) {
-        img.style.filter = 'brightness(0) saturate(100%) invert(91%) opacity(0.9)';
+        img.style.filter = engraving.filter;
+        if (engravingMaterial === 'leather') {
+          img.style.mixBlendMode = 'multiply';
+        }
       }
       el.appendChild(img);
     } else {
@@ -2728,7 +2757,8 @@ function createLayerPreviewRenderer(deps) {
       const d = document.createElement('div');
       d.className = 'oc-lp oc-lp-icon';
       if (isEngraving && layer.type === 'lineart') {
-        d.style.color = engravingTextColor();
+        d.style.color = engraving.color;
+        d.style.textShadow = engraving.shadow;
       }
       d.innerHTML = '<span style="font-size:' + Math.round(fs) + 'px;">' + (icons[layer.type] || '') + '</span><span>' + (labels[layer.type] || layerLabel(layer.type)) + '</span>';
       el.appendChild(d);

@@ -277,6 +277,7 @@ if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 // Load classes under test (unit tests only need the pure PHP classes).
 require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
 require_once OC_PATH . 'includes/class-oc-command-runner.php';
+require_once OC_PATH . 'includes/class-oc-system-status.php';
 require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 require_once OC_PATH . 'includes/class-oc-rest-api.php';
 require_once OC_PATH . 'includes/class-oc-upload-handler.php';

@@ -83,8 +83,30 @@ export function createLayerPreviewRenderer( deps ) {
 		}
 	}
 
-	function engravingTextColor() {
-		return '#dadad6';
+	function engravingPreview( material ) {
+		if ( material === 'silver_plaque' ) {
+			return {
+				color: '#17191b',
+				filter: 'brightness(0) saturate(100%) opacity(0.92)',
+				photoFilter:
+					'grayscale(1) contrast(1.35) brightness(0.72) opacity(0.92)',
+				shadow: '0 1px 1px rgba(255, 255, 255, 0.18)',
+			};
+		}
+
+		if ( material === 'leather' ) {
+			return {
+				color: '#4a2919',
+				filter: 'brightness(0) saturate(100%) invert(15%) sepia(31%) saturate(1334%) hue-rotate(343deg) brightness(91%) contrast(91%) opacity(0.86)',
+				shadow: '0 1px 1px rgba(225, 174, 121, 0.2)',
+			};
+		}
+
+		return {
+			color: '#dadad6',
+			filter: 'brightness(0) saturate(100%) invert(91%) opacity(0.9)',
+			shadow: '',
+		};
 	}
 
 	function applyLayerPreview(
@@ -93,7 +115,8 @@ export function createLayerPreviewRenderer( deps ) {
 		renderedW,
 		renderedH,
 		isGhost,
-		isEngraving
+		isEngraving,
+		engravingMaterial = 'silver_metal'
 	) {
 		// Remove any existing preview children
 		el.querySelectorAll( '.oc-lp' ).forEach( ( c ) => c.remove() );
@@ -102,6 +125,7 @@ export function createLayerPreviewRenderer( deps ) {
 		}
 
 		const s = layer.settings || {};
+		const engraving = engravingPreview( engravingMaterial );
 		const selectedClipart =
 			layer.type === 'clipart'
 				? ( window.ocProductsData?.clipartItems || [] ).find(
@@ -166,8 +190,11 @@ export function createLayerPreviewRenderer( deps ) {
 			d.style.maxWidth = Math.max( 1, renderedW ) + 'px';
 			d.style.maxHeight = Math.max( 1, renderedH ) + 'px';
 			d.style.color = isEngraving
-				? engravingTextColor()
+				? engraving.color
 				: normaliseHex( s.default_color );
+			if ( isEngraving ) {
+				d.style.textShadow = engraving.shadow;
+			}
 			if ( font ) {
 				d.style.fontFamily =
 					"'" +
@@ -201,7 +228,15 @@ export function createLayerPreviewRenderer( deps ) {
 				img.className = 'oc-lp oc-lp-media';
 				img.src = s.default_attachment_url;
 				img.alt = '';
-				img.style.filter = imageFilterCss( s.default_image_filter_id );
+				img.style.filter = isEngraving
+					? engraving.photoFilter || engraving.filter
+					: imageFilterCss( s.default_image_filter_id );
+				if (
+					isEngraving &&
+					[ 'leather', 'silver_plaque' ].includes( engravingMaterial )
+				) {
+					img.style.mixBlendMode = 'multiply';
+				}
 				el.appendChild( img );
 				return;
 			}
@@ -239,8 +274,10 @@ export function createLayerPreviewRenderer( deps ) {
 					( selectedClipart?.fileType === 'svg' &&
 						selectedClipart.colourChangeable !== false ) )
 			) {
-				img.style.filter =
-					'brightness(0) saturate(100%) invert(91%) opacity(0.9)';
+				img.style.filter = engraving.filter;
+				if ( engravingMaterial === 'leather' ) {
+					img.style.mixBlendMode = 'multiply';
+				}
 			}
 			el.appendChild( img );
 		} else {
@@ -260,7 +297,8 @@ export function createLayerPreviewRenderer( deps ) {
 			const d = document.createElement( 'div' );
 			d.className = 'oc-lp oc-lp-icon';
 			if ( isEngraving && layer.type === 'lineart' ) {
-				d.style.color = engravingTextColor();
+				d.style.color = engraving.color;
+				d.style.textShadow = engraving.shadow;
 			}
 			d.innerHTML =
 				'<span style="font-size:' +

@@ -23,6 +23,38 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 class Test_Print_Engraving extends TestCase {
 
 	#[Test]
+	public function leather_material_uses_its_engraving_profile(): void {
+		$method  = new ReflectionMethod( OC_Print_Engraving::class, 'resolve_profile' );
+		$profile = $method->invokeArgs(
+			null,
+			[
+				null,
+				[ 'renderSpecArea' => [ 'engravingMaterial' => 'leather' ] ],
+			]
+		);
+
+		$this->assertSame( 'leather', $profile['material'] );
+		$this->assertSame( 1.7, $profile['gamma'] );
+		$this->assertSame( 'floyd_steinberg', $profile['dithering'] );
+	}
+
+	#[Test]
+	public function silver_plaque_profile_supports_photo_engraving(): void {
+		$method  = new ReflectionMethod( OC_Print_Engraving::class, 'resolve_profile' );
+		$profile = $method->invokeArgs(
+			null,
+			[
+				null,
+				[ 'renderSpecArea' => [ 'engravingMaterial' => 'silver_plaque' ] ],
+			]
+		);
+
+		$this->assertSame( 'silver_plaque', $profile['material'] );
+		$this->assertSame( 1.25, $profile['gamma'] );
+		$this->assertSame( 'floyd_steinberg', $profile['dithering'] );
+	}
+
+	#[Test]
 	public function engraving_layer_text_renders_as_font_independent_svg_path(): void {
 		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
