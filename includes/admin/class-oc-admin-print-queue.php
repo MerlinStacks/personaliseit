@@ -15,7 +15,6 @@ class OC_Admin_Print_Queue {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'overcustomise' ) );
 		}
 
-		$this->handle_actions();
 		$this->add_notice_from_query();
 
 		$status = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
@@ -122,18 +121,25 @@ class OC_Admin_Print_Queue {
 		<?php
 	}
 
-	/** Handle queue management actions. */
-	private function handle_actions(): void {
+	/** Handle a queue management action before WordPress emits admin output. */
+	public function handle_action(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to manage the print queue.', 'overcustomise' ), '', [ 'response' => 403 ] );
+		}
+
 		$action = isset( $_POST['oc_queue_action'] ) ? sanitize_key( wp_unslash( $_POST['oc_queue_action'] ) ) : '';
 		$job_id = absint( $_POST['job_id'] ?? 0 );
 
 		if ( '' === $action ) {
-			return;
+			wp_die( esc_html__( 'No print queue action was provided.', 'overcustomise' ), '', [ 'response' => 400 ] );
 		}
 
 		$nonce_action = 0 < $job_id ? 'oc_queue_' . $action . '_' . $job_id : 'oc_queue_' . $action;
 		if ( ! wp_verify_nonce( (string) ( $_POST['_wpnonce'] ?? '' ), $nonce_action ) ) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
+		}
+		if ( in_array( $action, [ 'process_one', 'retry' ], true ) && 0 === $job_id ) {
+			wp_die( esc_html__( 'No print queue job was selected.', 'overcustomise' ), '', [ 'response' => 400 ] );
 		}
 
 		switch ( $action ) {
@@ -155,12 +161,12 @@ class OC_Admin_Print_Queue {
 				break;
 
 			case 'retry':
-				if ( $job_id ) {
-					$retried = OC_Print_Queue::instance()->retry_job( $job_id );
-					$this->redirect_with_notice( $retried ? 'retry' : 'retry_failed', $job_id );
-				}
+				$retried = OC_Print_Queue::instance()->retry_job( $job_id );
+				$this->redirect_with_notice( $retried ? 'retry' : 'retry_failed', $job_id );
 				break;
 
+			default:
+				wp_die( esc_html__( 'Unknown print queue action.', 'overcustomise' ), '', [ 'response' => 400 ] );
 		}
 	}
 
@@ -265,8 +271,8 @@ class OC_Admin_Print_Queue {
 		$confirm_attr = '' !== $confirm ? ' onclick="return confirm(\'' . esc_js( $confirm ) . '\');"' : '';
 		$status       = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
 
-		echo '<form method="post" action="' . esc_url( admin_url( 'admin.php' ) ) . '" style="display:inline-block;margin:0;">';
-		echo '<input type="hidden" name="page" value="overcustomise-print-queue" />';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '" style="display:inline-block;margin:0;">';
+		echo '<input type="hidden" name="action" value="oc_manage_print_queue" />';
 		echo '<input type="hidden" name="oc_queue_action" value="' . esc_attr( $action ) . '" />';
 		if ( $job_id > 0 ) {
 			echo '<input type="hidden" name="job_id" value="' . esc_attr( (string) $job_id ) . '" />';

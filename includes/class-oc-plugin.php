@@ -112,6 +112,7 @@ class OC_Plugin {
 			add_action( 'admin_post_oc_regenerate_print_file', [ self::class, 'handle_regenerate_print_file' ] );
 			add_action( 'admin_post_oc_generate_print_files', [ self::class, 'handle_generate_print_files' ] );
 			add_action( 'admin_post_oc_process_print_queue_order', [ self::class, 'handle_process_print_queue_order' ] );
+			add_action( 'admin_post_oc_manage_print_queue', [ new OC_Admin_Print_Queue(), 'handle_action' ] );
 		}
 
 		// Print queue processor.
