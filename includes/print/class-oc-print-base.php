@@ -744,38 +744,10 @@ abstract class OC_Print_Base {
 				continue;
 			}
 
-			$pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?/';
-			preg_match_all( $pattern, $data, $matches );
-			$tokens = $matches[0] ?? [];
-			$residue = preg_replace( $pattern, '', $data ) ?? $data;
-			if ( empty( $tokens ) || '' !== trim( str_replace( ',', '', $residue ) ) ) {
+			$normalised = self::normalise_svg_path_data_for_tcpdf( $data );
+			if ( null === $normalised ) {
 				continue;
 			}
-
-			$normalised_tokens = [];
-			$subpath_start     = null;
-			foreach ( $tokens as $index => $token ) {
-				if ( 1 === strlen( $token ) && ctype_alpha( $token ) ) {
-					if ( 'M' === $token && isset( $tokens[ $index + 1 ], $tokens[ $index + 2 ] ) ) {
-						$subpath_start = [
-							self::normalise_svg_path_number( $tokens[ $index + 1 ] ),
-							self::normalise_svg_path_number( $tokens[ $index + 2 ] ),
-						];
-					} elseif ( 'm' === $token ) {
-						$subpath_start = null;
-					} elseif ( 'Z' === strtoupper( $token ) && is_array( $subpath_start ) ) {
-						$normalised_tokens[] = 'L';
-						$normalised_tokens[] = $subpath_start[0];
-						$normalised_tokens[] = $subpath_start[1];
-					}
-
-					$normalised_tokens[] = strtoupper( $token ) === 'Z' ? 'Z' : $token;
-					continue;
-				}
-
-				$normalised_tokens[] = self::normalise_svg_path_number( $token );
-			}
-			$normalised = implode( ' ', $normalised_tokens );
 
 			if ( $normalised !== $data ) {
 				$path->setAttribute( 'd', $normalised );
@@ -786,8 +758,185 @@ abstract class OC_Print_Base {
 		return $changed;
 	}
 
+	/** Convert SVG path geometry to absolute commands that TCPDF handles reliably. */
+	private static function normalise_svg_path_data_for_tcpdf( string $data ): ?string {
+		$pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?/';
+		preg_match_all( $pattern, $data, $matches );
+		$tokens  = $matches[0] ?? [];
+		$residue = preg_replace( $pattern, '', $data ) ?? $data;
+		if ( empty( $tokens ) || count( $tokens ) > 200000 || preg_match( '/[^\s,]/', $residue ) || ! in_array( $tokens[0], [ 'M', 'm' ], true ) ) {
+			return null;
+		}
+		foreach ( $tokens as $token ) {
+			if ( ! self::svg_path_token_is_command( $token ) && ! is_finite( (float) $token ) ) {
+				return null;
+			}
+		}
+
+		$out = [];
+		$i = 0;
+		$command = '';
+		$x = 0.0;
+		$y = 0.0;
+		$start_x = 0.0;
+		$start_y = 0.0;
+		$cubic_x = null;
+		$cubic_y = null;
+		$quad_x = null;
+		$quad_y = null;
+		while ( $i < count( $tokens ) ) {
+			$explicit = false;
+			if ( self::svg_path_token_is_command( $tokens[ $i ] ) ) {
+				$command = $tokens[ $i++ ];
+				$explicit = true;
+			}
+			if ( '' === $command ) {
+				return null;
+			}
+
+			$relative = ctype_lower( $command );
+			$type     = strtoupper( $command );
+			$before   = $i;
+			switch ( $type ) {
+				case 'M':
+					$first = true;
+					while ( self::svg_path_has_numbers( $tokens, $i, 2 ) ) {
+						$nx = (float) $tokens[ $i++ ];
+						$ny = (float) $tokens[ $i++ ];
+						$x = $relative ? $x + $nx : $nx;
+						$y = $relative ? $y + $ny : $ny;
+						$out[] = ( $first ? 'M ' : 'L ' ) . self::normalise_svg_path_point( $x, $y );
+						if ( $first ) {
+							$start_x = $x;
+							$start_y = $y;
+							$first = false;
+						}
+					}
+					$command = $relative ? 'l' : 'L';
+					$cubic_x = $cubic_y = $quad_x = $quad_y = null;
+					break;
+				case 'L':
+					while ( self::svg_path_has_numbers( $tokens, $i, 2 ) ) {
+						$nx = (float) $tokens[ $i++ ];
+						$ny = (float) $tokens[ $i++ ];
+						$x = $relative ? $x + $nx : $nx;
+						$y = $relative ? $y + $ny : $ny;
+						$out[] = 'L ' . self::normalise_svg_path_point( $x, $y );
+					}
+					$cubic_x = $cubic_y = $quad_x = $quad_y = null;
+					break;
+				case 'H':
+					while ( self::svg_path_has_numbers( $tokens, $i, 1 ) ) {
+						$nx = (float) $tokens[ $i++ ];
+						$x = $relative ? $x + $nx : $nx;
+						$out[] = 'L ' . self::normalise_svg_path_point( $x, $y );
+					}
+					$cubic_x = $cubic_y = $quad_x = $quad_y = null;
+					break;
+				case 'V':
+					while ( self::svg_path_has_numbers( $tokens, $i, 1 ) ) {
+						$ny = (float) $tokens[ $i++ ];
+						$y = $relative ? $y + $ny : $ny;
+						$out[] = 'L ' . self::normalise_svg_path_point( $x, $y );
+					}
+					$cubic_x = $cubic_y = $quad_x = $quad_y = null;
+					break;
+				case 'C':
+					while ( self::svg_path_has_numbers( $tokens, $i, 6 ) ) {
+						$values = array_map( 'floatval', array_slice( $tokens, $i, 6 ) );
+						$i += 6;
+						[ $x1, $y1, $x2, $y2, $ex, $ey ] = $values;
+						if ( $relative ) {
+							$x1 += $x; $y1 += $y; $x2 += $x; $y2 += $y; $ex += $x; $ey += $y;
+						}
+						$out[] = 'C ' . self::normalise_svg_path_point( $x1, $y1 ) . ' ' . self::normalise_svg_path_point( $x2, $y2 ) . ' ' . self::normalise_svg_path_point( $ex, $ey );
+						$x = $ex; $y = $ey; $cubic_x = $x2; $cubic_y = $y2; $quad_x = $quad_y = null;
+					}
+					break;
+				case 'S':
+					while ( self::svg_path_has_numbers( $tokens, $i, 4 ) ) {
+						$values = array_map( 'floatval', array_slice( $tokens, $i, 4 ) );
+						$i += 4;
+						[ $x2, $y2, $ex, $ey ] = $values;
+						$x1 = null !== $cubic_x ? 2 * $x - $cubic_x : $x;
+						$y1 = null !== $cubic_y ? 2 * $y - $cubic_y : $y;
+						if ( $relative ) {
+							$x2 += $x; $y2 += $y; $ex += $x; $ey += $y;
+						}
+						$out[] = 'C ' . self::normalise_svg_path_point( $x1, $y1 ) . ' ' . self::normalise_svg_path_point( $x2, $y2 ) . ' ' . self::normalise_svg_path_point( $ex, $ey );
+						$x = $ex; $y = $ey; $cubic_x = $x2; $cubic_y = $y2; $quad_x = $quad_y = null;
+					}
+					break;
+				case 'Q':
+				case 'T':
+					$parameter_count = 'Q' === $type ? 4 : 2;
+					while ( self::svg_path_has_numbers( $tokens, $i, $parameter_count ) ) {
+						if ( 'Q' === $type ) {
+							$qx = (float) $tokens[ $i++ ]; $qy = (float) $tokens[ $i++ ];
+							if ( $relative ) { $qx += $x; $qy += $y; }
+						} else {
+							$qx = null !== $quad_x ? 2 * $x - $quad_x : $x;
+							$qy = null !== $quad_y ? 2 * $y - $quad_y : $y;
+						}
+						$ex = (float) $tokens[ $i++ ]; $ey = (float) $tokens[ $i++ ];
+						if ( $relative ) { $ex += $x; $ey += $y; }
+						$c1x = $x + 2 / 3 * ( $qx - $x ); $c1y = $y + 2 / 3 * ( $qy - $y );
+						$c2x = $ex + 2 / 3 * ( $qx - $ex ); $c2y = $ey + 2 / 3 * ( $qy - $ey );
+						$out[] = 'C ' . self::normalise_svg_path_point( $c1x, $c1y ) . ' ' . self::normalise_svg_path_point( $c2x, $c2y ) . ' ' . self::normalise_svg_path_point( $ex, $ey );
+						$x = $ex; $y = $ey; $quad_x = $qx; $quad_y = $qy; $cubic_x = $cubic_y = null;
+					}
+					break;
+				case 'A':
+					while ( self::svg_path_has_numbers( $tokens, $i, 7 ) ) {
+						$values = array_map( 'floatval', array_slice( $tokens, $i, 7 ) );
+						$i += 7;
+						[ $rx, $ry, $rotation, $large, $sweep, $ex, $ey ] = $values;
+						if ( ! in_array( $large, [ 0.0, 1.0 ], true ) || ! in_array( $sweep, [ 0.0, 1.0 ], true ) ) { return null; }
+						if ( $relative ) { $ex += $x; $ey += $y; }
+						$out[] = 'A ' . self::normalise_svg_path_number( abs( $rx ) ) . ' ' . self::normalise_svg_path_number( abs( $ry ) ) . ' ' . self::normalise_svg_path_number( $rotation ) . ' ' . (int) $large . ' ' . (int) $sweep . ' ' . self::normalise_svg_path_point( $ex, $ey );
+						$x = $ex; $y = $ey; $cubic_x = $cubic_y = $quad_x = $quad_y = null;
+					}
+					break;
+				case 'Z':
+					if ( ! $explicit ) { return null; }
+					$out[] = 'Z';
+					$x = $start_x; $y = $start_y; $command = '';
+					$cubic_x = $cubic_y = $quad_x = $quad_y = null;
+					break;
+				default:
+					return null;
+			}
+			if ( 'Z' !== $type && $i === $before ) {
+				return null;
+			}
+		}
+
+		return implode( ' ', $out );
+	}
+
+	private static function svg_path_token_is_command( string $token ): bool {
+		return 1 === strlen( $token ) && ctype_alpha( $token );
+	}
+
+	private static function svg_path_has_numbers( array $tokens, int $offset, int $count ): bool {
+		if ( $offset + $count > count( $tokens ) ) {
+			return false;
+		}
+		for ( $index = 0; $index < $count; $index++ ) {
+			if ( self::svg_path_token_is_command( (string) $tokens[ $offset + $index ] ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	private static function normalise_svg_path_point( float $x, float $y ): string {
+		return self::normalise_svg_path_number( $x ) . ' ' . self::normalise_svg_path_number( $y );
+	}
+
 	/** Return a plain decimal that TCPDF's path-number parser accepts. */
-	private static function normalise_svg_path_number( string $number ): string {
+	private static function normalise_svg_path_number( string|float $number ): string {
 		$normalised = rtrim( rtrim( sprintf( '%.12F', (float) $number ), '0' ), '.' );
 
 		return '-0' === $normalised || '' === $normalised ? '0' : $normalised;

@@ -460,11 +460,31 @@ class Test_Print_Base extends TestCase {
 
 			$this->assertIsString( $normalised );
 			$svg = file_get_contents( $normalised );
-			$this->assertStringContainsString( 'l 6.25 3.77 -2.72 0.1', $svg );
-			$this->assertStringContainsString( 'h 0.01', $svg );
-			$this->assertStringContainsString( 'v -0.02', $svg );
-			$this->assertStringContainsString( 'c -0.09 0.03 -0.2 -0.04 -0.3 -0.5', $svg );
-			$this->assertStringContainsString( 'L 1 1 Z', $svg );
+			$this->assertStringContainsString( 'L 7.25 4.77 L 4.53 4.87', $svg );
+			$this->assertStringContainsString( 'L 4.54 4.87 L 4.54 4.85', $svg );
+			$this->assertStringContainsString( 'C 4.45 4.88 4.34 4.81 4.24 4.35 Z', $svg );
+			$this->assertStringNotContainsString( 'L 1 1 Z', $svg );
+		} finally {
+			@unlink( $path );
+			if ( isset( $normalised ) && is_string( $normalised ) ) {
+				@unlink( $normalised );
+			}
+		}
+	}
+
+	#[Test]
+	public function relative_curves_are_made_absolute_without_artificial_closing_lines(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-svg-' );
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><path d="m10 10c5 0 5 10 10 10s5 10 10 0z"/></svg>' );
+		$method = new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_intrinsic_size_for_tcpdf' );
+		$method->setAccessible( true );
+
+		try {
+			$normalised = $method->invoke( null, $path );
+			$svg = file_get_contents( $normalised );
+
+			$this->assertStringContainsString( 'M 10 10 C 15 10 15 20 20 20 C 25 20 25 30 30 20 Z', $svg );
+			$this->assertStringNotContainsString( 'L 10 10 Z', $svg );
 		} finally {
 			@unlink( $path );
 			if ( isset( $normalised ) && is_string( $normalised ) ) {
