@@ -140,6 +140,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 		return self::ghostscript_outline_command( $binary, $source, $output );
 	}
 
+	public static function test_outline_pdf_text( string $raw, string $binary ): string {
+		return self::outline_pdf_text( $raw, $binary );
+	}
+
 	public static function test_draw_clipped_text_cell( \TCPDF $pdf, string $text ): void {
 		self::draw_clipped_text_cell( $pdf, 0.0, 0.0, 20.0, 10.0, $text, 5.0 );
 	}
@@ -269,6 +273,13 @@ class Test_Print_Base extends TestCase {
 		$this->assertContains( '-dNoOutputFonts', $command );
 		$this->assertNotContains( '-sDEVICE=png16m', $command );
 		$this->assertSame( '/tmp/source.pdf', $command[ count( $command ) - 1 ] );
+	}
+
+	#[Test]
+	public function production_pdf_retains_embedded_fonts_without_ghostscript(): void {
+		$raw = "%PDF-1.7\nembedded-font-pdf";
+
+		$this->assertSame( $raw, OC_Print_Base_Testable::test_outline_pdf_text( $raw, '' ) );
 	}
 
 	#[Test]

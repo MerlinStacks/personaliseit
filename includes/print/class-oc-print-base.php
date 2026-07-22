@@ -522,11 +522,12 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	/** Convert every PDF text object to vector paths so production files need no fonts. */
-	private static function outline_pdf_text( string $raw ): string {
-		$binary = self::detect_ghostscript_binary();
+	/** Convert PDF text to vector paths when Ghostscript is available. */
+	protected static function outline_pdf_text( string $raw, ?string $binary = null ): string {
+		$binary = null === $binary ? self::detect_ghostscript_binary() : $binary;
 		if ( '' === $binary ) {
-			throw new \RuntimeException( __( 'Ghostscript is required to outline fonts in production print PDFs.', 'overcustomise' ) );
+			OC_Logger::warning( 'Ghostscript is unavailable; the production print PDF will retain its embedded fonts.' );
+			return $raw;
 		}
 
 		$source = self::temp_path_with_extension( 'oc-print-source', 'pdf' );
@@ -585,7 +586,7 @@ abstract class OC_Print_Base {
 		];
 	}
 
-	/** Detect the Ghostscript executable used for mandatory production outlining. */
+	/** Detect the Ghostscript executable used for optional production outlining. */
 	private static function detect_ghostscript_binary(): string {
 		$status = class_exists( 'OC_System_Status' ) ? OC_System_Status::ghostscript() : [ 'binary' => '' ];
 

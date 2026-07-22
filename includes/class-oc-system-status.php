@@ -29,8 +29,8 @@ class OC_System_Status {
 			self::extension_check( 'dom', 'DOM', true, __( 'Required for safe SVG parsing and vector rendering.', 'overcustomise' ) ),
 			self::extension_check( 'xmlreader', 'XMLReader', true, __( 'Required for safe SVG validation.', 'overcustomise' ) ),
 			self::extension_check( 'fileinfo', 'Fileinfo', true, __( 'Required for reliable customer artwork type detection.', 'overcustomise' ) ),
-			self::check( 'proc_open', 'proc_open', function_exists( 'proc_open' ), function_exists( 'proc_open' ) ? __( 'Enabled', 'overcustomise' ) : '', true, __( 'Required to run Ghostscript without invoking a shell.', 'overcustomise' ) ),
-			self::check( 'ghostscript', 'Ghostscript', '' !== $ghostscript['binary'], $ghostscript['version'], true, __( 'Required to convert all production PDF text into vector outlines.', 'overcustomise' ) ),
+			self::check( 'proc_open', 'proc_open', function_exists( 'proc_open' ), function_exists( 'proc_open' ) ? __( 'Enabled', 'overcustomise' ) : '', false, __( 'Recommended to run optional Ghostscript processing without invoking a shell.', 'overcustomise' ) ),
+			self::check( 'ghostscript', 'Ghostscript', '' !== $ghostscript['binary'], $ghostscript['version'], false, __( 'Recommended to convert production PDF text into vector outlines; embedded-font PDFs are generated when unavailable.', 'overcustomise' ) ),
 			self::extension_check( 'imagick', 'Imagick', false, __( 'Recommended for higher-quality artwork conversion and image effects; GD fallbacks remain available.', 'overcustomise' ) ),
 		];
 	}
