@@ -66,7 +66,6 @@ class OC_Cart {
 		wp_add_inline_style( 'oc-cart-preview', '
 			.oc-cart-preview-thumb,
 			.oc-checkout-preview-thumb img,
-			.oc-blocks-line-preview img,
 			.wc-block-components-product-image img[src*="/overcustomise/previews/"],
 			.wc-block-mini-cart-items img[src*="/overcustomise/previews/"] {
 				width: 80px;
@@ -76,16 +75,11 @@ class OC_Cart {
 				border-radius: 4px;
 				background: #fff;
 			}
-			.oc-checkout-preview-thumb,
-			.oc-blocks-line-preview {
+			.oc-checkout-preview-thumb {
 				display: inline-flex;
 				align-items: center;
 				margin-right: 10px;
 				vertical-align: middle;
-			}
-			.oc-blocks-line-preview img {
-				width: 64px;
-				height: 64px;
 			}
 			.widget_shopping_cart .woocommerce-mini-cart-item,
 			.woocommerce.widget_shopping_cart .woocommerce-mini-cart-item {

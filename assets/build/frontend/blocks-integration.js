@@ -98,19 +98,12 @@ __webpack_require__.r(__webpack_exports__);
 /* eslint-disable import/no-unresolved */
 
 
-const getPreviewUrl = extensions => {
-  const previewUrl = extensions?.overcustomise?.preview_url || '';
-  return typeof previewUrl === 'string' && previewUrl ? previewUrl : '';
-};
 const getSummary = extensions => {
   const summary = extensions?.overcustomise?.summary || [];
   return Array.isArray(summary) ? summary : [];
 };
-const escapeAttribute = value => {
-  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-};
 const escapeHtml = value => {
-  return escapeAttribute(value).replace(/'/g, '&#039;');
+  return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&#039;');
 };
 const renderSummary = summary => {
   const lines = summary.map(line => {
@@ -124,15 +117,9 @@ const renderSummary = summary => {
   return lines ? `<ul class="oc-blocks-personalisation-summary">${lines}</ul>` : '';
 };
 (0,_woocommerce_blocks_checkout__WEBPACK_IMPORTED_MODULE_0__.registerCheckoutFilters)('overcustomise', {
-  cartItemClass: (defaultValue, extensions) => {
-    return getPreviewUrl(extensions) ? `${defaultValue} oc-has-personalisation`.trim() : defaultValue;
-  },
   itemName: (defaultValue, extensions) => {
-    const previewUrl = getPreviewUrl(extensions);
     const summary = renderSummary(getSummary(extensions));
-    const escapedPreviewUrl = escapeAttribute(previewUrl);
-    const preview = previewUrl ? `<span class="oc-blocks-line-preview"><img src="${escapedPreviewUrl}" alt="Personalised preview" loading="lazy" /></span>` : '';
-    return `${preview}<span class="oc-blocks-line-name">${defaultValue}</span>${summary}`;
+    return `<span class="oc-blocks-line-name">${defaultValue}</span>${summary}`;
   }
 });
 })();
