@@ -1762,3 +1762,46 @@ img.oc-live-preview-applied {
   top: 0 !important;
   right: 0 !important;
 }
+.oc-preview-disclaimer {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 20;
+  display: inline-flex;
+}
+
+.oc-preview-disclaimer-toggle {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  background: rgba(25, 25, 25, 0.75);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  color: #fff;
+  font: 700 14px/1 sans-serif;
+  cursor: help;
+}
+
+.oc-preview-disclaimer-text {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  display: none;
+  width: min(300px, 100vw - 48px);
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(25, 25, 25, 0.94);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  color: #fff;
+  font: 500 13px/1.45 sans-serif;
+  text-align: right;
+}
+
+.oc-preview-disclaimer:hover .oc-preview-disclaimer-text,
+.oc-preview-disclaimer:focus-within .oc-preview-disclaimer-text {
+  display: block;
+}

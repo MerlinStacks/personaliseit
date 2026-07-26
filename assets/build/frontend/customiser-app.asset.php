@@ -1,1 +1,1 @@
-<?php return array('dependencies' => array('wp-data'), 'version' => 'preview-disclaimer-20260726');
+<?php return array('dependencies' => array('wp-data'), 'version' => 'preview-badge-20260726');

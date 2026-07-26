@@ -76,7 +76,7 @@ const galleryPreviewMethods = {
 		this._galleryPreviewGeneration += 1;
 		document
 			.querySelectorAll(
-				'.oc-live-preview-slide, .oc-live-preview-thumb-slide'
+				'.oc-live-preview-slide, .oc-live-preview-thumb-slide, .oc-preview-disclaimer'
 			)
 			.forEach( ( slide ) => slide.remove() );
 		this._galleryPreviewNodes.forEach( ( node ) => {
@@ -140,6 +140,45 @@ const galleryPreviewMethods = {
 		this.galleryImg = null;
 	},
 
+	addPreviewDisclaimer( img ) {
+		if (
+			! img ||
+			img.closest( '.product-thumbnails, .tvpg-thumb-slider' )
+		) {
+			return;
+		}
+
+		const host =
+			img.closest(
+				'.woocommerce-product-gallery__image, .product-gallery-slider .slide, .swiper-slide'
+			) || img.parentElement;
+		if ( ! host || host.querySelector( ':scope > .oc-preview-disclaimer' ) ) {
+			return;
+		}
+
+		const badge = document.createElement( 'span' );
+		const button = document.createElement( 'button' );
+		const hint = document.createElement( 'span' );
+
+		badge.className = 'oc-preview-disclaimer';
+		button.type = 'button';
+		button.className = 'oc-preview-disclaimer-toggle';
+		button.textContent = 'i';
+		button.setAttribute(
+			'aria-label',
+			`Preview information: ${ PREVIEW_DISCLAIMER }`
+		);
+		button.addEventListener( 'click', ( event ) => {
+			event.preventDefault();
+			event.stopPropagation();
+		} );
+		hint.className = 'oc-preview-disclaimer-text';
+		hint.setAttribute( 'role', 'tooltip' );
+		hint.textContent = PREVIEW_DISCLAIMER;
+		badge.append( button, hint );
+		host.appendChild( badge );
+	},
+
 	applyPreviewToImage( img, dataUrl, dimensions = null ) {
 		if ( ! img ) {
 			return;
@@ -155,7 +194,6 @@ const galleryPreviewMethods = {
 		img.src = dataUrl;
 		img.srcset = '';
 		img.sizes = '';
-		img.title = PREVIEW_DISCLAIMER;
 		img.classList.add( 'oc-live-preview-applied' );
 
 		if ( hasDimensions ) {
@@ -221,6 +259,7 @@ const galleryPreviewMethods = {
 			}
 			this.recordGalleryNodeState( galleryItem, galleryItemState );
 		}
+		this.addPreviewDisclaimer( img );
 	},
 
 	refreshFlatsomeGallery() {
@@ -558,7 +597,6 @@ const galleryPreviewMethods = {
 		if ( previewImg ) {
 			previewImg.src = dataUrl;
 			previewImg.srcset = '';
-			previewImg.title = PREVIEW_DISCLAIMER;
 			if ( dimensions.width && dimensions.height ) {
 				previewImg.width = dimensions.width;
 				previewImg.height = dimensions.height;
