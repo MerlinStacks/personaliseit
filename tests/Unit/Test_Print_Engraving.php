@@ -11,7 +11,12 @@ use PHPUnit\Framework\TestCase;
 if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 	class OC_Test_Engraving_PDF extends TCPDF {
 		public bool $image_svg_called = false;
+		public bool $image_called = false;
 		public string $image_svg = '';
+
+		public function Image( $file, $x = '', $y = '', $w = 0, $h = 0, $type = '', $link = '', $align = '', $resize = false, $dpi = 300, $palign = '', $ismask = false, $imgmask = false, $border = 0, $fitbox = false, $hidden = false, $fitonpage = false, $alt = false, $altimgs = [] ) {
+			$this->image_called = true;
+		}
 
 		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
 			$this->image_svg_called = true;
@@ -72,6 +77,45 @@ class Test_Print_Engraving extends TestCase {
 		$this->assertMatchesRegularExpression( '/<svg[^>]+width="[0-9.]+pt"[^>]+height="[0-9.]+pt"/', $pdf->image_svg );
 		$this->assertStringContainsString( '<path d=', $pdf->image_svg );
 		$this->assertStringContainsString( 'fill-rule="nonzero"', $pdf->image_svg );
+	}
+
+	#[Test]
+	public function engraving_svg_clipart_remains_vector(): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+
+		$upload_dir = wp_upload_dir()['basedir'];
+		if ( ! is_dir( $upload_dir ) ) {
+			mkdir( $upload_dir, 0755, true );
+		}
+		$source = $upload_dir . '/engraving-vector-clipart.svg';
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20"><rect width="10" height="20" fill="#ff0000"/></svg>' );
+
+		try {
+			$pdf    = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+			$method = new ReflectionMethod( OC_Print_Base::class, 'render_layer_image' );
+			$method->invokeArgs(
+				null,
+				[
+					$pdf,
+					[ 'type' => 'clipart', 'artworkPath' => $source ],
+					[],
+					0.0,
+					0.0,
+					10.0,
+					20.0,
+					'engraving',
+					[],
+				]
+			);
+
+			$this->assertTrue( $pdf->image_svg_called );
+			$this->assertFalse( $pdf->image_called );
+			$this->assertStringContainsString( '#000000', $pdf->image_svg );
+		} finally {
+			@unlink( $source );
+		}
 	}
 
 	#[Test]

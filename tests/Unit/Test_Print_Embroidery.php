@@ -403,6 +403,39 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
+	public function svg_percentage_background_is_removed_before_eps_conversion(): void {
+		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
+		$source      = $source_base . '.svg';
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect width="100%" height="100%" fill="#fff"/><circle cx="50" cy="25" r="10" fill="#ff0000"/></svg>' );
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'build_svg_without_white_background' );
+		$clean  = $method->invoke( null, $source );
+
+		$this->assertIsString( $clean );
+		$output = file_get_contents( $clean );
+		$this->assertStringNotContainsString( '<rect', $output );
+		$this->assertStringContainsString( '<circle', $output );
+
+		@unlink( $clean );
+		@unlink( $source_base );
+		@unlink( $source );
+	}
+
+	#[Test]
+	public function svg_white_shapes_smaller_than_the_canvas_are_preserved(): void {
+		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
+		$source      = $source_base . '.svg';
+		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><rect x="20" y="10" width="60" height="30" fill="#fff"/></svg>' );
+
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'build_svg_without_white_background' );
+
+		$this->assertNull( $method->invoke( null, $source ) );
+
+		@unlink( $source_base );
+		@unlink( $source );
+	}
+
+	#[Test]
 	public function svg_ellipse_fallback_exports_valid_bezier_paths(): void {
 		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
 		$source      = $source_base . '.svg';

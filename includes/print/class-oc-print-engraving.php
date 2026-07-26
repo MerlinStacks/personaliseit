@@ -93,7 +93,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 	}
 
 	/**
-	 * Generate one engraving PDF containing multiple print areas as separate pages.
+	 * Generate one engraving PDF with multiple print areas on one production sheet.
 	 *
 	 * @param array<int,array{area:object,area_data:array}> $areas
 	 */
@@ -105,21 +105,25 @@ class OC_Print_Engraving extends OC_Print_Base {
 			throw new \RuntimeException( __( 'No engraving print areas supplied for combined file.', 'overcustomise' ) );
 		}
 
-		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
-		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, 0.0 );
+		$layout = self::combined_sheet_layout( $areas );
+		if ( empty( $layout['entries'] ) ) {
+			throw new \RuntimeException( __( 'No valid engraving print areas supplied for combined file.', 'overcustomise' ) );
+		}
+		$first_area = $layout['entries'][0]['area'];
+		$pdf = self::make_pdf( $layout['page_w'], $layout['page_h'] );
 		$pdf->SetTitle( sprintf( 'Engraving - Order #%d - Combined', $order->get_id() ) );
+		$pdf->AddPage();
 
-		foreach ( $areas as $entry ) {
-			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
-				continue;
-			}
-
-			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
-			$pdf->AddPage( $w_mm > $h_mm ? 'L' : 'P', [ $w_mm, $h_mm ] );
+		foreach ( $layout['entries'] as $entry ) {
+			$area   = $entry['area'];
+			$w_mm   = $entry['w'];
+			$h_mm   = $entry['h'];
+			$origin_x = $entry['x'];
+			$origin_y = $entry['y'];
 			$profile = self::resolve_profile( $area, $entry['area_data'] );
 
 			if ( self::has_layer_payload( $entry['area_data'] ) ) {
-				self::render_layer_payload( $pdf, $area, $entry['area_data'], 0.0, 0.0, 'engraving', [ 'engraving_profile' => $profile ] );
+				self::render_layer_payload( $pdf, $area, $entry['area_data'], $origin_x, $origin_y, 'engraving', [ 'engraving_profile' => $profile ] );
 				continue;
 			}
 
@@ -128,7 +132,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 			try {
 				if ( $artwork_path ) {
 					$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile );
-					self::draw_pdf_image( $pdf, $temp_artwork, 0, 0, $w_mm, $h_mm );
+					self::draw_pdf_image( $pdf, $temp_artwork, $origin_x, $origin_y, $w_mm, $h_mm );
 				}
 
 				$text = self::normalise_engraving_text( trim( $entry['area_data']['text'] ?? '' ) );
@@ -138,7 +142,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 					$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 					$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
 					$pdf->SetFont( $font_name, '', $font_size );
-					self::draw_clipped_text_cell( $pdf, 0, 0, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
+					self::draw_clipped_text_cell( $pdf, $origin_x, $origin_y, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
 				}
 			} finally {
 				if ( is_string( $temp_artwork ) && '' !== $temp_artwork && file_exists( $temp_artwork ) ) {

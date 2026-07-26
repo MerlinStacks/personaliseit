@@ -255,7 +255,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$font_scale = $font_px_to_pt ?? self::px_to_pt( 1.0 );
 		$font_size  = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? max( 5.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_scale )
-			: max( 8.0, $h_pt * 0.38 );
+			: max( 8.0, $h_pt * 0.72 );
 		$minimum_size = ! empty( $settings['min_font_size'] ) ? max( 5.0, (float) $settings['min_font_size'] * $font_scale ) : 5.0;
 		$maximum_size = ! empty( $settings['max_font_size'] ) ? max( $minimum_size, (float) $settings['max_font_size'] * $font_scale ) : max( 5.0, $h_pt * 0.8 );
 		$font_size    = max( $minimum_size, min( $font_size, $maximum_size, max( 5.0, $h_pt * 0.8 ) ) );
@@ -272,15 +272,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			throw new \RuntimeException( sprintf( __( 'The selected embroidery font #%d has no renderable production outline.', 'overcustomise' ), $font_id ) );
 		}
 		$align    = $centered ? (string) ( $settings['alignment'] ?? 'center' ) : 'left';
-		$anchor_x = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt + 2;
+		$anchor_x = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt;
 
 		do {
-			$text_lines = $multiline ? self::wrap_eps_text_lines( $text, $font_path, $font_size, max( 1.0, $w_pt - 4.0 ) ) : [ preg_replace( '/\s+/u', ' ', $text ) ?? $text ];
+			$text_lines = $multiline ? self::wrap_eps_text_lines( $text, $font_path, $font_size, max( 1.0, $w_pt ) ) : [ preg_replace( '/\s+/u', ' ', $text ) ?? $text ];
 			$line_height = $font_size * 1.2;
 			$fits_height = count( $text_lines ) * $line_height <= $h_pt;
 			$fits_width  = true;
 			foreach ( $text_lines as $text_line ) {
-				if ( self::eps_text_width( $text_line, $font_path, $font_size ) > max( 1.0, $w_pt - 4.0 ) ) {
+				if ( self::eps_text_width( $text_line, $font_path, $font_size ) > max( 1.0, $w_pt ) ) {
 					$fits_width = false;
 					break;
 				}
@@ -330,8 +330,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	/** Return x coordinate for aligned text inside a center-origin layer box. */
 	private static function eps_text_align_x( string $align, float $x_pt, float $w_pt ): float {
 		return match ( $align ) {
-			'left'  => $x_pt + 2,
-			'right' => $x_pt + $w_pt - 2,
+			'left'  => $x_pt,
+			'right' => $x_pt + $w_pt,
 			default => 0.0,
 		};
 	}
@@ -1242,24 +1242,36 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		if ( 'svg' === $ext ) {
-			if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
-				return;
+			$source_path = $path;
+			$clean_path  = self::build_svg_without_white_background( $path );
+			if ( $clean_path ) {
+				$path = $clean_path;
 			}
 
-			if ( self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
-				return;
-			}
+			try {
+				if ( self::append_eps_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
+					return;
+				}
 
-			$image = self::open_svg_resource( $path, $w_pt, $h_pt );
-			if ( $image ) {
-				self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
-				imagedestroy( $image );
-				return;
-			}
+				if ( self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
+					return;
+				}
 
-			throw new \RuntimeException(
-				sprintf( __( 'SVG artwork "%s" is blank or uses unsupported production features and could not be converted.', 'overcustomise' ), basename( $path ) )
-			);
+				$image = self::open_svg_resource( $path, $w_pt, $h_pt );
+				if ( $image ) {
+					self::append_eps_raster_image( $lines, $image, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
+					imagedestroy( $image );
+					return;
+				}
+
+				throw new \RuntimeException(
+					sprintf( __( 'SVG artwork "%s" is blank or uses unsupported production features and could not be converted.', 'overcustomise' ), basename( $source_path ) )
+				);
+			} finally {
+				if ( $clean_path && file_exists( $clean_path ) ) {
+					@unlink( $clean_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				}
+			}
 		}
 
 		$image = self::open_raster_resource( $path );
@@ -2415,11 +2427,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return false;
 		}
 
-		$x = self::svg_number( $element->getAttribute( 'x' ) );
-		$y = self::svg_number( $element->getAttribute( 'y' ) );
-		$w = self::svg_number( $element->getAttribute( 'width' ) );
-		$h = self::svg_number( $element->getAttribute( 'height' ) );
 		[ $vb_x, $vb_y, $vb_w, $vb_h ] = array_map( 'floatval', array_slice( $view_box, 0, 4 ) );
+		$x = self::svg_viewport_value( $element->getAttribute( 'x' ), $vb_x, $vb_w, false );
+		$y = self::svg_viewport_value( $element->getAttribute( 'y' ), $vb_y, $vb_h, false );
+		$w = self::svg_viewport_value( $element->getAttribute( 'width' ), 0.0, $vb_w, true );
+		$h = self::svg_viewport_value( $element->getAttribute( 'height' ), 0.0, $vb_h, true );
 		$tolerance = 0.01;
 
 		return $w > 0.0 && $h > 0.0
@@ -2427,6 +2439,17 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			&& $y <= $vb_y + $tolerance
 			&& $x + $w >= $vb_x + $vb_w - $tolerance
 			&& $y + $h >= $vb_y + $vb_h - $tolerance;
+	}
+
+	/** Resolve an SVG coordinate or percentage against its viewBox axis. */
+	private static function svg_viewport_value( string $value, float $origin, float $span, bool $dimension ): float {
+		$value = trim( $value );
+		if ( str_ends_with( $value, '%' ) ) {
+			$resolved = $span * self::svg_number( $value ) / 100;
+			return $dimension ? $resolved : $origin + $resolved;
+		}
+
+		return self::svg_number( $value );
 	}
 
 	private static function same_rgb( array $a, array $b ): bool {
@@ -2481,6 +2504,86 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				$imagick->destroy();
 			}
 		}
+	}
+
+	/** Remove a full-canvas white SVG background before any vector or raster conversion path. */
+	private static function build_svg_without_white_background( string $path ): ?string {
+		$raw = is_readable( $path ) ? file_get_contents( $path ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( ! is_string( $raw ) || '' === $raw ) {
+			return null;
+		}
+
+		$dom      = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		$loaded   = $dom->loadXML( $raw, LIBXML_NONET | LIBXML_NOCDATA );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+		if ( ! $loaded || ! $dom->documentElement || 'svg' !== strtolower( $dom->documentElement->localName ) ) {
+			return null;
+		}
+
+		$root     = $dom->documentElement;
+		$view_box = self::svg_view_box( $root );
+		$css      = self::svg_css_rules( $dom );
+		$removed  = false;
+		foreach ( iterator_to_array( $dom->getElementsByTagName( 'rect' ) ) as $rect ) {
+			if ( ! $rect instanceof \DOMElement || self::svg_element_has_transform_ancestor( $rect, $root ) ) {
+				continue;
+			}
+			$style = self::svg_inherited_style( $rect, $root, $css );
+			if ( self::is_svg_background_rect( $rect, $style, $view_box ) && $rect->parentNode ) {
+				$rect->parentNode->removeChild( $rect );
+				$removed = true;
+			}
+		}
+		if ( ! $removed ) {
+			return null;
+		}
+
+		$temp   = self::temp_svg_path( 'oc-eps-transparent-artwork-' . wp_generate_uuid4() );
+		$output = $dom->saveXML( $root );
+		if ( ! $temp || ! is_string( $output ) || false === file_put_contents( $temp, $output ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			if ( $temp ) {
+				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			return null;
+		}
+
+		return $temp;
+	}
+
+	/** Return computed presentation styles inherited from the SVG root to one element. */
+	private static function svg_inherited_style( \DOMElement $element, \DOMElement $root, array $css ): array {
+		$chain = [];
+		$node  = $element;
+		while ( $node instanceof \DOMElement ) {
+			array_unshift( $chain, $node );
+			if ( $node === $root ) {
+				break;
+			}
+			$node = $node->parentNode;
+		}
+
+		$style = [];
+		foreach ( $chain as $node ) {
+			$style = self::svg_style_for_element( $node, $style, $css );
+		}
+		return $style;
+	}
+
+	/** A transformed full-size rectangle is artwork, not necessarily the canvas background. */
+	private static function svg_element_has_transform_ancestor( \DOMElement $element, \DOMElement $root ): bool {
+		$node = $element;
+		while ( $node instanceof \DOMElement ) {
+			if ( $node->hasAttribute( 'transform' ) && '' !== trim( $node->getAttribute( 'transform' ) ) ) {
+				return true;
+			}
+			if ( $node === $root ) {
+				break;
+			}
+			$node = $node->parentNode;
+		}
+		return false;
 	}
 
 	/** Build a temporary recoloured SVG for recolourable clipart. */

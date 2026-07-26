@@ -73,6 +73,7 @@ class OC_Admin_Customer_Uploads {
 		$page_end   = min( $total, $paged * $per_page );
 		?>
 		<div class="wrap oc-page">
+			<?php $this->render_action_notice(); ?>
 			<div class="oc-page-header oc-customer-upload-hero">
 				<div class="oc-page-header-left">
 					<h1 class="oc-page-title"><?php esc_html_e( 'Customer Uploads', 'overcustomise' ); ?></h1>
@@ -102,8 +103,21 @@ class OC_Admin_Customer_Uploads {
 
 			<div class="oc-card oc-customer-upload-gallery-card">
 				<div class="oc-card-header oc-customer-upload-toolbar">
-					<h2><?php esc_html_e( 'Uploaded Artwork', 'overcustomise' ); ?></h2>
-					<span><?php echo esc_html( sprintf( __( 'Showing %1$s-%2$s of %3$s', 'overcustomise' ), number_format_i18n( $page_start ), number_format_i18n( $page_end ), number_format_i18n( $total ) ) ); ?></span>
+					<div>
+						<h2><?php esc_html_e( 'Uploaded Artwork', 'overcustomise' ); ?></h2>
+						<span><?php echo esc_html( sprintf( __( 'Showing %1$s-%2$s of %3$s', 'overcustomise' ), number_format_i18n( $page_start ), number_format_i18n( $page_end ), number_format_i18n( $total ) ) ); ?></span>
+					</div>
+					<?php if ( $query->have_posts() ) : ?>
+						<form id="oc-customer-upload-bulk-form" method="post" class="oc-customer-upload-bulk-actions">
+							<input type="hidden" name="oc_customer_upload_action" value="bulk_delete" />
+							<?php wp_nonce_field( 'oc_customer_upload_bulk_delete' ); ?>
+							<label>
+								<input type="checkbox" data-oc-upload-select-all />
+								<?php esc_html_e( 'Select all', 'overcustomise' ); ?>
+							</label>
+							<button type="submit" class="oc-btn oc-btn-danger oc-btn-sm" data-oc-upload-bulk-delete data-label="<?php esc_attr_e( 'Delete selected', 'overcustomise' ); ?>" data-confirm-singular="<?php esc_attr_e( 'Delete 1 selected customer upload? This cannot be undone.', 'overcustomise' ); ?>" data-confirm-plural="<?php esc_attr_e( 'Delete %s selected customer uploads? This cannot be undone.', 'overcustomise' ); ?>" disabled><?php esc_html_e( 'Delete selected', 'overcustomise' ); ?></button>
+						</form>
+					<?php endif; ?>
 				</div>
 				<?php if ( ! $query->have_posts() ) : ?>
 					<div class="oc-empty">
@@ -128,6 +142,11 @@ class OC_Admin_Customer_Uploads {
 	/** Handle destructive admin actions. */
 	private function handle_actions(): void {
 		$action = isset( $_POST['oc_customer_upload_action'] ) ? sanitize_key( wp_unslash( $_POST['oc_customer_upload_action'] ) ) : '';
+		if ( 'bulk_delete' === $action ) {
+			$this->handle_bulk_delete();
+			return;
+		}
+
 		$id     = absint( $_POST['id'] ?? 0 );
 
 		if ( 'delete' !== $action || ! $id ) {
@@ -153,6 +172,70 @@ class OC_Admin_Customer_Uploads {
 		exit;
 	}
 
+	/** Delete selected customer uploads that are safe to remove. */
+	private function handle_bulk_delete(): void {
+		if ( ! wp_verify_nonce( (string) ( $_POST['_wpnonce'] ?? '' ), 'oc_customer_upload_bulk_delete' ) ) {
+			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
+		}
+
+		$raw_ids = isset( $_POST['upload_ids'] ) && is_array( $_POST['upload_ids'] ) ? wp_unslash( $_POST['upload_ids'] ) : [];
+		$ids     = array_values( array_unique( array_filter( array_map( 'absint', $raw_ids ) ) ) );
+		$deleted = 0;
+		$skipped = 0;
+
+		foreach ( $ids as $id ) {
+			if (
+				! self::is_customer_upload( $id ) ||
+				! current_user_can( 'delete_post', $id ) ||
+				OC_File_Cleanup::customer_artwork_is_referenced( $id ) ||
+				! wp_delete_attachment( $id, true )
+			) {
+				++$skipped;
+				continue;
+			}
+
+			++$deleted;
+		}
+
+		wp_safe_redirect(
+			add_query_arg(
+				[
+					'bulk_deleted' => $deleted,
+					'bulk_skipped' => $skipped,
+				],
+				admin_url( 'admin.php?page=overcustomise-customer-uploads' )
+			)
+		);
+		exit;
+	}
+
+	/** Show the outcome of a bulk deletion. */
+	private function render_action_notice(): void {
+		if ( ! isset( $_GET['bulk_deleted'], $_GET['bulk_skipped'] ) ) {
+			return;
+		}
+
+		$deleted = absint( $_GET['bulk_deleted'] );
+		$skipped = absint( $_GET['bulk_skipped'] );
+		$class   = $skipped > 0 ? 'notice notice-warning is-dismissible' : 'notice notice-success is-dismissible';
+		?>
+		<div class="<?php echo esc_attr( $class ); ?>">
+			<p>
+				<?php
+					echo esc_html(
+						sprintf(
+							/* translators: 1: deleted upload count, 2: skipped upload count. */
+							__( 'Uploads deleted: %1$s. Skipped because they could not be safely deleted: %2$s.', 'overcustomise' ),
+							number_format_i18n( $deleted ),
+							number_format_i18n( $skipped )
+						)
+					);
+				?>
+			</p>
+		</div>
+		<?php
+	}
+
 	/** Render one upload card. */
 	private function render_upload_card( WP_Post $attachment ): void {
 		$id       = (int) $attachment->ID;
@@ -171,6 +254,10 @@ class OC_Admin_Customer_Uploads {
 		?>
 		<div class="oc-customer-upload-card">
 			<div class="oc-customer-upload-preview">
+				<label class="oc-customer-upload-select" title="<?php esc_attr_e( 'Select upload', 'overcustomise' ); ?>">
+					<input type="checkbox" name="upload_ids[]" value="<?php echo esc_attr( $id ); ?>" form="oc-customer-upload-bulk-form" data-oc-upload-select />
+					<span class="screen-reader-text"><?php echo esc_html( sprintf( __( 'Select %s', 'overcustomise' ), $filename ) ); ?></span>
+				</label>
 				<?php echo $thumb ?: '<span>' . esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) . '</span>'; ?>
 				<span class="oc-customer-upload-type"><?php echo esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ); ?></span>
 			</div>

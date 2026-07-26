@@ -178,7 +178,13 @@ foreach ( $layers as $layer ) {
 	<?php endif; ?>
 
 	<div class="oc-canvas-wrap" id="oc-canvas-wrap" aria-label="<?php esc_attr_e( 'Live customisation preview', 'overcustomise' ); ?>">
-		<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
+		<div class="oc-preview-heading">
+			<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
+			<span class="oc-help-tooltip oc-preview-help">
+				<button type="button" class="oc-help-toggle" aria-expanded="false" aria-describedby="oc-preview-disclaimer" aria-label="<?php esc_attr_e( 'Important information about your preview', 'overcustomise' ); ?>">i</button>
+				<span class="oc-help-hint" id="oc-preview-disclaimer" role="tooltip"><?php esc_html_e( 'This is a preview, not the final product. In some cases, our production team may need to adjust the personalisation. Any changes will preserve the spelling, grammar and spirit of your design, including any image supplied.', 'overcustomise' ); ?></span>
+			</span>
+		</div>
 		<?php
 		$first_area = $areas[0] ?? null;
 		if ( $first_area && ! empty( $first_area->mockup_attachment_id ) ) {

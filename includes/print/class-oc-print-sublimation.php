@@ -127,7 +127,7 @@ class OC_Print_Sublimation extends OC_Print_Base {
 	}
 
 	/**
-	 * Generate one sublimation PDF containing multiple print areas as separate pages.
+	 * Generate one sublimation PDF with multiple print areas on one production sheet.
 	 *
 	 * @param array<int,array{area:object,area_data:array}> $areas
 	 */
@@ -141,60 +141,64 @@ class OC_Print_Sublimation extends OC_Print_Base {
 
 		$bleed = self::configured_bleed_mm();
 		$slug  = self::crop_mark_slug_mm( $bleed );
-		$live_origin = $slug + $bleed;
-		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
-		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed, $slug );
+		$inset  = $slug + $bleed;
+		$layout = self::combined_sheet_layout( $areas, $inset );
+		if ( empty( $layout['entries'] ) ) {
+			throw new \RuntimeException( __( 'No valid sublimation print areas supplied for combined file.', 'overcustomise' ) );
+		}
+		$first_area = $layout['entries'][0]['area'];
+		$pdf = self::make_pdf( $layout['page_w'], $layout['page_h'] );
 		$pdf->SetTitle( sprintf( 'Sublimation - Order #%d - Combined', $order->get_id() ) );
 		$method_settings = OC_Admin_Print_Methods::get( 'sublimation' );
 		$full_bleed      = is_array( $method_settings ) && ! empty( $method_settings['full_bleed'] );
 
-		foreach ( $areas as $entry ) {
-			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
-				continue;
-			}
-
-			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
-			$page_w = $w_mm + $bleed * 2;
-			$page_h = $h_mm + $bleed * 2;
-			$pdf_page_w = $page_w + $slug * 2;
-			$pdf_page_h = $page_h + $slug * 2;
-			$pdf->AddPage( $pdf_page_w > $pdf_page_h ? 'L' : 'P', [ $pdf_page_w, $pdf_page_h ] );
+		$pdf->AddPage();
+		foreach ( $layout['entries'] as $entry ) {
+			$area   = $entry['area'];
+			$w_mm   = $entry['w'];
+			$h_mm   = $entry['h'];
+			$origin_x = $entry['x'];
+			$origin_y = $entry['y'];
+			$bleed_x  = $origin_x - $bleed;
+			$bleed_y  = $origin_y - $bleed;
+			$page_w   = $w_mm + $bleed * 2;
+			$page_h   = $h_mm + $bleed * 2;
 
 			if ( self::has_layer_payload( $entry['area_data'] ) ) {
 				self::render_layer_payload(
 					$pdf,
 					$area,
 					$entry['area_data'],
-					$live_origin,
-					$live_origin,
+					$origin_x,
+					$origin_y,
 					'colour',
 					[
 						'full_bleed_artwork' => $full_bleed,
 						'bleed_mm'            => $bleed,
 					]
 				);
-				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
+				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug, $origin_x - $inset, 0.0 );
 				continue;
 			}
 
 			if ( self::render_vector_snapshot_payload(
 				$pdf,
 				$entry['area_data'],
-				$full_bleed ? $slug : $live_origin,
-				$full_bleed ? $slug : $live_origin,
+				$full_bleed ? $bleed_x : $origin_x,
+				$full_bleed ? $bleed_y : $origin_y,
 				$full_bleed ? $page_w : $w_mm,
 				$full_bleed ? $page_h : $h_mm
 			) ) {
-				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
+				self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug, $origin_x - $inset, 0.0 );
 				continue;
 			}
 
 			$artwork_path     = self::resolve_artwork_path( $entry['area_data'] );
 			if ( $artwork_path ) {
 				if ( $full_bleed ) {
-					self::draw_pdf_image( $pdf, $artwork_path, $slug, $slug, $page_w, $page_h );
+					self::draw_pdf_image( $pdf, $artwork_path, $bleed_x, $bleed_y, $page_w, $page_h );
 				} else {
-					self::draw_pdf_image( $pdf, $artwork_path, $live_origin, $live_origin, $w_mm, $h_mm );
+					self::draw_pdf_image( $pdf, $artwork_path, $origin_x, $origin_y, $w_mm, $h_mm );
 				}
 			}
 
@@ -207,10 +211,10 @@ class OC_Print_Sublimation extends OC_Print_Base {
 				$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 				$pdf->SetFont( $font_name, '', $font_size );
 				$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
-				self::draw_clipped_text_cell( $pdf, $live_origin, $live_origin, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
+				self::draw_clipped_text_cell( $pdf, $origin_x, $origin_y, $w_mm, $h_mm, $text, self::cell_h( $font_size ) );
 			}
 
-			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
+			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug, $origin_x - $inset, 0.0 );
 		}
 
 		$output_dir  = self::ensure_output_dir( $order->get_id() );

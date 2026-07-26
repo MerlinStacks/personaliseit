@@ -2595,9 +2595,6 @@ function createLayerPreviewRenderer(deps) {
     const fonts = (window.ocProductsData || {}).fonts || [];
     return fonts.find(f => Number(f.id) === Number(fontId)) || null;
   }
-  function textPadding(fontSize) {
-    return Math.max(4, Math.ceil(fontSize * 0.18));
-  }
   function textFits(text, font, fontSize, width, height, multiline) {
     const TextClass = multiline ? fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox : fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText;
     const measured = new TextClass(text, {
@@ -2610,8 +2607,8 @@ function createLayerPreviewRenderer(deps) {
       fontSize
     });
     measured.initDimensions?.();
-    const marginX = Math.max(1, Math.ceil(fontSize * 0.06));
-    const marginY = Math.max(2, Math.ceil(fontSize * 0.12));
+    const marginX = multiline ? Math.max(1, Math.ceil(fontSize * 0.06)) : 0;
+    const marginY = multiline ? Math.max(2, Math.ceil(fontSize * 0.12)) : 0;
     return (multiline || measured.width + marginX * 2 <= width) && measured.height + marginY * 2 <= height;
   }
   function renderTextPreview(el, text, font, fontSize, minFontSize, width, height, settings, color, isSingleLine) {
@@ -2623,7 +2620,7 @@ function createLayerPreviewRenderer(deps) {
       height: Math.max(1, height)
     });
     el._ocTextPreviewCanvas = canvas;
-    const maxWidth = Math.max(1, width - Math.max(4, width * 0.02));
+    const maxWidth = Math.max(1, width);
     const floor = Math.max(1, minFontSize || 4);
     while (fontSize > floor && !textFits(text, font, fontSize, isSingleLine ? maxWidth : width, height, !isSingleLine)) {
       fontSize = Math.max(floor, fontSize - 1);
@@ -2637,7 +2634,6 @@ function createLayerPreviewRenderer(deps) {
       ...(isSingleLine ? {} : {
         width
       }),
-      padding: textPadding(fontSize),
       fontFamily: font?.name || 'sans-serif',
       fontWeight: font?.weight || 'normal',
       fontStyle: font?.style || 'normal',
@@ -2650,9 +2646,13 @@ function createLayerPreviewRenderer(deps) {
     });
     textObject.initDimensions?.();
     if (isSingleLine) {
-      const renderedWidth = Math.max(1, Math.ceil(textObject.width + textPadding(fontSize) * 2));
+      const renderedWidth = Math.max(1, Math.ceil(textObject.width));
+      const scaleX = Math.min(1, maxWidth / renderedWidth);
+      const scaledWidth = renderedWidth * scaleX;
+      const align = settings.alignment || 'center';
       textObject.set({
-        scaleX: Math.min(1, maxWidth / renderedWidth)
+        left: align === 'left' ? scaledWidth / 2 : align === 'right' ? width - scaledWidth / 2 : width / 2,
+        scaleX
       });
     } else {
       const lineAlign = ['top', 'center', 'bottom'].includes(settings.line_alignment) ? settings.line_alignment : 'top';
@@ -2740,7 +2740,7 @@ function createLayerPreviewRenderer(deps) {
       const align = s.alignment || 'center';
       const scale = renderedH / Math.max(1, layer.h);
       const defaultFontSize = fontLimit(s.default_font_size);
-      const autoFontSize = Math.max(8, Math.min(renderedH * (isGhost ? 0.36 : 0.42), isGhost ? 22 : 30));
+      const autoFontSize = Math.max(8, renderedH * 0.72);
       const fs = clampFontSize(defaultFontSize ? defaultFontSize * scale : autoFontSize, s, scale);
       const font = findFont(s.default_font_id || 0);
       const color = isEngraving ? engraving.color : normaliseHex(s.default_color);

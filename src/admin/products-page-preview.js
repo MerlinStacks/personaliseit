@@ -24,10 +24,6 @@ export function createLayerPreviewRenderer( deps ) {
 		);
 	}
 
-	function textPadding( fontSize ) {
-		return Math.max( 4, Math.ceil( fontSize * 0.18 ) );
-	}
-
 	function textFits( text, font, fontSize, width, height, multiline ) {
 		const TextClass = multiline ? Textbox : FabricText;
 		const measured = new TextClass( text, {
@@ -38,8 +34,12 @@ export function createLayerPreviewRenderer( deps ) {
 			fontSize,
 		} );
 		measured.initDimensions?.();
-		const marginX = Math.max( 1, Math.ceil( fontSize * 0.06 ) );
-		const marginY = Math.max( 2, Math.ceil( fontSize * 0.12 ) );
+		const marginX = multiline
+			? Math.max( 1, Math.ceil( fontSize * 0.06 ) )
+			: 0;
+		const marginY = multiline
+			? Math.max( 2, Math.ceil( fontSize * 0.12 ) )
+			: 0;
 
 		return (
 			( multiline || measured.width + marginX * 2 <= width ) &&
@@ -68,7 +68,7 @@ export function createLayerPreviewRenderer( deps ) {
 		} );
 		el._ocTextPreviewCanvas = canvas;
 
-		const maxWidth = Math.max( 1, width - Math.max( 4, width * 0.02 ) );
+		const maxWidth = Math.max( 1, width );
 		const floor = Math.max( 1, minFontSize || 4 );
 		while (
 			fontSize > floor &&
@@ -91,7 +91,6 @@ export function createLayerPreviewRenderer( deps ) {
 			originX: 'center',
 			originY: 'center',
 			...( isSingleLine ? {} : { width } ),
-			padding: textPadding( fontSize ),
 			fontFamily: font?.name || 'sans-serif',
 			fontWeight: font?.weight || 'normal',
 			fontStyle: font?.style || 'normal',
@@ -105,12 +104,18 @@ export function createLayerPreviewRenderer( deps ) {
 		textObject.initDimensions?.();
 
 		if ( isSingleLine ) {
-			const renderedWidth = Math.max(
-				1,
-				Math.ceil( textObject.width + textPadding( fontSize ) * 2 )
-			);
+			const renderedWidth = Math.max( 1, Math.ceil( textObject.width ) );
+			const scaleX = Math.min( 1, maxWidth / renderedWidth );
+			const scaledWidth = renderedWidth * scaleX;
+			const align = settings.alignment || 'center';
 			textObject.set( {
-				scaleX: Math.min( 1, maxWidth / renderedWidth ),
+				left:
+					align === 'left'
+						? scaledWidth / 2
+						: align === 'right'
+						? width - scaledWidth / 2
+						: width / 2,
+				scaleX,
 			} );
 		} else {
 			const lineAlign = [ 'top', 'center', 'bottom' ].includes(
@@ -240,13 +245,7 @@ export function createLayerPreviewRenderer( deps ) {
 			const align = s.alignment || 'center';
 			const scale = renderedH / Math.max( 1, layer.h );
 			const defaultFontSize = fontLimit( s.default_font_size );
-			const autoFontSize = Math.max(
-				8,
-				Math.min(
-					renderedH * ( isGhost ? 0.36 : 0.42 ),
-					isGhost ? 22 : 30
-				)
-			);
+			const autoFontSize = Math.max( 8, renderedH * 0.72 );
 			const fs = clampFontSize(
 				defaultFontSize ? defaultFontSize * scale : autoFontSize,
 				s,

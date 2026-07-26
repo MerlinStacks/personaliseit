@@ -214,5 +214,17 @@ class OC_Admin_Menu {
 				true
 			);
 		}
+
+		// Customer Uploads bulk selection.
+		if ( 'overcustomise_page_overcustomise-customer-uploads' === $hook ) {
+			$uploads_script = OC_PATH . 'assets/js/admin-customer-uploads.js';
+			wp_enqueue_script(
+				'oc-customer-uploads',
+				OC_URL . 'assets/js/admin-customer-uploads.js',
+				[],
+				file_exists( $uploads_script ) ? (string) filemtime( $uploads_script ) : OC_VERSION,
+				true
+			);
+		}
 	}
 }

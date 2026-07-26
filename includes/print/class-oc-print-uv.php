@@ -40,7 +40,7 @@ class OC_Print_UV extends OC_Print_Base {
 		$pdf->AddPage();
 
 		// ── Page 1: Colour artwork ─────────────────────────────────────────
-		self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $area_data );
+		self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $live_origin, $area_data );
 		self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
 
 		// ── Page 2: White ink mask (optional) ─────────────────────────────
@@ -48,7 +48,7 @@ class OC_Print_UV extends OC_Print_Base {
 		if ( is_array( $method_settings ) && ! empty( $method_settings['white_ink_layer'] ) ) {
 			$white_spot_name = self::resolve_white_spot_name( $method_settings );
 			$pdf->AddPage();
-			self::render_white_ink_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $white_spot_name, $area_data );
+			self::render_white_ink_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $live_origin, $white_spot_name, $area_data );
 		}
 
 		$output_dir  = self::ensure_output_dir( $order->get_id() );
@@ -60,7 +60,7 @@ class OC_Print_UV extends OC_Print_Base {
 	}
 
 	/**
-	 * Generate one UV PDF containing multiple print areas as separate artboard pages.
+	 * Generate one UV PDF with multiple print areas laid out on a production sheet.
 	 *
 	 * @param array<int,array{area:object,area_data:array}> $areas
 	 */
@@ -74,30 +74,29 @@ class OC_Print_UV extends OC_Print_Base {
 
 		$bleed = self::configured_bleed_mm();
 		$slug  = self::crop_mark_slug_mm( $bleed );
-		$live_origin = $slug + $bleed;
-		[ $first_area, $first_w_mm, $first_h_mm ] = self::normalise_rotated_artboard_for_print( $first['area'], $first['area_data'] );
-		$pdf = self::make_pdf( $first_w_mm, $first_h_mm, $bleed, $slug );
+		$inset  = $slug + $bleed;
+		$layout = self::combined_sheet_layout( $areas, $inset );
+		if ( empty( $layout['entries'] ) ) {
+			throw new \RuntimeException( __( 'No valid UV print areas supplied for combined file.', 'overcustomise' ) );
+		}
+		$first_area = $layout['entries'][0]['area'];
+		$pdf = self::make_pdf( $layout['page_w'], $layout['page_h'] );
 		$pdf->SetTitle( sprintf( 'UV Print - Order #%d - Combined', $order->get_id() ) );
 
 		$method_settings = OC_Admin_Print_Methods::get( 'uv' );
 		$add_white_page  = is_array( $method_settings ) && ! empty( $method_settings['white_ink_layer'] );
 		$white_spot_name = $add_white_page ? self::resolve_white_spot_name( $method_settings ) : '';
 
-		foreach ( $areas as $entry ) {
-			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) ) {
-				continue;
-			}
+		$pdf->AddPage();
+		foreach ( $layout['entries'] as $entry ) {
+			self::render_colour_page( $pdf, $entry['area'], $entry['w'], $entry['h'], $entry['x'], $entry['y'], $entry['area_data'] );
+			self::draw_crop_marks( $pdf, $entry['w'], $entry['h'], $bleed, $slug, $entry['x'] - $inset, 0.0 );
+		}
 
-			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
-			$page_w = $w_mm + ( $bleed + $slug ) * 2;
-			$page_h = $h_mm + ( $bleed + $slug ) * 2;
-			$pdf->AddPage( $page_w > $page_h ? 'L' : 'P', [ $page_w, $page_h ] );
-			self::render_colour_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $entry['area_data'] );
-			self::draw_crop_marks( $pdf, $w_mm, $h_mm, $bleed, $slug );
-
-			if ( $add_white_page ) {
-				$pdf->AddPage( $page_w > $page_h ? 'L' : 'P', [ $page_w, $page_h ] );
-				self::render_white_ink_page( $pdf, $area, $w_mm, $h_mm, $live_origin, $white_spot_name, $entry['area_data'] );
+		if ( $add_white_page ) {
+			$pdf->AddPage();
+			foreach ( $layout['entries'] as $entry ) {
+				self::render_white_ink_page( $pdf, $entry['area'], $entry['w'], $entry['h'], $entry['x'], $entry['y'], $white_spot_name, $entry['area_data'] );
 			}
 		}
 
@@ -116,24 +115,25 @@ class OC_Print_UV extends OC_Print_Base {
 		object $area,
 		float $w_mm,
 		float $h_mm,
-		float $live_origin,
+		float $origin_x,
+		float $origin_y,
 		array $area_data
 	): void {
 		// Leave the page unpainted so transparent artwork does not gain a white box.
 
 		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, $live_origin, $live_origin, 'colour' );
+			self::render_layer_payload( $pdf, $area, $area_data, $origin_x, $origin_y, 'colour' );
 			return;
 		}
 
-		if ( self::render_vector_snapshot_payload( $pdf, $area_data, $live_origin, $live_origin, $w_mm, $h_mm ) ) {
+		if ( self::render_vector_snapshot_payload( $pdf, $area_data, $origin_x, $origin_y, $w_mm, $h_mm ) ) {
 			return;
 		}
 
 		// Artwork.
 		$artwork_path = self::resolve_artwork_path( $area_data );
 		if ( $artwork_path ) {
-			self::draw_pdf_image( $pdf, $artwork_path, $live_origin, $live_origin, $w_mm, $h_mm );
+			self::draw_pdf_image( $pdf, $artwork_path, $origin_x, $origin_y, $w_mm, $h_mm );
 		}
 
 		// Text.
@@ -149,7 +149,7 @@ class OC_Print_UV extends OC_Print_Base {
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 
 			$cell_h = self::cell_h( $font_size );
-			self::draw_clipped_text_cell( $pdf, $live_origin, $live_origin, $w_mm, $h_mm, $text, $cell_h );
+			self::draw_clipped_text_cell( $pdf, $origin_x, $origin_y, $w_mm, $h_mm, $text, $cell_h );
 		}
 	}
 
@@ -163,7 +163,8 @@ class OC_Print_UV extends OC_Print_Base {
 		object $area,
 		float $w_mm,
 		float $h_mm,
-		float $live_origin,
+		float $origin_x,
+		float $origin_y,
 		string $white_spot_name,
 		array $area_data
 	): void {
@@ -171,17 +172,17 @@ class OC_Print_UV extends OC_Print_Base {
 		self::set_spot_fill_colour( $pdf, $white_spot_name );
 
 		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, $live_origin, $live_origin, 'spot' );
+			self::render_layer_payload( $pdf, $area, $area_data, $origin_x, $origin_y, 'spot' );
 			return;
 		}
 
-		if ( self::render_vector_snapshot_spot_mask( $pdf, $area_data, $live_origin, $live_origin, $w_mm, $h_mm ) ) {
+		if ( self::render_vector_snapshot_spot_mask( $pdf, $area_data, $origin_x, $origin_y, $w_mm, $h_mm ) ) {
 			return;
 		}
 
 		$artwork_path = self::resolve_artwork_path( $area_data );
 		if ( $artwork_path ) {
-			self::render_artwork_spot_mask( $pdf, $artwork_path, $live_origin, $live_origin, $w_mm, $h_mm );
+			self::render_artwork_spot_mask( $pdf, $artwork_path, $origin_x, $origin_y, $w_mm, $h_mm );
 		}
 
 		$text = trim( $area_data['text'] ?? '' );
@@ -192,7 +193,7 @@ class OC_Print_UV extends OC_Print_Base {
 
 			$pdf->SetFont( $font_name, '', $font_size );
 			$cell_h = self::cell_h( $font_size );
-			self::draw_clipped_text_cell( $pdf, $live_origin, $live_origin, $w_mm, $h_mm, $text, $cell_h );
+			self::draw_clipped_text_cell( $pdf, $origin_x, $origin_y, $w_mm, $h_mm, $text, $cell_h );
 		}
 	}
 

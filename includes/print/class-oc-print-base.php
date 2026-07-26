@@ -1956,6 +1956,44 @@ abstract class OC_Print_Base {
 	}
 
 	/**
+	 * Lay combined print areas out from left to right on one production sheet.
+	 *
+	 * @param array<int,array{area:object,area_data:array}> $areas
+	 * @return array{entries:array<int,array{area:object,area_data:array,x:float,y:float,w:float,h:float}>,page_w:float,page_h:float}
+	 */
+	protected static function combined_sheet_layout( array $areas, float $inset = 0.0, float $gap = 5.0 ): array {
+		$entries = [];
+		$cursor  = 0.0;
+		$page_h  = 0.0;
+		$inset   = max( 0.0, $inset );
+		$gap     = max( 0.0, $gap );
+
+		foreach ( $areas as $entry ) {
+			if ( ! is_array( $entry ) || ! isset( $entry['area'], $entry['area_data'] ) || ! is_object( $entry['area'] ) || ! is_array( $entry['area_data'] ) ) {
+				continue;
+			}
+
+			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
+			$entries[] = [
+				'area'      => $area,
+				'area_data' => $entry['area_data'],
+				'x'         => $cursor + $inset,
+				'y'         => $inset,
+				'w'         => $w_mm,
+				'h'         => $h_mm,
+			];
+			$cursor += $w_mm + $inset * 2 + $gap;
+			$page_h  = max( $page_h, $h_mm + $inset * 2 );
+		}
+
+		return [
+			'entries' => $entries,
+			'page_w'  => max( 0.01, $cursor - ( empty( $entries ) ? 0.0 : $gap ) ),
+			'page_h'  => max( 0.01, $page_h ),
+		];
+	}
+
+	/**
 	 * Render v2 layers into the PDF using the same layer boxes as the live preview.
 	 * Layer coordinates are stored in mockup pixels, so they are offset back into
 	 * print-area space before converting to millimetres.
@@ -2112,7 +2150,7 @@ abstract class OC_Print_Base {
 		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : self::px_to_pt( 1.0 );
 		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
 			? max( 4.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_px_to_pt )
-			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.42 * $font_px_to_pt );
+			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.72 * $font_px_to_pt );
 		$min_size  = ! empty( $settings['min_font_size'] ) ? (float) $settings['min_font_size'] * $font_px_to_pt : 0.0;
 		$max_size  = ! empty( $settings['max_font_size'] ) ? (float) $settings['max_font_size'] * $font_px_to_pt : 0.0;
 		if ( $max_size > 0.0 ) {
@@ -2124,11 +2162,6 @@ abstract class OC_Print_Base {
 
 		$draw_x_mm = $x_mm;
 		$draw_w_mm = $w_mm;
-		if ( ! $is_textarea ) {
-			$anchor_pad_mm = self::single_line_anchor_pad_mm( max( 1.0, (float) ( $layer['w'] ?? 1 ) ), $w_mm );
-			$draw_x_mm     = $x_mm + $anchor_pad_mm;
-			$draw_w_mm     = max( 0.01, $w_mm - $anchor_pad_mm * 2 );
-		}
 
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );
@@ -2260,12 +2293,6 @@ abstract class OC_Print_Base {
 				default => \Imagick::GRAVITY_CENTER,
 			},
 		};
-	}
-
-	protected static function single_line_anchor_pad_mm( float $layer_w_px, float $w_mm ): float {
-		$anchor_pad_px = max( 2.0, min( 10.0, $layer_w_px * 0.01 ) );
-
-		return ( $anchor_pad_px / max( 1.0, $layer_w_px ) ) * $w_mm;
 	}
 
 	private static function engraving_outline_text_fits_box( string $text, string $font_path, float $w_mm, float $h_mm, float $font_size ): bool {
@@ -2647,10 +2674,17 @@ abstract class OC_Print_Base {
 			}
 		}
 		if ( 'engraving' === $mode ) {
-			if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
-				throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
+			if ( 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
+				$engraved_path = self::build_black_clipart( $path );
+				if ( ! is_string( $engraved_path ) || '' === $engraved_path ) {
+					throw new \RuntimeException( __( 'The selected clipart could not be prepared for engraving.', 'overcustomise' ) );
+				}
+			} else {
+				if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
+					throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
+				}
+				$engraved_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
 			}
-			$engraved_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
 			$temp_paths[]  = $engraved_path;
 			$path          = $engraved_path;
 		}
@@ -3181,8 +3215,10 @@ abstract class OC_Print_Base {
 	 * @param float  $h_mm  Trim height (without bleed).
 	 * @param float  $bleed Bleed in mm.
 	 * @param float  $slug  Page slug outside the bleed.
+	 * @param float  $offset_x Horizontal offset of this area's page slot.
+	 * @param float  $offset_y Vertical offset of this area's page slot.
 	 */
-	protected static function draw_crop_marks( \TCPDF $pdf, float $w_mm, float $h_mm, float $bleed, float $slug = 0.0 ): void {
+	protected static function draw_crop_marks( \TCPDF $pdf, float $w_mm, float $h_mm, float $bleed, float $slug = 0.0, float $offset_x = 0.0, float $offset_y = 0.0 ): void {
 		if ( $bleed <= 0 ) {
 			return;
 		}
@@ -3192,8 +3228,8 @@ abstract class OC_Print_Base {
 
 		$mark_len  = 5.0;  // Length of crop mark line beyond bleed edge.
 		$mark_gap  = 2.0;  // Gap between trim edge and start of crop mark.
-		$trim_x    = max( 0.0, $slug ) + $bleed;
-		$trim_y    = max( 0.0, $slug ) + $bleed;
+		$trim_x    = $offset_x + max( 0.0, $slug ) + $bleed;
+		$trim_y    = $offset_y + max( 0.0, $slug ) + $bleed;
 
 		$pdf->SetDrawColor( 0, 0, 0 );
 		$pdf->SetLineWidth( 0.25 );

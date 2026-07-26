@@ -403,6 +403,21 @@
 	color: var(--oc-gray-500);
 }
 
+.oc-customer-upload-bulk-actions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.oc-customer-upload-bulk-actions label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--oc-gray-600);
+}
+
 .oc-page .oc-customer-upload-grid {
 	display: grid;
 	grid-template-columns: repeat(auto-fill, minmax(235px, 1fr));
@@ -449,6 +464,30 @@
 		-10px 0;
 	background-size: 20px 20px;
 	border-bottom: 1px solid var(--oc-gray-100);
+}
+
+.oc-customer-upload-select {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	z-index: 2;
+	display: grid;
+	place-items: center;
+	width: 28px;
+	height: 28px;
+	border: 1px solid var(--oc-gray-200);
+	border-radius: 8px;
+	background: rgba(255, 255, 255, 0.92);
+	box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+}
+
+.oc-customer-upload-select input {
+	margin: 0;
+}
+
+.oc-customer-upload-card:has([data-oc-upload-select]:checked) {
+	border-color: var(--oc-primary);
+	box-shadow: 0 0 0 2px var(--oc-primary-border);
 }
 
 .oc-customer-upload-preview img {
@@ -532,6 +571,12 @@
 
 	.oc-customer-upload-hero {
 		padding: 18px;
+	}
+
+	.oc-customer-upload-toolbar,
+	.oc-customer-upload-bulk-actions {
+		align-items: flex-start;
+		flex-direction: column;
 	}
 
 	.oc-customer-upload-stats,

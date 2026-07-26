@@ -108,12 +108,12 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 		return self::normalise_engraving_text( $text );
 	}
 
-	public static function test_single_line_anchor_pad_mm( float $layer_w_px, float $w_mm ): float {
-		return self::single_line_anchor_pad_mm( $layer_w_px, $w_mm );
-	}
-
 	public static function test_normalise_rotated_artboard_for_print( object $area, array $area_data ): array {
 		return self::normalise_rotated_artboard_for_print( $area, $area_data );
+	}
+
+	public static function test_combined_sheet_layout( array $areas, float $inset = 0.0, float $gap = 5.0 ): array {
+		return self::combined_sheet_layout( $areas, $inset, $gap );
 	}
 
 	public static function test_make_pdf( float $w_mm, float $h_mm, float $bleed = 0.0 ): \TCPDF {
@@ -260,12 +260,6 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
-	public function single_line_anchor_pad_matches_frontend_limits(): void {
-		$this->assertEqualsWithDelta( 0.2, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 100, 10 ), 0.001 );
-		$this->assertEqualsWithDelta( 1.0, OC_Print_Base_Testable::test_single_line_anchor_pad_mm( 1000, 100 ), 0.001 );
-	}
-
-	#[Test]
 	public function production_pdf_command_outlines_fonts_without_rasterising(): void {
 		$command = OC_Print_Base_Testable::test_ghostscript_outline_command( 'gs', '/tmp/source.pdf', '/tmp/output.pdf' );
 
@@ -314,6 +308,29 @@ class Test_Print_Base extends TestCase {
 		$this->assertSame( 120.0, $flat_area->canvas_w );
 		$this->assertSame( 40.0, $flat_area->canvas_h );
 		$this->assertSame( 0, $flat_area->canvas_rotation );
+	}
+
+	#[Test]
+	public function combined_sheet_layout_places_areas_without_overlap(): void {
+		$areas = [
+			[
+				'area'      => (object) [ 'canvas_unit' => 'mm', 'canvas_w' => 40, 'canvas_h' => 20 ],
+				'area_data' => [],
+			],
+			[
+				'area'      => (object) [ 'canvas_unit' => 'mm', 'canvas_w' => 30, 'canvas_h' => 50 ],
+				'area_data' => [],
+			],
+		];
+
+		$layout = OC_Print_Base_Testable::test_combined_sheet_layout( $areas, 3.0, 5.0 );
+
+		$this->assertCount( 2, $layout['entries'] );
+		$this->assertSame( 3.0, $layout['entries'][0]['x'] );
+		$this->assertSame( 54.0, $layout['entries'][1]['x'] );
+		$this->assertGreaterThan( $layout['entries'][0]['x'] + $layout['entries'][0]['w'], $layout['entries'][1]['x'] );
+		$this->assertSame( 87.0, $layout['page_w'] );
+		$this->assertSame( 56.0, $layout['page_h'] );
 	}
 
 	#[Test]

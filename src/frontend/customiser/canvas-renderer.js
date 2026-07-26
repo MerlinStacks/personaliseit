@@ -452,7 +452,6 @@ const canvasRendererMethods = {
 					  layer.settings?.default_color ||
 					  '#000000';
 				const align = layer.settings?.alignment || 'center';
-				const anchorPad = Math.max( 2, Math.min( 10, lw * 0.01 ) );
 				if ( font ) {
 					try {
 						await this.loadFont( font );
@@ -484,10 +483,9 @@ const canvasRendererMethods = {
 							layer.settings
 					  )
 					: clampFontSize(
-							Math.max( 10, Math.round( lh * 0.42 ) ),
+							Math.max( 10, Math.round( lh * 0.72 ) ),
 							layer.settings
 					  );
-				let textPadding = this.textRenderPadding( fontSize );
 				const textFill = isEmbroidery
 					? this.embroideryPattern( color, fontSize )
 					: isEngraving && engravingPalette.pattern === 'wood'
@@ -497,7 +495,7 @@ const canvasRendererMethods = {
 					: color;
 				const textClass = isSingleLineText ? FabricText : Textbox;
 				const textBoxSize = isSingleLineText ? {} : { width: lw };
-				const singleLineMaxWidth = Math.max( 1, lw - anchorPad * 2 );
+				const singleLineMaxWidth = Math.max( 1, lw );
 				const singleLineMaxHeight = Math.max( 1, lh );
 				const obj = new textClass( raw, {
 					left: lcX,
@@ -505,7 +503,6 @@ const canvasRendererMethods = {
 					originX: 'center',
 					originY: 'center',
 					...textBoxSize,
-					padding: textPadding,
 					angle: rotation,
 					fontFamily: font?.name || 'sans-serif',
 					fontWeight: font?.weight || 'normal',
@@ -574,7 +571,6 @@ const canvasRendererMethods = {
 						originX: 'center',
 						originY: 'center',
 						...textBoxSize,
-						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
 						fontWeight: font?.weight || 'normal',
@@ -602,7 +598,6 @@ const canvasRendererMethods = {
 						originX: 'center',
 						originY: 'center',
 						...textBoxSize,
-						padding: textPadding,
 						angle: rotation,
 						fontFamily: font?.name || 'sans-serif',
 						fontWeight: font?.weight || 'normal',
@@ -661,13 +656,12 @@ const canvasRendererMethods = {
 					fontSize > fittingFloor
 				) {
 					fontSize = Math.max( fittingFloor, fontSize - 1 );
-					textPadding = this.textRenderPadding( fontSize );
-					obj.set( { fontSize, padding: textPadding } );
+					obj.set( { fontSize } );
 					if ( stitchPad ) {
-						stitchPad.set( { fontSize, padding: textPadding } );
+						stitchPad.set( { fontSize } );
 					}
 					if ( stitchLift ) {
-						stitchLift.set( { fontSize, padding: textPadding } );
+						stitchLift.set( { fontSize } );
 					}
 				}
 				obj.initDimensions?.();
@@ -685,7 +679,7 @@ const canvasRendererMethods = {
 				);
 				const renderedWidth = Math.max(
 					1,
-					Math.ceil( measuredText.width + textPadding * 2 )
+					Math.ceil( measuredText.width )
 				);
 				const singleLineScaleX = isSingleLineText
 					? Math.min( 1, singleLineMaxWidth / renderedWidth )
@@ -698,11 +692,9 @@ const canvasRendererMethods = {
 						renderedWidth * singleLineScaleX;
 
 					if ( align === 'left' ) {
-						alignmentOffset =
-							-lw / 2 + anchorPad + renderedDisplayWidth / 2;
+						alignmentOffset = -lw / 2 + renderedDisplayWidth / 2;
 					} else if ( align === 'right' ) {
-						alignmentOffset =
-							lw / 2 - anchorPad - renderedDisplayWidth / 2;
+						alignmentOffset = lw / 2 - renderedDisplayWidth / 2;
 					}
 
 					if ( alignmentOffset ) {
@@ -742,7 +734,6 @@ const canvasRendererMethods = {
 						left: ( isSingleLineText ? obj.left : lcX ) + padX,
 						top: ( isSingleLineText ? obj.top : lcY ) + padY,
 						fontSize,
-						padding: textPadding,
 					} );
 					if ( isSingleLineText ) {
 						stitchPad.set( { scaleX: singleLineScaleX } );
@@ -762,7 +753,6 @@ const canvasRendererMethods = {
 						left: ( isSingleLineText ? obj.left : lcX ) - liftX,
 						top: ( isSingleLineText ? obj.top : lcY ) - liftY,
 						fontSize,
-						padding: textPadding,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 					} );
 					if ( isSingleLineText ) {
@@ -1066,10 +1056,6 @@ const canvasRendererMethods = {
 		return Math.max( 0, parseInt( value, 10 ) || 0 );
 	},
 
-	textRenderPadding( fontSize ) {
-		return Math.max( 4, Math.ceil( ( Number( fontSize ) || 0 ) * 0.18 ) );
-	},
-
 	textClipPadding( fontSize ) {
 		return Math.max( 2, Math.ceil( ( Number( fontSize ) || 0 ) * 0.18 ) );
 	},
@@ -1096,7 +1082,9 @@ const canvasRendererMethods = {
 			return true;
 		}
 
-		const margin = this.textFitSafetyMargin( fontSize );
+		const margin = multiline
+			? this.textFitSafetyMargin( fontSize )
+			: { x: 0, y: 0 };
 		const textClass = multiline ? Textbox : FabricText;
 		const textBoxSize = multiline ? { width: Math.max( 1, maxW ) } : {};
 		const obj = new textClass( raw, {
