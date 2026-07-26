@@ -2953,6 +2953,7 @@ __webpack_require__.r(__webpack_exports__);
 
 /* eslint-disable no-console */
 
+const PREVIEW_DISCLAIMER = 'This is a preview, not the final product. In some cases, our production team may need to adjust the personalisation. Any changes will preserve the spelling, grammar and spirit of your design, including any image supplied.';
 const GALLERY_IMAGE_SELECTORS = [
 // True Video Product Gallery (Swiper): prefer active non-video slide.
 '.tvpg-main-slider .swiper-slide-active:not(.tvpg-video-slide) .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide-active .woocommerce-product-gallery__image img', '.tvpg-main-slider .swiper-slide:not(.tvpg-video-slide) .woocommerce-product-gallery__image img',
@@ -3059,6 +3060,7 @@ const galleryPreviewMethods = {
     img.src = dataUrl;
     img.srcset = '';
     img.sizes = '';
+    img.title = PREVIEW_DISCLAIMER;
     img.classList.add('oc-live-preview-applied');
     if (hasDimensions) {
       img.width = dimensions.width;
@@ -3353,6 +3355,7 @@ const galleryPreviewMethods = {
     if (previewImg) {
       previewImg.src = dataUrl;
       previewImg.srcset = '';
+      previewImg.title = PREVIEW_DISCLAIMER;
       if (dimensions.width && dimensions.height) {
         previewImg.width = dimensions.width;
         previewImg.height = dimensions.height;

@@ -177,14 +177,6 @@ foreach ( $layers as $layer ) {
 		</div>
 	<?php endif; ?>
 
-	<div class="oc-layer-header">
-		<div class="oc-help-tooltip">
-			<button type="button" class="oc-help-toggle" aria-expanded="false" aria-describedby="oc-preview-disclaimer" aria-label="<?php esc_attr_e( 'Important information about your preview', 'overcustomise' ); ?>">i</button>
-			<span class="oc-help-hint" id="oc-preview-disclaimer" role="tooltip"><?php esc_html_e( 'This is a preview, not the final product. In some cases, our production team may need to adjust the personalisation. Any changes will preserve the spelling, grammar and spirit of your design, including any image supplied.', 'overcustomise' ); ?></span>
-		</div>
-		<span><?php esc_html_e( 'Preview information', 'overcustomise' ); ?></span>
-	</div>
-
 	<div class="oc-canvas-wrap" id="oc-canvas-wrap" aria-label="<?php esc_attr_e( 'Live customisation preview', 'overcustomise' ); ?>">
 		<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
 		<?php
