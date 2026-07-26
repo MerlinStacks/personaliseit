@@ -84,25 +84,6 @@
   background: #27ae60;
   box-shadow: 0 0 0 4px rgba(39, 174, 96, 0.12);
 }
-.oc-customiser-panel .oc-preview-heading {
-  display: flex;
-  align-items: center;
-  gap: var(--oc-gap-xs);
-  margin-bottom: var(--oc-gap-xs);
-}
-.oc-customiser-panel .oc-preview-heading .oc-preview-label {
-  margin-bottom: 0;
-}
-.oc-customiser-panel .oc-preview-help .oc-help-toggle {
-  width: 18px;
-  height: 18px;
-  font-size: 0.68em;
-}
-.oc-customiser-panel .oc-preview-help .oc-help-hint {
-  max-width: min(320px, 100vw - 48px);
-  text-transform: none;
-  letter-spacing: normal;
-}
 .oc-customiser-panel #oc-canvas-preview {
   display: block;
   width: 100%;
@@ -1517,6 +1498,9 @@
   display: flex;
   gap: var(--oc-gap-xs);
   overflow-x: auto;
+}
+.oc-customiser-panel .oc-cart-preview-tabs[hidden] {
+  display: none;
 }
 .oc-customiser-panel .oc-cart-preview-tab {
   flex: 0 0 auto;

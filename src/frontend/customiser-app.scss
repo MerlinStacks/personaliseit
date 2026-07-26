@@ -85,31 +85,6 @@
 		}
 	}
 
-	.oc-preview-heading {
-		display: flex;
-		align-items: center;
-		gap: var(--oc-gap-xs);
-		margin-bottom: var(--oc-gap-xs);
-
-		.oc-preview-label {
-			margin-bottom: 0;
-		}
-	}
-
-	.oc-preview-help {
-		.oc-help-toggle {
-			width: 18px;
-			height: 18px;
-			font-size: 0.68em;
-		}
-
-		.oc-help-hint {
-			max-width: min(320px, calc(100vw - 48px));
-			text-transform: none;
-			letter-spacing: normal;
-		}
-	}
-
 	#oc-canvas-preview {
 		display: block;
 		width: 100%;
@@ -1773,6 +1748,10 @@
 		display: flex;
 		gap: var(--oc-gap-xs);
 		overflow-x: auto;
+
+		&[hidden] {
+			display: none;
+		}
 	}
 
 	.oc-cart-preview-tab {

@@ -491,7 +491,7 @@ const checkoutMethods = {
 
 		return this.areas.map( ( area, index ) => ( {
 			index,
-			label: area?.name || `Area ${ index + 1 }`,
+			label: area?.label || `Area ${ index + 1 }`,
 			url: this.getCanvasPreviewDataUrl( index ),
 		} ) );
 	},
@@ -654,6 +654,7 @@ const checkoutMethods = {
 		const panels = dialog.querySelector( '.oc-cart-preview-panels' );
 		tabs.replaceChildren();
 		panels.replaceChildren();
+		tabs.hidden = previews.length === 1;
 		previews.forEach( ( preview, position ) => {
 			const tab = document.createElement( 'button' );
 			tab.type = 'button';
