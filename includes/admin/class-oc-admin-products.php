@@ -530,13 +530,44 @@ class OC_Admin_Products {
 					} ).join( '' ) : '<div class="oc-searchable-design-select-empty">No designs found</div>';
 				}
 
+				function positionList() {
+					var rect = wrapper.getBoundingClientRect();
+					var gap = 4;
+					var edgeGap = 8;
+					var spaceBelow = window.innerHeight - rect.bottom - gap - edgeGap;
+					var spaceAbove = rect.top - gap - edgeGap;
+					var openAbove = spaceBelow < Math.min( 260, list.scrollHeight ) && spaceAbove > spaceBelow;
+					var available = openAbove ? spaceAbove : spaceBelow;
+					var height = Math.min( 260, list.scrollHeight, Math.max( 80, available ) );
+					var left = Math.max( edgeGap, Math.min( rect.left, window.innerWidth - rect.width - edgeGap ) );
+
+					list.style.position = 'fixed';
+					list.style.left = left + 'px';
+					list.style.right = 'auto';
+					list.style.top = ( openAbove ? Math.max( edgeGap, rect.top - gap - height ) : rect.bottom + gap ) + 'px';
+					list.style.width = rect.width + 'px';
+					list.style.maxHeight = height + 'px';
+				}
+
 				function openList() {
 					wrapper.classList.add( 'is-open' );
 					renderList();
+					document.body.appendChild( list );
+					list.classList.add( 'is-portaled' );
+					input.setAttribute( 'aria-expanded', 'true' );
+					positionList();
+					window.addEventListener( 'resize', positionList );
+					window.addEventListener( 'scroll', positionList, true );
 				}
 
 				function closeList() {
 					wrapper.classList.remove( 'is-open' );
+					list.classList.remove( 'is-portaled' );
+					list.removeAttribute( 'style' );
+					wrapper.appendChild( list );
+					input.setAttribute( 'aria-expanded', 'false' );
+					window.removeEventListener( 'resize', positionList );
+					window.removeEventListener( 'scroll', positionList, true );
 					syncInput();
 				}
 
@@ -544,6 +575,8 @@ class OC_Admin_Products {
 				input.type = 'search';
 				input.className = 'oc-input oc-searchable-design-select-input';
 				input.autocomplete = 'off';
+				input.setAttribute( 'role', 'combobox' );
+				input.setAttribute( 'aria-expanded', 'false' );
 				syncInput();
 				list.className = 'oc-searchable-design-select-list';
 
@@ -556,7 +589,10 @@ class OC_Admin_Products {
 					input.select();
 					openList();
 				} );
-				input.addEventListener( 'input', renderList );
+				input.addEventListener( 'input', function () {
+					renderList();
+					positionList();
+				} );
 				input.addEventListener( 'keydown', function ( e ) {
 					var firstOption = list.querySelector( '.oc-searchable-design-select-option' );
 					if ( 'Escape' === e.key ) {
@@ -1731,11 +1767,16 @@ class OC_Admin_Products {
 
 	/** Validate a preview-only mask without requiring locally stored production artwork. */
 	private static function design_mask_attachment_is_valid( int $attachment_id, int $existing_attachment_id = 0 ): bool {
+		$url      = (string) wp_get_attachment_url( $attachment_id );
+		$mime     = strtolower( (string) get_post_mime_type( $attachment_id ) );
+		$url_path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$is_png   = in_array( $mime, [ 'image/png', 'image/x-png' ], true )
+			|| ( str_starts_with( $mime, 'image/' ) && 'png' === strtolower( pathinfo( $url_path, PATHINFO_EXTENSION ) ) );
 		if (
 			$attachment_id <= 0
 			|| 'attachment' !== get_post_type( $attachment_id )
-			|| 'image/png' !== get_post_mime_type( $attachment_id )
-			|| ! wp_get_attachment_url( $attachment_id )
+			|| ! $is_png
+			|| '' === $url
 		) {
 			return false;
 		}

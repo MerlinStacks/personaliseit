@@ -793,11 +793,16 @@ const canvasRendererMethods = {
 
 			case 'image': {
 				if ( input.attachmentUrl ) {
+					const imageCrop = Math.max(
+						0,
+						Math.min( 100, Number( input.imageCrop ) || 0 )
+					);
 					const imageFilter = this.imageFilterForLayer(
 						layer,
 						input.imageFilterId
 					);
 					const imageEffects = {
+						layerId: layer.id,
 						...( imageFilter ? { imageFilter } : {} ),
 						...( imageFilter && layer.settings?.enable_image_colour
 							? {
@@ -822,8 +827,8 @@ const canvasRendererMethods = {
 						false,
 						rotation,
 						engravingPalette,
-						contentClip(),
-						'contain',
+						this.rectClipPath( lx, ly, lw, lh, rotation ),
+						imageCrop,
 						'',
 						imageEffects,
 						isCurrent
@@ -1512,7 +1517,7 @@ const canvasRendererMethods = {
 		return new Pattern( { source, repeat: 'repeat' } );
 	},
 
-	silverPlaquePhotoDither( element, displayW, displayH ) {
+	silverPlaquePhotoDither( element, displayW, displayH, fit = 0 ) {
 		try {
 			const sourceW = Number(
 				element?.naturalWidth || element?.width || 0
@@ -1524,16 +1529,26 @@ const canvasRendererMethods = {
 				return null;
 			}
 
-			const maxDimension = Math.min(
-				1200,
-				Math.max(
-					240,
-					Math.round( Math.max( displayW, displayH ) * 1.5 )
-				)
+			const cropAmount =
+				fit === 'cover'
+					? 1
+					: Math.max(
+							0,
+							Math.min( 1, ( Number( fit ) || 0 ) / 100 )
+					  );
+			const containScale = Math.min(
+				displayW / sourceW,
+				displayH / sourceH
 			);
+			const coverScale = Math.max(
+				displayW / sourceW,
+				displayH / sourceH
+			);
+			const displayScale =
+				containScale + ( coverScale - containScale ) * cropAmount;
 			const scale = Math.min(
-				1,
-				maxDimension / Math.max( sourceW, sourceH )
+				displayScale,
+				1200 / Math.max( sourceW, sourceH )
 			);
 			const width = Math.max( 1, Math.round( sourceW * scale ) );
 			const height = Math.max( 1, Math.round( sourceH * scale ) );
@@ -1545,39 +1560,60 @@ const canvasRendererMethods = {
 			if ( ! ctx ) {
 				return null;
 			}
+			ctx.imageSmoothingEnabled = true;
+			ctx.imageSmoothingQuality = 'high';
 			ctx.drawImage( element, 0, 0, width, height );
 			const image = ctx.getImageData( 0, 0, width, height );
 			const pixels = image.data;
-			const matrix = [
-				[ 0, 48, 12, 60, 3, 51, 15, 63 ],
-				[ 32, 16, 44, 28, 35, 19, 47, 31 ],
-				[ 8, 56, 4, 52, 11, 59, 7, 55 ],
-				[ 40, 24, 36, 20, 43, 27, 39, 23 ],
-				[ 2, 50, 14, 62, 1, 49, 13, 61 ],
-				[ 34, 18, 46, 30, 33, 17, 45, 29 ],
-				[ 10, 58, 6, 54, 9, 57, 5, 53 ],
-				[ 42, 26, 38, 22, 41, 25, 37, 21 ],
-			];
+			const luminance = new Float32Array( width * height );
 
 			for ( let y = 0; y < height; y++ ) {
 				for ( let x = 0; x < width; x++ ) {
 					const index = ( y * width + x ) * 4;
-					const alpha = pixels[ index + 3 ];
-					const luminance =
+					const value =
 						pixels[ index ] * 0.2126 +
 						pixels[ index + 1 ] * 0.7152 +
 						pixels[ index + 2 ] * 0.0722;
-					const contrasted = Math.max(
+					luminance[ y * width + x ] = Math.max(
 						0,
-						Math.min( 255, ( luminance - 128 ) * 1.22 + 142 )
+						Math.min( 255, ( value - 128 ) * 1.22 + 142 )
 					);
-					const threshold = ( matrix[ y % 8 ][ x % 8 ] + 0.5 ) * 4;
-					const engraved = contrasted < threshold;
+				}
+			}
 
-					pixels[ index ] = 17;
-					pixels[ index + 1 ] = 19;
-					pixels[ index + 2 ] = 21;
-					pixels[ index + 3 ] = engraved ? alpha : 0;
+			const spreadError = ( x, y, error, factor ) => {
+				if ( x < 0 || y < 0 || x >= width || y >= height ) {
+					return;
+				}
+				const index = y * width + x;
+				luminance[ index ] = Math.max(
+					0,
+					Math.min( 255, luminance[ index ] + error * factor )
+				);
+			};
+
+			// Error diffusion avoids the repeating cells produced by ordered dithering.
+			for ( let y = 0; y < height; y++ ) {
+				for ( let x = 0; x < width; x++ ) {
+					const pixelIndex = y * width + x;
+					const dataIndex = pixelIndex * 4;
+					const alpha = pixels[ dataIndex + 3 ];
+					if ( alpha === 0 ) {
+						continue;
+					}
+					const engraved = luminance[ pixelIndex ] < 128;
+					const outputValue = engraved ? 0 : 255;
+					const error = luminance[ pixelIndex ] - outputValue;
+
+					pixels[ dataIndex ] = 17;
+					pixels[ dataIndex + 1 ] = 19;
+					pixels[ dataIndex + 2 ] = 21;
+					pixels[ dataIndex + 3 ] = engraved ? alpha : 0;
+
+					spreadError( x + 1, y, error, 7 / 16 );
+					spreadError( x - 1, y + 1, error, 3 / 16 );
+					spreadError( x, y + 1, error, 5 / 16 );
+					spreadError( x + 1, y + 1, error, 1 / 16 );
 				}
 			}
 
@@ -2257,7 +2293,7 @@ const canvasRendererMethods = {
 		angle = 0,
 		engravingPalette = null,
 		clipPath = null,
-		fit = 'contain',
+		fit = 0,
 		tintColor = '',
 		effects = {},
 		isCurrent = () => true
@@ -2283,7 +2319,8 @@ const canvasRendererMethods = {
 				const dithered = this.silverPlaquePhotoDither(
 					img.getElement(),
 					w,
-					h
+					h,
+					fit
 				);
 				if ( dithered ) {
 					img.setElement( dithered );
@@ -2291,23 +2328,6 @@ const canvasRendererMethods = {
 					isDitheredEngraving = false;
 				}
 			}
-			const s =
-				fit === 'cover'
-					? Math.max( w / img.width, h / img.height )
-					: Math.min( w / img.width, h / img.height );
-			img.set( {
-				left: x + w / 2,
-				top: y + h / 2,
-				originX: 'center',
-				originY: 'center',
-				scaleX: s,
-				scaleY: s,
-				angle,
-				selectable: false,
-				evented: false,
-				imageSmoothing: ! isDitheredEngraving,
-			} );
-
 			const filters = [];
 			if (
 				makeWhiteTransparent ||
@@ -2387,6 +2407,32 @@ const canvasRendererMethods = {
 				img.filters = filters;
 				img.applyFilters();
 			}
+			const cropAmount =
+				fit === 'cover'
+					? 1
+					: Math.max(
+							0,
+							Math.min( 1, ( Number( fit ) || 0 ) / 100 )
+					  );
+			const containScale = Math.min( w / img.width, h / img.height );
+			const coverScale = Math.max( w / img.width, h / img.height );
+			const imageScale =
+				containScale + ( coverScale - containScale ) * cropAmount;
+			img.set( {
+				left: x + w / 2,
+				top: y + h / 2,
+				originX: 'center',
+				originY: 'center',
+				scaleX: imageScale,
+				scaleY: imageScale,
+				angle,
+				selectable: false,
+				evented: false,
+				imageSmoothing: ! isDitheredEngraving,
+			} );
+			img._ocLayerId = Number( effects.layerId ) || 0;
+			img._ocContainScale = containScale;
+			img._ocCoverScale = coverScale;
 			if ( isEngraving && effects.preserveRecolouredPixels ) {
 				img.set( {
 					opacity: palette.opacity,
@@ -2434,6 +2480,38 @@ const canvasRendererMethods = {
 			console.warn( '[OC] renderFabricImg error:', e, 'URL:', url );
 			return false;
 		}
+	},
+
+	updateRenderedImageCrop( layerId, amount ) {
+		const cropAmount = Math.max(
+			0,
+			Math.min( 1, ( Number( amount ) || 0 ) / 100 )
+		);
+		let updated = false;
+		Object.values( this.canvases || {} ).forEach( ( canvas ) => {
+			const image = canvas
+				?.getObjects?.()
+				.find(
+					( object ) =>
+						Number( object._ocLayerId ) === Number( layerId )
+				);
+			if ( ! image ) {
+				return;
+			}
+			const containScale = Number( image._ocContainScale ) || 0;
+			const coverScale = Number( image._ocCoverScale ) || containScale;
+			const scale =
+				containScale + ( coverScale - containScale ) * cropAmount;
+			image.set( { scaleX: scale, scaleY: scale } );
+			image.setCoords?.();
+			canvas.renderAll?.();
+			if ( canvas._ocArea && ! canvas._ocMissingMockup ) {
+				this.pushToGallery( canvas );
+			}
+			updated = true;
+		} );
+
+		return updated;
 	},
 
 	imageFilterForLayer( layer, filterId ) {

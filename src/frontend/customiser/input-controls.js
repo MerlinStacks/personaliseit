@@ -14,6 +14,7 @@ const LINKED_IMAGE_INPUT_KEYS = [
 	'imageMeta',
 	'sourceImageMeta',
 	'imageFilterId',
+	'customerUploaded',
 ];
 
 const inputControlMethods = {
@@ -765,6 +766,40 @@ const inputControlMethods = {
 				);
 			} );
 
+		// Image filters remain source effects; this control only changes placement.
+		document
+			.querySelectorAll( '[data-oc-layer-image-crop]' )
+			.forEach( ( el ) => {
+				const lid = parseInt( el.dataset.ocLayerImageCrop, 10 );
+				if ( ! this.inputs[ lid ] ) {
+					this.inputs[ lid ] = {};
+				}
+				this.updateImageCropControl( lid );
+				el.addEventListener(
+					'input',
+					() => {
+						this.inputs[ lid ].imageCrop = Math.max(
+							0,
+							Math.min( 100, parseInt( el.value, 10 ) || 0 )
+						);
+						this.updateImageCropControl( lid );
+						this.requestPreviewFocus();
+						if (
+							! this.updateRenderedImageCrop(
+								lid,
+								this.inputs[ lid ].imageCrop
+							)
+						) {
+							this.scheduleRedraw(
+								this.areaIndexForLayer( lid )
+							);
+						}
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
+			} );
+
 		// Clipart items
 		document
 			.querySelectorAll( '[data-oc-layer-clipart]' )
@@ -1490,6 +1525,40 @@ const inputControlMethods = {
 					select.value = String( input.imageFilterId || 0 );
 				} );
 		}
+		if (
+			keys.includes( 'imageCrop' ) ||
+			keys.includes( 'customerUploaded' )
+		) {
+			this.updateImageCropControl( layerId );
+		}
+	},
+
+	updateImageCropControl( layerId ) {
+		const input = this.inputs[ layerId ] || {};
+		const control = document.querySelector(
+			`[data-oc-image-crop-control="${ layerId }"]`
+		);
+		const range = control?.querySelector( '[data-oc-layer-image-crop]' );
+		if ( ! control || ! range ) {
+			return;
+		}
+		const visible = Boolean(
+			input.customerUploaded && this.isProductionImageInput( input )
+		);
+		const amount = Math.max(
+			0,
+			Math.min( 100, Number( input.imageCrop ) || 0 )
+		);
+		control.hidden = ! visible;
+		range.disabled = ! visible || this._controlLocks.size > 0;
+		range.value = String( amount );
+		let valueText = `${ amount }% crop`;
+		if ( amount === 0 ) {
+			valueText = 'Fit image';
+		} else if ( amount === 100 ) {
+			valueText = 'Crop to subject';
+		}
+		range.setAttribute( 'aria-valuetext', valueText );
 	},
 
 	// ── Form submit — upload preview then proceed ──────────────────────────────
@@ -1584,6 +1653,7 @@ const inputControlMethods = {
 			if ( imageFilterEl ) {
 				imageFilterEl.value = String( inp.imageFilterId || 0 );
 			}
+			this.updateImageCropControl( layerId );
 
 			document
 				.querySelectorAll( `[data-oc-upload-zone="${ layerId }"]` )

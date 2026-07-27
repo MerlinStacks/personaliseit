@@ -685,6 +685,9 @@ class OC_Cart {
 			if ( ! in_array( $default_filter, $filter_ids, true ) ) $default_filter = 0;
 			if ( ! $editable || ! $can_filter_change || ! in_array( $filter_id, $filter_ids, true ) ) $filter_id = $default_filter;
 			$selected_filter = $filter_id ? ( $active_filters[ $filter_id ] ?? null ) : null;
+			$image_crop = 'image' === $type && $editable && $can_image_change
+				? max( 0, min( 100, absint( $source['imageCrop'] ?? 0 ) ) )
+				: 0;
 			if ( $filter_id && $selected_filter && 'ai' === (string) $selected_filter->filter_key ) {
 				$generated_filter_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_id', true ) );
 				$generated_source_id = absint( get_post_meta( $attachment_id, '_oc_ai_filter_source_id', true ) );
@@ -728,7 +731,7 @@ class OC_Cart {
 			$preview_attachment_id = $attachment_id ? absint( get_post_meta( $attachment_id, '_oc_print_derivative_attachment_id', true ) ) : 0;
 			$normalised[ $layer_id ] = [
 				'type' => $type, 'value' => $value, 'fontId' => $font_id, 'fontName' => $font_names[ $font_id ] ?? '', 'fontSize' => $font_size,
-				'colorHex' => $colour, 'colorName' => $colour_names[ strtolower( $colour ) ] ?? '', 'attachmentId' => $attachment_id, 'sourceAttachmentId' => $source_attachment_id, 'imageFilterId' => $filter_id,
+				'colorHex' => $colour, 'colorName' => $colour_names[ strtolower( $colour ) ] ?? '', 'attachmentId' => $attachment_id, 'sourceAttachmentId' => $source_attachment_id, 'imageFilterId' => $filter_id, 'imageCrop' => $image_crop,
 				'imageFilterKey' => $selected_filter ? sanitize_key( (string) $selected_filter->filter_key ) : '',
 				'imageFilterValue' => $selected_filter ? (float) $selected_filter->value : 0.0,
 				'previewAttachmentId' => $preview_attachment_id,

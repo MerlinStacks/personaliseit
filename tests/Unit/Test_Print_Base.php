@@ -800,4 +800,27 @@ class Test_Print_Base extends TestCase {
 			}
 		}
 	}
+
+	#[Test]
+	public function image_crop_interpolates_between_contain_and_cover_after_filtering(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$temp_source = tempnam( sys_get_temp_dir(), 'oc-fit-source-' );
+		$source = $temp_source . '.png';
+		rename( $temp_source, $source );
+		$image = imagecreatetruecolor( 200, 100 );
+		imagepng( $image, $source );
+		imagedestroy( $image );
+
+		try {
+			$method = new ReflectionMethod( OC_Print_Base::class, 'fit_artwork_box' );
+			$this->assertEqualsWithDelta( [ 0.0, 25.0, 100.0, 50.0 ], $method->invoke( null, $source, 0.0, 0.0, 100.0, 100.0, 0.0 ), 0.001 );
+			$this->assertEqualsWithDelta( [ -25.0, 12.5, 150.0, 75.0 ], $method->invoke( null, $source, 0.0, 0.0, 100.0, 100.0, 0.5 ), 0.001 );
+			$this->assertEqualsWithDelta( [ -50.0, 0.0, 200.0, 100.0 ], $method->invoke( null, $source, 0.0, 0.0, 100.0, 100.0, 1.0 ), 0.001 );
+		} finally {
+			@unlink( $source );
+		}
+	}
 }

@@ -21,6 +21,14 @@ if ( ! class_exists( 'WC_Order' ) ) {
 }
 
 class Test_Print_Embroidery extends TestCase {
+	#[Test]
+	public function image_crop_uses_the_same_contain_to_cover_interpolation(): void {
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'fit_eps_box' );
+
+		$this->assertEqualsWithDelta( [ 0.0, 25.0, 100.0, 50.0 ], $method->invoke( null, 200.0, 100.0, 0.0, 0.0, 100.0, 100.0, 0.0 ), 0.001 );
+		$this->assertEqualsWithDelta( [ -25.0, 12.5, 150.0, 75.0 ], $method->invoke( null, 200.0, 100.0, 0.0, 0.0, 100.0, 100.0, 0.5 ), 0.001 );
+		$this->assertEqualsWithDelta( [ -50.0, 0.0, 200.0, 100.0 ], $method->invoke( null, 200.0, 100.0, 0.0, 0.0, 100.0, 100.0, 1.0 ), 0.001 );
+	}
 
 	#[Test]
 	public function text_export_does_not_fall_back_to_default_placeholder(): void {

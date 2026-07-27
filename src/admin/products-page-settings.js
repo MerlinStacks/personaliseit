@@ -135,8 +135,9 @@ export function createProductsPageSettings( deps ) {
 			'</div>' +
 			'<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
 			'<button type="button" id="oc-choose-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm">Choose image</button>' +
-			'<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm"' +
-			( hasDefault ? '' : ' style="display:none;"' ) +
+			'<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm' +
+			( hasDefault ? '' : ' oc-default-media-remove--hidden' ) +
+			'"' +
 			'>Remove</button>' +
 			'</div>' +
 			'</div>'
@@ -986,18 +987,42 @@ export function createProductsPageSettings( deps ) {
 					if ( ! attachment ) {
 						return;
 					}
+					const attachmentUrl =
+						attachment.url ||
+						attachment.sizes?.full?.url ||
+						attachment.originalImageURL ||
+						'';
+					const attachmentMime = String(
+						attachment.mime || ''
+					).toLowerCase();
+					const isPng =
+						[ 'image/png', 'image/x-png' ].includes(
+							attachmentMime
+						) ||
+						attachment.subtype === 'png' ||
+						/\.png(?:[?#]|$)/i.test(
+							attachment.filename || attachmentUrl
+						);
 					if (
 						layer.type === 'mask' &&
-						attachment.mime !== 'image/png'
+						( ! isPng || ! attachmentUrl )
 					) {
+						const empty = document.getElementById(
+							'oc-default-attachment-empty'
+						);
+						if ( empty ) {
+							empty.textContent = ! isPng
+								? 'Please select a PNG image.'
+								: 'The selected PNG has no usable URL.';
+						}
 						return;
 					}
 					s.default_attachment_id = Number( attachment.id ) || 0;
 					s.default_attachment_url =
 						layer.type === 'mask'
-							? attachment.url || ''
+							? attachmentUrl
 							: attachment.sizes?.medium?.url ||
-							  attachment.url ||
+							  attachmentUrl ||
 							  '';
 					commitChange( { canvas: true, rightColumn: true } );
 				} );

@@ -179,7 +179,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				case 'clipart':
 				case 'image':
 				case 'clipmask':
-					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt, 'clipmask' === $type ? 'cover' : 'contain' ) && ! $artwork_used ) {
+					$fit = 'clipmask' === $type ? 'cover' : ( 'image' === $type ? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) ) : 0.0 );
+					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) && ! $artwork_used ) {
 						$fallback_path = self::resolve_artwork_path( $area_data );
 						if ( $fallback_path ) {
 							self::append_eps_image_or_reference( $lines, $fallback_path, $x_pt, $y_pt, $w_pt, $h_pt, 'contain' );
@@ -1142,7 +1143,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Append layer artwork, embedding raster files and preserving vector references. */
-	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): bool {
+	private static function append_eps_artwork( array &$lines, array $layer, float $x_pt, float $y_pt, float $w_pt, float $h_pt, float|string $fit = 0.0 ): bool {
 		$path = self::resolve_eps_layer_artwork_path( $layer );
 		if ( ! $path ) {
 			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
@@ -1176,11 +1177,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
-		$clipped = 'clipmask' === (string) ( $layer['type'] ?? '' );
+		$clipped = 'clipmask' === (string) ( $layer['type'] ?? '' ) || ( 'image' === (string) ( $layer['type'] ?? '' ) && (float) $fit > 0.0 );
 		if ( $clipped ) {
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+			$clip_shape = 'clipmask' === (string) ( $layer['type'] ?? '' )
+				? sanitize_key( (string) ( $settings['mask_shape'] ?? 'circle' ) )
+				: 'rectangle';
 			$lines[] = 'gsave';
-			self::append_eps_clip_path( $lines, $x_pt, $y_pt, $w_pt, $h_pt, sanitize_key( (string) ( $settings['mask_shape'] ?? 'circle' ) ) );
+			self::append_eps_clip_path( $lines, $x_pt, $y_pt, $w_pt, $h_pt, $clip_shape );
 		}
 
 		try {
@@ -2879,12 +2883,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return $rotation < 0.0 ? $rotation + 360.0 : $rotation;
 	}
 
-	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): array {
+	private static function fit_eps_box( float $src_w, float $src_h, float $x_pt, float $y_pt, float $w_pt, float $h_pt, float|string $fit = 0.0 ): array {
 		if ( $src_w <= 0.0 || $src_h <= 0.0 || $w_pt <= 0.0 || $h_pt <= 0.0 ) {
 			return [ $x_pt, $y_pt, $w_pt, $h_pt ];
 		}
 
-		$scale  = 'cover' === $fit ? max( $w_pt / $src_w, $h_pt / $src_h ) : min( $w_pt / $src_w, $h_pt / $src_h );
+		$crop_amount  = 'cover' === $fit ? 1.0 : max( 0.0, min( 1.0, (float) $fit ) );
+		$contain_scale = min( $w_pt / $src_w, $h_pt / $src_h );
+		$cover_scale   = max( $w_pt / $src_w, $h_pt / $src_h );
+		$scale         = $contain_scale + ( $cover_scale - $contain_scale ) * $crop_amount;
 		$draw_w = $src_w * $scale;
 		$draw_h = $src_h * $scale;
 

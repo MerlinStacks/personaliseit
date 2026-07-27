@@ -373,6 +373,8 @@ const uploadMethods = {
 					),
 					imageMeta: null,
 					sourceImageMeta: null,
+					imageCrop: 0,
+					customerUploaded: true,
 				};
 				const meta = await this.getTrackedImageMeta(
 					attachmentUrl,
@@ -442,6 +444,7 @@ const uploadMethods = {
 					zoneEl,
 					filterApplied ? 'uploaded' : 'uploaded-error'
 				);
+				this.updateImageCropControl( lid );
 				this.syncLinkedImageInput( lid );
 				this.requestPreviewFocus();
 				this.scheduleRedraw( this.areaIndexForLayer( lid ) );

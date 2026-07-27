@@ -284,6 +284,22 @@
 		gap: 8px;
 	}
 
+	.oc-image-crop-control {
+		margin-top: 10px;
+
+		&[hidden] {
+			display: none;
+		}
+
+		.oc-image-crop-labels {
+			display: flex;
+			justify-content: space-between;
+			gap: var(--oc-gap-sm);
+			font-size: 0.75em;
+			color: var(--oc-fg-muted);
+		}
+	}
+
 	.oc-font-size-notice {
 		margin: 0;
 		padding: 10px 12px;

@@ -46,7 +46,7 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 					'w'                   => 60,
 					'h'                   => 60,
 					'settings'            => [],
-					'input'               => [ 'attachmentId' => 88 ],
+					'input'               => [ 'attachmentId' => 88, 'imageCrop' => 65 ],
 					'artworkAttachmentId' => 88,
 				],
 			],
@@ -66,6 +66,7 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( 12, $data['minFontSize'] );
 		$this->assertSame( 26, $data['maxFontSize'] );
 		$this->assertSame( 88, $data['artworkAttachmentId'] );
+		$this->assertSame( 65, $data['layers'][1]['input']['imageCrop'] );
 		$this->assertSame( 80, $data['layers'][0]['x'] );
 		$this->assertSame( 160, $data['layers'][0]['w'] );
 		$this->assertSame( [ 'x' => 50, 'y' => 60, 'w' => 300, 'h' => 120, 'rotation' => 0 ], $data['bounds'] );

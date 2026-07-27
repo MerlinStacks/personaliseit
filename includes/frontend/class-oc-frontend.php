@@ -271,16 +271,21 @@ class OC_Frontend {
 				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
 				$default_attachment_id  = absint( $settings['default_attachment_id'] ?? 0 );
 				$is_mask_attachment = 'mask' === (string) $layer->type;
+				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
+				$attachment_mime = strtolower( (string) get_post_mime_type( $default_attachment_id ) );
+				$attachment_url_path = (string) wp_parse_url( $default_attachment_url, PHP_URL_PATH );
+				$is_png_attachment = in_array( $attachment_mime, [ 'image/png', 'image/x-png' ], true )
+					|| ( str_starts_with( $attachment_mime, 'image/' ) && 'png' === strtolower( pathinfo( $attachment_url_path, PATHINFO_EXTENSION ) ) );
 				$is_valid_attachment = $is_mask_attachment
 					? 'attachment' === get_post_type( $default_attachment_id )
-						&& 'image/png' === get_post_mime_type( $default_attachment_id )
-						&& (bool) wp_get_attachment_url( $default_attachment_id )
+						&& $is_png_attachment
+						&& '' !== $default_attachment_url
 					: OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id )
 						&& str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' );
 				if ( $default_attachment_id && ! $is_valid_attachment ) {
 					$default_attachment_id = 0;
+					$default_attachment_url = '';
 				}
-				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
 				$default_image_filter_id = absint( $settings['default_image_filter_id'] ?? 0 );
 				$image_filter_ids = array_values( array_filter( array_map(
 					'absint',
@@ -331,6 +336,7 @@ class OC_Frontend {
 					'sourceAttachmentId'  => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_id : 0,
 					'sourceAttachmentUrl' => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_url : '',
 					'imageFilterId' => 'image' === $layer->type ? $default_image_filter_id : 0,
+					'imageCrop'     => 0,
 					'clipartId'     => 0,
 					'clipartUrl'    => '',
 					'clipartRecolourable' => false,

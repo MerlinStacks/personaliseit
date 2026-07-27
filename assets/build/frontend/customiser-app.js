@@ -583,8 +583,10 @@ const canvasRendererMethods = {
       case 'image':
         {
           if (input.attachmentUrl) {
+            const imageCrop = Math.max(0, Math.min(100, Number(input.imageCrop) || 0));
             const imageFilter = this.imageFilterForLayer(layer, input.imageFilterId);
             const imageEffects = {
+              layerId: layer.id,
               ...(imageFilter ? {
                 imageFilter
               } : {}),
@@ -598,7 +600,7 @@ const canvasRendererMethods = {
                 photoEngraving: true
               } : {})
             };
-            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, contentClip(), 'contain', '', imageEffects, isCurrent);
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.rectClipPath(lx, ly, lw, lh, rotation), imageCrop, '', imageEffects, isCurrent);
             if (!rendered && isCurrent()) {
               throw new Error('Artwork image could not be rendered.');
             }
@@ -1028,15 +1030,18 @@ const canvasRendererMethods = {
       repeat: 'repeat'
     });
   },
-  silverPlaquePhotoDither(element, displayW, displayH) {
+  silverPlaquePhotoDither(element, displayW, displayH, fit = 0) {
     try {
       const sourceW = Number(element?.naturalWidth || element?.width || 0);
       const sourceH = Number(element?.naturalHeight || element?.height || 0);
       if (!sourceW || !sourceH) {
         return null;
       }
-      const maxDimension = Math.min(1200, Math.max(240, Math.round(Math.max(displayW, displayH) * 1.5)));
-      const scale = Math.min(1, maxDimension / Math.max(sourceW, sourceH));
+      const cropAmount = fit === 'cover' ? 1 : Math.max(0, Math.min(1, (Number(fit) || 0) / 100));
+      const containScale = Math.min(displayW / sourceW, displayH / sourceH);
+      const coverScale = Math.max(displayW / sourceW, displayH / sourceH);
+      const displayScale = containScale + (coverScale - containScale) * cropAmount;
+      const scale = Math.min(displayScale, 1200 / Math.max(sourceW, sourceH));
       const width = Math.max(1, Math.round(sourceW * scale));
       const height = Math.max(1, Math.round(sourceH * scale));
       const output = document.createElement('canvas');
@@ -1048,22 +1053,47 @@ const canvasRendererMethods = {
       if (!ctx) {
         return null;
       }
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(element, 0, 0, width, height);
       const image = ctx.getImageData(0, 0, width, height);
       const pixels = image.data;
-      const matrix = [[0, 48, 12, 60, 3, 51, 15, 63], [32, 16, 44, 28, 35, 19, 47, 31], [8, 56, 4, 52, 11, 59, 7, 55], [40, 24, 36, 20, 43, 27, 39, 23], [2, 50, 14, 62, 1, 49, 13, 61], [34, 18, 46, 30, 33, 17, 45, 29], [10, 58, 6, 54, 9, 57, 5, 53], [42, 26, 38, 22, 41, 25, 37, 21]];
+      const luminance = new Float32Array(width * height);
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {
           const index = (y * width + x) * 4;
-          const alpha = pixels[index + 3];
-          const luminance = pixels[index] * 0.2126 + pixels[index + 1] * 0.7152 + pixels[index + 2] * 0.0722;
-          const contrasted = Math.max(0, Math.min(255, (luminance - 128) * 1.22 + 142));
-          const threshold = (matrix[y % 8][x % 8] + 0.5) * 4;
-          const engraved = contrasted < threshold;
-          pixels[index] = 17;
-          pixels[index + 1] = 19;
-          pixels[index + 2] = 21;
-          pixels[index + 3] = engraved ? alpha : 0;
+          const value = pixels[index] * 0.2126 + pixels[index + 1] * 0.7152 + pixels[index + 2] * 0.0722;
+          luminance[y * width + x] = Math.max(0, Math.min(255, (value - 128) * 1.22 + 142));
+        }
+      }
+      const spreadError = (x, y, error, factor) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) {
+          return;
+        }
+        const index = y * width + x;
+        luminance[index] = Math.max(0, Math.min(255, luminance[index] + error * factor));
+      };
+
+      // Error diffusion avoids the repeating cells produced by ordered dithering.
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const pixelIndex = y * width + x;
+          const dataIndex = pixelIndex * 4;
+          const alpha = pixels[dataIndex + 3];
+          if (alpha === 0) {
+            continue;
+          }
+          const engraved = luminance[pixelIndex] < 128;
+          const outputValue = engraved ? 0 : 255;
+          const error = luminance[pixelIndex] - outputValue;
+          pixels[dataIndex] = 17;
+          pixels[dataIndex + 1] = 19;
+          pixels[dataIndex + 2] = 21;
+          pixels[dataIndex + 3] = engraved ? alpha : 0;
+          spreadError(x + 1, y, error, 7 / 16);
+          spreadError(x - 1, y + 1, error, 3 / 16);
+          spreadError(x, y + 1, error, 5 / 16);
+          spreadError(x + 1, y + 1, error, 1 / 16);
         }
       }
       ctx.putImageData(image, 0, 0);
@@ -1540,7 +1570,7 @@ const canvasRendererMethods = {
       return `${property}:${color}`;
     });
   },
-  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 'contain', tintColor = '', effects = {}, isCurrent = () => true) {
+  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 0, tintColor = '', effects = {}, isCurrent = () => true) {
     try {
       const imgLoadOpts = crossOrigin ? {
         crossOrigin
@@ -1556,26 +1586,13 @@ const canvasRendererMethods = {
       const palette = engravingPalette || this.engravingPalette();
       let isDitheredEngraving = Boolean(isEngraving && effects.photoEngraving && palette.photoDither);
       if (isDitheredEngraving) {
-        const dithered = this.silverPlaquePhotoDither(img.getElement(), w, h);
+        const dithered = this.silverPlaquePhotoDither(img.getElement(), w, h, fit);
         if (dithered) {
           img.setElement(dithered);
         } else {
           isDitheredEngraving = false;
         }
       }
-      const s = fit === 'cover' ? Math.max(w / img.width, h / img.height) : Math.min(w / img.width, h / img.height);
-      img.set({
-        left: x + w / 2,
-        top: y + h / 2,
-        originX: 'center',
-        originY: 'center',
-        scaleX: s,
-        scaleY: s,
-        angle,
-        selectable: false,
-        evented: false,
-        imageSmoothing: !isDitheredEngraving
-      });
       const filters = [];
       if (makeWhiteTransparent || isEngraving && !effects.preserveRecolouredPixels && !isDitheredEngraving) {
         filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.RemoveColor({
@@ -1630,6 +1647,25 @@ const canvasRendererMethods = {
         img.filters = filters;
         img.applyFilters();
       }
+      const cropAmount = fit === 'cover' ? 1 : Math.max(0, Math.min(1, (Number(fit) || 0) / 100));
+      const containScale = Math.min(w / img.width, h / img.height);
+      const coverScale = Math.max(w / img.width, h / img.height);
+      const imageScale = containScale + (coverScale - containScale) * cropAmount;
+      img.set({
+        left: x + w / 2,
+        top: y + h / 2,
+        originX: 'center',
+        originY: 'center',
+        scaleX: imageScale,
+        scaleY: imageScale,
+        angle,
+        selectable: false,
+        evented: false,
+        imageSmoothing: !isDitheredEngraving
+      });
+      img._ocLayerId = Number(effects.layerId) || 0;
+      img._ocContainScale = containScale;
+      img._ocCoverScale = coverScale;
       if (isEngraving && effects.preserveRecolouredPixels) {
         img.set({
           opacity: palette.opacity,
@@ -1670,6 +1706,30 @@ const canvasRendererMethods = {
       console.warn('[OC] renderFabricImg error:', e, 'URL:', url);
       return false;
     }
+  },
+  updateRenderedImageCrop(layerId, amount) {
+    const cropAmount = Math.max(0, Math.min(1, (Number(amount) || 0) / 100));
+    let updated = false;
+    Object.values(this.canvases || {}).forEach(canvas => {
+      const image = canvas?.getObjects?.().find(object => Number(object._ocLayerId) === Number(layerId));
+      if (!image) {
+        return;
+      }
+      const containScale = Number(image._ocContainScale) || 0;
+      const coverScale = Number(image._ocCoverScale) || containScale;
+      const scale = containScale + (coverScale - containScale) * cropAmount;
+      image.set({
+        scaleX: scale,
+        scaleY: scale
+      });
+      image.setCoords?.();
+      canvas.renderAll?.();
+      if (canvas._ocArea && !canvas._ocMissingMockup) {
+        this.pushToGallery(canvas);
+      }
+      updated = true;
+    });
+    return updated;
   },
   imageFilterForLayer(layer, filterId) {
     filterId = parseInt(filterId, 10) || 0;
@@ -3673,7 +3733,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* eslint-disable no-console, @wordpress/no-unused-vars-before-return */
 
-const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId'];
+const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId', 'customerUploaded'];
 const inputControlMethods = {
   // ── Input listeners ─────────────────────────────────────────────────────────
 
@@ -4233,6 +4293,26 @@ const inputControlMethods = {
       });
     });
 
+    // Image filters remain source effects; this control only changes placement.
+    document.querySelectorAll('[data-oc-layer-image-crop]').forEach(el => {
+      const lid = parseInt(el.dataset.ocLayerImageCrop, 10);
+      if (!this.inputs[lid]) {
+        this.inputs[lid] = {};
+      }
+      this.updateImageCropControl(lid);
+      el.addEventListener('input', () => {
+        this.inputs[lid].imageCrop = Math.max(0, Math.min(100, parseInt(el.value, 10) || 0));
+        this.updateImageCropControl(lid);
+        this.requestPreviewFocus();
+        if (!this.updateRenderedImageCrop(lid, this.inputs[lid].imageCrop)) {
+          this.scheduleRedraw(this.areaIndexForLayer(lid));
+        }
+        this.updateHiddenField();
+      }, {
+        signal: stateSignal
+      });
+    });
+
     // Clipart items
     document.querySelectorAll('[data-oc-layer-clipart]').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -4703,6 +4783,29 @@ const inputControlMethods = {
         select.value = String(input.imageFilterId || 0);
       });
     }
+    if (keys.includes('imageCrop') || keys.includes('customerUploaded')) {
+      this.updateImageCropControl(layerId);
+    }
+  },
+  updateImageCropControl(layerId) {
+    const input = this.inputs[layerId] || {};
+    const control = document.querySelector(`[data-oc-image-crop-control="${layerId}"]`);
+    const range = control?.querySelector('[data-oc-layer-image-crop]');
+    if (!control || !range) {
+      return;
+    }
+    const visible = Boolean(input.customerUploaded && this.isProductionImageInput(input));
+    const amount = Math.max(0, Math.min(100, Number(input.imageCrop) || 0));
+    control.hidden = !visible;
+    range.disabled = !visible || this._controlLocks.size > 0;
+    range.value = String(amount);
+    let valueText = `${amount}% crop`;
+    if (amount === 0) {
+      valueText = 'Fit image';
+    } else if (amount === 100) {
+      valueText = 'Crop to subject';
+    }
+    range.setAttribute('aria-valuetext', valueText);
   },
   // ── Form submit — upload preview then proceed ──────────────────────────────
 
@@ -4756,6 +4859,7 @@ const inputControlMethods = {
       if (imageFilterEl) {
         imageFilterEl.value = String(inp.imageFilterId || 0);
       }
+      this.updateImageCropControl(layerId);
       document.querySelectorAll(`[data-oc-upload-zone="${layerId}"]`).forEach(zone => {
         this.setUploadZoneState(zone, this.isProductionImageInput(inp) ? 'uploaded' : '');
       });
@@ -5715,7 +5819,9 @@ const uploadMethods = {
           previewAttachmentId: Number(res.body.preview_attachment_id || 0),
           sourcePreviewAttachmentId: Number(res.body.preview_attachment_id || 0),
           imageMeta: null,
-          sourceImageMeta: null
+          sourceImageMeta: null,
+          imageCrop: 0,
+          customerUploaded: true
         };
         const meta = await this.getTrackedImageMeta(attachmentUrl, lid);
         if (generation !== this.uploadGenerations[lid]) {
@@ -5754,6 +5860,7 @@ const uploadMethods = {
           return;
         }
         this.setUploadZoneState(zoneEl, filterApplied ? 'uploaded' : 'uploaded-error');
+        this.updateImageCropControl(lid);
         this.syncLinkedImageInput(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));

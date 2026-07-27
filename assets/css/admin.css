@@ -170,6 +170,10 @@
 	font-size: 12px !important;
 }
 
+.oc-default-media-remove--hidden {
+	display: none !important;
+}
+
 /* ── Cards ─────────────────────────────────────────────────────────────── */
 .oc-card {
 	background: var(--oc-white);
@@ -3495,6 +3499,11 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 
 .oc-searchable-design-select.is-open .oc-searchable-design-select-list {
 	display: block;
+}
+
+.oc-searchable-design-select-list.is-portaled {
+	display: block;
+	z-index: 100000;
 }
 
 .oc-searchable-design-select-option {

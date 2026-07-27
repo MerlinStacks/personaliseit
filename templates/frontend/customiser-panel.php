@@ -332,6 +332,16 @@ foreach ( $layers as $layer ) {
 											data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 									</div>
 									<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
+									<?php if ( 'image' === $layer->type ) : ?>
+										<div class="oc-control-group oc-image-crop-control" data-oc-image-crop-control="<?php echo esc_attr( $layer->id ); ?>" hidden>
+											<label for="oc-image-crop-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Image placement', 'overcustomise' ); ?></label>
+											<input type="range" id="oc-image-crop-<?php echo esc_attr( $layer->id ); ?>" min="0" max="100" step="1" value="0" disabled data-oc-layer-image-crop="<?php echo esc_attr( $layer->id ); ?>" aria-valuetext="<?php esc_attr_e( 'Fit image', 'overcustomise' ); ?>" />
+											<div class="oc-image-crop-labels" aria-hidden="true">
+												<span><?php esc_html_e( 'Fit image', 'overcustomise' ); ?></span>
+												<span><?php esc_html_e( 'Crop to subject', 'overcustomise' ); ?></span>
+											</div>
+										</div>
+									<?php endif; ?>
 									<?php else : ?>
 										<p class="oc-settings-empty"><?php esc_html_e( 'Image is fixed for this product.', 'overcustomise' ); ?></p>
 									<?php endif; ?>

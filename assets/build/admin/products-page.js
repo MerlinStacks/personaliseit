@@ -2914,7 +2914,7 @@ function createProductsPageSettings(deps) {
   }
   function mediaDefaultField(settings) {
     const hasDefault = !!settings.default_attachment_url;
-    return '<div class="oc-default-media-field">' + '<input type="hidden" id="oc-set-default-attachment-id" value="' + esc(settings.default_attachment_id || 0) + '" />' + '<input type="hidden" id="oc-set-default-attachment-url" value="' + esc(settings.default_attachment_url || '') + '" />' + '<div class="oc-mockup-thumb" style="margin-bottom:8px;">' + '<img id="oc-default-attachment-preview" src="' + esc(settings.default_attachment_url || '') + '" alt="" style="' + (hasDefault ? '' : 'display:none;') + 'max-width:100%;height:auto;" />' + '<span id="oc-default-attachment-empty" style="font-size:12px;color:var(--oc-gray-400);' + (hasDefault ? 'display:none;' : '') + '">No default image set</span>' + '</div>' + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + '<button type="button" id="oc-choose-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm">Choose image</button>' + '<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm"' + (hasDefault ? '' : ' style="display:none;"') + '>Remove</button>' + '</div>' + '</div>';
+    return '<div class="oc-default-media-field">' + '<input type="hidden" id="oc-set-default-attachment-id" value="' + esc(settings.default_attachment_id || 0) + '" />' + '<input type="hidden" id="oc-set-default-attachment-url" value="' + esc(settings.default_attachment_url || '') + '" />' + '<div class="oc-mockup-thumb" style="margin-bottom:8px;">' + '<img id="oc-default-attachment-preview" src="' + esc(settings.default_attachment_url || '') + '" alt="" style="' + (hasDefault ? '' : 'display:none;') + 'max-width:100%;height:auto;" />' + '<span id="oc-default-attachment-empty" style="font-size:12px;color:var(--oc-gray-400);' + (hasDefault ? 'display:none;' : '') + '">No default image set</span>' + '</div>' + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + '<button type="button" id="oc-choose-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm">Choose image</button>' + '<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm' + (hasDefault ? '' : ' oc-default-media-remove--hidden') + '"' + '>Remove</button>' + '</div>' + '</div>';
   }
   function alignBtns(current) {
     return '<div class="oc-align-btns">' + [['left', '\u2190', 'Left'], ['center', '\u2261', 'Center'], ['right', '\u2192', 'Right']].map(([a, icon, lbl]) => '<button type="button" class="oc-align-btn' + (a === current ? ' oc-align-btn--active' : '') + '" data-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
@@ -3203,11 +3203,18 @@ function createProductsPageSettings(deps) {
         if (!attachment) {
           return;
         }
-        if (layer.type === 'mask' && attachment.mime !== 'image/png') {
+        const attachmentUrl = attachment.url || attachment.sizes?.full?.url || attachment.originalImageURL || '';
+        const attachmentMime = String(attachment.mime || '').toLowerCase();
+        const isPng = ['image/png', 'image/x-png'].includes(attachmentMime) || attachment.subtype === 'png' || /\.png(?:[?#]|$)/i.test(attachment.filename || attachmentUrl);
+        if (layer.type === 'mask' && (!isPng || !attachmentUrl)) {
+          const empty = document.getElementById('oc-default-attachment-empty');
+          if (empty) {
+            empty.textContent = !isPng ? 'Please select a PNG image.' : 'The selected PNG has no usable URL.';
+          }
           return;
         }
         s.default_attachment_id = Number(attachment.id) || 0;
-        s.default_attachment_url = layer.type === 'mask' ? attachment.url || '' : attachment.sizes?.medium?.url || attachment.url || '';
+        s.default_attachment_url = layer.type === 'mask' ? attachmentUrl : attachment.sizes?.medium?.url || attachmentUrl || '';
         commitChange({
           canvas: true,
           rightColumn: true

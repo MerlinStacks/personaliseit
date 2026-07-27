@@ -2740,15 +2740,26 @@ abstract class OC_Print_Base {
 			$path          = $engraved_path;
 		}
 
-		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, 'contain' );
+		$crop_amount = 'image' === (string) ( $layer['type'] ?? '' )
+			? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) )
+			: 0.0;
+		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, $crop_amount );
+		$clip_to_layer = $crop_amount > 0.0;
 
 		try {
+			if ( $clip_to_layer ) {
+				$pdf->StartTransform();
+				$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
+			}
 			if ( 'spot' === $mode ) {
 				self::render_artwork_spot_mask( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
 			} else {
 				self::draw_pdf_image( $pdf, $path, $draw_x, $draw_y, $draw_w, $draw_h );
 			}
 		} finally {
+			if ( $clip_to_layer ) {
+				$pdf->StopTransform();
+			}
 			foreach ( array_unique( $temp_paths ) as $temp_path ) {
 				if ( is_string( $temp_path ) && '' !== $temp_path && file_exists( $temp_path ) ) {
 					@unlink( $temp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -2802,14 +2813,17 @@ abstract class OC_Print_Base {
 	}
 
 	/** Fit artwork by intrinsic dimensions, including SVG viewBox dimensions. */
-	private static function fit_artwork_box( string $path, float $x, float $y, float $w, float $h, string $fit ): array {
+	private static function fit_artwork_box( string $path, float $x, float $y, float $w, float $h, float|string $fit ): array {
 		$size = self::artwork_intrinsic_dimensions( $path );
 		if ( ! $size ) {
 			return [ $x, $y, $w, $h ];
 		}
 
 		[ $source_w, $source_h ] = $size;
-		$scale  = 'cover' === $fit ? max( $w / $source_w, $h / $source_h ) : min( $w / $source_w, $h / $source_h );
+		$crop_amount  = 'cover' === $fit ? 1.0 : max( 0.0, min( 1.0, (float) $fit ) );
+		$contain_scale = min( $w / $source_w, $h / $source_h );
+		$cover_scale   = max( $w / $source_w, $h / $source_h );
+		$scale         = $contain_scale + ( $cover_scale - $contain_scale ) * $crop_amount;
 		$draw_w = $source_w * $scale;
 		$draw_h = $source_h * $scale;
 
