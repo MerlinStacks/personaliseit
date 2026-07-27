@@ -1157,6 +1157,7 @@
 	}
 
 	@keyframes oc-upload-progress-indeterminate {
+
 		from {
 			transform: translateX(-125%);
 		}
@@ -1167,6 +1168,7 @@
 	}
 
 	@media (prefers-reduced-motion: reduce) {
+
 		.oc-upload-progress-track--indeterminate .oc-upload-progress-bar {
 			width: 100%;
 			animation: none;
