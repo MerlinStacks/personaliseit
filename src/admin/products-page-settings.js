@@ -973,7 +973,8 @@ export function createProductsPageSettings( deps ) {
 					},
 					multiple: false,
 					library: {
-						type: layer.type === 'mask' ? 'image/png' : 'image',
+						type: 'image',
+						...( layer.type === 'mask' ? { subtype: 'png' } : {} ),
 					},
 				} );
 				frame.on( 'select', () => {

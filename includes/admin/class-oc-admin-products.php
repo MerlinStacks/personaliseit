@@ -1055,11 +1055,10 @@ class OC_Admin_Products {
 			$type     = sanitize_key( (string) $l->type );
 			$settings = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
 			$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
-			if (
-				$attachment_id
-				&& OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id )
-				&& ( 'mask' !== $type || 'image/png' === get_post_mime_type( $attachment_id ) )
-			) {
+			$is_valid_attachment = 'mask' === $type
+				? self::design_mask_attachment_is_valid( $attachment_id, $attachment_id )
+				: OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id );
+			if ( $attachment_id && $is_valid_attachment ) {
 				$settings['default_attachment_url'] = (string) wp_get_attachment_url( $attachment_id );
 			} else {
 				$settings['default_attachment_id']  = 0;
@@ -1730,6 +1729,20 @@ class OC_Admin_Products {
 		return $attachment_id === $existing_attachment_id || current_user_can( 'edit_post', $attachment_id );
 	}
 
+	/** Validate a preview-only mask without requiring locally stored production artwork. */
+	private static function design_mask_attachment_is_valid( int $attachment_id, int $existing_attachment_id = 0 ): bool {
+		if (
+			$attachment_id <= 0
+			|| 'attachment' !== get_post_type( $attachment_id )
+			|| 'image/png' !== get_post_mime_type( $attachment_id )
+			|| ! wp_get_attachment_url( $attachment_id )
+		) {
+			return false;
+		}
+
+		return $attachment_id === $existing_attachment_id || current_user_can( 'edit_post', $attachment_id );
+	}
+
 	/** Normalize layer settings and retain only live, related resources. */
 	private static function normalise_design_layer_settings( array $raw, string $type, string $print_method, array $existing = [] ): array {
 		$settings = OC_Cart::normalise_layer_settings( $raw, $type );
@@ -1771,13 +1784,10 @@ class OC_Admin_Products {
 
 		$attachment_id = in_array( $type, [ 'image', 'clipmask', 'mask' ], true ) ? (int) $settings['default_attachment_id'] : 0;
 		$existing_attachment_id = (int) ( $existing['default_attachment_id'] ?? 0 );
-		if (
-			$attachment_id
-			&& (
-				! self::design_attachment_is_valid( $attachment_id, $existing_attachment_id, true )
-				|| ( 'mask' === $type && 'image/png' !== get_post_mime_type( $attachment_id ) )
-			)
-		) {
+		$is_valid_attachment = 'mask' === $type
+			? self::design_mask_attachment_is_valid( $attachment_id, $existing_attachment_id )
+			: self::design_attachment_is_valid( $attachment_id, $existing_attachment_id, true );
+		if ( $attachment_id && ! $is_valid_attachment ) {
 			throw new RuntimeException( 'The selected default artwork is invalid or inaccessible.' );
 		}
 		$settings['default_attachment_id']  = $attachment_id;
