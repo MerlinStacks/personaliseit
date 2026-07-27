@@ -16,7 +16,8 @@
 		).length;
 
 		selectAll.checked = selectedCount === uploadCheckboxes.length;
-		selectAll.indeterminate = selectedCount > 0 && selectedCount < uploadCheckboxes.length;
+		selectAll.indeterminate =
+			selectedCount > 0 && selectedCount < uploadCheckboxes.length;
 		deleteButton.disabled = selectedCount === 0;
 		deleteButton.textContent = selectedCount
 			? `${ deleteButton.dataset.label } (${ selectedCount })`
@@ -39,17 +40,20 @@
 			( checkbox ) => checkbox.checked
 		);
 		const selectedCount = selected.length;
-		if (
-			selectedCount === 0 ||
-			! window.confirm(
-				selectedCount === 1
-					? deleteButton.dataset.confirmSingular
-					: deleteButton.dataset.confirmPlural.replace(
+		if ( selectedCount === 0 ) {
+			event.preventDefault();
+			return;
+		}
+
+		const confirmMessage =
+			selectedCount === 1
+				? deleteButton.dataset.confirmSingular
+				: deleteButton.dataset.confirmPlural.replace(
 						'%s',
 						selectedCount
-					)
-			)
-		) {
+				  );
+		// eslint-disable-next-line no-alert
+		if ( ! window.confirm( confirmMessage ) ) {
 			event.preventDefault();
 			return;
 		}
@@ -76,7 +80,6 @@
 				.replace( '%2$s', selectedCount );
 
 			try {
-				// eslint-disable-next-line no-await-in-loop
 				const response = await window.fetch( form.dataset.ajaxUrl, {
 					method: 'POST',
 					headers: {

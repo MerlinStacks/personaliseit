@@ -152,7 +152,10 @@ const galleryPreviewMethods = {
 			img.closest(
 				'.woocommerce-product-gallery__image, .product-gallery-slider .slide, .swiper-slide'
 			) || img.parentElement;
-		if ( ! host || host.querySelector( ':scope > .oc-preview-disclaimer' ) ) {
+		if (
+			! host ||
+			host.querySelector( ':scope > .oc-preview-disclaimer' )
+		) {
 			return;
 		}
 

@@ -123,7 +123,27 @@ if ( ! function_exists( 'wp_generate_password' ) ) {
 
 if ( ! function_exists( 'get_transient' ) ) {
 	function get_transient( string $transient ) {
+		if ( is_callable( $GLOBALS['oc_test_transient_on_read'] ?? null ) ) {
+			$callback = $GLOBALS['oc_test_transient_on_read'];
+			$GLOBALS['oc_test_transient_on_read'] = null;
+			$callback();
+		}
 		return $GLOBALS['oc_test_transients'][ $transient ] ?? false;
+	}
+}
+
+if ( ! function_exists( 'set_transient' ) ) {
+	function set_transient( string $transient, mixed $value, int $expiration ): bool {
+		$GLOBALS['oc_test_transients'][ $transient ] = $value;
+		$GLOBALS['oc_test_transient_expirations'][ $transient ] = $expiration;
+		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_transient' ) ) {
+	function delete_transient( string $transient ): bool {
+		unset( $GLOBALS['oc_test_transients'][ $transient ] );
+		return true;
 	}
 }
 

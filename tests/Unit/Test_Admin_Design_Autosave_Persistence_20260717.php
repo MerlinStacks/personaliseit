@@ -15,32 +15,6 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 	define( 'DAY_IN_SECONDS', 86400 );
 }
 
-if ( ! function_exists( 'get_transient' ) ) {
-	function get_transient( string $key ): mixed {
-		if ( is_callable( $GLOBALS['oc_autosave_test_on_read'] ?? null ) ) {
-			$callback = $GLOBALS['oc_autosave_test_on_read'];
-			$GLOBALS['oc_autosave_test_on_read'] = null;
-			$callback();
-		}
-		return $GLOBALS['oc_autosave_test_transients'][ $key ] ?? false;
-	}
-}
-
-if ( ! function_exists( 'set_transient' ) ) {
-	function set_transient( string $key, mixed $value, int $expiration ): bool {
-		$GLOBALS['oc_autosave_test_transients'][ $key ] = $value;
-		$GLOBALS['oc_autosave_test_expirations'][ $key ] = $expiration;
-		return true;
-	}
-}
-
-if ( ! function_exists( 'delete_transient' ) ) {
-	function delete_transient( string $key ): bool {
-		unset( $GLOBALS['oc_autosave_test_transients'][ $key ] );
-		return true;
-	}
-}
-
 require_once OC_PATH . 'includes/class-oc-autosave.php';
 
 class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\TestCase {
@@ -74,14 +48,14 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 				return 0;
 			}
 		};
-		$GLOBALS['oc_autosave_test_transients']  = [];
-		$GLOBALS['oc_autosave_test_expirations'] = [];
-		$GLOBALS['oc_autosave_test_on_read']     = null;
+		$GLOBALS['oc_test_transients']            = [];
+		$GLOBALS['oc_test_transient_expirations'] = [];
+		$GLOBALS['oc_test_transient_on_read']      = null;
 	}
 
 	protected function tearDown(): void {
 		$GLOBALS['wpdb'] = $this->previous_wpdb;
-		$GLOBALS['oc_autosave_test_on_read'] = null;
+		$GLOBALS['oc_test_transient_on_read'] = null;
 		parent::tearDown();
 	}
 
@@ -115,14 +89,14 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$stale  = $method->invoke( null, $key, $newer, 1, 0 );
 
 		$this->assertSame( 'stored', $stored['status'] );
-		$this->assertSame( 86400, $GLOBALS['oc_autosave_test_expirations'][ $key ] );
+		$this->assertSame( 86400, $GLOBALS['oc_test_transient_expirations'][ $key ] );
 		$this->assertSame( 'conflict', $stale['status'] );
 		$this->assertSame( 1, $stale['revision'] );
-		$this->assertSame( 'Autosaved design', $GLOBALS['oc_autosave_test_transients'][ $key ]['state']['design']['name'] );
+		$this->assertSame( 'Autosaved design', $GLOBALS['oc_test_transients'][ $key ]['state']['design']['name'] );
 
 		$next = $method->invoke( null, $key, $newer, 2, 1 );
 		$this->assertSame( 'stored', $next['status'] );
-		$this->assertSame( 'Newer name', $GLOBALS['oc_autosave_test_transients'][ $key ]['state']['design']['name'] );
+		$this->assertSame( 'Newer name', $GLOBALS['oc_test_transients'][ $key ]['state']['design']['name'] );
 	}
 
 	public function test_concurrent_compare_and_set_cannot_enter_the_same_revision_lock(): void {
@@ -130,7 +104,7 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$key    = 'oc_autosave_test_concurrent';
 		$state  = $this->complete_state();
 		$nested = null;
-		$GLOBALS['oc_autosave_test_on_read'] = static function () use ( $method, $key, $state, &$nested ): void {
+		$GLOBALS['oc_test_transient_on_read'] = static function () use ( $method, $key, $state, &$nested ): void {
 			$nested = $method->invoke( null, $key, $state, 1, 0 );
 		};
 
@@ -139,7 +113,7 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$this->assertSame( 'stored', $outer['status'] );
 		$this->assertSame( 'failed', $nested['status'] );
 		$this->assertSame( 2, $GLOBALS['wpdb']->lock_attempts );
-		$this->assertSame( 1, $GLOBALS['oc_autosave_test_transients'][ $key ]['revision'] );
+		$this->assertSame( 1, $GLOBALS['oc_test_transients'][ $key ]['revision'] );
 	}
 
 	private function complete_state(): array {

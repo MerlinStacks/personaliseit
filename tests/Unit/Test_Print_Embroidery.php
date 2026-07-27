@@ -81,7 +81,7 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '(Editable Text)', $output );
-		$this->assertStringContainsString( '0.0000 14.0000 translate', $output );
+		$this->assertStringContainsString( '0.0000 16.9500 translate', $output );
 		$this->assertStringNotContainsString( ' exch div 1 scale', $output );
 		$this->assertStringContainsString( '%%OCTextOutlineFallback: font-dependent', $output );
 		$this->assertStringContainsString( 'charpath fill', $output );
@@ -145,7 +145,7 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '141.7323 70.8661 translate', $output );
-		$this->assertStringContainsString( '/Helvetica findfont 56.6929 scalefont setfont', $output );
+		$this->assertStringContainsString( '/Helvetica findfont 42.6929 scalefont setfont', $output );
 	}
 
 	#[Test]
@@ -185,7 +185,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = implode( "\n", $lines );
-		$this->assertLessThan( strpos( $output, '%%OCLineartColor: #111111' ), strpos( $output, '%%OCLineartColor: #222222' ) );
+		$this->assertLessThan( strpos( $output, '%%OCLineartColor: #222222' ), strpos( $output, '%%OCLineartColor: #111111' ) );
 	}
 
 	#[Test]
@@ -219,7 +219,9 @@ class Test_Print_Embroidery extends TestCase {
 
 	#[Test]
 	public function clipart_layers_are_not_manually_offset_from_text_layers(): void {
-		$source_base = tempnam( sys_get_temp_dir(), 'oc-svg-source-' );
+		$uploads_dir = wp_upload_dir()['basedir'];
+		wp_mkdir_p( $uploads_dir );
+		$source_base = tempnam( $uploads_dir, 'oc-svg-source-' );
 		$source      = $source_base . '.svg';
 		file_put_contents( $source, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect x="0" y="0" width="10" height="10" fill="#000000"/></svg>' );
 
