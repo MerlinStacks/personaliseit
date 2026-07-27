@@ -736,11 +736,41 @@ class OC_Cart {
 				'clipartUrl' => $clipart ? self::clipart_url( (string) $clipart->file_path ) : '',
 				'clipartRecolourable' => $clipart && (bool) $clipart->colour_changeable && 'svg' === strtolower( (string) $clipart->file_type ),
 			];
+			if ( 'textarea' === $type ) {
+				$rendered_lines = self::normalise_rendered_text_lines( $posted['renderedLines'] ?? null, $value );
+				if ( null !== $rendered_lines ) {
+					$normalised[ $layer_id ]['renderedLines'] = $rendered_lines;
+				}
+			}
 		}
 
 		$normalised = self::synchronise_normalised_linked_colours( $design_layers, $normalised );
 
 		return $normalised ? [ 'design' => $design, 'layers' => $normalised ] : new \WP_Error( 'invalid_design', __( 'Design has no valid layers.', 'overcustomise' ) );
+	}
+
+	/** Retain browser-resolved textarea wrapping only when it contains the submitted text unchanged. */
+	private static function normalise_rendered_text_lines( mixed $raw_lines, string $value ): ?array {
+		if ( ! is_array( $raw_lines ) || empty( $raw_lines ) || count( $raw_lines ) > 200 ) {
+			return null;
+		}
+
+		$lines = [];
+		foreach ( $raw_lines as $line ) {
+			if ( ! is_scalar( $line ) ) {
+				return null;
+			}
+			$lines[] = sanitize_text_field( (string) $line );
+		}
+
+		$normalise = static function ( string $text ): string {
+			$text = str_replace( [ "\r\n", "\r" ], "\n", $text );
+			$text = preg_replace( '/\s+/u', ' ', trim( $text ) );
+
+			return is_string( $text ) ? $text : '';
+		};
+
+		return $normalise( implode( "\n", $lines ) ) === $normalise( $value ) ? $lines : null;
 	}
 
 	/** Copy the one rendered linked control to every server-confirmed group member. */
@@ -773,7 +803,11 @@ class OC_Cart {
 			}
 			$source_data['_oc_link_source_layer_id'] = $source_id;
 			foreach ( $layer_ids as $layer_id ) {
+				$rendered_lines = $raw_layers[ $layer_id ]['renderedLines'] ?? null;
 				$raw_layers[ $layer_id ] = $source_data;
+				if ( is_array( $rendered_lines ) ) {
+					$raw_layers[ $layer_id ]['renderedLines'] = $rendered_lines;
+				}
 			}
 		}
 

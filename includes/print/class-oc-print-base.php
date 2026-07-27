@@ -2141,6 +2141,8 @@ abstract class OC_Print_Base {
 		if ( 'engraving' === $mode ) {
 			$text = self::normalise_engraving_text( $text );
 		}
+		$rendered_lines = $is_textarea ? self::browser_rendered_text_lines( $input, $text ) : null;
+		$render_text    = null !== $rendered_lines ? implode( "\n", $rendered_lines ) : $text;
 
 		$font_id             = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 		$font                = $font_id ? self::get_font( $font_id ) : null;
@@ -2165,9 +2167,15 @@ abstract class OC_Print_Base {
 
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			$fits = is_string( $engraving_font_path ) && '' !== $engraving_font_path && $is_textarea
-				? self::engraving_outline_text_fits_box( $text, $engraving_font_path, $draw_w_mm, $h_mm, $font_size )
-				: self::text_fits_box( $pdf, $text, $draw_w_mm, $h_mm, $font_size, $is_textarea );
+			if ( null !== $rendered_lines ) {
+				$fits = is_string( $engraving_font_path ) && '' !== $engraving_font_path
+					? self::engraving_outline_lines_fit_box( $rendered_lines, $engraving_font_path, $draw_w_mm, $h_mm, $font_size )
+					: self::fixed_text_lines_fit_box( $pdf, $rendered_lines, $draw_w_mm, $h_mm, $font_size );
+			} else {
+				$fits = is_string( $engraving_font_path ) && '' !== $engraving_font_path && $is_textarea
+					? self::engraving_outline_text_fits_box( $text, $engraving_font_path, $draw_w_mm, $h_mm, $font_size )
+					: self::text_fits_box( $pdf, $text, $draw_w_mm, $h_mm, $font_size, $is_textarea );
+			}
 			if ( $fits ) {
 				break;
 			}
@@ -2188,22 +2196,23 @@ abstract class OC_Print_Base {
 		$textarea_wraps = false;
 		if ( $is_textarea ) {
 			$pdf->SetFont( $font_name, '', $font_size );
-			$textarea_wraps = str_contains( $text, "\n" ) || ( is_string( $engraving_font_path ) && '' !== $engraving_font_path
+			$textarea_wraps = null !== $rendered_lines && count( $rendered_lines ) > 1;
+			$textarea_wraps = $textarea_wraps || str_contains( $render_text, "\n" ) || ( is_string( $engraving_font_path ) && '' !== $engraving_font_path
 				? count( self::wrap_engraving_outline_lines( $text, $engraving_font_path, $font_size, self::mm_to_pt_value( $draw_w_mm ) ) ) > 1
 				: (int) $pdf->getNumLines( $text, $w_mm ) > 1 );
 		}
 
 		if ( 'engraving' === $mode && is_string( $engraving_font_path ) && '' !== $engraving_font_path ) {
-			if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
+			if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $render_text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign, $rendered_lines ) ) {
 				return;
 			}
 
-			if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
+			if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $render_text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
 				return;
 			}
 		}
 
-		if ( 'engraving' === $mode && is_string( $raw_font_path ) && '' !== $raw_font_path && self::render_engraving_text_raster( $pdf, $text, $raw_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
+		if ( 'engraving' === $mode && is_string( $raw_font_path ) && '' !== $raw_font_path && self::render_engraving_text_raster( $pdf, $render_text, $raw_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
 			return;
 		}
 
@@ -2216,7 +2225,37 @@ abstract class OC_Print_Base {
 		}
 
 		$cell_h = self::cell_h( $font_size );
-		self::draw_clipped_text_cell( $pdf, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $text, $cell_h, $align, $valign, $is_textarea );
+		self::draw_clipped_text_cell( $pdf, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $render_text, $cell_h, $align, $valign, $is_textarea );
+	}
+
+	/** Use Fabric's submitted lines only when they reproduce the canonical text. */
+	protected static function browser_rendered_text_lines( array $input, string $text ): ?array {
+		$raw_lines = $input['renderedLines'] ?? null;
+		if ( ! is_array( $raw_lines ) || empty( $raw_lines ) || count( $raw_lines ) > 200 ) {
+			return null;
+		}
+
+		$lines = [];
+		foreach ( $raw_lines as $line ) {
+			if ( ! is_string( $line ) ) {
+				return null;
+			}
+			$lines[] = $line;
+		}
+		$normalise = static fn( string $value ): string => preg_replace( '/\s+/u', ' ', trim( $value ) ) ?? '';
+
+		return $normalise( implode( "\n", $lines ) ) === $normalise( $text ) ? $lines : null;
+	}
+
+	/** Check fixed browser lines without allowing TCPDF to choose different wraps. */
+	private static function fixed_text_lines_fit_box( \TCPDF $pdf, array $lines, float $w_mm, float $h_mm, float $font_size ): bool {
+		foreach ( $lines as $line ) {
+			if ( $pdf->GetStringWidth( $line ) > $w_mm ) {
+				return false;
+			}
+		}
+
+		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
 	}
 
 	private static function render_engraving_text_raster( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign ): bool {
@@ -2304,6 +2343,18 @@ abstract class OC_Print_Base {
 		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
 	}
 
+	/** Check fixed browser lines against outline metrics, shrinking all lines uniformly when needed. */
+	private static function engraving_outline_lines_fit_box( array $lines, string $font_path, float $w_mm, float $h_mm, float $font_size ): bool {
+		$max_width = self::mm_to_pt_value( $w_mm );
+		foreach ( $lines as $line ) {
+			if ( self::engraving_outline_text_width( $font_path, $line, $font_size ) > $max_width ) {
+				return false;
+			}
+		}
+
+		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
+	}
+
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
 		if ( ! class_exists( 'OC_Print_Embroidery' ) || ! method_exists( 'OC_Print_Embroidery', 'ttf_text_outline' ) ) {
 			return false;
@@ -2384,8 +2435,8 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	private static function render_engraving_multiline_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign ): bool {
-		$lines = self::wrap_engraving_outline_lines( $text, $font_path, $font_size, self::mm_to_pt_value( $w_mm ) );
+	private static function render_engraving_multiline_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign, ?array $fixed_lines = null ): bool {
+		$lines = null !== $fixed_lines ? $fixed_lines : self::wrap_engraving_outline_lines( $text, $font_path, $font_size, self::mm_to_pt_value( $w_mm ) );
 		if ( empty( $lines ) ) {
 			return false;
 		}

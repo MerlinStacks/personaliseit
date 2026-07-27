@@ -1,1 +1,1 @@
-<?php return array('dependencies' => array('wp-data'), 'version' => 'mask-overlay-20260727');
+<?php return array('dependencies' => array('wp-data'), 'version' => 'line-wrap-20260727');

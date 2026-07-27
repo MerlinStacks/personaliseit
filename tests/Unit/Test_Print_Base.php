@@ -147,9 +147,36 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_draw_clipped_text_cell( \TCPDF $pdf, string $text ): void {
 		self::draw_clipped_text_cell( $pdf, 0.0, 0.0, 20.0, 10.0, $text, 5.0 );
 	}
+
+	public static function test_browser_rendered_text_lines( array $input, string $text ): ?array {
+		return self::browser_rendered_text_lines( $input, $text );
+	}
 }
 
 class Test_Print_Base extends TestCase {
+
+	#[Test]
+	public function browser_rendered_text_lines_preserve_preview_wrapping(): void {
+		$lines = [ 'Happy birthday dad, I love you', '- Levi' ];
+
+		$this->assertSame(
+			$lines,
+			OC_Print_Base_Testable::test_browser_rendered_text_lines(
+				[ 'renderedLines' => $lines ],
+				'Happy birthday dad, I love you - Levi'
+			)
+		);
+	}
+
+	#[Test]
+	public function browser_rendered_text_lines_reject_changed_text(): void {
+		$this->assertNull(
+			OC_Print_Base_Testable::test_browser_rendered_text_lines(
+				[ 'renderedLines' => [ 'Different customer text' ] ],
+				'Original customer text'
+			)
+		);
+	}
 
 	// ── px_to_mm ──────────────────────────────────────────────────────────
 

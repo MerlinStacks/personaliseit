@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.2 - 2026-07-27
+
+- Keep production print-file textarea line breaks consistent with the live preview.
+
 ## 1.16.1 - 2026-07-20
 
 ### Added

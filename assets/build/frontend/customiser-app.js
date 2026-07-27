@@ -314,6 +314,10 @@ const canvasRendererMethods = {
       case 'textarea':
         {
           const isSingleLineText = layer.type === 'text';
+          const capturesTextLayout = canvas._ocArea === area;
+          if (!isSingleLineText && capturesTextLayout) {
+            delete input.renderedLines;
+          }
           let inputValue = input.value;
           if (inputValue === undefined) {
             inputValue = layer.locked ? layer.settings?.default_text || '' : '';
@@ -483,6 +487,9 @@ const canvasRendererMethods = {
             }
           }
           obj.initDimensions?.();
+          if (!isSingleLineText && capturesTextLayout && Array.isArray(obj._textLines)) {
+            input.renderedLines = obj._textLines.map(line => Array.isArray(line) ? line.join('') : String(line));
+          }
           const textareaScale = isSingleLineText ? 1 : 1;
           if (!isSingleLineText) {
             obj.set({
