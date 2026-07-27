@@ -271,7 +271,11 @@ const designVariantMethods = {
 		const thumbnailArea = { ...area, printMethod: '' };
 		this.fonts = state.fonts || this.fonts || [];
 		try {
-			for ( const layer of area.layers || [] ) {
+			const thumbnailLayers = [ ...( area.layers || [] ) ].sort(
+				( a, b ) =>
+					Number( a.type === 'mask' ) - Number( b.type === 'mask' )
+			);
+			for ( const layer of thumbnailLayers ) {
 				const input = {
 					...( state.layerInputs?.[ layer.id ] || {} ),
 				};

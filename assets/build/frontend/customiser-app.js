@@ -230,21 +230,31 @@ const canvasRendererMethods = {
       canvas._ocRenderErrors = [];
       [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(o => canvas.remove(o));
       const groupIndexes = options.renderGroup === false ? [areaIndex] : this.areaCanvasGroupIndexes(areaIndex);
-      for (const groupIndex of groupIndexes) {
+      const renderLayers = groupIndexes.flatMap(groupIndex => {
         const area = this.areas[groupIndex];
-        for (const layer of area?.layers ?? []) {
-          if (!isCurrent()) {
-            return;
-          }
-          try {
-            await this.renderLayer(canvas, layer, options.inputs?.[layer.id] || this.inputs[layer.id] || {}, area, isCurrent);
-          } catch (err) {
-            canvas._ocRenderErrors.push({
-              layerId: layer?.id,
-              message: err?.message || 'Layer render failed.'
-            });
-            console.warn('[OC] Layer render failed:', layer?.id, err);
-          }
+        return (area?.layers ?? []).map(layer => ({
+          area,
+          layer
+        }));
+      });
+      // Product masks are visual overlays, so they must paint after every
+      // customer-editable layer, including layers from grouped print areas.
+      renderLayers.sort((a, b) => Number(a.layer.type === 'mask') - Number(b.layer.type === 'mask'));
+      for (const {
+        area,
+        layer
+      } of renderLayers) {
+        if (!isCurrent()) {
+          return;
+        }
+        try {
+          await this.renderLayer(canvas, layer, options.inputs?.[layer.id] || this.inputs[layer.id] || {}, area, isCurrent);
+        } catch (err) {
+          canvas._ocRenderErrors.push({
+            layerId: layer?.id,
+            message: err?.message || 'Layer render failed.'
+          });
+          console.warn('[OC] Layer render failed:', layer?.id, err);
         }
       }
       if (!isCurrent()) {
@@ -596,6 +606,17 @@ const canvasRendererMethods = {
             }, isCurrent);
             if (!rendered && isCurrent()) {
               throw new Error('Masked artwork could not be rendered.');
+            }
+          }
+          break;
+        }
+      case 'mask':
+        {
+          const maskUrl = layer.settings?.default_attachment_url;
+          if (maskUrl) {
+            const rendered = await this.renderFabricImg(canvas, maskUrl, lx, ly, lw, lh, false, 'anonymous', false, rotation, null, contentClip(), 'contain', '', {}, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Mask overlay could not be rendered.');
             }
           }
           break;
@@ -2799,7 +2820,8 @@ const designVariantMethods = {
     };
     this.fonts = state.fonts || this.fonts || [];
     try {
-      for (const layer of area.layers || []) {
+      const thumbnailLayers = [...(area.layers || [])].sort((a, b) => Number(a.type === 'mask') - Number(b.type === 'mask'));
+      for (const layer of thumbnailLayers) {
         const input = {
           ...(state.layerInputs?.[layer.id] || {})
         };

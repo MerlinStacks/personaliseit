@@ -270,7 +270,14 @@ class OC_Frontend {
 				$colour_group_ids = array_values( array_filter( array_map( 'absint', $settings['colour_groups'] ) ) );
 				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
 				$default_attachment_id  = absint( $settings['default_attachment_id'] ?? 0 );
-				if ( $default_attachment_id && ( ! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id ) || ! str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' ) ) ) {
+				if (
+					$default_attachment_id
+					&& (
+						! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id )
+						|| ! str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' )
+						|| ( 'mask' === (string) $layer->type && 'image/png' !== get_post_mime_type( $default_attachment_id ) )
+					)
+				) {
 					$default_attachment_id = 0;
 				}
 				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';

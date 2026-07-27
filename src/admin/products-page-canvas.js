@@ -212,49 +212,56 @@ export function createProductsPageCanvas( deps ) {
 			);
 			ghosts.appendChild( outline );
 		}
-		( area.layers || [] ).forEach( ( layer, li ) => {
-			if ( li === getSelectedLayerIndex() || ! layer.visible ) {
-				return;
-			}
-			const displayLayer = displayEntity( layer, area );
-			const g = ghost( layer, layerColor( layer.type ), 0.1 );
-			g.classList.add( 'oc-canvas-layer-ghost' );
-			g.appendChild(
-				ghostLabel(
-					layerIcon( layer.type ) +
-						' ' +
-						( layer.label || layerLabel( layer.type ) ),
-					layerColor( layer.type )
-				)
-			);
-			applyLayerPreview(
-				layer,
-				g,
-				Math.round( displayLayer.w * scale ),
-				Math.round( displayLayer.h * scale ),
-				true,
-				area.method === 'engraving',
-				area.material
-			);
-			pos(
-				g,
-				displayLayer,
-				scale,
-				normaliseRotation( area.rotation ),
-				displayEntity( area )
-			);
-			if ( layer.locked ) {
-				g.style.cursor = 'not-allowed';
-				g.style.opacity = '0.5';
-			} else {
-				g.style.cursor = 'pointer';
-				g.addEventListener( 'click', () => {
-					setSelectedLayerIndex( li );
-					renderAll();
-				} );
-			}
-			ghosts.appendChild( g );
-		} );
+		( area.layers || [] )
+			.map( ( layer, li ) => ( { layer, li } ) )
+			.sort(
+				( a, b ) =>
+					Number( a.layer.type === 'mask' ) -
+					Number( b.layer.type === 'mask' )
+			)
+			.forEach( ( { layer, li } ) => {
+				if ( li === getSelectedLayerIndex() || ! layer.visible ) {
+					return;
+				}
+				const displayLayer = displayEntity( layer, area );
+				const g = ghost( layer, layerColor( layer.type ), 0.1 );
+				g.classList.add( 'oc-canvas-layer-ghost' );
+				g.appendChild(
+					ghostLabel(
+						layerIcon( layer.type ) +
+							' ' +
+							( layer.label || layerLabel( layer.type ) ),
+						layerColor( layer.type )
+					)
+				);
+				applyLayerPreview(
+					layer,
+					g,
+					Math.round( displayLayer.w * scale ),
+					Math.round( displayLayer.h * scale ),
+					true,
+					area.method === 'engraving',
+					area.material
+				);
+				pos(
+					g,
+					displayLayer,
+					scale,
+					normaliseRotation( area.rotation ),
+					displayEntity( area )
+				);
+				if ( layer.locked ) {
+					g.style.cursor = 'not-allowed';
+					g.style.opacity = '0.5';
+				} else {
+					g.style.cursor = 'pointer';
+					g.addEventListener( 'click', () => {
+						setSelectedLayerIndex( li );
+						renderAll();
+					} );
+				}
+				ghosts.appendChild( g );
+			} );
 	}
 	function ghost( entity, color, bgAlpha ) {
 		const g = document.createElement( 'div' );

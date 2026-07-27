@@ -1055,7 +1055,11 @@ class OC_Admin_Products {
 			$type     = sanitize_key( (string) $l->type );
 			$settings = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
 			$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
-			if ( $attachment_id && OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id ) ) {
+			if (
+				$attachment_id
+				&& OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id )
+				&& ( 'mask' !== $type || 'image/png' === get_post_mime_type( $attachment_id ) )
+			) {
 				$settings['default_attachment_url'] = (string) wp_get_attachment_url( $attachment_id );
 			} else {
 				$settings['default_attachment_id']  = 0;
@@ -1765,9 +1769,15 @@ class OC_Admin_Products {
 			$settings['default_image_filter_id'] = 0;
 		}
 
-		$attachment_id = in_array( $type, [ 'image', 'clipmask' ], true ) ? (int) $settings['default_attachment_id'] : 0;
+		$attachment_id = in_array( $type, [ 'image', 'clipmask', 'mask' ], true ) ? (int) $settings['default_attachment_id'] : 0;
 		$existing_attachment_id = (int) ( $existing['default_attachment_id'] ?? 0 );
-		if ( $attachment_id && ! self::design_attachment_is_valid( $attachment_id, $existing_attachment_id, true ) ) {
+		if (
+			$attachment_id
+			&& (
+				! self::design_attachment_is_valid( $attachment_id, $existing_attachment_id, true )
+				|| ( 'mask' === $type && 'image/png' !== get_post_mime_type( $attachment_id ) )
+			)
+		) {
 			throw new RuntimeException( 'The selected default artwork is invalid or inaccessible.' );
 		}
 		$settings['default_attachment_id']  = $attachment_id;

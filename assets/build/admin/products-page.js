@@ -174,7 +174,13 @@ function createProductsPageCanvas(deps) {
       pos(outline, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area), scale, normaliseRotation(area.rotation));
       ghosts.appendChild(outline);
     }
-    (area.layers || []).forEach((layer, li) => {
+    (area.layers || []).map((layer, li) => ({
+      layer,
+      li
+    })).sort((a, b) => Number(a.layer.type === 'mask') - Number(b.layer.type === 'mask')).forEach(({
+      layer,
+      li
+    }) => {
       if (li === getSelectedLayerIndex() || !layer.visible) {
         return;
       }
@@ -934,6 +940,8 @@ function createProductsPageDataNormalisers(deps) {
         };
       case 'mask':
         return {
+          default_attachment_id: 0,
+          default_attachment_url: '',
           required: false,
           link_group: ''
         };
@@ -980,9 +988,11 @@ function createProductsPageDataNormalisers(deps) {
       settings.default_clipart_recolourable = !!settings.default_clipart_recolourable;
       settings.allow_clipart_change = settings.allow_clipart_change !== false;
     }
-    if (type === 'image') {
+    if (['image', 'mask'].includes(type)) {
       settings.default_attachment_id = Number(settings.default_attachment_id) || 0;
       settings.default_attachment_url = settings.default_attachment_url || '';
+    }
+    if (type === 'image') {
       settings.image_filter_ids = Array.isArray(settings.image_filter_ids) ? settings.image_filter_ids.map(Number).filter(Boolean) : [];
       settings.default_image_filter_id = Number(settings.default_image_filter_id) || 0;
       if (settings.default_image_filter_id && !settings.image_filter_ids.includes(settings.default_image_filter_id)) {
@@ -2214,7 +2224,10 @@ function createProductsPageInteractions(deps) {
     if (!area) {
       return;
     }
-    const def = _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_DEFAULTS[type] || {
+    const def = type === 'mask' ? {
+      w: area.w * (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area),
+      h: area.h * (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area)
+    } : _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_DEFAULTS[type] || {
       w: 200,
       h: 100
     };
@@ -2450,6 +2463,10 @@ const LAYER_TABS = {
     id: 'general',
     label: 'General',
     icon: 'G'
+  }, {
+    id: 'overlay',
+    label: 'Overlay',
+    icon: '\ud83d\uddbc'
   }],
   spotify: [{
     id: 'general',
@@ -2761,6 +2778,12 @@ function createLayerPreviewRenderer(deps) {
           render();
         }).catch(() => {});
       }
+    } else if (layer.type === 'mask' && s.default_attachment_url) {
+      const img = document.createElement('img');
+      img.className = 'oc-lp oc-lp-media oc-lp-mask';
+      img.src = s.default_attachment_url;
+      img.alt = '';
+      el.appendChild(img);
     } else if (layer.type === 'image' || layer.type === 'clipmask') {
       if (layer.type === 'image' && s.default_attachment_url) {
         const img = document.createElement('img');
@@ -3058,6 +3081,8 @@ function createProductsPageSettings(deps) {
         }
       case 'file':
         return field('Default image', mediaDefaultField(s)) + field('Enabled image filters <span class="oc-hint">(available choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
+      case 'overlay':
+        return field('Mask PNG', mediaDefaultField(s)) + '<span class="oc-hint">This transparent PNG is shown above all customer artwork and is excluded from print files.</span>';
       case 'mask':
         return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
       case 'appearance':
@@ -3161,13 +3186,13 @@ function createProductsPageSettings(deps) {
         return;
       }
       const frame = window.wp.media({
-        title: 'Select Default Image',
+        title: layer.type === 'mask' ? 'Select Mask PNG' : 'Select Default Image',
         button: {
-          text: 'Use as Default'
+          text: layer.type === 'mask' ? 'Use as Mask' : 'Use as Default'
         },
         multiple: false,
         library: {
-          type: 'image'
+          type: layer.type === 'mask' ? 'image/png' : 'image'
         }
       });
       frame.on('select', () => {
@@ -3175,8 +3200,11 @@ function createProductsPageSettings(deps) {
         if (!attachment) {
           return;
         }
+        if (layer.type === 'mask' && attachment.mime !== 'image/png') {
+          return;
+        }
         s.default_attachment_id = Number(attachment.id) || 0;
-        s.default_attachment_url = attachment.sizes?.medium?.url || attachment.url || '';
+        s.default_attachment_url = layer.type === 'mask' ? attachment.url || '' : attachment.sizes?.medium?.url || attachment.url || '';
         commitChange({
           canvas: true,
           rightColumn: true

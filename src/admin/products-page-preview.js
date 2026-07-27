@@ -294,6 +294,12 @@ export function createLayerPreviewRenderer( deps ) {
 					} )
 					.catch( () => {} );
 			}
+		} else if ( layer.type === 'mask' && s.default_attachment_url ) {
+			const img = document.createElement( 'img' );
+			img.className = 'oc-lp oc-lp-media oc-lp-mask';
+			img.src = s.default_attachment_url;
+			img.alt = '';
+			el.appendChild( img );
 		} else if ( layer.type === 'image' || layer.type === 'clipmask' ) {
 			if ( layer.type === 'image' && s.default_attachment_url ) {
 				const img = document.createElement( 'img' );

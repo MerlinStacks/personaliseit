@@ -69,7 +69,10 @@ export const LAYER_TABS = {
 		{ id: 'mask', label: 'Mask', icon: '◯' },
 		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 	],
-	mask: [ { id: 'general', label: 'General', icon: 'G' } ],
+	mask: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'overlay', label: 'Overlay', icon: '\ud83d\uddbc' },
+	],
 	spotify: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'appearance', label: 'Appearance', icon: '\u25d0' },

@@ -132,7 +132,12 @@ export function createProductsPageDataNormalisers( deps ) {
 					link_group: '',
 				};
 			case 'mask':
-				return { required: false, link_group: '' };
+				return {
+					default_attachment_id: 0,
+					default_attachment_url: '',
+					required: false,
+					link_group: '',
+				};
 			case 'spotify':
 				return { colour_groups: [], required: false, link_group: '' };
 			case 'lineart':
@@ -180,11 +185,13 @@ export function createProductsPageDataNormalisers( deps ) {
 			settings.allow_clipart_change =
 				settings.allow_clipart_change !== false;
 		}
-		if ( type === 'image' ) {
+		if ( [ 'image', 'mask' ].includes( type ) ) {
 			settings.default_attachment_id =
 				Number( settings.default_attachment_id ) || 0;
 			settings.default_attachment_url =
 				settings.default_attachment_url || '';
+		}
+		if ( type === 'image' ) {
 			settings.image_filter_ids = Array.isArray(
 				settings.image_filter_ids
 			)

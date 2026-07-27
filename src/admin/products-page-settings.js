@@ -684,6 +684,11 @@ export function createProductsPageSettings( deps ) {
 						!! s.remove_background
 					)
 				);
+			case 'overlay':
+				return (
+					field( 'Mask PNG', mediaDefaultField( s ) ) +
+					'<span class="oc-hint">This transparent PNG is shown above all customer artwork and is excluded from print files.</span>'
+				);
 			case 'mask':
 				return field(
 					'Mask shape',
@@ -956,10 +961,20 @@ export function createProductsPageSettings( deps ) {
 					return;
 				}
 				const frame = window.wp.media( {
-					title: 'Select Default Image',
-					button: { text: 'Use as Default' },
+					title:
+						layer.type === 'mask'
+							? 'Select Mask PNG'
+							: 'Select Default Image',
+					button: {
+						text:
+							layer.type === 'mask'
+								? 'Use as Mask'
+								: 'Use as Default',
+					},
 					multiple: false,
-					library: { type: 'image' },
+					library: {
+						type: layer.type === 'mask' ? 'image/png' : 'image',
+					},
 				} );
 				frame.on( 'select', () => {
 					const attachment = frame
@@ -970,9 +985,19 @@ export function createProductsPageSettings( deps ) {
 					if ( ! attachment ) {
 						return;
 					}
+					if (
+						layer.type === 'mask' &&
+						attachment.mime !== 'image/png'
+					) {
+						return;
+					}
 					s.default_attachment_id = Number( attachment.id ) || 0;
 					s.default_attachment_url =
-						attachment.sizes?.medium?.url || attachment.url || '';
+						layer.type === 'mask'
+							? attachment.url || ''
+							: attachment.sizes?.medium?.url ||
+							  attachment.url ||
+							  '';
 					commitChange( { canvas: true, rightColumn: true } );
 				} );
 				frame.open();

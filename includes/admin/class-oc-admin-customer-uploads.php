@@ -13,6 +13,28 @@ class OC_Admin_Customer_Uploads {
 	public static function register_hooks(): void {
 		add_action( 'pre_get_posts', [ self::class, 'exclude_from_media_library' ] );
 		add_filter( 'ajax_query_attachments_args', [ self::class, 'exclude_from_media_modal' ] );
+		add_action( 'wp_ajax_oc_delete_customer_upload', [ self::class, 'ajax_delete_customer_upload' ] );
+	}
+
+	/** Delete one customer upload for the bounded bulk-delete workflow. */
+	public static function ajax_delete_customer_upload(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'You do not have permission to delete customer uploads.', 'overcustomise' ) ], 403 );
+		}
+
+		check_ajax_referer( 'oc_customer_upload_bulk_delete' );
+
+		$id = absint( $_POST['id'] ?? 0 );
+		if ( ! self::is_customer_upload( $id ) || ! current_user_can( 'delete_post', $id ) ) {
+			wp_send_json_error( [ 'message' => __( 'Upload not found.', 'overcustomise' ) ], 404 );
+		}
+
+		// wp_delete_attachment() applies the referenced-artwork deletion guard.
+		if ( ! wp_delete_attachment( $id, true ) ) {
+			wp_send_json_error( [ 'message' => __( 'This upload could not be safely deleted.', 'overcustomise' ) ], 409 );
+		}
+
+		wp_send_json_success();
 	}
 
 	/** Hide OC artwork attachments from wp-admin/upload.php. */
@@ -108,14 +130,14 @@ class OC_Admin_Customer_Uploads {
 						<span><?php echo esc_html( sprintf( __( 'Showing %1$s-%2$s of %3$s', 'overcustomise' ), number_format_i18n( $page_start ), number_format_i18n( $page_end ), number_format_i18n( $total ) ) ); ?></span>
 					</div>
 					<?php if ( $query->have_posts() ) : ?>
-						<form id="oc-customer-upload-bulk-form" method="post" class="oc-customer-upload-bulk-actions">
+						<form id="oc-customer-upload-bulk-form" method="post" class="oc-customer-upload-bulk-actions" data-ajax-url="<?php echo esc_url( admin_url( 'admin-ajax.php' ) ); ?>">
 							<input type="hidden" name="oc_customer_upload_action" value="bulk_delete" />
 							<?php wp_nonce_field( 'oc_customer_upload_bulk_delete' ); ?>
 							<label>
 								<input type="checkbox" data-oc-upload-select-all />
 								<?php esc_html_e( 'Select all', 'overcustomise' ); ?>
 							</label>
-							<button type="submit" class="oc-btn oc-btn-danger oc-btn-sm" data-oc-upload-bulk-delete data-label="<?php esc_attr_e( 'Delete selected', 'overcustomise' ); ?>" data-confirm-singular="<?php esc_attr_e( 'Delete 1 selected customer upload? This cannot be undone.', 'overcustomise' ); ?>" data-confirm-plural="<?php esc_attr_e( 'Delete %s selected customer uploads? This cannot be undone.', 'overcustomise' ); ?>" disabled><?php esc_html_e( 'Delete selected', 'overcustomise' ); ?></button>
+							<button type="submit" class="oc-btn oc-btn-danger oc-btn-sm" data-oc-upload-bulk-delete data-label="<?php esc_attr_e( 'Delete selected', 'overcustomise' ); ?>" data-progress="<?php esc_attr_e( 'Deleting %1$s of %2$s...', 'overcustomise' ); ?>" data-confirm-singular="<?php esc_attr_e( 'Delete 1 selected customer upload? This cannot be undone.', 'overcustomise' ); ?>" data-confirm-plural="<?php esc_attr_e( 'Delete %s selected customer uploads? This cannot be undone.', 'overcustomise' ); ?>" disabled><?php esc_html_e( 'Delete selected', 'overcustomise' ); ?></button>
 						</form>
 					<?php endif; ?>
 				</div>
@@ -187,7 +209,6 @@ class OC_Admin_Customer_Uploads {
 			if (
 				! self::is_customer_upload( $id ) ||
 				! current_user_can( 'delete_post', $id ) ||
-				OC_File_Cleanup::customer_artwork_is_referenced( $id ) ||
 				! wp_delete_attachment( $id, true )
 			) {
 				++$skipped;

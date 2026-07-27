@@ -238,7 +238,13 @@ export function createProductsPageInteractions( deps ) {
 		if ( ! area ) {
 			return;
 		}
-		const def = LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
+		const def =
+			type === 'mask'
+				? {
+						w: area.w * unitPxScale( area ),
+						h: area.h * unitPxScale( area ),
+				  }
+				: LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
 		const px = unitPxScale( area );
 		const lw = Math.max( 1, Math.round( def.w / px ) );
 		const lh = Math.max( 1, Math.round( def.h / px ) );

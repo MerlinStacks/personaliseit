@@ -3298,6 +3298,10 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	padding: 3px;
 }
 
+.oc-lp-mask {
+	padding: 0;
+}
+
 /* Type label pill below the bounds box */
 .oc-bounds-box-pill {
 	position: absolute;
