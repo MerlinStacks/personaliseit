@@ -590,15 +590,11 @@ const uploadMethods = {
 			return false;
 		}
 
-		// Do not present the source upload as though it were the AI-filtered result.
-		input.attachmentId = 0;
-		input.attachmentUrl = '';
-		input.imageMeta = null;
-		this.syncLinkedImageInput( layerId );
-		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		// Keep the source visible while processing; submission remains blocked until
+		// the generated attachment replaces it or an error is resolved.
 		this.updateHiddenField();
 
-		const request = this.createStateAbortController( 30000 );
+		const request = this.createStateAbortController( 150000 );
 		const controller = request.controller;
 		this.aiFilterAbortControllers[ layerId ] = controller;
 		// The handle is deliberately consumed in finally across every return path.
@@ -612,7 +608,7 @@ const uploadMethods = {
 			this.setUploadProgress(
 				targetZone,
 				null,
-				'Applying image effect...'
+				'Applying image effect... This can take up to two minutes.'
 			);
 			this.showUploadError( targetZone, '' );
 		}
