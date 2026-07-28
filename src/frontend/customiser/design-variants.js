@@ -267,29 +267,30 @@ const designVariantMethods = {
 			offsetY - Number( bounds.y || 0 ) * scale,
 		] );
 		canvas._ocScaleX = scale;
-		const previousFonts = this.fonts;
 		const thumbnailArea = { ...area, printMethod: '' };
-		this.fonts = state.fonts || this.fonts || [];
-		try {
-			const thumbnailLayers = [ ...( area.layers || [] ) ].sort(
-				( a, b ) =>
-					Number( a.type === 'mask' ) - Number( b.type === 'mask' )
-			);
-			for ( const layer of thumbnailLayers ) {
-				const input = {
-					...( state.layerInputs?.[ layer.id ] || {} ),
-				};
-				if (
-					( layer.type === 'text' || layer.type === 'textarea' ) &&
-					! String( input.value || '' ).trim()
-				) {
-					input.value =
-						layer.settings?.default_text || layer.label || '';
-				}
-				await this.renderLayer( canvas, layer, input, thumbnailArea );
+		const thumbnailFonts = state.fonts || this.fonts || [];
+		const thumbnailLayers = [ ...( area.layers || [] ) ].sort(
+			( a, b ) =>
+				Number( a.type === 'mask' ) - Number( b.type === 'mask' )
+		);
+		for ( const layer of thumbnailLayers ) {
+			const input = {
+				...( state.layerInputs?.[ layer.id ] || {} ),
+			};
+			if (
+				( layer.type === 'text' || layer.type === 'textarea' ) &&
+				! String( input.value || '' ).trim()
+			) {
+				input.value = layer.settings?.default_text || layer.label || '';
 			}
-		} finally {
-			this.fonts = previousFonts;
+			await this.renderLayer(
+				canvas,
+				layer,
+				input,
+				thumbnailArea,
+				() => true,
+				{ fonts: thumbnailFonts }
+			);
 		}
 
 		canvas.renderAll();

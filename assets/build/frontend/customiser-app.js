@@ -198,7 +198,14 @@ const canvasRendererMethods = {
   },
   focusPreviewArea(areaIndex) {
     const index = Number.isInteger(areaIndex) ? areaIndex : this.activeArea;
+    const previousArea = this.activeArea;
     this.applyActiveAreaState(index);
+    if (previousArea !== this.activeArea) {
+      const canvas = this.canvases[this.activeArea];
+      if (canvas && !canvas._ocMissingMockup) {
+        this.pushToGallery(canvas);
+      }
+    }
   },
   scheduleRedraw(areaIndex = this.activeArea) {
     clearTimeout(this._redrawTimers[areaIndex]);
@@ -274,7 +281,7 @@ const canvasRendererMethods = {
       }
     });
   },
-  async renderLayer(canvas, layer, input, area, isCurrent = () => true) {
+  async renderLayer(canvas, layer, input, area, isCurrent = () => true, renderContext = {}) {
     if (!isCurrent()) {
       return;
     }
@@ -328,7 +335,7 @@ const canvasRendererMethods = {
             break;
           }
           const lineAlign = ['top', 'center', 'bottom'].includes(layer.settings?.line_alignment) ? layer.settings.line_alignment : 'top';
-          let font = this.fonts.find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
+          let font = (renderContext.fonts || this.fonts).find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
           // Engraving colour follows the substrate rather than the customer's ink colour.
           const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
           const align = layer.settings?.alignment || 'center';
@@ -702,12 +709,9 @@ const canvasRendererMethods = {
           }
           const spotifyCodeUrl = this.buildSpotifyCodeUrl(input.spotifyUri || val, isEngraving, engravingPalette);
           if (spotifyCodeUrl) {
-            // Try CORS-safe load first; if Spotify CDN blocks CORS for this origin,
-            // retry without crossOrigin so users still see the scannable in live preview.
-            let rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette, contentClip(), 'contain', '', {}, isCurrent);
-            if (!rendered) {
-              rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, '', true, rotation, engravingPalette, contentClip(), 'contain', '', {}, isCurrent);
-            }
+            // A non-CORS fallback would taint the canvas and make checkout preview
+            // capture impossible, so only render serializable Spotify images.
+            const rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette, contentClip(), 'contain', '', {}, isCurrent);
             if (rendered) {
               break;
             }
@@ -1707,29 +1711,37 @@ const canvasRendererMethods = {
       return false;
     }
   },
-  updateRenderedImageCrop(layerId, amount) {
+  updateRenderedImageCrop(layerIds, amount) {
+    const requestedLayerIds = new Set((Array.isArray(layerIds) ? layerIds : [layerIds]).map(Number));
     const cropAmount = Math.max(0, Math.min(1, (Number(amount) || 0) / 100));
-    let updated = false;
-    Object.values(this.canvases || {}).forEach(canvas => {
-      const image = canvas?.getObjects?.().find(object => Number(object._ocLayerId) === Number(layerId));
-      if (!image) {
+    const updatedLayerIds = new Set();
+    Object.entries(this.canvases || {}).forEach(([areaIndex, canvas]) => {
+      const images = (canvas?.getObjects?.() || []).filter(object => requestedLayerIds.has(Number(object._ocLayerId)));
+      if (!images.length) {
         return;
       }
-      const containScale = Number(image._ocContainScale) || 0;
-      const coverScale = Number(image._ocCoverScale) || containScale;
-      const scale = containScale + (coverScale - containScale) * cropAmount;
-      image.set({
-        scaleX: scale,
-        scaleY: scale
+      images.forEach(image => {
+        const containScale = Number(image._ocContainScale) || 0;
+        const coverScale = Number(image._ocCoverScale) || containScale;
+        const scale = containScale + (coverScale - containScale) * cropAmount;
+        image.set({
+          scaleX: scale,
+          scaleY: scale
+        });
+        image.setCoords?.();
+        updatedLayerIds.add(Number(image._ocLayerId));
       });
-      image.setCoords?.();
       canvas.renderAll?.();
-      if (canvas._ocArea && !canvas._ocMissingMockup) {
+      if (!this._redrawPromises[areaIndex]) {
+        this._redrawGenerations[areaIndex] = (this._redrawGenerations[areaIndex] || 0) + 1;
+      }
+      canvas._ocCartPreviewRevision = '';
+      canvas._ocCartPreviewDataUrl = '';
+      if (canvas._ocArea && !canvas._ocMissingMockup && this.areaCanvasGroupIndexes(Number(areaIndex)).includes(this.activeArea)) {
         this.pushToGallery(canvas);
       }
-      updated = true;
     });
-    return updated;
+    return updatedLayerIds;
   },
   imageFilterForLayer(layer, filterId) {
     filterId = parseInt(filterId, 10) || 0;
@@ -1955,21 +1967,42 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-/* harmony import */ var _wordpress_data__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @wordpress/data */ "@wordpress/data");
-/* harmony import */ var _wordpress_data__WEBPACK_IMPORTED_MODULE_0___default = /*#__PURE__*/__webpack_require__.n(_wordpress_data__WEBPACK_IMPORTED_MODULE_0__);
 /**
  * Cart submission, mobile preview confirmation, and preview capture helpers.
  */
 
-/* eslint-disable no-console, no-alert, import/no-unresolved */
+/* eslint-disable no-console, no-alert */
 
-
-const CART_STORE_KEY = 'wc/store/cart';
 const QUALITY_WARNING_MESSAGE = 'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
 const CART_PREVIEW_MAX_DIMENSION = 640;
 const CART_PREVIEW_QUALITY = 0.82;
+const STORE_API_MERGE_TIMEOUT_MS = 10000;
 const checkoutMethods = {
+  getCustomiserCartForm() {
+    const panel = document.getElementById('oc-customiser-panel');
+    const owningForm = panel?.closest('form');
+    if (owningForm) {
+      return owningForm;
+    }
+    const productRoot = panel?.closest('.product, [data-block-name="woocommerce/single-product"]');
+    if (!productRoot) {
+      return null;
+    }
+    const candidates = Array.from(productRoot.querySelectorAll('form.cart, form[data-wp-on--submit*="addToCart"]'));
+    if (candidates.length !== 1) {
+      return null;
+    }
+    const form = candidates[0];
+    const hiddenField = panel.querySelector('#oc-customisation-data');
+    if (hiddenField && !form.contains(hiddenField)) {
+      if (!form.id) {
+        form.id = `oc-cart-form-${this.data.productId || 'product'}`;
+      }
+      hiddenField.setAttribute('form', form.id);
+    }
+    return form;
+  },
   handleVariationSubmitBlock() {
     if (this._variationSwitchPending) {
       window.alert('Please wait while the personalisation options finish loading.');
@@ -1993,9 +2026,11 @@ const checkoutMethods = {
     if (this.handleVariationSubmitBlock()) {
       return false;
     }
-    if (this._submitInProgress || !this._customisationActive || this.artworkPendingCount > 0 || Object.keys(this.aiFilterErrors || {}).length > 0) {
+    if (this._submitInProgress || !this._customisationActive || this.artworkPendingCount > 0 || this.failedArtworkReplacements.size > 0 || Object.keys(this.aiFilterErrors || {}).length > 0) {
       if (this.artworkPendingCount > 0) {
         window.alert('Please wait for artwork uploads and image processing to finish.');
+      } else if (this.failedArtworkReplacements.size > 0) {
+        window.alert('A replacement upload failed. Retry it or choose "Use previous image" before adding this product to your cart.');
       } else if (Object.keys(this.aiFilterErrors || {}).length > 0) {
         window.alert('An image effect could not be applied. Retry it before adding this product to your cart.');
       }
@@ -2010,8 +2045,8 @@ const checkoutMethods = {
     if (this.formSubmitBound) {
       return;
     }
-    const form = document.querySelector('form.cart');
-    if (!form) {
+    const form = this.getCustomiserCartForm();
+    if (!form?.matches('form.cart')) {
       return;
     }
     this.formSubmitBound = true;
@@ -2106,6 +2141,10 @@ const checkoutMethods = {
   },
   async prepareCartCustomisation() {
     this.syncInputsFromDOM();
+    if (this.failedArtworkReplacements.size > 0) {
+      this.renderPreflightMessages(['A replacement image failed to upload. Retry it or explicitly use the previous image.'], []);
+      return null;
+    }
     const preflight = await this.runPreflight();
     this.renderPreflightMessages(preflight.errors, preflight.warnings);
     if (!preflight.ok) {
@@ -2157,13 +2196,20 @@ const checkoutMethods = {
     if (this._storeApiSubmitBound) {
       return;
     }
-    const form = document.querySelector('form[data-wp-on--submit*="addToCart"]:not(.cart)');
-    if (!form) {
+    const form = this.getCustomiserCartForm();
+    if (!form?.matches('form[data-wp-on--submit*="addToCart"]:not(.cart)')) {
       return;
     }
     this._storeApiSubmitBound = true;
-    form.addEventListener('submit', event => {
+    this.setupStoreApiFetchMerger();
+    form.addEventListener('submit', async event => {
       if (!this._customisationActive) {
+        this.updateHiddenField();
+        return;
+      }
+      if (form._ocSubmitReady) {
+        form._ocSubmitReady = false;
+        this.resetCartSubmitState(form);
         return;
       }
       event.preventDefault();
@@ -2173,10 +2219,47 @@ const checkoutMethods = {
         form.reportValidity?.();
         return;
       }
+      if (form.querySelector('[name^="quantity["]')) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        this.renderPreflightMessages(['Personalised grouped products require the standard add-to-cart form.'], []);
+        return;
+      }
       if (this._storeApiPreparationPromise) {
         return;
       }
-      const task = this.submitStoreApiCart(form);
+      const submitter = event.submitter;
+      const task = (async () => {
+        if (!this.acquireCartSubmitGuard(form)) {
+          return;
+        }
+        try {
+          const prepared = await this.prepareCartCustomisation();
+          if (!prepared) {
+            return;
+          }
+          this.armStoreApiCustomisationMerge(prepared.payload);
+          form._ocSubmitReady = true;
+          this.resetCartSubmitState(form);
+          if (form.requestSubmit) {
+            form.requestSubmit(submitter?.isConnected ? submitter : undefined);
+          } else {
+            form.dispatchEvent(new Event('submit', {
+              bubbles: true,
+              cancelable: true
+            }));
+          }
+        } catch (error) {
+          this.failStoreApiCustomisationMerge(error?.message, false);
+          console.error('[OC] Store API preparation failed:', error);
+          this.restoreGalleryPreview();
+          this.renderPreflightMessages([error?.message || 'The customisation preview could not be prepared. Please try again.'], []);
+        } finally {
+          if (!form._ocSubmitReady) {
+            this.resetCartSubmitState(form);
+          }
+        }
+      })();
       this._storeApiPreparationPromise = task;
       task.finally(() => {
         if (this._storeApiPreparationPromise === task) {
@@ -2185,77 +2268,174 @@ const checkoutMethods = {
       });
     }, true);
   },
-  getStoreApiCartRequest(form) {
-    if (form.querySelector('[name^="quantity["]')) {
-      throw new Error('Personalised grouped products require the standard add-to-cart form.');
+  setupStoreApiFetchMerger() {
+    if (this._storeApiFetchBound) {
+      return;
     }
-    const variationField = form.querySelector('[name="variation_id"]');
-    const variationId = parseInt(variationField?.value || '0', 10) || 0;
-    const parentId = parseInt(form.querySelector('[name="product_id"]')?.value || form.querySelector('[name="add-to-cart"]')?.value || this.data.productId || '0', 10) || 0;
-    if (variationField && !variationId) {
-      throw new Error('Please select all product options before adding this item to your cart.');
-    }
-    const productId = variationId || parentId;
-    if (!productId) {
-      throw new Error('The selected product could not be identified.');
-    }
-    const variation = [];
-    const attributes = new Map();
-    new FormData(form).forEach((value, name) => {
-      if (name.startsWith('attribute_')) {
-        attributes.set(name, String(value));
+    this._storeApiFetchBound = true;
+    const originalFetch = window.fetch;
+    window.fetch = async (input, init) => {
+      const pending = this._pendingStoreApiCustomisation;
+      if (!pending) {
+        return originalFetch.call(window, input, init);
       }
-    });
-    attributes.forEach((value, attribute) => {
-      if (!value) {
-        throw new Error('Please select all product options before adding this item to your cart.');
+      const requestUrl = input instanceof Request ? input.url : String(input);
+      const route = this.getStoreApiRequestRoute(requestUrl);
+      const method = String(init?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+      if (method !== 'POST' || !['add-item', 'batch'].includes(route)) {
+        return originalFetch.call(window, input, init);
       }
-      variation.push({
-        attribute,
-        value
-      });
-    });
-    const quantity = Number(form.querySelector('[name="quantity"]')?.value || 1);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      throw new Error('Please enter a valid product quantity.');
-    }
-    return {
-      productId,
-      quantity,
-      variation
+      let bodyText;
+      try {
+        bodyText = '';
+        if (init?.body !== undefined) {
+          bodyText = String(init.body);
+        } else if (input instanceof Request) {
+          bodyText = await input.clone().text();
+        }
+      } catch {
+        return this.rejectStoreApiCustomisationRequest();
+      }
+      let body;
+      try {
+        body = JSON.parse(bodyText);
+      } catch {
+        return this.rejectStoreApiCustomisationRequest();
+      }
+      const merged = this.mergeStoreApiCustomisationBody(route, body, pending);
+      if (!merged) {
+        const containsAddItem = route === 'add-item' || body?.requests?.some(request => String(request?.method || 'POST').toUpperCase() === 'POST' && this.getStoreApiRequestRoute(request?.path || '') === 'add-item');
+        if (containsAddItem) {
+          return this.rejectStoreApiCustomisationRequest();
+        }
+        return originalFetch.call(window, input, init);
+      }
+      if (pending.expired) {
+        return this.rejectStoreApiCustomisationRequest();
+      }
+      this.consumeStoreApiCustomisationMerge();
+      const nextInit = {
+        ...(init || {}),
+        body: JSON.stringify(merged)
+      };
+      if (input instanceof Request) {
+        return originalFetch.call(window, new Request(input, nextInit));
+      }
+      return originalFetch.call(window, input, nextInit);
     };
   },
-  async submitStoreApiCart(form) {
-    let request;
+  getStoreApiRequestRoute(requestUrl) {
+    let url;
     try {
-      request = this.getStoreApiCartRequest(form);
-    } catch (error) {
-      this.renderPreflightMessages([error.message], []);
-      return;
+      url = new URL(requestUrl, window.location.href);
+    } catch {
+      return '';
     }
-    if (!this.acquireCartSubmitGuard(form)) {
-      return;
+    if (url.origin !== window.location.origin) {
+      return '';
     }
-    try {
-      const prepared = await this.prepareCartCustomisation();
-      if (!prepared) {
+    const route = decodeURIComponent(url.searchParams.get('rest_route') || url.pathname).replace(/\/+$/, '');
+    if (!/\/wc\/store\/v\d+(?:\/|$)/.test(route)) {
+      return '';
+    }
+    if (/\/cart\/add-item$/.test(route)) {
+      return 'add-item';
+    }
+    return /\/batch$/.test(route) ? 'batch' : '';
+  },
+  storeApiBodyMatchesProduct(body, pending) {
+    return body && typeof body === 'object' && pending.expectedProductIds.includes(Number(body.id || 0));
+  },
+  mergeStoreApiCustomisationBody(route, body, pending) {
+    const mergeItem = itemBody => ({
+      ...itemBody,
+      extensions: {
+        ...(itemBody.extensions || {}),
+        overcustomise: {
+          ...(itemBody.extensions?.overcustomise || {}),
+          customisation: pending.payload
+        }
+      }
+    });
+    if (route === 'add-item') {
+      return this.storeApiBodyMatchesProduct(body, pending) ? mergeItem(body) : null;
+    }
+    if (!Array.isArray(body?.requests)) {
+      return null;
+    }
+    const matchingIndexes = body.requests.map((request, index) => ({
+      request,
+      index
+    })).filter(({
+      request
+    }) => String(request?.method || 'POST').toUpperCase() === 'POST' && this.getStoreApiRequestRoute(request?.path || '') === 'add-item' && this.storeApiBodyMatchesProduct(request?.body, pending)).map(({
+      index
+    }) => index);
+    if (matchingIndexes.length !== 1) {
+      return null;
+    }
+    const matchedIndex = matchingIndexes[0];
+    const requests = body.requests.map((request, index) => index === matchedIndex ? {
+      ...request,
+      body: mergeItem(request.body)
+    } : request);
+    return {
+      ...body,
+      requests
+    };
+  },
+  armStoreApiCustomisationMerge(payload) {
+    this.consumeStoreApiCustomisationMerge();
+    const variationId = this.currentVariationId();
+    const expectedProductIds = [Number(this.data.productId || 0), Number(variationId || 0)].filter((id, index, ids) => id > 0 && ids.indexOf(id) === index);
+    const pending = {
+      payload,
+      expectedProductIds,
+      expired: false,
+      timer: null
+    };
+    pending.timer = this.setStateTimeout(() => {
+      if (this._pendingStoreApiCustomisation !== pending) {
         return;
       }
-      await (0,_wordpress_data__WEBPACK_IMPORTED_MODULE_0__.dispatch)(CART_STORE_KEY).addItemToCart(request.productId, request.quantity, request.variation, {
-        extensions: {
-          overcustomise: {
-            customisation: prepared.payload
-          }
-        }
-      });
-      this.restoreProductGallery();
-    } catch (error) {
-      console.error('[OC] Store API cart submission failed:', error);
-      this.restoreGalleryPreview();
-      this.renderPreflightMessages([error?.message || 'Could not add this personalisation to the cart. Please try again.'], []);
-    } finally {
-      this.resetCartSubmitState(form);
+      this.expireStoreApiCustomisationMerge();
+    }, STORE_API_MERGE_TIMEOUT_MS);
+    this._pendingStoreApiCustomisation = pending;
+  },
+  expireStoreApiCustomisationMerge(render = true) {
+    const pending = this._pendingStoreApiCustomisation;
+    if (!pending || pending.expired) {
+      return;
     }
+    if (pending.timer !== null) {
+      this.clearStateTimeout(pending.timer);
+    }
+    pending.expired = true;
+    pending.timer = null;
+    if (render) {
+      this.renderPreflightMessages(['WooCommerce did not receive the personalisation request. Please try adding the product again.'], []);
+    }
+  },
+  consumeStoreApiCustomisationMerge() {
+    const pending = this._pendingStoreApiCustomisation;
+    if (pending?.timer !== null && pending?.timer !== undefined) {
+      this.clearStateTimeout(pending.timer);
+    }
+    this._pendingStoreApiCustomisation = null;
+  },
+  failStoreApiCustomisationMerge(message, render = true) {
+    if (!this._pendingStoreApiCustomisation) {
+      return;
+    }
+    this.consumeStoreApiCustomisationMerge();
+    if (render) {
+      this.renderPreflightMessages([message || 'The personalisation could not be attached to the cart request. Please try again.'], []);
+    }
+  },
+  rejectStoreApiCustomisationRequest() {
+    const message = 'The personalisation could not be attached to the WooCommerce request. Please try adding the product again.';
+    this.failStoreApiCustomisationMerge(message);
+    return Promise.reject(new Error(message));
   },
   isMobileCartPreviewRequired() {
     return window.matchMedia?.('(max-width: 639px)')?.matches || window.innerWidth < 640;
@@ -2321,26 +2501,37 @@ const checkoutMethods = {
     if (!this.data.savePreviewUrl) {
       throw new Error('The preview upload service is unavailable.');
     }
-    const response = await fetch(this.data.savePreviewUrl, {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: this.restHeaders({
-        'Content-Type': 'application/json',
-        Accept: 'application/json'
-      }),
-      body: JSON.stringify({
-        image: previewImage
-      })
-    });
-    const body = await response.json().catch(() => null);
-    if (generation.designGeneration !== this._designGeneration) {
-      throw new Error('The selected design changed while saving.');
+    const request = this.createStateAbortController(20000);
+    try {
+      const response = await fetch(this.data.savePreviewUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: this.restHeaders({
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }),
+        body: JSON.stringify({
+          image: previewImage
+        }),
+        signal: request.controller.signal
+      });
+      const body = await response.json().catch(() => null);
+      if (generation.designGeneration !== this._designGeneration) {
+        throw new Error('The selected design changed while saving.');
+      }
+      const previewUrl = typeof body?.url === 'string' ? body.url.trim() : '';
+      if (!response.ok || !previewUrl) {
+        throw new Error(body?.message || 'The customisation preview could not be saved.');
+      }
+      return previewUrl;
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('The customisation preview upload timed out. Please try again.');
+      }
+      throw error;
+    } finally {
+      request.release();
     }
-    const previewUrl = typeof body?.url === 'string' ? body.url.trim() : '';
-    if (!response.ok || !previewUrl) {
-      throw new Error(body?.message || 'The customisation preview could not be saved.');
-    }
-    return previewUrl;
   },
   restoreGalleryPreview() {
     this.redraw(this.activeArea).catch(error => {
@@ -2880,25 +3071,22 @@ const designVariantMethods = {
     const offsetY = (size - (bounds.h || 1) * scale) / 2;
     canvas.setViewportTransform([1, 0, 0, 1, offsetX - Number(bounds.x || 0) * scale, offsetY - Number(bounds.y || 0) * scale]);
     canvas._ocScaleX = scale;
-    const previousFonts = this.fonts;
     const thumbnailArea = {
       ...area,
       printMethod: ''
     };
-    this.fonts = state.fonts || this.fonts || [];
-    try {
-      const thumbnailLayers = [...(area.layers || [])].sort((a, b) => Number(a.type === 'mask') - Number(b.type === 'mask'));
-      for (const layer of thumbnailLayers) {
-        const input = {
-          ...(state.layerInputs?.[layer.id] || {})
-        };
-        if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
-          input.value = layer.settings?.default_text || layer.label || '';
-        }
-        await this.renderLayer(canvas, layer, input, thumbnailArea);
+    const thumbnailFonts = state.fonts || this.fonts || [];
+    const thumbnailLayers = [...(area.layers || [])].sort((a, b) => Number(a.type === 'mask') - Number(b.type === 'mask'));
+    for (const layer of thumbnailLayers) {
+      const input = {
+        ...(state.layerInputs?.[layer.id] || {})
+      };
+      if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
+        input.value = layer.settings?.default_text || layer.label || '';
       }
-    } finally {
-      this.fonts = previousFonts;
+      await this.renderLayer(canvas, layer, input, thumbnailArea, () => true, {
+        fonts: thumbnailFonts
+      });
     }
     canvas.renderAll();
     return canvas.getObjects().some(object => object._ocContent === true) && this.canvasHasVisiblePixels(canvasEl);
@@ -3733,7 +3921,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* eslint-disable no-console, @wordpress/no-unused-vars-before-return */
 
-const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId', 'customerUploaded'];
+const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId', 'imageCrop', 'customerUploaded'];
 const inputControlMethods = {
   // ── Input listeners ─────────────────────────────────────────────────────────
 
@@ -3978,6 +4166,13 @@ const inputControlMethods = {
     const designGeneration = this._designGeneration;
     this.setupControlAccessibility();
     this.setupFontComboboxes();
+    document.querySelectorAll('.oc-area-controls').forEach(panel => {
+      panel.addEventListener('focusin', () => {
+        this.focusPreviewArea(parseInt(panel.dataset.areaIndex, 10));
+      }, {
+        signal: stateSignal
+      });
+    });
 
     // Text / textarea
     document.querySelectorAll('[data-oc-layer-text]').forEach(el => {
@@ -4301,12 +4496,16 @@ const inputControlMethods = {
       }
       this.updateImageCropControl(lid);
       el.addEventListener('input', () => {
-        this.inputs[lid].imageCrop = Math.max(0, Math.min(100, parseInt(el.value, 10) || 0));
+        const imageCrop = Math.max(0, Math.min(100, parseInt(el.value, 10) || 0));
+        this.inputs[lid].imageCrop = imageCrop;
+        this.syncLinkedLayerInput(lid, ['imageCrop'], {
+          redraw: false
+        });
         this.updateImageCropControl(lid);
         this.requestPreviewFocus();
-        if (!this.updateRenderedImageCrop(lid, this.inputs[lid].imageCrop)) {
-          this.scheduleRedraw(this.areaIndexForLayer(lid));
-        }
+        const layerIds = this.linkedLayerMembers(lid);
+        const updatedLayerIds = this.updateRenderedImageCrop(layerIds, imageCrop);
+        layerIds.filter(layerId => !updatedLayerIds.has(layerId)).forEach(layerId => this.scheduleRedraw(this.areaIndexForLayer(layerId)));
         this.updateHiddenField();
       }, {
         signal: stateSignal
@@ -4413,7 +4612,12 @@ const inputControlMethods = {
     section.insertBefore(header, body);
   },
   setupControlAccessibility() {
-    this.areas.forEach(area => {
+    this.areas.forEach((area, areaIndex) => {
+      const panel = document.querySelector(`.oc-area-controls[data-area-index="${areaIndex}"]`);
+      if (panel) {
+        panel.setAttribute('role', 'group');
+        panel.setAttribute('aria-label', `${area.label || `Print area ${areaIndex + 1}`} controls`);
+      }
       (area.layers || []).forEach(layer => {
         const required = Boolean(layer.required || layer.settings?.required);
         const label = layer.label || 'Personalisation option';
@@ -4712,7 +4916,9 @@ const inputControlMethods = {
     }
     return this.linkedLayerMembers(layerId)[0] || layerId;
   },
-  syncLinkedLayerInput(sourceLayerId, keys) {
+  syncLinkedLayerInput(sourceLayerId, keys, {
+    redraw = true
+  } = {}) {
     const sourceInput = this.inputs[sourceLayerId];
     if (!sourceInput) {
       return;
@@ -4737,7 +4943,9 @@ const inputControlMethods = {
       this.updateLinkedLayerControls(layerId, keys);
       targetAreaIndexes.add(this.areaIndexForLayer(layerId));
     });
-    targetAreaIndexes.forEach(areaIndex => this.scheduleRedraw(areaIndex));
+    if (redraw) {
+      targetAreaIndexes.forEach(areaIndex => this.scheduleRedraw(areaIndex));
+    }
   },
   updateLinkedLayerControls(layerId, keys) {
     const input = this.inputs[layerId] || {};
@@ -4922,6 +5130,7 @@ const inputControlMethods = {
     document.querySelectorAll('.oc-area-controls').forEach(el => {
       el.hidden = false;
       el.removeAttribute('aria-hidden');
+      el.classList.toggle('oc-active-area-controls', Number(el.dataset.areaIndex) === this.activeArea);
     });
   },
   switchArea(index) {
@@ -5580,6 +5789,44 @@ __webpack_require__.r(__webpack_exports__);
 
 const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
 const uploadMethods = {
+  clearFailedArtworkReplacements(layerId) {
+    const members = new Set([layerId, ...(this.linkedLayerMembers?.(layerId) || [])]);
+    members.forEach(memberId => {
+      this.failedArtworkReplacements.delete(memberId);
+      const resolutionError = document.querySelector(`.oc-resolution-warning.oc-res-error[data-oc-resolution-warning="${memberId}"]`);
+      if (resolutionError) {
+        resolutionError.className = 'oc-resolution-warning';
+        resolutionError.style.display = 'none';
+      }
+      document.querySelectorAll(`[data-oc-upload-zone="${memberId}"]`).forEach(zone => {
+        this.setUploadZoneState(zone, this.isProductionImageInput(this.inputs[memberId]) ? 'uploaded' : '');
+        this.showUploadError(zone, '');
+      });
+    });
+  },
+  markArtworkReplacementFailed(layerId, zoneEl, message) {
+    const hasPreviousArtwork = this.isProductionImageInput(this.inputs[layerId]);
+    this.setUploadZoneState(zoneEl, hasPreviousArtwork ? 'uploaded-error' : 'error');
+    this.showUploadError(zoneEl, message);
+    if (!hasPreviousArtwork) {
+      return;
+    }
+    this.failedArtworkReplacements.add(layerId);
+    const errorEl = zoneEl.closest('.oc-artwork-wrap')?.querySelector('.oc-artwork-error');
+    if (!errorEl) {
+      return;
+    }
+    const retain = document.createElement('button');
+    retain.type = 'button';
+    retain.className = 'oc-upload-retry';
+    retain.textContent = 'Use previous image';
+    retain.addEventListener('click', () => {
+      this.clearFailedArtworkReplacements(layerId);
+    }, {
+      signal: this._panelListenerController?.signal
+    });
+    errorEl.append(document.createTextNode(' '), retain);
+  },
   beginArtworkOperation(type, layerId = 0) {
     const operation = {
       type,
@@ -5794,15 +6041,13 @@ const uploadMethods = {
         }
         this.setUploadProgress(zoneEl, 100, '');
         if (!res?.body) {
-          this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
-          this.showUploadError(zoneEl, 'Upload succeeded but server returned no data.');
+          this.markArtworkReplacementFailed(lid, zoneEl, 'Upload succeeded but server returned no data.');
           return;
         }
         const attachmentId = Number(res.body.attachment_id || 0);
         const attachmentUrl = String(res.body.preview_url || '');
         if (!attachmentId || !attachmentUrl) {
-          this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
-          this.showUploadError(zoneEl, 'Server did not return usable artwork data.');
+          this.markArtworkReplacementFailed(lid, zoneEl, 'Server did not return usable artwork data.');
           return;
         }
         const artworkFileType = String(res.body.file_type || file?.extension || '').toLowerCase();
@@ -5840,8 +6085,7 @@ const uploadMethods = {
             warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${threshold.width} x ${threshold.height} pixels.`;
             warnEl.style.display = '';
           }
-          this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
-          this.showUploadError(zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
+          this.markArtworkReplacementFailed(lid, zoneEl, 'Image resolution too low. Please upload a higher resolution image.');
           return;
         }
         if (warnEl) {
@@ -5855,6 +6099,7 @@ const uploadMethods = {
         }
         this.inputs[lid] = candidate;
         this.syncLinkedImageInput(lid);
+        this.clearFailedArtworkReplacements(lid);
         const filterApplied = await this.applyAiImageFilter(lid, candidate.imageFilterId || 0, zoneEl);
         if (generation !== this.uploadGenerations[lid]) {
           return;
@@ -5886,15 +6131,24 @@ const uploadMethods = {
         }
         const msg = responseBody?.message || error?.message || 'Upload failed.';
         console.warn('[OC] Upload error:', msg, response);
-        this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
         this.setUploadProgress(zoneEl, 0, '');
-        this.showUploadError(zoneEl, msg);
+        if (this.isProductionImageInput(this.inputs[lid])) {
+          this.markArtworkReplacementFailed(lid, zoneEl, msg);
+        } else {
+          this.setUploadZoneState(zoneEl, 'error');
+          this.showUploadError(zoneEl, msg);
+        }
       });
       uppy.on('restriction-failed', (file, error) => {
         finishFileTransfer(file?.id);
-        this.setUploadZoneState(zoneEl, this.isProductionImageInput(this.inputs[lid]) ? 'uploaded-error' : 'error');
         this.setUploadProgress(zoneEl, 0, '');
-        this.showUploadError(zoneEl, error?.message || 'File not allowed.');
+        const message = error?.message || 'File not allowed.';
+        if (this.isProductionImageInput(this.inputs[lid])) {
+          this.markArtworkReplacementFailed(lid, zoneEl, message);
+        } else {
+          this.setUploadZoneState(zoneEl, 'error');
+          this.showUploadError(zoneEl, message);
+        }
       });
     });
   },
@@ -6242,16 +6496,6 @@ __webpack_require__.r(__webpack_exports__);
 __webpack_require__.r(__webpack_exports__);
 // extracted by mini-css-extract-plugin
 
-
-/***/ },
-
-/***/ "@wordpress/data"
-/*!******************************!*\
-  !*** external ["wp","data"] ***!
-  \******************************/
-(module) {
-
-module.exports = window["wp"]["data"];
 
 /***/ },
 
@@ -6808,18 +7052,6 @@ void main() {
 /******/ 	__webpack_require__.m = __webpack_modules__;
 /******/ 	
 /************************************************************************/
-/******/ 	/* webpack/runtime/compat get default export */
-/******/ 	(() => {
-/******/ 		// getDefaultExport function for compatibility with non-harmony modules
-/******/ 		__webpack_require__.n = (module) => {
-/******/ 			var getter = module && module.__esModule ?
-/******/ 				() => (module['default']) :
-/******/ 				() => (module);
-/******/ 			__webpack_require__.d(getter, { a: getter });
-/******/ 			return getter;
-/******/ 		};
-/******/ 	})();
-/******/ 	
 /******/ 	/* webpack/runtime/define property getters */
 /******/ 	(() => {
 /******/ 		// define getter functions for harmony exports
@@ -7152,6 +7384,7 @@ class OCCustomiser {
     this.aiFilterGenerations = {};
     this.aiFilterAbortControllers = {};
     this.aiFilterErrors = {};
+    this.failedArtworkReplacements = new Set();
     this.artworkPendingCount = 0;
     this._artworkOperations = new Set();
     this.uppyInstances = new Set();
@@ -7174,6 +7407,8 @@ class OCCustomiser {
     this._mobileCartPreviewPromise = null;
     this._storeApiPreparationPromise = null;
     this._storeApiSubmitBound = false;
+    this._storeApiFetchBound = false;
+    this._pendingStoreApiCustomisation = null;
   }
   beginDesignStateListeners() {
     this._panelListenerController?.abort();
@@ -7235,6 +7470,7 @@ class OCCustomiser {
     this.restoreProductGallery?.();
     this.dismissMobileCartPreview?.();
     this.dismissSpotifyModal?.();
+    this.consumeStoreApiCustomisationMerge?.();
     this._panelListenerController?.abort();
     this._panelListenerController = null;
     Object.values(this._redrawTimers).forEach(window.clearTimeout);
@@ -7252,6 +7488,7 @@ class OCCustomiser {
     Object.values(this.aiFilterAbortControllers).forEach(controller => controller.abort());
     this.aiFilterAbortControllers = {};
     this.aiFilterErrors = {};
+    this.failedArtworkReplacements.clear();
     Object.keys(this.uploadGenerations).forEach(layerId => {
       this.uploadGenerations[layerId] += 1;
     });
@@ -7266,6 +7503,7 @@ class OCCustomiser {
     this.uppyInstances.clear();
     this.cancelArtworkOperations?.();
     this.clipartSearchTimers = {};
+    this.expireStoreApiCustomisationMerge?.(false);
     this._stateTimers.forEach(window.clearTimeout);
     this._stateTimers.clear();
     this._stateAnimationFrames.forEach(window.cancelAnimationFrame);
@@ -7328,19 +7566,30 @@ class OCCustomiser {
     if (this.data.requestToken || !this.data.requestTokenUrl) {
       return;
     }
-    const response = await fetch(this.data.requestTokenUrl, {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers: {
-        Accept: 'application/json'
+    const request = this.createStateAbortController(12000);
+    try {
+      const response = await fetch(this.data.requestTokenUrl, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json'
+        },
+        signal: request.controller.signal
+      });
+      const body = await response.json().catch(() => null);
+      const token = typeof body?.token === 'string' ? body.token : '';
+      if (!response.ok || !/^[A-Za-z0-9]{64}$/.test(token)) {
+        throw new Error(body?.message || 'Security verification could not be started.');
       }
-    });
-    const body = await response.json().catch(() => null);
-    const token = typeof body?.token === 'string' ? body.token : '';
-    if (!response.ok || !/^[A-Za-z0-9]{64}$/.test(token)) {
-      throw new Error(body?.message || 'Security verification could not be started.');
+      this.data.requestToken = token;
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('Security verification timed out. Please retry.');
+      }
+      throw error;
+    } finally {
+      request.release();
     }
-    this.data.requestToken = token;
   }
   currentVariationId() {
     const panelForm = document.getElementById('oc-customiser-panel')?.closest('form');

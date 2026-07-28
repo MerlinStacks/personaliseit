@@ -509,6 +509,54 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function v2_spotify_layer_requires_server_confirmed_availability(): void {
+		global $wpdb;
+		$wpdb->insert( $wpdb->prefix . 'oc_designs', [
+			'name'        => 'Spotify Design',
+			'custom_type' => 'text_only',
+			'active'      => 1,
+		] );
+		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_design_print_areas', [
+			'design_id' => $design_id,
+			'area_key'  => 'front',
+			'label'     => 'Front',
+		] );
+		$area_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [
+			'design_id' => $design_id,
+			'area_id'   => $area_id,
+			'type'      => 'spotify',
+			'label'     => 'Song',
+			'visible'   => 1,
+		] );
+		$layer_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [
+			'product_id' => $this->product->get_id(),
+			'variant_id' => 0,
+			'design_id'  => $design_id,
+		] );
+		OC_Cache::flush_group();
+
+		$uri       = 'spotify:track:6rqhFgbbKwnb9MLmUQDhG6';
+		$cache_key = 'oc_spotify_validation_' . hash( 'sha256', $uri );
+		set_transient( $cache_key, [ 'valid' => false, 'reason' => 'invalid_or_unavailable' ], HOUR_IN_SECONDS );
+		try {
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [
+				$layer_id => [
+					'type'          => 'spotify',
+					'value'         => $uri,
+					'spotifyStatus' => 'ok',
+				],
+			] );
+			$this->assertWPError( $result );
+			$this->assertSame( 'invalid_spotify', $result->get_error_code() );
+		} finally {
+			delete_transient( $cache_key );
+		}
+	}
+
+	#[Test]
 	public function v2_preview_url_must_be_a_valid_signed_private_url(): void {
 		global $wpdb;
 

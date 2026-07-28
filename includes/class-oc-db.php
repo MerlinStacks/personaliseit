@@ -1934,6 +1934,52 @@ class OC_DB {
 		OC_Cache::flush_pattern( 'assignment_' );
 	}
 
+	/** Remove a deleted design from likely matching assignment variants; malformed JSON is left unchanged. */
+	public static function remove_design_from_assignment_variants( int $design_id ): bool {
+		global $wpdb;
+		if ( $design_id <= 0 ) {
+			return false;
+		}
+
+		$key_pattern = '%"designId"%';
+		$id_pattern  = '%' . $wpdb->esc_like( (string) $design_id ) . '%';
+		$assignments = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, design_variants FROM {$wpdb->prefix}oc_product_assignments
+			 WHERE design_variants LIKE %s AND design_variants LIKE %s FOR UPDATE",
+			$key_pattern,
+			$id_pattern
+		) );
+		if ( false === $assignments || '' !== (string) $wpdb->last_error ) {
+			return false;
+		}
+		$assignments = is_array( $assignments ) ? $assignments : [];
+		foreach ( $assignments as $assignment ) {
+			$variants = json_decode( (string) $assignment->design_variants, true );
+			if ( ! is_array( $variants ) ) {
+				// Preserve malformed legacy data rather than silently rewriting or discarding it.
+				continue;
+			}
+			$remaining = array_values( array_filter(
+				$variants,
+				static fn ( mixed $variant ): bool => ! is_array( $variant ) || $design_id !== absint( $variant['designId'] ?? 0 )
+			) );
+			if ( count( $remaining ) === count( $variants ) ) {
+				continue;
+			}
+			if ( false === $wpdb->update(
+				"{$wpdb->prefix}oc_product_assignments",
+				[ 'design_variants' => wp_json_encode( $remaining ) ],
+				[ 'id' => (int) $assignment->id ],
+				[ '%s' ],
+				[ '%d' ]
+			) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	/** Remove a product/variant assignment (unassign design). */
 	public static function delete_assignment( int $product_id, int $variant_id ): void {
 		global $wpdb;

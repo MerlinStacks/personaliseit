@@ -88,4 +88,16 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 		$this->assertFalse( $by_key['ghostscript']['required'] );
 		$this->assertFalse( $by_key['ext_imagick']['required'] );
 	}
+
+	#[Test]
+	public function customer_file_retention_is_independent_from_print_file_retention(): void {
+		update_option( 'oc_settings', [ 'file_retention_days' => 7 ] );
+		try {
+			$this->assertSame( 7, OC_Admin_Settings::get( 'file_retention_days' ) );
+			$this->assertSame( 90, OC_Admin_Settings::get( 'preview_retention_days' ) );
+			$this->assertSame( 90, OC_Admin_Settings::get( 'artwork_retention_days' ) );
+		} finally {
+			delete_option( 'oc_settings' );
+		}
+	}
 }

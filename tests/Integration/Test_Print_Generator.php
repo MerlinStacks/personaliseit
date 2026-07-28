@@ -148,6 +148,18 @@ class Test_Print_Generator extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function registration_ignores_order_updates_and_watches_new_customisation_meta(): void {
+		$generator = new OC_Print_Generator();
+		$generator->register();
+
+		$this->assertFalse( has_action( 'woocommerce_update_order', [ $generator, 'defer_order_generation' ] ) );
+		$this->assertNotFalse( has_action( 'woocommerce_new_order', [ $generator, 'defer_order_generation' ] ) );
+		$this->assertNotFalse( has_action( 'added_order_item_meta', [ $generator, 'defer_for_customisation_meta' ] ) );
+		$this->assertFalse( has_action( 'updated_order_item_meta', [ $generator, 'defer_for_customisation_meta' ] ) );
+		$this->assertFalse( has_action( 'deleted_order_item_meta', [ $generator, 'defer_for_customisation_meta' ] ) );
+	}
+
+	#[Test]
 	public function completed_outputs_receive_distinct_print_file_id_paths(): void {
 		$uploads = wp_upload_dir();
 		wp_mkdir_p( $uploads['basedir'] );

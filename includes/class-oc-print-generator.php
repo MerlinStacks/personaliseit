@@ -31,10 +31,9 @@ class OC_Print_Generator {
 		// Primary: order created at checkout.
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order_safely' ], 20, 1 );
 
-		// Admin/API orders receive line items after woocommerce_new_order, so defer
-		// fallback generation until the request has finished persisting item meta.
+		// Admin/API orders receive line items after the order object is created.
 		add_action( 'woocommerce_new_order', [ $this, 'defer_order_generation' ], 30, 2 );
-		add_action( 'woocommerce_update_order', [ $this, 'defer_order_generation' ], 30, 2 );
+		add_action( 'added_order_item_meta', [ $this, 'defer_for_customisation_meta' ], 10, 4 );
 		add_action( 'shutdown', [ $this, 'generate_deferred_orders' ], 20 );
 		add_action( self::ORDER_GENERATION_RETRY_HOOK, [ $this, 'retry_order_generation' ], 10, 1 );
 		add_action( self::ORDER_GENERATION_RECOVERY_HOOK, [ $this, 'recover_pending_order_generation' ] );
@@ -942,6 +941,15 @@ class OC_Print_Generator {
 				self::schedule_order_generation_retry( $order_id );
 			}
 		}
+	}
+
+	/** Defer initial inspection when customisation metadata is first added to an order item. */
+	public function defer_for_customisation_meta( mixed $meta_id, int $item_id, string $meta_key, mixed $meta_value = null ): void {
+		if ( '_oc_customisation' !== $meta_key || $item_id <= 0 || ! function_exists( 'wc_get_order_id_by_order_item_id' ) ) {
+			return;
+		}
+
+		$this->defer_order_generation( absint( wc_get_order_id_by_order_item_id( $item_id ) ) );
 	}
 
 	/** Process deferred admin/API orders at shutdown. */

@@ -23,6 +23,8 @@ class OC_Rest_API {
 	private const MAX_AI_RESULT_BYTES = 15728640;
 	private const MAX_AI_PROMPT_BYTES = 16384;
 	private const SPOTIFY_RESPONSE_BYTES = 524288;
+	private const SPOTIFY_VALID_CACHE_TTL = 43200;
+	private const SPOTIFY_INVALID_CACHE_TTL = 3600;
 	private const PUBLIC_TOKEN_SESSION_KEY = 'oc_public_request_token';
 	private const PREVIEW_OPTION_PREFIX = 'oc_private_preview_';
 
@@ -1920,22 +1922,34 @@ class OC_Rest_API {
 			return $auth;
 		}
 
-		$url = trim( (string) $request->get_param( 'url' ) );
+		$result = self::validate_spotify_availability( (string) $request->get_param( 'url' ) );
+		return is_wp_error( $result ) ? $result : rest_ensure_response( $result );
+	}
+
+	/** Validate Spotify format and public availability, reusing bounded server-side cache state. */
+	public static function validate_spotify_availability( string $url, bool $reserve_rate_limit = true ): array|\WP_Error {
+		$url = trim( $url );
 		if ( '' === $url ) {
-			return rest_ensure_response( [
+			return [
 				'valid'   => false,
 				'reason'  => 'empty',
 				'message' => __( 'Enter a Spotify link.', 'overcustomise' ),
-			] );
+			];
 		}
 
-		$parsed = $this->parse_spotify_input( $url );
+		$parsed = self::parse_spotify_input( $url );
 		if ( ! $parsed ) {
-			return rest_ensure_response( [
+			return [
 				'valid'   => false,
 				'reason'  => 'invalid_format',
 				'message' => __( 'Invalid Spotify link format.', 'overcustomise' ),
-			] );
+			];
+		}
+
+		$cache_key = 'oc_spotify_validation_' . hash( 'sha256', $parsed['spotify_uri'] );
+		$cached    = get_transient( $cache_key );
+		if ( is_array( $cached ) && isset( $cached['valid'], $cached['reason'] ) ) {
+			return $cached;
 		}
 
 		$oembed_url = 'https://open.spotify.com/oembed?url=' . rawurlencode( $parsed['open_url'] );
@@ -1943,25 +1957,27 @@ class OC_Rest_API {
 		// Validate the oembed URL is exactly the expected Spotify domain.
 		$parsed_oembed = wp_parse_url( $oembed_url );
 		if ( ! is_array( $parsed_oembed ) || strtolower( $parsed_oembed['host'] ?? '' ) !== 'open.spotify.com' ) {
-			return rest_ensure_response( [
+			return [
 				'valid'   => false,
 				'reason'  => 'invalid_format',
 				'message' => __( 'Invalid Spotify link format.', 'overcustomise' ),
-			] );
+			];
 		}
 
-		$spotify_limit = self::filtered_limit( 'oc_spotify_validation_ip_hourly_limit', 120, 1, 10000 );
-		if ( null === $spotify_limit ) {
-			OC_Logger::error( 'Spotify validation rate configuration is malformed.' );
-			return new \WP_Error( 'validation_unavailable', __( 'Could not validate Spotify right now. Please try again.', 'overcustomise' ), [ 'status' => 503 ] );
-		}
-		$rate_limit = self::reserve_request_rate(
-			'spotify',
-			$spotify_limit,
-			__( 'Too many validations. Try again shortly.', 'overcustomise' )
-		);
-		if ( is_wp_error( $rate_limit ) ) {
-			return $rate_limit;
+		if ( $reserve_rate_limit ) {
+			$spotify_limit = self::filtered_limit( 'oc_spotify_validation_ip_hourly_limit', 120, 1, 10000 );
+			if ( null === $spotify_limit ) {
+				OC_Logger::error( 'Spotify validation rate configuration is malformed.' );
+				return new \WP_Error( 'validation_unavailable', __( 'Could not validate Spotify right now. Please try again.', 'overcustomise' ), [ 'status' => 503 ] );
+			}
+			$rate_limit = self::reserve_request_rate(
+				'spotify',
+				$spotify_limit,
+				__( 'Too many validations. Try again shortly.', 'overcustomise' )
+			);
+			if ( is_wp_error( $rate_limit ) ) {
+				return $rate_limit;
+			}
 		}
 
 		$response = wp_safe_remote_get( $oembed_url, [
@@ -1973,21 +1989,19 @@ class OC_Rest_API {
 
 		if ( is_wp_error( $response ) ) {
 			OC_Logger::warning( 'Spotify validation request failed: ' . $response->get_error_message() );
-			return rest_ensure_response( [
-				'valid'   => false,
-				'reason'  => 'unreachable',
-				'message' => __( 'Could not validate Spotify right now. Please try again.', 'overcustomise' ),
-			] );
+			return new \WP_Error( 'unreachable', __( 'Could not validate Spotify right now. Please try again.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
 		$status = (int) wp_remote_retrieve_response_code( $response );
 		if ( 200 === $status ) {
-			return rest_ensure_response( [
+			$result = [
 				'valid'      => true,
 				'reason'     => 'ok',
 				'spotifyUri' => $parsed['spotify_uri'],
 				'openUrl'    => $parsed['open_url'],
-			] );
+			];
+			set_transient( $cache_key, $result, self::SPOTIFY_VALID_CACHE_TTL );
+			return $result;
 		}
 
 		if ( 429 === $status ) {
@@ -2002,11 +2016,13 @@ class OC_Rest_API {
 			? __( 'That playlist is invalid or private. Please use a public playlist link.', 'overcustomise' )
 			: __( 'That Spotify link is invalid or unavailable.', 'overcustomise' );
 
-		return rest_ensure_response( [
+		$result = [
 			'valid'   => false,
 			'reason'  => $is_playlist ? 'playlist_private_or_invalid' : 'invalid_or_unavailable',
 			'message' => $message,
-		] );
+		];
+		set_transient( $cache_key, $result, self::SPOTIFY_INVALID_CACHE_TTL );
+		return $result;
 	}
 
 	/**
@@ -2014,7 +2030,7 @@ class OC_Rest_API {
 	 *
 	 * @return array<string,string>|null
 	 */
-	private function parse_spotify_input( string $raw ): ?array {
+	private static function parse_spotify_input( string $raw ): ?array {
 		$raw = trim( $raw );
 		if ( '' === $raw || strlen( $raw ) > 2048 ) {
 			return null;
@@ -2333,7 +2349,7 @@ class OC_Rest_API {
 	}
 
 	/** Delete a VDP CSV only from the private or exact legacy VDP root. */
-	private static function delete_vdp_file( string $filepath ): void {
+	public static function delete_vdp_file( string $filepath ): void {
 		$real = realpath( $filepath );
 		if ( false === $real || ! is_file( $real ) ) {
 			return;

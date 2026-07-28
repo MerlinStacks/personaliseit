@@ -17,6 +17,67 @@ const SERVER_UPLOAD_FORMATS = [
 ];
 
 const uploadMethods = {
+	clearFailedArtworkReplacements( layerId ) {
+		const members = new Set( [
+			layerId,
+			...( this.linkedLayerMembers?.( layerId ) || [] ),
+		] );
+		members.forEach( ( memberId ) => {
+			this.failedArtworkReplacements.delete( memberId );
+			const resolutionError = document.querySelector(
+				`.oc-resolution-warning.oc-res-error[data-oc-resolution-warning="${ memberId }"]`
+			);
+			if ( resolutionError ) {
+				resolutionError.className = 'oc-resolution-warning';
+				resolutionError.style.display = 'none';
+			}
+			document
+				.querySelectorAll( `[data-oc-upload-zone="${ memberId }"]` )
+				.forEach( ( zone ) => {
+					this.setUploadZoneState(
+						zone,
+						this.isProductionImageInput( this.inputs[ memberId ] )
+							? 'uploaded'
+							: ''
+					);
+					this.showUploadError( zone, '' );
+				} );
+		} );
+	},
+
+	markArtworkReplacementFailed( layerId, zoneEl, message ) {
+		const hasPreviousArtwork = this.isProductionImageInput(
+			this.inputs[ layerId ]
+		);
+		this.setUploadZoneState(
+			zoneEl,
+			hasPreviousArtwork ? 'uploaded-error' : 'error'
+		);
+		this.showUploadError( zoneEl, message );
+		if ( ! hasPreviousArtwork ) {
+			return;
+		}
+		this.failedArtworkReplacements.add( layerId );
+		const errorEl = zoneEl
+			.closest( '.oc-artwork-wrap' )
+			?.querySelector( '.oc-artwork-error' );
+		if ( ! errorEl ) {
+			return;
+		}
+		const retain = document.createElement( 'button' );
+		retain.type = 'button';
+		retain.className = 'oc-upload-retry';
+		retain.textContent = 'Use previous image';
+		retain.addEventListener(
+			'click',
+			() => {
+				this.clearFailedArtworkReplacements( layerId );
+			},
+			{ signal: this._panelListenerController?.signal }
+		);
+		errorEl.append( document.createTextNode( ' ' ), retain );
+	},
+
 	beginArtworkOperation( type, layerId = 0 ) {
 		const operation = { type, layerId, settled: false };
 		this._artworkOperations.add( operation );
@@ -320,13 +381,8 @@ const uploadMethods = {
 				}
 				this.setUploadProgress( zoneEl, 100, '' );
 				if ( ! res?.body ) {
-					this.setUploadZoneState(
-						zoneEl,
-						this.isProductionImageInput( this.inputs[ lid ] )
-							? 'uploaded-error'
-							: 'error'
-					);
-					this.showUploadError(
+					this.markArtworkReplacementFailed(
+						lid,
 						zoneEl,
 						'Upload succeeded but server returned no data.'
 					);
@@ -335,13 +391,8 @@ const uploadMethods = {
 				const attachmentId = Number( res.body.attachment_id || 0 );
 				const attachmentUrl = String( res.body.preview_url || '' );
 				if ( ! attachmentId || ! attachmentUrl ) {
-					this.setUploadZoneState(
-						zoneEl,
-						this.isProductionImageInput( this.inputs[ lid ] )
-							? 'uploaded-error'
-							: 'error'
-					);
-					this.showUploadError(
+					this.markArtworkReplacementFailed(
+						lid,
 						zoneEl,
 						'Server did not return usable artwork data.'
 					);
@@ -406,13 +457,8 @@ const uploadMethods = {
 						warnEl.textContent = `This image is too low resolution for quality printing. Minimum required: ${ threshold.width } x ${ threshold.height } pixels.`;
 						warnEl.style.display = '';
 					}
-					this.setUploadZoneState(
-						zoneEl,
-						this.isProductionImageInput( this.inputs[ lid ] )
-							? 'uploaded-error'
-							: 'error'
-					);
-					this.showUploadError(
+					this.markArtworkReplacementFailed(
+						lid,
 						zoneEl,
 						'Image resolution too low. Please upload a higher resolution image.'
 					);
@@ -432,6 +478,7 @@ const uploadMethods = {
 
 				this.inputs[ lid ] = candidate;
 				this.syncLinkedImageInput( lid );
+				this.clearFailedArtworkReplacements( lid );
 				const filterApplied = await this.applyAiImageFilter(
 					lid,
 					candidate.imageFilterId || 0,
@@ -473,28 +520,24 @@ const uploadMethods = {
 				const msg =
 					responseBody?.message || error?.message || 'Upload failed.';
 				console.warn( '[OC] Upload error:', msg, response );
-				this.setUploadZoneState(
-					zoneEl,
-					this.isProductionImageInput( this.inputs[ lid ] )
-						? 'uploaded-error'
-						: 'error'
-				);
 				this.setUploadProgress( zoneEl, 0, '' );
-				this.showUploadError( zoneEl, msg );
+				if ( this.isProductionImageInput( this.inputs[ lid ] ) ) {
+					this.markArtworkReplacementFailed( lid, zoneEl, msg );
+				} else {
+					this.setUploadZoneState( zoneEl, 'error' );
+					this.showUploadError( zoneEl, msg );
+				}
 			} );
 			uppy.on( 'restriction-failed', ( file, error ) => {
 				finishFileTransfer( file?.id );
-				this.setUploadZoneState(
-					zoneEl,
-					this.isProductionImageInput( this.inputs[ lid ] )
-						? 'uploaded-error'
-						: 'error'
-				);
 				this.setUploadProgress( zoneEl, 0, '' );
-				this.showUploadError(
-					zoneEl,
-					error?.message || 'File not allowed.'
-				);
+				const message = error?.message || 'File not allowed.';
+				if ( this.isProductionImageInput( this.inputs[ lid ] ) ) {
+					this.markArtworkReplacementFailed( lid, zoneEl, message );
+				} else {
+					this.setUploadZoneState( zoneEl, 'error' );
+					this.showUploadError( zoneEl, message );
+				}
 			} );
 		} );
 	},

@@ -196,7 +196,10 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 	#[Test]
 	public function active_wc_session_and_persistent_cart_references_protect_artwork(): void {
 		global $wpdb;
-		$method = new ReflectionMethod( OC_File_Cleanup::class, 'customer_artwork_is_referenced' );
+		$method         = new ReflectionMethod( OC_File_Cleanup::class, 'customer_artwork_is_referenced' );
+		$preview_method = new ReflectionMethod( OC_File_Cleanup::class, 'stored_payload_references' );
+		$preview_id     = str_repeat( 'c', 40 );
+		$preview_file   = 'preview-' . str_repeat( 'd', 40 ) . '.jpg';
 		$session_table = $wpdb->prefix . 'woocommerce_sessions';
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $session_table ) ) !== $session_table ) {
 			$this->markTestSkipped( 'WooCommerce sessions table is unavailable.' );
@@ -204,7 +207,7 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 
 		$wpdb->insert( $session_table, [
 			'session_key'    => 'oc-cleanup-test',
-			'session_value'  => serialize( [ 'cart' => [ [ 'sourceAttachmentId' => 45671 ] ] ] ),
+			'session_value'  => serialize( [ 'cart' => [ [ 'sourceAttachmentId' => 45671, 'preview_id' => $preview_id ] ] ] ),
 			'session_expiry' => time() + HOUR_IN_SECONDS,
 		] );
 		$this->assertTrue( $method->invoke( null, 45671 ) );
@@ -212,9 +215,92 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 
 		$user_id = self::factory()->user->create();
 		update_user_meta( $user_id, '_woocommerce_persistent_cart_1', [
-			'cart' => [ [ 'customisation' => [ 'previewAttachmentId' => 45672 ] ] ],
+			'cart' => [ [ 'customisation' => [ 'previewAttachmentId' => 45672, 'previewUrl' => $preview_file ] ] ],
 		] );
 		$this->assertTrue( $method->invoke( null, 45672 ) );
+		$preview_references = $preview_method->invoke( null, [ $preview_id, $preview_file ] );
+		$this->assertArrayHasKey( $preview_id, $preview_references );
+		$this->assertArrayHasKey( $preview_file, $preview_references );
+	}
+
+	#[Test]
+	public function preview_reference_query_failure_retains_the_whole_batch(): void {
+		global $wpdb;
+		$filter = static function ( string $query ): string {
+			if ( str_contains( $query, 'SELECT meta_value FROM' ) && str_contains( $query, 'woocommerce_order_itemmeta' ) ) {
+				return 'SELECT oc_missing_column FROM oc_missing_preview_reference_table';
+			}
+			return $query;
+		};
+		add_filter( 'query', $filter );
+		$previous_suppression = $wpdb->suppress_errors( true );
+		try {
+			$method     = new ReflectionMethod( OC_File_Cleanup::class, 'stored_payload_references' );
+			$candidates = [ str_repeat( 'e', 40 ), 'preview-' . str_repeat( 'f', 40 ) . '.png' ];
+			$this->assertSame( array_fill_keys( $candidates, true ), $method->invoke( null, $candidates ) );
+		} finally {
+			$wpdb->suppress_errors( $previous_suppression );
+			remove_filter( 'query', $filter );
+		}
+	}
+
+	#[Test]
+	public function order_reference_protects_an_expired_private_preview(): void {
+		$directory = OC_Upload_Handler::private_storage_path( 'previews' );
+		$this->assertIsString( $directory );
+		$id         = str_repeat( 'a', 40 );
+		$filename   = 'preview-' . $id . '.png';
+		$path       = $directory . '/' . $filename;
+		$unused_id  = str_repeat( 'b', 40 );
+		$unused_file = 'preview-' . $unused_id . '.png';
+		$unused_path = $directory . '/' . $unused_file;
+		file_put_contents( $path, 'preview' );
+		file_put_contents( $unused_path, 'unused preview' );
+		touch( $path, time() - ( 400 * DAY_IN_SECONDS ) );
+		touch( $unused_path, time() - ( 400 * DAY_IN_SECONDS ) );
+		$this->tmp_files[] = $path;
+		$this->tmp_files[] = $unused_path;
+		update_option( 'oc_private_preview_' . $id, wp_json_encode( [
+			'file'       => $filename,
+			'created_at' => time() - ( 400 * DAY_IN_SECONDS ),
+		] ), false );
+		update_option( 'oc_private_preview_' . $unused_id, wp_json_encode( [
+			'file'       => $unused_file,
+			'created_at' => time() - ( 400 * DAY_IN_SECONDS ),
+		] ), false );
+		update_option( 'oc_preview_cleanup_private_cursor', 0, false );
+
+		$order = WC_Helper_Order::create_order();
+		$item  = current( $order->get_items() );
+		$item->update_meta_data( '_oc_preview_url', 'https://example.test/?preview_id=' . $id );
+		$item->save();
+		$query_counts = [ 'order' => 0, 'session' => 0, 'cart' => 0 ];
+		$query_filter = static function ( string $query ) use ( &$query_counts ): string {
+			if ( str_contains( $query, 'woocommerce_order_itemmeta' ) && str_contains( $query, 'SELECT meta_value' ) ) {
+				$query_counts['order']++;
+			} elseif ( str_contains( $query, 'woocommerce_sessions' ) && str_contains( $query, 'SELECT session_value' ) ) {
+				$query_counts['session']++;
+			} elseif ( str_contains( $query, 'SELECT meta_value FROM' ) && str_contains( $query, '_woocommerce_persistent_cart_' ) ) {
+				$query_counts['cart']++;
+			}
+			return $query;
+		};
+		add_filter( 'query', $query_filter );
+		try {
+			$method = new ReflectionMethod( OC_File_Cleanup::class, 'cleanup_private_preview_images' );
+			$this->assertSame( 1, $method->invoke( null, time() - DAY_IN_SECONDS, 200 ) );
+			$this->assertFileExists( $path );
+			$this->assertFileDoesNotExist( $unused_path );
+			$this->assertNotFalse( get_option( 'oc_private_preview_' . $id, false ) );
+			$this->assertFalse( get_option( 'oc_private_preview_' . $unused_id, false ) );
+			$this->assertSame( [ 'order' => 1, 'session' => 1, 'cart' => 1 ], $query_counts );
+		} finally {
+			remove_filter( 'query', $query_filter );
+			delete_option( 'oc_private_preview_' . $id );
+			delete_option( 'oc_private_preview_' . $unused_id );
+			delete_option( 'oc_preview_cleanup_private_cursor' );
+			$order->delete( true );
+		}
 	}
 
 	#[Test]

@@ -1899,9 +1899,10 @@ class OC_Admin_Products {
 			$deleted_template   = $wpdb->delete( "{$wpdb->prefix}oc_vdp_templates", [ 'design_id' => $id ], [ '%d' ] );
 			$deleted_layers     = $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $id ], [ '%d' ] );
 			$deleted_areas      = $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'design_id' => $id ], [ '%d' ] );
+			$updated_variants   = OC_DB::remove_design_from_assignment_variants( $id );
 			$deleted_assignments = $wpdb->delete( "{$wpdb->prefix}oc_product_assignments", [ 'design_id' => $id ], [ '%d' ] );
 			$deleted_design     = $wpdb->delete( "{$wpdb->prefix}oc_designs", [ 'id' => $id ], [ '%d' ] );
-			if ( false === $deleted_template || false === $deleted_layers || false === $deleted_areas || false === $deleted_assignments || 1 !== $deleted_design ) {
+			if ( false === $deleted_template || false === $deleted_layers || false === $deleted_areas || ! $updated_variants || false === $deleted_assignments || 1 !== $deleted_design ) {
 				throw new RuntimeException( 'Could not delete design records.' );
 			}
 			if ( false === $wpdb->query( 'COMMIT' ) ) {
@@ -1912,13 +1913,8 @@ class OC_Admin_Products {
 			wp_die( esc_html__( 'Could not delete design. No changes were applied.', 'overcustomise' ) );
 		}
 
-		if ( '' !== $csv_path && file_exists( $csv_path ) ) {
-			$upload   = wp_upload_dir();
-			$vdp_root = realpath( trailingslashit( $upload['basedir'] ) . 'overcustomise/vdp' );
-			$csv_real = realpath( $csv_path );
-			if ( $vdp_root && $csv_real && 0 === strpos( $csv_real, trailingslashit( $vdp_root ) ) ) {
-				wp_delete_file( $csv_real );
-			}
+		if ( '' !== $csv_path ) {
+			OC_Rest_API::delete_vdp_file( $csv_path );
 		}
 		OC_Autosave::clear( $id );
 		OC_Cache::delete( 'all_assignments_v2' );

@@ -23,6 +23,28 @@ class Test_Command_Runner extends TestCase {
 	}
 
 	#[Test]
+	public function accepts_an_executable_path_containing_at(): void {
+		if ( ! function_exists( 'proc_open' ) || ! function_exists( 'symlink' ) ) {
+			$this->markTestSkipped( 'proc_open or symlink is unavailable.' );
+		}
+
+		$directory = sys_get_temp_dir() . '/oc-command-runner-' . bin2hex( random_bytes( 6 ) );
+		$this->assertTrue( mkdir( $directory ) );
+		$executable = $directory . '/php@current';
+		try {
+			if ( ! @symlink( PHP_BINARY, $executable ) ) {
+				$this->markTestSkipped( 'Could not create an executable symlink.' );
+			}
+			$result = OC_Command_Runner::run( [ $executable, '-r', 'echo "safe";' ] );
+			$this->assertSame( 0, $result['code'] );
+			$this->assertSame( [ 'safe' ], $result['output'] );
+		} finally {
+			@unlink( $executable );
+			@rmdir( $directory );
+		}
+	}
+
+	#[Test]
 	public function rejects_non_scalar_arguments(): void {
 		$this->expectException( \InvalidArgumentException::class );
 		OC_Command_Runner::run( [ PHP_BINARY, [] ] );

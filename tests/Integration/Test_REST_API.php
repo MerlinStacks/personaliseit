@@ -57,6 +57,55 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 		$this->assertArrayHasKey( '/overcustomise/v1/regenerate-files', $routes );
 	}
 
+	#[Test]
+	public function spotify_availability_validation_is_reused_from_server_cache(): void {
+		$uri       = 'spotify:track:6rqhFgbbKwnb9MLmUQDhG6';
+		$cache_key = 'oc_spotify_validation_' . hash( 'sha256', $uri );
+		delete_transient( $cache_key );
+		$requests = 0;
+		$mock = static function ( $preempt, array $args, string $url ) use ( &$requests ): array|false {
+			if ( ! str_starts_with( $url, 'https://open.spotify.com/oembed?' ) ) {
+				return false;
+			}
+			$requests++;
+			return [ 'response' => [ 'code' => 200 ], 'body' => '{}' ];
+		};
+		add_filter( 'pre_http_request', $mock, 10, 3 );
+		try {
+			$this->assertTrue( OC_Rest_API::validate_spotify_availability( $uri, false )['valid'] );
+			$this->assertTrue( OC_Rest_API::validate_spotify_availability( $uri, false )['valid'] );
+			$this->assertSame( 1, $requests );
+		} finally {
+			remove_filter( 'pre_http_request', $mock, 10 );
+			delete_transient( $cache_key );
+		}
+	}
+
+	#[Test]
+	public function vdp_file_deletion_accepts_private_and_legacy_roots_only(): void {
+		$private = OC_Upload_Handler::private_storage_path( 'vdp' );
+		$this->assertIsString( $private );
+		$private_file = $private . '/vdp-test-private.csv';
+		file_put_contents( $private_file, "name\nAda\n" );
+
+		$uploads = wp_upload_dir();
+		$legacy  = trailingslashit( $uploads['basedir'] ) . 'overcustomise/vdp';
+		wp_mkdir_p( $legacy );
+		$legacy_file = $legacy . '/vdp-test-legacy.csv';
+		file_put_contents( $legacy_file, "name\nGrace\n" );
+		$outside_file = wp_tempnam( 'vdp-test-outside.csv' );
+		file_put_contents( $outside_file, "name\nLinus\n" );
+
+		OC_Rest_API::delete_vdp_file( $private_file );
+		OC_Rest_API::delete_vdp_file( $legacy_file );
+		OC_Rest_API::delete_vdp_file( $outside_file );
+
+		$this->assertFileDoesNotExist( $private_file );
+		$this->assertFileDoesNotExist( $legacy_file );
+		$this->assertFileExists( $outside_file );
+		wp_delete_file( $outside_file );
+	}
+
 	// ── /product-config/{id} ──────────────────────────────────────────────────
 
 	#[Test]

@@ -253,7 +253,14 @@ const canvasRendererMethods = {
 		const index = Number.isInteger( areaIndex )
 			? areaIndex
 			: this.activeArea;
+		const previousArea = this.activeArea;
 		this.applyActiveAreaState( index );
+		if ( previousArea !== this.activeArea ) {
+			const canvas = this.canvases[ this.activeArea ];
+			if ( canvas && ! canvas._ocMissingMockup ) {
+				this.pushToGallery( canvas );
+			}
+		}
 	},
 
 	scheduleRedraw( areaIndex = this.activeArea ) {
@@ -370,7 +377,14 @@ const canvasRendererMethods = {
 		} );
 	},
 
-	async renderLayer( canvas, layer, input, area, isCurrent = () => true ) {
+	async renderLayer(
+		canvas,
+		layer,
+		input,
+		area,
+		isCurrent = () => true,
+		renderContext = {}
+	) {
 		if ( ! isCurrent() ) {
 			return;
 		}
@@ -451,7 +465,7 @@ const canvasRendererMethods = {
 					? layer.settings.line_alignment
 					: 'top';
 
-				let font = this.fonts.find(
+				let font = ( renderContext.fonts || this.fonts ).find(
 					( f ) =>
 						f.id ===
 						( input.fontId || layer.settings?.default_font_id || 0 )
@@ -1035,9 +1049,9 @@ const canvasRendererMethods = {
 					engravingPalette
 				);
 				if ( spotifyCodeUrl ) {
-					// Try CORS-safe load first; if Spotify CDN blocks CORS for this origin,
-					// retry without crossOrigin so users still see the scannable in live preview.
-					let rendered = await this.renderFabricImg(
+					// A non-CORS fallback would taint the canvas and make checkout preview
+					// capture impossible, so only render serializable Spotify images.
+					const rendered = await this.renderFabricImg(
 						canvas,
 						spotifyCodeUrl,
 						lx,
@@ -1055,26 +1069,6 @@ const canvasRendererMethods = {
 						{},
 						isCurrent
 					);
-					if ( ! rendered ) {
-						rendered = await this.renderFabricImg(
-							canvas,
-							spotifyCodeUrl,
-							lx,
-							ly,
-							lw,
-							lh,
-							isEngraving,
-							'',
-							true,
-							rotation,
-							engravingPalette,
-							contentClip(),
-							'contain',
-							'',
-							{},
-							isCurrent
-						);
-					}
 					if ( rendered ) {
 						break;
 					}
@@ -2482,36 +2476,57 @@ const canvasRendererMethods = {
 		}
 	},
 
-	updateRenderedImageCrop( layerId, amount ) {
+	updateRenderedImageCrop( layerIds, amount ) {
+		const requestedLayerIds = new Set(
+			( Array.isArray( layerIds ) ? layerIds : [ layerIds ] ).map(
+				Number
+			)
+		);
 		const cropAmount = Math.max(
 			0,
 			Math.min( 1, ( Number( amount ) || 0 ) / 100 )
 		);
-		let updated = false;
-		Object.values( this.canvases || {} ).forEach( ( canvas ) => {
-			const image = canvas
-				?.getObjects?.()
-				.find(
+		const updatedLayerIds = new Set();
+		Object.entries( this.canvases || {} ).forEach(
+			( [ areaIndex, canvas ] ) => {
+				const images = ( canvas?.getObjects?.() || [] ).filter(
 					( object ) =>
-						Number( object._ocLayerId ) === Number( layerId )
+						requestedLayerIds.has( Number( object._ocLayerId ) )
 				);
-			if ( ! image ) {
-				return;
+				if ( ! images.length ) {
+					return;
+				}
+				images.forEach( ( image ) => {
+					const containScale = Number( image._ocContainScale ) || 0;
+					const coverScale =
+						Number( image._ocCoverScale ) || containScale;
+					const scale =
+						containScale +
+						( coverScale - containScale ) * cropAmount;
+					image.set( { scaleX: scale, scaleY: scale } );
+					image.setCoords?.();
+					updatedLayerIds.add( Number( image._ocLayerId ) );
+				} );
+				canvas.renderAll?.();
+				if ( ! this._redrawPromises[ areaIndex ] ) {
+					this._redrawGenerations[ areaIndex ] =
+						( this._redrawGenerations[ areaIndex ] || 0 ) + 1;
+				}
+				canvas._ocCartPreviewRevision = '';
+				canvas._ocCartPreviewDataUrl = '';
+				if (
+					canvas._ocArea &&
+					! canvas._ocMissingMockup &&
+					this.areaCanvasGroupIndexes( Number( areaIndex ) ).includes(
+						this.activeArea
+					)
+				) {
+					this.pushToGallery( canvas );
+				}
 			}
-			const containScale = Number( image._ocContainScale ) || 0;
-			const coverScale = Number( image._ocCoverScale ) || containScale;
-			const scale =
-				containScale + ( coverScale - containScale ) * cropAmount;
-			image.set( { scaleX: scale, scaleY: scale } );
-			image.setCoords?.();
-			canvas.renderAll?.();
-			if ( canvas._ocArea && ! canvas._ocMissingMockup ) {
-				this.pushToGallery( canvas );
-			}
-			updated = true;
-		} );
+		);
 
-		return updated;
+		return updatedLayerIds;
 	},
 
 	imageFilterForLayer( layer, filterId ) {

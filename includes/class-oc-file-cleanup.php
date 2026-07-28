@@ -91,7 +91,7 @@ class OC_File_Cleanup {
 			return false;
 		}
 
-		$shared_active = (int) $wpdb->get_var( $wpdb->prepare(
+		$shared_active = $wpdb->get_var( $wpdb->prepare(
 			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files
 			 WHERE (file_path = %s OR thumbnail_path = %s) AND id <> %d AND file_status <> 'expired'
 			 AND NOT (file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
@@ -101,7 +101,11 @@ class OC_File_Cleanup {
 			(int) $record->id,
 			current_time( 'mysql', true )
 		) );
-		if ( $shared_active > 0 ) {
+		if ( null === $shared_active && '' !== (string) $wpdb->last_error ) {
+			OC_Logger::warning( 'File cleanup retained a print artifact because its shared references could not be checked.' );
+			return false;
+		}
+		if ( (int) $shared_active > 0 ) {
 			return true;
 		}
 
@@ -119,7 +123,7 @@ class OC_File_Cleanup {
 
 	/** Delete old current and legacy saved preview images in bounded batches. */
 	private static function cleanup_preview_images(): void {
-		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' );
+		$retention_days = (int) OC_Admin_Settings::get( 'preview_retention_days' );
 		if ( $retention_days <= 0 ) {
 			$retention_days = 90;
 		}
@@ -166,7 +170,8 @@ class OC_File_Cleanup {
 			return 0;
 		}
 
-		$deleted = 0;
+		$deleted    = 0;
+		$candidates = [];
 		foreach ( $rows as $row ) {
 			$option_name = (string) $row->option_name;
 			$raw         = (string) $row->option_value;
@@ -188,8 +193,25 @@ class OC_File_Cleanup {
 			if ( $modified > $cutoff ) {
 				continue;
 			}
-			if ( @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				self::delete_option_if_unchanged( $option_name, $raw );
+			$candidates[] = [
+				'id'          => $id,
+				'file'        => $record['file'],
+				'path'        => $real,
+				'option_name' => $option_name,
+				'raw'         => $raw,
+			];
+		}
+
+		$references = self::stored_payload_references( array_merge(
+			array_column( $candidates, 'id' ),
+			array_column( $candidates, 'file' )
+		) );
+		foreach ( $candidates as $candidate ) {
+			if ( isset( $references[ $candidate['id'] ] ) || isset( $references[ $candidate['file'] ] ) ) {
+				continue;
+			}
+			if ( @unlink( $candidate['path'] ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				self::delete_option_if_unchanged( $candidate['option_name'], $candidate['raw'] );
 				$deleted++;
 			}
 		}
@@ -210,8 +232,9 @@ class OC_File_Cleanup {
 		$cursor  = (string) get_option( $cursor_option, '' );
 		$started = '' === $cursor;
 		$handled = 0;
-		$deleted = 0;
-		$last    = '';
+		$deleted    = 0;
+		$last       = '';
+		$candidates = [];
 		try {
 			$iterator = new \FilesystemIterator( $base, \FilesystemIterator::SKIP_DOTS );
 			foreach ( $iterator as $file ) {
@@ -230,8 +253,8 @@ class OC_File_Cleanup {
 				$handled++;
 				$real      = $file->getRealPath();
 				$safe_file = false !== $real && ! $file->isLink() && $file->isFile() && self::path_is_within( $real, $base );
-				if ( $safe_file && self::latest_file_access_time( $real ) <= $cutoff && @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-					$deleted++;
+				if ( $safe_file && self::latest_file_access_time( $real ) <= $cutoff ) {
+					$candidates[ $name ] = $real;
 				}
 				if ( $handled >= $limit ) {
 					break;
@@ -241,7 +264,15 @@ class OC_File_Cleanup {
 			return 0;
 		}
 
-		update_option( $cursor_option, $handled >= $limit ? $last : '', false );
+		$references = self::stored_payload_references( array_keys( $candidates ) );
+		foreach ( $candidates as $name => $path ) {
+			if ( ! isset( $references[ $name ] ) && @unlink( $path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				$deleted++;
+			}
+		}
+
+		$next_cursor = $handled >= $limit && is_file( $base . DIRECTORY_SEPARATOR . $last ) ? $last : '';
+		update_option( $cursor_option, $next_cursor, false );
 		return $deleted;
 	}
 
@@ -335,7 +366,7 @@ class OC_File_Cleanup {
 
 	/** Delete expired customer artwork that is no longer referenced by an order or cart. */
 	private static function cleanup_customer_artwork(): void {
-		$retention_days = max( 1, (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90 );
+		$retention_days = max( 1, (int) OC_Admin_Settings::get( 'artwork_retention_days' ) ?: 90 );
 		$cursor         = max( 0, (int) get_option( 'oc_artwork_cleanup_cursor', 0 ) );
 		$cutoff         = gmdate( 'Y-m-d H:i:s', time() - ( $retention_days * DAY_IN_SECONDS ) );
 		$limit          = 100;
@@ -419,12 +450,19 @@ class OC_File_Cleanup {
 			 WHERE meta_key = '_oc_customisation' AND ({$clauses}) LIMIT 1",
 			...$patterns
 		) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return true;
+		}
 		if ( $found ) {
 			return true;
 		}
 
 		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
-		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) ) === $sessions_table ) {
+		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return true;
+		}
+		if ( $sessions_exists === $sessions_table ) {
 			$session_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'session_value LIKE %s' ) );
 			$session_args    = array_merge( [ time() ], $patterns );
 			$found           = $wpdb->get_var( $wpdb->prepare(
@@ -432,6 +470,9 @@ class OC_File_Cleanup {
 				 WHERE session_expiry >= %d AND ({$session_clauses}) LIMIT 1",
 				...$session_args
 			) );
+			if ( '' !== (string) $wpdb->last_error ) {
+				return true;
+			}
 			if ( $found ) {
 				return true;
 			}
@@ -439,12 +480,81 @@ class OC_File_Cleanup {
 
 		$persistent_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
 		$persistent_key     = $wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%';
-		return (bool) $wpdb->get_var( $wpdb->prepare(
+		$found = $wpdb->get_var( $wpdb->prepare(
 			"SELECT umeta_id FROM {$wpdb->usermeta}
 			 WHERE meta_key LIKE %s AND ({$persistent_clauses}) LIMIT 1",
 			$persistent_key,
 			...$patterns
 		) );
+		return '' !== (string) $wpdb->last_error || (bool) $found;
+	}
+
+	/** Return candidate fragments referenced by order metadata, active sessions, or persistent carts. */
+	private static function stored_payload_references( array $needles ): array {
+		global $wpdb;
+
+		$clean_needles = [];
+		foreach ( $needles as $needle ) {
+			if ( is_scalar( $needle ) && '' !== (string) $needle ) {
+				$clean_needles[ (string) $needle ] = true;
+			}
+		}
+		$clean_needles = array_keys( $clean_needles );
+		if ( empty( $clean_needles ) ) {
+			return [];
+		}
+		$patterns = array_map( static fn ( string $needle ): string => '%' . $wpdb->esc_like( $needle ) . '%', $clean_needles );
+		$payloads = [];
+
+		$clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
+		$order_payloads = $wpdb->get_col( $wpdb->prepare(
+			"SELECT meta_value FROM {$wpdb->prefix}woocommerce_order_itemmeta WHERE {$clauses}",
+			...$patterns
+		) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return array_fill_keys( $clean_needles, true );
+		}
+		$payloads = array_merge( $payloads, is_array( $order_payloads ) ? $order_payloads : [] );
+
+		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
+		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return array_fill_keys( $clean_needles, true );
+		}
+		if ( $sessions_exists === $sessions_table ) {
+			$session_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'session_value LIKE %s' ) );
+			$session_payloads = $wpdb->get_col( $wpdb->prepare(
+				"SELECT session_value FROM {$sessions_table} WHERE session_expiry >= %d AND ({$session_clauses})",
+				time(),
+				...$patterns
+			) );
+			if ( '' !== (string) $wpdb->last_error ) {
+				return array_fill_keys( $clean_needles, true );
+			}
+			$payloads = array_merge( $payloads, is_array( $session_payloads ) ? $session_payloads : [] );
+		}
+
+		$persistent_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
+		$persistent_payloads = $wpdb->get_col( $wpdb->prepare(
+			"SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE %s AND ({$persistent_clauses})",
+			$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
+			...$patterns
+		) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return array_fill_keys( $clean_needles, true );
+		}
+		$payloads = array_merge( $payloads, is_array( $persistent_payloads ) ? $persistent_payloads : [] );
+
+		$references = [];
+		foreach ( $payloads as $payload ) {
+			foreach ( $clean_needles as $needle ) {
+				if ( str_contains( (string) $payload, $needle ) ) {
+					$references[ $needle ] = true;
+				}
+			}
+		}
+
+		return $references;
 	}
 
 	/** Build exact common PHP-serialization and JSON reference forms. */

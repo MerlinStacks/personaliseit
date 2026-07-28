@@ -27,6 +27,8 @@ class OC_Admin_Settings {
 
 			// File management.
 			'file_retention_days'    => 90,
+			'preview_retention_days' => 90,
+			'artwork_retention_days' => 90,
 			'max_upload_size_mb'     => 10,
 			'allowed_upload_formats' => [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ],
 
@@ -54,6 +56,8 @@ class OC_Admin_Settings {
 		$all = [
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, is_numeric( $all['file_retention_days'] ?? null ) ? (int) $all['file_retention_days'] : 90 ) ),
+			'preview_retention_days' => max( 1, min( 3650, is_numeric( $all['preview_retention_days'] ?? null ) ? (int) $all['preview_retention_days'] : 90 ) ),
+			'artwork_retention_days' => max( 1, min( 3650, is_numeric( $all['artwork_retention_days'] ?? null ) ? (int) $all['artwork_retention_days'] : 90 ) ),
 			'max_upload_size_mb'     => max( 1, min( 100, is_numeric( $all['max_upload_size_mb'] ?? null ) ? (int) $all['max_upload_size_mb'] : 10 ) ),
 			'allowed_upload_formats' => $formats,
 			'bleed_mm'               => max( 0, min( 100, is_finite( $bleed ) ? $bleed : 3.0 ) ),
@@ -304,6 +308,30 @@ class OC_Admin_Settings {
 													<span class="oc-input-suffix"><?php esc_html_e( 'days', 'overcustomise' ); ?></span>
 												</div>
 												<p class="oc-form-help"><?php esc_html_e( 'Generated print files are automatically deleted after this many days. Default: 90.', 'overcustomise' ); ?></p>
+											</div>
+										</div>
+										<div class="oc-form-row">
+											<div class="oc-form-label">
+												<label for="oc_preview_retention_days"><?php esc_html_e( 'Customer preview retention', 'overcustomise' ); ?></label>
+											</div>
+											<div class="oc-form-field">
+												<div class="oc-inline-row">
+													<input type="number" id="oc_preview_retention_days" name="oc_preview_retention_days" value="<?php echo esc_attr( $s['preview_retention_days'] ); ?>" min="1" step="1" class="small-text oc-input oc-input-xs" />
+													<span class="oc-input-suffix"><?php esc_html_e( 'days', 'overcustomise' ); ?></span>
+												</div>
+												<p class="oc-form-help"><?php esc_html_e( 'Unreferenced cart previews older than this are deleted. Order and active-cart previews are always retained.', 'overcustomise' ); ?></p>
+											</div>
+										</div>
+										<div class="oc-form-row">
+											<div class="oc-form-label">
+												<label for="oc_artwork_retention_days"><?php esc_html_e( 'Customer artwork retention', 'overcustomise' ); ?></label>
+											</div>
+											<div class="oc-form-field">
+												<div class="oc-inline-row">
+													<input type="number" id="oc_artwork_retention_days" name="oc_artwork_retention_days" value="<?php echo esc_attr( $s['artwork_retention_days'] ); ?>" min="1" step="1" class="small-text oc-input oc-input-xs" />
+													<span class="oc-input-suffix"><?php esc_html_e( 'days', 'overcustomise' ); ?></span>
+												</div>
+												<p class="oc-form-help"><?php esc_html_e( 'Unreferenced customer uploads older than this are eligible for cleanup. Order and active-cart artwork is always retained.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 										<div class="oc-form-row">
@@ -754,6 +782,8 @@ class OC_Admin_Settings {
 		$settings = [
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ) ),
+			'preview_retention_days' => max( 1, min( 3650, (int) ( $_POST['oc_preview_retention_days'] ?? 90 ) ) ),
+			'artwork_retention_days' => max( 1, min( 3650, (int) ( $_POST['oc_artwork_retention_days'] ?? 90 ) ) ),
 			'max_upload_size_mb'     => max( 1, min( 100, (int) ( $_POST['oc_max_upload_size_mb'] ?? 10 ) ) ),
 			'allowed_upload_formats' => array_values( $posted_formats ),
 			'bleed_mm'               => max( 0, min( 100, is_finite( $bleed ) ? $bleed : 3.0 ) ),

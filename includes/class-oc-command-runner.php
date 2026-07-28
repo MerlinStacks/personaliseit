@@ -52,7 +52,7 @@ class OC_Command_Runner {
 		if ( preg_match( '/[\x00-\x1F\x7F]/', $bin ) ) {
 			throw new \InvalidArgumentException( 'Executable contains control characters.' );
 		}
-		if ( ! preg_match( '/^[A-Za-z0-9_\-\.\/\\\\\(\) :]+$/', $bin ) ) {
+		if ( ! preg_match( '/^[A-Za-z0-9_@\-\.\/\\\\\(\) :]+$/', $bin ) ) {
 			throw new \InvalidArgumentException( 'Executable contains unsupported characters.' );
 		}
 

@@ -221,6 +221,62 @@ class Test_DB extends WP_UnitTestCase {
 	}
 
 	#[Test]
+	public function deleted_design_is_removed_from_all_assignment_variants(): void {
+		global $wpdb;
+		$variants = [
+			[ 'designId' => 501, 'label' => 'Keep' ],
+			[ 'designId' => 502, 'label' => 'Delete' ],
+			[ 'designId' => 502, 'label' => 'Delete duplicate' ],
+		];
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [
+			'product_id'     => self::$product_id + 1000,
+			'variant_id'     => 0,
+			'design_id'      => 501,
+			'design_variants' => wp_json_encode( $variants ),
+		] );
+		$assignment_id = (int) $wpdb->insert_id;
+		$malformed = '[{"designId":502';
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [
+			'product_id'      => self::$product_id + 1001,
+			'variant_id'      => 0,
+			'design_id'       => 501,
+			'design_variants' => $malformed,
+		] );
+		$malformed_id = (int) $wpdb->insert_id;
+
+		$this->assertTrue( OC_DB::remove_design_from_assignment_variants( 502 ) );
+		$stored = json_decode( (string) $wpdb->get_var( $wpdb->prepare(
+			"SELECT design_variants FROM {$wpdb->prefix}oc_product_assignments WHERE id = %d",
+			$assignment_id
+		) ), true );
+
+		$this->assertSame( [ [ 'designId' => 501, 'label' => 'Keep' ] ], $stored );
+		$this->assertSame( $malformed, $wpdb->get_var( $wpdb->prepare(
+			"SELECT design_variants FROM {$wpdb->prefix}oc_product_assignments WHERE id = %d",
+			$malformed_id
+		) ) );
+	}
+
+	#[Test]
+	public function assignment_variant_cleanup_reports_select_failure(): void {
+		global $wpdb;
+		$filter = static function ( string $query ): string {
+			if ( str_contains( $query, 'SELECT id, design_variants FROM' ) ) {
+				return 'SELECT oc_missing_column FROM oc_missing_assignment_table';
+			}
+			return $query;
+		};
+		add_filter( 'query', $filter );
+		$previous_suppression = $wpdb->suppress_errors( true );
+		try {
+			$this->assertFalse( OC_DB::remove_design_from_assignment_variants( 502 ) );
+		} finally {
+			$wpdb->suppress_errors( $previous_suppression );
+			remove_filter( 'query', $filter );
+		}
+	}
+
+	#[Test]
 	public function print_pipeline_writes_are_deferred_while_migration_is_locked(): void {
 		add_option( 'oc_db_upgrade_lock', time(), '', false );
 		try {

@@ -94,6 +94,7 @@ class OCCustomiser {
 		this.aiFilterGenerations = {};
 		this.aiFilterAbortControllers = {};
 		this.aiFilterErrors = {};
+		this.failedArtworkReplacements = new Set();
 		this.artworkPendingCount = 0;
 		this._artworkOperations = new Set();
 		this.uppyInstances = new Set();
@@ -116,6 +117,8 @@ class OCCustomiser {
 		this._mobileCartPreviewPromise = null;
 		this._storeApiPreparationPromise = null;
 		this._storeApiSubmitBound = false;
+		this._storeApiFetchBound = false;
+		this._pendingStoreApiCustomisation = null;
 	}
 
 	beginDesignStateListeners() {
@@ -185,6 +188,7 @@ class OCCustomiser {
 		this.restoreProductGallery?.();
 		this.dismissMobileCartPreview?.();
 		this.dismissSpotifyModal?.();
+		this.consumeStoreApiCustomisationMerge?.();
 		this._panelListenerController?.abort();
 		this._panelListenerController = null;
 
@@ -212,6 +216,7 @@ class OCCustomiser {
 		);
 		this.aiFilterAbortControllers = {};
 		this.aiFilterErrors = {};
+		this.failedArtworkReplacements.clear();
 		Object.keys( this.uploadGenerations ).forEach( ( layerId ) => {
 			this.uploadGenerations[ layerId ] += 1;
 		} );
@@ -228,6 +233,7 @@ class OCCustomiser {
 		this.cancelArtworkOperations?.();
 
 		this.clipartSearchTimers = {};
+		this.expireStoreApiCustomisationMerge?.( false );
 		this._stateTimers.forEach( window.clearTimeout );
 		this._stateTimers.clear();
 		this._stateAnimationFrames.forEach( window.cancelAnimationFrame );
@@ -318,20 +324,34 @@ class OCCustomiser {
 			return;
 		}
 
-		const response = await fetch( this.data.requestTokenUrl, {
-			credentials: 'same-origin',
-			cache: 'no-store',
-			headers: { Accept: 'application/json' },
-		} );
-		const body = await response.json().catch( () => null );
-		const token = typeof body?.token === 'string' ? body.token : '';
-		if ( ! response.ok || ! /^[A-Za-z0-9]{64}$/.test( token ) ) {
-			throw new Error(
-				body?.message || 'Security verification could not be started.'
-			);
-		}
+		const request = this.createStateAbortController( 12000 );
+		try {
+			const response = await fetch( this.data.requestTokenUrl, {
+				credentials: 'same-origin',
+				cache: 'no-store',
+				headers: { Accept: 'application/json' },
+				signal: request.controller.signal,
+			} );
+			const body = await response.json().catch( () => null );
+			const token = typeof body?.token === 'string' ? body.token : '';
+			if ( ! response.ok || ! /^[A-Za-z0-9]{64}$/.test( token ) ) {
+				throw new Error(
+					body?.message ||
+						'Security verification could not be started.'
+				);
+			}
 
-		this.data.requestToken = token;
+			this.data.requestToken = token;
+		} catch ( error ) {
+			if ( request.timedOut() ) {
+				throw new Error(
+					'Security verification timed out. Please retry.'
+				);
+			}
+			throw error;
+		} finally {
+			request.release();
+		}
 	}
 
 	currentVariationId() {

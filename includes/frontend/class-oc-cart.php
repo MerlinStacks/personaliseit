@@ -604,17 +604,16 @@ class OC_Cart {
 				if ( '' === $value ) {
 					return new \WP_Error( 'invalid_spotify', sprintf( __( 'The Spotify link in "%s" is invalid.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 				}
+				$spotify_validation = OC_Rest_API::validate_spotify_availability( $value );
+				if ( is_wp_error( $spotify_validation ) || empty( $spotify_validation['valid'] ) ) {
+					return new \WP_Error( 'invalid_spotify', sprintf( __( 'The Spotify link in "%s" is unavailable or could not be validated.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
+				}
 			}
 			$char_limit      = absint( $settings['char_limit'] ?? 0 );
 			$effective_limit = $char_limit ?: 10000;
 			if ( self::string_length_static( $value ) > $effective_limit ) {
 				return new \WP_Error( 'character_limit', sprintf( __( '"%1$s" exceeds the maximum of %2$d characters.', 'overcustomise' ), $layer->label ?: ucfirst( $type ), $effective_limit ) );
 			}
-			$spotify_status = is_scalar( $source['spotifyStatus'] ?? null ) ? sanitize_key( (string) $source['spotifyStatus'] ) : '';
-			if ( 'spotify' === $type && '' !== trim( $value ) && in_array( $spotify_status, [ 'invalid_format', 'playlist_private_or_invalid', 'invalid_or_unavailable', 'unreachable', 'rate_limited' ], true ) ) {
-				return new \WP_Error( 'invalid_spotify', sprintf( __( 'The Spotify link in "%s" could not be validated.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
-			}
-
 			$default_font = absint( $settings['default_font_id'] ?? 0 );
 			$font_id      = absint( $source['fontId'] ?? $default_font );
 			if ( ! $editable || ( array_key_exists( 'allow_font_change', $settings ) && empty( $settings['allow_font_change'] ) ) ) {

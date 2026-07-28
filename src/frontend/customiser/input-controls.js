@@ -14,6 +14,7 @@ const LINKED_IMAGE_INPUT_KEYS = [
 	'imageMeta',
 	'sourceImageMeta',
 	'imageFilterId',
+	'imageCrop',
 	'customerUploaded',
 ];
 
@@ -333,6 +334,17 @@ const inputControlMethods = {
 		const designGeneration = this._designGeneration;
 		this.setupControlAccessibility();
 		this.setupFontComboboxes();
+		document.querySelectorAll( '.oc-area-controls' ).forEach( ( panel ) => {
+			panel.addEventListener(
+				'focusin',
+				() => {
+					this.focusPreviewArea(
+						parseInt( panel.dataset.areaIndex, 10 )
+					);
+				},
+				{ signal: stateSignal }
+			);
+		} );
 
 		// Text / textarea
 		document.querySelectorAll( '[data-oc-layer-text]' ).forEach( ( el ) => {
@@ -778,22 +790,30 @@ const inputControlMethods = {
 				el.addEventListener(
 					'input',
 					() => {
-						this.inputs[ lid ].imageCrop = Math.max(
+						const imageCrop = Math.max(
 							0,
 							Math.min( 100, parseInt( el.value, 10 ) || 0 )
 						);
+						this.inputs[ lid ].imageCrop = imageCrop;
+						this.syncLinkedLayerInput( lid, [ 'imageCrop' ], {
+							redraw: false,
+						} );
 						this.updateImageCropControl( lid );
 						this.requestPreviewFocus();
-						if (
-							! this.updateRenderedImageCrop(
-								lid,
-								this.inputs[ lid ].imageCrop
+						const layerIds = this.linkedLayerMembers( lid );
+						const updatedLayerIds = this.updateRenderedImageCrop(
+							layerIds,
+							imageCrop
+						);
+						layerIds
+							.filter(
+								( layerId ) => ! updatedLayerIds.has( layerId )
 							)
-						) {
-							this.scheduleRedraw(
-								this.areaIndexForLayer( lid )
+							.forEach( ( layerId ) =>
+								this.scheduleRedraw(
+									this.areaIndexForLayer( layerId )
+								)
 							);
-						}
 						this.updateHiddenField();
 					},
 					{ signal: stateSignal }
@@ -952,7 +972,19 @@ const inputControlMethods = {
 	},
 
 	setupControlAccessibility() {
-		this.areas.forEach( ( area ) => {
+		this.areas.forEach( ( area, areaIndex ) => {
+			const panel = document.querySelector(
+				`.oc-area-controls[data-area-index="${ areaIndex }"]`
+			);
+			if ( panel ) {
+				panel.setAttribute( 'role', 'group' );
+				panel.setAttribute(
+					'aria-label',
+					`${
+						area.label || `Print area ${ areaIndex + 1 }`
+					} controls`
+				);
+			}
 			( area.layers || [] ).forEach( ( layer ) => {
 				const required = Boolean(
 					layer.required || layer.settings?.required
@@ -1412,7 +1444,7 @@ const inputControlMethods = {
 		return this.linkedLayerMembers( layerId )[ 0 ] || layerId;
 	},
 
-	syncLinkedLayerInput( sourceLayerId, keys ) {
+	syncLinkedLayerInput( sourceLayerId, keys, { redraw = true } = {} ) {
 		const sourceInput = this.inputs[ sourceLayerId ];
 		if ( ! sourceInput ) {
 			return;
@@ -1438,9 +1470,11 @@ const inputControlMethods = {
 			this.updateLinkedLayerControls( layerId, keys );
 			targetAreaIndexes.add( this.areaIndexForLayer( layerId ) );
 		} );
-		targetAreaIndexes.forEach( ( areaIndex ) =>
-			this.scheduleRedraw( areaIndex )
-		);
+		if ( redraw ) {
+			targetAreaIndexes.forEach( ( areaIndex ) =>
+				this.scheduleRedraw( areaIndex )
+			);
+		}
 	},
 
 	updateLinkedLayerControls( layerId, keys ) {
@@ -1765,6 +1799,10 @@ const inputControlMethods = {
 		document.querySelectorAll( '.oc-area-controls' ).forEach( ( el ) => {
 			el.hidden = false;
 			el.removeAttribute( 'aria-hidden' );
+			el.classList.toggle(
+				'oc-active-area-controls',
+				Number( el.dataset.areaIndex ) === this.activeArea
+			);
 		} );
 	},
 
