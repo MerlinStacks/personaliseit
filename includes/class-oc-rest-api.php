@@ -1457,6 +1457,8 @@ class OC_Rest_API {
 			$filter_id          = absint( get_post_meta( $derivative_attachment_id, '_oc_ai_filter_id', true ) );
 			$allowed_filters    = array_values( array_filter( array_map( 'absint', (array) ( $target_settings['image_filter_ids'] ?? [] ) ) ) );
 			$can_change_filter  = ! array_key_exists( 'allow_image_filter_change', $target_settings ) || true === self::setting_boolean( $target_settings['allow_image_filter_change'] );
+			$default_filter_id  = absint( $target_settings['default_image_filter_id'] ?? 0 );
+			$filter_permitted   = $can_change_filter || $default_filter_id === $filter_id;
 			$active_ai_filter   = false;
 			foreach ( OC_DB::get_image_filters( true ) as $filter ) {
 				if ( (int) $filter->id === $filter_id && 'ai' === (string) $filter->filter_key ) {
@@ -1469,7 +1471,7 @@ class OC_Rest_API {
 				|| ! OC_Upload_Handler::attachment_matches_upload_policy( $derivative_attachment_id, $target_policy, false )
 				|| 1 !== (int) get_post_meta( $derivative_attachment_id, '_oc_ai_filter', true )
 				|| $source_attachment_id !== absint( get_post_meta( $derivative_attachment_id, '_oc_ai_filter_source_id', true ) )
-				|| ! $filter_id || ! $can_change_filter || ! in_array( $filter_id, $allowed_filters, true ) || ! $active_ai_filter
+				|| ! $filter_id || ! $filter_permitted || ! in_array( $filter_id, $allowed_filters, true ) || ! $active_ai_filter
 			) {
 				return new \WP_Error( 'invalid_attachment', __( 'The filtered image is not valid for the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
 			}

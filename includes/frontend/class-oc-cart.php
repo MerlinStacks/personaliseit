@@ -1393,7 +1393,7 @@ class OC_Cart {
 		}
 
 		echo '<div class="oc-order-item-meta" style="margin-top:10px;padding:12px;background:#fff;border:1px solid #dcdcde;border-radius:6px;font-size:12px;line-height:1.45;box-shadow:0 1px 2px rgba(0,0,0,0.04);max-width:560px;">';
-		echo '<div style="display:flex;gap:14px;align-items:flex-start;">';
+		echo '<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-start;">';
 
 		// ── Preview image ─────────────────────────────────────────────────────
 		if ( $preview_url ) {
@@ -1409,7 +1409,7 @@ class OC_Cart {
 			   . '</div>';
 		}
 
-		echo '<div style="flex:1 1 auto;min-width:0;">';
+		echo '<div style="flex:1 1 240px;min-width:0;">';
 		echo '<div style="margin:0 0 8px;font-weight:600;color:#1d2327;">' . esc_html__( 'Customisation', 'overcustomise' ) . '</div>';
 
 		if ( empty( $customisation ) || ! is_array( $customisation ) ) {

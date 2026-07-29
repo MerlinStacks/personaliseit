@@ -1425,10 +1425,14 @@ const inputControlMethods = {
 		const allowedFilters = Array.isArray( layer.settings?.image_filter_ids )
 			? layer.settings.image_filter_ids.map( Number )
 			: [];
+		const canChangeFilter =
+			layer.settings?.allow_image_filter_change !== false;
 		const filterAllowed =
 			layer.type === 'image' &&
-			layer.settings?.allow_image_filter_change !== false &&
-			allowedFilters.includes( filterId );
+			allowedFilters.includes( filterId ) &&
+			( canChangeFilter ||
+				Number( layer.settings?.default_image_filter_id || 0 ) ===
+					filterId );
 		if ( filterId && ! filterAllowed ) {
 			payload.imageFilterId = 0;
 			payload.attachmentId = payload.sourceAttachmentId;
