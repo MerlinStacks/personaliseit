@@ -1406,6 +1406,34 @@ const inputControlMethods = {
 		this.recordLinkGroupCarry( layerId, payload );
 	},
 
+	captureLinkGroupCarry() {
+		this.areas.forEach( ( area ) => {
+			( area.layers || [] ).forEach( ( layer ) => {
+				const key = this.linkGroupCarryKey( layer );
+				if ( ! key ) {
+					return;
+				}
+
+				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+					const value = this.inputs[ layer.id ]?.value;
+					const defaultValue =
+						this.data.layerInputs?.[ layer.id ]?.value;
+					if (
+						this.linkGroupCarry.has( key ) ||
+						String( value || '' ) !== String( defaultValue || '' )
+					) {
+						this.recordLinkGroupCarry( layer.id, {
+							value: value || '',
+						} );
+					}
+					return;
+				}
+
+				this.recordImageLinkGroupCarry( layer.id );
+			} );
+		} );
+	},
+
 	artworkContextAuthorisationKey( payload, context ) {
 		return [
 			Number( this.data.productId || 0 ),
@@ -1550,6 +1578,9 @@ const inputControlMethods = {
 								carried.payload.value
 							),
 						};
+						this.syncLinkedLayerInput( layer.id, [ 'value' ], {
+							redraw: false,
+						} );
 					}
 					continue;
 				}

@@ -3742,6 +3742,10 @@ const galleryPreviewMethods = {
       return null;
     }
     this.syncInputsFromDOM();
+    this.captureLinkGroupCarry();
+    if (this.linkGroupCarry.size) {
+      this.requestPreviewFocus();
+    }
     const snapshot = {
       designId: parseInt(this.data.designId, 10) || 0,
       selectedDesignVariant: this.selectedDesignVariant || '',
@@ -4934,6 +4938,27 @@ const inputControlMethods = {
     this.artworkContextAuthorisations.add(this.artworkContextAuthorisationKey(payload, payload.context));
     this.recordLinkGroupCarry(layerId, payload);
   },
+  captureLinkGroupCarry() {
+    this.areas.forEach(area => {
+      (area.layers || []).forEach(layer => {
+        const key = this.linkGroupCarryKey(layer);
+        if (!key) {
+          return;
+        }
+        if (['text', 'textarea'].includes(layer.type)) {
+          const value = this.inputs[layer.id]?.value;
+          const defaultValue = this.data.layerInputs?.[layer.id]?.value;
+          if (this.linkGroupCarry.has(key) || String(value || '') !== String(defaultValue || '')) {
+            this.recordLinkGroupCarry(layer.id, {
+              value: value || ''
+            });
+          }
+          return;
+        }
+        this.recordImageLinkGroupCarry(layer.id);
+      });
+    });
+  },
   artworkContextAuthorisationKey(payload, context) {
     return [Number(this.data.productId || 0), Number(context?.variationId || 0), Number(context?.designId || 0), Number(context?.layerId || 0), Number(payload?.sourceAttachmentId || 0), Number(payload?.attachmentId || 0)].join('|');
   },
@@ -5042,6 +5067,9 @@ const inputControlMethods = {
               ...(this.inputs[layer.id] || {}),
               value: this.normaliseLayerTextValue(layer.id, carried.payload.value)
             };
+            this.syncLinkedLayerInput(layer.id, ['value'], {
+              redraw: false
+            });
           }
           continue;
         }

@@ -685,6 +685,10 @@ const galleryPreviewMethods = {
 		}
 
 		this.syncInputsFromDOM();
+		this.captureLinkGroupCarry();
+		if ( this.linkGroupCarry.size ) {
+			this.requestPreviewFocus();
+		}
 		const snapshot = {
 			designId: parseInt( this.data.designId, 10 ) || 0,
 			selectedDesignVariant: this.selectedDesignVariant || '',
