@@ -468,7 +468,7 @@ class OC_Frontend {
 		];
 	}
 
-	/** Return a validated design-mask PNG URL. */
+	/** Return a validated design-mask image URL. */
 	private static function design_mask_attachment_url( int $attachment_id ): string {
 		if ( $attachment_id <= 0 || 'attachment' !== get_post_type( $attachment_id ) ) {
 			return '';
@@ -476,10 +476,10 @@ class OC_Frontend {
 		$url      = (string) wp_get_attachment_url( $attachment_id );
 		$mime     = strtolower( (string) get_post_mime_type( $attachment_id ) );
 		$url_path = (string) wp_parse_url( $url, PHP_URL_PATH );
-		$is_png   = in_array( $mime, [ 'image/png', 'image/x-png' ], true )
-			|| ( str_starts_with( $mime, 'image/' ) && 'png' === strtolower( pathinfo( $url_path, PATHINFO_EXTENSION ) ) );
+		$is_supported = in_array( $mime, [ 'image/png', 'image/x-png', 'image/svg+xml', 'image/webp' ], true )
+			|| ( str_starts_with( $mime, 'image/' ) && in_array( strtolower( pathinfo( $url_path, PATHINFO_EXTENSION ) ), [ 'png', 'svg', 'webp' ], true ) );
 
-		return $is_png ? $url : '';
+		return $is_supported ? $url : '';
 	}
 
 	/** Build frontend-safe alternate design options from assignment JSON. */

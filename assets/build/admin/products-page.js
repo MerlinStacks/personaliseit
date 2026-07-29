@@ -1553,13 +1553,12 @@ __webpack_require__.r(__webpack_exports__);
     }
     if (!maskMediaFrame) {
       maskMediaFrame = window.wp.media({
-        title: 'Select Design Mask PNG',
+        title: 'Select Design Mask',
         button: {
           text: 'Use as Design Mask'
         },
         library: {
-          type: 'image',
-          subtype: 'png'
+          type: 'image'
         },
         multiple: false
       });
@@ -1570,9 +1569,9 @@ __webpack_require__.r(__webpack_exports__);
         }
         const url = attachment.url || attachment.sizes?.full?.url || attachment.originalImageURL || '';
         const mime = String(attachment.mime || '').toLowerCase();
-        const isPng = ['image/png', 'image/x-png'].includes(mime) || attachment.subtype === 'png' || /\.png(?:[?#]|$)/i.test(attachment.filename || url);
-        if (!isPng || !url) {
-          window.alert('Please select a PNG image.');
+        const isSupportedMask = ['image/png', 'image/x-png', 'image/svg+xml', 'image/webp'].includes(mime) || /\.(?:png|svg|webp)(?:[?#]|$)/i.test(attachment.filename || url);
+        if (!isSupportedMask || !url) {
+          window.alert('Please select a PNG, SVG, or WebP image.');
           return;
         }
         const existingMask = designMaskEntry();
