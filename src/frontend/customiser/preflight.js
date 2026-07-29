@@ -353,7 +353,8 @@ const preflightMethods = {
 								canonicalId,
 								canonicalInput.value || value,
 								this.getLayerInputEl( canonicalLayer ) ||
-									fieldEl
+									fieldEl,
+								true
 							);
 							spotifyValidated.add( canonicalId );
 						}

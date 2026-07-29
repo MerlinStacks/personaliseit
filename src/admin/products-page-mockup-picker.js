@@ -1,7 +1,7 @@
 /* eslint-disable no-alert */
 
 export function createMockupPicker( deps ) {
-	const { commitChange, getSelectedIndex, selectedArea } = deps;
+	const { getAreas, getSelectedIndex, renderAll, snapshot } = deps;
 	let mediaFrame = null;
 
 	function openMockupPicker() {
@@ -26,16 +26,16 @@ export function createMockupPicker( deps ) {
 					.get( 'selection' )
 					.first()
 					.toJSON();
-				const area = selectedArea();
-				if ( area ) {
-					area.mockupId = att.id;
-					area.mockupUrl =
-						( att.sizes &&
-							att.sizes.large &&
-							att.sizes.large.url ) ||
-						att.url;
-					commitChange( { all: true } );
-				}
+				const mockupUrl =
+					( att.sizes && att.sizes.large && att.sizes.large.url ) ||
+					att.url;
+				getAreas().forEach( ( area ) => {
+					area.mockupId = Number( att.id ) || 0;
+					area.mockupUrl = mockupUrl || '';
+					area.storedMockupId = Number( att.id ) || 0;
+				} );
+				snapshot();
+				renderAll();
 			} );
 		}
 		mediaFrame.open();

@@ -4,7 +4,13 @@
 
 /* eslint-disable no-console */
 
-const SPOTIFY_LINK_SYNC_KEYS = [ 'value', 'spotifyStatus', 'spotifyUri' ];
+const SPOTIFY_LINK_SYNC_KEYS = [
+	'value',
+	'spotifyStatus',
+	'spotifyUri',
+	'spotifyValidationProof',
+	'spotifyValidationExpires',
+];
 
 const spotifyMethods = {
 	invalidateSpotifyValidation( layerId ) {
@@ -254,6 +260,8 @@ const spotifyMethods = {
 	clearSpotifyLayerStatus( layerId, inputEl = null ) {
 		this.inputs[ layerId ].spotifyStatus = '';
 		this.inputs[ layerId ].spotifyUri = '';
+		this.inputs[ layerId ].spotifyValidationProof = '';
+		this.inputs[ layerId ].spotifyValidationExpires = 0;
 		this.syncLinkedLayerInput( layerId, SPOTIFY_LINK_SYNC_KEYS );
 		this.setSpotifyError( layerId, '', inputEl );
 		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
@@ -265,17 +273,21 @@ const spotifyMethods = {
 		status,
 		uri,
 		message,
-		inputEl = null
+		inputEl = null,
+		proof = '',
+		expires = 0
 	) {
 		this.inputs[ layerId ].spotifyStatus = status;
 		this.inputs[ layerId ].spotifyUri = uri;
+		this.inputs[ layerId ].spotifyValidationProof = proof;
+		this.inputs[ layerId ].spotifyValidationExpires = expires;
 		this.syncLinkedLayerInput( layerId, SPOTIFY_LINK_SYNC_KEYS );
 		this.setSpotifyError( layerId, message, inputEl );
 		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 		this.updateHiddenField();
 	},
 
-	validateSpotifyLayer( layerId, rawValue, inputEl = null ) {
+	validateSpotifyLayer( layerId, rawValue, inputEl = null, force = false ) {
 		const value = String( rawValue || '' ).trim();
 		if ( ! this.inputs[ layerId ] ) {
 			this.inputs[ layerId ] = {};
@@ -283,7 +295,7 @@ const spotifyMethods = {
 		this.clearStateTimeout( this.spotifyValidateTimers[ layerId ] );
 		delete this.spotifyValidateTimers[ layerId ];
 		const existing = this.spotifyValidationPromises[ layerId ];
-		if ( existing?.value === value ) {
+		if ( ! force && existing?.value === value ) {
 			return existing.promise;
 		}
 		this.invalidateSpotifyValidation( layerId );
@@ -404,7 +416,9 @@ const spotifyMethods = {
 						'ok',
 						canonicalUri,
 						'',
-						inputEl
+						inputEl,
+						String( json.validationProof || '' ),
+						Number( json.validationExpires || 0 )
 					);
 					return true;
 				}

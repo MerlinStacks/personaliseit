@@ -579,7 +579,7 @@ class OC_Cart {
 			$active_filters[ (int) $filter->id ] = $filter;
 		}
 		$normalised       = [];
-		$valid_types      = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
+		$valid_types      = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
 
 		foreach ( $design_layers as $layer ) {
 			if ( isset( $layer->visible ) && ! (bool) $layer->visible ) {
@@ -587,6 +587,9 @@ class OC_Cart {
 			}
 			$layer_id = absint( $layer->id ?? 0 );
 			$type     = sanitize_key( (string) ( $layer->type ?? '' ) );
+			if ( 'mask' === $type ) {
+				continue;
+			}
 			if ( ! $layer_id || ! in_array( $type, $valid_types, true ) ) {
 				continue;
 			}
@@ -604,8 +607,11 @@ class OC_Cart {
 				if ( '' === $value ) {
 					return new \WP_Error( 'invalid_spotify', sprintf( __( 'The Spotify link in "%s" is invalid.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 				}
-				$spotify_validation = OC_Rest_API::validate_spotify_availability( $value );
-				if ( is_wp_error( $spotify_validation ) || empty( $spotify_validation['valid'] ) ) {
+				$spotify_validation = OC_Rest_API::validate_spotify_availability( $value, false, false );
+				$spotify_proof      = is_scalar( $source['spotifyValidationProof'] ?? null ) ? (string) $source['spotifyValidationProof'] : '';
+				$spotify_expires    = absint( $source['spotifyValidationExpires'] ?? 0 );
+				$proof_valid        = OC_Rest_API::verify_spotify_validation_proof( $value, $spotify_proof, $spotify_expires );
+				if ( ( is_wp_error( $spotify_validation ) || empty( $spotify_validation['valid'] ) ) && ! $proof_valid ) {
 					return new \WP_Error( 'invalid_spotify', sprintf( __( 'The Spotify link in "%s" is unavailable or could not be validated.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 				}
 			}

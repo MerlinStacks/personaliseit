@@ -685,11 +685,6 @@ export function createProductsPageSettings( deps ) {
 						!! s.remove_background
 					)
 				);
-			case 'overlay':
-				return (
-					field( 'Mask PNG', mediaDefaultField( s ) ) +
-					'<span class="oc-hint">This transparent PNG is shown above all customer artwork and is excluded from print files.</span>'
-				);
 			case 'mask':
 				return field(
 					'Mask shape',
@@ -962,21 +957,12 @@ export function createProductsPageSettings( deps ) {
 					return;
 				}
 				const frame = window.wp.media( {
-					title:
-						layer.type === 'mask'
-							? 'Select Mask PNG'
-							: 'Select Default Image',
+					title: 'Select Default Image',
 					button: {
-						text:
-							layer.type === 'mask'
-								? 'Use as Mask'
-								: 'Use as Default',
+						text: 'Use as Default',
 					},
 					multiple: false,
-					library: {
-						type: 'image',
-						...( layer.type === 'mask' ? { subtype: 'png' } : {} ),
-					},
+					library: { type: 'image' },
 				} );
 				frame.on( 'select', () => {
 					const attachment = frame
@@ -992,38 +978,9 @@ export function createProductsPageSettings( deps ) {
 						attachment.sizes?.full?.url ||
 						attachment.originalImageURL ||
 						'';
-					const attachmentMime = String(
-						attachment.mime || ''
-					).toLowerCase();
-					const isPng =
-						[ 'image/png', 'image/x-png' ].includes(
-							attachmentMime
-						) ||
-						attachment.subtype === 'png' ||
-						/\.png(?:[?#]|$)/i.test(
-							attachment.filename || attachmentUrl
-						);
-					if (
-						layer.type === 'mask' &&
-						( ! isPng || ! attachmentUrl )
-					) {
-						const empty = document.getElementById(
-							'oc-default-attachment-empty'
-						);
-						if ( empty ) {
-							empty.textContent = ! isPng
-								? 'Please select a PNG image.'
-								: 'The selected PNG has no usable URL.';
-						}
-						return;
-					}
 					s.default_attachment_id = Number( attachment.id ) || 0;
 					s.default_attachment_url =
-						layer.type === 'mask'
-							? attachmentUrl
-							: attachment.sizes?.medium?.url ||
-							  attachmentUrl ||
-							  '';
+						attachment.sizes?.medium?.url || attachmentUrl || '';
 					commitChange( { canvas: true, rightColumn: true } );
 				} );
 				frame.open();

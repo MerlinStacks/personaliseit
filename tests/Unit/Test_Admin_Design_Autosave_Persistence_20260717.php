@@ -78,6 +78,69 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$this->assertFalse( $method->invoke( null, $state ) );
 	}
 
+	public function test_multiple_print_areas_can_share_one_mockup(): void {
+		$method = new ReflectionMethod( OC_Autosave::class, 'is_valid_state' );
+		$state  = $this->complete_state();
+		$second = $state['areas'][0];
+		$second['id']     = 12;
+		$second['label']  = 'Back';
+		$second['layers'] = [];
+		$state['areas'][] = $second;
+
+		$this->assertSame( 42, $state['areas'][0]['mockupId'] );
+		$this->assertSame( 42, $state['areas'][1]['mockupId'] );
+		$this->assertTrue( $method->invoke( null, $state ) );
+	}
+
+	public function test_design_mask_is_preserved_in_autosave_state(): void {
+		$method = new ReflectionMethod( OC_Autosave::class, 'is_valid_state' );
+		$state  = $this->complete_state();
+		$state['areas'][0]['layers'][] = [
+			'id'        => 22,
+			'type'      => 'mask',
+			'label'     => 'Design Mask',
+			'x'         => 1,
+			'y'         => 2,
+			'w'         => 100,
+			'h'         => 50,
+			'sortOrder' => 1,
+			'visible'   => true,
+			'locked'    => false,
+			'settings'  => [
+				'default_attachment_id'  => 55,
+				'default_attachment_url' => 'https://example.com/design-mask.png',
+			],
+		];
+
+		$this->assertTrue( $method->invoke( null, $state ) );
+		$this->assertSame( 55, $state['areas'][0]['layers'][1]['settings']['default_attachment_id'] );
+	}
+
+	public function test_legacy_duplicate_masks_remain_restorable(): void {
+		$method = new ReflectionMethod( OC_Autosave::class, 'is_valid_state' );
+		$state  = $this->complete_state();
+		foreach ( [ 55, 56 ] as $index => $attachment_id ) {
+			$state['areas'][0]['layers'][] = [
+				'id'        => 22 + $index,
+				'type'      => 'mask',
+				'label'     => 'Legacy Mask ' . ( $index + 1 ),
+				'x'         => 0,
+				'y'         => 0,
+				'w'         => 100,
+				'h'         => 50,
+				'sortOrder' => 1 + $index,
+				'visible'   => true,
+				'locked'    => false,
+				'settings'  => [
+					'default_attachment_id'  => $attachment_id,
+					'default_attachment_url' => "https://example.com/design-mask-{$attachment_id}.png",
+				],
+			];
+		}
+
+		$this->assertTrue( $method->invoke( null, $state ) );
+	}
+
 	public function test_stale_revision_cannot_replace_newer_one_and_ttl_is_one_day(): void {
 		$method = new ReflectionMethod( OC_Autosave::class, 'store_for_key' );
 		$key    = 'oc_autosave_test_revision';
@@ -133,6 +196,7 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 					'unit'        => 'mm',
 					'mockupId'    => 42,
 					'mockupUrl'   => 'https://example.com/mockup.jpg',
+					'storedMockupId' => 42,
 					'x'           => 1,
 					'y'           => 2,
 					'w'           => 100,

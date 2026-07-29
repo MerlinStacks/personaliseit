@@ -180,14 +180,18 @@ foreach ( $layers as $layer ) {
 	<div class="oc-canvas-wrap" id="oc-canvas-wrap" aria-label="<?php esc_attr_e( 'Live customisation preview', 'overcustomise' ); ?>">
 		<div class="oc-preview-label"><?php esc_html_e( 'Live preview', 'overcustomise' ); ?></div>
 		<?php
-		$first_area = $areas[0] ?? null;
-		if ( $first_area && ! empty( $first_area->mockup_attachment_id ) ) {
-			$mockup_src = wp_get_attachment_image_src( (int) $first_area->mockup_attachment_id, 'large' );
-			$mockup_url = $mockup_src ? $mockup_src[0] : '';
-			if ( $mockup_url ) : ?>
-				<img id="oc-canvas-preview" src="<?php echo esc_url( $mockup_url ); ?>" alt="<?php esc_attr_e( 'Customisation preview', 'overcustomise' ); ?>" />
-			<?php endif;
+		$mockup_url = '';
+		foreach ( $areas as $mockup_area ) {
+			$mockup_id  = absint( $mockup_area->mockup_attachment_id ?? 0 );
+			$mockup_src = $mockup_id ? wp_get_attachment_image_src( $mockup_id, 'large' ) : false;
+			if ( $mockup_src ) {
+				$mockup_url = $mockup_src[0];
+				break;
+			}
 		}
+		if ( $mockup_url ) : ?>
+			<img id="oc-canvas-preview" src="<?php echo esc_url( $mockup_url ); ?>" alt="<?php esc_attr_e( 'Customisation preview', 'overcustomise' ); ?>" />
+		<?php endif;
 		?>
 	</div>
 
@@ -200,6 +204,7 @@ foreach ( $layers as $layer ) {
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
+					if ( 'mask' === (string) ( $layer->type ?? '' ) ) continue; // Design masks are preview-only.
 					if ( (bool) ( $layer->locked ?? false ) ) continue; // Locked layers: no customer input
 					$s         = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
 					$link_group = trim( (string) ( $s['link_group'] ?? '' ) );

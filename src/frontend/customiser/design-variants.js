@@ -364,7 +364,12 @@ const designVariantMethods = {
 		}
 	},
 
-	async applyDesignState( state, variantId, preserveCurrentState = true ) {
+	async applyDesignState(
+		state,
+		variantId,
+		preserveCurrentState = true,
+		initialiseAiFilters = true
+	) {
 		if ( ! state?.panelHtml ) {
 			return;
 		}
@@ -427,6 +432,10 @@ const designVariantMethods = {
 		this.seedLockedLayerDefaults();
 		this.seedTemplateImageDefaults();
 		this.seedLayerFontDefaults();
+		await this.hydrateLinkGroupCarry();
+		if ( designGeneration !== this._designGeneration ) {
+			return false;
+		}
 		this.seedLinkedImageInputs();
 		this.seedLinkedColourInputs();
 		this.applyInputsToDOM( { redraw: false } );
@@ -436,7 +445,9 @@ const designVariantMethods = {
 		this.renderDesignVariantThumbnails();
 		this.setupClipartCarousels();
 		this._uploadSetupPromise = this.setupUploadZones();
-		this._initialAiFilterPromise = this.applyInitialAiFilters();
+		if ( initialiseAiFilters ) {
+			this._initialAiFilterPromise = this.applyInitialAiFilters();
+		}
 		this.applyActiveAreaState( 0 );
 		if ( preserveCurrentState ) {
 			this.requestPreviewFocus();

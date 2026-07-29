@@ -86,6 +86,13 @@ class OC_Rest_API {
 			'permission_callback' => [ $this, 'public_write_permission' ],
 		] );
 
+		// Authorise an owned upload for a matching layer on this product.
+		register_rest_route( self::NAMESPACE, '/authorise-artwork-context', [
+			'methods'             => \WP_REST_Server::CREATABLE,
+			'callback'            => [ $this, 'authorise_artwork_context' ],
+			'permission_callback' => [ $this, 'public_write_permission' ],
+		] );
+
 		// Apply an AI prompt filter to previously uploaded artwork.
 		register_rest_route( self::NAMESPACE, '/apply-image-filter', [
 			'methods'             => \WP_REST_Server::CREATABLE,
@@ -292,18 +299,18 @@ class OC_Rest_API {
 		return '' !== $token && self::public_token_state( $token, $binding ) ? $token : '';
 	}
 
-	/** Validate live token ownership of one exact attachment/context tuple. */
+	/** Validate live token ownership of one authorised attachment/context tuple. */
 	public static function public_token_owns_attachment( string $token, int $attachment_id, array $context ): bool {
 		if ( $attachment_id <= 0 || ! self::validate_public_token( $token ) ) {
 			return false;
 		}
 
 		$expected_context = array_values( array_map( 'intval', $context ) );
-		$stored_context   = array_values( array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) ) );
+		$primary_context  = array_values( array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) ) );
 		$stored_hash      = (string) get_post_meta( $attachment_id, '_oc_artwork_token', true );
 
 		return 4 === count( $expected_context )
-			&& $expected_context === $stored_context
+			&& ( $expected_context === $primary_context || OC_Upload_Handler::attachment_context_is_authorised( $attachment_id, $expected_context ) )
 			&& 64 === strlen( $stored_hash )
 			&& hash_equals( $stored_hash, hash( 'sha256', $token ) );
 	}
@@ -1376,6 +1383,115 @@ class OC_Rest_API {
 		return rest_ensure_response( $result );
 	}
 
+	/** Authorise an owned image for a matching link group in another product context. */
+	public function authorise_artwork_context( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$auth = $this->verify_public_write_auth( $request );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		$body                     = $request->get_json_params();
+		$body                     = is_array( $body ) ? $body : [];
+		$source_attachment_id     = absint( $body['source_attachment_id'] ?? 0 );
+		$derivative_attachment_id = absint( $body['derivative_attachment_id'] ?? 0 );
+		$product_id               = absint( $body['product_id'] ?? 0 );
+		$variation_id             = absint( $body['variation_id'] ?? 0 );
+		$design_id                = absint( $body['design_id'] ?? 0 );
+		$layer_id                 = absint( $body['layer_id'] ?? 0 );
+		if ( ! $source_attachment_id || ! $product_id || ! $design_id || ! $layer_id ) {
+			return new \WP_Error( 'invalid_context', __( 'Image, product, design, and layer are required.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$limit = self::filtered_limit( 'oc_artwork_authorisation_ip_hourly_limit', 120, 1, 10000 );
+		if ( null === $limit ) {
+			return new \WP_Error( 'security_budget_unavailable', __( 'This request cannot be processed safely right now.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+		$reservation = self::reserve_request_rate( 'artwork-authorisation', $limit, __( 'Too many image reuse requests. Please try again later.', 'overcustomise' ) );
+		if ( is_wp_error( $reservation ) ) {
+			return $reservation;
+		}
+
+		$destination = self::active_assignment_design( $product_id, $variation_id, $design_id );
+		if ( is_wp_error( $destination ) ) {
+			return $destination;
+		}
+		$target_layer = self::public_design_layer( $design_id, $layer_id, [ 'image', 'clipmask' ] );
+		if ( is_wp_error( $target_layer ) ) {
+			return $target_layer;
+		}
+		$target_policy = self::upload_layer_overrides( $target_layer );
+		if ( is_wp_error( $target_policy ) ) {
+			return $target_policy;
+		}
+
+		$source_context = OC_Upload_Handler::attachment_primary_context( $source_attachment_id );
+		$token          = trim( (string) $request->get_header( 'X-OC-Token' ) );
+		if ( null === $source_context || $source_context[0] !== $product_id
+			|| ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, ...array_merge( $source_context, [ $token ] ) )
+			|| ! OC_Upload_Handler::attachment_matches_upload_policy( $source_attachment_id, $target_policy, false )
+		) {
+			return new \WP_Error( 'invalid_attachment', __( 'The image is not valid for this customisation.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		$source_assignment = self::active_assignment_design( $source_context[0], $source_context[1], $source_context[2] );
+		$source_layer      = is_wp_error( $source_assignment ) ? $source_assignment : self::public_design_layer( $source_context[2], $source_context[3], [ 'image', 'clipmask' ] );
+		if ( is_wp_error( $source_layer ) || (string) $source_layer->type !== (string) $target_layer->type ) {
+			return new \WP_Error( 'invalid_link_group', __( 'This image cannot be shared with the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$source_settings = self::decode_layer_settings( $source_layer->settings ?? null );
+		$target_settings = self::decode_layer_settings( $target_layer->settings ?? null );
+		if ( is_wp_error( $source_settings ) || is_wp_error( $target_settings ) ) {
+			return is_wp_error( $source_settings ) ? $source_settings : $target_settings;
+		}
+		$source_group = sanitize_key( (string) ( $source_settings['link_group'] ?? '' ) );
+		$target_group = sanitize_key( (string) ( $target_settings['link_group'] ?? '' ) );
+		if ( '' === $source_group || $source_group !== $target_group ) {
+			return new \WP_Error( 'invalid_link_group', __( 'This image cannot be shared with the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$source_policy = self::upload_layer_overrides( $source_layer );
+		if ( is_wp_error( $source_policy ) || (bool) $source_policy['remove_background'] !== (bool) $target_policy['remove_background'] ) {
+			return new \WP_Error( 'incompatible_image_processing', __( 'This image must be uploaded separately for the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		if ( $derivative_attachment_id && $derivative_attachment_id !== $source_attachment_id ) {
+			$derivative_context = OC_Upload_Handler::attachment_primary_context( $derivative_attachment_id );
+			$filter_id          = absint( get_post_meta( $derivative_attachment_id, '_oc_ai_filter_id', true ) );
+			$allowed_filters    = array_values( array_filter( array_map( 'absint', (array) ( $target_settings['image_filter_ids'] ?? [] ) ) ) );
+			$can_change_filter  = ! array_key_exists( 'allow_image_filter_change', $target_settings ) || true === self::setting_boolean( $target_settings['allow_image_filter_change'] );
+			$active_ai_filter   = false;
+			foreach ( OC_DB::get_image_filters( true ) as $filter ) {
+				if ( (int) $filter->id === $filter_id && 'ai' === (string) $filter->filter_key ) {
+					$active_ai_filter = true;
+					break;
+				}
+			}
+			if ( 'image' !== (string) $target_layer->type || null === $derivative_context || $derivative_context[0] !== $product_id
+				|| ! OC_Upload_Handler::attachment_is_accepted( $derivative_attachment_id, ...array_merge( $derivative_context, [ $token ] ) )
+				|| ! OC_Upload_Handler::attachment_matches_upload_policy( $derivative_attachment_id, $target_policy, false )
+				|| 1 !== (int) get_post_meta( $derivative_attachment_id, '_oc_ai_filter', true )
+				|| $source_attachment_id !== absint( get_post_meta( $derivative_attachment_id, '_oc_ai_filter_source_id', true ) )
+				|| ! $filter_id || ! $can_change_filter || ! in_array( $filter_id, $allowed_filters, true ) || ! $active_ai_filter
+			) {
+				return new \WP_Error( 'invalid_attachment', __( 'The filtered image is not valid for the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
+			}
+		}
+
+		$target_context = [ $product_id, $variation_id, $design_id, $layer_id ];
+		if ( ! OC_Upload_Handler::authorise_attachment_context( $source_attachment_id, $target_context ) ) {
+			return new \WP_Error( 'authorisation_failed', __( 'The image could not be prepared for this design.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+		if ( $derivative_attachment_id && $derivative_attachment_id !== $source_attachment_id
+			&& ! OC_Upload_Handler::authorise_attachment_context( $derivative_attachment_id, $target_context )
+		) {
+			return new \WP_Error( 'authorisation_failed', __( 'The filtered image could not be prepared for this design.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+
+		return rest_ensure_response( [
+			'source_attachment_id'     => $source_attachment_id,
+			'derivative_attachment_id' => $derivative_attachment_id,
+			'context'                  => [ 'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id, 'layer_id' => $layer_id ],
+		] );
+	}
+
 	/** Apply an allowed AI filter and persist the result as owned artwork. */
 	public function apply_image_filter( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		$auth = $this->verify_public_write_auth( $request );
@@ -1810,6 +1926,7 @@ class OC_Rest_API {
 		) {
 			return null;
 		}
+		@touch( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		$record['path'] = $path;
 		return $record;
 	}
@@ -1927,7 +2044,7 @@ class OC_Rest_API {
 	}
 
 	/** Validate Spotify format and public availability, reusing bounded server-side cache state. */
-	public static function validate_spotify_availability( string $url, bool $reserve_rate_limit = true ): array|\WP_Error {
+	public static function validate_spotify_availability( string $url, bool $reserve_rate_limit = true, bool $allow_remote = true ): array|\WP_Error {
 		$url = trim( $url );
 		if ( '' === $url ) {
 			return [
@@ -1949,7 +2066,13 @@ class OC_Rest_API {
 		$cache_key = 'oc_spotify_validation_' . hash( 'sha256', $parsed['spotify_uri'] );
 		$cached    = get_transient( $cache_key );
 		if ( is_array( $cached ) && isset( $cached['valid'], $cached['reason'] ) ) {
+			if ( ! empty( $cached['valid'] ) ) {
+				$cached = self::spotify_validation_with_proof( $cached, $parsed['spotify_uri'] );
+			}
 			return $cached;
+		}
+		if ( ! $allow_remote ) {
+			return new \WP_Error( 'validation_required', __( 'Validate this Spotify link before adding the product to your cart.', 'overcustomise' ), [ 'status' => 409 ] );
 		}
 
 		$oembed_url = 'https://open.spotify.com/oembed?url=' . rawurlencode( $parsed['open_url'] );
@@ -2000,6 +2123,7 @@ class OC_Rest_API {
 				'spotifyUri' => $parsed['spotify_uri'],
 				'openUrl'    => $parsed['open_url'],
 			];
+			$result = self::spotify_validation_with_proof( $result, $parsed['spotify_uri'], time() + self::SPOTIFY_VALID_CACHE_TTL );
 			set_transient( $cache_key, $result, self::SPOTIFY_VALID_CACHE_TTL );
 			return $result;
 		}
@@ -2022,6 +2146,24 @@ class OC_Rest_API {
 			'message' => $message,
 		];
 		set_transient( $cache_key, $result, self::SPOTIFY_INVALID_CACHE_TTL );
+		return $result;
+	}
+
+	/** Confirm a recent server validation proof without an outbound request or cache lookup. */
+	public static function verify_spotify_validation_proof( string $url, string $proof, int $expires ): bool {
+		$parsed = self::parse_spotify_input( $url );
+		if ( ! $parsed || $expires < time() || $expires > time() + self::SPOTIFY_VALID_CACHE_TTL || ! preg_match( '/^[a-f0-9]{64}$/D', $proof ) ) {
+			return false;
+		}
+		$expected = hash_hmac( 'sha256', $parsed['spotify_uri'] . '|' . $expires, wp_salt( 'auth' ) );
+		return hash_equals( $expected, $proof );
+	}
+
+	/** Attach a time-bound proof to one successful Spotify validation result. */
+	private static function spotify_validation_with_proof( array $result, string $spotify_uri, int $expires = 0 ): array {
+		$expires = $expires > time() ? $expires : time() + 600;
+		$result['validationExpires'] = $expires;
+		$result['validationProof']   = hash_hmac( 'sha256', $spotify_uri . '|' . $expires, wp_salt( 'auth' ) );
 		return $result;
 	}
 

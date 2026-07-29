@@ -78,6 +78,8 @@ class OCCustomiser {
 		this._galleryFallbackNodeStates = new Map();
 		this._tvpgLockedSwipers = new Set();
 		this.productVariationStates = {};
+		this.linkGroupCarry = new Map();
+		this.artworkContextAuthorisations = new Set();
 		this._variationRequestSeq = 0;
 		this._variationSwitchPending = false;
 		this._variationSwitchFailed = false;
@@ -112,6 +114,8 @@ class OCCustomiser {
 		this._submitInProgress = false;
 		this._controlLocks = new Set();
 		this._galleryPreviewTimer = null;
+		this._cropGalleryTimer = null;
+		this._cropGalleryCanvas = null;
 		this._variationChangeTimer = null;
 		this._mobileCartPreviewResolve = null;
 		this._mobileCartPreviewPromise = null;
@@ -240,6 +244,8 @@ class OCCustomiser {
 		this._stateAnimationFrames.clear();
 		this.spotifyModalCloseTimer = null;
 		this._galleryPreviewTimer = null;
+		this._cropGalleryTimer = null;
+		this._cropGalleryCanvas = null;
 		this._variationChangeTimer = null;
 
 		this._stateAbortControllers.forEach( ( controller ) =>
@@ -401,6 +407,7 @@ class OCCustomiser {
 		this.seedLockedLayerDefaults();
 		this.seedTemplateImageDefaults();
 		this.seedLayerFontDefaults();
+		await this.hydrateLinkGroupCarry();
 		this.seedLinkedImageInputs();
 		this.seedLinkedColourInputs();
 		this.applyInputsToDOM( { redraw: false } );
@@ -410,7 +417,9 @@ class OCCustomiser {
 		this.setupDesignVariantOptions();
 		this.setupClipartCarousels();
 		this._uploadSetupPromise = this.setupUploadZones();
-		this.applyInitialAiFilters();
+		if ( ! this._variationSwitchPending ) {
+			this._initialAiFilterPromise = this.applyInitialAiFilters();
+		}
 		this.setupFormSubmit();
 		this.setupStoreApiIntegration();
 		this.updateHiddenField();

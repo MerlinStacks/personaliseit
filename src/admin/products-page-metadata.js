@@ -14,7 +14,6 @@ export const LAYER_DEFAULTS = {
 	textarea: { w: 300, h: 120 },
 	image: { w: 200, h: 200 },
 	clipmask: { w: 200, h: 200 },
-	mask: { w: 200, h: 200 },
 	spotify: { w: 150, h: 150 },
 	lineart: { w: 200, h: 200 },
 	clipart: { w: 150, h: 150 },
@@ -68,10 +67,6 @@ export const LAYER_TABS = {
 		{ id: 'file', label: 'File', icon: '\ud83d\uddbc' },
 		{ id: 'mask', label: 'Mask', icon: '◯' },
 		{ id: 'validation', label: 'Validation', icon: '\u2713' },
-	],
-	mask: [
-		{ id: 'general', label: 'General', icon: 'G' },
-		{ id: 'overlay', label: 'Overlay', icon: '\ud83d\uddbc' },
 	],
 	spotify: [
 		{ id: 'general', label: 'General', icon: 'G' },

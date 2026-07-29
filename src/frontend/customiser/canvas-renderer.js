@@ -178,15 +178,21 @@ const canvasRendererMethods = {
 
 	areaCanvasGroupIndexes( areaIndex ) {
 		const area = this.areas[ areaIndex ];
+		const mockupId = Number( area?.mockupId ) || 0;
 		const mockupUrl = area?.mockupUrl || '';
-		if ( ! mockupUrl ) {
+		if ( ! mockupId && ! mockupUrl ) {
 			return [ areaIndex ];
 		}
 
 		return this.areas
-			.map( ( candidate, index ) =>
-				( candidate?.mockupUrl || '' ) === mockupUrl ? index : -1
-			)
+			.map( ( candidate, index ) => {
+				const candidateId = Number( candidate?.mockupId ) || 0;
+				const matches =
+					mockupId && candidateId
+						? candidateId === mockupId
+						: ( candidate?.mockupUrl || '' ) === mockupUrl;
+				return matches ? index : -1;
+			} )
 			.filter( ( index ) => index >= 0 );
 	},
 
@@ -895,19 +901,24 @@ const canvasRendererMethods = {
 			case 'mask': {
 				const maskUrl = layer.settings?.default_attachment_url;
 				if ( maskUrl ) {
+					const viewport = canvas.viewportTransform || [
+						1, 0, 0, 1, 0, 0,
+					];
+					const viewportScaleX = viewport[ 0 ] || 1;
+					const viewportScaleY = viewport[ 3 ] || 1;
 					const rendered = await this.renderFabricImg(
 						canvas,
 						maskUrl,
-						lx,
-						ly,
-						lw,
-						lh,
+						-viewport[ 4 ] / viewportScaleX,
+						-viewport[ 5 ] / viewportScaleY,
+						canvas.getWidth() / viewportScaleX,
+						canvas.getHeight() / viewportScaleY,
 						false,
 						'anonymous',
 						false,
-						rotation,
+						0,
 						null,
-						contentClip(),
+						null,
 						'contain',
 						'',
 						{},
@@ -2521,12 +2532,27 @@ const canvasRendererMethods = {
 						this.activeArea
 					)
 				) {
-					this.pushToGallery( canvas );
+					this.scheduleCropGalleryPush( canvas );
 				}
 			}
 		);
 
 		return updatedLayerIds;
+	},
+
+	scheduleCropGalleryPush( canvas ) {
+		this._cropGalleryCanvas = canvas;
+		if ( this._cropGalleryTimer !== null ) {
+			return;
+		}
+		this._cropGalleryTimer = this.setStateTimeout( () => {
+			this._cropGalleryTimer = null;
+			const pendingCanvas = this._cropGalleryCanvas;
+			this._cropGalleryCanvas = null;
+			if ( pendingCanvas && ! pendingCanvas._ocMissingMockup ) {
+				this.pushToGallery( pendingCanvas );
+			}
+		}, 120 );
 	},
 
 	imageFilterForLayer( layer, filterId ) {

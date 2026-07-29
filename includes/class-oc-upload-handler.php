@@ -630,12 +630,69 @@ class OC_Upload_Handler {
 		];
 	}
 
+	/** Return the immutable context in which customer artwork was created. */
+	public static function attachment_primary_context( int $attachment_id ): ?array {
+		$context = self::normalise_artwork_context( get_post_meta( $attachment_id, '_oc_artwork_context', true ) );
+		return null !== $context && $context[0] > 0 && $context[2] > 0 && $context[3] > 0 ? $context : null;
+	}
+
+	/** Confirm an exact context is either primary or explicitly granted. */
+	public static function attachment_context_is_authorised( int $attachment_id, array $context ): bool {
+		$context = self::normalise_artwork_context( $context );
+		if ( null === $context ) {
+			return false;
+		}
+		$primary = self::attachment_primary_context( $attachment_id );
+		if ( $context === $primary ) {
+			return true;
+		}
+		if ( null === $primary || $context[0] !== $primary[0] ) {
+			return false;
+		}
+
+		$stored = self::normalise_artwork_context( get_post_meta( $attachment_id, self::context_grant_meta_key( $context ), true ) );
+		return $stored === $context;
+	}
+
+	/** Add an idempotent same-product authorization for another exact layer context. */
+	public static function authorise_attachment_context( int $attachment_id, array $context ): bool {
+		$context = self::normalise_artwork_context( $context );
+		$primary = self::attachment_primary_context( $attachment_id );
+		if ( null === $context || null === $primary || $context[0] !== $primary[0] ) {
+			return false;
+		}
+		if ( self::attachment_context_is_authorised( $attachment_id, $context ) ) {
+			return true;
+		}
+
+		$key = self::context_grant_meta_key( $context );
+		update_post_meta( $attachment_id, $key, $context );
+		return self::normalise_artwork_context( get_post_meta( $attachment_id, $key, true ) ) === $context;
+	}
+
+	/** Ensure persisted artwork meets a destination layer's format and size policy. */
+	public static function attachment_matches_upload_policy( int $attachment_id, array $policy, bool $validate_content = true ): bool {
+		if ( $validate_content && ! self::artwork_file_is_valid( $attachment_id ) ) {
+			return false;
+		}
+		$formats = is_array( $policy['formats'] ?? null ) ? array_map( 'strtolower', $policy['formats'] ) : [];
+		$type    = self::SUPPORTED_TYPES[ (string) get_post_mime_type( $attachment_id ) ] ?? '';
+		if ( 'jpg' === $type && in_array( 'jpeg', $formats, true ) ) {
+			$formats[] = 'jpg';
+		}
+		$max_bytes = absint( $policy['max_size_mb'] ?? 0 ) * 1024 * 1024;
+		$path      = get_attached_file( $attachment_id );
+		$size      = is_string( $path ) && is_file( $path ) ? filesize( $path ) : false;
+
+		return '' !== $type && in_array( $type, $formats, true ) && $max_bytes > 0 && false !== $size && $size <= $max_bytes;
+	}
+
 	/** Verify that customer artwork belongs to this customer and exact layer context. */
 	public static function attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token = '' ): bool {
 		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;
-		$actual   = array_values( array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) ) );
-		if ( 4 !== count( $actual ) || $product_id !== $actual[0] || $variation_id !== $actual[1] || $design_id !== $actual[2] || $layer_id !== $actual[3] ) return false;
-		return self::attachment_owner_matches( $attachment_id, $token, $actual );
+		$context = [ $product_id, $variation_id, $design_id, $layer_id ];
+		if ( ! self::attachment_context_is_authorised( $attachment_id, $context ) ) return false;
+		return self::attachment_owner_matches( $attachment_id, $token, $context );
 	}
 
 	/** Verify ownership of artwork posted by the legacy product customiser. */
@@ -665,6 +722,20 @@ class OC_Upload_Handler {
 			$token = OC_Rest_API::current_session_public_token();
 		}
 		return '' !== $token && OC_Rest_API::public_token_owns_attachment( $token, $attachment_id, $context );
+	}
+
+	/** Convert an artwork context into a strict four-integer tuple. */
+	private static function normalise_artwork_context( mixed $context ): ?array {
+		if ( ! is_array( $context ) || 4 !== count( $context ) ) {
+			return null;
+		}
+		$context = array_values( array_map( 'intval', $context ) );
+		return $context[0] > 0 && $context[1] >= 0 && $context[2] > 0 && $context[3] > 0 ? $context : null;
+	}
+
+	/** Build a direct, collision-resistant post-meta key for one context grant. */
+	private static function context_grant_meta_key( array $context ): string {
+		return '_oc_artwork_context_grant_' . hash( 'sha256', implode( '|', $context ) );
 	}
 
 	private static function artwork_file_is_valid( int $attachment_id ): bool {

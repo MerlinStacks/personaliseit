@@ -257,6 +257,40 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
+	public function customer_artwork_accepts_only_explicit_same_product_context_grants(): void {
+		$token = str_repeat( 'B', 64 );
+		$this->create_test_artwork( 42, [ 10, 12, 20, 30 ], $token );
+
+		$this->assertTrue( OC_Upload_Handler::authorise_attachment_context( 42, [ 10, 13, 21, 31 ] ) );
+		$this->assertTrue( OC_Upload_Handler::attachment_is_accepted( 42, 10, 12, 20, 30, $token ) );
+		$this->assertTrue( OC_Upload_Handler::attachment_is_accepted( 42, 10, 13, 21, 31, $token ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 42, 10, 13, 21, 32, $token ) );
+		$this->assertFalse( OC_Upload_Handler::authorise_attachment_context( 42, [ 11, 13, 21, 31 ] ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_is_accepted( 42, 10, 13, 21, 31, str_repeat( 'C', 64 ) ) );
+	}
+
+	#[Test]
+	public function artwork_context_grants_are_idempotent(): void {
+		$token   = str_repeat( 'D', 64 );
+		$context = [ 10, 13, 21, 31 ];
+		$this->create_test_artwork( 44, [ 10, 12, 20, 30 ], $token );
+
+		$this->assertTrue( OC_Upload_Handler::authorise_attachment_context( 44, $context ) );
+		$this->assertTrue( OC_Upload_Handler::authorise_attachment_context( 44, $context ) );
+		$this->assertTrue( OC_Upload_Handler::attachment_context_is_authorised( 44, $context ) );
+		$this->assertTrue( OC_Upload_Handler::attachment_context_is_authorised( 44, [ 10, 12, 20, 30 ] ) );
+	}
+
+	#[Test]
+	public function persisted_artwork_must_match_destination_upload_policy(): void {
+		$this->create_test_artwork( 45, [ 10, 12, 20, 30 ] );
+
+		$this->assertTrue( OC_Upload_Handler::attachment_matches_upload_policy( 45, [ 'formats' => [ 'png' ], 'max_size_mb' => 1 ] ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 45, [ 'formats' => [ 'jpg' ], 'max_size_mb' => 1 ] ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 45, [ 'formats' => [ 'png' ], 'max_size_mb' => 0 ] ) );
+	}
+
+	#[Test]
 	public function legacy_artwork_requires_owned_exact_product_context(): void {
 		$token = str_repeat( 'C', 64 );
 		$this->create_test_artwork( 43, [ 10, 12, 0, 0 ], $token );

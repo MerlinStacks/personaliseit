@@ -17,6 +17,7 @@ export function createProductsPageCanvas( deps ) {
 		clampLayerToArea,
 		currentAspectRatio,
 		getAreas,
+		getDesignMaskEntry,
 		getScale,
 		getSelectedIndex,
 		getSelectedLayerIndex,
@@ -176,11 +177,16 @@ export function createProductsPageCanvas( deps ) {
 			return;
 		}
 		const area = selectedArea();
-		const activeMockup = area ? area.mockupUrl : '';
+		const activeMockupId = Number( area?.mockupId ) || 0;
+		const activeMockup = area?.mockupUrl || '';
 		getAreas().forEach( ( a, i ) => {
+			const sameMockup =
+				activeMockupId && Number( a.mockupId )
+					? Number( a.mockupId ) === activeMockupId
+					: a.mockupUrl === activeMockup;
 			if (
 				i === getSelectedIndex() ||
-				a.mockupUrl !== activeMockup ||
+				! sameMockup ||
 				! activeMockup ||
 				! a.visible
 			) {
@@ -212,18 +218,43 @@ export function createProductsPageCanvas( deps ) {
 			);
 			ghosts.appendChild( outline );
 		}
-		( area.layers || [] )
-			.map( ( layer, li ) => ( { layer, li } ) )
+		const designMask = getDesignMaskEntry();
+		const previewLayers = ( area.layers || [] )
+			.map( ( layer, li ) => ( { area, layer, li } ) )
+			.filter( ( entry ) => entry.layer.type !== 'mask' );
+		if ( designMask ) {
+			previewLayers.push( {
+				area: designMask.area,
+				layer: designMask.layer,
+				li: -1,
+			} );
+		}
+		previewLayers
 			.sort(
 				( a, b ) =>
 					Number( a.layer.type === 'mask' ) -
 					Number( b.layer.type === 'mask' )
 			)
-			.forEach( ( { layer, li } ) => {
-				if ( li === getSelectedLayerIndex() || ! layer.visible ) {
+			.forEach( ( { area: layerArea, layer, li } ) => {
+				if (
+					( li >= 0 && li === getSelectedLayerIndex() ) ||
+					! layer.visible
+				) {
 					return;
 				}
-				const displayLayer = displayEntity( layer, area );
+				const isDesignMask = layer.type === 'mask';
+				const displayLayer = isDesignMask
+					? {
+							x: 0,
+							y: 0,
+							w:
+								img.naturalWidth ||
+								Math.round( img.width / scale ),
+							h:
+								img.naturalHeight ||
+								Math.round( img.height / scale ),
+					  }
+					: displayEntity( layer, layerArea );
 				const g = ghost( layer, layerColor( layer.type ), 0.1 );
 				g.classList.add( 'oc-canvas-layer-ghost' );
 				g.appendChild(
@@ -240,20 +271,20 @@ export function createProductsPageCanvas( deps ) {
 					Math.round( displayLayer.w * scale ),
 					Math.round( displayLayer.h * scale ),
 					true,
-					area.method === 'engraving',
-					area.material
+					layerArea.method === 'engraving',
+					layerArea.material
 				);
 				pos(
 					g,
 					displayLayer,
 					scale,
-					normaliseRotation( area.rotation ),
-					displayEntity( area )
+					isDesignMask ? 0 : normaliseRotation( layerArea.rotation ),
+					isDesignMask ? null : displayEntity( layerArea )
 				);
-				if ( layer.locked ) {
+				if ( layer.locked && ! isDesignMask ) {
 					g.style.cursor = 'not-allowed';
 					g.style.opacity = '0.5';
-				} else {
+				} else if ( li >= 0 ) {
 					g.style.cursor = 'pointer';
 					g.addEventListener( 'click', () => {
 						setSelectedLayerIndex( li );

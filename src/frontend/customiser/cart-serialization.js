@@ -21,6 +21,9 @@ const cartSerializationMethods = {
 		const layers = {};
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
+				if ( layer.type === 'mask' ) {
+					return;
+				}
 				const input = { ...( inputs[ layer.id ] || {} ) };
 				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
 					if ( layer.locked ) {

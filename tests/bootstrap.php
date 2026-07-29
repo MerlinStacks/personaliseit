@@ -267,7 +267,10 @@ if ( ! function_exists( 'wp_update_attachment_metadata' ) ) {
 	function wp_update_attachment_metadata( int $id, array $meta ): void {}
 }
 if ( ! function_exists( 'update_post_meta' ) ) {
-	function update_post_meta( int $id, string $key, $value ): void {}
+	function update_post_meta( int $id, string $key, $value ): bool {
+		$GLOBALS['oc_test_post_meta'][ $id ][ $key ] = $value;
+		return true;
+	}
 }
 if ( ! function_exists( 'get_post_meta' ) ) {
 	function get_post_meta( int $id, string $key, bool $single = false ) {

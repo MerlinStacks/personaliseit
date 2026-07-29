@@ -36,7 +36,11 @@ export function renderProductsPageHiddenFields( areas, esc ) {
 			'<input type="hidden" name="' +
 			p +
 			'[mockup_attachment_id]" value="' +
-			esc( area.mockupId ) +
+			esc(
+				area.storedMockupId === undefined
+					? area.mockupId
+					: area.storedMockupId
+			) +
 			'">' +
 			'<input type="hidden" name="' +
 			p +

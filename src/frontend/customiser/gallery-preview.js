@@ -912,6 +912,7 @@ const galleryPreviewMethods = {
 				const applied = await this.applyDesignState(
 					nextState,
 					selectedVariant,
+					false,
 					false
 				);
 				if ( ! applied || requestSeq !== this._variationRequestSeq ) {
@@ -940,8 +941,13 @@ const galleryPreviewMethods = {
 		this._variationSwitchPromise = switchPromise;
 		try {
 			const switched = await switchPromise;
-			if ( requestSeq === this._variationRequestSeq && switched ) {
+			if (
+				requestSeq === this._variationRequestSeq &&
+				switched &&
+				this._customisationActive
+			) {
 				this._variationSwitchFailed = false;
+				this._initialAiFilterPromise = this.applyInitialAiFilters();
 			}
 			return switched;
 		} finally {

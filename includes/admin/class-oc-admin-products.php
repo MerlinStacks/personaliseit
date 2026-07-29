@@ -1050,18 +1050,31 @@ class OC_Admin_Products {
 		$design_custom_type = $design && in_array( $design->custom_type, [ 'text_only', 'photo_text' ], true ) ? $design->custom_type : 'text_only';
 		$design_flat_rate   = $design ? (float) $design->flat_rate : max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) );
 
-		// Build areas JSON for JS.
-		$areas_js = array_map( function ( $area ) {
+		// Existing installs store the mockup on each area. Resolve one shared
+		// attachment without requiring a destructive data migration.
+		$shared_mockup_id  = 0;
+		$shared_mockup_url = '';
+		foreach ( $areas as $area ) {
+			$candidate_id  = absint( $area->mockup_attachment_id ?? 0 );
+			$candidate_url = $candidate_id ? ( wp_get_attachment_image_url( $candidate_id, 'large' ) ?: '' ) : '';
+			if ( $candidate_url ) {
+				$shared_mockup_id  = $candidate_id;
+				$shared_mockup_url = $candidate_url;
+				break;
+			}
+		}
+
+		// Keep the existing per-area payload shape for saved autosaves and installs.
+		$areas_js = array_map( function ( $area ) use ( $shared_mockup_id, $shared_mockup_url ) {
 			return [
 				'id'        => (int) $area->id,
 				'label'     => $area->label,
 				'method'    => $area->print_method,
 				'material'  => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
 				'unit'      => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
-				'mockupId'  => (int) $area->mockup_attachment_id,
-				'mockupUrl' => $area->mockup_attachment_id
-					? ( wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'large' ) ?: '' )
-					: '',
+				'mockupId'  => $shared_mockup_id,
+				'mockupUrl' => $shared_mockup_url,
+				'storedMockupId' => absint( $area->mockup_attachment_id ?? 0 ),
 				'x'          => (int) $area->canvas_x,
 				'y'          => (int) $area->canvas_y,
 				'w'          => (int) $area->canvas_w,
@@ -1221,6 +1234,29 @@ class OC_Admin_Products {
 								<label for="oc_flat_rate"><?php esc_html_e( 'Flat Rate (AUD)', 'overcustomise' ); ?></label>
 								<input type="number" id="oc_flat_rate" name="oc_flat_rate" class="oc-input" min="0" step="0.01" inputmode="decimal" value="<?php echo esc_attr( number_format( $design_flat_rate, 2, '.', '' ) ); ?>" style="width:100%;" />
 							</div>
+							<div class="oc-editor-field" style="margin-top:12px;margin-bottom:0;">
+								<label><?php esc_html_e( 'Design Mockup', 'overcustomise' ); ?> <span class="oc-hint"><?php esc_html_e( '(shared by every print area)', 'overcustomise' ); ?></span></label>
+								<div class="oc-mockup-thumb" id="oc-mockup-thumb">
+									<img id="oc-mockup-thumb-img" src="" alt="" style="display:none;" />
+									<span id="oc-mockup-thumb-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mockup set', 'overcustomise' ); ?></span>
+									<div class="oc-mockup-thumb-actions">
+										<button type="button" id="oc-choose-mockup-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>">&#9998;</button>
+										<button type="button" id="oc-remove-mockup-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
+									</div>
+								</div>
+							</div>
+							<div class="oc-editor-field" style="margin-top:12px;margin-bottom:0;">
+								<label><?php esc_html_e( 'Design Mask', 'overcustomise' ); ?> <span class="oc-hint"><?php esc_html_e( '(one preview overlay per design)', 'overcustomise' ); ?></span></label>
+								<div class="oc-mockup-thumb" id="oc-design-mask-thumb">
+									<img id="oc-design-mask-thumb-img" src="" alt="" style="display:none;" />
+									<span id="oc-design-mask-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mask set', 'overcustomise' ); ?></span>
+									<div class="oc-mockup-thumb-actions">
+										<button type="button" id="oc-choose-design-mask-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Choose design mask', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Choose design mask', 'overcustomise' ); ?>">&#9998;</button>
+										<button type="button" id="oc-remove-design-mask-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove design mask', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove design mask', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
+									</div>
+								</div>
+								<span class="oc-hint"><?php esc_html_e( 'Use a transparent PNG. It appears above customer artwork but is excluded from print files.', 'overcustomise' ); ?></span>
+							</div>
 						</div>
 
 						<div class="oc-editor-section oc-editor-section--grow">
@@ -1270,14 +1306,6 @@ class OC_Admin_Products {
 										<option value="wood"><?php esc_html_e( 'Wood', 'overcustomise' ); ?></option>
 										<option value="leather"><?php esc_html_e( 'Leather', 'overcustomise' ); ?></option>
 									</select>
-								</div>
-								<div class="oc-mockup-thumb" id="oc-mockup-thumb">
-									<img id="oc-mockup-thumb-img" src="" alt="" style="display:none;" />
-									<span id="oc-mockup-thumb-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mockup set', 'overcustomise' ); ?></span>
-									<div class="oc-mockup-thumb-actions">
-										<button type="button" id="oc-choose-mockup-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>">&#9998;</button>
-										<button type="button" id="oc-remove-mockup-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
-									</div>
 								</div>
 								<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;margin-bottom:8px;">
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
@@ -1361,7 +1389,6 @@ class OC_Admin_Products {
 								<button type="button" class="oc-layer-type-btn" data-type="textarea"><span class="oc-layer-type-btn-icon" style="color:#7c3aed;">&para;</span><span><?php esc_html_e( 'Text Area', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="image"><span class="oc-layer-type-btn-icon" style="color:#059669;">&#x1f5bc;</span><span><?php esc_html_e( 'Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipmask"><span class="oc-layer-type-btn-icon" style="color:#0d9488;">&#9711;</span><span><?php esc_html_e( 'Clipping Mask', 'overcustomise' ); ?></span></button>
-								<button type="button" class="oc-layer-type-btn" data-type="mask"><span class="oc-layer-type-btn-icon" style="color:#64748b;">&#9632;</span><span><?php esc_html_e( 'Mask', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="spotify"><span class="oc-layer-type-btn-icon" style="color:#1db954;">&#x266b;</span><span><?php esc_html_e( 'Spotify', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="lineart"><span class="oc-layer-type-btn-icon" style="color:#d97706;">&#x270f;</span><span><?php esc_html_e( 'Line Art', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
@@ -1453,9 +1480,10 @@ class OC_Admin_Products {
 		if ( ! is_array( $posted_areas ) || ! is_array( $posted_layers ) || count( $posted_areas ) > 100 || count( $posted_layers ) > 1000 ) {
 			wp_die( esc_html__( 'Invalid design data.', 'overcustomise' ) );
 		}
-
 		$submitted_existing_area_ids  = [];
 		$submitted_existing_layer_ids = [];
+		$submitted_mask_ids           = [];
+		$submitted_new_mask_count     = 0;
 		$valid_area_indexes            = [];
 		$seen_area_indexes             = [];
 		foreach ( $posted_areas as $area_index => $area_data ) {
@@ -1486,12 +1514,23 @@ class OC_Admin_Products {
 				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
 			}
 			$layer_id = (int) ( $layer_data['id'] ?? 0 );
+			$layer_type = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
+			if ( 'mask' === $layer_type ) {
+				if ( $layer_id > 0 ) {
+					$submitted_mask_ids[] = $layer_id;
+				} else {
+					$submitted_new_mask_count++;
+				}
+			}
 			if ( $layer_id > 0 ) {
 				if ( 0 === $design_id || in_array( $layer_id, $submitted_existing_layer_ids, true ) ) {
 					wp_die( esc_html__( 'A submitted layer is stale or invalid. Reload the design and try again.', 'overcustomise' ) );
 				}
 				$submitted_existing_layer_ids[] = $layer_id;
 			}
+		}
+		if ( 0 === $design_id && count( $submitted_mask_ids ) + $submitted_new_mask_count > 1 ) {
+			wp_die( esc_html__( 'Only one design mask may be added.', 'overcustomise' ) );
 		}
 
 		$data = [
@@ -1537,6 +1576,11 @@ class OC_Admin_Products {
 				}
 				if ( array_diff( $submitted_existing_layer_ids, array_keys( $existing_layer_area_ids ) ) ) {
 					throw new RuntimeException( 'Submitted layer does not belong to this design.' );
+				}
+				if ( count( $submitted_mask_ids ) + $submitted_new_mask_count > 1 ) {
+					if ( $submitted_new_mask_count ) {
+						throw new RuntimeException( 'Only one design mask may be added.' );
+					}
 				}
 
 				$data['clone_priority'] = 0;

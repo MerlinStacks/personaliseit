@@ -46,6 +46,12 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
+	public function authorise_artwork_context_route_is_registered(): void {
+		$routes = rest_get_server()->get_routes();
+		$this->assertArrayHasKey( '/overcustomise/v1/authorise-artwork-context', $routes );
+	}
+
+	#[Test]
 	public function cart_item_update_route_is_not_registered(): void {
 		$routes = rest_get_server()->get_routes();
 		$this->assertArrayNotHasKey( '/overcustomise/v1/update-cart-item', $routes );
@@ -72,12 +78,38 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 		};
 		add_filter( 'pre_http_request', $mock, 10, 3 );
 		try {
+			$result = OC_Rest_API::validate_spotify_availability( $uri, false );
+			$this->assertTrue( $result['valid'] );
+			$this->assertTrue( OC_Rest_API::verify_spotify_validation_proof( $uri, $result['validationProof'], $result['validationExpires'] ) );
+			delete_transient( $cache_key );
+			$this->assertTrue( OC_Rest_API::verify_spotify_validation_proof( $uri, $result['validationProof'], $result['validationExpires'] ) );
+			$this->assertFalse( OC_Rest_API::verify_spotify_validation_proof( $uri . 'x', $result['validationProof'], $result['validationExpires'] ) );
 			$this->assertTrue( OC_Rest_API::validate_spotify_availability( $uri, false )['valid'] );
-			$this->assertTrue( OC_Rest_API::validate_spotify_availability( $uri, false )['valid'] );
-			$this->assertSame( 1, $requests );
+			$this->assertSame( 2, $requests );
 		} finally {
 			remove_filter( 'pre_http_request', $mock, 10 );
 			delete_transient( $cache_key );
+		}
+	}
+
+	#[Test]
+	public function spotify_cache_only_validation_never_makes_an_outbound_request(): void {
+		$uri       = 'spotify:track:6rqhFgbbKwnb9MLmUQDhG6';
+		$cache_key = 'oc_spotify_validation_' . hash( 'sha256', $uri );
+		delete_transient( $cache_key );
+		$requests = 0;
+		$mock = static function ( $preempt, array $args, string $url ) use ( &$requests ): false {
+			$requests++;
+			return false;
+		};
+		add_filter( 'pre_http_request', $mock, 10, 3 );
+		try {
+			$result = OC_Rest_API::validate_spotify_availability( $uri, false, false );
+			$this->assertWPError( $result );
+			$this->assertSame( 'validation_required', $result->get_error_code() );
+			$this->assertSame( 0, $requests );
+		} finally {
+			remove_filter( 'pre_http_request', $mock, 10 );
 		}
 	}
 
@@ -195,6 +227,27 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 		$request = new WP_REST_Request( 'POST', '/overcustomise/v1/upload-artwork' );
 		$request->set_header( 'X-OC-Token', $token );
 		$request->set_file_params( [ 'artwork' => [ 'name' => 'x.png', 'tmp_name' => '/tmp/not-uploaded', 'size' => 1, 'error' => UPLOAD_ERR_OK ] ] );
+
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertSame( 400, $response->get_status() );
+		$this->assertSame( 'invalid_context', $response->get_data()['code'] );
+	}
+
+	#[Test]
+	public function artwork_context_authorisation_rejects_missing_authentication(): void {
+		$request  = new WP_REST_Request( 'POST', '/overcustomise/v1/authorise-artwork-context' );
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertSame( 403, $response->get_status() );
+	}
+
+	#[Test]
+	public function artwork_context_authorisation_requires_complete_context(): void {
+		$token   = OC_Rest_API::issue_public_token();
+		$request = new WP_REST_Request( 'POST', '/overcustomise/v1/authorise-artwork-context' );
+		$request->set_header( 'X-OC-Token', $token );
+		$request->set_body_params( [ 'source_attachment_id' => 1 ] );
 
 		$response = rest_get_server()->dispatch( $request );
 

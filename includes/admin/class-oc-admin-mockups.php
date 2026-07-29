@@ -74,7 +74,7 @@ class OC_Admin_Mockups {
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
 					<h1 class="oc-page-title"><?php esc_html_e( 'Mockup Library', 'overcustomise' ); ?></h1>
-					<p class="oc-page-subtitle"><?php esc_html_e( 'Upload and manage product mockup images. Assign them to print areas in the Products config.', 'overcustomise' ); ?></p>
+					<p class="oc-page-subtitle"><?php esc_html_e( 'Upload and manage product mockup images. Assign one shared mockup to each design in Products.', 'overcustomise' ); ?></p>
 				</div>
 				<div class="oc-page-header-right">
 					<button type="button" id="oc-upload-mockup" class="oc-btn oc-btn-primary">

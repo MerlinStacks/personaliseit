@@ -26,6 +26,7 @@ function createProductsPageCanvas(deps) {
     clampLayerToArea,
     currentAspectRatio,
     getAreas,
+    getDesignMaskEntry,
     getScale,
     getSelectedIndex,
     getSelectedLayerIndex,
@@ -155,9 +156,11 @@ function createProductsPageCanvas(deps) {
       return;
     }
     const area = selectedArea();
-    const activeMockup = area ? area.mockupUrl : '';
+    const activeMockupId = Number(area?.mockupId) || 0;
+    const activeMockup = area?.mockupUrl || '';
     getAreas().forEach((a, i) => {
-      if (i === getSelectedIndex() || a.mockupUrl !== activeMockup || !activeMockup || !a.visible) {
+      const sameMockup = activeMockupId && Number(a.mockupId) ? Number(a.mockupId) === activeMockupId : a.mockupUrl === activeMockup;
+      if (i === getSelectedIndex() || !sameMockup || !activeMockup || !a.visible) {
         return;
       }
       const g = ghost(a, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(i), 0.06);
@@ -174,26 +177,43 @@ function createProductsPageCanvas(deps) {
       pos(outline, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area), scale, normaliseRotation(area.rotation));
       ghosts.appendChild(outline);
     }
-    (area.layers || []).map((layer, li) => ({
+    const designMask = getDesignMaskEntry();
+    const previewLayers = (area.layers || []).map((layer, li) => ({
+      area,
       layer,
       li
-    })).sort((a, b) => Number(a.layer.type === 'mask') - Number(b.layer.type === 'mask')).forEach(({
+    })).filter(entry => entry.layer.type !== 'mask');
+    if (designMask) {
+      previewLayers.push({
+        area: designMask.area,
+        layer: designMask.layer,
+        li: -1
+      });
+    }
+    previewLayers.sort((a, b) => Number(a.layer.type === 'mask') - Number(b.layer.type === 'mask')).forEach(({
+      area: layerArea,
       layer,
       li
     }) => {
-      if (li === getSelectedLayerIndex() || !layer.visible) {
+      if (li >= 0 && li === getSelectedLayerIndex() || !layer.visible) {
         return;
       }
-      const displayLayer = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layer, area);
+      const isDesignMask = layer.type === 'mask';
+      const displayLayer = isDesignMask ? {
+        x: 0,
+        y: 0,
+        w: img.naturalWidth || Math.round(img.width / scale),
+        h: img.naturalHeight || Math.round(img.height / scale)
+      } : (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layer, layerArea);
       const g = ghost(layer, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type), 0.1);
       g.classList.add('oc-canvas-layer-ghost');
       g.appendChild(ghostLabel((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(layer.type) + ' ' + (layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(layer.type)), (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type)));
-      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, area.method === 'engraving', area.material);
-      pos(g, displayLayer, scale, normaliseRotation(area.rotation), (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area));
-      if (layer.locked) {
+      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, layerArea.method === 'engraving', layerArea.material);
+      pos(g, displayLayer, scale, isDesignMask ? 0 : normaliseRotation(layerArea.rotation), isDesignMask ? null : (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layerArea));
+      if (layer.locked && !isDesignMask) {
         g.style.cursor = 'not-allowed';
         g.style.opacity = '0.5';
-      } else {
+      } else if (li >= 0) {
         g.style.cursor = 'pointer';
         g.addEventListener('click', () => {
           setSelectedLayerIndex(li);
@@ -839,6 +859,7 @@ function createProductsPageDataNormalisers(deps) {
       unit,
       mockupId: Number(a.mockupId) || 0,
       mockupUrl: a.mockupUrl || '',
+      storedMockupId: Number(a.storedMockupId === undefined ? a.mockupId : a.storedMockupId) || 0,
       x: Number(a.x) || 0,
       y: Number(a.y) || 0,
       w: Number(a.w) || 300,
@@ -1070,6 +1091,7 @@ __webpack_require__.r(__webpack_exports__);
   let pendingSubmit = false;
   let submitRevisionVerified = false;
   let isSubmitting = false;
+  let maskMediaFrame = null;
   const autosaveInterval = 30000;
   function snapshot() {
     if (historyIndex < history.length - 1) {
@@ -1186,6 +1208,7 @@ __webpack_require__.r(__webpack_exports__);
           unit: a.unit,
           mockupId: a.mockupId,
           mockupUrl: a.mockupUrl,
+          storedMockupId: a.storedMockupId,
           x: a.x,
           y: a.y,
           w: a.w,
@@ -1236,6 +1259,8 @@ __webpack_require__.r(__webpack_exports__);
         layers: (a.layers || []).map(normaliseLayer)
       });
     });
+    normaliseSharedMockup();
+    normaliseDesignMask();
     normaliseAreaLayerDefaults();
     selectedIndex = areas.length > 0 ? 0 : -1;
     selectedLayerIndex = -1;
@@ -1353,6 +1378,15 @@ __webpack_require__.r(__webpack_exports__);
     [['oc_design_name', 'input'], ['oc_custom_type', 'change'], ['oc_flat_rate', 'input'], ['oc_active', 'change']].forEach(([id, eventName]) => {
       document.getElementById(id)?.addEventListener(eventName, markDirty);
     });
+    document.getElementById('oc-choose-design-mask-btn')?.addEventListener('click', openDesignMaskPicker);
+    document.getElementById('oc-remove-design-mask-btn')?.addEventListener('click', () => {
+      areas.forEach(area => {
+        area.layers = (area.layers || []).filter(layer => layer.type !== 'mask');
+      });
+      selectedLayerIndex = -1;
+      snapshot();
+      renderAll();
+    });
   }
   function finishHydration() {
     isHydrated = true;
@@ -1451,6 +1485,8 @@ __webpack_require__.r(__webpack_exports__);
       ...normaliseArea(a, i),
       layers: layersByAreaId[Number(a.id)] || []
     }));
+    normaliseSharedMockup();
+    normaliseDesignMask();
     const defaultsChanged = normaliseAreaLayerDefaults();
     selectedIndex = areas.length > 0 ? 0 : -1;
     renderAll();
@@ -1478,15 +1514,111 @@ __webpack_require__.r(__webpack_exports__);
     const area = selectedArea();
     return area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || null : null;
   }
+  function designMaskEntry() {
+    let fallback = null;
+    for (const [areaIndex, area] of areas.entries()) {
+      for (const [layerIndex, layer] of (area.layers || []).entries()) {
+        if (layer.type !== 'mask') {
+          continue;
+        }
+        const entry = {
+          area,
+          areaIndex,
+          layer,
+          layerIndex
+        };
+        fallback = fallback || entry;
+        if (layer.settings?.default_attachment_id && layer.settings?.default_attachment_url) {
+          return entry;
+        }
+      }
+    }
+    return fallback;
+  }
+  function normaliseDesignMask() {
+    const selectedMask = designMaskEntry();
+    if (selectedMask) {
+      selectedMask.layer.visible = true;
+    }
+    selectedLayerIndex = -1;
+  }
+  function openDesignMaskPicker() {
+    if (!areas.length) {
+      window.alert('Add a print area before choosing a design mask.');
+      return;
+    }
+    if (!window.wp?.media) {
+      window.alert('Media library is not available.');
+      return;
+    }
+    if (!maskMediaFrame) {
+      maskMediaFrame = window.wp.media({
+        title: 'Select Design Mask PNG',
+        button: {
+          text: 'Use as Design Mask'
+        },
+        library: {
+          type: 'image',
+          subtype: 'png'
+        },
+        multiple: false
+      });
+      maskMediaFrame.on('select', () => {
+        const attachment = maskMediaFrame.state().get('selection').first()?.toJSON();
+        if (!attachment) {
+          return;
+        }
+        const url = attachment.url || attachment.sizes?.full?.url || attachment.originalImageURL || '';
+        const mime = String(attachment.mime || '').toLowerCase();
+        const isPng = ['image/png', 'image/x-png'].includes(mime) || attachment.subtype === 'png' || /\.png(?:[?#]|$)/i.test(attachment.filename || url);
+        if (!isPng || !url) {
+          window.alert('Please select a PNG image.');
+          return;
+        }
+        const existingMask = designMaskEntry();
+        let mask = existingMask?.layer;
+        if (mask) {
+          areas.forEach(area => {
+            area.layers = (area.layers || []).filter(layer => layer.type !== 'mask' || layer === mask);
+          });
+        }
+        if (!mask) {
+          const area = areas[0];
+          mask = {
+            _uid: ++uidCounter,
+            id: 0,
+            type: 'mask',
+            label: 'Design Mask',
+            x: area.x,
+            y: area.y,
+            w: area.w,
+            h: area.h,
+            sortOrder: area.layers.length,
+            visible: true,
+            locked: false,
+            settings: defaultSettings('mask')
+          };
+          area.layers.push(mask);
+        }
+        mask.settings.default_attachment_id = Number(attachment.id) || 0;
+        mask.settings.default_attachment_url = url;
+        mask.visible = true;
+        snapshot();
+        renderAll();
+      });
+    }
+    maskMediaFrame.open();
+  }
   const applyLayerPreview = (0,_products_page_preview__WEBPACK_IMPORTED_MODULE_3__.createLayerPreviewRenderer)({
     fontLimit: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.fontLimit,
     layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
     normaliseHex: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.normaliseHex
   });
   const openMockupPicker = (0,_products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_6__.createMockupPicker)({
-    commitChange,
+    getAreas: () => areas,
     getSelectedIndex: () => selectedIndex,
-    selectedArea
+    renderAll,
+    snapshot
   });
   const {
     initInteractions,
@@ -1538,6 +1670,7 @@ __webpack_require__.r(__webpack_exports__);
     clampLayerToArea: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.clampLayerToArea,
     currentAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.currentAspectRatio,
     getAreas: () => areas,
+    getDesignMaskEntry: designMaskEntry,
     getScale: _products_page_utils__WEBPACK_IMPORTED_MODULE_9__.getScale,
     getSelectedIndex: () => selectedIndex,
     getSelectedLayerIndex: () => selectedLayerIndex,
@@ -1582,10 +1715,48 @@ __webpack_require__.r(__webpack_exports__);
     });
     return changed;
   }
+  function normaliseSharedMockup() {
+    const shared = areas.find(area => area.mockupId && area.mockupUrl) || areas.find(area => area.mockupId || area.mockupUrl);
+    if (!shared) {
+      return;
+    }
+    areas.forEach(area => {
+      area.mockupId = shared.mockupId;
+      area.mockupUrl = shared.mockupUrl;
+      if (area.storedMockupId === undefined) {
+        area.storedMockupId = area.mockupId;
+      }
+    });
+  }
+  function renderDesignMask() {
+    const mask = designMaskEntry()?.layer || null;
+    const url = mask?.settings?.default_attachment_url || '';
+    const thumb = document.getElementById('oc-design-mask-thumb-img');
+    const empty = document.getElementById('oc-design-mask-empty');
+    const remove = document.getElementById('oc-remove-design-mask-btn');
+    const choose = document.getElementById('oc-choose-design-mask-btn');
+    if (thumb) {
+      thumb.src = url;
+      thumb.style.display = url ? '' : 'none';
+    }
+    if (empty) {
+      empty.style.display = url ? 'none' : '';
+    }
+    if (remove) {
+      remove.style.display = mask ? '' : 'none';
+    }
+    if (choose) {
+      choose.disabled = !areas.length;
+      const label = mask ? 'Change design mask' : 'Choose design mask';
+      choose.setAttribute('aria-label', label);
+      choose.setAttribute('title', label);
+    }
+  }
   function renderAll() {
     renderAreasList();
     renderAreaStrip();
     renderLeftAreaProps();
+    renderDesignMask();
     renderCanvas();
     renderRightColumn();
     renderHiddenFields();
@@ -1701,6 +1872,26 @@ __webpack_require__.r(__webpack_exports__);
         e.stopPropagation();
         if (!window.confirm('Remove this print area and all its layers?')) {
           return;
+        }
+        const mask = (area.layers || []).find(layer => layer.type === 'mask');
+        const nextArea = areas.find((candidate, ai) => ai !== i);
+        if (nextArea) {
+          const survivorMasks = areas.flatMap((candidate, ai) => ai === i ? [] : (candidate.layers || []).filter(layer => layer.type === 'mask'));
+          if (mask && survivorMasks.length) {
+            survivorMasks.forEach(survivor => {
+              survivor.settings = {
+                ...mask.settings
+              };
+              survivor.visible = true;
+            });
+          } else if (mask) {
+            mask.id = 0;
+            nextArea.layers.push(mask);
+          }
+          const survivorHasMockup = areas.some((candidate, ai) => ai !== i && Number(candidate.storedMockupId) === Number(area.mockupId));
+          if (area.mockupId && !survivorHasMockup) {
+            nextArea.storedMockupId = area.mockupId;
+          }
         }
         areas.splice(i, 1);
         if (selectedIndex === i) {
@@ -1848,7 +2039,10 @@ __webpack_require__.r(__webpack_exports__);
     if (noArea) {
       noArea.style.display = 'none';
     }
-    const layers = area.layers || [];
+    const layers = (area.layers || []).map((layer, index) => ({
+      layer,
+      index
+    })).filter(entry => entry.layer.type !== 'mask');
     if (countEl) {
       countEl.textContent = layers.length + (1 === layers.length ? ' layer' : ' layers');
     }
@@ -1861,7 +2055,11 @@ __webpack_require__.r(__webpack_exports__);
     if (emptyEl) {
       emptyEl.style.display = 'none';
     }
-    layers.forEach((layer, li) => {
+    layers.forEach(entry => {
+      const {
+        layer,
+        index: li
+      } = entry;
       const item = document.createElement('div');
       item.className = 'oc-layer-item' + (li === selectedLayerIndex ? ' oc-layer-item--active' : '') + (!layer.visible ? ' oc-layer--hidden' : '') + (layer.locked ? ' oc-layer--locked' : '');
       item.draggable = true;
@@ -2010,7 +2208,7 @@ function renderProductsPageHiddenFields(areas, esc) {
   let html = '';
   areas.forEach((area, i) => {
     const p = 'oc_design_areas[' + i + ']';
-    html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[engraving_material]"   value="' + esc(area.material || 'silver_metal') + '">' + '<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc(area.unit || 'px') + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.mockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_dpi]"           value="' + esc(area.dpi || 300) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
+    html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[engraving_material]"   value="' + esc(area.material || 'silver_metal') + '">' + '<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc(area.unit || 'px') + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.storedMockupId === undefined ? area.mockupId : area.storedMockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_dpi]"           value="' + esc(area.dpi || 300) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
   });
   let li = 0;
   areas.forEach((area, areaIdx) => {
@@ -2083,6 +2281,7 @@ function createProductsPageInteractions(deps) {
           unit: currentArea.unit,
           mockupId: currentArea.mockupId,
           mockupUrl: currentArea.mockupUrl,
+          storedMockupId: currentArea.mockupId,
           dpi: currentArea.dpi,
           visible: true,
           locked: false
@@ -2168,13 +2367,14 @@ function createProductsPageInteractions(deps) {
     });
     document.getElementById('oc-choose-mockup-btn')?.addEventListener('click', openMockupPicker);
     document.getElementById('oc-remove-mockup-btn')?.addEventListener('click', () => {
-      const area = selectedArea();
-      if (area) {
-        area.mockupId = 0;
-        area.mockupUrl = '';
-        commitChange({
-          all: true
+      if (getAreas().length) {
+        getAreas().forEach(area => {
+          area.mockupId = 0;
+          area.mockupUrl = '';
+          area.storedMockupId = 0;
         });
+        snapshot();
+        renderAll();
       }
     });
     document.getElementById('oc-undo-btn')?.addEventListener('click', undo);
@@ -2224,10 +2424,7 @@ function createProductsPageInteractions(deps) {
     if (!area) {
       return;
     }
-    const def = type === 'mask' ? {
-      w: area.w * (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area),
-      h: area.h * (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area)
-    } : _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_DEFAULTS[type] || {
+    const def = _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_DEFAULTS[type] || {
       w: 200,
       h: 100
     };
@@ -2355,10 +2552,6 @@ const LAYER_DEFAULTS = {
     w: 200,
     h: 200
   },
-  mask: {
-    w: 200,
-    h: 200
-  },
   spotify: {
     w: 150,
     h: 150
@@ -2459,15 +2652,6 @@ const LAYER_TABS = {
     label: 'Validation',
     icon: '\u2713'
   }],
-  mask: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'overlay',
-    label: 'Overlay',
-    icon: '\ud83d\uddbc'
-  }],
   spotify: [{
     id: 'general',
     label: 'General',
@@ -2533,9 +2717,10 @@ __webpack_require__.r(__webpack_exports__);
 
 function createMockupPicker(deps) {
   const {
-    commitChange,
+    getAreas,
     getSelectedIndex,
-    selectedArea
+    renderAll,
+    snapshot
   } = deps;
   let mediaFrame = null;
   function openMockupPicker() {
@@ -2560,14 +2745,14 @@ function createMockupPicker(deps) {
       });
       mediaFrame.on('select', () => {
         const att = mediaFrame.state().get('selection').first().toJSON();
-        const area = selectedArea();
-        if (area) {
-          area.mockupId = att.id;
-          area.mockupUrl = att.sizes && att.sizes.large && att.sizes.large.url || att.url;
-          commitChange({
-            all: true
-          });
-        }
+        const mockupUrl = att.sizes && att.sizes.large && att.sizes.large.url || att.url;
+        getAreas().forEach(area => {
+          area.mockupId = Number(att.id) || 0;
+          area.mockupUrl = mockupUrl || '';
+          area.storedMockupId = Number(att.id) || 0;
+        });
+        snapshot();
+        renderAll();
       });
     }
     mediaFrame.open();
@@ -3081,8 +3266,6 @@ function createProductsPageSettings(deps) {
         }
       case 'file':
         return field('Default image', mediaDefaultField(s)) + field('Enabled image filters <span class="oc-hint">(available choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
-      case 'overlay':
-        return field('Mask PNG', mediaDefaultField(s)) + '<span class="oc-hint">This transparent PNG is shown above all customer artwork and is excluded from print files.</span>';
       case 'mask':
         return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
       case 'appearance':
@@ -3186,16 +3369,13 @@ function createProductsPageSettings(deps) {
         return;
       }
       const frame = window.wp.media({
-        title: layer.type === 'mask' ? 'Select Mask PNG' : 'Select Default Image',
+        title: 'Select Default Image',
         button: {
-          text: layer.type === 'mask' ? 'Use as Mask' : 'Use as Default'
+          text: 'Use as Default'
         },
         multiple: false,
         library: {
-          type: 'image',
-          ...(layer.type === 'mask' ? {
-            subtype: 'png'
-          } : {})
+          type: 'image'
         }
       });
       frame.on('select', () => {
@@ -3204,17 +3384,8 @@ function createProductsPageSettings(deps) {
           return;
         }
         const attachmentUrl = attachment.url || attachment.sizes?.full?.url || attachment.originalImageURL || '';
-        const attachmentMime = String(attachment.mime || '').toLowerCase();
-        const isPng = ['image/png', 'image/x-png'].includes(attachmentMime) || attachment.subtype === 'png' || /\.png(?:[?#]|$)/i.test(attachment.filename || attachmentUrl);
-        if (layer.type === 'mask' && (!isPng || !attachmentUrl)) {
-          const empty = document.getElementById('oc-default-attachment-empty');
-          if (empty) {
-            empty.textContent = !isPng ? 'Please select a PNG image.' : 'The selected PNG has no usable URL.';
-          }
-          return;
-        }
         s.default_attachment_id = Number(attachment.id) || 0;
-        s.default_attachment_url = layer.type === 'mask' ? attachmentUrl : attachment.sizes?.medium?.url || attachmentUrl || '';
+        s.default_attachment_url = attachment.sizes?.medium?.url || attachmentUrl || '';
         commitChange({
           canvas: true,
           rightColumn: true

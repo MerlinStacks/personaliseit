@@ -198,6 +198,7 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		global $wpdb;
 		$method         = new ReflectionMethod( OC_File_Cleanup::class, 'customer_artwork_is_referenced' );
 		$preview_method = new ReflectionMethod( OC_File_Cleanup::class, 'stored_payload_references' );
+		$mutable_method = new ReflectionMethod( OC_File_Cleanup::class, 'mutable_payload_has_reference' );
 		$preview_id     = str_repeat( 'c', 40 );
 		$preview_file   = 'preview-' . str_repeat( 'd', 40 ) . '.jpg';
 		$session_table = $wpdb->prefix . 'woocommerce_sessions';
@@ -212,6 +213,8 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		] );
 		$this->assertTrue( $method->invoke( null, 45671 ) );
 		$this->assertFalse( $method->invoke( null, 4567 ) );
+		$this->assertTrue( $mutable_method->invoke( null, [ $preview_id ] ) );
+		$this->assertFalse( $mutable_method->invoke( null, [ str_repeat( '9', 40 ) ] ) );
 
 		$user_id = self::factory()->user->create();
 		update_user_meta( $user_id, '_woocommerce_persistent_cart_1', [
@@ -227,7 +230,7 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 	public function preview_reference_query_failure_retains_the_whole_batch(): void {
 		global $wpdb;
 		$filter = static function ( string $query ): string {
-			if ( str_contains( $query, 'SELECT meta_value FROM' ) && str_contains( $query, 'woocommerce_order_itemmeta' ) ) {
+			if ( str_contains( $query, 'meta_id AS row_id' ) && str_contains( $query, 'woocommerce_order_itemmeta' ) ) {
 				return 'SELECT oc_missing_column FROM oc_missing_preview_reference_table';
 			}
 			return $query;
@@ -241,6 +244,7 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		} finally {
 			$wpdb->suppress_errors( $previous_suppression );
 			remove_filter( 'query', $filter );
+			delete_option( 'oc_preview_reference_scan_adhoc' );
 		}
 	}
 
@@ -275,12 +279,17 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		$item->update_meta_data( '_oc_preview_url', 'https://example.test/?preview_id=' . $id );
 		$item->save();
 		$query_counts = [ 'order' => 0, 'session' => 0, 'cart' => 0 ];
-		$query_filter = static function ( string $query ) use ( &$query_counts ): string {
-			if ( str_contains( $query, 'woocommerce_order_itemmeta' ) && str_contains( $query, 'SELECT meta_value' ) ) {
+		$unsafe_query = false;
+		$query_filter = function ( string $query ) use ( &$query_counts, &$unsafe_query ): string {
+			if ( preg_match( '/(?:meta_value|session_value) LIKE [\'\"]%/', $query ) ) {
+				$unsafe_query = true;
+			}
+			if ( str_contains( $query, 'woocommerce_order_itemmeta' ) && str_contains( $query, 'meta_id AS row_id' ) ) {
 				$query_counts['order']++;
-			} elseif ( str_contains( $query, 'woocommerce_sessions' ) && str_contains( $query, 'SELECT session_value' ) ) {
+				$this->assertStringContainsString( "meta_key IN ('_oc_customisation','_oc_preview_url')", $query );
+			} elseif ( str_contains( $query, 'woocommerce_sessions' ) && str_contains( $query, 'session_id AS row_id' ) ) {
 				$query_counts['session']++;
-			} elseif ( str_contains( $query, 'SELECT meta_value FROM' ) && str_contains( $query, '_woocommerce_persistent_cart_' ) ) {
+			} elseif ( str_contains( $query, 'umeta_id AS row_id' ) && str_contains( $query, '_woocommerce_persistent_cart_' ) ) {
 				$query_counts['cart']++;
 			}
 			return $query;
@@ -293,13 +302,73 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 			$this->assertFileDoesNotExist( $unused_path );
 			$this->assertNotFalse( get_option( 'oc_private_preview_' . $id, false ) );
 			$this->assertFalse( get_option( 'oc_private_preview_' . $unused_id, false ) );
-			$this->assertSame( [ 'order' => 1, 'session' => 1, 'cart' => 1 ], $query_counts );
+			$this->assertGreaterThanOrEqual( 1, $query_counts['order'] );
+			$this->assertFalse( $unsafe_query );
 		} finally {
 			remove_filter( 'query', $query_filter );
 			delete_option( 'oc_private_preview_' . $id );
 			delete_option( 'oc_private_preview_' . $unused_id );
 			delete_option( 'oc_preview_cleanup_private_cursor' );
 			$order->delete( true );
+		}
+	}
+
+	#[Test]
+	public function preview_references_are_found_beyond_the_first_payload_page(): void {
+		global $wpdb;
+		$reference = str_repeat( '7', 40 );
+		$filter = static fn ( mixed $value ): int => 1;
+		add_filter( 'oc_preview_reference_payload_batch_size', $filter );
+		$wpdb->insert( $wpdb->prefix . 'woocommerce_order_itemmeta', [
+			'order_item_id' => 1,
+			'meta_key'      => '_oc_customisation',
+			'meta_value'    => 'unrelated-preview',
+		] );
+		$wpdb->insert( $wpdb->prefix . 'woocommerce_order_itemmeta', [
+			'order_item_id' => 1,
+			'meta_key'      => '_oc_customisation',
+			'meta_value'    => wp_json_encode( [ 'preview_id' => $reference ] ),
+		] );
+
+		try {
+			$method = new ReflectionMethod( OC_File_Cleanup::class, 'stored_payload_references' );
+			$this->assertArrayHasKey( $reference, $method->invoke( null, [ $reference ] ) );
+		} finally {
+			remove_filter( 'oc_preview_reference_payload_batch_size', $filter );
+		}
+	}
+
+	#[Test]
+	public function preview_reference_scan_resumes_its_saved_cursor(): void {
+		global $wpdb;
+		$reference = str_repeat( '8', 40 );
+		$wpdb->insert( $wpdb->prefix . 'woocommerce_order_itemmeta', [
+			'order_item_id' => 1,
+			'meta_key'      => '_oc_customisation',
+			'meta_value'    => 'already-scanned',
+		] );
+		$cursor = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'woocommerce_order_itemmeta', [
+			'order_item_id' => 1,
+			'meta_key'      => '_oc_customisation',
+			'meta_value'    => wp_json_encode( [ 'preview_id' => $reference ] ),
+		] );
+		$maximum = (int) $wpdb->insert_id;
+		update_option( 'oc_preview_reference_scan_adhoc', [
+			'signature'  => hash( 'sha256', (string) wp_json_encode( [ [ $reference ], [] ] ) ),
+			'source'     => 'order',
+			'cursor'     => $cursor,
+			'max'        => $maximum,
+			'active_at'  => 0,
+			'references' => [],
+		], false );
+
+		try {
+			$method = new ReflectionMethod( OC_File_Cleanup::class, 'stored_payload_references' );
+			$this->assertArrayHasKey( $reference, $method->invoke( null, [ $reference ] ) );
+			$this->assertFalse( get_option( 'oc_preview_reference_scan_adhoc', false ) );
+		} finally {
+			delete_option( 'oc_preview_reference_scan_adhoc' );
 		}
 	}
 

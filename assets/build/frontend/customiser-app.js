@@ -142,11 +142,16 @@ const canvasRendererMethods = {
   },
   areaCanvasGroupIndexes(areaIndex) {
     const area = this.areas[areaIndex];
+    const mockupId = Number(area?.mockupId) || 0;
     const mockupUrl = area?.mockupUrl || '';
-    if (!mockupUrl) {
+    if (!mockupId && !mockupUrl) {
       return [areaIndex];
     }
-    return this.areas.map((candidate, index) => (candidate?.mockupUrl || '') === mockupUrl ? index : -1).filter(index => index >= 0);
+    return this.areas.map((candidate, index) => {
+      const candidateId = Number(candidate?.mockupId) || 0;
+      const matches = mockupId && candidateId ? candidateId === mockupId : (candidate?.mockupUrl || '') === mockupUrl;
+      return matches ? index : -1;
+    }).filter(index => index >= 0);
   },
   async rebuildCanvas(areaIndex) {
     const oldCanvas = this.canvases[areaIndex];
@@ -630,7 +635,10 @@ const canvasRendererMethods = {
         {
           const maskUrl = layer.settings?.default_attachment_url;
           if (maskUrl) {
-            const rendered = await this.renderFabricImg(canvas, maskUrl, lx, ly, lw, lh, false, 'anonymous', false, rotation, null, contentClip(), 'contain', '', {}, isCurrent);
+            const viewport = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+            const viewportScaleX = viewport[0] || 1;
+            const viewportScaleY = viewport[3] || 1;
+            const rendered = await this.renderFabricImg(canvas, maskUrl, -viewport[4] / viewportScaleX, -viewport[5] / viewportScaleY, canvas.getWidth() / viewportScaleX, canvas.getHeight() / viewportScaleY, false, 'anonymous', false, 0, null, null, 'contain', '', {}, isCurrent);
             if (!rendered && isCurrent()) {
               throw new Error('Mask overlay could not be rendered.');
             }
@@ -1738,10 +1746,24 @@ const canvasRendererMethods = {
       canvas._ocCartPreviewRevision = '';
       canvas._ocCartPreviewDataUrl = '';
       if (canvas._ocArea && !canvas._ocMissingMockup && this.areaCanvasGroupIndexes(Number(areaIndex)).includes(this.activeArea)) {
-        this.pushToGallery(canvas);
+        this.scheduleCropGalleryPush(canvas);
       }
     });
     return updatedLayerIds;
+  },
+  scheduleCropGalleryPush(canvas) {
+    this._cropGalleryCanvas = canvas;
+    if (this._cropGalleryTimer !== null) {
+      return;
+    }
+    this._cropGalleryTimer = this.setStateTimeout(() => {
+      this._cropGalleryTimer = null;
+      const pendingCanvas = this._cropGalleryCanvas;
+      this._cropGalleryCanvas = null;
+      if (pendingCanvas && !pendingCanvas._ocMissingMockup) {
+        this.pushToGallery(pendingCanvas);
+      }
+    }, 120);
   },
   imageFilterForLayer(layer, filterId) {
     filterId = parseInt(filterId, 10) || 0;
@@ -1851,6 +1873,9 @@ const cartSerializationMethods = {
     const layers = {};
     this.areas.forEach(area => {
       (area.layers || []).forEach(layer => {
+        if (layer.type === 'mask') {
+          return;
+        }
         const input = {
           ...(inputs[layer.id] || {})
         };
@@ -3138,7 +3163,7 @@ const designVariantMethods = {
       currentState.layerInputs = this.cloneLayerInputs();
     }
   },
-  async applyDesignState(state, variantId, preserveCurrentState = true) {
+  async applyDesignState(state, variantId, preserveCurrentState = true, initialiseAiFilters = true) {
     if (!state?.panelHtml) {
       return;
     }
@@ -3188,6 +3213,10 @@ const designVariantMethods = {
     this.seedLockedLayerDefaults();
     this.seedTemplateImageDefaults();
     this.seedLayerFontDefaults();
+    await this.hydrateLinkGroupCarry();
+    if (designGeneration !== this._designGeneration) {
+      return false;
+    }
     this.seedLinkedImageInputs();
     this.seedLinkedColourInputs();
     this.applyInputsToDOM({
@@ -3199,7 +3228,9 @@ const designVariantMethods = {
     this.renderDesignVariantThumbnails();
     this.setupClipartCarousels();
     this._uploadSetupPromise = this.setupUploadZones();
-    this._initialAiFilterPromise = this.applyInitialAiFilters();
+    if (initialiseAiFilters) {
+      this._initialAiFilterPromise = this.applyInitialAiFilters();
+    }
     this.applyActiveAreaState(0);
     if (preserveCurrentState) {
       this.requestPreviewFocus();
@@ -3857,7 +3888,7 @@ const galleryPreviewMethods = {
           designVariantStates: state.designVariantStates || {},
           selectedDesignVariant: selectedVariant
         };
-        const applied = await this.applyDesignState(nextState, selectedVariant, false);
+        const applied = await this.applyDesignState(nextState, selectedVariant, false, false);
         if (!applied || requestSeq !== this._variationRequestSeq) {
           return false;
         }
@@ -3877,8 +3908,9 @@ const galleryPreviewMethods = {
     this._variationSwitchPromise = switchPromise;
     try {
       const switched = await switchPromise;
-      if (requestSeq === this._variationRequestSeq && switched) {
+      if (requestSeq === this._variationRequestSeq && switched && this._customisationActive) {
         this._variationSwitchFailed = false;
+        this._initialAiFilterPromise = this.applyInitialAiFilters();
       }
       return switched;
     } finally {
@@ -4208,6 +4240,9 @@ const inputControlMethods = {
         }
         this.inputs[lid].value = cleaned;
         this.syncLinkedLayerInput(lid, ['value']);
+        this.recordLinkGroupCarry(lid, {
+          value: cleaned
+        });
         updateCounter();
         await this.updateTextSizeSliderCap(lid);
         if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
@@ -4470,6 +4505,10 @@ const inputControlMethods = {
           this.inputs[lid] = {};
         }
         const filterId = parseInt(el.value, 10) || 0;
+        this.inputs[lid].imageFilterId = filterId;
+        this.recordImageLinkGroupCarry(lid, {
+          pendingFilter: true
+        });
         el.disabled = true;
         try {
           await this.applyAiImageFilter(lid, filterId);
@@ -4848,6 +4887,204 @@ const inputControlMethods = {
       return layer.settings?.allow_clipart_change !== false;
     }
     return true;
+  },
+  linkGroupCarryKey(layer) {
+    const group = String(layer?.settings?.link_group || '').trim();
+    if (!group || !['text', 'textarea', 'image', 'clipmask'].includes(layer?.type) || !this.isLinkedLayerEligible(layer)) {
+      return '';
+    }
+    return `${layer.type}|${group}`;
+  },
+  recordLinkGroupCarry(layerId, payload) {
+    const layer = this.getLayerById(layerId);
+    const key = this.linkGroupCarryKey(layer);
+    if (key) {
+      this.linkGroupCarry.set(key, {
+        kind: layer.type,
+        payload: JSON.parse(JSON.stringify(payload))
+      });
+    }
+  },
+  recordImageLinkGroupCarry(layerId, {
+    pendingFilter = false
+  } = {}) {
+    const input = this.inputs[layerId];
+    if (!input?.customerUploaded || !input.sourceAttachmentId) {
+      return;
+    }
+    const payload = {};
+    LINKED_IMAGE_INPUT_KEYS.forEach(key => {
+      if (key !== 'imageCrop' && input[key] !== undefined) {
+        payload[key] = input[key];
+      }
+    });
+    if (pendingFilter) {
+      payload.attachmentId = payload.sourceAttachmentId;
+      payload.attachmentUrl = payload.sourceAttachmentUrl;
+      payload.originalAttachmentUrl = payload.sourceOriginalAttachmentUrl || payload.sourceAttachmentUrl;
+      payload.artworkFileType = payload.sourceArtworkFileType;
+      payload.previewAttachmentId = payload.sourcePreviewAttachmentId || 0;
+      payload.imageMeta = payload.sourceImageMeta || null;
+    }
+    payload.context = {
+      variationId: this.currentVariationId(),
+      designId: Number(this.data.designId || 0),
+      layerId: Number(this.canonicalLinkedLayerId(layerId))
+    };
+    this.artworkContextAuthorisations.add(this.artworkContextAuthorisationKey(payload, payload.context));
+    this.recordLinkGroupCarry(layerId, payload);
+  },
+  artworkContextAuthorisationKey(payload, context) {
+    return [Number(this.data.productId || 0), Number(context?.variationId || 0), Number(context?.designId || 0), Number(context?.layerId || 0), Number(payload?.sourceAttachmentId || 0), Number(payload?.attachmentId || 0)].join('|');
+  },
+  carriedImageForLayer(layer, carried) {
+    const payload = JSON.parse(JSON.stringify(carried || {}));
+    delete payload.context;
+    payload.imageCrop = 0;
+    const filterId = Number(payload.imageFilterId || 0);
+    const allowedFilters = Array.isArray(layer.settings?.image_filter_ids) ? layer.settings.image_filter_ids.map(Number) : [];
+    const filterAllowed = layer.type === 'image' && layer.settings?.allow_image_filter_change !== false && allowedFilters.includes(filterId);
+    if (filterId && !filterAllowed) {
+      payload.imageFilterId = 0;
+      payload.attachmentId = payload.sourceAttachmentId;
+      payload.attachmentUrl = payload.sourceAttachmentUrl;
+      payload.originalAttachmentUrl = payload.sourceOriginalAttachmentUrl || payload.sourceAttachmentUrl;
+      payload.artworkFileType = payload.sourceArtworkFileType;
+      payload.previewAttachmentId = payload.sourcePreviewAttachmentId || 0;
+      payload.imageMeta = payload.sourceImageMeta || null;
+    }
+    return payload;
+  },
+  async authoriseCarriedImage(layer, payload, context, signal) {
+    if (!this.data.authoriseArtworkUrl) {
+      return false;
+    }
+    const target = {
+      variationId: this.currentVariationId(),
+      designId: Number(this.data.designId || 0),
+      layerId: Number(layer.id)
+    };
+    const authorisationKey = this.artworkContextAuthorisationKey(payload, target);
+    if (this.artworkContextAuthorisations.has(authorisationKey)) {
+      return true;
+    }
+    if (Number(context?.variationId || 0) === target.variationId && Number(context?.designId || 0) === target.designId && Number(context?.layerId || 0) === target.layerId) {
+      this.artworkContextAuthorisations.add(authorisationKey);
+      return true;
+    }
+    await this.ensureRequestToken();
+    const sourceId = Number(payload.sourceAttachmentId || 0);
+    const derivativeId = Number(payload.attachmentId || 0);
+    const request = this.createStateAbortController(12000);
+    const abortRequest = () => request.controller.abort();
+    try {
+      if (signal?.aborted) {
+        abortRequest();
+      } else {
+        signal?.addEventListener('abort', abortRequest, {
+          once: true
+        });
+      }
+      const response = await fetch(this.data.authoriseArtworkUrl, {
+        method: 'POST',
+        credentials: 'same-origin',
+        signal: request.controller.signal,
+        headers: this.restHeaders({
+          'Content-Type': 'application/json',
+          Accept: 'application/json'
+        }),
+        body: JSON.stringify({
+          source_attachment_id: sourceId,
+          derivative_attachment_id: derivativeId !== sourceId ? derivativeId : 0,
+          product_id: Number(this.data.productId || 0),
+          variation_id: target.variationId,
+          design_id: target.designId,
+          layer_id: target.layerId
+        })
+      });
+      if (response.ok) {
+        this.artworkContextAuthorisations.add(authorisationKey);
+      }
+      return response.ok;
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('Shared image authorisation timed out.');
+      }
+      throw error;
+    } finally {
+      signal?.removeEventListener('abort', abortRequest);
+      request.release();
+    }
+  },
+  async hydrateLinkGroupCarry() {
+    if (!this.linkGroupCarry?.size) {
+      return;
+    }
+    const designGeneration = this._designGeneration;
+    const stateSignal = this._panelListenerController?.signal;
+    const hydrated = new Set();
+    const imageTasks = [];
+    for (const area of this.areas) {
+      for (const layer of area.layers || []) {
+        if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+          return;
+        }
+        const key = this.linkGroupCarryKey(layer);
+        const carried = key ? this.linkGroupCarry.get(key) : null;
+        if (!carried || hydrated.has(key)) {
+          continue;
+        }
+        hydrated.add(key);
+        if (['text', 'textarea'].includes(layer.type)) {
+          if (carried.payload?.value !== undefined) {
+            this.inputs[layer.id] = {
+              ...(this.inputs[layer.id] || {}),
+              value: this.normaliseLayerTextValue(layer.id, carried.payload.value)
+            };
+          }
+          continue;
+        }
+        imageTasks.push({
+          layer,
+          payload: this.carriedImageForLayer(layer, carried.payload),
+          context: carried.payload?.context
+        });
+      }
+    }
+    if (!imageTasks.length || stateSignal?.aborted) {
+      return;
+    }
+    try {
+      await this.ensureRequestToken();
+    } catch (error) {
+      console.warn('[OC] Shared images could not be prepared:', error);
+      return;
+    }
+    for (let offset = 0; offset < imageTasks.length; offset += 4) {
+      const batch = imageTasks.slice(offset, offset + 4);
+      await Promise.all(batch.map(async ({
+        layer,
+        payload,
+        context
+      }) => {
+        try {
+          if (await this.authoriseCarriedImage(layer, payload, context, stateSignal)) {
+            if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+              return;
+            }
+            this.inputs[layer.id] = {
+              ...(this.inputs[layer.id] || {}),
+              ...payload
+            };
+          }
+        } catch (error) {
+          console.warn('[OC] Shared image could not be prepared:', error);
+        }
+      }));
+      if (designGeneration !== this._designGeneration || stateSignal?.aborted) {
+        return;
+      }
+    }
   },
   linkedLayerMembers(sourceLayerId) {
     const source = this.getLayerById(sourceLayerId);
@@ -5378,7 +5615,7 @@ const preflightMethods = {
             if (value && !spotifyValidated.has(canonicalId)) {
               const canonicalLayer = this.getLayerById(canonicalId);
               const canonicalInput = this.inputs[canonicalId] || input;
-              await this.validateSpotifyLayer(canonicalId, canonicalInput.value || value, this.getLayerInputEl(canonicalLayer) || fieldEl);
+              await this.validateSpotifyLayer(canonicalId, canonicalInput.value || value, this.getLayerInputEl(canonicalLayer) || fieldEl, true);
               spotifyValidated.add(canonicalId);
             }
             if (value) {
@@ -5473,7 +5710,7 @@ __webpack_require__.r(__webpack_exports__);
 
 /* eslint-disable no-console */
 
-const SPOTIFY_LINK_SYNC_KEYS = ['value', 'spotifyStatus', 'spotifyUri'];
+const SPOTIFY_LINK_SYNC_KEYS = ['value', 'spotifyStatus', 'spotifyUri', 'spotifyValidationProof', 'spotifyValidationExpires'];
 const spotifyMethods = {
   invalidateSpotifyValidation(layerId) {
     this.clearStateTimeout(this.spotifyValidateTimers[layerId]);
@@ -5654,20 +5891,24 @@ const spotifyMethods = {
   clearSpotifyLayerStatus(layerId, inputEl = null) {
     this.inputs[layerId].spotifyStatus = '';
     this.inputs[layerId].spotifyUri = '';
+    this.inputs[layerId].spotifyValidationProof = '';
+    this.inputs[layerId].spotifyValidationExpires = 0;
     this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
     this.setSpotifyError(layerId, '', inputEl);
     this.scheduleRedraw(this.areaIndexForLayer(layerId));
     this.updateHiddenField();
   },
-  setSpotifyValidationResult(layerId, status, uri, message, inputEl = null) {
+  setSpotifyValidationResult(layerId, status, uri, message, inputEl = null, proof = '', expires = 0) {
     this.inputs[layerId].spotifyStatus = status;
     this.inputs[layerId].spotifyUri = uri;
+    this.inputs[layerId].spotifyValidationProof = proof;
+    this.inputs[layerId].spotifyValidationExpires = expires;
     this.syncLinkedLayerInput(layerId, SPOTIFY_LINK_SYNC_KEYS);
     this.setSpotifyError(layerId, message, inputEl);
     this.scheduleRedraw(this.areaIndexForLayer(layerId));
     this.updateHiddenField();
   },
-  validateSpotifyLayer(layerId, rawValue, inputEl = null) {
+  validateSpotifyLayer(layerId, rawValue, inputEl = null, force = false) {
     const value = String(rawValue || '').trim();
     if (!this.inputs[layerId]) {
       this.inputs[layerId] = {};
@@ -5675,7 +5916,7 @@ const spotifyMethods = {
     this.clearStateTimeout(this.spotifyValidateTimers[layerId]);
     delete this.spotifyValidateTimers[layerId];
     const existing = this.spotifyValidationPromises[layerId];
-    if (existing?.value === value) {
+    if (!force && existing?.value === value) {
       return existing.promise;
     }
     this.invalidateSpotifyValidation(layerId);
@@ -5740,7 +5981,7 @@ const spotifyMethods = {
         }
         const canonicalUri = this.extractSpotifyUri(json?.spotifyUri || localUri);
         if (json?.valid === true && canonicalUri) {
-          this.setSpotifyValidationResult(layerId, 'ok', canonicalUri, '', inputEl);
+          this.setSpotifyValidationResult(layerId, 'ok', canonicalUri, '', inputEl, String(json.validationProof || ''), Number(json.validationExpires || 0));
           return true;
         }
         this.setSpotifyValidationResult(layerId, json?.reason || 'invalid_or_unavailable', '', json?.message || 'Spotify link is invalid or unavailable.', inputEl);
@@ -5877,9 +6118,6 @@ const uploadMethods = {
     delete this.aiFilterAbortControllers[layerId];
   },
   async applyInitialAiFilters() {
-    if (this._variationSwitchPending) {
-      return;
-    }
     const designGeneration = this._designGeneration;
     const started = new Set();
     for (const [layerId, input] of Object.entries(this.inputs)) {
@@ -6099,6 +6337,7 @@ const uploadMethods = {
         }
         this.inputs[lid] = candidate;
         this.syncLinkedImageInput(lid);
+        this.recordImageLinkGroupCarry(lid);
         this.clearFailedArtworkReplacements(lid);
         const filterApplied = await this.applyAiImageFilter(lid, candidate.imageFilterId || 0, zoneEl);
         if (generation !== this.uploadGenerations[lid]) {
@@ -6107,6 +6346,7 @@ const uploadMethods = {
         this.setUploadZoneState(zoneEl, filterApplied ? 'uploaded' : 'uploaded-error');
         this.updateImageCropControl(lid);
         this.syncLinkedImageInput(lid);
+        this.recordImageLinkGroupCarry(lid);
         this.requestPreviewFocus();
         this.scheduleRedraw(this.areaIndexForLayer(lid));
         this.updateHiddenField();
@@ -6169,6 +6409,7 @@ const uploadMethods = {
       this.restoreSourceArtwork(input, sourceId, sourceUrl);
       delete this.aiFilterErrors[layerId];
       this.syncLinkedImageInput(layerId);
+      this.recordImageLinkGroupCarry(layerId);
       this.scheduleRedraw(this.areaIndexForLayer(layerId));
       this.updateHiddenField();
       return true;
@@ -6178,6 +6419,7 @@ const uploadMethods = {
       this.restoreSourceArtwork(input, sourceId, sourceUrl);
       delete this.aiFilterErrors[layerId];
       this.syncLinkedImageInput(layerId);
+      this.recordImageLinkGroupCarry(layerId);
       this.scheduleRedraw(this.areaIndexForLayer(layerId));
       this.updateHiddenField();
       return true;
@@ -6244,6 +6486,7 @@ const uploadMethods = {
       input.imageMeta = imageMeta;
       delete this.aiFilterErrors[layerId];
       this.syncLinkedImageInput(layerId);
+      this.recordImageLinkGroupCarry(layerId);
       this.scheduleRedraw(this.areaIndexForLayer(layerId));
       this.updateHiddenField();
       return true;
@@ -7364,6 +7607,8 @@ class OCCustomiser {
     this._galleryFallbackNodeStates = new Map();
     this._tvpgLockedSwipers = new Set();
     this.productVariationStates = {};
+    this.linkGroupCarry = new Map();
+    this.artworkContextAuthorisations = new Set();
     this._variationRequestSeq = 0;
     this._variationSwitchPending = false;
     this._variationSwitchFailed = false;
@@ -7398,6 +7643,8 @@ class OCCustomiser {
     this._submitInProgress = false;
     this._controlLocks = new Set();
     this._galleryPreviewTimer = null;
+    this._cropGalleryTimer = null;
+    this._cropGalleryCanvas = null;
     this._variationChangeTimer = null;
     this._mobileCartPreviewResolve = null;
     this._mobileCartPreviewPromise = null;
@@ -7506,6 +7753,8 @@ class OCCustomiser {
     this._stateAnimationFrames.clear();
     this.spotifyModalCloseTimer = null;
     this._galleryPreviewTimer = null;
+    this._cropGalleryTimer = null;
+    this._cropGalleryCanvas = null;
     this._variationChangeTimer = null;
     this._stateAbortControllers.forEach(controller => controller.abort());
     this._stateAbortControllers.clear();
@@ -7619,6 +7868,7 @@ class OCCustomiser {
     this.seedLockedLayerDefaults();
     this.seedTemplateImageDefaults();
     this.seedLayerFontDefaults();
+    await this.hydrateLinkGroupCarry();
     this.seedLinkedImageInputs();
     this.seedLinkedColourInputs();
     this.applyInputsToDOM({
@@ -7630,7 +7880,9 @@ class OCCustomiser {
     this.setupDesignVariantOptions();
     this.setupClipartCarousels();
     this._uploadSetupPromise = this.setupUploadZones();
-    this.applyInitialAiFilters();
+    if (!this._variationSwitchPending) {
+      this._initialAiFilterPromise = this.applyInitialAiFilters();
+    }
     this.setupFormSubmit();
     this.setupStoreApiIntegration();
     this.updateHiddenField();

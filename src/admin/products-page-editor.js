@@ -69,6 +69,7 @@ import {
 	let pendingSubmit = false;
 	let submitRevisionVerified = false;
 	let isSubmitting = false;
+	let maskMediaFrame = null;
 	const autosaveInterval = 30000;
 	function snapshot() {
 		if ( historyIndex < history.length - 1 ) {
@@ -192,6 +193,7 @@ import {
 					unit: a.unit,
 					mockupId: a.mockupId,
 					mockupUrl: a.mockupUrl,
+					storedMockupId: a.storedMockupId,
 					x: a.x,
 					y: a.y,
 					w: a.w,
@@ -247,6 +249,8 @@ import {
 				layers: ( a.layers || [] ).map( normaliseLayer ),
 			} );
 		} );
+		normaliseSharedMockup();
+		normaliseDesignMask();
 		normaliseAreaLayerDefaults();
 		selectedIndex = areas.length > 0 ? 0 : -1;
 		selectedLayerIndex = -1;
@@ -388,6 +392,21 @@ import {
 				.getElementById( id )
 				?.addEventListener( eventName, markDirty );
 		} );
+		document
+			.getElementById( 'oc-choose-design-mask-btn' )
+			?.addEventListener( 'click', openDesignMaskPicker );
+		document
+			.getElementById( 'oc-remove-design-mask-btn' )
+			?.addEventListener( 'click', () => {
+				areas.forEach( ( area ) => {
+					area.layers = ( area.layers || [] ).filter(
+						( layer ) => layer.type !== 'mask'
+					);
+				} );
+				selectedLayerIndex = -1;
+				snapshot();
+				renderAll();
+			} );
 	}
 	function finishHydration() {
 		isHydrated = true;
@@ -501,6 +520,8 @@ import {
 			...normaliseArea( a, i ),
 			layers: layersByAreaId[ Number( a.id ) ] || [],
 		} ) );
+		normaliseSharedMockup();
+		normaliseDesignMask();
 		const defaultsChanged = normaliseAreaLayerDefaults();
 		selectedIndex = areas.length > 0 ? 0 : -1;
 		renderAll();
@@ -530,15 +551,125 @@ import {
 			? area.layers[ selectedLayerIndex ] || null
 			: null;
 	}
+	function designMaskEntry() {
+		let fallback = null;
+		for ( const [ areaIndex, area ] of areas.entries() ) {
+			for ( const [ layerIndex, layer ] of (
+				area.layers || []
+			).entries() ) {
+				if ( layer.type !== 'mask' ) {
+					continue;
+				}
+				const entry = {
+					area,
+					areaIndex,
+					layer,
+					layerIndex,
+				};
+				fallback = fallback || entry;
+				if (
+					layer.settings?.default_attachment_id &&
+					layer.settings?.default_attachment_url
+				) {
+					return entry;
+				}
+			}
+		}
+		return fallback;
+	}
+	function normaliseDesignMask() {
+		const selectedMask = designMaskEntry();
+		if ( selectedMask ) {
+			selectedMask.layer.visible = true;
+		}
+		selectedLayerIndex = -1;
+	}
+	function openDesignMaskPicker() {
+		if ( ! areas.length ) {
+			window.alert( 'Add a print area before choosing a design mask.' );
+			return;
+		}
+		if ( ! window.wp?.media ) {
+			window.alert( 'Media library is not available.' );
+			return;
+		}
+		if ( ! maskMediaFrame ) {
+			maskMediaFrame = window.wp.media( {
+				title: 'Select Design Mask PNG',
+				button: { text: 'Use as Design Mask' },
+				library: { type: 'image', subtype: 'png' },
+				multiple: false,
+			} );
+			maskMediaFrame.on( 'select', () => {
+				const attachment = maskMediaFrame
+					.state()
+					.get( 'selection' )
+					.first()
+					?.toJSON();
+				if ( ! attachment ) {
+					return;
+				}
+				const url =
+					attachment.url ||
+					attachment.sizes?.full?.url ||
+					attachment.originalImageURL ||
+					'';
+				const mime = String( attachment.mime || '' ).toLowerCase();
+				const isPng =
+					[ 'image/png', 'image/x-png' ].includes( mime ) ||
+					attachment.subtype === 'png' ||
+					/\.png(?:[?#]|$)/i.test( attachment.filename || url );
+				if ( ! isPng || ! url ) {
+					window.alert( 'Please select a PNG image.' );
+					return;
+				}
+				const existingMask = designMaskEntry();
+				let mask = existingMask?.layer;
+				if ( mask ) {
+					areas.forEach( ( area ) => {
+						area.layers = ( area.layers || [] ).filter(
+							( layer ) => layer.type !== 'mask' || layer === mask
+						);
+					} );
+				}
+				if ( ! mask ) {
+					const area = areas[ 0 ];
+					mask = {
+						_uid: ++uidCounter,
+						id: 0,
+						type: 'mask',
+						label: 'Design Mask',
+						x: area.x,
+						y: area.y,
+						w: area.w,
+						h: area.h,
+						sortOrder: area.layers.length,
+						visible: true,
+						locked: false,
+						settings: defaultSettings( 'mask' ),
+					};
+					area.layers.push( mask );
+				}
+				mask.settings.default_attachment_id =
+					Number( attachment.id ) || 0;
+				mask.settings.default_attachment_url = url;
+				mask.visible = true;
+				snapshot();
+				renderAll();
+			} );
+		}
+		maskMediaFrame.open();
+	}
 	const applyLayerPreview = createLayerPreviewRenderer( {
 		fontLimit,
 		layerLabel,
 		normaliseHex,
 	} );
 	const openMockupPicker = createMockupPicker( {
-		commitChange,
+		getAreas: () => areas,
 		getSelectedIndex: () => selectedIndex,
-		selectedArea,
+		renderAll,
+		snapshot,
 	} );
 	const { initInteractions, addLayerWithBounds } =
 		createProductsPageInteractions( {
@@ -591,6 +722,7 @@ import {
 		clampLayerToArea,
 		currentAspectRatio,
 		getAreas: () => areas,
+		getDesignMaskEntry: designMaskEntry,
 		getScale,
 		getSelectedIndex: () => selectedIndex,
 		getSelectedLayerIndex: () => selectedLayerIndex,
@@ -632,10 +764,50 @@ import {
 		} );
 		return changed;
 	}
+	function normaliseSharedMockup() {
+		const shared =
+			areas.find( ( area ) => area.mockupId && area.mockupUrl ) ||
+			areas.find( ( area ) => area.mockupId || area.mockupUrl );
+		if ( ! shared ) {
+			return;
+		}
+		areas.forEach( ( area ) => {
+			area.mockupId = shared.mockupId;
+			area.mockupUrl = shared.mockupUrl;
+			if ( area.storedMockupId === undefined ) {
+				area.storedMockupId = area.mockupId;
+			}
+		} );
+	}
+	function renderDesignMask() {
+		const mask = designMaskEntry()?.layer || null;
+		const url = mask?.settings?.default_attachment_url || '';
+		const thumb = document.getElementById( 'oc-design-mask-thumb-img' );
+		const empty = document.getElementById( 'oc-design-mask-empty' );
+		const remove = document.getElementById( 'oc-remove-design-mask-btn' );
+		const choose = document.getElementById( 'oc-choose-design-mask-btn' );
+		if ( thumb ) {
+			thumb.src = url;
+			thumb.style.display = url ? '' : 'none';
+		}
+		if ( empty ) {
+			empty.style.display = url ? 'none' : '';
+		}
+		if ( remove ) {
+			remove.style.display = mask ? '' : 'none';
+		}
+		if ( choose ) {
+			choose.disabled = ! areas.length;
+			const label = mask ? 'Change design mask' : 'Choose design mask';
+			choose.setAttribute( 'aria-label', label );
+			choose.setAttribute( 'title', label );
+		}
+	}
 	function renderAll() {
 		renderAreasList();
 		renderAreaStrip();
 		renderLeftAreaProps();
+		renderDesignMask();
 		renderCanvas();
 		renderRightColumn();
 		renderHiddenFields();
@@ -799,6 +971,40 @@ import {
 					) {
 						return;
 					}
+					const mask = ( area.layers || [] ).find(
+						( layer ) => layer.type === 'mask'
+					);
+					const nextArea = areas.find(
+						( candidate, ai ) => ai !== i
+					);
+					if ( nextArea ) {
+						const survivorMasks = areas.flatMap(
+							( candidate, ai ) =>
+								ai === i
+									? []
+									: ( candidate.layers || [] ).filter(
+											( layer ) => layer.type === 'mask'
+									  )
+						);
+						if ( mask && survivorMasks.length ) {
+							survivorMasks.forEach( ( survivor ) => {
+								survivor.settings = { ...mask.settings };
+								survivor.visible = true;
+							} );
+						} else if ( mask ) {
+							mask.id = 0;
+							nextArea.layers.push( mask );
+						}
+						const survivorHasMockup = areas.some(
+							( candidate, ai ) =>
+								ai !== i &&
+								Number( candidate.storedMockupId ) ===
+									Number( area.mockupId )
+						);
+						if ( area.mockupId && ! survivorHasMockup ) {
+							nextArea.storedMockupId = area.mockupId;
+						}
+					}
 					areas.splice( i, 1 );
 					if ( selectedIndex === i ) {
 						selectedIndex =
@@ -960,7 +1166,9 @@ import {
 		if ( noArea ) {
 			noArea.style.display = 'none';
 		}
-		const layers = area.layers || [];
+		const layers = ( area.layers || [] )
+			.map( ( layer, index ) => ( { layer, index } ) )
+			.filter( ( entry ) => entry.layer.type !== 'mask' );
 		if ( countEl ) {
 			countEl.textContent =
 				layers.length + ( 1 === layers.length ? ' layer' : ' layers' );
@@ -974,7 +1182,8 @@ import {
 		if ( emptyEl ) {
 			emptyEl.style.display = 'none';
 		}
-		layers.forEach( ( layer, li ) => {
+		layers.forEach( ( entry ) => {
+			const { layer, index: li } = entry;
 			const item = document.createElement( 'div' );
 			item.className =
 				'oc-layer-item' +

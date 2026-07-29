@@ -13,8 +13,10 @@ class OC_File_Cleanup {
 	private const PRIVATE_PREVIEW_OPTION_PREFIX = 'oc_private_preview_';
 	private const PRIVATE_PREVIEW_CURSOR_OPTION = 'oc_preview_cleanup_private_cursor';
 	private const LEGACY_PREVIEW_CURSOR_OPTION = 'oc_legacy_preview_cleanup_cursor';
+	private const PREVIEW_REFERENCE_SCAN_OPTION_PREFIX = 'oc_preview_reference_scan_';
 	private const SECURITY_BUDGET_OPTION_PREFIX = 'oc_budget_';
 	private const SECURITY_BUDGET_CURSOR_OPTION = 'oc_budget_cleanup_cursor';
+	private static array $preview_reference_scan_complete = [];
 
 	/** Called by WP Cron daily. */
 	public static function run(): void {
@@ -164,6 +166,8 @@ class OC_File_Cleanup {
 			$limit
 		) ) ?: [];
 		if ( empty( $rows ) ) {
+			delete_option( self::PREVIEW_REFERENCE_SCAN_OPTION_PREFIX . 'private' );
+			self::$preview_reference_scan_complete['private'] = true;
 			if ( $cursor > 0 ) {
 				update_option( self::PRIVATE_PREVIEW_CURSOR_OPTION, 0, false );
 			}
@@ -202,12 +206,22 @@ class OC_File_Cleanup {
 			];
 		}
 
+		$scan_key   = 'private';
 		$references = self::stored_payload_references( array_merge(
 			array_column( $candidates, 'id' ),
 			array_column( $candidates, 'file' )
+		), $scan_key, array_map(
+			static fn ( array $candidate ): string => hash( 'sha256', $candidate['raw'] ) . '|' . (string) @filemtime( $candidate['path'] ),
+			$candidates
 		) );
+		if ( empty( self::$preview_reference_scan_complete[ $scan_key ] ) ) {
+			return 0;
+		}
 		foreach ( $candidates as $candidate ) {
 			if ( isset( $references[ $candidate['id'] ] ) || isset( $references[ $candidate['file'] ] ) ) {
+				continue;
+			}
+			if ( (string) get_option( $candidate['option_name'], '' ) !== $candidate['raw'] || self::latest_file_access_time( $candidate['path'] ) > $cutoff ) {
 				continue;
 			}
 			if ( @unlink( $candidate['path'] ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -264,9 +278,17 @@ class OC_File_Cleanup {
 			return 0;
 		}
 
-		$references = self::stored_payload_references( array_keys( $candidates ) );
+		$scan_key   = 'legacy';
+		$references = self::stored_payload_references(
+			array_keys( $candidates ),
+			$scan_key,
+			array_map( static fn ( string $path ): int => (int) @filemtime( $path ), $candidates )
+		);
+		if ( empty( self::$preview_reference_scan_complete[ $scan_key ] ) ) {
+			return 0;
+		}
 		foreach ( $candidates as $name => $path ) {
-			if ( ! isset( $references[ $name ] ) && @unlink( $path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			if ( ! isset( $references[ $name ] ) && self::latest_file_access_time( $path ) <= $cutoff && @unlink( $path ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				$deleted++;
 			}
 		}
@@ -490,7 +512,7 @@ class OC_File_Cleanup {
 	}
 
 	/** Return candidate fragments referenced by order metadata, active sessions, or persistent carts. */
-	private static function stored_payload_references( array $needles ): array {
+	private static function stored_payload_references( array $needles, string $scan_key = 'adhoc', array $freshness = [] ): array {
 		global $wpdb;
 
 		$clean_needles = [];
@@ -500,61 +522,331 @@ class OC_File_Cleanup {
 			}
 		}
 		$clean_needles = array_keys( $clean_needles );
+		$scan_key      = preg_replace( '/[^a-z0-9_-]/', '', strtolower( $scan_key ) ) ?: 'adhoc';
+		$option_name   = self::PREVIEW_REFERENCE_SCAN_OPTION_PREFIX . $scan_key;
 		if ( empty( $clean_needles ) ) {
+			delete_option( $option_name );
+			self::$preview_reference_scan_complete[ $scan_key ] = true;
 			return [];
 		}
-		$patterns = array_map( static fn ( string $needle ): string => '%' . $wpdb->esc_like( $needle ) . '%', $clean_needles );
-		$payloads = [];
 
-		$clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
-		$order_payloads = $wpdb->get_col( $wpdb->prepare(
-			"SELECT meta_value FROM {$wpdb->prefix}woocommerce_order_itemmeta WHERE {$clauses}",
-			...$patterns
-		) );
-		if ( '' !== (string) $wpdb->last_error ) {
-			return array_fill_keys( $clean_needles, true );
+		$signature = hash( 'sha256', (string) wp_json_encode( [ $clean_needles, $freshness ] ) );
+		$state     = get_option( $option_name, [] );
+		if ( ! is_array( $state ) || ! hash_equals( $signature, (string) ( $state['signature'] ?? '' ) ) ) {
+			$state = [
+				'signature' => $signature,
+				'source'    => 'order',
+				'cursor'    => 0,
+				'max'       => null,
+				'active_at' => 0,
+				'references' => [],
+				'order_seen' => 0,
+				'session_seen' => 0,
+				'persistent_seen' => 0,
+			];
 		}
-		$payloads = array_merge( $payloads, is_array( $order_payloads ) ? $order_payloads : [] );
+		$state['order_seen']      = max( 0, (int) ( $state['order_seen'] ?? 0 ) );
+		$state['session_seen']    = max( 0, (int) ( $state['session_seen'] ?? 0 ) );
+		$state['persistent_seen'] = max( 0, (int) ( $state['persistent_seen'] ?? 0 ) );
+		$source = in_array( $state['source'] ?? '', [ 'order', 'session', 'persistent' ], true ) ? (string) $state['source'] : 'order';
+		$references = array_fill_keys( array_values( array_intersect( $clean_needles, (array) ( $state['references'] ?? [] ) ) ), true );
+		$unresolved = array_diff_key( array_fill_keys( $clean_needles, true ), $references );
+		$page_size       = self::filtered_batch_size( 'oc_preview_reference_payload_batch_size', 50, 200 );
+		$runtime_seconds = apply_filters( 'oc_preview_reference_runtime_seconds', 2 );
+		$runtime_seconds = is_numeric( $runtime_seconds ) ? max( 1, min( 10, (float) $runtime_seconds ) ) : 2;
+		$deadline        = microtime( true ) + $runtime_seconds;
 
-		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
-		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
-		if ( '' !== (string) $wpdb->last_error ) {
-			return array_fill_keys( $clean_needles, true );
-		}
-		if ( $sessions_exists === $sessions_table ) {
-			$session_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'session_value LIKE %s' ) );
-			$session_payloads = $wpdb->get_col( $wpdb->prepare(
-				"SELECT session_value FROM {$sessions_table} WHERE session_expiry >= %d AND ({$session_clauses})",
-				time(),
-				...$patterns
-			) );
-			if ( '' !== (string) $wpdb->last_error ) {
-				return array_fill_keys( $clean_needles, true );
+		if ( 'order' === $source && ! empty( $unresolved ) ) {
+			$order_table  = $wpdb->prefix . 'woocommerce_order_itemmeta';
+			$order_cursor = max( 0, (int) ( $state['cursor'] ?? 0 ) );
+			$order_max    = $state['max'] ?? null;
+			if ( null === $order_max ) {
+				$order_max = $wpdb->get_var(
+					"SELECT MAX(meta_id) FROM {$order_table} WHERE meta_key IN ('_oc_customisation','_oc_preview_url')"
+				);
+				if ( '' !== (string) $wpdb->last_error ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+				$order_max    = absint( $order_max );
+				$state['max'] = $order_max;
+				$state['order_seen'] = max( $state['order_seen'], $order_max );
 			}
-			$payloads = array_merge( $payloads, is_array( $session_payloads ) ? $session_payloads : [] );
+			while ( $order_cursor < $order_max && ! empty( $unresolved ) ) {
+				if ( microtime( true ) >= $deadline ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+				$rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT meta_id AS row_id, meta_value AS payload FROM {$order_table}
+					 WHERE meta_key IN ('_oc_customisation','_oc_preview_url') AND meta_id > %d AND meta_id <= %d
+					 ORDER BY meta_id ASC LIMIT %d",
+					$order_cursor,
+					$order_max,
+					$page_size
+				) );
+				if ( '' !== (string) $wpdb->last_error || ! is_array( $rows ) ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+				if ( empty( $rows ) ) {
+					break;
+				}
+				self::record_payload_references( $rows, $unresolved, $references );
+				$order_cursor   = absint( end( $rows )->row_id ?? 0 );
+				$state['cursor'] = $order_cursor;
+				if ( $order_cursor <= 0 ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+			}
+			$source          = 'session';
+			$state['source'] = $source;
+			$state['cursor'] = 0;
+			$state['max']    = null;
+			$state['active_at'] = 0;
 		}
 
-		$persistent_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'meta_value LIKE %s' ) );
-		$persistent_payloads = $wpdb->get_col( $wpdb->prepare(
-			"SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE %s AND ({$persistent_clauses})",
-			$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
-			...$patterns
-		) );
-		if ( '' !== (string) $wpdb->last_error ) {
-			return array_fill_keys( $clean_needles, true );
+		if ( 'session' === $source && ! empty( $unresolved ) ) {
+			$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
+			$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
+			if ( '' !== (string) $wpdb->last_error ) {
+				return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+			}
+			if ( $sessions_exists === $sessions_table ) {
+				$active_at      = max( 0, (int) ( $state['active_at'] ?? 0 ) ) ?: time();
+				$session_cursor = max( 0, (int) ( $state['cursor'] ?? 0 ) );
+				$session_max    = $state['max'] ?? null;
+				if ( null === $session_max ) {
+					$session_max = $wpdb->get_var( $wpdb->prepare(
+						"SELECT MAX(session_id) FROM {$sessions_table} WHERE session_expiry >= %d",
+						$active_at
+					) );
+					if ( '' !== (string) $wpdb->last_error ) {
+						return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+					}
+					$session_max       = absint( $session_max );
+					$state['max']      = $session_max;
+					$state['active_at'] = $active_at;
+					$state['session_seen'] = max( $state['session_seen'], $session_max );
+				}
+				while ( $session_cursor < $session_max && ! empty( $unresolved ) ) {
+					if ( microtime( true ) >= $deadline ) {
+						return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+					}
+					$rows = $wpdb->get_results( $wpdb->prepare(
+						"SELECT session_id AS row_id, session_value AS payload FROM {$sessions_table}
+						 WHERE session_expiry >= %d AND session_id > %d AND session_id <= %d
+						 ORDER BY session_id ASC LIMIT %d",
+						$active_at,
+						$session_cursor,
+						$session_max,
+						$page_size
+					) );
+					if ( '' !== (string) $wpdb->last_error || ! is_array( $rows ) ) {
+						return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+					}
+					if ( empty( $rows ) ) {
+						break;
+					}
+					self::record_payload_references( $rows, $unresolved, $references );
+					$session_cursor = absint( end( $rows )->row_id ?? 0 );
+					$state['cursor'] = $session_cursor;
+					if ( $session_cursor <= 0 ) {
+						return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+					}
+				}
+			}
+			$source          = 'persistent';
+			$state['source'] = $source;
+			$state['cursor'] = 0;
+			$state['max']    = null;
+			$state['active_at'] = 0;
 		}
-		$payloads = array_merge( $payloads, is_array( $persistent_payloads ) ? $persistent_payloads : [] );
 
-		$references = [];
-		foreach ( $payloads as $payload ) {
-			foreach ( $clean_needles as $needle ) {
-				if ( str_contains( (string) $payload, $needle ) ) {
-					$references[ $needle ] = true;
+		if ( 'persistent' === $source && ! empty( $unresolved ) ) {
+			$persistent_key = $wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%';
+			$persistent_cursor = max( 0, (int) ( $state['cursor'] ?? 0 ) );
+			$persistent_max    = $state['max'] ?? null;
+			if ( null === $persistent_max ) {
+				$persistent_max = $wpdb->get_var( $wpdb->prepare(
+					"SELECT MAX(umeta_id) FROM {$wpdb->usermeta} WHERE meta_key LIKE %s",
+					$persistent_key
+				) );
+				if ( '' !== (string) $wpdb->last_error ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+				$persistent_max = absint( $persistent_max );
+				$state['max']   = $persistent_max;
+				$state['persistent_seen'] = max( $state['persistent_seen'], $persistent_max );
+			}
+			while ( $persistent_cursor < $persistent_max && ! empty( $unresolved ) ) {
+				if ( microtime( true ) >= $deadline ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+				$rows = $wpdb->get_results( $wpdb->prepare(
+					"SELECT umeta_id AS row_id, meta_value AS payload FROM {$wpdb->usermeta}
+					 WHERE meta_key LIKE %s AND umeta_id > %d AND umeta_id <= %d
+					 ORDER BY umeta_id ASC LIMIT %d",
+					$persistent_key,
+					$persistent_cursor,
+					$persistent_max,
+					$page_size
+				) );
+				if ( '' !== (string) $wpdb->last_error || ! is_array( $rows ) ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+				}
+				if ( empty( $rows ) ) {
+					break;
+				}
+				self::record_payload_references( $rows, $unresolved, $references );
+				$persistent_cursor = absint( end( $rows )->row_id ?? 0 );
+				$state['cursor']    = $persistent_cursor;
+				if ( $persistent_cursor <= 0 ) {
+					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 				}
 			}
 		}
 
+		if ( ! empty( $unresolved ) ) {
+			$delta_state = self::preview_reference_delta_state( $state );
+			if ( is_wp_error( $delta_state ) ) {
+				return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+			}
+			if ( is_array( $delta_state ) ) {
+				return self::pause_preview_reference_scan( $option_name, $scan_key, $delta_state, $references, $clean_needles );
+			}
+			$mutable_reference = self::mutable_payload_has_reference( array_keys( $unresolved ) );
+			if ( null === $mutable_reference ) {
+				return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
+			}
+			if ( $mutable_reference ) {
+				$references += $unresolved;
+				$unresolved = [];
+			}
+		}
+
+		delete_option( $option_name );
+		self::$preview_reference_scan_complete[ $scan_key ] = true;
 		return $references;
+	}
+
+	/** Persist a bounded reference scan and conservatively retain its candidates. */
+	private static function pause_preview_reference_scan( string $option_name, string $scan_key, array $state, array $references, array $needles ): array {
+		$state['references'] = array_keys( $references );
+		update_option( $option_name, $state, false );
+		self::$preview_reference_scan_complete[ $scan_key ] = false;
+		return array_fill_keys( $needles, true );
+	}
+
+	/** Return resumable state for references written after the scanned high-water marks. */
+	private static function preview_reference_delta_state( array $state ): array|\WP_Error|null {
+		global $wpdb;
+
+		$order_table = $wpdb->prefix . 'woocommerce_order_itemmeta';
+		$order_max   = $wpdb->get_var(
+			"SELECT MAX(meta_id) FROM {$order_table} WHERE meta_key IN ('_oc_customisation','_oc_preview_url')"
+		);
+		if ( '' !== (string) $wpdb->last_error ) {
+			return new \WP_Error( 'preview_reference_scan_failed' );
+		}
+		$order_seen = max( 0, (int) ( $state['order_seen'] ?? 0 ) );
+		if ( absint( $order_max ) > $order_seen ) {
+			$state['source'] = 'order';
+			$state['cursor'] = $order_seen;
+			$state['max']    = absint( $order_max );
+			$state['order_seen'] = absint( $order_max );
+			return $state;
+		}
+
+		$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
+		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return new \WP_Error( 'preview_reference_scan_failed' );
+		}
+		if ( $sessions_exists === $sessions_table ) {
+			$active_at   = time();
+			$session_max = $wpdb->get_var( $wpdb->prepare(
+				"SELECT MAX(session_id) FROM {$sessions_table} WHERE session_expiry >= %d",
+				$active_at
+			) );
+			if ( '' !== (string) $wpdb->last_error ) {
+				return new \WP_Error( 'preview_reference_scan_failed' );
+			}
+			$session_seen = max( 0, (int) ( $state['session_seen'] ?? 0 ) );
+			if ( absint( $session_max ) > $session_seen ) {
+				$state['source']       = 'session';
+				$state['cursor']       = $session_seen;
+				$state['max']          = absint( $session_max );
+				$state['active_at']    = $active_at;
+				$state['session_seen'] = absint( $session_max );
+				return $state;
+			}
+		}
+
+		$persistent_key = $wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%';
+		$persistent_max = $wpdb->get_var( $wpdb->prepare(
+			"SELECT MAX(umeta_id) FROM {$wpdb->usermeta} WHERE meta_key LIKE %s",
+			$persistent_key
+		) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return new \WP_Error( 'preview_reference_scan_failed' );
+		}
+		$persistent_seen = max( 0, (int) ( $state['persistent_seen'] ?? 0 ) );
+		if ( absint( $persistent_max ) > $persistent_seen ) {
+			$state['source']          = 'persistent';
+			$state['cursor']          = $persistent_seen;
+			$state['max']             = absint( $persistent_max );
+			$state['active_at']       = 0;
+			$state['persistent_seen'] = absint( $persistent_max );
+			return $state;
+		}
+
+		return null;
+	}
+
+	/** Check mutable cart stores once more before deleting an unreferenced batch. */
+	private static function mutable_payload_has_reference( array $needles ): ?bool {
+		global $wpdb;
+
+		if ( empty( $needles ) ) {
+			return false;
+		}
+		$pattern = implode( '|', array_map( static fn ( string $needle ): string => preg_quote( $needle, '/' ), $needles ) );
+		$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
+		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			return null;
+		}
+		if ( $sessions_exists === $sessions_table ) {
+			$found = $wpdb->get_var( $wpdb->prepare(
+				"SELECT session_id FROM {$sessions_table} WHERE session_expiry >= %d AND session_value REGEXP %s LIMIT 1",
+				time(),
+				$pattern
+			) );
+			if ( '' !== (string) $wpdb->last_error ) {
+				return null;
+			}
+			if ( $found ) {
+				return true;
+			}
+		}
+
+		$found = $wpdb->get_var( $wpdb->prepare(
+			"SELECT umeta_id FROM {$wpdb->usermeta} WHERE meta_key LIKE %s AND meta_value REGEXP %s LIMIT 1",
+			$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
+			$pattern
+		) );
+		return '' !== (string) $wpdb->last_error ? null : (bool) $found;
+	}
+
+	/** Record candidate fragments found in one bounded payload page. */
+	private static function record_payload_references( array $rows, array &$unresolved, array &$references ): void {
+		foreach ( $rows as $row ) {
+			$payload = is_object( $row ) ? (string) ( $row->payload ?? '' ) : '';
+			foreach ( array_keys( $unresolved ) as $needle ) {
+				if ( str_contains( $payload, $needle ) ) {
+					$references[ $needle ] = true;
+					unset( $unresolved[ $needle ] );
+				}
+			}
+		}
 	}
 
 	/** Build exact common PHP-serialization and JSON reference forms. */

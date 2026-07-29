@@ -26,6 +26,12 @@ export function createProductsPageDataNormalisers( deps ) {
 			unit,
 			mockupId: Number( a.mockupId ) || 0,
 			mockupUrl: a.mockupUrl || '',
+			storedMockupId:
+				Number(
+					a.storedMockupId === undefined
+						? a.mockupId
+						: a.storedMockupId
+				) || 0,
 			x: Number( a.x ) || 0,
 			y: Number( a.y ) || 0,
 			w: Number( a.w ) || 300,

@@ -389,6 +389,7 @@ const inputControlMethods = {
 					}
 					this.inputs[ lid ].value = cleaned;
 					this.syncLinkedLayerInput( lid, [ 'value' ] );
+					this.recordLinkGroupCarry( lid, { value: cleaned } );
 					updateCounter();
 					await this.updateTextSizeSliderCap( lid );
 					if (
@@ -753,6 +754,10 @@ const inputControlMethods = {
 							this.inputs[ lid ] = {};
 						}
 						const filterId = parseInt( el.value, 10 ) || 0;
+						this.inputs[ lid ].imageFilterId = filterId;
+						this.recordImageLinkGroupCarry( lid, {
+							pendingFilter: true,
+						} );
 						el.disabled = true;
 						try {
 							await this.applyAiImageFilter( lid, filterId );
@@ -1341,6 +1346,269 @@ const inputControlMethods = {
 			return layer.settings?.allow_clipart_change !== false;
 		}
 		return true;
+	},
+
+	linkGroupCarryKey( layer ) {
+		const group = String( layer?.settings?.link_group || '' ).trim();
+		if (
+			! group ||
+			! [ 'text', 'textarea', 'image', 'clipmask' ].includes(
+				layer?.type
+			) ||
+			! this.isLinkedLayerEligible( layer )
+		) {
+			return '';
+		}
+		return `${ layer.type }|${ group }`;
+	},
+
+	recordLinkGroupCarry( layerId, payload ) {
+		const layer = this.getLayerById( layerId );
+		const key = this.linkGroupCarryKey( layer );
+		if ( key ) {
+			this.linkGroupCarry.set( key, {
+				kind: layer.type,
+				payload: JSON.parse( JSON.stringify( payload ) ),
+			} );
+		}
+	},
+
+	recordImageLinkGroupCarry( layerId, { pendingFilter = false } = {} ) {
+		const input = this.inputs[ layerId ];
+		if ( ! input?.customerUploaded || ! input.sourceAttachmentId ) {
+			return;
+		}
+		const payload = {};
+		LINKED_IMAGE_INPUT_KEYS.forEach( ( key ) => {
+			if ( key !== 'imageCrop' && input[ key ] !== undefined ) {
+				payload[ key ] = input[ key ];
+			}
+		} );
+		if ( pendingFilter ) {
+			payload.attachmentId = payload.sourceAttachmentId;
+			payload.attachmentUrl = payload.sourceAttachmentUrl;
+			payload.originalAttachmentUrl =
+				payload.sourceOriginalAttachmentUrl ||
+				payload.sourceAttachmentUrl;
+			payload.artworkFileType = payload.sourceArtworkFileType;
+			payload.previewAttachmentId =
+				payload.sourcePreviewAttachmentId || 0;
+			payload.imageMeta = payload.sourceImageMeta || null;
+		}
+		payload.context = {
+			variationId: this.currentVariationId(),
+			designId: Number( this.data.designId || 0 ),
+			layerId: Number( this.canonicalLinkedLayerId( layerId ) ),
+		};
+		this.artworkContextAuthorisations.add(
+			this.artworkContextAuthorisationKey( payload, payload.context )
+		);
+		this.recordLinkGroupCarry( layerId, payload );
+	},
+
+	artworkContextAuthorisationKey( payload, context ) {
+		return [
+			Number( this.data.productId || 0 ),
+			Number( context?.variationId || 0 ),
+			Number( context?.designId || 0 ),
+			Number( context?.layerId || 0 ),
+			Number( payload?.sourceAttachmentId || 0 ),
+			Number( payload?.attachmentId || 0 ),
+		].join( '|' );
+	},
+
+	carriedImageForLayer( layer, carried ) {
+		const payload = JSON.parse( JSON.stringify( carried || {} ) );
+		delete payload.context;
+		payload.imageCrop = 0;
+		const filterId = Number( payload.imageFilterId || 0 );
+		const allowedFilters = Array.isArray( layer.settings?.image_filter_ids )
+			? layer.settings.image_filter_ids.map( Number )
+			: [];
+		const filterAllowed =
+			layer.type === 'image' &&
+			layer.settings?.allow_image_filter_change !== false &&
+			allowedFilters.includes( filterId );
+		if ( filterId && ! filterAllowed ) {
+			payload.imageFilterId = 0;
+			payload.attachmentId = payload.sourceAttachmentId;
+			payload.attachmentUrl = payload.sourceAttachmentUrl;
+			payload.originalAttachmentUrl =
+				payload.sourceOriginalAttachmentUrl ||
+				payload.sourceAttachmentUrl;
+			payload.artworkFileType = payload.sourceArtworkFileType;
+			payload.previewAttachmentId =
+				payload.sourcePreviewAttachmentId || 0;
+			payload.imageMeta = payload.sourceImageMeta || null;
+		}
+		return payload;
+	},
+
+	async authoriseCarriedImage( layer, payload, context, signal ) {
+		if ( ! this.data.authoriseArtworkUrl ) {
+			return false;
+		}
+		const target = {
+			variationId: this.currentVariationId(),
+			designId: Number( this.data.designId || 0 ),
+			layerId: Number( layer.id ),
+		};
+		const authorisationKey = this.artworkContextAuthorisationKey(
+			payload,
+			target
+		);
+		if ( this.artworkContextAuthorisations.has( authorisationKey ) ) {
+			return true;
+		}
+		if (
+			Number( context?.variationId || 0 ) === target.variationId &&
+			Number( context?.designId || 0 ) === target.designId &&
+			Number( context?.layerId || 0 ) === target.layerId
+		) {
+			this.artworkContextAuthorisations.add( authorisationKey );
+			return true;
+		}
+
+		await this.ensureRequestToken();
+		const sourceId = Number( payload.sourceAttachmentId || 0 );
+		const derivativeId = Number( payload.attachmentId || 0 );
+		const request = this.createStateAbortController( 12000 );
+		const abortRequest = () => request.controller.abort();
+		try {
+			if ( signal?.aborted ) {
+				abortRequest();
+			} else {
+				signal?.addEventListener( 'abort', abortRequest, {
+					once: true,
+				} );
+			}
+			const response = await fetch( this.data.authoriseArtworkUrl, {
+				method: 'POST',
+				credentials: 'same-origin',
+				signal: request.controller.signal,
+				headers: this.restHeaders( {
+					'Content-Type': 'application/json',
+					Accept: 'application/json',
+				} ),
+				body: JSON.stringify( {
+					source_attachment_id: sourceId,
+					derivative_attachment_id:
+						derivativeId !== sourceId ? derivativeId : 0,
+					product_id: Number( this.data.productId || 0 ),
+					variation_id: target.variationId,
+					design_id: target.designId,
+					layer_id: target.layerId,
+				} ),
+			} );
+			if ( response.ok ) {
+				this.artworkContextAuthorisations.add( authorisationKey );
+			}
+			return response.ok;
+		} catch ( error ) {
+			if ( request.timedOut() ) {
+				throw new Error( 'Shared image authorisation timed out.' );
+			}
+			throw error;
+		} finally {
+			signal?.removeEventListener( 'abort', abortRequest );
+			request.release();
+		}
+	},
+
+	async hydrateLinkGroupCarry() {
+		if ( ! this.linkGroupCarry?.size ) {
+			return;
+		}
+		const designGeneration = this._designGeneration;
+		const stateSignal = this._panelListenerController?.signal;
+		const hydrated = new Set();
+		const imageTasks = [];
+		for ( const area of this.areas ) {
+			for ( const layer of area.layers || [] ) {
+				if (
+					designGeneration !== this._designGeneration ||
+					stateSignal?.aborted
+				) {
+					return;
+				}
+				const key = this.linkGroupCarryKey( layer );
+				const carried = key ? this.linkGroupCarry.get( key ) : null;
+				if ( ! carried || hydrated.has( key ) ) {
+					continue;
+				}
+				hydrated.add( key );
+				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+					if ( carried.payload?.value !== undefined ) {
+						this.inputs[ layer.id ] = {
+							...( this.inputs[ layer.id ] || {} ),
+							value: this.normaliseLayerTextValue(
+								layer.id,
+								carried.payload.value
+							),
+						};
+					}
+					continue;
+				}
+
+				imageTasks.push( {
+					layer,
+					payload: this.carriedImageForLayer(
+						layer,
+						carried.payload
+					),
+					context: carried.payload?.context,
+				} );
+			}
+		}
+
+		if ( ! imageTasks.length || stateSignal?.aborted ) {
+			return;
+		}
+		try {
+			await this.ensureRequestToken();
+		} catch ( error ) {
+			console.warn( '[OC] Shared images could not be prepared:', error );
+			return;
+		}
+		for ( let offset = 0; offset < imageTasks.length; offset += 4 ) {
+			const batch = imageTasks.slice( offset, offset + 4 );
+			await Promise.all(
+				batch.map( async ( { layer, payload, context } ) => {
+					try {
+						if (
+							await this.authoriseCarriedImage(
+								layer,
+								payload,
+								context,
+								stateSignal
+							)
+						) {
+							if (
+								designGeneration !== this._designGeneration ||
+								stateSignal?.aborted
+							) {
+								return;
+							}
+							this.inputs[ layer.id ] = {
+								...( this.inputs[ layer.id ] || {} ),
+								...payload,
+							};
+						}
+					} catch ( error ) {
+						console.warn(
+							'[OC] Shared image could not be prepared:',
+							error
+						);
+					}
+				} )
+			);
+			if (
+				designGeneration !== this._designGeneration ||
+				stateSignal?.aborted
+			) {
+				return;
+			}
+		}
 	},
 
 	linkedLayerMembers( sourceLayerId ) {

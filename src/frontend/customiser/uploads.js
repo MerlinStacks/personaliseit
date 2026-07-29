@@ -144,9 +144,6 @@ const uploadMethods = {
 	},
 
 	async applyInitialAiFilters() {
-		if ( this._variationSwitchPending ) {
-			return;
-		}
 		const designGeneration = this._designGeneration;
 		const started = new Set();
 		for ( const [ layerId, input ] of Object.entries( this.inputs ) ) {
@@ -478,6 +475,7 @@ const uploadMethods = {
 
 				this.inputs[ lid ] = candidate;
 				this.syncLinkedImageInput( lid );
+				this.recordImageLinkGroupCarry( lid );
 				this.clearFailedArtworkReplacements( lid );
 				const filterApplied = await this.applyAiImageFilter(
 					lid,
@@ -493,6 +491,7 @@ const uploadMethods = {
 				);
 				this.updateImageCropControl( lid );
 				this.syncLinkedImageInput( lid );
+				this.recordImageLinkGroupCarry( lid );
 				this.requestPreviewFocus();
 				this.scheduleRedraw( this.areaIndexForLayer( lid ) );
 				this.updateHiddenField();
@@ -567,6 +566,7 @@ const uploadMethods = {
 			this.restoreSourceArtwork( input, sourceId, sourceUrl );
 			delete this.aiFilterErrors[ layerId ];
 			this.syncLinkedImageInput( layerId );
+			this.recordImageLinkGroupCarry( layerId );
 			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return true;
@@ -578,6 +578,7 @@ const uploadMethods = {
 			this.restoreSourceArtwork( input, sourceId, sourceUrl );
 			delete this.aiFilterErrors[ layerId ];
 			this.syncLinkedImageInput( layerId );
+			this.recordImageLinkGroupCarry( layerId );
 			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return true;
@@ -668,6 +669,7 @@ const uploadMethods = {
 			input.imageMeta = imageMeta;
 			delete this.aiFilterErrors[ layerId ];
 			this.syncLinkedImageInput( layerId );
+			this.recordImageLinkGroupCarry( layerId );
 			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return true;

@@ -50,6 +50,7 @@ export function createProductsPageInteractions( deps ) {
 							unit: currentArea.unit,
 							mockupId: currentArea.mockupId,
 							mockupUrl: currentArea.mockupUrl,
+							storedMockupId: currentArea.mockupId,
 							dpi: currentArea.dpi,
 							visible: true,
 							locked: false,
@@ -170,11 +171,14 @@ export function createProductsPageInteractions( deps ) {
 		document
 			.getElementById( 'oc-remove-mockup-btn' )
 			?.addEventListener( 'click', () => {
-				const area = selectedArea();
-				if ( area ) {
-					area.mockupId = 0;
-					area.mockupUrl = '';
-					commitChange( { all: true } );
+				if ( getAreas().length ) {
+					getAreas().forEach( ( area ) => {
+						area.mockupId = 0;
+						area.mockupUrl = '';
+						area.storedMockupId = 0;
+					} );
+					snapshot();
+					renderAll();
 				}
 			} );
 		document
@@ -238,13 +242,7 @@ export function createProductsPageInteractions( deps ) {
 		if ( ! area ) {
 			return;
 		}
-		const def =
-			type === 'mask'
-				? {
-						w: area.w * unitPxScale( area ),
-						h: area.h * unitPxScale( area ),
-				  }
-				: LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
+		const def = LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
 		const px = unitPxScale( area );
 		const lw = Math.max( 1, Math.round( def.w / px ) );
 		const lh = Math.max( 1, Math.round( def.h / px ) );

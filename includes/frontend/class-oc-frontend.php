@@ -103,6 +103,7 @@ class OC_Frontend {
 		$state['activeAreaIndex']       = 0;
 		$state['isLoading']             = false;
 		$state['uploadUrl']             = rest_url( 'overcustomise/v1/upload-artwork' );
+		$state['authoriseArtworkUrl']   = rest_url( 'overcustomise/v1/authorise-artwork-context' );
 		$state['applyImageFilterUrl']   = rest_url( 'overcustomise/v1/apply-image-filter' );
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
@@ -189,17 +190,34 @@ class OC_Frontend {
 		if ( ! $design || ! (bool) $design->active ) {
 			return null;
 		}
+		$all_areas = OC_DB::get_design_print_areas( $design_id );
+		$shared_mockup_id = 0;
+		foreach ( $all_areas as $candidate_area ) {
+			$candidate_id = absint( $candidate_area->mockup_attachment_id ?? 0 );
+			if ( $candidate_id && wp_get_attachment_image_url( $candidate_id, 'large' ) ) {
+				$shared_mockup_id = $candidate_id;
+				break;
+			}
+		}
 		$areas = array_values( array_filter(
-			OC_DB::get_design_print_areas( $design_id ),
+			$all_areas,
 			static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible
 		) );
+		$areas = array_map( static function ( $area ) use ( $shared_mockup_id ) {
+			$area = clone $area;
+			if ( $shared_mockup_id ) {
+				$area->mockup_attachment_id = $shared_mockup_id;
+			}
+			return $area;
+		}, $areas );
 		if ( ! $areas ) {
 			return null;
 		}
 		$area_ids = array_fill_keys( array_filter( array_map( static fn ( $area ): int => (int) $area->id, $areas ) ), true );
 		$layers = array_values( array_filter(
 			OC_DB::get_design_layers( $design_id ),
-			static fn ( $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $area_ids[ (int) ( $layer->area_id ?? 0 ) ] )
+			static fn ( $layer ): bool => 'mask' === (string) ( $layer->type ?? '' )
+				|| ( ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $area_ids[ (int) ( $layer->area_id ?? 0 ) ] ) )
 		) );
 		if ( ! $layers ) {
 			return null;
@@ -209,12 +227,32 @@ class OC_Frontend {
 
 	/** Build reusable frontend state for one design. */
 	private function build_design_state( object $design, array $areas, array $layers ): array {
+		$design_mask = null;
+		foreach ( $layers as $layer ) {
+			if ( 'mask' !== (string) ( $layer->type ?? '' ) ) {
+				continue;
+			}
+			$design_mask   = $design_mask ?: $layer;
+			$mask_settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], 'mask' );
+			if ( self::design_mask_attachment_url( absint( $mask_settings['default_attachment_id'] ?? 0 ) ) ) {
+				$design_mask = $layer;
+				break;
+			}
+		}
 		$areas = array_values( array_filter( $areas, static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible ) );
 		$visible_area_ids = array_fill_keys( array_filter( array_map( static fn ( $area ): int => absint( $area->id ?? 0 ), $areas ) ), true );
 		$layers = array_values( array_filter(
 			$layers,
-			static fn ( $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] )
+			static fn ( $layer ): bool => 'mask' !== (string) ( $layer->type ?? '' )
+				&& ( ! isset( $layer->visible ) || (bool) $layer->visible )
+				&& ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] )
 		) );
+		if ( $design_mask && ! empty( $areas[0]->id ) ) {
+			$design_mask          = clone $design_mask;
+			$design_mask->area_id = (int) $areas[0]->id;
+			$design_mask->visible = 1;
+			$layers[]             = $design_mask;
+		}
 
 		$all_fonts   = OC_Plugin::browser_fonts();
 		$active_browser_font_ids = array_map( static fn ( array $font ): int => (int) $font['id'], $all_fonts );
@@ -233,24 +271,25 @@ class OC_Frontend {
 		$areas_js    = [];
 		$layer_inputs = []; // layerId → default input values
 		$restricted_layer_colours = [];
+		$mockup_id  = 0;
+		$mockup_url = '';
+		$mockup_w   = 0;
+		$mockup_h   = 0;
+		foreach ( $areas as $candidate_area ) {
+			$candidate_id = absint( $candidate_area->mockup_attachment_id ?? 0 );
+			$img_src      = $candidate_id ? wp_get_attachment_image_src( $candidate_id, 'large' ) : false;
+			if ( $img_src ) {
+				$mockup_id  = $candidate_id;
+				$mockup_url = $img_src[0];
+				$mockup_w   = (int) $img_src[1];
+				$mockup_h   = (int) $img_src[2];
+				break;
+			}
+		}
 
 		foreach ( $areas as $area ) {
 			$area_layers  = $layers_by_area[ (int) $area->id ] ?? [];
 			$layers_js    = [];
-
-			$mockup_url = '';
-			$mockup_w   = 0;
-			$mockup_h   = 0;
-			if ( $area->mockup_attachment_id ) {
-				// Use the same 'large' size as the admin editor so coordinates
-				// (stored in 'large'-image pixel space) remain consistent.
-				$img_src  = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
-				if ( $img_src ) {
-					$mockup_url = $img_src[0];
-					$mockup_w   = (int) $img_src[1];
-					$mockup_h   = (int) $img_src[2];
-				}
-			}
 
 			foreach ( $area_layers as $layer ) {
 				if ( isset( $layer->visible ) && ! (bool) $layer->visible ) continue;
@@ -271,15 +310,11 @@ class OC_Frontend {
 				$default_colour   = sanitize_hex_color( (string) ( $settings['default_color'] ?? '#000000' ) ) ?: '#000000';
 				$default_attachment_id  = absint( $settings['default_attachment_id'] ?? 0 );
 				$is_mask_attachment = 'mask' === (string) $layer->type;
-				$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
-				$attachment_mime = strtolower( (string) get_post_mime_type( $default_attachment_id ) );
-				$attachment_url_path = (string) wp_parse_url( $default_attachment_url, PHP_URL_PATH );
-				$is_png_attachment = in_array( $attachment_mime, [ 'image/png', 'image/x-png' ], true )
-					|| ( str_starts_with( $attachment_mime, 'image/' ) && 'png' === strtolower( pathinfo( $attachment_url_path, PATHINFO_EXTENSION ) ) );
+				$default_attachment_url = $is_mask_attachment
+					? self::design_mask_attachment_url( $default_attachment_id )
+					: ( $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '' );
 				$is_valid_attachment = $is_mask_attachment
-					? 'attachment' === get_post_type( $default_attachment_id )
-						&& $is_png_attachment
-						&& '' !== $default_attachment_url
+					? '' !== $default_attachment_url
 					: OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id )
 						&& str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' );
 				if ( $default_attachment_id && ! $is_valid_attachment ) {
@@ -348,6 +383,7 @@ class OC_Frontend {
 				'label'       => $area->label,
 				'printMethod' => $area->print_method,
 				'engravingMaterial' => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
+				'mockupId'    => $mockup_id,
 				'mockupUrl'   => $mockup_url,
 				'mockupW'     => $mockup_w,
 				'mockupH'     => $mockup_h,
@@ -430,6 +466,20 @@ class OC_Frontend {
 			'layerInputs'     => $layer_inputs,
 			'restrictedLayerColours' => $restricted_layer_colours,
 		];
+	}
+
+	/** Return a validated design-mask PNG URL. */
+	private static function design_mask_attachment_url( int $attachment_id ): string {
+		if ( $attachment_id <= 0 || 'attachment' !== get_post_type( $attachment_id ) ) {
+			return '';
+		}
+		$url      = (string) wp_get_attachment_url( $attachment_id );
+		$mime     = strtolower( (string) get_post_mime_type( $attachment_id ) );
+		$url_path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$is_png   = in_array( $mime, [ 'image/png', 'image/x-png' ], true )
+			|| ( str_starts_with( $mime, 'image/' ) && 'png' === strtolower( pathinfo( $url_path, PATHINFO_EXTENSION ) ) );
+
+		return $is_png ? $url : '';
 	}
 
 	/** Build frontend-safe alternate design options from assignment JSON. */
