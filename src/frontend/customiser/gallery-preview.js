@@ -793,11 +793,41 @@ const galleryPreviewMethods = {
 			releasePreviewLock();
 			this.clearStateTimeout( this._variationChangeTimer );
 			this._variationChangeTimer = null;
-			this.switchProductVariation(
+			const variationId =
 				parseInt(
 					variation?.variation_id || getSelectedVariationId(),
 					10
-				) || 0
+				) || 0;
+			const variationKey = String( variationId );
+
+			Promise.resolve( this.switchProductVariation( variationId ) ).then(
+				( switched ) => {
+					if ( ! switched ) {
+						return;
+					}
+
+					const refocusPreview = () => {
+						if (
+							! this._hasCustomerPersonalisation ||
+							! this._customisationActive ||
+							this._activeVariationKey !== variationKey
+						) {
+							return;
+						}
+
+						const canvas = this.canvases[ this.activeArea ];
+						if ( ! canvas || canvas._ocMissingMockup ) {
+							return;
+						}
+
+						this.requestPreviewFocus();
+						this.pushToGallery( canvas );
+					};
+
+					refocusPreview();
+					this.requestStateAnimationFrame( refocusPreview );
+					this.setStateTimeout( refocusPreview, 250 );
+				}
 			);
 		};
 

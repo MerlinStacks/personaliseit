@@ -3821,7 +3821,27 @@ const galleryPreviewMethods = {
       releasePreviewLock();
       this.clearStateTimeout(this._variationChangeTimer);
       this._variationChangeTimer = null;
-      this.switchProductVariation(parseInt(variation?.variation_id || getSelectedVariationId(), 10) || 0);
+      const variationId = parseInt(variation?.variation_id || getSelectedVariationId(), 10) || 0;
+      const variationKey = String(variationId);
+      Promise.resolve(this.switchProductVariation(variationId)).then(switched => {
+        if (!switched) {
+          return;
+        }
+        const refocusPreview = () => {
+          if (!this._hasCustomerPersonalisation || !this._customisationActive || this._activeVariationKey !== variationKey) {
+            return;
+          }
+          const canvas = this.canvases[this.activeArea];
+          if (!canvas || canvas._ocMissingMockup) {
+            return;
+          }
+          this.requestPreviewFocus();
+          this.pushToGallery(canvas);
+        };
+        refocusPreview();
+        this.requestStateAnimationFrame(refocusPreview);
+        this.setStateTimeout(refocusPreview, 250);
+      });
     };
     form.addEventListener('change', event => {
       if (event.target?.closest?.('.variations, [name^="attribute_"]')) {
@@ -4011,6 +4031,7 @@ const inputControlMethods = {
       return;
     }
     dialog.classList.remove('is-visible');
+    dialog.classList.remove('oc-dialog-fallback');
     if (typeof dialog.close === 'function' && dialog.open) {
       dialog.close();
     } else {
@@ -4418,11 +4439,16 @@ const inputControlMethods = {
     document.querySelectorAll('[data-oc-colour-dialog-trigger]').forEach(trigger => {
       trigger.addEventListener('click', () => {
         const dialog = document.getElementById(trigger.dataset.ocColourDialogTrigger);
-        if (!dialog) {
+        if (!dialog || dialog.open) {
           return;
         }
         if (typeof dialog.showModal === 'function') {
-          dialog.showModal();
+          try {
+            dialog.showModal();
+          } catch {
+            dialog.setAttribute('open', '');
+            dialog.classList.add('oc-dialog-fallback');
+          }
         } else {
           dialog.setAttribute('open', '');
           dialog.classList.add('oc-dialog-fallback');

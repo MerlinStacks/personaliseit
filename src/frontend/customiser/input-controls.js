@@ -89,6 +89,7 @@ const inputControlMethods = {
 			return;
 		}
 		dialog.classList.remove( 'is-visible' );
+		dialog.classList.remove( 'oc-dialog-fallback' );
 		if ( typeof dialog.close === 'function' && dialog.open ) {
 			dialog.close();
 		} else {
@@ -628,11 +629,16 @@ const inputControlMethods = {
 						const dialog = document.getElementById(
 							trigger.dataset.ocColourDialogTrigger
 						);
-						if ( ! dialog ) {
+						if ( ! dialog || dialog.open ) {
 							return;
 						}
 						if ( typeof dialog.showModal === 'function' ) {
-							dialog.showModal();
+							try {
+								dialog.showModal();
+							} catch {
+								dialog.setAttribute( 'open', '' );
+								dialog.classList.add( 'oc-dialog-fallback' );
+							}
 						} else {
 							dialog.setAttribute( 'open', '' );
 							dialog.classList.add( 'oc-dialog-fallback' );
