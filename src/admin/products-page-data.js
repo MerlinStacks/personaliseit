@@ -111,7 +111,7 @@ export function createProductsPageDataNormalisers( deps ) {
 				};
 			case 'image':
 				return {
-					formats: [ 'png', 'jpg', 'svg', 'webp' ],
+					formats: [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp' ],
 					max_size_mb: 10,
 					remove_background: false,
 					image_filter_ids: [],
@@ -130,7 +130,7 @@ export function createProductsPageDataNormalisers( deps ) {
 				};
 			case 'clipmask':
 				return {
-					formats: [ 'png', 'jpg', 'webp' ],
+					formats: [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'webp' ],
 					max_size_mb: 10,
 					remove_background: false,
 					mask_shape: 'circle',

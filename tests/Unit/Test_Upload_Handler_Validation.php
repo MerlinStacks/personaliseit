@@ -49,6 +49,12 @@ class UploadHandlerReflector {
 		return $m->invoke( null, $path, $type );
 	}
 
+	public static function heic_content_is_valid( string $path ): bool {
+		$m = self::rc()->getMethod( 'heic_content_is_valid' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $path );
+	}
+
 	public static function protected_uploads_storage_root(): ?string {
 		$m = self::rc()->getMethod( 'protected_uploads_storage_root' );
 		$m->setAccessible( true );
@@ -236,6 +242,30 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
+	public function heic_and_heif_are_supported_as_one_conversion_type(): void {
+		$rc   = new \ReflectionClass( OC_Upload_Handler::class );
+		$mime = $rc->getConstant( 'SUPPORTED_TYPES' );
+
+		$this->assertSame( 'heic', $mime['image/heic'] );
+		$this->assertSame( 'heic', $mime['image/heif'] );
+		$this->assertSame( 'heic', UploadHandlerReflector::type_from_extension( 'HEIC' ) );
+		$this->assertSame( 'heic', UploadHandlerReflector::type_from_extension( '.heif' ) );
+	}
+
+	#[Test]
+	public function validates_heic_container_brand_and_rejects_avif(): void {
+		$heic = tempnam( sys_get_temp_dir(), 'oc_test_' );
+		$avif = tempnam( sys_get_temp_dir(), 'oc_test_' );
+		file_put_contents( $heic, pack( 'N', 24 ) . 'ftyp' . 'heic' . pack( 'N', 0 ) . 'mif1' . 'heic' );
+		file_put_contents( $avif, pack( 'N', 24 ) . 'ftyp' . 'avif' . pack( 'N', 0 ) . 'mif1' . 'avif' );
+
+		$this->assertTrue( UploadHandlerReflector::heic_content_is_valid( $heic ) );
+		$this->assertFalse( UploadHandlerReflector::heic_content_is_valid( $avif ) );
+		@unlink( $heic );
+		@unlink( $avif );
+	}
+
+	#[Test]
 	public function normalise_extension_trims_dot_and_case(): void {
 		$this->assertSame( 'jpeg', UploadHandlerReflector::normalise_extension( '.JpEg' ) );
 	}
@@ -288,6 +318,20 @@ class Test_Upload_Handler_Validation extends TestCase {
 		$this->assertTrue( OC_Upload_Handler::attachment_matches_upload_policy( 45, [ 'formats' => [ 'png' ], 'max_size_mb' => 1 ] ) );
 		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 45, [ 'formats' => [ 'jpg' ], 'max_size_mb' => 1 ] ) );
 		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 45, [ 'formats' => [ 'png' ], 'max_size_mb' => 0 ] ) );
+	}
+
+	#[Test]
+	public function converted_heic_uses_its_source_type_and_size_for_upload_policy(): void {
+		$this->create_test_artwork( 46, [ 10, 12, 20, 30 ] );
+		$GLOBALS['oc_test_post_mime_types'][ 46 ] = 'image/jpeg';
+		$GLOBALS['oc_test_post_meta'][ 46 ]['_oc_artwork_source_type']  = 'heic';
+		$GLOBALS['oc_test_post_meta'][ 46 ]['_oc_artwork_source_bytes'] = 2 * 1024 * 1024;
+
+		$this->assertTrue( OC_Upload_Handler::attachment_matches_upload_policy( 46, [ 'formats' => [ 'heic' ], 'max_size_mb' => 3 ], false ) );
+		// The persisted artifact is a genuine JPEG and may be reused where JPEG is accepted.
+		$this->assertTrue( OC_Upload_Handler::attachment_matches_upload_policy( 46, [ 'formats' => [ 'jpg' ], 'max_size_mb' => 3 ], false ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 46, [ 'formats' => [ 'heic' ], 'max_size_mb' => 1 ], false ) );
+		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 46, [ 'formats' => [ 'png' ], 'max_size_mb' => 3 ], false ) );
 	}
 
 	#[Test]

@@ -32,6 +32,14 @@ class OC_System_Status {
 			self::check( 'proc_open', 'proc_open', function_exists( 'proc_open' ), function_exists( 'proc_open' ) ? __( 'Enabled', 'overcustomise' ) : '', false, __( 'Recommended to run optional Ghostscript processing without invoking a shell.', 'overcustomise' ) ),
 			self::check( 'ghostscript', 'Ghostscript', '' !== $ghostscript['binary'], $ghostscript['version'], false, __( 'Recommended to convert production PDF text into vector outlines; embedded-font PDFs are generated when unavailable.', 'overcustomise' ) ),
 			self::extension_check( 'imagick', 'Imagick', false, __( 'Recommended for higher-quality artwork conversion and image effects; GD fallbacks remain available.', 'overcustomise' ) ),
+			self::check(
+				'imagick_heic',
+				__( 'ImageMagick HEIC/HEIF support', 'overcustomise' ),
+				class_exists( 'OC_Upload_Handler' ) && OC_Upload_Handler::heic_conversion_is_available(),
+				class_exists( 'OC_Upload_Handler' ) && OC_Upload_Handler::heic_conversion_is_available() ? __( 'Available', 'overcustomise' ) : '',
+				false,
+				__( 'Required to convert Apple HEIC and HEIF photo uploads into filter-compatible JPEG images.', 'overcustomise' )
+			),
 		];
 	}
 

@@ -976,8 +976,8 @@ class OC_Cart {
 		$line_alignment = sanitize_key( $string( $value['line_alignment'] ?? 'top', 'top' ) );
 		$mask_shape = sanitize_key( $string( $value['mask_shape'] ?? 'circle', 'circle' ) );
 		$default_formats = match ( $type ) {
-			'image'    => [ 'png', 'jpg', 'svg', 'webp' ],
-			'clipmask' => [ 'png', 'jpg', 'webp' ],
+			'image'    => [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp' ],
+			'clipmask' => [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'webp' ],
 			default    => [],
 		};
 		$formats = [];
@@ -986,7 +986,7 @@ class OC_Cart {
 				$formats[] = ltrim( sanitize_key( (string) $format ), '.' );
 			}
 		}
-		$formats = array_values( array_unique( array_intersect( [ 'png', 'jpg', 'jpeg', 'svg', 'webp', 'pdf', 'eps' ], $formats ) ) );
+		$formats = array_values( array_unique( array_intersect( [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp', 'pdf', 'eps' ], $formats ) ) );
 		if ( ! array_key_exists( 'formats', $value ) || ! is_array( $value['formats'] ) ) {
 			$formats = $default_formats;
 		}

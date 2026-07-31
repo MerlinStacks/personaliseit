@@ -30,7 +30,7 @@ class OC_Admin_Settings {
 			'preview_retention_days' => 90,
 			'artwork_retention_days' => 90,
 			'max_upload_size_mb'     => 10,
-			'allowed_upload_formats' => [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ],
+			'allowed_upload_formats' => [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ],
 
 			// Print defaults.
 			'bleed_mm'               => 3,
@@ -48,7 +48,7 @@ class OC_Admin_Settings {
 		$all   = wp_parse_args( is_array( $saved ) ? $saved : [], $defaults );
 		$formats = is_array( $all['allowed_upload_formats'] ?? null ) ? $all['allowed_upload_formats'] : [];
 		$formats = array_values( array_unique( array_intersect(
-			[ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ],
+			[ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ],
 			array_map( static fn ( $format ): string => is_scalar( $format ) ? sanitize_key( (string) $format ) : '', $formats )
 		) ) );
 		$flat_rate = is_numeric( $all['flat_rate_default'] ?? null ) ? (float) $all['flat_rate_default'] : 0.0;
@@ -359,7 +359,7 @@ class OC_Admin_Settings {
 											<div class="oc-form-field">
 												<div class="oc-checkbox-group">
 											<?php
-											$all_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ];
+											$all_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ];
 											foreach ( $all_formats as $fmt ) :
 														$checked = in_array( $fmt, (array) $s['allowed_upload_formats'], true );
 														?>
@@ -756,7 +756,7 @@ class OC_Admin_Settings {
 			return;
 		}
 
-		$allowed_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ];
+		$allowed_formats = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ];
 		$posted_formats  = isset( $_POST['oc_allowed_upload_formats'] )
 			? array_intersect( (array) $_POST['oc_allowed_upload_formats'], $allowed_formats )
 			: [];

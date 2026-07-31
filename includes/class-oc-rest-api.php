@@ -1100,7 +1100,7 @@ class OC_Rest_API {
 			return null;
 		}
 
-		$allowed = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp' ];
+		$allowed = [ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ];
 		$output  = [];
 		foreach ( $formats as $format ) {
 			if ( ! is_string( $format ) ) {

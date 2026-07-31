@@ -14,7 +14,23 @@ const SERVER_UPLOAD_FORMATS = [
 	'pdf',
 	'eps',
 	'webp',
+	'heic',
+	'heif',
 ];
+
+const normaliseUploadFormats = ( formats ) => {
+	return [
+		...new Set(
+			formats
+				.map( ( format ) =>
+					String( format ).toLowerCase().replace( /^\./, '' )
+				)
+				.filter( ( extension ) =>
+					SERVER_UPLOAD_FORMATS.includes( extension )
+				)
+		),
+	];
+};
 
 const uploadMethods = {
 	clearFailedArtworkReplacements( layerId ) {
@@ -241,14 +257,9 @@ const uploadMethods = {
 			const globalFormats = Array.isArray( this.data.allowedFormats )
 				? this.data.allowedFormats
 				: [];
-			const normalisedGlobalFormats = globalFormats
-				.map( ( f ) => String( f ).toLowerCase().replace( /^\./, '' ) )
-				.filter( ( ext ) => SERVER_UPLOAD_FORMATS.includes( ext ) );
+			const normalisedGlobalFormats = normaliseUploadFormats( globalFormats );
 			const effective = layerFormats.length
-				? layerFormats
-						.map( ( f ) =>
-							String( f ).toLowerCase().replace( /^\./, '' )
-						)
+				? normaliseUploadFormats( layerFormats )
 						.filter( ( ext ) =>
 							normalisedGlobalFormats.includes( ext )
 						)

@@ -84,9 +84,11 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'proc_open', $by_key );
 		$this->assertArrayHasKey( 'ghostscript', $by_key );
 		$this->assertArrayHasKey( 'ext_imagick', $by_key );
+		$this->assertArrayHasKey( 'imagick_heic', $by_key );
 		$this->assertFalse( $by_key['proc_open']['required'] );
 		$this->assertFalse( $by_key['ghostscript']['required'] );
 		$this->assertFalse( $by_key['ext_imagick']['required'] );
+		$this->assertFalse( $by_key['imagick_heic']['required'] );
 	}
 
 	#[Test]

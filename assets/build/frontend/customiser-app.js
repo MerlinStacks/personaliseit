@@ -6083,7 +6083,8 @@ __webpack_require__.r(__webpack_exports__);
 /* eslint-disable no-console */
 
 
-const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp'];
+const SERVER_UPLOAD_FORMATS = ['jpg', 'jpeg', 'png', 'svg', 'pdf', 'eps', 'webp', 'heic', 'heif'];
+const normaliseUploadFormats = formats => [...new Set(formats.map(format => String(format).toLowerCase().replace(/^\./, '')).filter(extension => SERVER_UPLOAD_FORMATS.includes(extension)))];
 const uploadMethods = {
   clearFailedArtworkReplacements(layerId) {
     const members = new Set([layerId, ...(this.linkedLayerMembers?.(layerId) || [])]);
@@ -6246,8 +6247,8 @@ const uploadMethods = {
       }
       const layerFormats = Array.isArray(layer?.settings?.formats) ? layer.settings.formats : [];
       const globalFormats = Array.isArray(this.data.allowedFormats) ? this.data.allowedFormats : [];
-      const normalisedGlobalFormats = globalFormats.map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => SERVER_UPLOAD_FORMATS.includes(ext));
-      const effective = layerFormats.length ? layerFormats.map(f => String(f).toLowerCase().replace(/^\./, '')).filter(ext => normalisedGlobalFormats.includes(ext)) : normalisedGlobalFormats;
+      const normalisedGlobalFormats = normaliseUploadFormats(globalFormats);
+      const effective = layerFormats.length ? normaliseUploadFormats(layerFormats).filter(ext => normalisedGlobalFormats.includes(ext)) : normalisedGlobalFormats;
       const allowedExt = [...new Set(effective)].map(ext => `.${ext}`);
       if (!allowedExt.length) {
         this.showUploadError(zoneEl, 'This layer does not allow artwork file formats.');

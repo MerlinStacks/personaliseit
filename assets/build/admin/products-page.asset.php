@@ -1,1 +1,1 @@
-<?php return array('dependencies' => array(), 'version' => '8d0369cca47d04e5a89c-mask-svg-webp');
+<?php return array('dependencies' => array(), 'version' => '82ee1aaf4f42570a6df1-heic-heif');

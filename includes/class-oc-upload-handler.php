@@ -2,15 +2,16 @@
 /**
  * Upload Handler — processes customer artwork uploads.
  *
- * Handles: SVG, PDF, EPS, PNG, JPG/JPEG
+ * Handles: SVG, PDF, EPS, PNG, JPG/JPEG, WebP, HEIC/HEIF
  *
  * Flow:
  *  1. Validate file type via finfo (real MIME, not extension).
  *  2. Validate file size against plugin setting.
  *  3. SVG  → sanitise via OC_SVG_Sanitiser → save to WP media library.
  *  4. PDF/EPS → convert page 1 to PNG preview via Imagick or GhostScript.
- *  5. PNG/JPG → save directly to WP media library.
- *  6. Return structured result: { attachment_id, preview_url, original_url, file_type }.
+ *  5. HEIC/HEIF → convert to an auto-oriented JPEG.
+ *  6. PNG/JPG/WebP → save directly to WP media library.
+ *  7. Return structured result: { attachment_id, preview_url, original_url, file_type }.
  *
  * @package OverCustomise
  */
@@ -45,6 +46,10 @@ class OC_Upload_Handler {
 		'image/jpeg'                 => 'jpg',
 		'image/jpg'                  => 'jpg',
 		'image/webp'                 => 'webp',
+		'image/heic'                 => 'heic',
+		'image/heif'                 => 'heic',
+		'image/heic-sequence'        => 'heic',
+		'image/heif-sequence'        => 'heic',
 	];
 
 	/** Allowed file extensions mapped to canonical type keys. */
@@ -56,6 +61,8 @@ class OC_Upload_Handler {
 		'jpg'  => 'jpg',
 		'jpeg' => 'jpg',
 		'webp' => 'webp',
+		'heic' => 'heic',
+		'heif' => 'heic',
 	];
 
 	/** Keep original/production-derivative attachment lifecycles linked. */
@@ -188,6 +195,7 @@ class OC_Upload_Handler {
 			'png'  => 'image/png',
 			'jpg'  => 'image/jpeg',
 			'webp' => 'image/webp',
+			'heic' => 'image/heic',
 			default => 'application/octet-stream',
 		};
 		header( 'Content-Type: ' . $mime );
@@ -453,6 +461,13 @@ class OC_Upload_Handler {
 				throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 			}
 			self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
+		} elseif ( 'heic' === $type_key ) {
+			if ( ! self::heic_content_is_valid( (string) $_file['tmp_name'] ) ) {
+				throw new \RuntimeException( __( 'The Apple photo content is not a valid HEIC or HEIF image.', 'overcustomise' ) );
+			}
+			if ( ! self::heic_conversion_is_available() ) {
+				throw new \RuntimeException( __( 'Apple HEIC/HEIF photos require ImageMagick with HEIC support on this server.', 'overcustomise' ) );
+			}
 		} elseif ( 'svg' === $type_key ) {
 			$raw = file_get_contents( (string) $_file['tmp_name'] );
 			if ( false === $raw ) {
@@ -471,7 +486,7 @@ class OC_Upload_Handler {
 
 		$source_bytes = (int) filesize( (string) $_file['tmp_name'] );
 		$count        = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
-		$reservation  = $source_bytes;
+		$reservation  = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
 		if ( 2 === $count ) {
 			$preview_limit = self::filtered_positive_int( 'oc_document_preview_max_bytes', 20 * 1024 * 1024, 1024, 100 * 1024 * 1024 );
 			if ( null === $preview_limit ) {
@@ -506,6 +521,7 @@ class OC_Upload_Handler {
 				'svg'   => self::process_svg( $_file ),
 				'pdf'   => self::process_pdf_eps( $_file, 'pdf' ),
 				'eps'   => self::process_pdf_eps( $_file, 'eps' ),
+				'heic'  => self::process_heic( $_file ),
 				default => self::process_raster( $_file, $type_key ),
 			};
 			$result = $base_result;
@@ -527,10 +543,11 @@ class OC_Upload_Handler {
 			if ( ! in_array( $preview_id, array_merge( [ $attachment_id ], $related_ids ), true ) ) {
 				throw new \RuntimeException( __( 'The artwork preview result could not be validated.', 'overcustomise' ) );
 			}
-			$ownership_ok = self::record_ownership( $attachment_id, $context, (string) ( $_file['name'] ?? '' ) );
+			$stored_name  = (string) ( $result['stored_name'] ?? $_file['name'] ?? '' );
+			$ownership_ok = self::record_ownership( $attachment_id, $context, $stored_name );
 			foreach ( $related_ids as $related_id ) {
 				if ( $related_id > 0 && 'attachment' === get_post_type( $related_id ) ) {
-					$ownership_ok = self::record_ownership( $related_id, $context, (string) ( $_file['name'] ?? '' ) ) && $ownership_ok;
+					$ownership_ok = self::record_ownership( $related_id, $context, $stored_name ) && $ownership_ok;
 				} else {
 					$ownership_ok = false;
 				}
@@ -541,6 +558,7 @@ class OC_Upload_Handler {
 
 			$result['preview_url']  = self::attachment_access_url( $preview_id );
 			$result['original_url'] = self::attachment_access_url( $attachment_id );
+			unset( $result['stored_name'] );
 			if ( '' === $result['preview_url'] || '' === $result['original_url'] ) {
 				throw new \RuntimeException( __( 'Secure artwork URLs could not be created.', 'overcustomise' ) );
 			}
@@ -675,16 +693,20 @@ class OC_Upload_Handler {
 		if ( $validate_content && ! self::artwork_file_is_valid( $attachment_id ) ) {
 			return false;
 		}
-		$formats = is_array( $policy['formats'] ?? null ) ? array_map( 'strtolower', $policy['formats'] ) : [];
-		$type    = self::SUPPORTED_TYPES[ (string) get_post_mime_type( $attachment_id ) ] ?? '';
-		if ( 'jpg' === $type && in_array( 'jpeg', $formats, true ) ) {
+		$formats     = is_array( $policy['formats'] ?? null ) ? array_map( 'strtolower', $policy['formats'] ) : [];
+		$type        = self::SUPPORTED_TYPES[ (string) get_post_mime_type( $attachment_id ) ] ?? '';
+		$source_type = sanitize_key( (string) get_post_meta( $attachment_id, '_oc_artwork_source_type', true ) );
+		if ( 'jpg' === $type && array_intersect( [ 'jpg', 'jpeg' ], $formats ) ) {
 			$formats[] = 'jpg';
 		}
 		$max_bytes = absint( $policy['max_size_mb'] ?? 0 ) * 1024 * 1024;
 		$path      = get_attached_file( $attachment_id );
-		$size      = is_string( $path ) && is_file( $path ) ? filesize( $path ) : false;
+		$stored_size = is_string( $path ) && is_file( $path ) ? filesize( $path ) : false;
+		$source_size = absint( get_post_meta( $attachment_id, '_oc_artwork_source_bytes', true ) );
+		$size        = $source_size > 0 ? $source_size : $stored_size;
 
-		return '' !== $type && in_array( $type, $formats, true ) && $max_bytes > 0 && false !== $size && $size <= $max_bytes;
+		return '' !== $type && ( in_array( $type, $formats, true ) || in_array( $source_type, $formats, true ) )
+			&& $max_bytes > 0 && false !== $stored_size && $stored_size > 0 && $size <= $max_bytes;
 	}
 
 	/** Verify that customer artwork belongs to this customer and exact layer context. */
@@ -1213,9 +1235,118 @@ class OC_Upload_Handler {
 		];
 	}
 
+	/** Convert an Apple HEIC/HEIF upload to a browser- and filter-compatible JPEG. */
+	private static function process_heic( array $_file ): array {
+		$output = self::temp_path( 'oc-heic.jpg' );
+		if ( false === $output ) {
+			throw new \RuntimeException( __( 'Could not stage the converted Apple photo.', 'overcustomise' ) );
+		}
+
+		try {
+			self::convert_heic_via_imagick( (string) $_file['tmp_name'], $output );
+			$filename = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . '.jpg';
+			$result   = self::process_raster(
+				[
+					'tmp_name' => $output,
+					'name'     => $filename,
+				],
+				'jpg'
+			);
+			$source_type = self::normalise_extension( pathinfo( (string) $_file['name'], PATHINFO_EXTENSION ) );
+			$source_size = filesize( (string) $_file['tmp_name'] );
+			if ( false === $source_size || $source_size <= 0
+				|| ! update_post_meta( (int) $result['attachment_id'], '_oc_artwork_source_type', $source_type )
+				|| ! update_post_meta( (int) $result['attachment_id'], '_oc_artwork_source_bytes', (int) $source_size )
+			) {
+				wp_delete_attachment( (int) $result['attachment_id'], true );
+				throw new \RuntimeException( __( 'The converted Apple photo metadata could not be retained.', 'overcustomise' ) );
+			}
+			$result['stored_name'] = $filename;
+			return $result;
+		} finally {
+			@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+	}
+
 	// -------------------------------------------------------------------------
 	// Conversion helpers
 	// -------------------------------------------------------------------------
+
+	/** Return whether ImageMagick has an HEIC/HEIF decoder available. */
+	public static function heic_conversion_is_available(): bool {
+		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\\Imagick' ) ) {
+			return false;
+		}
+		try {
+			return ! empty( \Imagick::queryFormats( 'HEI*' ) ) && ! empty( \Imagick::queryFormats( 'JPEG' ) );
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+	}
+
+	/** Decode and normalize one HEIC/HEIF image through ImageMagick. */
+	private static function read_heic_via_imagick( string $source ): \Imagick {
+		if ( ! self::heic_conversion_is_available() ) {
+			throw new \RuntimeException( __( 'Apple HEIC/HEIF photos require ImageMagick with HEIC support on this server.', 'overcustomise' ) );
+		}
+
+		$image = new \Imagick();
+		try {
+			$image->setResourceLimit( \Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024 );
+			$image->setResourceLimit( \Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024 );
+			$image->setResourceLimit( \Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024 );
+			if ( defined( '\\Imagick::RESOURCETYPE_AREA' ) ) {
+				$image->setResourceLimit( \Imagick::RESOURCETYPE_AREA, self::MAX_IMAGE_PIXELS );
+			}
+			$image->readImage( $source . '[0]' );
+			$image->setIteratorIndex( 0 );
+			self::validate_image_dimensions( $image->getImageWidth(), $image->getImageHeight() );
+			return $image;
+		} catch ( \Throwable $e ) {
+			$image->clear();
+			$image->destroy();
+			OC_Logger::warning( 'HEIC decoding failed: ' . $e->getMessage() );
+			throw new \RuntimeException( __( 'The Apple photo could not be decoded. Please try exporting it as JPEG.', 'overcustomise' ), 0, $e );
+		}
+	}
+
+	/** Convert the first HEIC/HEIF image to an auto-oriented, flattened JPEG. */
+	private static function convert_heic_via_imagick( string $source, string $dest ): void {
+		$image = self::read_heic_via_imagick( $source );
+		try {
+			if ( method_exists( $image, 'autoOrientImage' ) ) {
+				$image->autoOrientImage();
+			}
+			self::validate_image_dimensions( $image->getImageWidth(), $image->getImageHeight() );
+			$image->setImageBackgroundColor( 'white' );
+			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_REMOVE );
+			$image->transformImageColorspace( \Imagick::COLORSPACE_SRGB );
+			$image->setImageDepth( 8 );
+			$image->setImageFormat( 'jpeg' );
+			$image->stripImage();
+			$written = false;
+			foreach ( [ 92, 85, 78, 70, 60 ] as $quality ) {
+				$image->setImageCompressionQuality( $quality );
+				if ( ! $image->writeImage( $dest ) ) {
+					throw new \RuntimeException( __( 'The converted Apple photo could not be written.', 'overcustomise' ) );
+				}
+				$size = filesize( $dest );
+				if ( false !== $size && $size > 0 && $size <= self::MAX_GENERATED_IMAGE_BYTES ) {
+					$written = true;
+					break;
+				}
+			}
+
+			$size = filesize( $dest );
+			$info = @getimagesize( $dest );
+			if ( ! $written || false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES || ! is_array( $info ) || 'image/jpeg' !== (string) ( $info['mime'] ?? '' ) ) {
+				throw new \RuntimeException( __( 'The converted Apple photo is invalid or too large.', 'overcustomise' ) );
+			}
+		} finally {
+			$image->clear();
+			$image->destroy();
+		}
+	}
 
 	/** Convert a high-contrast line-art background into transparency and return a temporary PNG path. */
 	private static function remove_background_via_imagick( string $source ): string|\WP_Error {
@@ -1767,7 +1898,7 @@ class OC_Upload_Handler {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Detect real MIME type via finfo, with SVG XML detection fallback.
+	 * Detect real MIME type via finfo, with safe content-signature fallbacks.
 	 *
 	 * @param  string $tmp_path  Path to the uploaded temp file.
 	 * @param  string $filename  Original filename (used as fallback hint).
@@ -1801,6 +1932,26 @@ class OC_Upload_Handler {
 			return 'application/eps';
 		}
 
+		// Older libmagic databases do not recognise the HEIF container used by Apple photos.
+		if ( in_array( $ext, [ 'heic', 'heif' ], true ) && 'application/octet-stream' === $mime && self::heic_content_is_valid( $tmp_path ) ) {
+			return 'heic' === $ext ? 'image/heic' : 'image/heif';
+		}
+
 		return $mime;
+	}
+
+	/** Validate the ISO-BMFF file-type box against HEIC codec brands, excluding AVIF. */
+	private static function heic_content_is_valid( string $path ): bool {
+		$header = file_get_contents( $path, false, null, 0, 4096 );
+		if ( ! is_string( $header ) || strlen( $header ) < 16 || 'ftyp' !== substr( $header, 4, 4 ) ) {
+			return false;
+		}
+		$box_size = unpack( 'Nsize', substr( $header, 0, 4 ) )['size'] ?? 0;
+		if ( $box_size < 16 || $box_size > strlen( $header ) ) {
+			return false;
+		}
+		$brands = str_split( substr( $header, 8, $box_size - 8 ), 4 );
+		return ! array_intersect( [ 'avif', 'avis' ], $brands )
+			&& (bool) array_intersect( [ 'heic', 'heix', 'hevc', 'hevx', 'heim', 'heis', 'hevm', 'hevs' ], $brands );
 	}
 }

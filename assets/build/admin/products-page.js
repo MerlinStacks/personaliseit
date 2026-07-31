@@ -933,7 +933,7 @@ function createProductsPageDataNormalisers(deps) {
         };
       case 'image':
         return {
-          formats: ['png', 'jpg', 'svg', 'webp'],
+          formats: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp'],
           max_size_mb: 10,
           remove_background: false,
           image_filter_ids: [],
@@ -952,7 +952,7 @@ function createProductsPageDataNormalisers(deps) {
         };
       case 'clipmask':
         return {
-          formats: ['png', 'jpg', 'webp'],
+          formats: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'webp'],
           max_size_mb: 10,
           remove_background: false,
           mask_shape: 'circle',
@@ -3232,7 +3232,7 @@ function createProductsPageSettings(deps) {
     settings.default_color = normaliseHex(colours[0].hex);
   }
   function formatChecks(selected) {
-    return '<div class="oc-group-checks">' + ['png', 'jpg', 'svg', 'webp', 'pdf', 'eps'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
+    return '<div class="oc-group-checks">' + ['png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp', 'pdf', 'eps'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
   }
 
   // ── Tab content builders ───────────────────────────────────────────────────
@@ -3264,7 +3264,7 @@ function createProductsPageSettings(deps) {
           return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupsSelected.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupsSelected.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
         }
       case 'file':
-        return field('Default image', mediaDefaultField(s)) + field('Enabled image filters <span class="oc-hint">(available choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
+        return field('Default image', mediaDefaultField(s)) + field('Enabled image filters <span class="oc-hint">(available choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
       case 'mask':
         return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
       case 'appearance':
