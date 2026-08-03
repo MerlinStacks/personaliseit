@@ -308,6 +308,9 @@ const uploadMethods = {
 				},
 			} );
 			uppy.on( 'file-added', ( file ) => {
+				uppy.getPlugin( 'XHRUpload' )?.setOptions( {
+					endpoint: this.uploadEndpoint( uploadUrl, lid ),
+				} );
 				fileGenerations.set( file.id, activeGeneration );
 				fileOperations.set(
 					file.id,

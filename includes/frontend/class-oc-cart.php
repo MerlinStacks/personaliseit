@@ -673,12 +673,12 @@ class OC_Cart {
 			}
 			$attachment_context_layer_id = absint( $source['_oc_link_source_layer_id'] ?? $layer_id );
 			if ( $attachment_id && $attachment_id !== $default_attachment
-				&& ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
+				&& ! self::attachment_is_accepted_for_submission( $attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The uploaded artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 			if ( $source_attachment_id && $source_attachment_id !== $default_attachment
-				&& ! OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
+				&& ! self::attachment_is_accepted_for_submission( $source_attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
@@ -757,6 +757,27 @@ class OC_Cart {
 		return $normalised ? [ 'design' => $design, 'layers' => $normalised ] : new \WP_Error( 'invalid_design', __( 'Design has no valid layers.', 'overcustomise' ) );
 	}
 
+	/** Recover artwork uploaded immediately before WooCommerce finalised a variation selection. */
+	private static function attachment_is_accepted_for_submission( int $attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $upload_token ): bool {
+		if ( OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $upload_token ) ) {
+			return true;
+		}
+
+		$primary = OC_Upload_Handler::attachment_primary_context( $attachment_id );
+		if ( null === $primary
+			|| $primary[0] !== $product_id
+			|| $primary[2] !== $design_id
+			|| $primary[3] !== $layer_id
+			|| ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, ...array_merge( $primary, [ $upload_token ] ) )
+		) {
+			return false;
+		}
+
+		$target = [ $product_id, $variation_id, $design_id, $layer_id ];
+		return OC_Upload_Handler::authorise_attachment_context( $attachment_id, $target )
+			&& OC_Upload_Handler::attachment_is_accepted( $attachment_id, ...array_merge( $target, [ $upload_token ] ) );
+	}
+
 	/** Retain browser-resolved textarea wrapping only when it contains the submitted text unchanged. */
 	private static function normalise_rendered_text_lines( mixed $raw_lines, string $value ): ?array {
 		if ( ! is_array( $raw_lines ) || empty( $raw_lines ) || count( $raw_lines ) > 200 ) {
@@ -810,9 +831,12 @@ class OC_Cart {
 				continue;
 			}
 			$context_layer_id = absint( $source_data['artworkContextLayerId'] ?? 0 );
+			$attachment_id    = absint( $source_data['attachmentId'] ?? $source_data['sourceAttachmentId'] ?? 0 );
+			$primary_context  = $attachment_id ? OC_Upload_Handler::attachment_primary_context( $attachment_id ) : null;
+			$primary_layer_id = is_array( $primary_context ) ? absint( $primary_context[3] ?? 0 ) : 0;
 			$source_data['_oc_link_source_layer_id'] = in_array( $context_layer_id, $layer_ids, true )
 				? $context_layer_id
-				: $source_id;
+				: ( in_array( $primary_layer_id, $layer_ids, true ) ? $primary_layer_id : $source_id );
 			foreach ( $layer_ids as $layer_id ) {
 				$rendered_lines = $raw_layers[ $layer_id ]['renderedLines'] ?? null;
 				$raw_layers[ $layer_id ] = $source_data;

@@ -473,6 +473,33 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$input['artworkContextLayerId'] = 999;
 		$result = $method->invoke( null, $layers, [ 11 => $input, 22 => $input ] );
 		$this->assertSame( 11, $result[11]['_oc_link_source_layer_id'] );
+
+		$attachment_id = $this->create_artwork_attachment( [ $this->product->get_id(), 0, 101, 22 ] );
+		$legacy_input  = [ 'attachmentId' => $attachment_id ];
+		$result = $method->invoke( null, $layers, [ 11 => $legacy_input, 22 => $legacy_input ] );
+		$this->assertSame( 22, $result[11]['_oc_link_source_layer_id'] );
+	}
+
+	#[Test]
+	public function artwork_from_a_stale_variation_context_is_authorised_for_submission(): void {
+		$user_id       = self::factory()->user->create();
+		$product_id    = $this->product->get_id();
+		$design_id     = 101;
+		$layer_id      = 202;
+		$attachment_id = $this->create_artwork_attachment( [ $product_id, 0, $design_id, $layer_id ] );
+		update_post_meta( $attachment_id, '_oc_artwork_user_id', $user_id );
+		wp_set_current_user( $user_id );
+
+		try {
+			$method = new ReflectionMethod( OC_Cart::class, 'attachment_is_accepted_for_submission' );
+			$this->assertTrue( $method->invoke( null, $attachment_id, $product_id, 303, $design_id, $layer_id, '' ) );
+			$this->assertTrue( OC_Upload_Handler::attachment_context_is_authorised(
+				$attachment_id,
+				[ $product_id, 303, $design_id, $layer_id ]
+			) );
+		} finally {
+			wp_set_current_user( 0 );
+		}
 	}
 
 	#[Test]
