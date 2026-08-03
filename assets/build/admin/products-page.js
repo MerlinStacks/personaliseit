@@ -2957,6 +2957,8 @@ function createLayerPreviewRenderer(deps) {
           if (el._ocTextPreviewCanvas !== preview) {
             return;
           }
+          // The first render may have cached fallback-font measurements.
+          fabric__WEBPACK_IMPORTED_MODULE_0__.cache.clearFontCache(font.name);
           preview.dispose();
           el.querySelectorAll('.oc-lp').forEach(c => c.remove());
           render();

@@ -1,6 +1,6 @@
 /* eslint-disable no-nested-ternary */
 
-import { FabricText, StaticCanvas, Textbox } from 'fabric';
+import { cache, FabricText, StaticCanvas, Textbox } from 'fabric';
 
 export function createLayerPreviewRenderer( deps ) {
 	const { fontLimit, layerLabel, normaliseHex } = deps;
@@ -286,6 +286,8 @@ export function createLayerPreviewRenderer( deps ) {
 						if ( el._ocTextPreviewCanvas !== preview ) {
 							return;
 						}
+						// The first render may have cached fallback-font measurements.
+						cache.clearFontCache( font.name );
 						preview.dispose();
 						el.querySelectorAll( '.oc-lp' ).forEach( ( c ) =>
 							c.remove()

@@ -2441,8 +2441,8 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		$line_h = self::cell_h( $font_size );
-		$total_h = min( $h_mm, count( $lines ) * $line_h );
+		$line_h = min( self::cell_h( $font_size ), $h_mm / count( $lines ) );
+		$total_h = count( $lines ) * $line_h;
 		$offset_y = match ( $valign ) {
 			'T' => 0.0,
 			'B' => max( 0.0, $h_mm - $total_h ),

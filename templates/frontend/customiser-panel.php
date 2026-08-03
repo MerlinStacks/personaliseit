@@ -355,14 +355,22 @@ foreach ( $layers as $layer ) {
 										<?php if ( ! empty( $available_filters ) ) : ?>
 											<div class="oc-control-group oc-control-group--side-label" style="margin-top:10px;">
 												<label for="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></label>
-												<select id="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>" data-oc-layer-image-filter="<?php echo esc_attr( $layer->id ); ?>">
+											<select id="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>" data-oc-layer-image-filter="<?php echo esc_attr( $layer->id ); ?>">
 													<option value="0" <?php selected( $default_image_filter_id, 0 ); ?>><?php esc_html_e( 'Original', 'overcustomise' ); ?></option>
 													<?php foreach ( $available_filters as $filter ) : ?>
 														<option value="<?php echo esc_attr( (int) $filter->id ); ?>" <?php selected( $default_image_filter_id, (int) $filter->id ); ?>><?php echo esc_html( $filter->name ); ?></option>
 													<?php endforeach; ?>
-												</select>
+											</select>
+										</div>
+										<div class="oc-image-filter-results" data-oc-image-filter-results="<?php echo esc_attr( $layer->id ); ?>" hidden>
+											<div class="oc-image-filter-results__header">
+												<strong><?php esc_html_e( 'Choose your result', 'overcustomise' ); ?></strong>
+												<span data-oc-image-filter-remaining></span>
 											</div>
-										<?php endif; ?>
+											<div class="oc-image-filter-results__grid" data-oc-image-filter-result-grid></div>
+											<button type="button" class="oc-image-filter-retry" data-oc-image-filter-retry="<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Try another result', 'overcustomise' ); ?></button>
+										</div>
+									<?php endif; ?>
 									<?php endif; ?>
 									<?php if ( 'image' === $layer->type && $enable_image_colour && ! $is_engraving && $allow_colour_change && ! empty( $image_filter_ids ) ) : ?>
 										<div class="oc-control-group" style="margin-top:10px;">

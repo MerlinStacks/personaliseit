@@ -555,6 +555,9 @@ class OC_Upload_Handler {
 			if ( ! $ownership_ok ) {
 				throw new \RuntimeException( __( 'Artwork ownership could not be recorded.', 'overcustomise' ) );
 			}
+			if ( '' === self::attachment_fingerprint( $attachment_id ) ) {
+				throw new \RuntimeException( __( 'Artwork fingerprint could not be recorded.', 'overcustomise' ) );
+			}
 
 			$result['preview_url']  = self::attachment_access_url( $preview_id );
 			$result['original_url'] = self::attachment_access_url( $attachment_id );
@@ -629,6 +632,8 @@ class OC_Upload_Handler {
 		$provenance_ok = update_post_meta( $attachment_id, '_oc_ai_filter', 1 )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_source_id', absint( $provenance['source_attachment_id'] ?? 0 ) )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_id', absint( $provenance['filter_id'] ?? 0 ) )
+			&& update_post_meta( $attachment_id, '_oc_ai_filter_attempt', absint( $provenance['attempt'] ?? 0 ) )
+			&& update_post_meta( $attachment_id, '_oc_ai_filter_group', sanitize_key( (string) ( $provenance['group'] ?? '' ) ) )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_model', sanitize_text_field( (string) ( $provenance['model'] ?? '' ) ) );
 		if ( ! $provenance_ok ) {
 			wp_delete_attachment( $attachment_id, true );
@@ -867,6 +872,29 @@ class OC_Upload_Handler {
 		} catch ( \RuntimeException $e ) {
 			return false;
 		}
+	}
+
+	/** Return a stable SHA-256 fingerprint for an artwork attachment. */
+	public static function attachment_fingerprint( int $attachment_id ): string {
+		$stored = strtolower( trim( (string) get_post_meta( $attachment_id, '_oc_artwork_fingerprint', true ) ) );
+		if ( preg_match( '/^[a-f0-9]{64}$/D', $stored ) ) {
+			return $stored;
+		}
+
+		$path = get_attached_file( $attachment_id );
+		if ( ! is_string( $path ) || ! is_file( $path ) ) {
+			return '';
+		}
+		$fingerprint = hash_file( 'sha256', $path );
+		if ( ! is_string( $fingerprint ) || ! preg_match( '/^[a-f0-9]{64}$/D', $fingerprint ) ) {
+			return '';
+		}
+		if ( 1 === (int) get_post_meta( $attachment_id, '_oc_artwork', true )
+			&& ! update_post_meta( $attachment_id, '_oc_artwork_fingerprint', $fingerprint )
+		) {
+			return '';
+		}
+		return $fingerprint;
 	}
 
 	/** Admin-configured defaults are immutable and need validity, not customer ownership. */

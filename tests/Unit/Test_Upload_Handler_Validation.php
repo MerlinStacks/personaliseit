@@ -105,6 +105,19 @@ class Test_Upload_Handler_Validation extends TestCase {
 		}
 	}
 
+	#[Test]
+	public function artwork_fingerprint_is_stable_for_duplicate_uploads(): void {
+		$this->create_test_artwork( 901 );
+		$this->create_test_artwork( 902 );
+
+		$first  = OC_Upload_Handler::attachment_fingerprint( 901 );
+		$second = OC_Upload_Handler::attachment_fingerprint( 902 );
+
+		$this->assertMatchesRegularExpression( '/^[a-f0-9]{64}$/', $first );
+		$this->assertSame( $first, $second );
+		$this->assertSame( $first, $GLOBALS['oc_test_post_meta'][901]['_oc_artwork_fingerprint'] );
+	}
+
 	// ── NONCE_ACTION constant ─────────────────────────────────────────────
 
 	#[Test]

@@ -93,6 +93,11 @@ class OC_Admin_Customer_Uploads {
 		$total_size = self::get_total_size();
 		$page_start = $total > 0 ? ( ( $paged - 1 ) * $per_page ) + 1 : 0;
 		$page_end   = min( $total, $paged * $per_page );
+		$designs   = self::design_map_for_uploads( $query->posts );
+		$filters   = [];
+		foreach ( OC_DB::get_image_filters( false ) as $filter ) {
+			$filters[ (int) $filter->id ] = $filter;
+		}
 		?>
 		<div class="wrap oc-page">
 			<?php $this->render_action_notice(); ?>
@@ -150,7 +155,7 @@ class OC_Admin_Customer_Uploads {
 				<?php else : ?>
 					<div class="oc-customer-upload-grid">
 						<?php foreach ( $query->posts as $attachment ) : ?>
-							<?php $this->render_upload_card( $attachment ); ?>
+							<?php $this->render_upload_card( $attachment, $designs, $filters ); ?>
 						<?php endforeach; ?>
 					</div>
 					<?php $this->render_pagination( $paged, (int) $query->max_num_pages ); ?>
@@ -258,7 +263,7 @@ class OC_Admin_Customer_Uploads {
 	}
 
 	/** Render one upload card. */
-	private function render_upload_card( WP_Post $attachment ): void {
+	private function render_upload_card( WP_Post $attachment, array $designs, array $filters ): void {
 		$id       = (int) $attachment->ID;
 		$url      = OC_Upload_Handler::attachment_access_url( $id );
 		$download_url = OC_Upload_Handler::attachment_access_url( $id, true );
@@ -269,6 +274,15 @@ class OC_Admin_Customer_Uploads {
 		$preview_id  = absint( get_post_meta( $id, '_oc_print_derivative_attachment_id', true ) );
 		$preview_url = OC_Upload_Handler::attachment_access_url( $preview_id ?: $id );
 		$thumb       = '';
+		$context     = array_values( array_map( 'absint', (array) get_post_meta( $id, '_oc_artwork_context', true ) ) );
+		$design_id   = $context[2] ?? 0;
+		$design      = $designs[ $design_id ] ?? null;
+		$is_ai       = 1 === (int) get_post_meta( $id, '_oc_ai_filter', true );
+		$filter_id   = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_id', true ) ) : 0;
+		$filter      = $filters[ $filter_id ] ?? null;
+		$attempt     = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_attempt', true ) ) : 0;
+		$source_id   = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_source_id', true ) ) : 0;
+		$source_url  = $source_id ? OC_Upload_Handler::attachment_access_url( $source_id ) : '';
 		if ( $preview_url && ( $preview_id || str_starts_with( (string) $mime, 'image/' ) ) ) {
 			$thumb = sprintf( '<img src="%s" alt="" loading="lazy" />', esc_url( $preview_url ) );
 		}
@@ -280,7 +294,7 @@ class OC_Admin_Customer_Uploads {
 					<span class="screen-reader-text"><?php echo esc_html( sprintf( __( 'Select %s', 'overcustomise' ), $filename ) ); ?></span>
 				</label>
 				<?php echo $thumb ?: '<span>' . esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) . '</span>'; ?>
-				<span class="oc-customer-upload-type"><?php echo esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ); ?></span>
+				<span class="oc-customer-upload-type"><?php echo esc_html( $is_ai ? __( 'AI result', 'overcustomise' ) : __( 'Original', 'overcustomise' ) ); ?></span>
 			</div>
 			<div class="oc-customer-upload-body">
 				<strong title="<?php echo esc_attr( $filename ); ?>"><?php echo esc_html( $filename ); ?></strong>
@@ -289,6 +303,40 @@ class OC_Admin_Customer_Uploads {
 					<span><?php echo esc_html( get_the_date( '', $id ) ); ?></span>
 				</div>
 				<p><?php echo esc_html( $mime ?: __( 'Unknown type', 'overcustomise' ) ); ?></p>
+				<div class="oc-customer-upload-context">
+					<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Design', 'overcustomise' ); ?></span>
+					<?php if ( $design ) : ?>
+						<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=edit&id=' . $design_id ) ); ?>">
+							<?php echo esc_html( ( $design->name ?: __( 'Untitled design', 'overcustomise' ) ) . ' (#' . $design_id . ')' ); ?>
+						</a>
+					<?php elseif ( $design_id ) : ?>
+						<span><?php echo esc_html( sprintf( __( 'Deleted design (#%d)', 'overcustomise' ), $design_id ) ); ?></span>
+					<?php else : ?>
+						<span><?php esc_html_e( 'Unknown', 'overcustomise' ); ?></span>
+					<?php endif; ?>
+					<?php if ( $is_ai ) : ?>
+						<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Filter result', 'overcustomise' ); ?></span>
+						<span>
+							<?php
+							echo esc_html(
+								sprintf(
+									/* translators: 1: filter name, 2: attempt number, 3: maximum attempts. */
+									__( '%1$s, attempt %2$d of %3$d', 'overcustomise' ),
+									$filter ? $filter->name : __( 'Deleted filter', 'overcustomise' ),
+									$attempt,
+									3
+								)
+							);
+							?>
+						</span>
+						<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Source', 'overcustomise' ); ?></span>
+						<?php if ( $source_url ) : ?>
+							<a href="<?php echo esc_url( $source_url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( sprintf( __( 'Upload #%d', 'overcustomise' ), $source_id ) ); ?></a>
+						<?php else : ?>
+							<span><?php echo esc_html( sprintf( __( 'Upload #%d', 'overcustomise' ), $source_id ) ); ?></span>
+						<?php endif; ?>
+					<?php endif; ?>
+				</div>
 				<div class="oc-customer-upload-actions">
 					<?php if ( $url ) : ?>
 						<a class="oc-btn oc-btn-secondary oc-btn-sm" href="<?php echo esc_url( $url ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'View', 'overcustomise' ); ?></a>
@@ -304,6 +352,36 @@ class OC_Admin_Customer_Uploads {
 			</div>
 		</div>
 		<?php
+	}
+
+	/** Load the designs referenced by the attachments on the current page. */
+	private static function design_map_for_uploads( array $attachments ): array {
+		$ids = [];
+		foreach ( $attachments as $attachment ) {
+			if ( ! $attachment instanceof WP_Post ) {
+				continue;
+			}
+			$context = array_values( array_map( 'absint', (array) get_post_meta( $attachment->ID, '_oc_artwork_context', true ) ) );
+			if ( ! empty( $context[2] ) ) {
+				$ids[] = $context[2];
+			}
+		}
+		$ids = array_values( array_unique( $ids ) );
+		if ( empty( $ids ) ) {
+			return [];
+		}
+
+		global $wpdb;
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, name FROM {$wpdb->prefix}oc_designs WHERE id IN ($placeholders)", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			...$ids
+		) ) ?: [];
+		$map = [];
+		foreach ( $rows as $row ) {
+			$map[ (int) $row->id ] = $row;
+		}
+		return $map;
 	}
 
 	/** Render pagination links. */

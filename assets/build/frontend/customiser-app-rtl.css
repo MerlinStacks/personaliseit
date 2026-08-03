@@ -20,7 +20,10 @@
 /* stylelint-disable no-descending-specificity */
 /* stylelint-disable scss/at-extend-no-missing-placeholder */
 .oc-customiser-panel {
-  --oc-accent: var(--wp--preset--color--primary, var(--wp-admin-theme-color, currentColor));
+  --oc-accent: var(
+  	--wp--preset--color--primary,
+  	var(--wp-admin-theme-color, currentColor)
+  );
   --oc-accent-ink: var(--wp--preset--color--base, #fff);
   --oc-fg: currentcolor;
   --oc-fg-muted: color-mix(in srgb, currentcolor 60%, transparent);
@@ -853,6 +856,70 @@
   top: var(--oc-gap-xs);
   left: var(--oc-gap-xs);
   z-index: 3;
+}
+.oc-customiser-panel .oc-image-filter-results {
+  padding: 10px;
+  border: 1px solid var(--oc-border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--oc-surface) 78%, transparent);
+}
+.oc-customiser-panel .oc-image-filter-results__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+}
+.oc-customiser-panel .oc-image-filter-results__header span {
+  color: var(--oc-fg-muted);
+}
+.oc-customiser-panel .oc-image-filter-results__grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+}
+.oc-customiser-panel .oc-image-filter-result {
+  display: grid;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--oc-border);
+  border-radius: 8px;
+  background: var(--oc-surface);
+  color: var(--oc-fg);
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+.oc-customiser-panel .oc-image-filter-result img {
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  object-fit: cover;
+}
+.oc-customiser-panel .oc-image-filter-result[aria-pressed=true] {
+  border-color: var(--oc-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--oc-accent) 24%, transparent);
+}
+.oc-customiser-panel .oc-image-filter-result:focus-visible {
+  outline: 2px solid var(--oc-accent);
+  outline-offset: 2px;
+}
+.oc-customiser-panel .oc-image-filter-retry {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--oc-border-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--oc-fg);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.oc-customiser-panel .oc-image-filter-retry:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
 }
 .oc-customiser-panel .oc-upload-zone .uppy-DragDrop-container {
   border-radius: 8px;

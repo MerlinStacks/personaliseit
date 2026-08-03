@@ -316,7 +316,10 @@ const canvasRendererMethods = {
 			canvas._ocRenderErrors = [];
 			[ ...canvas.getObjects() ]
 				.filter( ( o ) => o._ocContent === true )
-				.forEach( ( o ) => canvas.remove( o ) );
+				.forEach( ( object ) => {
+					canvas.remove( object );
+					object.dispose?.();
+				} );
 
 			const groupIndexes =
 				options.renderGroup === false

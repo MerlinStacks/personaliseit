@@ -29,19 +29,14 @@
 	--oc-radius: 8px;
 	--oc-radius-sm: 4px;
 	--oc-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
-	--oc-shadow-md:
-		0 4px 6px -1px rgb(0 0 0 / 0.1),
+	--oc-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1),
 		0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
 /* ── Page wrapper ──────────────────────────────────────────────────────── */
 .oc-page {
 	max-width: 1200px;
-	font-family:
-		-apple-system,
-		BlinkMacSystemFont,
-		"Segoe UI",
-		Roboto,
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
 		sans-serif;
 }
 
@@ -307,14 +302,12 @@
 }
 
 @media (max-width: 900px) {
-
 	.oc-queue-stats {
 		grid-template-columns: repeat(2, minmax(0, 1fr));
 	}
 }
 
 @media (max-width: 600px) {
-
 	.oc-queue-stats {
 		grid-template-columns: 1fr;
 	}
@@ -322,8 +315,11 @@
 
 /* ── Customer uploads ──────────────────────────────────────────────────── */
 .oc-customer-upload-hero {
-	background:
-		radial-gradient(circle at top left, rgba(79, 70, 229, 0.16), transparent 32%),
+	background: radial-gradient(
+			circle at top left,
+			rgba(79, 70, 229, 0.16),
+			transparent 32%
+		),
 		linear-gradient(135deg, #fff 0%, #f8fafc 62%, #eef2ff 100%);
 	border: 1px solid var(--oc-gray-200);
 	border-radius: 18px;
@@ -455,8 +451,11 @@
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background:
-		linear-gradient(45deg, rgba(148, 163, 184, 0.1) 25%, transparent 25%),
+	background: linear-gradient(
+			45deg,
+			rgba(148, 163, 184, 0.1) 25%,
+			transparent 25%
+		),
 		linear-gradient(-45deg, rgba(148, 163, 184, 0.1) 25%, transparent 25%),
 		linear-gradient(45deg, transparent 75%, rgba(148, 163, 184, 0.1) 75%),
 		linear-gradient(-45deg, transparent 75%, rgba(148, 163, 184, 0.1) 75%),
@@ -544,6 +543,28 @@
 	white-space: nowrap;
 }
 
+.oc-customer-upload-context {
+	display: grid;
+	grid-template-columns: auto minmax(0, 1fr);
+	gap: 5px 9px;
+	margin-top: 11px;
+	padding-top: 10px;
+	border-top: 1px solid var(--oc-gray-100);
+	font-size: 12px;
+	line-height: 1.35;
+}
+
+.oc-customer-upload-context__label {
+	font-weight: 700;
+	color: var(--oc-gray-600);
+}
+
+.oc-customer-upload-context a,
+.oc-customer-upload-context > span:not(.oc-customer-upload-context__label) {
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
 .oc-customer-upload-meta {
 	display: flex;
 	justify-content: space-between;
@@ -561,7 +582,6 @@
 }
 
 @media (max-width: 900px) {
-
 	.oc-customer-upload-stats {
 		grid-template-columns: 1fr 1fr;
 	}
@@ -572,7 +592,6 @@
 }
 
 @media (max-width: 600px) {
-
 	.oc-customer-upload-hero {
 		padding: 18px;
 	}
@@ -1594,7 +1613,6 @@
 }
 
 @keyframes oc-fade-in {
-
 	from {
 		opacity: 0;
 	}
@@ -1618,7 +1636,6 @@
 }
 
 @keyframes oc-modal-in {
-
 	from {
 		opacity: 0;
 		transform: scale(0.96) translateY(8px);
@@ -2576,8 +2593,7 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 .oc-mockup-thumb {
 	width: 100%;
 	aspect-ratio: 4/3;
-	background:
-		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
 		12px 12px;
 	border: 1px solid var(--oc-gray-200);
 	border-radius: var(--oc-radius-sm);
@@ -3400,7 +3416,6 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 
 @keyframes oc-products-loading-spin {
-
 	to {
 		transform: rotate(360deg);
 	}
@@ -3418,7 +3433,6 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 
 @media (max-width: 782px) {
-
 	.oc-products-page {
 		margin-right: 10px;
 	}
@@ -3590,8 +3604,7 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background:
-		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
 		16px 16px;
 	padding: 12px;
 }
@@ -3645,8 +3658,7 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	display: flex;
 	align-items: center;
 	justify-content: center;
-	background:
-		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
 		16px 16px;
 	border-radius: var(--oc-radius);
 	min-height: 160px;
@@ -3681,8 +3693,7 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	align-items: center;
 	justify-content: center;
 	border-radius: 4px;
-	background:
-		repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
 		8px 8px;
 	border: 1px solid var(--oc-gray-200);
 	overflow: hidden;
@@ -3955,7 +3966,6 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 
 @media (max-width: 1100px) {
-
 	.oc-design-editor-topbar,
 	.oc-design-editor-topbar > div:last-child {
 		flex-wrap: wrap;
@@ -4002,7 +4012,6 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 
 @media (max-width: 1080px) {
-
 	.oc-settings-layout {
 		grid-template-columns: 1fr;
 	}
@@ -4022,7 +4031,6 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 }
 
 @media (max-width: 782px) {
-
 	.oc-design-editor-topbar {
 		align-items: flex-start;
 	}

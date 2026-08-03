@@ -22,6 +22,7 @@ class OC_Rest_API {
 	private const MAX_PREVIEW_BYTES = 10485760;
 	private const MAX_AI_RESULT_BYTES = 15728640;
 	private const MAX_AI_PROMPT_BYTES = 16384;
+	private const MAX_AI_FILTER_ATTEMPTS = 3;
 	private const SPOTIFY_RESPONSE_BYTES = 524288;
 	private const SPOTIFY_VALID_CACHE_TTL = 43200;
 	private const SPOTIFY_INVALID_CACHE_TTL = 3600;
@@ -1608,6 +1609,19 @@ class OC_Rest_API {
 		$actor = is_user_logged_in()
 			? 'user:' . get_current_user_id()
 			: (string) $token_state['binding_type'] . ':' . (string) $token_state['binding_hash'];
+		$fingerprint = OC_Upload_Handler::attachment_fingerprint( $source_attachment_id );
+		if ( '' === $fingerprint ) {
+			return new \WP_Error( 'invalid_attachment', __( 'The source image could not be identified.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$group = hash( 'sha256', implode( '|', [
+			$actor, $fingerprint, $product_id, $variation_id, $design_id, $layer_id, $filter_id,
+		] ) );
+		$attempt_key = 'oc_ai_filter_attempt_' . $group;
+		$results = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
+		if ( ! empty( $body['list_only'] ) ) {
+			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
+			return rest_ensure_response( self::image_filter_result_payload( $results, $attempt_count ) );
+		}
 		$quota_specs = self::ai_quota_specs( $actor );
 		if ( is_wp_error( $quota_specs ) ) {
 			return $quota_specs;
@@ -1617,13 +1631,22 @@ class OC_Rest_API {
 			return $storage_specs;
 		}
 
-		$lock_key   = 'oc_ai_filter_lock_' . hash( 'sha256', $actor . '|' . $source_attachment_id . '|' . $filter_id );
+		$lock_key   = 'oc_ai_filter_lock_' . $group;
 		$lock_owner = self::acquire_option_lock( $lock_key, self::AI_LOCK_TTL );
 		if ( is_wp_error( $lock_owner ) ) {
 			return new \WP_Error( 'ai_filter_in_progress', __( 'This image effect is already being applied.', 'overcustomise' ), [ 'status' => 409 ] );
 		}
 
 		try {
+			$results       = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
+			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
+			if ( $attempt_count >= self::MAX_AI_FILTER_ATTEMPTS ) {
+				return new \WP_Error(
+					'ai_filter_attempt_limit',
+					__( 'You have used both retries for this image effect.', 'overcustomise' ),
+					array_merge( [ 'status' => 429 ], self::image_filter_result_payload( $results, $attempt_count ) )
+				);
+			}
 			$storage_reservation = self::reserve_budgets( $storage_specs );
 			if ( is_wp_error( $storage_reservation ) ) {
 				return $storage_reservation;
@@ -1632,6 +1655,13 @@ class OC_Rest_API {
 			if ( is_wp_error( $quota_reservation ) ) {
 				self::release_budget_reservation( $storage_reservation );
 				return $quota_reservation;
+			}
+			$attempt = $attempt_count + 1;
+			$retention_days = max( 1, (int) OC_Admin_Settings::get( 'artwork_retention_days' ) ?: 90 );
+			if ( ! set_transient( $attempt_key, $attempt, $retention_days * DAY_IN_SECONDS ) ) {
+				self::release_budget_reservation( $storage_reservation );
+				self::release_budget_reservation( $quota_reservation );
+				return new \WP_Error( 'ai_attempt_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 			}
 
 			try {
@@ -1663,7 +1693,10 @@ class OC_Rest_API {
 						'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id,
 						'layer_id' => $layer_id, 'token_hash' => $token ? hash( 'sha256', $token ) : '',
 					],
-					[ 'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id, 'model' => (string) ( $generated['model'] ?? $model ) ],
+					[
+						'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id,
+						'attempt' => $attempt, 'group' => $group, 'model' => (string) ( $generated['model'] ?? $model ),
+					],
 					! empty( $filter->remove_background )
 				);
 			} catch ( \Throwable $e ) {
@@ -1694,10 +1727,65 @@ class OC_Rest_API {
 
 			$result['source_attachment_id'] = $source_attachment_id;
 			$result['filter_id']            = $filter_id;
+			$result['attempt']              = $attempt;
+			$result['attempt_limit']        = self::MAX_AI_FILTER_ATTEMPTS;
+			$result['retries_remaining']    = self::MAX_AI_FILTER_ATTEMPTS - $attempt;
 			return rest_ensure_response( $result );
 		} finally {
 			self::delete_owned_option( $lock_key, (string) $lock_owner );
 		}
+	}
+
+	/** Return authorised generated results belonging to one source/filter group. */
+	private static function image_filter_results( string $group, int $_source_attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token ): array {
+		$ids = get_posts( [
+			'post_type'      => 'attachment',
+			'post_status'    => [ 'private', 'inherit' ],
+			'posts_per_page' => self::MAX_AI_FILTER_ATTEMPTS,
+			'fields'         => 'ids',
+			'orderby'        => 'ID',
+			'order'          => 'ASC',
+			'meta_key'       => '_oc_ai_filter_group',
+			'meta_value'     => $group,
+		] );
+		$results = [];
+		foreach ( array_map( 'absint', is_array( $ids ) ? $ids : [] ) as $attachment_id ) {
+			if ( ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token )
+			) {
+				continue;
+			}
+			$result_source_id  = absint( get_post_meta( $attachment_id, '_oc_ai_filter_source_id', true ) );
+			$result_source_url = OC_Upload_Handler::attachment_access_url( $result_source_id );
+			$url               = OC_Upload_Handler::attachment_access_url( $attachment_id );
+			if ( ! $result_source_id || '' === $result_source_url || '' === $url ) {
+				continue;
+			}
+			$results[] = [
+				'attachment_id'        => $attachment_id,
+				'preview_url'          => $url,
+				'original_url'         => $url,
+				'file_type'            => sanitize_key( (string) get_post_meta( $attachment_id, '_oc_artwork_type', true ) ),
+				'attempt'              => absint( get_post_meta( $attachment_id, '_oc_ai_filter_attempt', true ) ),
+				'source_attachment_id' => $result_source_id,
+				'source_preview_url'   => $result_source_url,
+			];
+		}
+		usort( $results, static fn ( array $a, array $b ): int => $a['attempt'] <=> $b['attempt'] );
+		return $results;
+	}
+
+	/** Add attempt limits to a generated-result collection. */
+	private static function image_filter_result_payload( array $results, int $attempt_count = 0 ): array {
+		$attempts = 0;
+		foreach ( $results as $result ) {
+			$attempts = max( $attempts, absint( $result['attempt'] ?? 0 ) );
+		}
+		$attempts = max( $attempts, $attempt_count );
+		return [
+			'results'           => $results,
+			'attempt_limit'     => self::MAX_AI_FILTER_ATTEMPTS,
+			'retries_remaining' => max( 0, self::MAX_AI_FILTER_ATTEMPTS - $attempts ),
+		];
 	}
 
 	/** Acquire an expiring DB option lock without deleting another request's lock. */

@@ -257,12 +257,12 @@ const uploadMethods = {
 			const globalFormats = Array.isArray( this.data.allowedFormats )
 				? this.data.allowedFormats
 				: [];
-			const normalisedGlobalFormats = normaliseUploadFormats( globalFormats );
+			const normalisedGlobalFormats =
+				normaliseUploadFormats( globalFormats );
 			const effective = layerFormats.length
-				? normaliseUploadFormats( layerFormats )
-						.filter( ( ext ) =>
-							normalisedGlobalFormats.includes( ext )
-						)
+				? normaliseUploadFormats( layerFormats ).filter( ( ext ) =>
+						normalisedGlobalFormats.includes( ext )
+				  )
 				: normalisedGlobalFormats;
 			const allowedExt = [ ...new Set( effective ) ].map(
 				( ext ) => `.${ ext }`
@@ -434,6 +434,18 @@ const uploadMethods = {
 					sourceImageMeta: null,
 					imageCrop: 0,
 					customerUploaded: true,
+					baseAttachmentId: attachmentId,
+					baseAttachmentUrl: attachmentUrl,
+					baseOriginalAttachmentUrl: String(
+						res.body.original_url || attachmentUrl
+					),
+					baseArtworkFileType: artworkFileType,
+					basePreviewAttachmentId: Number(
+						res.body.preview_attachment_id || 0
+					),
+					baseImageMeta: null,
+					imageFilterResults: {},
+					imageFilterAttemptCount: {},
 				};
 				const meta = await this.getTrackedImageMeta(
 					attachmentUrl,
@@ -444,6 +456,7 @@ const uploadMethods = {
 				}
 				candidate.imageMeta = meta;
 				candidate.sourceImageMeta = meta;
+				candidate.baseImageMeta = meta;
 				const threshold = this.resolutionForLayer( lid );
 				const isVector = this.isVectorArtwork( candidate );
 				const belowThreshold =
@@ -552,7 +565,203 @@ const uploadMethods = {
 		} );
 	},
 
-	async applyAiImageFilter( layerId, filterId, zoneEl = null ) {
+	imageFilterRequestBody( layerId, filterId, sourceId ) {
+		return {
+			source_attachment_id: Number( sourceId ),
+			filter_id: Number( filterId ),
+			layer_id: Number( layerId ),
+			design_id: Number( this.data.designId || 0 ),
+			product_id: Number( this.data.productId || 0 ),
+			variation_id: this.currentVariationId(),
+		};
+	},
+
+	rememberBaseArtwork( input ) {
+		if ( Number( input.baseAttachmentId || 0 ) > 0 ) {
+			return;
+		}
+		input.baseAttachmentId = Number(
+			input.sourceAttachmentId || input.attachmentId || 0
+		);
+		input.baseAttachmentUrl =
+			input.sourceAttachmentUrl || input.attachmentUrl || '';
+		input.baseOriginalAttachmentUrl =
+			input.sourceOriginalAttachmentUrl ||
+			input.originalAttachmentUrl ||
+			input.baseAttachmentUrl;
+		input.baseArtworkFileType =
+			input.sourceArtworkFileType || input.artworkFileType || '';
+		input.basePreviewAttachmentId = Number(
+			input.sourcePreviewAttachmentId || input.previewAttachmentId || 0
+		);
+		input.baseImageMeta = input.sourceImageMeta || input.imageMeta || null;
+	},
+
+	async loadAiFilterResults( layerId, filterId, sourceId, signal ) {
+		const response = await fetch( this.data.applyImageFilterUrl, {
+			method: 'POST',
+			signal,
+			headers: this.restHeaders( { 'Content-Type': 'application/json' } ),
+			body: JSON.stringify( {
+				...this.imageFilterRequestBody( layerId, filterId, sourceId ),
+				list_only: true,
+			} ),
+		} );
+		const json = await response.json().catch( () => null );
+		if ( ! response.ok || ! Array.isArray( json?.results ) ) {
+			throw new Error(
+				json?.message ||
+					'Previous image effect results could not be loaded.'
+			);
+		}
+		return json;
+	},
+
+	async selectAiFilterResult( layerId, attachmentId ) {
+		const input = this.inputs[ layerId ];
+		if ( ! input ) {
+			return false;
+		}
+		this.rememberBaseArtwork( input );
+		if ( ! attachmentId ) {
+			this.restoreSourceArtwork(
+				input,
+				Number( input.baseAttachmentId || 0 ),
+				input.baseAttachmentUrl || ''
+			);
+		} else {
+			const results =
+				input.imageFilterResults?.[ input.imageFilterId ] || [];
+			const result = results.find(
+				( item ) =>
+					Number( item.attachment_id ) === Number( attachmentId )
+			);
+			if ( ! result ) {
+				return false;
+			}
+			input.attachmentId = Number( result.attachment_id );
+			input.attachmentUrl = String( result.preview_url || '' );
+			input.originalAttachmentUrl = String(
+				result.original_url || result.preview_url || ''
+			);
+			input.artworkFileType = String(
+				result.file_type || input.baseArtworkFileType || ''
+			).toLowerCase();
+			input.previewAttachmentId = 0;
+			input.sourceAttachmentId = Number(
+				result.source_attachment_id || input.baseAttachmentId || 0
+			);
+			input.sourceAttachmentUrl = String(
+				result.source_preview_url || input.baseAttachmentUrl || ''
+			);
+			input.sourceOriginalAttachmentUrl = input.sourceAttachmentUrl;
+			input.sourceArtworkFileType = input.baseArtworkFileType;
+			input.sourcePreviewAttachmentId = 0;
+			input.imageMeta = await this.getTrackedImageMeta(
+				input.attachmentUrl,
+				layerId
+			);
+		}
+		delete this.aiFilterErrors[ layerId ];
+		this.syncLinkedImageInput( layerId );
+		this.recordImageLinkGroupCarry( layerId );
+		this.renderAiFilterResults( layerId );
+		this.requestPreviewFocus();
+		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		this.updateHiddenField();
+		return true;
+	},
+
+	renderAiFilterResults( layerId ) {
+		const wrap = document.querySelector(
+			`[data-oc-image-filter-results="${ layerId }"]`
+		);
+		const input = this.inputs[ layerId ];
+		const filterId = Number( input?.imageFilterId || 0 );
+		const filter = ( this.data?.imageFilters || [] ).find(
+			( item ) => Number( item.id ) === filterId
+		);
+		if (
+			! wrap ||
+			! input ||
+			! filter?.isAi ||
+			! input.baseAttachmentUrl
+		) {
+			if ( wrap ) {
+				wrap.hidden = true;
+			}
+			return;
+		}
+		const results = input.imageFilterResults?.[ filterId ] || [];
+		const attempts = Math.max(
+			results.length,
+			Number( input.imageFilterAttemptCount?.[ filterId ] || 0 )
+		);
+		const remaining = Math.max( 0, 3 - attempts );
+		const grid = wrap.querySelector( '[data-oc-image-filter-result-grid]' );
+		const remainingEl = wrap.querySelector(
+			'[data-oc-image-filter-remaining]'
+		);
+		const retry = wrap.querySelector( '[data-oc-image-filter-retry]' );
+		const choices = [
+			{
+				attachment_id: 0,
+				preview_url: input.baseAttachmentUrl,
+				label: 'Original',
+			},
+			...results.map( ( result ) => ( {
+				...result,
+				label: `Result ${ Number( result.attempt || 0 ) }`,
+			} ) ),
+		];
+		grid?.replaceChildren(
+			...choices.map( ( result ) => {
+				const button = document.createElement( 'button' );
+				button.type = 'button';
+				button.className = 'oc-image-filter-result';
+				button.dataset.ocFilterResultChoice = String(
+					result.attachment_id
+				);
+				button.setAttribute(
+					'aria-pressed',
+					Number( input.attachmentId || 0 ) ===
+						Number( result.attachment_id ) ||
+						( ! result.attachment_id &&
+							Number( input.attachmentId || 0 ) ===
+								Number( input.baseAttachmentId || 0 ) )
+						? 'true'
+						: 'false'
+				);
+				const image = document.createElement( 'img' );
+				image.src = result.preview_url;
+				image.alt = '';
+				const label = document.createElement( 'span' );
+				label.textContent = result.label;
+				button.append( image, label );
+				return button;
+			} )
+		);
+		if ( remainingEl ) {
+			remainingEl.textContent = remaining
+				? `${ remaining } ${
+						remaining === 1 ? 'try' : 'tries'
+				  } remaining`
+				: 'No tries remaining';
+		}
+		if ( retry ) {
+			retry.disabled =
+				remaining <= 0 ||
+				Boolean( this.aiFilterAbortControllers[ layerId ] );
+		}
+		wrap.hidden = false;
+	},
+
+	async applyAiImageFilter(
+		layerId,
+		filterId,
+		zoneEl = null,
+		forceRetry = false
+	) {
 		const input = this.inputs[ layerId ];
 		if ( ! input ) {
 			return false;
@@ -562,11 +771,7 @@ const uploadMethods = {
 		const generation = this.aiFilterGenerations[ layerId ];
 		const designGeneration = this._designGeneration;
 		input.imageFilterId = filterId;
-		const sourceId = Number(
-			input.sourceAttachmentId || input.attachmentId || 0
-		);
-		const sourceUrl =
-			input.sourceAttachmentUrl || input.attachmentUrl || '';
+		this.rememberBaseArtwork( input );
 		const isCurrent = () =>
 			generation === this.aiFilterGenerations[ layerId ] &&
 			designGeneration === this._designGeneration &&
@@ -574,7 +779,7 @@ const uploadMethods = {
 			Number( input.imageFilterId || 0 ) === filterId &&
 			this._customisationActive;
 		if ( ! filterId ) {
-			this.restoreSourceArtwork( input, sourceId, sourceUrl );
+			await this.selectAiFilterResult( layerId, 0 );
 			delete this.aiFilterErrors[ layerId ];
 			this.syncLinkedImageInput( layerId );
 			this.recordImageLinkGroupCarry( layerId );
@@ -586,7 +791,7 @@ const uploadMethods = {
 			( item ) => Number( item.id ) === Number( filterId )
 		);
 		if ( ! filter?.isAi ) {
-			this.restoreSourceArtwork( input, sourceId, sourceUrl );
+			await this.selectAiFilterResult( layerId, 0 );
 			delete this.aiFilterErrors[ layerId ];
 			this.syncLinkedImageInput( layerId );
 			this.recordImageLinkGroupCarry( layerId );
@@ -594,6 +799,17 @@ const uploadMethods = {
 			this.updateHiddenField();
 			return true;
 		}
+		const sourceId = Number(
+			input.baseAttachmentId ||
+				input.sourceAttachmentId ||
+				input.attachmentId ||
+				0
+		);
+		const sourceUrl =
+			input.baseAttachmentUrl ||
+			input.sourceAttachmentUrl ||
+			input.attachmentUrl ||
+			'';
 		if ( ! sourceId || ! sourceUrl || ! this.data?.applyImageFilterUrl ) {
 			this.aiFilterErrors[ layerId ] =
 				'Upload an image before applying this filter.';
@@ -625,22 +841,37 @@ const uploadMethods = {
 			this.showUploadError( targetZone, '' );
 		}
 
-		const variationId = this.currentVariationId();
 		try {
+			const existing = await this.loadAiFilterResults(
+				layerId,
+				filterId,
+				sourceId,
+				controller.signal
+			);
+			if ( ! isCurrent() ) {
+				return false;
+			}
+			input.imageFilterResults = input.imageFilterResults || {};
+			input.imageFilterAttemptCount = input.imageFilterAttemptCount || {};
+			input.imageFilterResults[ filterId ] = existing.results;
+			input.imageFilterAttemptCount[ filterId ] =
+				3 - Number( existing.retries_remaining || 0 );
+			this.renderAiFilterResults( layerId );
+			if ( ! forceRetry && existing.results.length ) {
+				return await this.selectAiFilterResult(
+					layerId,
+					Number( existing.results.at( -1 ).attachment_id )
+				);
+			}
 			const response = await fetch( this.data.applyImageFilterUrl, {
 				method: 'POST',
 				signal: controller.signal,
 				headers: this.restHeaders( {
 					'Content-Type': 'application/json',
 				} ),
-				body: JSON.stringify( {
-					source_attachment_id: sourceId,
-					filter_id: Number( filterId ),
-					layer_id: Number( layerId ),
-					design_id: Number( this.data.designId || 0 ),
-					product_id: Number( this.data.productId || 0 ),
-					variation_id: variationId,
-				} ),
+				body: JSON.stringify(
+					this.imageFilterRequestBody( layerId, filterId, sourceId )
+				),
 			} );
 			const json = await response.json().catch( () => null );
 			if (
@@ -655,35 +886,28 @@ const uploadMethods = {
 			if ( ! isCurrent() ) {
 				return false;
 			}
-			const filteredAttachmentId = Number( json.attachment_id );
-			const filteredAttachmentUrl = String( json.preview_url );
-			const filteredArtworkFileType = String(
-				json.file_type || input.artworkFileType || ''
-			).toLowerCase();
-			const imageMeta = await this.getTrackedImageMeta(
-				filteredAttachmentUrl,
-				layerId
+			const result = {
+				...json,
+				source_attachment_id: Number(
+					json.source_attachment_id || sourceId
+				),
+				source_preview_url: sourceUrl,
+			};
+			input.imageFilterResults[ filterId ] = [
+				...existing.results.filter(
+					( item ) =>
+						Number( item.attachment_id ) !==
+						Number( result.attachment_id )
+				),
+				result,
+			];
+			input.imageFilterAttemptCount[ filterId ] = Number(
+				json.attempt || 0
 			);
-			if ( ! isCurrent() ) {
-				return false;
-			}
-			input.attachmentId = filteredAttachmentId;
-			input.attachmentUrl = filteredAttachmentUrl;
-			input.imageFilterId = Number( filterId );
-			input.artworkFileType = filteredArtworkFileType;
-			input.originalAttachmentUrl = String(
-				json.original_url || filteredAttachmentUrl
+			return await this.selectAiFilterResult(
+				layerId,
+				Number( result.attachment_id )
 			);
-			input.previewAttachmentId = Number(
-				json.preview_attachment_id || 0
-			);
-			input.imageMeta = imageMeta;
-			delete this.aiFilterErrors[ layerId ];
-			this.syncLinkedImageInput( layerId );
-			this.recordImageLinkGroupCarry( layerId );
-			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
-			this.updateHiddenField();
-			return true;
 		} catch ( error ) {
 			if ( ! isCurrent() ) {
 				return false;
@@ -708,6 +932,7 @@ const uploadMethods = {
 					this.setUploadProgress( targetZone, 0, '' );
 				}
 			}
+			this.renderAiFilterResults( layerId );
 		}
 	},
 
@@ -718,13 +943,26 @@ const uploadMethods = {
 		input.attachmentId = sourceId;
 		input.attachmentUrl = sourceUrl;
 		input.originalAttachmentUrl =
-			input.sourceOriginalAttachmentUrl || sourceUrl;
+			input.baseOriginalAttachmentUrl || sourceUrl;
 		input.artworkFileType =
-			input.sourceArtworkFileType || input.artworkFileType || '';
+			input.baseArtworkFileType ||
+			input.sourceArtworkFileType ||
+			input.artworkFileType ||
+			'';
 		input.previewAttachmentId = Number(
-			input.sourcePreviewAttachmentId || 0
+			input.basePreviewAttachmentId || 0
 		);
-		input.imageMeta = input.sourceImageMeta || input.imageMeta || null;
+		input.imageMeta =
+			input.baseImageMeta ||
+			input.sourceImageMeta ||
+			input.imageMeta ||
+			null;
+		input.sourceAttachmentId = sourceId;
+		input.sourceAttachmentUrl = sourceUrl;
+		input.sourceOriginalAttachmentUrl = input.originalAttachmentUrl;
+		input.sourceArtworkFileType = input.artworkFileType;
+		input.sourcePreviewAttachmentId = input.previewAttachmentId;
+		input.sourceImageMeta = input.imageMeta;
 	},
 
 	setUploadZoneState( zoneEl, state ) {

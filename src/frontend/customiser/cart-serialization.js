@@ -37,6 +37,16 @@ const cartSerializationMethods = {
 				}
 
 				if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+					[
+						'imageFilterResults',
+						'imageFilterAttemptCount',
+						'baseAttachmentId',
+						'baseAttachmentUrl',
+						'baseOriginalAttachmentUrl',
+						'baseArtworkFileType',
+						'basePreviewAttachmentId',
+						'baseImageMeta',
+					].forEach( ( key ) => delete input[ key ] );
 					const canonicalId = this.canonicalLinkedLayerId( layer.id );
 					const linkedMembers = this.linkedLayerMembers( layer.id );
 					if ( linkedMembers.length > 1 ) {

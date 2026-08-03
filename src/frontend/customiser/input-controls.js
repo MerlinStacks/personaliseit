@@ -16,6 +16,14 @@ const LINKED_IMAGE_INPUT_KEYS = [
 	'imageFilterId',
 	'imageCrop',
 	'customerUploaded',
+	'baseAttachmentId',
+	'baseAttachmentUrl',
+	'baseOriginalAttachmentUrl',
+	'baseArtworkFileType',
+	'basePreviewAttachmentId',
+	'baseImageMeta',
+	'imageFilterResults',
+	'imageFilterAttemptCount',
 ];
 
 const inputControlMethods = {
@@ -660,7 +668,9 @@ const inputControlMethods = {
 					?.addEventListener(
 						'click',
 						() => this.closeColourDialog( dialog ),
-						{ signal: stateSignal }
+						{
+							signal: stateSignal,
+						}
 					);
 				dialog.addEventListener(
 					'click',
@@ -787,6 +797,56 @@ const inputControlMethods = {
 					},
 					{ signal: stateSignal }
 				);
+			} );
+
+		document
+			.querySelectorAll( '[data-oc-image-filter-results]' )
+			.forEach( ( resultsEl ) => {
+				const lid = parseInt(
+					resultsEl.dataset.ocImageFilterResults,
+					10
+				);
+				resultsEl.addEventListener(
+					'click',
+					async ( event ) => {
+						const choice = event.target.closest(
+							'[data-oc-filter-result-choice]'
+						);
+						if ( ! choice || ! resultsEl.contains( choice ) ) {
+							return;
+						}
+						await this.selectAiFilterResult(
+							lid,
+							parseInt(
+								choice.dataset.ocFilterResultChoice,
+								10
+							) || 0
+						);
+					},
+					{ signal: stateSignal }
+				);
+				resultsEl
+					.querySelector( '[data-oc-image-filter-retry]' )
+					?.addEventListener(
+						'click',
+						async ( event ) => {
+							event.currentTarget.disabled = true;
+							try {
+								await this.applyAiImageFilter(
+									lid,
+									Number(
+										this.inputs[ lid ]?.imageFilterId || 0
+									),
+									null,
+									true
+								);
+							} finally {
+								this.renderAiFilterResults( lid );
+							}
+						},
+						{ signal: stateSignal }
+					);
+				this.renderAiFilterResults( lid );
 			} );
 
 		// Image filters remain source effects; this control only changes placement.

@@ -11,6 +11,7 @@ use PHPUnit\Framework\TestCase;
 if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 	class OC_Test_Engraving_PDF extends TCPDF {
 		public bool $image_svg_called = false;
+		public int $image_svg_call_count = 0;
 		public bool $image_called = false;
 		public string $image_svg = '';
 
@@ -20,6 +21,7 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 
 		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
 			$this->image_svg_called = true;
+			++$this->image_svg_call_count;
 			$this->image_svg        = is_readable( (string) $file ) ? ( file_get_contents( (string) $file ) ?: '' ) : '';
 		}
 	}
@@ -77,6 +79,36 @@ class Test_Print_Engraving extends TestCase {
 		$this->assertMatchesRegularExpression( '/<svg[^>]+width="[0-9.]+pt"[^>]+height="[0-9.]+pt"/', $pdf->image_svg );
 		$this->assertStringContainsString( '<path d=', $pdf->image_svg );
 		$this->assertStringContainsString( 'fill-rule="nonzero"', $pdf->image_svg );
+	}
+
+	#[Test]
+	public function constrained_engraving_textarea_keeps_its_bottom_line(): void {
+		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
+			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
+		}
+
+		$pdf = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+		$method = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' );
+		$result = $method->invokeArgs(
+			null,
+			[
+				$pdf,
+				"Happy Birthday lots of love\nBrett, Kristina & the kids xxx",
+				$font_path,
+				18.0,
+				0.0,
+				0.0,
+				80.0,
+				12.0,
+				'C',
+				'C',
+				[ 'Happy Birthday lots of love', 'Brett, Kristina & the kids xxx' ],
+			]
+		);
+
+		$this->assertTrue( $result );
+		$this->assertSame( 2, $pdf->image_svg_call_count );
 	}
 
 	#[Test]
