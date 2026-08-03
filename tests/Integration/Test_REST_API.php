@@ -256,6 +256,34 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
+	public function ip_bound_upload_token_remains_valid_after_wc_session_initialises(): void {
+		$previous_ip = $_SERVER['REMOTE_ADDR'] ?? null;
+		$ip          = '203.0.113.10';
+		$token       = str_repeat( 'a', 64 );
+		$key         = 'oc_pubtok_' . hash( 'sha256', $token );
+		$_SERVER['REMOTE_ADDR'] = $ip;
+		set_transient( $key, [
+			'version'      => 2,
+			'binding_type' => 'ip',
+			'binding_hash' => hash( 'sha256', $ip ),
+			'created_at'   => time(),
+			'expires_at'   => time() + HOUR_IN_SECONDS,
+		], HOUR_IN_SECONDS );
+
+		try {
+			$this->assertNotNull( WC()->session );
+			$this->assertTrue( OC_Rest_API::validate_public_token( $token ) );
+		} finally {
+			delete_transient( $key );
+			if ( null === $previous_ip ) {
+				unset( $_SERVER['REMOTE_ADDR'] );
+			} else {
+				$_SERVER['REMOTE_ADDR'] = $previous_ip;
+			}
+		}
+	}
+
+	#[Test]
 	public function administrators_are_exempt_from_ai_generation_quotas(): void {
 		wp_set_current_user( $this->admin_id );
 		$method = new ReflectionMethod( OC_Rest_API::class, 'ai_quota_specs' );

@@ -458,7 +458,17 @@ export function createProductsPageSettings( deps ) {
 	function formatChecks( selected ) {
 		return (
 			'<div class="oc-group-checks">' +
-			[ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp', 'pdf', 'eps' ]
+			[
+				'png',
+				'jpg',
+				'jpeg',
+				'heic',
+				'heif',
+				'svg',
+				'webp',
+				'pdf',
+				'eps',
+			]
 				.map(
 					( fmt ) =>
 						'<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' +
@@ -670,7 +680,15 @@ export function createProductsPageSettings( deps ) {
 					field(
 						'Accepted formats',
 						formatChecks(
-							s.formats || [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp' ]
+							s.formats || [
+								'png',
+								'jpg',
+								'jpeg',
+								'heic',
+								'heif',
+								'svg',
+								'webp',
+							]
 						)
 					) +
 					field(

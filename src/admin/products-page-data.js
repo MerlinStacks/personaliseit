@@ -111,7 +111,15 @@ export function createProductsPageDataNormalisers( deps ) {
 				};
 			case 'image':
 				return {
-					formats: [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp' ],
+					formats: [
+						'png',
+						'jpg',
+						'jpeg',
+						'heic',
+						'heif',
+						'svg',
+						'webp',
+					],
 					max_size_mb: 10,
 					remove_background: false,
 					image_filter_ids: [],

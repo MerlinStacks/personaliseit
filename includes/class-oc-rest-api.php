@@ -347,7 +347,15 @@ class OC_Rest_API {
 			return null;
 		}
 
-		$binding ??= self::current_request_binding();
+		if ( null === $binding ) {
+			if ( 'session' === $state['binding_type'] ) {
+				$session_hash = self::wc_session_hash();
+				$binding = '' !== $session_hash ? [ 'type' => 'session', 'hash' => $session_hash ] : null;
+			} else {
+				$ip = self::client_ip();
+				$binding = '' !== $ip ? [ 'type' => 'ip', 'hash' => hash( 'sha256', $ip ) ] : null;
+			}
+		}
 		if ( null === $binding
 			|| $binding['type'] !== $state['binding_type']
 			|| ! hash_equals( $state['binding_hash'], $binding['hash'] )
