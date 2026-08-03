@@ -291,6 +291,46 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 		$this->assertSame( [], $method->invoke( null, 'user:' . $this->admin_id ) );
 	}
 
+	#[Test]
+	public function customer_ai_quotas_reset_fifteen_minutes_after_the_last_attempt(): void {
+		$previous_ip = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.20';
+		wp_set_current_user( 0 );
+		$method = new ReflectionMethod( OC_Rest_API::class, 'ai_quota_specs' );
+		$before = time();
+
+		try {
+			$specs = $method->invoke( null, 'ip:test-customer' );
+			$this->assertIsArray( $specs );
+			$this->assertCount( 3, $specs );
+			foreach ( $specs as $spec ) {
+				$this->assertTrue( $spec['sliding_window'] );
+				$this->assertGreaterThanOrEqual( $before, $spec['window_start'] );
+				$this->assertSame( 15 * MINUTE_IN_SECONDS, $spec['window_end'] - $spec['window_start'] );
+			}
+		} finally {
+			if ( null === $previous_ip ) {
+				unset( $_SERVER['REMOTE_ADDR'] );
+			} else {
+				$_SERVER['REMOTE_ADDR'] = $previous_ip;
+			}
+		}
+	}
+
+	#[Test]
+	public function ai_quota_message_reports_rounded_up_retry_minutes(): void {
+		$method = new ReflectionMethod( OC_Rest_API::class, 'ai_quota_retry_message' );
+
+		$this->assertSame(
+			'You have reached the live photo preview limit. You can make more previews in 1 minute.',
+			$method->invoke( null, 1 )
+		);
+		$this->assertSame(
+			'You have reached the live photo preview limit. You can make more previews in 2 minutes.',
+			$method->invoke( null, 61 )
+		);
+	}
+
 	// ── /regenerate-files ─────────────────────────────────────────────────────
 
 	#[Test]

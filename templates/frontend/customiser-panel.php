@@ -336,6 +336,14 @@ foreach ( $layers as $layer ) {
 										<div class="oc-upload-zone"
 											data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
 									</div>
+									<div
+										id="oc-artwork-error-<?php echo esc_attr( $layer->id ); ?>"
+										class="oc-artwork-error"
+										role="status"
+										aria-live="polite"
+										aria-atomic="true"
+										style="display:none;color:#b32d2e;font-size:12px;margin-top:6px;"
+									></div>
 									<div class="oc-resolution-warning" data-oc-resolution-warning="<?php echo esc_attr( $layer->id ); ?>" style="display:none;"></div>
 									<?php if ( 'image' === $layer->type ) : ?>
 										<div class="oc-control-group oc-image-crop-control" data-oc-image-crop-control="<?php echo esc_attr( $layer->id ); ?>" hidden>

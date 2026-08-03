@@ -606,6 +606,7 @@ class OC_Rest_API {
 				'byte_limit'   => $byte_limit,
 				'count_mode'   => (string) ( $spec['count_mode'] ?? 'none' ),
 				'bytes_mode'   => (string) ( $spec['bytes_mode'] ?? 'none' ),
+				'sliding_window' => ! empty( $spec['sliding_window'] ),
 				'error_code'   => sanitize_key( (string) ( $spec['error_code'] ?? 'rate_limited' ) ),
 				'error_message' => (string) ( $spec['error_message'] ?? __( 'The request limit has been reached. Please try again later.', 'overcustomise' ) ),
 				'error_status' => (int) ( $spec['error_status'] ?? 429 ),
@@ -647,6 +648,7 @@ class OC_Rest_API {
 						'window_end'   => $spec['window_end'],
 						'count'        => 0,
 						'bytes'        => 0,
+						'sliding_window' => $spec['sliding_window'],
 					];
 				} elseif ( ! is_array( $state )
 					|| ! is_int( $state['version'] ?? null ) || 1 !== $state['version']
@@ -656,15 +658,20 @@ class OC_Rest_API {
 					|| ! is_int( $state['bytes'] ?? null ) || $state['bytes'] < 0
 				) {
 					throw new \RuntimeException( 'A persisted security budget row is malformed.' );
-				} elseif ( (int) $state['window_end'] <= time() ) {
+				} elseif ( (bool) ( $state['sliding_window'] ?? false ) !== $spec['sliding_window']
+					|| (int) $state['window_end'] <= time()
+				) {
 					$state = [
 						'version'      => 1,
 						'window_start' => $spec['window_start'],
 						'window_end'   => $spec['window_end'],
 						'count'        => 0,
 						'bytes'        => 0,
+						'sliding_window' => $spec['sliding_window'],
 					];
-				} elseif ( (int) $state['window_start'] !== $spec['window_start'] || (int) $state['window_end'] !== $spec['window_end'] ) {
+				} elseif ( ! $spec['sliding_window']
+					&& ( (int) $state['window_start'] !== $spec['window_start'] || (int) $state['window_end'] !== $spec['window_end'] )
+				) {
 					throw new \RuntimeException( 'An active security budget has an unexpected time window.' );
 				}
 
@@ -673,12 +680,18 @@ class OC_Rest_API {
 				if ( ( $spec['count'] > 0 && $current_count > $spec['count_limit'] - $spec['count'] )
 					|| ( $spec['bytes'] > 0 && $current_bytes > $spec['byte_limit'] - $spec['bytes'] )
 				) {
+					$retry_window_end = $spec['sliding_window'] ? (int) $state['window_end'] : $spec['window_end'];
+					$retry_after      = max( 1, $retry_window_end - time() );
+					$message     = $spec['error_message'];
+					if ( 'ai_quota_exceeded' === $spec['error_code'] ) {
+						$message = self::ai_quota_retry_message( $retry_after );
+					}
 					$error = new \WP_Error(
 						$spec['error_code'],
-						$spec['error_message'],
+						$message,
 						[
 							'status'      => $spec['error_status'],
-							'retry_after' => max( 1, $spec['window_end'] - time() ),
+							'retry_after' => $retry_after,
 						]
 					);
 					throw new \OverflowException( 'Security budget exhausted.' );
@@ -686,6 +699,10 @@ class OC_Rest_API {
 
 				$state['count'] = $current_count + $spec['count'];
 				$state['bytes'] = $current_bytes + $spec['bytes'];
+				if ( $spec['sliding_window'] ) {
+					$state['window_start'] = time();
+					$state['window_end']   = time() + ( $spec['window_end'] - $spec['window_start'] );
+				}
 				$encoded        = wp_json_encode( $state );
 				if ( ! is_string( $encoded ) ) {
 					throw new \RuntimeException( 'A security budget row could not be encoded.' );
@@ -934,10 +951,12 @@ class OC_Rest_API {
 			return new \WP_Error( 'ai_quota_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
-		[ $window_start, $window_end ] = self::hourly_window();
+		$window_start = time();
+		$window_end   = $window_start + 15 * MINUTE_IN_SECONDS;
 		$message = __( 'The image processing limit has been reached. Please try again later.', 'overcustomise' );
 		$base    = [
 			'window_start' => $window_start, 'window_end' => $window_end, 'count' => 1, 'bytes' => 0, 'byte_limit' => 0,
+			'sliding_window' => true,
 			'count_mode' => 'request', 'bytes_mode' => 'none', 'error_code' => 'ai_quota_exceeded', 'error_message' => $message,
 		];
 		return [
@@ -945,6 +964,20 @@ class OC_Rest_API {
 			array_merge( $base, [ 'key' => 'ai:ip:' . hash( 'sha256', $ip ), 'count_limit' => $ip_limit ] ),
 			array_merge( $base, [ 'key' => 'ai:site:' . (int) get_current_blog_id(), 'count_limit' => $site_limit ] ),
 		];
+	}
+
+	/** Format an AI preview quota reset as customer-friendly rounded-up minutes. */
+	private static function ai_quota_retry_message( int $retry_after ): string {
+		$minutes = max( 1, (int) ceil( max( 1, $retry_after ) / MINUTE_IN_SECONDS ) );
+		return sprintf(
+			_n(
+				'You have reached the live photo preview limit. You can make more previews in %d minute.',
+				'You have reached the live photo preview limit. You can make more previews in %d minutes.',
+				$minutes,
+				'overcustomise'
+			),
+			$minutes
+		);
 	}
 
 	/** Reserve one atomic per-IP request count after cheap validation has passed. */
