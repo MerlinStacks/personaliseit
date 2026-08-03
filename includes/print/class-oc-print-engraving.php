@@ -273,7 +273,8 @@ class OC_Print_Engraving extends OC_Print_Base {
 			imagedestroy( $src );
 			return null;
 		}
-		if ( ! self::image_has_engraving_mark( $src ) ) {
+		$is_transparent_logo = self::is_transparent_logo( $src );
+		if ( ! $is_transparent_logo && ! self::image_has_engraving_mark( $src ) ) {
 			imagedestroy( $src );
 			return null;
 		}
@@ -286,27 +287,31 @@ class OC_Print_Engraving extends OC_Print_Base {
 		imagecopy( $dst, $src, 0, 0, 0, 0, $w, $h );
 		imagedestroy( $src );
 
-		imagefilter( $dst, IMG_FILTER_GRAYSCALE );
-		$contrast = (int) ( $profile['contrast'] ?? 0 );
-		if ( 0 !== $contrast ) {
-			imagefilter( $dst, IMG_FILTER_CONTRAST, -1 * $contrast );
-		}
-
-		$gamma = (float) ( $profile['gamma'] ?? 2.0 );
-		if ( abs( $gamma - 1.0 ) > 0.001 ) {
-			imagegammacorrect( $dst, 1.0, $gamma );
-		}
-
-		$edge_boost = (int) ( $profile['edge_boost'] ?? 0 );
-		if ( $edge_boost > 0 ) {
-			for ( $i = 0; $i < min( 3, (int) ceil( $edge_boost / 35 ) ); $i++ ) {
-				imagefilter( $dst, IMG_FILTER_EDGEDETECT );
-				imagefilter( $dst, IMG_FILTER_CONTRAST, -15 );
+		if ( $is_transparent_logo ) {
+			self::convert_alpha_to_engraving_mark( $dst );
+		} else {
+			imagefilter( $dst, IMG_FILTER_GRAYSCALE );
+			$contrast = (int) ( $profile['contrast'] ?? 0 );
+			if ( 0 !== $contrast ) {
+				imagefilter( $dst, IMG_FILTER_CONTRAST, -1 * $contrast );
 			}
-		}
 
-		if ( 'floyd_steinberg' === ( $profile['dithering'] ?? 'none' ) ) {
-			self::apply_floyd_steinberg_dither( $dst );
+			$gamma = (float) ( $profile['gamma'] ?? 2.0 );
+			if ( abs( $gamma - 1.0 ) > 0.001 ) {
+				imagegammacorrect( $dst, 1.0, $gamma );
+			}
+
+			$edge_boost = (int) ( $profile['edge_boost'] ?? 0 );
+			if ( $edge_boost > 0 ) {
+				for ( $i = 0; $i < min( 3, (int) ceil( $edge_boost / 35 ) ); $i++ ) {
+					imagefilter( $dst, IMG_FILTER_EDGEDETECT );
+					imagefilter( $dst, IMG_FILTER_CONTRAST, -15 );
+				}
+			}
+
+			if ( 'floyd_steinberg' === ( $profile['dithering'] ?? 'none' ) ) {
+				self::apply_floyd_steinberg_dither( $dst );
+			}
 		}
 		if ( ! self::image_has_engraving_mark( $dst ) ) {
 			imagedestroy( $dst );
@@ -328,6 +333,61 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		return $tmp;
+	}
+
+	/**
+	 * Detect low-colour artwork whose transparency defines a logo silhouette.
+	 *
+	 * Logo colours are not production instructions for engraving. In particular,
+	 * white-on-transparent logos must use their alpha channel as the mark rather
+	 * than becoming invisible or being reduced to an edge map by the glass profile.
+	 */
+	private static function is_transparent_logo( $image ): bool {
+		$width       = imagesx( $image );
+		$height      = imagesy( $image );
+		$transparent = 0;
+		$visible     = 0;
+		$colours     = [];
+
+		for ( $y = 0; $y < $height; $y++ ) {
+			for ( $x = 0; $x < $width; $x++ ) {
+				$rgba  = imagecolorat( $image, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				if ( $alpha >= 120 ) {
+					++$transparent;
+					continue;
+				}
+
+				++$visible;
+				$r = ( $rgba >> 16 ) & 0xFF;
+				$g = ( $rgba >> 8 ) & 0xFF;
+				$b = $rgba & 0xFF;
+				$colours[ ( $r >> 5 ) . ':' . ( $g >> 5 ) . ':' . ( $b >> 5 ) ] = true;
+				if ( count( $colours ) > 32 ) {
+					return false;
+				}
+			}
+		}
+
+		return $transparent > 0 && $visible > 0;
+	}
+
+	/** Convert every visible logo pixel to a black mark while preserving alpha. */
+	private static function convert_alpha_to_engraving_mark( $image ): void {
+		$width  = imagesx( $image );
+		$height = imagesy( $image );
+		$black  = [];
+
+		for ( $y = 0; $y < $height; $y++ ) {
+			for ( $x = 0; $x < $width; $x++ ) {
+				$rgba  = imagecolorat( $image, $x, $y );
+				$alpha = ( $rgba >> 24 ) & 0x7F;
+				if ( ! isset( $black[ $alpha ] ) ) {
+					$black[ $alpha ] = imagecolorallocatealpha( $image, 0, 0, 0, $alpha );
+				}
+				imagesetpixel( $image, $x, $y, $black[ $alpha ] );
+			}
+		}
 	}
 
 	private static function open_image_resource( string $path ) {

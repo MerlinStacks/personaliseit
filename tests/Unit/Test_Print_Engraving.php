@@ -151,6 +151,91 @@ class Test_Print_Engraving extends TestCase {
 	}
 
 	#[Test]
+	public function transparent_white_logo_becomes_a_solid_engraving_mark(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$temp   = tempnam( sys_get_temp_dir(), 'oc-white-logo-' );
+		$source = $temp . '.png';
+		@unlink( $temp );
+		$image  = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$white       = imagecolorallocatealpha( $image, 255, 255, 255, 0 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $transparent );
+		imagefilledrectangle( $image, 5, 5, 14, 14, $white );
+		imagepng( $image, $source );
+		imagedestroy( $image );
+
+		$output = '';
+		try {
+			$output = OC_Print_Engraving::prepare_artwork_for_layer(
+				$source,
+				[
+					'material'   => 'glass',
+					'gamma'      => 1.0,
+					'contrast'   => 0,
+					'edge_boost' => 25,
+					'dithering'  => 'floyd_steinberg',
+				]
+			);
+			$result = imagecreatefrompng( $output );
+
+			$centre = imagecolorat( $result, 10, 10 );
+			$outside = imagecolorat( $result, 1, 1 );
+			$this->assertSame( 0, ( $centre >> 16 ) & 0xFF );
+			$this->assertSame( 0, ( $centre >> 24 ) & 0x7F );
+			$this->assertSame( 127, ( $outside >> 24 ) & 0x7F );
+			imagedestroy( $result );
+		} finally {
+			@unlink( $source );
+			if ( '' !== $output ) {
+				@unlink( $output );
+			}
+		}
+	}
+
+	#[Test]
+	public function transparent_dark_logo_is_not_reduced_to_an_outline(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$temp   = tempnam( sys_get_temp_dir(), 'oc-dark-logo-' );
+		$source = $temp . '.png';
+		@unlink( $temp );
+		$image  = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 255, 255, 255, 127 );
+		$black       = imagecolorallocatealpha( $image, 0, 0, 0, 0 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $transparent );
+		imagefilledrectangle( $image, 4, 4, 15, 15, $black );
+		imagepng( $image, $source );
+		imagedestroy( $image );
+
+		$output = '';
+		try {
+			$output = OC_Print_Engraving::prepare_artwork_for_layer(
+				$source,
+				[ 'material' => 'glass', 'edge_boost' => 25, 'dithering' => 'floyd_steinberg' ]
+			);
+			$result = imagecreatefrompng( $output );
+			$centre = imagecolorat( $result, 10, 10 );
+			$this->assertSame( 0, ( $centre >> 16 ) & 0xFF );
+			$this->assertSame( 0, ( $centre >> 24 ) & 0x7F );
+			imagedestroy( $result );
+		} finally {
+			@unlink( $source );
+			if ( '' !== $output ) {
+				@unlink( $output );
+			}
+		}
+	}
+
+	#[Test]
 	public function print_temp_image_paths_keep_requested_extension(): void {
 		$method = new ReflectionMethod( OC_Print_Base::class, 'temp_path_with_extension' );
 		$path   = $method->invokeArgs( null, [ 'oc-test-image-' . wp_generate_uuid4() . '.png', 'png' ] );
