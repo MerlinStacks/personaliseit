@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.16.3 - 2026-08-03
+
+- Improved filtered-image preview reliability during checkout.
+
 ## 1.16.2 - 2026-07-27
 
 - Keep production print-file textarea line breaks consistent with the live preview.
