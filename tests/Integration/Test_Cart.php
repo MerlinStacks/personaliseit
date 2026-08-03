@@ -455,6 +455,27 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function linked_images_keep_the_attachment_ownership_layer(): void {
+		$layers = [
+			(object) [ 'id' => 11, 'type' => 'image', 'settings' => [ 'link_group' => 'photo' ], 'visible' => 1, 'locked' => 0 ],
+			(object) [ 'id' => 22, 'type' => 'image', 'settings' => [ 'link_group' => 'photo' ], 'visible' => 1, 'locked' => 0 ],
+		];
+		$input = [
+			'attachmentId'         => 123,
+			'artworkContextLayerId' => 22,
+		];
+		$method = new ReflectionMethod( OC_Cart::class, 'synchronise_linked_layer_inputs' );
+		$result = $method->invoke( null, $layers, [ 11 => $input, 22 => $input ] );
+
+		$this->assertSame( 22, $result[11]['_oc_link_source_layer_id'] );
+		$this->assertSame( 22, $result[22]['_oc_link_source_layer_id'] );
+
+		$input['artworkContextLayerId'] = 999;
+		$result = $method->invoke( null, $layers, [ 11 => $input, 22 => $input ] );
+		$this->assertSame( 11, $result[11]['_oc_link_source_layer_id'] );
+	}
+
+	#[Test]
 	public function v2_customisation_rejects_unknown_layers(): void {
 		global $wpdb;
 

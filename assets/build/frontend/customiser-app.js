@@ -3981,7 +3981,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* eslint-disable no-console, @wordpress/no-unused-vars-before-return */
 
-const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId', 'imageCrop', 'customerUploaded', 'baseAttachmentId', 'baseAttachmentUrl', 'baseOriginalAttachmentUrl', 'baseArtworkFileType', 'basePreviewAttachmentId', 'baseImageMeta', 'imageFilterResults', 'imageFilterAttemptCount'];
+const LINKED_IMAGE_INPUT_KEYS = ['attachmentId', 'attachmentUrl', 'sourceAttachmentId', 'sourceAttachmentUrl', 'originalAttachmentUrl', 'sourceOriginalAttachmentUrl', 'artworkFileType', 'sourceArtworkFileType', 'previewAttachmentId', 'sourcePreviewAttachmentId', 'imageMeta', 'sourceImageMeta', 'imageFilterId', 'imageCrop', 'customerUploaded', 'artworkContextLayerId', 'baseAttachmentId', 'baseAttachmentUrl', 'baseOriginalAttachmentUrl', 'baseArtworkFileType', 'basePreviewAttachmentId', 'baseImageMeta', 'imageFilterResults', 'imageFilterAttemptCount'];
 const inputControlMethods = {
   // ── Input listeners ─────────────────────────────────────────────────────────
 
@@ -6390,6 +6390,7 @@ const uploadMethods = {
           sourceImageMeta: null,
           imageCrop: 0,
           customerUploaded: true,
+          artworkContextLayerId: lid,
           baseAttachmentId: attachmentId,
           baseAttachmentUrl: attachmentUrl,
           baseOriginalAttachmentUrl: String(res.body.original_url || attachmentUrl),

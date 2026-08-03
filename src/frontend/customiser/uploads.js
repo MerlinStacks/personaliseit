@@ -434,6 +434,7 @@ const uploadMethods = {
 					sourceImageMeta: null,
 					imageCrop: 0,
 					customerUploaded: true,
+					artworkContextLayerId: lid,
 					baseAttachmentId: attachmentId,
 					baseAttachmentUrl: attachmentUrl,
 					baseOriginalAttachmentUrl: String(

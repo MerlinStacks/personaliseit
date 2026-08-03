@@ -16,6 +16,7 @@ const LINKED_IMAGE_INPUT_KEYS = [
 	'imageFilterId',
 	'imageCrop',
 	'customerUploaded',
+	'artworkContextLayerId',
 	'baseAttachmentId',
 	'baseAttachmentUrl',
 	'baseOriginalAttachmentUrl',

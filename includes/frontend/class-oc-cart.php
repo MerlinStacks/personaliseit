@@ -809,7 +809,10 @@ class OC_Cart {
 			if ( ! $source_id ) {
 				continue;
 			}
-			$source_data['_oc_link_source_layer_id'] = $source_id;
+			$context_layer_id = absint( $source_data['artworkContextLayerId'] ?? 0 );
+			$source_data['_oc_link_source_layer_id'] = in_array( $context_layer_id, $layer_ids, true )
+				? $context_layer_id
+				: $source_id;
 			foreach ( $layer_ids as $layer_id ) {
 				$rendered_lines = $raw_layers[ $layer_id ]['renderedLines'] ?? null;
 				$raw_layers[ $layer_id ] = $source_data;
