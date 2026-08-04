@@ -16,6 +16,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private const MAX_SVG_USE_DEPTH = 16;
 	private const MAX_SVG_PATH_TOKENS = 100000;
 	private const MAX_SVG_PATH_BYTES = 2097152;
+	private const MAX_RASTER_EDGE_PX = 900;
+	private const ALPHA_VISIBLE_THRESHOLD = 64;
 
 	/** Parsed TrueType font cache for font-independent EPS text outlines. */
 	private static array $ttf_outline_cache = [];
@@ -1295,7 +1297,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return;
 		}
 
-		$max_px = 900;
+		$max_px = self::MAX_RASTER_EDGE_PX;
 		$scale  = min( 1.0, $max_px / max( $src_w, $src_h ) );
 		$out_w  = max( 1, (int) round( $src_w * $scale ) );
 		$out_h  = max( 1, (int) round( $src_h * $scale ) );
@@ -1308,19 +1310,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( (float) $src_w, (float) $src_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
 		if ( self::gd_image_has_transparency( $draw ) ) {
-			if ( max( $out_w, $out_h ) > 260 ) {
-				$alpha_scale = 260 / max( $out_w, $out_h );
-				$small_w     = max( 1, (int) round( $out_w * $alpha_scale ) );
-				$small_h     = max( 1, (int) round( $out_h * $alpha_scale ) );
-				$small       = imagecreatetruecolor( $small_w, $small_h );
-				imagealphablending( $small, false );
-				imagesavealpha( $small, true );
-				$transparent = imagecolorallocatealpha( $small, 0, 0, 0, 127 );
-				imagefilledrectangle( $small, 0, 0, $small_w, $small_h, $transparent );
-				imagecopyresampled( $small, $draw, 0, 0, 0, 0, $small_w, $small_h, $out_w, $out_h );
-				imagedestroy( $draw );
-				$draw = $small;
-			}
 			self::append_eps_alpha_raster_rects( $lines, $draw, $draw_x, $draw_y, $draw_w, $draw_h );
 			imagedestroy( $draw );
 			return;
@@ -1368,7 +1357,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return false;
 	}
 
-	/** Preserve transparent raster shapes by drawing visible pixel runs instead of white-matting them. */
+	/** Preserve transparent raster shapes at print resolution without white-matting them. */
 	private static function append_eps_alpha_raster_rects( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
 		$img_w = imagesx( $image );
 		$img_h = imagesy( $image );
@@ -1377,16 +1366,18 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		$lines[] = '%%OCTransparentRaster: vector-runs';
+		$lines[] = sprintf( '%%%%OCTransparentRasterSize: %d %d', $img_w, $img_h );
 		$lines[] = 'gsave';
 		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
 		$lines[] = sprintf( '%.8F %.8F scale', $w_pt / $img_w, $h_pt / $img_h );
+		$active_rgb = null;
 
 		for ( $y = 0; $y < $img_h; $y++ ) {
 			$x = 0;
 			while ( $x < $img_w ) {
 				$rgba  = imagecolorat( $image, $x, $y );
 				$alpha = ( $rgba >> 24 ) & 0x7F;
-				if ( $alpha >= 120 ) {
+				if ( $alpha >= self::ALPHA_VISIBLE_THRESHOLD ) {
 					$x++;
 					continue;
 				}
@@ -1396,16 +1387,19 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				while ( $x + $run < $img_w ) {
 					$next       = imagecolorat( $image, $x + $run, $y );
 					$next_alpha = ( $next >> 24 ) & 0x7F;
-					if ( $next_alpha >= 120 || ( $next & 0xFFFFFF ) !== $rgb ) {
+					if ( $next_alpha >= self::ALPHA_VISIBLE_THRESHOLD || ( $next & 0xFFFFFF ) !== $rgb ) {
 						break;
 					}
 					$run++;
 				}
 
-				$r = ( $rgb >> 16 ) & 0xFF;
-				$g = ( $rgb >> 8 ) & 0xFF;
-				$b = $rgb & 0xFF;
-				$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 );
+				if ( $rgb !== $active_rgb ) {
+					$r = ( $rgb >> 16 ) & 0xFF;
+					$g = ( $rgb >> 8 ) & 0xFF;
+					$b = $rgb & 0xFF;
+					$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 );
+					$active_rgb = $rgb;
+				}
 				$lines[] = sprintf( '%d %d %d 1 rectfill', $x, $img_h - $y - 1, $run );
 				$x += $run;
 			}

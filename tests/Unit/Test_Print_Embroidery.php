@@ -406,10 +406,61 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = implode( "\n", $lines );
 		$this->assertStringContainsString( '%%OCTransparentRaster: vector-runs', $output );
+		$this->assertStringContainsString( '%%OCTransparentRasterSize: 2 2', $output );
 		$this->assertStringContainsString( '1.0000 0.0000 0.0000 setrgbcolor', $output );
 		$this->assertStringContainsString( 'rectfill', $output );
 		$this->assertStringNotContainsString( 'colorimage', $output );
 		$this->assertStringNotContainsString( '1.0000 1.0000 1.0000 setrgbcolor', $output );
+	}
+
+	#[Test]
+	public function transparent_raster_export_keeps_print_resolution_for_smooth_edges(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$image = imagecreatetruecolor( 600, 2 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$red         = imagecolorallocatealpha( $image, 255, 0, 0, 0 );
+		imagefilledrectangle( $image, 0, 0, 599, 1, $transparent );
+		imagesetpixel( $image, 599, 1, $red );
+
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_raster_image' );
+		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 600.0, 2.0 ] );
+		imagedestroy( $image );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '%%OCTransparentRasterSize: 600 2', $output );
+		$this->assertStringContainsString( '599 0 1 1 rectfill', $output );
+	}
+
+	#[Test]
+	public function transparent_raster_export_uses_half_opacity_as_the_visible_edge(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$image = imagecreatetruecolor( 3, 1 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$opaque     = imagecolorallocatealpha( $image, 255, 0, 0, 0 );
+		$mostly_in  = imagecolorallocatealpha( $image, 255, 0, 0, 63 );
+		$mostly_out = imagecolorallocatealpha( $image, 255, 0, 0, 64 );
+		imagesetpixel( $image, 0, 0, $opaque );
+		imagesetpixel( $image, 1, 0, $mostly_in );
+		imagesetpixel( $image, 2, 0, $mostly_out );
+
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_raster_image' );
+		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 3.0, 1.0 ] );
+		imagedestroy( $image );
+
+		$output = implode( "\n", $lines );
+		$this->assertStringContainsString( '0 0 2 1 rectfill', $output );
+		$this->assertStringNotContainsString( '2 0 1 1 rectfill', $output );
 	}
 
 	#[Test]
