@@ -1572,7 +1572,10 @@ class OC_Cart {
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
 					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
 					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' );
-					return $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
+					$html          = $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
+					$colour_html   = is_admin() && $this->customer_can_select_layer_colour( $layer ) ? $this->colour_display_value( $layer_data ) : '';
+
+					return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 				}
 				return '';
 
@@ -1618,10 +1621,15 @@ class OC_Cart {
 		}
 
 		global $wpdb;
-		$colour_name = (string) $wpdb->get_var( $wpdb->prepare(
-			"SELECT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) LIMIT 1",
-			$colour
-		) );
+		$colour_name = is_scalar( $layer_data['colorName'] ?? null )
+			? sanitize_text_field( (string) $layer_data['colorName'] )
+			: '';
+		if ( '' === $colour_name ) {
+			$colour_name = (string) $wpdb->get_var( $wpdb->prepare(
+				"SELECT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) LIMIT 1",
+				$colour
+			) );
+		}
 
 		return sprintf(
 			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
@@ -1644,6 +1652,19 @@ class OC_Cart {
 		return ! empty( $settings[ $setting_key ] );
 	}
 
+	/** Whether the layer exposes a customer colour choice, including recolourable uploads. */
+	private function customer_can_select_layer_colour( ?object $layer ): bool {
+		if ( ! $layer || 'image' !== sanitize_key( (string) ( $layer->type ?? '' ) ) ) {
+			return false;
+		}
+		if ( ! $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
+			return false;
+		}
+
+		$settings = self::normalise_layer_settings( $layer->settings ?? [], 'image' );
+		return ! empty( $settings['enable_image_colour'] );
+	}
+
 	/** Do not show fixed default clipart as customer-selected order data. */
 	private function is_fixed_clipart_layer( ?object $layer, array $layer_data ): bool {
 		if ( 'clipart' !== ( $layer_data['type'] ?? '' ) || empty( $layer_data['clipartId'] ) || ! $layer ) {
@@ -1652,7 +1673,9 @@ class OC_Cart {
 
 		$settings = self::normalise_layer_settings( $layer->settings ?? [], 'clipart' );
 
-		return array_key_exists( 'allow_clipart_change', $settings ) && empty( $settings['allow_clipart_change'] );
+		return array_key_exists( 'allow_clipart_change', $settings )
+			&& empty( $settings['allow_clipart_change'] )
+			&& ! $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' );
 	}
 
 	/** Emit order customisation as actual plain text for plain-text emails. */

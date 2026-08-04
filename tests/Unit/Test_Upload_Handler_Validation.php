@@ -60,6 +60,12 @@ class UploadHandlerReflector {
 		$m->setAccessible( true );
 		return $m->invoke( null );
 	}
+
+	public static function jpeg_exif_orientation( string $path ): int {
+		$m = self::rc()->getMethod( 'jpeg_exif_orientation' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $path );
+	}
 }
 
 class Test_Upload_Handler_Validation extends TestCase {
@@ -287,6 +293,28 @@ class Test_Upload_Handler_Validation extends TestCase {
 	public function type_from_extension_handles_jpeg_alias(): void {
 		$this->assertSame( 'jpg', UploadHandlerReflector::type_from_extension( 'jpeg' ) );
 		$this->assertSame( 'jpg', UploadHandlerReflector::type_from_extension( 'jpg' ) );
+	}
+
+	#[Test]
+	public function reads_little_endian_jpeg_exif_orientation(): void {
+		$tiff    = 'II' . pack( 'vVv', 42, 8, 1 );
+		$tiff   .= pack( 'vvVv', 0x0112, 3, 1, 6 ) . "\0\0" . pack( 'V', 0 );
+		$payload = "Exif\0\0" . $tiff;
+		$jpeg    = "\xFF\xD8\xFF\xE1" . pack( 'n', strlen( $payload ) + 2 ) . $payload . "\xFF\xD9";
+		$tmp     = tempnam( sys_get_temp_dir(), 'oc-exif-' );
+		file_put_contents( $tmp, $jpeg );
+
+		$this->assertSame( 6, UploadHandlerReflector::jpeg_exif_orientation( $tmp ) );
+		@unlink( $tmp );
+	}
+
+	#[Test]
+	public function defaults_to_top_left_when_jpeg_has_no_exif_orientation(): void {
+		$tmp = tempnam( sys_get_temp_dir(), 'oc-exif-' );
+		file_put_contents( $tmp, "\xFF\xD8\xFF\xD9" );
+
+		$this->assertSame( 1, UploadHandlerReflector::jpeg_exif_orientation( $tmp ) );
+		@unlink( $tmp );
 	}
 
 	#[Test]

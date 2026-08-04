@@ -1233,7 +1233,7 @@ class OC_Upload_Handler {
 		];
 	}
 
-	/** Process PNG / JPG: validate as image, save to WP media library. */
+	/** Process PNG / JPG / WebP: validate and store a consistently oriented image. */
 	private static function process_raster( array $_file, string $type ): array {
 		// Confirm it is actually an image via getimagesize.
 		$image_info = @getimagesize( $_file['tmp_name'] );
@@ -1244,12 +1244,36 @@ class OC_Upload_Handler {
 		}
 		self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
 
-		$mime          = $image_info['mime'];
-		$attachment_id = self::save_to_media_library(
-			$_file['tmp_name'],
-			sanitize_file_name( basename( (string) $_file['name'] ) ),
-			$mime
-		);
+		$mime        = $image_info['mime'];
+		$source_path = (string) $_file['tmp_name'];
+		$staged_path = null;
+		try {
+			// Browsers disagree with server-side renderers about whether JPEG EXIF
+			// orientation should be applied. Bake it into the pixels once so the
+			// customiser, derivatives, and print output all use the same geometry.
+			if ( 'image/jpeg' === $mime ) {
+				$orientation = self::jpeg_exif_orientation( $source_path );
+				if ( $orientation > 1 ) {
+					$staged_path = self::normalise_jpeg_orientation( $source_path, $orientation );
+					$source_path = $staged_path;
+					$image_info  = @getimagesize( $source_path );
+					if ( ! is_array( $image_info ) || 'image/jpeg' !== (string) ( $image_info['mime'] ?? '' ) ) {
+						throw new \RuntimeException( __( 'The photo orientation could not be normalised.', 'overcustomise' ) );
+					}
+					self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
+				}
+			}
+
+			$attachment_id = self::save_to_media_library(
+				$source_path,
+				sanitize_file_name( basename( (string) $_file['name'] ) ),
+				$mime
+			);
+		} finally {
+			if ( is_string( $staged_path ) ) {
+				@unlink( $staged_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
 
 		if ( is_wp_error( $attachment_id ) ) {
 			throw new \RuntimeException( $attachment_id->get_error_message() );
@@ -1261,6 +1285,228 @@ class OC_Upload_Handler {
 			'original_url'  => '',
 			'file_type'     => $type,
 		];
+	}
+
+	/** Read the orientation value from a JPEG EXIF APP1 segment without requiring ext-exif. */
+	private static function jpeg_exif_orientation( string $path ): int {
+		$handle = @fopen( $path, 'rb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		if ( false === $handle ) {
+			return 1;
+		}
+
+		try {
+			if ( "\xFF\xD8" !== fread( $handle, 2 ) ) {
+				return 1;
+			}
+			while ( ! feof( $handle ) ) {
+				$prefix = fread( $handle, 1 );
+				if ( "\xFF" !== $prefix ) {
+					continue;
+				}
+				do {
+					$marker = fread( $handle, 1 );
+				} while ( "\xFF" === $marker );
+				if ( '' === $marker || "\xD9" === $marker || "\xDA" === $marker ) {
+					break;
+				}
+				if ( ord( $marker ) >= 0xD0 && ord( $marker ) <= 0xD8 ) {
+					continue;
+				}
+
+				$length_bytes = fread( $handle, 2 );
+				if ( 2 !== strlen( $length_bytes ) ) {
+					break;
+				}
+				$length = (int) ( unpack( 'nlength', $length_bytes )['length'] ?? 0 );
+				if ( $length < 2 ) {
+					break;
+				}
+				$payload_length = $length - 2;
+				if ( "\xE1" !== $marker ) {
+					if ( 0 !== fseek( $handle, $payload_length, SEEK_CUR ) ) {
+						break;
+					}
+					continue;
+				}
+
+				$payload = fread( $handle, $payload_length );
+				if ( strlen( $payload ) !== $payload_length || ! str_starts_with( $payload, "Exif\0\0" ) ) {
+					continue;
+				}
+				$orientation = self::tiff_orientation( substr( $payload, 6 ) );
+				if ( $orientation >= 1 && $orientation <= 8 ) {
+					return $orientation;
+				}
+			}
+		} finally {
+			fclose( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+		}
+
+		return 1;
+	}
+
+	/** Extract an EXIF orientation from a TIFF header. */
+	private static function tiff_orientation( string $tiff ): int {
+		if ( strlen( $tiff ) < 8 ) {
+			return 1;
+		}
+		$byte_order = substr( $tiff, 0, 2 );
+		if ( ! in_array( $byte_order, [ 'II', 'MM' ], true ) ) {
+			return 1;
+		}
+		$short_format = 'II' === $byte_order ? 'vvalue' : 'nvalue';
+		$long_format  = 'II' === $byte_order ? 'Vvalue' : 'Nvalue';
+		$read_short   = static function ( int $offset ) use ( $tiff, $short_format ): ?int {
+			if ( $offset < 0 || $offset + 2 > strlen( $tiff ) ) {
+				return null;
+			}
+			return (int) ( unpack( $short_format, substr( $tiff, $offset, 2 ) )['value'] ?? 0 );
+		};
+		$read_long = static function ( int $offset ) use ( $tiff, $long_format ): ?int {
+			if ( $offset < 0 || $offset + 4 > strlen( $tiff ) ) {
+				return null;
+			}
+			return (int) ( unpack( $long_format, substr( $tiff, $offset, 4 ) )['value'] ?? 0 );
+		};
+
+		if ( 42 !== $read_short( 2 ) ) {
+			return 1;
+		}
+		$ifd_offset = $read_long( 4 );
+		$count      = null !== $ifd_offset ? $read_short( $ifd_offset ) : null;
+		if ( null === $ifd_offset || null === $count || $count > 512 ) {
+			return 1;
+		}
+		for ( $index = 0; $index < $count; $index++ ) {
+			$entry = $ifd_offset + 2 + ( $index * 12 );
+			if ( 0x0112 !== $read_short( $entry ) ) {
+				continue;
+			}
+			$type       = $read_short( $entry + 2 );
+			$value_count = $read_long( $entry + 4 );
+			if ( 3 !== $type || 1 !== $value_count ) {
+				return 1;
+			}
+			$value = $read_short( $entry + 8 );
+			return null !== $value && $value >= 1 && $value <= 8 ? $value : 1;
+		}
+
+		return 1;
+	}
+
+	/** Bake a non-default JPEG orientation into its pixels and remove stale metadata. */
+	private static function normalise_jpeg_orientation( string $source, int $orientation ): string {
+		$temp = self::temp_path( 'oc-oriented-' );
+		if ( false === $temp ) {
+			throw new \RuntimeException( __( 'The photo orientation could not be staged.', 'overcustomise' ) );
+		}
+		$output = $temp . '.jpg';
+		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		$source_size = filesize( $source );
+		if ( false === $source_size || $source_size <= 0 ) {
+			@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			throw new \RuntimeException( __( 'The photo orientation could not be normalised.', 'overcustomise' ) );
+		}
+
+		try {
+			if ( extension_loaded( 'imagick' ) && class_exists( '\\Imagick' ) ) {
+				$image = new \Imagick();
+				try {
+					$image->setResourceLimit( \Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024 );
+					$image->setResourceLimit( \Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024 );
+					$image->setResourceLimit( \Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024 );
+					if ( defined( '\\Imagick::RESOURCETYPE_AREA' ) ) {
+						$image->setResourceLimit( \Imagick::RESOURCETYPE_AREA, self::MAX_IMAGE_PIXELS );
+					}
+					$image->readImage( $source . '[0]' );
+					$image->setIteratorIndex( 0 );
+					self::apply_imagick_orientation( $image, $orientation );
+					$image->setImageOrientation( \Imagick::ORIENTATION_TOPLEFT );
+					$image->setImageFormat( 'jpeg' );
+					$image->stripImage();
+					foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
+						$image->setImageCompressionQuality( $quality );
+						if ( $image->writeImage( $output ) && self::normalised_jpeg_is_valid( $output, $source_size ) ) {
+							return $output;
+						}
+					}
+				} finally {
+					$image->clear();
+					$image->destroy();
+				}
+			} else {
+				require_once ABSPATH . 'wp-admin/includes/image.php';
+				$editor = wp_get_image_editor( $source );
+				if ( ! is_wp_error( $editor ) ) {
+					self::apply_image_editor_orientation( $editor, $orientation );
+					foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
+						$editor->set_quality( $quality );
+						$result = $editor->save( $output, 'image/jpeg' );
+						if ( ! is_wp_error( $result ) && self::normalised_jpeg_is_valid( $output, $source_size ) ) {
+							return $output;
+						}
+					}
+				}
+			}
+		} catch ( \Throwable $e ) {
+			OC_Logger::warning( 'JPEG orientation normalisation failed: ' . $e->getMessage() );
+		}
+
+		@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+		throw new \RuntimeException( __( 'The photo orientation could not be normalised. Please export it as a new JPEG or PNG and try again.', 'overcustomise' ) );
+	}
+
+	/** Apply one EXIF orientation directly to an ImageMagick image. */
+	private static function apply_imagick_orientation( \Imagick $image, int $orientation ): void {
+		switch ( $orientation ) {
+			case 2:
+				$image->flopImage();
+				break;
+			case 3:
+				$image->rotateImage( new \ImagickPixel( 'white' ), 180 );
+				break;
+			case 4:
+				$image->flipImage();
+				break;
+			case 5:
+				$image->transposeImage();
+				break;
+			case 6:
+				$image->rotateImage( new \ImagickPixel( 'white' ), 90 );
+				break;
+			case 7:
+				$image->transverseImage();
+				break;
+			case 8:
+				$image->rotateImage( new \ImagickPixel( 'white' ), 270 );
+				break;
+		}
+	}
+
+	/** Apply one EXIF orientation using the portable WordPress image-editor API. */
+	private static function apply_image_editor_orientation( object $editor, int $orientation ): void {
+		$result = match ( $orientation ) {
+			2       => $editor->flip( true, false ),
+			3       => $editor->rotate( 180 ),
+			4       => $editor->flip( false, true ),
+			5       => is_wp_error( $editor->rotate( 90 ) ) ? new \WP_Error( 'orientation_failed' ) : $editor->flip( true, false ),
+			6       => $editor->rotate( 90 ),
+			7       => is_wp_error( $editor->rotate( 90 ) ) ? new \WP_Error( 'orientation_failed' ) : $editor->flip( false, true ),
+			8       => $editor->rotate( 270 ),
+			default => true,
+		};
+		if ( is_wp_error( $result ) ) {
+			throw new \RuntimeException( __( 'The photo orientation could not be normalised.', 'overcustomise' ) );
+		}
+	}
+
+	/** Validate a normalised JPEG and keep it within the upload's storage reservation. */
+	private static function normalised_jpeg_is_valid( string $path, int $maximum_bytes ): bool {
+		$size = filesize( $path );
+		$info = @getimagesize( $path );
+		return false !== $size && $size > 0 && $size <= $maximum_bytes
+			&& is_array( $info ) && 'image/jpeg' === (string) ( $info['mime'] ?? '' )
+			&& 1 === self::jpeg_exif_orientation( $path );
 	}
 
 	/** Convert an Apple HEIC/HEIF upload to a browser- and filter-compatible JPEG. */
