@@ -336,7 +336,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 	}
 
 	/**
-	 * Detect low-colour artwork whose transparency defines a logo silhouette.
+	 * Detect monochrome artwork whose transparency defines a logo silhouette.
 	 *
 	 * Logo colours are not production instructions for engraving. In particular,
 	 * white-on-transparent logos must use their alpha channel as the mark rather
@@ -347,7 +347,16 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$height      = imagesy( $image );
 		$transparent = 0;
 		$visible     = 0;
-		$colours     = [];
+		$colour_samples = 0;
+		$minimum_luminance = 255.0;
+		$maximum_luminance = 0.0;
+		$all_near_white    = true;
+		$minimum_red       = 255;
+		$maximum_red       = 0;
+		$minimum_green     = 255;
+		$maximum_green     = 0;
+		$minimum_blue      = 255;
+		$maximum_blue      = 0;
 
 		for ( $y = 0; $y < $height; $y++ ) {
 			for ( $x = 0; $x < $width; $x++ ) {
@@ -359,17 +368,43 @@ class OC_Print_Engraving extends OC_Print_Base {
 				}
 
 				++$visible;
+				// Very low-opacity antialias fringes describe the silhouette edge,
+				// not the logo's production colour.
+				if ( $alpha > 96 ) {
+					continue;
+				}
+				++$colour_samples;
 				$r = ( $rgba >> 16 ) & 0xFF;
 				$g = ( $rgba >> 8 ) & 0xFF;
 				$b = $rgba & 0xFF;
-				$colours[ ( $r >> 5 ) . ':' . ( $g >> 5 ) . ':' . ( $b >> 5 ) ] = true;
-				if ( count( $colours ) > 32 ) {
-					return false;
+				$luminance = 0.2126 * $r + 0.7152 * $g + 0.0722 * $b;
+				$minimum_luminance = min( $minimum_luminance, $luminance );
+				$maximum_luminance = max( $maximum_luminance, $luminance );
+				$minimum_red       = min( $minimum_red, $r );
+				$maximum_red       = max( $maximum_red, $r );
+				$minimum_green     = min( $minimum_green, $g );
+				$maximum_green     = max( $maximum_green, $g );
+				$minimum_blue      = min( $minimum_blue, $b );
+				$maximum_blue      = max( $maximum_blue, $b );
+				if ( $luminance < 245.0 ) {
+					$all_near_white = false;
 				}
 			}
 		}
 
-		return $transparent > 0 && $visible > 0;
+		if ( 0 === $transparent || 0 === $visible || 0 === $colour_samples ) {
+			return false;
+		}
+		if ( $all_near_white ) {
+			return true;
+		}
+
+		$minimum_transparent = max( 4, (int) ceil( $width * $height * 0.05 ) );
+		return $transparent >= $minimum_transparent
+			&& $maximum_luminance - $minimum_luminance <= 24.0
+			&& $maximum_red - $minimum_red <= 32
+			&& $maximum_green - $minimum_green <= 32
+			&& $maximum_blue - $minimum_blue <= 32;
 	}
 
 	/** Convert every visible logo pixel to a black mark while preserving alpha. */

@@ -18,6 +18,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private const MAX_SVG_PATH_BYTES = 2097152;
 	private const MAX_RASTER_EDGE_PX = 900;
 	private const ALPHA_VISIBLE_THRESHOLD = 64;
+	private const MAX_EPS_FRAGMENT_BYTES = 134217728;
+	private const MAX_EPS_OUTPUT_BYTES = 134217728;
 
 	/** Parsed TrueType font cache for font-independent EPS text outlines. */
 	private static array $ttf_outline_cache = [];
@@ -79,27 +81,110 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'gsave',
 		];
 
-		if ( self::has_layer_payload( $area_data ) ) {
-			$lines[] = '%%OCExportMode: layer-payload';
-			self::append_eps_layers( $lines, $area, $area_data );
-		} else {
-			$lines[] = '%%OCExportMode: legacy-artwork';
-			self::append_eps_legacy_artwork( $lines, $area, $area_data );
-		}
-		if ( ! self::eps_lines_have_paint( $lines ) ) {
-			throw new \RuntimeException( __( 'Embroidery generation produced no printable artwork.', 'overcustomise' ) );
-		}
-
-		$lines[] = 'grestore';
-		$lines[] = 'showpage';
-		$lines[] = '%%EOF';
-
 		$output_path = $output_dir . '/' . self::build_versioned_filename( $order, $item_id, $area, 'eps' );
-		if ( false === file_put_contents( $output_path, implode( "\n", $lines ) . "\n" ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+		try {
+			if ( self::has_layer_payload( $area_data ) ) {
+				$lines[] = '%%OCExportMode: layer-payload';
+				self::append_eps_layers( $lines, $area, $area_data );
+			} else {
+				$lines[] = '%%OCExportMode: legacy-artwork';
+				self::append_eps_legacy_artwork( $lines, $area, $area_data );
+			}
+			if ( ! self::eps_lines_have_paint( $lines ) ) {
+				throw new \RuntimeException( __( 'Embroidery generation produced no printable artwork.', 'overcustomise' ) );
+			}
+
+			$lines[] = 'grestore';
+			$lines[] = 'showpage';
+			$lines[] = '%%EOF';
+			self::write_eps_lines( $output_path, $lines );
+			return $output_path;
+		} catch ( \Throwable $e ) {
+			@unlink( $output_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			throw $e;
+		} finally {
+			self::cleanup_eps_fragments( $lines );
+		}
+	}
+
+	/** Write ordinary EPS lines and streamed raster fragments without duplicating them in memory. */
+	private static function write_eps_lines( string $output_path, array $lines ): void {
+		$total_bytes = 0;
+		foreach ( $lines as $line ) {
+			if ( is_array( $line ) && is_string( $line['oc_eps_fragment'] ?? null ) ) {
+				clearstatcache( true, $line['oc_eps_fragment'] );
+				$size = filesize( $line['oc_eps_fragment'] );
+				if ( false === $size ) {
+					throw new \RuntimeException( __( 'Could not read a staged embroidery raster.', 'overcustomise' ) );
+				}
+				$total_bytes += $size;
+			} else {
+				$total_bytes += strlen( (string) $line ) + 1;
+			}
+			if ( $total_bytes > self::MAX_EPS_OUTPUT_BYTES ) {
+				throw new \RuntimeException( __( 'Embroidery artwork is too complex to export safely.', 'overcustomise' ) );
+			}
+		}
+
+		$output = @fopen( $output_path, 'wb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		if ( false === $output ) {
 			throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
 		}
+		try {
+			foreach ( $lines as $line ) {
+				if ( is_array( $line ) && is_string( $line['oc_eps_fragment'] ?? null ) ) {
+					$input = @fopen( $line['oc_eps_fragment'], 'rb' ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+					if ( false === $input ) {
+						throw new \RuntimeException( __( 'Could not read a staged embroidery raster.', 'overcustomise' ) );
+					}
+					try {
+						clearstatcache( true, $line['oc_eps_fragment'] );
+						$expected = filesize( $line['oc_eps_fragment'] );
+						$copied   = stream_copy_to_stream( $input, $output );
+						if ( false === $expected || false === $copied || $copied !== $expected ) {
+							throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
+						}
+					} finally {
+						fclose( $input ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+					}
+					continue;
+				}
+				self::write_eps_stream_bytes( $output, (string) $line . "\n" );
+			}
+			if ( ! fflush( $output ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fflush
+				throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
+			}
+			if ( ! fclose( $output ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+				throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
+			}
+			$output = null;
+		} finally {
+			if ( is_resource( $output ) ) {
+				fclose( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+			}
+		}
+	}
 
-		return $output_path;
+	/** Write all bytes to a stream, treating short writes as failures. */
+	private static function write_eps_stream_bytes( $stream, string $bytes ): void {
+		$length = strlen( $bytes );
+		$offset = 0;
+		while ( $offset < $length ) {
+			$written = fwrite( $stream, substr( $bytes, $offset ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite
+			if ( false === $written || 0 === $written ) {
+				throw new \RuntimeException( __( 'Could not write embroidery EPS file.', 'overcustomise' ) );
+			}
+			$offset += $written;
+		}
+	}
+
+	/** Remove every temporary EPS fragment referenced by an output line list. */
+	private static function cleanup_eps_fragments( array $lines ): void {
+		foreach ( $lines as $line ) {
+			if ( is_array( $line ) && is_string( $line['oc_eps_fragment'] ?? null ) ) {
+				@unlink( $line['oc_eps_fragment'] ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
 	}
 
 	/** Append all v2 customiser layers to the EPS output. */
@@ -1365,16 +1450,45 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return;
 		}
 
-		$lines[] = '%%OCTransparentRaster: vector-runs';
-		$lines[] = sprintf( '%%%%OCTransparentRasterSize: %d %d', $img_w, $img_h );
-		$lines[] = 'gsave';
-		$lines[] = sprintf( '%.4F %.4F translate', $x_pt, $y_pt );
-		$lines[] = sprintf( '%.8F %.8F scale', $w_pt / $img_w, $h_pt / $img_h );
+		$existing_fragment_bytes = 0;
+		foreach ( $lines as $line ) {
+			if ( is_array( $line ) && is_string( $line['oc_eps_fragment'] ?? null ) ) {
+				clearstatcache( true, $line['oc_eps_fragment'] );
+				$size = filesize( $line['oc_eps_fragment'] );
+				if ( false === $size ) {
+					throw new \RuntimeException( __( 'Could not read a staged embroidery raster.', 'overcustomise' ) );
+				}
+				$existing_fragment_bytes += $size;
+			}
+		}
+		$fragment = self::temp_path( 'oc-embroidery-raster-' . wp_generate_uuid4() . '.eps' );
+		$handle   = is_string( $fragment ) ? @fopen( $fragment, 'wb' ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		if ( false === $handle ) {
+			if ( is_string( $fragment ) ) {
+				@unlink( $fragment ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+			throw new \RuntimeException( __( 'Could not stage transparent embroidery artwork.', 'overcustomise' ) );
+		}
+		$bytes = 0;
+		$write = static function ( string $command ) use ( $handle, &$bytes, $existing_fragment_bytes ): void {
+			$command .= "\n";
+			$bytes   += strlen( $command );
+			if ( $bytes > self::MAX_EPS_FRAGMENT_BYTES || $existing_fragment_bytes + $bytes > self::MAX_EPS_OUTPUT_BYTES ) {
+				throw new \RuntimeException( __( 'Transparent embroidery artwork is too complex to export safely.', 'overcustomise' ) );
+			}
+			self::write_eps_stream_bytes( $handle, $command );
+		};
 		$active_rgb = null;
-
-		for ( $y = 0; $y < $img_h; $y++ ) {
-			$x = 0;
-			while ( $x < $img_w ) {
+		$has_paint  = false;
+		try {
+			$write( '%%OCTransparentRaster: vector-runs' );
+			$write( sprintf( '%%%%OCTransparentRasterSize: %d %d', $img_w, $img_h ) );
+			$write( 'gsave' );
+			$write( sprintf( '%.4F %.4F translate', $x_pt, $y_pt ) );
+			$write( sprintf( '%.8F %.8F scale', $w_pt / $img_w, $h_pt / $img_h ) );
+			for ( $y = 0; $y < $img_h; $y++ ) {
+				$x = 0;
+				while ( $x < $img_w ) {
 				$rgba  = imagecolorat( $image, $x, $y );
 				$alpha = ( $rgba >> 24 ) & 0x7F;
 				if ( $alpha >= self::ALPHA_VISIBLE_THRESHOLD ) {
@@ -1397,15 +1511,27 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					$r = ( $rgb >> 16 ) & 0xFF;
 					$g = ( $rgb >> 8 ) & 0xFF;
 					$b = $rgb & 0xFF;
-					$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 );
+					$write( sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 ) );
 					$active_rgb = $rgb;
 				}
-				$lines[] = sprintf( '%d %d %d 1 rectfill', $x, $img_h - $y - 1, $run );
+				$write( sprintf( '%d %d %d 1 rectfill', $x, $img_h - $y - 1, $run ) );
+				$has_paint = true;
 				$x += $run;
+				}
 			}
+			$write( 'grestore' );
+		} catch ( \Throwable $e ) {
+			fclose( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+			@unlink( $fragment ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			throw $e;
 		}
-
-		$lines[] = 'grestore';
+		$flushed = fflush( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fflush
+		$closed  = fclose( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+		if ( ! $flushed || ! $closed ) {
+			@unlink( $fragment ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			throw new \RuntimeException( __( 'Could not stage transparent embroidery artwork.', 'overcustomise' ) );
+		}
+		$lines[] = [ 'oc_eps_fragment' => $fragment, 'has_paint' => $has_paint ];
 	}
 
 	/** Convert SVG with an external vector renderer when available, then place the resulting EPS into this EPS. */
@@ -1576,6 +1702,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	/** Detect real paint operators rather than wrapper transforms/comments. */
 	private static function eps_lines_have_paint( array $lines ): bool {
 		foreach ( $lines as $line ) {
+			if ( is_array( $line ) && ! empty( $line['has_paint'] ) ) {
+				return true;
+			}
 			$line = trim( (string) $line );
 			if ( preg_match( '/(?:^|\s)(?:fill|eofill|stroke|rectfill|colorimage|image)(?:\s|$)/', $line ) ) {
 				return true;

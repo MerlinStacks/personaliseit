@@ -323,7 +323,9 @@ class OC_Admin_Order_Metabox {
 				esc_url( $url )
 			) : '';
 			$html        = $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
-			$colour_html = $this->customer_can_select_layer_colour( $layer ) ? $this->colour_display_value( $layer_data ) : '';
+			$colour_html = $this->image_layer_has_order_colour( $layer_data, $layer )
+				? $this->colour_display_value( $layer_data, $this->legacy_linked_image_colour_requires_lookup( $layer_data, $layer ) )
+				: '';
 			return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 		}
 
@@ -346,7 +348,7 @@ class OC_Admin_Order_Metabox {
 	}
 
 	/** Return an escaped colour swatch and hex value for order admin summaries. */
-	private function colour_display_value( array $layer_data ): string {
+	private function colour_display_value( array $layer_data, bool $verify_name = false ): string {
 		$colour = ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] )
 			? sanitize_hex_color( $layer_data['colorHex'] )
 			: '';
@@ -359,11 +361,13 @@ class OC_Admin_Order_Metabox {
 		$colour_name = is_scalar( $layer_data['colorName'] ?? null )
 			? sanitize_text_field( (string) $layer_data['colorName'] )
 			: '';
-		if ( '' === $colour_name ) {
-			$colour_name = (string) $wpdb->get_var( $wpdb->prepare(
-				"SELECT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) LIMIT 1",
+		if ( '' === $colour_name || $verify_name ) {
+			$canonical_names = $wpdb->get_col( $wpdb->prepare(
+				"SELECT DISTINCT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) ORDER BY name ASC LIMIT 2",
 				$colour
 			) );
+			$canonical_names = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', is_array( $canonical_names ) ? $canonical_names : [] ) ) ) );
+			$colour_name = 1 === count( $canonical_names ) ? $canonical_names[0] : '';
 		}
 
 		return sprintf(
@@ -387,17 +391,31 @@ class OC_Admin_Order_Metabox {
 		return ! empty( $settings[ $setting_key ] );
 	}
 
-	/** Whether an uploaded image layer exposes a customer colour choice. */
-	private function customer_can_select_layer_colour( ?object $layer ): bool {
-		if ( ! $layer || 'image' !== sanitize_key( (string) ( $layer->type ?? '' ) ) ) {
+	/** Whether a recolourable image has a customer-selected or linked production colour. */
+	private function image_layer_has_order_colour( array $layer_data, ?object $layer ): bool {
+		$type = sanitize_key( (string) ( $layer_data['type'] ?? $layer->type ?? '' ) );
+		if ( 'image' !== $type || ! sanitize_hex_color( (string) ( $layer_data['colorHex'] ?? '' ) ) ) {
 			return false;
 		}
-		if ( ! $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
+		if ( ! empty( $layer_data['colourLinked'] ) ) {
+			return true;
+		}
+		if ( ! $layer ) {
 			return false;
 		}
-
 		$settings = ! empty( $layer->settings ) ? json_decode( (string) $layer->settings, true ) : [];
-		return is_array( $settings ) && ! empty( $settings['enable_image_colour'] );
+		return is_array( $settings ) && ! empty( $settings['enable_image_colour'] )
+			&& ( $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) || ! empty( $layer_data['colourLinked'] ) || ! empty( $settings['colour_link_group'] ) );
+	}
+
+	/** Whether an old linked payload needs its stale target colour name resolved by hex. */
+	private function legacy_linked_image_colour_requires_lookup( array $layer_data, ?object $layer ): bool {
+		if ( ! empty( $layer_data['colourLinked'] ) || ! $layer ) {
+			return false;
+		}
+		$settings = ! empty( $layer->settings ) ? json_decode( (string) $layer->settings, true ) : [];
+		return is_array( $settings ) && ! empty( $settings['enable_image_colour'] )
+			&& empty( $settings['allow_colour_change'] ) && ! empty( $settings['colour_link_group'] );
 	}
 
 	/** Do not show fixed default clipart as customer-selected order data. */

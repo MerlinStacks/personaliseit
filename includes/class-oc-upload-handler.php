@@ -455,12 +455,16 @@ class OC_Upload_Handler {
 			throw new \RuntimeException( __( 'Unsupported artwork format.', 'overcustomise' ) );
 		}
 
+		$jpeg_orientation = 1;
 		if ( in_array( $type_key, [ 'png', 'jpg', 'webp' ], true ) ) {
 			$image_info = @getimagesize( (string) $_file['tmp_name'] );
 			if ( ! is_array( $image_info ) || (string) ( $image_info['mime'] ?? '' ) !== $mime ) {
 				throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 			}
 			self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
+			if ( 'jpg' === $type_key ) {
+				$jpeg_orientation = self::jpeg_exif_orientation( (string) $_file['tmp_name'] );
+			}
 		} elseif ( 'heic' === $type_key ) {
 			if ( ! self::heic_content_is_valid( (string) $_file['tmp_name'] ) ) {
 				throw new \RuntimeException( __( 'The Apple photo content is not a valid HEIC or HEIF image.', 'overcustomise' ) );
@@ -486,7 +490,10 @@ class OC_Upload_Handler {
 
 		$source_bytes = (int) filesize( (string) $_file['tmp_name'] );
 		$count        = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
-		$reservation  = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
+		$reservation = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
+		if ( 'jpg' === $type_key && $jpeg_orientation > 1 ) {
+			$reservation = self::jpeg_orientation_reservation_bytes( $source_bytes, (int) $image_info[0], (int) $image_info[1] );
+		}
 		if ( 2 === $count ) {
 			$preview_limit = self::filtered_positive_int( 'oc_document_preview_max_bytes', 20 * 1024 * 1024, 1024, 100 * 1024 * 1024 );
 			if ( null === $preview_limit ) {
@@ -501,6 +508,12 @@ class OC_Upload_Handler {
 			'reservation_bytes' => $reservation,
 			'attachment_count' => $count,
 		];
+	}
+
+	/** Conservatively reserve JPEG encoder output without charging every small photo the global maximum. */
+	private static function jpeg_orientation_reservation_bytes( int $source_bytes, int $width, int $height ): int {
+		$encoded_upper_bound = ( $width * $height * 4 ) + 65536;
+		return min( self::MAX_GENERATED_IMAGE_BYTES, max( $source_bytes, $encoded_upper_bound ) );
 	}
 
 	/**
@@ -1254,7 +1267,7 @@ class OC_Upload_Handler {
 			if ( 'image/jpeg' === $mime ) {
 				$orientation = self::jpeg_exif_orientation( $source_path );
 				if ( $orientation > 1 ) {
-					$staged_path = self::normalise_jpeg_orientation( $source_path, $orientation );
+					$staged_path = self::normalise_jpeg_orientation( $source_path, $orientation, (int) $image_info[0], (int) $image_info[1] );
 					$source_path = $staged_path;
 					$image_info  = @getimagesize( $source_path );
 					if ( ! is_array( $image_info ) || 'image/jpeg' !== (string) ( $image_info['mime'] ?? '' ) ) {
@@ -1269,6 +1282,16 @@ class OC_Upload_Handler {
 				sanitize_file_name( basename( (string) $_file['name'] ) ),
 				$mime
 			);
+			if ( is_string( $staged_path ) && ! is_wp_error( $attachment_id ) ) {
+				$source_size = filesize( (string) $_file['tmp_name'] );
+				if ( false === $source_size || $source_size <= 0
+					|| ! update_post_meta( (int) $attachment_id, '_oc_artwork_source_type', 'jpg' )
+					|| ! update_post_meta( (int) $attachment_id, '_oc_artwork_source_bytes', (int) $source_size )
+				) {
+					wp_delete_attachment( (int) $attachment_id, true );
+					throw new \RuntimeException( __( 'The photo source metadata could not be retained.', 'overcustomise' ) );
+				}
+			}
 		} finally {
 			if ( is_string( $staged_path ) ) {
 				@unlink( $staged_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -1395,7 +1418,7 @@ class OC_Upload_Handler {
 	}
 
 	/** Bake a non-default JPEG orientation into its pixels and remove stale metadata. */
-	private static function normalise_jpeg_orientation( string $source, int $orientation ): string {
+	private static function normalise_jpeg_orientation( string $source, int $orientation, int $width, int $height ): string {
 		$temp = self::temp_path( 'oc-oriented-' );
 		if ( false === $temp ) {
 			throw new \RuntimeException( __( 'The photo orientation could not be staged.', 'overcustomise' ) );
@@ -1426,7 +1449,7 @@ class OC_Upload_Handler {
 					$image->stripImage();
 					foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
 						$image->setImageCompressionQuality( $quality );
-						if ( $image->writeImage( $output ) && self::normalised_jpeg_is_valid( $output, $source_size ) ) {
+						if ( $image->writeImage( $output ) && self::normalised_jpeg_is_valid( $output ) ) {
 							return $output;
 						}
 					}
@@ -1435,6 +1458,9 @@ class OC_Upload_Handler {
 					$image->destroy();
 				}
 			} else {
+				if ( ! self::gd_orientation_memory_is_safe( $width, $height ) ) {
+					throw new \RuntimeException( __( 'This photo is too large to rotate safely on this server. Please export it as a new JPEG or PNG and try again.', 'overcustomise' ) );
+				}
 				require_once ABSPATH . 'wp-admin/includes/image.php';
 				$editor = wp_get_image_editor( $source );
 				if ( ! is_wp_error( $editor ) ) {
@@ -1442,7 +1468,7 @@ class OC_Upload_Handler {
 					foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
 						$editor->set_quality( $quality );
 						$result = $editor->save( $output, 'image/jpeg' );
-						if ( ! is_wp_error( $result ) && self::normalised_jpeg_is_valid( $output, $source_size ) ) {
+						if ( ! is_wp_error( $result ) && self::normalised_jpeg_is_valid( $output ) ) {
 							return $output;
 						}
 					}
@@ -1500,13 +1526,48 @@ class OC_Upload_Handler {
 		}
 	}
 
-	/** Validate a normalised JPEG and keep it within the upload's storage reservation. */
-	private static function normalised_jpeg_is_valid( string $path, int $maximum_bytes ): bool {
+	/** Validate a normalised JPEG against generated-artifact safety limits. */
+	private static function normalised_jpeg_is_valid( string $path ): bool {
+		clearstatcache( true, $path );
 		$size = filesize( $path );
 		$info = @getimagesize( $path );
-		return false !== $size && $size > 0 && $size <= $maximum_bytes
-			&& is_array( $info ) && 'image/jpeg' === (string) ( $info['mime'] ?? '' )
-			&& 1 === self::jpeg_exif_orientation( $path );
+		if ( false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES
+			|| ! is_array( $info ) || 'image/jpeg' !== (string) ( $info['mime'] ?? '' ) || 1 !== self::jpeg_exif_orientation( $path )
+		) {
+			return false;
+		}
+		try {
+			self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+			return true;
+		} catch ( \RuntimeException $e ) {
+			return false;
+		}
+	}
+
+	/** Ensure GD has conservative headroom for a decoded source and rotated destination. */
+	private static function gd_orientation_memory_is_safe( int $width, int $height, ?int $memory_limit = null, ?int $memory_used = null ): bool {
+		if ( $width < 1 || $height < 1 ) {
+			return false;
+		}
+		if ( null === $memory_limit ) {
+			$setting = trim( (string) ini_get( 'memory_limit' ) );
+			if ( '-1' === $setting ) {
+				return true;
+			}
+			if ( ! preg_match( '/^(\d+)([KMG]?)$/i', $setting, $matches ) ) {
+				return false;
+			}
+			$memory_limit = (int) $matches[1] * match ( strtoupper( $matches[2] ) ) {
+				'G' => 1024 * 1024 * 1024,
+				'M' => 1024 * 1024,
+				'K' => 1024,
+				default => 1,
+			};
+		}
+		$memory_used = $memory_used ?? memory_get_usage( true );
+		$pixels      = $width * $height;
+		$estimated   = ( $pixels * 12 ) + ( 32 * 1024 * 1024 );
+		return $memory_limit <= 0 || $estimated <= max( 0, $memory_limit - $memory_used );
 	}
 
 	/** Convert an Apple HEIC/HEIF upload to a browser- and filter-compatible JPEG. */

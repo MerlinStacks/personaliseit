@@ -28,6 +28,121 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 }
 
 class Test_Print_Engraving extends TestCase {
+	#[Test]
+	public function isolated_transparent_pixels_do_not_turn_artwork_into_a_logo_silhouette(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$image = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$blue        = imagecolorallocatealpha( $image, 0, 80, 220, 0 );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $blue );
+		imagesetpixel( $image, 0, 0, $transparent );
+
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' );
+		$this->assertFalse( $method->invoke( null, $image ) );
+		imagedestroy( $image );
+	}
+
+	#[Test]
+	public function sparse_logo_marks_are_still_detected_on_a_transparent_canvas(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$image = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$white       = imagecolorallocatealpha( $image, 255, 255, 255, 0 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $transparent );
+		imagesetpixel( $image, 10, 10, $white );
+
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' );
+		$this->assertTrue( $method->invoke( null, $image ) );
+		imagedestroy( $image );
+	}
+
+	#[Test]
+	public function near_full_canvas_white_logo_is_detected_despite_a_small_transparent_margin(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$image = imagecreatetruecolor( 100, 100 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$white       = imagecolorallocatealpha( $image, 255, 255, 255, 0 );
+		imagefilledrectangle( $image, 0, 0, 99, 99, $white );
+		imagefilledrectangle( $image, 0, 0, 1, 99, $transparent );
+
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' );
+		$this->assertTrue( $method->invoke( null, $image ) );
+		imagedestroy( $image );
+	}
+
+	#[Test]
+	public function low_opacity_dark_fringe_does_not_change_white_logo_classification(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$image = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$white       = imagecolorallocatealpha( $image, 255, 255, 255, 0 );
+		$fringe      = imagecolorallocatealpha( $image, 0, 0, 0, 119 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $transparent );
+		imagefilledrectangle( $image, 4, 4, 15, 15, $white );
+		imagesetpixel( $image, 3, 10, $fringe );
+
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' );
+		$this->assertTrue( $method->invoke( null, $image ) );
+		imagedestroy( $image );
+	}
+
+	#[Test]
+	public function multicolour_transparent_artwork_keeps_tonal_processing_instead_of_becoming_a_flat_silhouette(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$image = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $transparent );
+		for ( $x = 0; $x < 20; $x++ ) {
+			$colour = imagecolorallocatealpha( $image, $x * 12, 30, 255 - $x * 12, 0 );
+			imagefilledrectangle( $image, $x, 5, $x, 14, $colour );
+		}
+
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' );
+		$this->assertFalse( $method->invoke( null, $image ) );
+		imagedestroy( $image );
+	}
+
+	#[Test]
+	public function equal_luminance_different_hues_are_not_mistaken_for_a_monochrome_logo(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$image = imagecreatetruecolor( 20, 20 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		$red         = imagecolorallocatealpha( $image, 255, 0, 0, 0 );
+		$green       = imagecolorallocatealpha( $image, 0, 76, 0, 0 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $transparent );
+		imagefilledrectangle( $image, 4, 4, 9, 15, $red );
+		imagefilledrectangle( $image, 10, 4, 15, 15, $green );
+
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' );
+		$this->assertFalse( $method->invoke( null, $image ) );
+		imagedestroy( $image );
+	}
+
 
 	#[Test]
 	public function leather_material_uses_its_engraving_profile(): void {

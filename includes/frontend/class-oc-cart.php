@@ -134,7 +134,9 @@ class OC_Cart {
 	// -------------------------------------------------------------------------
 
 	/** Validate legacy submissions with the same normaliser used for cart persistence. */
-	public function validate_legacy_artwork( bool $passed, int $product_id, int $quantity, int $variation_id = 0, array $variations = [], array $cart_item_data = [] ): bool {
+	public function validate_legacy_artwork( bool $passed, int $product_id, int $quantity, int|string $variation_id = 0, array $variations = [], array $cart_item_data = [] ): bool {
+		$variation_id = absint( $variation_id );
+
 		if ( ! $passed ) {
 			return false;
 		}
@@ -930,8 +932,11 @@ class OC_Cart {
 				}
 			}
 			$colour = $normalised[ $source['id'] ]['colorHex'];
+			$colour_name = is_string( $normalised[ $source['id'] ]['colorName'] ?? null ) ? $normalised[ $source['id'] ]['colorName'] : '';
 			foreach ( $members as $member ) {
 				$normalised[ $member['id'] ]['colorHex'] = $colour;
+				$normalised[ $member['id'] ]['colorName'] = $colour_name;
+				$normalised[ $member['id'] ]['colourLinked'] = true;
 			}
 		}
 
@@ -1405,7 +1410,7 @@ class OC_Cart {
 	// Admin order item display
 	// -------------------------------------------------------------------------
 
-	public function display_in_order( int $item_id, WC_Order_Item $item, WC_Order $order, bool $plain_text = false ): void {
+	public function display_in_order( int $item_id, WC_Order_Item $item, WC_Order $order, bool $plain_text = false, bool $admin_context = false ): void {
 		$customisation = $item->get_meta( '_oc_customisation', true );
 		$preview_url   = $item->get_meta( '_oc_preview_url', true );
 		$preview_url   = is_string( $preview_url ) ? $preview_url : '';
@@ -1413,7 +1418,7 @@ class OC_Cart {
 			$this->display_plain_text_order_item( is_array( $customisation ) ? $customisation : [], $preview_url, $item );
 			return;
 		}
-		$print_files   = is_admin() ? OC_DB::get_print_files_for_item( $item_id ) : [];
+		$print_files   = $admin_context ? OC_DB::get_print_files_for_item( $item_id ) : [];
 
 		if ( ( empty( $customisation ) || ! is_array( $customisation ) ) && empty( $preview_url ) && empty( $print_files ) ) {
 			return;
@@ -1424,7 +1429,7 @@ class OC_Cart {
 
 		// ── Preview image ─────────────────────────────────────────────────────
 		if ( $preview_url ) {
-			$preview_link_url = is_admin()
+			$preview_link_url = $admin_context
 				? add_query_arg( 'TB_iframe', 'true', $preview_url )
 				: $preview_url;
 			echo '<div style="flex:0 0 auto;">'
@@ -1460,10 +1465,10 @@ class OC_Cart {
 			foreach ( $layers as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) continue;
 				$layer = $layer_map[ (int) $layer_id ] ?? null;
-				if ( is_admin() && $this->is_fixed_clipart_layer( $layer, $layer_data ) ) continue;
+				if ( $admin_context && $this->is_fixed_clipart_layer( $layer, $layer_data ) ) continue;
 				$type  = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
 				$label = $layer ? ( $layer->label ?: ucfirst( (string) $layer->type ) ) : ucfirst( $type ?: __( 'Layer', 'overcustomise' ) );
-				$value = $this->layer_display_value( $layer_data, $layer );
+				$value = $this->layer_display_value( $layer_data, $layer, $admin_context );
 				if ( ! $value ) continue;
 				echo '<div style="display:grid;grid-template-columns:minmax(110px,38%) 1fr;gap:8px;align-items:start;margin:0 0 6px;">'
 					. '<div style="color:#646970;font-weight:600;">' . esc_html( $label ) . '</div>'
@@ -1527,7 +1532,7 @@ class OC_Cart {
 			return;
 		}
 
-		$this->display_in_order( $item_id, $item, $order );
+		$this->display_in_order( $item_id, $item, $order, false, true );
 	}
 
 	// ── Shared helpers ────────────────────────────────────────────────────────
@@ -1536,7 +1541,7 @@ class OC_Cart {
 	 * Return a safe display string for a single v2 layer input array.
 	 * Returns empty string if there's nothing to show.
 	 */
-	private function layer_display_value( array $layer_data, ?object $layer = null ): string {
+	private function layer_display_value( array $layer_data, ?object $layer = null, bool $admin_context = false ): string {
 		$type = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
 		switch ( $type ) {
 			case 'text':
@@ -1548,7 +1553,7 @@ class OC_Cart {
 				}
 
 				$html = esc_html( $val );
-				if ( is_admin() && in_array( $type, [ 'text', 'textarea' ], true ) && ! empty( $layer_data['fontId'] ) && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
+				if ( $admin_context && in_array( $type, [ 'text', 'textarea' ], true ) && ! empty( $layer_data['fontId'] ) && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
 					global $wpdb;
 					$font_name = (string) $wpdb->get_var( $wpdb->prepare(
 						"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
@@ -1558,7 +1563,7 @@ class OC_Cart {
 						$html .= ' &mdash; ' . esc_html( $font_name );
 					}
 				}
-				if ( is_admin() && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
+				if ( $admin_context && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
 					$colour_html = $this->colour_display_value( $layer_data );
 					if ( '' !== $colour_html ) {
 						$html .= ' &mdash; ' . $colour_html;
@@ -1573,7 +1578,9 @@ class OC_Cart {
 					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
 					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' );
 					$html          = $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
-					$colour_html   = is_admin() && $this->customer_can_select_layer_colour( $layer ) ? $this->colour_display_value( $layer_data ) : '';
+					$colour_html   = $admin_context && $this->image_layer_has_order_colour( $layer_data, $layer )
+						? $this->colour_display_value( $layer_data, $this->legacy_linked_image_colour_requires_lookup( $layer_data, $layer ) )
+						: '';
 
 					return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 				}
@@ -1585,11 +1592,11 @@ class OC_Cart {
 				}
 
 				$html = esc_html__( '[Clipart selected]', 'overcustomise' );
-				$colour_html = is_admin() && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+				$colour_html = $admin_context && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 				return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 
 			case 'lineart':
-				return is_admin() && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+				return $admin_context && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 
 			default:
 				return '';
@@ -1611,7 +1618,7 @@ class OC_Cart {
 	}
 
 	/** Return an escaped colour swatch and hex value for order admin summaries. */
-	private function colour_display_value( array $layer_data ): string {
+	private function colour_display_value( array $layer_data, bool $verify_name = false ): string {
 		$colour = ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] )
 			? sanitize_hex_color( $layer_data['colorHex'] )
 			: '';
@@ -1624,11 +1631,13 @@ class OC_Cart {
 		$colour_name = is_scalar( $layer_data['colorName'] ?? null )
 			? sanitize_text_field( (string) $layer_data['colorName'] )
 			: '';
-		if ( '' === $colour_name ) {
-			$colour_name = (string) $wpdb->get_var( $wpdb->prepare(
-				"SELECT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) LIMIT 1",
+		if ( '' === $colour_name || $verify_name ) {
+			$canonical_names = $wpdb->get_col( $wpdb->prepare(
+				"SELECT DISTINCT name FROM {$wpdb->prefix}oc_colours WHERE LOWER(hex) = LOWER(%s) ORDER BY name ASC LIMIT 2",
 				$colour
 			) );
+			$canonical_names = array_values( array_unique( array_filter( array_map( 'sanitize_text_field', is_array( $canonical_names ) ? $canonical_names : [] ) ) ) );
+			$colour_name = 1 === count( $canonical_names ) ? $canonical_names[0] : '';
 		}
 
 		return sprintf(
@@ -1652,17 +1661,30 @@ class OC_Cart {
 		return ! empty( $settings[ $setting_key ] );
 	}
 
-	/** Whether the layer exposes a customer colour choice, including recolourable uploads. */
-	private function customer_can_select_layer_colour( ?object $layer ): bool {
-		if ( ! $layer || 'image' !== sanitize_key( (string) ( $layer->type ?? '' ) ) ) {
+	/** Whether a recolourable image has a customer-selected or linked production colour. */
+	private function image_layer_has_order_colour( array $layer_data, ?object $layer ): bool {
+		$type = sanitize_key( (string) ( $layer_data['type'] ?? $layer->type ?? '' ) );
+		if ( 'image' !== $type || ! sanitize_hex_color( (string) ( $layer_data['colorHex'] ?? '' ) ) ) {
 			return false;
 		}
-		if ( ! $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
+		if ( ! empty( $layer_data['colourLinked'] ) ) {
+			return true;
+		}
+		if ( ! $layer ) {
 			return false;
 		}
-
 		$settings = self::normalise_layer_settings( $layer->settings ?? [], 'image' );
-		return ! empty( $settings['enable_image_colour'] );
+		return ! empty( $settings['enable_image_colour'] )
+			&& ( ! empty( $settings['allow_colour_change'] ) || ! empty( $layer_data['colourLinked'] ) || '' !== $settings['colour_link_group'] );
+	}
+
+	/** Whether an old linked payload needs its stale target colour name resolved by hex. */
+	private function legacy_linked_image_colour_requires_lookup( array $layer_data, ?object $layer ): bool {
+		if ( ! empty( $layer_data['colourLinked'] ) || ! $layer ) {
+			return false;
+		}
+		$settings = self::normalise_layer_settings( $layer->settings ?? [], 'image' );
+		return ! empty( $settings['enable_image_colour'] ) && empty( $settings['allow_colour_change'] ) && '' !== $settings['colour_link_group'];
 	}
 
 	/** Do not show fixed default clipart as customer-selected order data. */

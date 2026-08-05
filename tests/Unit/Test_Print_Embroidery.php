@@ -21,6 +21,19 @@ if ( ! class_exists( 'WC_Order' ) ) {
 }
 
 class Test_Print_Embroidery extends TestCase {
+	private function materialise_lines( array $lines ): string {
+		$output = [];
+		foreach ( $lines as $line ) {
+			if ( is_array( $line ) && is_string( $line['oc_eps_fragment'] ?? null ) ) {
+				$output[] = (string) file_get_contents( $line['oc_eps_fragment'] );
+				@unlink( $line['oc_eps_fragment'] );
+			} else {
+				$output[] = (string) $line;
+			}
+		}
+		return implode( "\n", $output );
+	}
+
 	#[Test]
 	public function image_crop_uses_the_same_contain_to_cover_interpolation(): void {
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'fit_eps_box' );
@@ -68,7 +81,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' );
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
-		$output = implode( "\n", $lines );
+		$output = $this->materialise_lines( $lines );
 		$this->assertStringContainsString( 'Customer Name', $output );
 		$this->assertStringNotContainsString( 'Your Name Here', $output );
 	}
@@ -79,7 +92,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' );
 		$method->invokeArgs( null, [ &$lines, [ 'value' => 'Editable Text', 'colorHex' => '#123456' ], [], 0.0, 0.0, 100.0, 20.0, true ] );
 
-		$output = implode( "\n", $lines );
+		$output = $this->materialise_lines( $lines );
 		$this->assertStringContainsString( '(Editable Text)', $output );
 		$this->assertStringContainsString( '0.0000 16.9500 translate', $output );
 		$this->assertStringNotContainsString( ' exch div 1 scale', $output );
@@ -404,7 +417,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 10.0, 10.0 ] );
 		imagedestroy( $image );
 
-		$output = implode( "\n", $lines );
+		$output = $this->materialise_lines( $lines );
 		$this->assertStringContainsString( '%%OCTransparentRaster: vector-runs', $output );
 		$this->assertStringContainsString( '%%OCTransparentRasterSize: 2 2', $output );
 		$this->assertStringContainsString( '1.0000 0.0000 0.0000 setrgbcolor', $output );
@@ -432,7 +445,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 600.0, 2.0 ] );
 		imagedestroy( $image );
 
-		$output = implode( "\n", $lines );
+		$output = $this->materialise_lines( $lines );
 		$this->assertStringContainsString( '%%OCTransparentRasterSize: 600 2', $output );
 		$this->assertStringContainsString( '599 0 1 1 rectfill', $output );
 	}
@@ -458,9 +471,78 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 3.0, 1.0 ] );
 		imagedestroy( $image );
 
-		$output = implode( "\n", $lines );
+		$output = $this->materialise_lines( $lines );
 		$this->assertStringContainsString( '0 0 2 1 rectfill', $output );
 		$this->assertStringNotContainsString( '2 0 1 1 rectfill', $output );
+	}
+
+	#[Test]
+	public function complex_transparent_raster_is_staged_as_one_bounded_memory_fragment(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$image = imagecreatetruecolor( 120, 120 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		for ( $y = 0; $y < 120; $y++ ) {
+			for ( $x = 0; $x < 120; $x++ ) {
+				$colour = imagecolorallocatealpha( $image, ( $x * 17 + $y ) % 256, ( $x + $y * 19 ) % 256, ( $x * 7 + $y * 11 ) % 256, 1 );
+				imagesetpixel( $image, $x, $y, $colour );
+			}
+		}
+
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_raster_image' );
+		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 120.0, 120.0 ] );
+		imagedestroy( $image );
+
+		$this->assertCount( 1, $lines );
+		$this->assertIsArray( $lines[0] );
+		$this->assertFileExists( $lines[0]['oc_eps_fragment'] );
+		$output = $this->materialise_lines( $lines );
+		$this->assertStringContainsString( '%%OCTransparentRasterSize: 120 120', $output );
+		$this->assertStringContainsString( 'rectfill', $output );
+	}
+
+	#[Test]
+	public function fully_transparent_raster_fragment_is_not_reported_as_printable_paint(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$image = imagecreatetruecolor( 10, 10 );
+		imagealphablending( $image, false );
+		imagesavealpha( $image, true );
+		$transparent = imagecolorallocatealpha( $image, 0, 0, 0, 127 );
+		imagefilledrectangle( $image, 0, 0, 9, 9, $transparent );
+
+		$lines  = [];
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_raster_image' );
+		$method->invokeArgs( null, [ &$lines, $image, 0.0, 0.0, 10.0, 10.0 ] );
+		imagedestroy( $image );
+
+		$this->assertFalse( $lines[0]['has_paint'] );
+		$this->materialise_lines( $lines );
+	}
+
+	#[Test]
+	public function eps_writer_rejects_aggregate_output_above_the_safety_limit_before_copying(): void {
+		$fragment = tempnam( sys_get_temp_dir(), 'oc-eps-large-' );
+		$output   = tempnam( sys_get_temp_dir(), 'oc-eps-output-' );
+		$handle   = fopen( $fragment, 'wb' );
+		ftruncate( $handle, 134217729 );
+		fclose( $handle );
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'write_eps_lines' );
+
+		try {
+			$method->invoke( null, $output, [ [ 'oc_eps_fragment' => $fragment, 'has_paint' => true ] ] );
+			$this->fail( 'Oversized aggregate EPS output should be rejected.' );
+		} catch ( RuntimeException $e ) {
+			$this->assertStringContainsString( 'too complex', $e->getMessage() );
+		} finally {
+			@unlink( $fragment );
+			@unlink( $output );
+		}
 	}
 
 	#[Test]

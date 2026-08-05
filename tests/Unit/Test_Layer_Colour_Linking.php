@@ -20,6 +20,16 @@ if ( ! function_exists( 'esc_url_raw' ) ) {
 		return $value;
 	}
 }
+if ( ! function_exists( 'esc_attr' ) ) {
+	function esc_attr( string $value ): string {
+		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+}
+if ( ! function_exists( 'esc_html' ) ) {
+	function esc_html( string $value ): string {
+		return htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+}
 
 class Test_Layer_Colour_Linking extends TestCase {
 	#[Test]
@@ -84,8 +94,8 @@ class Test_Layer_Colour_Linking extends TestCase {
 			] ],
 		];
 		$normalised = [
-			10 => [ 'colorHex' => '#000000' ],
-			20 => [ 'colorHex' => '#cc3300' ],
+			10 => [ 'colorHex' => '#000000', 'colorName' => 'Black' ],
+			20 => [ 'colorHex' => '#cc3300', 'colorName' => 'Burnt Orange' ],
 		];
 
 		$method = new ReflectionMethod( OC_Cart::class, 'synchronise_normalised_linked_colours' );
@@ -93,5 +103,50 @@ class Test_Layer_Colour_Linking extends TestCase {
 
 		$this->assertSame( '#cc3300', $result[10]['colorHex'] );
 		$this->assertSame( '#cc3300', $result[20]['colorHex'] );
+		$this->assertSame( 'Burnt Orange', $result[10]['colorName'] );
+		$this->assertTrue( $result[10]['colourLinked'] );
+		$this->assertTrue( $result[20]['colourLinked'] );
+	}
+
+	#[Test]
+	public function persisted_linked_image_colour_remains_authoritative_without_the_design_layer(): void {
+		$cart   = new OC_Cart();
+		$method = new ReflectionMethod( OC_Cart::class, 'image_layer_has_order_colour' );
+		$data   = [ 'type' => 'image', 'colorHex' => '#cc3300', 'colourLinked' => true ];
+
+		$this->assertTrue( $method->invoke( $cart, $data, null ) );
+	}
+
+	#[Test]
+	public function unresolved_or_ambiguous_legacy_colour_name_falls_back_to_hex(): void {
+		global $wpdb;
+		$previous = $wpdb ?? null;
+		$wpdb = new class {
+			public string $prefix = 'wp_';
+			public array $names = [];
+			public function prepare( string $query, ...$args ): string {
+				return $query;
+			}
+			public function get_col( string $query ): array {
+				return $this->names;
+			}
+		};
+		$cart   = new OC_Cart();
+		$method = new ReflectionMethod( OC_Cart::class, 'colour_display_value' );
+		$data   = [ 'colorHex' => '#cc3300', 'colorName' => 'Black' ];
+
+		try {
+			$output = $method->invoke( $cart, $data, true );
+			$this->assertStringContainsString( '#cc3300', $output );
+			$this->assertStringNotContainsString( 'Black', $output );
+
+			$wpdb->names = [ 'Burnt Orange', 'Rust' ];
+			$output = $method->invoke( $cart, $data, true );
+			$this->assertStringContainsString( '#cc3300', $output );
+			$this->assertStringNotContainsString( 'Burnt Orange', $output );
+			$this->assertStringNotContainsString( 'Rust', $output );
+		} finally {
+			$wpdb = $previous;
+		}
 	}
 }

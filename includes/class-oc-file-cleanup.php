@@ -353,13 +353,35 @@ class OC_File_Cleanup {
 		foreach ( $rows as $row ) {
 			$raw   = (string) $row->option_value;
 			$state = json_decode( $raw, true );
-			if ( ! is_array( $state )
-				|| ! is_int( $state['version'] ?? null ) || 1 !== $state['version']
-				|| ! is_int( $state['window_start'] ?? null ) || $state['window_start'] <= 0
-				|| ! is_int( $state['window_end'] ?? null ) || $state['window_end'] <= $state['window_start'] || $state['window_end'] <= time()
-				|| ! is_int( $state['count'] ?? null ) || $state['count'] < 0
-				|| ! is_int( $state['bytes'] ?? null ) || $state['bytes'] < 0
-			) {
+			$valid = is_array( $state );
+			if ( $valid && 1 === ( $state['version'] ?? null ) ) {
+				$valid = is_int( $state['window_start'] ?? null ) && $state['window_start'] > 0
+					&& is_int( $state['window_end'] ?? null ) && $state['window_end'] > $state['window_start'] && $state['window_end'] > time()
+					&& is_int( $state['count'] ?? null ) && $state['count'] >= 0
+					&& is_int( $state['bytes'] ?? null ) && $state['bytes'] >= 0;
+			} elseif ( $valid && 2 === ( $state['version'] ?? null ) ) {
+				$duration = $state['window_seconds'] ?? null;
+				$buckets  = $state['buckets'] ?? null;
+				$valid    = 'sliding' === ( $state['window_type'] ?? null ) && is_int( $duration ) && $duration > 0 && $duration <= DAY_IN_SECONDS
+					&& is_array( $buckets ) && array_is_list( $buckets ) && count( $buckets ) <= $duration + 1;
+				$last = 0;
+				$cleanup_time = time();
+				foreach ( $valid ? $buckets : [] as $bucket ) {
+					if ( ! is_array( $bucket ) || ! is_int( $bucket['timestamp'] ?? null ) || $bucket['timestamp'] <= $last
+						|| $bucket['timestamp'] > $cleanup_time
+						|| ! is_int( $bucket['count'] ?? null ) || $bucket['count'] < 0 || ! is_int( $bucket['bytes'] ?? null ) || $bucket['bytes'] < 0
+						|| ( 0 === $bucket['count'] && 0 === $bucket['bytes'] )
+					) {
+						$valid = false;
+						break;
+					}
+					$last = $bucket['timestamp'];
+				}
+				$valid = $valid && $last + $duration > $cleanup_time;
+			} else {
+				$valid = false;
+			}
+			if ( ! $valid ) {
 				self::delete_option_if_unchanged( (string) $row->option_name, $raw );
 			}
 		}

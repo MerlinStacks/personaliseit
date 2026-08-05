@@ -66,6 +66,24 @@ class UploadHandlerReflector {
 		$m->setAccessible( true );
 		return $m->invoke( null, $path );
 	}
+
+	public static function gd_orientation_memory_is_safe( int $width, int $height, int $limit, int $used ): bool {
+		$m = self::rc()->getMethod( 'gd_orientation_memory_is_safe' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $width, $height, $limit, $used );
+	}
+
+	public static function normalised_jpeg_is_valid( string $path ): bool {
+		$m = self::rc()->getMethod( 'normalised_jpeg_is_valid' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $path );
+	}
+
+	public static function jpeg_orientation_reservation_bytes( int $source_bytes, int $width, int $height ): int {
+		$m = self::rc()->getMethod( 'jpeg_orientation_reservation_bytes' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $source_bytes, $width, $height );
+	}
 }
 
 class Test_Upload_Handler_Validation extends TestCase {
@@ -314,6 +332,38 @@ class Test_Upload_Handler_Validation extends TestCase {
 		file_put_contents( $tmp, "\xFF\xD8\xFF\xD9" );
 
 		$this->assertSame( 1, UploadHandlerReflector::jpeg_exif_orientation( $tmp ) );
+		@unlink( $tmp );
+	}
+
+	#[Test]
+	public function jpeg_rotation_rejects_unsafe_gd_memory_before_decoding(): void {
+		$this->assertTrue( UploadHandlerReflector::gd_orientation_memory_is_safe( 1200, 800, 256 * 1024 * 1024, 32 * 1024 * 1024 ) );
+		$this->assertFalse( UploadHandlerReflector::gd_orientation_memory_is_safe( 8000, 5000, 256 * 1024 * 1024, 32 * 1024 * 1024 ) );
+	}
+
+	#[Test]
+	public function oriented_jpeg_reservation_scales_with_dimensions_up_to_the_generated_cap(): void {
+		$small = UploadHandlerReflector::jpeg_orientation_reservation_bytes( 120000, 400, 300 );
+		$large = UploadHandlerReflector::jpeg_orientation_reservation_bytes( 4000000, 8000, 5000 );
+
+		$this->assertSame( 545536, $small );
+		$this->assertSame( 15 * 1024 * 1024, $large );
+	}
+
+	#[Test]
+	public function normalised_jpeg_may_grow_beyond_the_compressed_source_size(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) || ! function_exists( 'imagejpeg' ) ) {
+			$this->markTestSkipped( 'GD JPEG support is not available.' );
+		}
+		$tmp   = tempnam( sys_get_temp_dir(), 'oc-jpeg-' );
+		$image = imagecreatetruecolor( 20, 20 );
+		$red   = imagecolorallocate( $image, 255, 0, 0 );
+		imagefilledrectangle( $image, 0, 0, 19, 19, $red );
+		imagejpeg( $image, $tmp, 92 );
+		imagedestroy( $image );
+
+		$this->assertGreaterThan( 1, filesize( $tmp ) );
+		$this->assertTrue( UploadHandlerReflector::normalised_jpeg_is_valid( $tmp ) );
 		@unlink( $tmp );
 	}
 

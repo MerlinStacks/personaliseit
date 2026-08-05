@@ -564,6 +564,82 @@ class OC_Rest_API {
 		return 'oc_budget_' . hash( 'sha256', $key );
 	}
 
+	/** Validate, migrate, and prune one true rolling-window budget state. */
+	private static function normalise_sliding_budget_state( array $state, int $window_seconds, int $now ): array {
+		if ( $window_seconds < 1 || $window_seconds > DAY_IN_SECONDS ) {
+			throw new \RuntimeException( 'A sliding security budget has an invalid duration.' );
+		}
+
+		// Version 1 stored one aggregate that expired after the last request. Preserve
+		// its existing expiry as one conservative bucket during lazy migration.
+		if ( 1 === ( $state['version'] ?? null ) && ! empty( $state['sliding_window'] ) ) {
+			if ( ! is_int( $state['window_end'] ?? null ) || ! is_int( $state['count'] ?? null ) || ! is_int( $state['bytes'] ?? null )
+				|| $state['count'] < 0 || $state['bytes'] < 0
+			) {
+				throw new \RuntimeException( 'A legacy sliding security budget row is malformed.' );
+			}
+			$buckets = [];
+			if ( $state['window_end'] > $now && ( $state['count'] > 0 || $state['bytes'] > 0 ) ) {
+				$buckets[] = [
+					'timestamp' => $state['window_end'] - $window_seconds,
+					'count'     => $state['count'],
+					'bytes'     => $state['bytes'],
+				];
+			}
+			$state = [ 'version' => 2, 'window_type' => 'sliding', 'window_seconds' => $window_seconds, 'buckets' => $buckets ];
+		}
+
+		if ( 2 !== ( $state['version'] ?? null ) || 'sliding' !== ( $state['window_type'] ?? null )
+			|| ! is_int( $state['window_seconds'] ?? null ) || $state['window_seconds'] !== $window_seconds
+			|| ! is_array( $state['buckets'] ?? null ) || ! array_is_list( $state['buckets'] )
+			|| count( $state['buckets'] ) > $window_seconds + 1
+		) {
+			throw new \RuntimeException( 'A persisted sliding security budget row is malformed.' );
+		}
+
+		$cutoff  = $now - $window_seconds;
+		$buckets = [];
+		$last    = 0;
+		foreach ( $state['buckets'] as $bucket ) {
+			if ( ! is_array( $bucket ) || ! is_int( $bucket['timestamp'] ?? null ) || ! is_int( $bucket['count'] ?? null )
+				|| ! is_int( $bucket['bytes'] ?? null ) || $bucket['timestamp'] <= $last || $bucket['timestamp'] > $now
+				|| $bucket['count'] < 0 || $bucket['bytes'] < 0 || ( 0 === $bucket['count'] && 0 === $bucket['bytes'] )
+			) {
+				throw new \RuntimeException( 'A persisted sliding security budget bucket is malformed.' );
+			}
+			$last = $bucket['timestamp'];
+			if ( $bucket['timestamp'] > $cutoff ) {
+				$buckets[] = $bucket;
+			}
+		}
+		$state['buckets'] = $buckets;
+		return $state;
+	}
+
+	/** Return rolling-window usage totals. */
+	private static function sliding_budget_totals( array $buckets ): array {
+		$count = 0;
+		$bytes = 0;
+		foreach ( $buckets as $bucket ) {
+			$count += (int) $bucket['count'];
+			$bytes += (int) $bucket['bytes'];
+		}
+		return [ $count, $bytes ];
+	}
+
+	/** Calculate when enough oldest rolling usage expires for this reservation. */
+	private static function sliding_budget_retry_after( array $buckets, array $spec, int $now, int $window_seconds ): int {
+		[ $count, $bytes ] = self::sliding_budget_totals( $buckets );
+		foreach ( $buckets as $bucket ) {
+			$count -= (int) $bucket['count'];
+			$bytes -= (int) $bucket['bytes'];
+			if ( $count <= $spec['count_limit'] - $spec['count'] && $bytes <= $spec['byte_limit'] - $spec['bytes'] ) {
+				return max( 1, (int) $bucket['timestamp'] + $window_seconds - $now );
+			}
+		}
+		return $window_seconds;
+	}
+
 	/**
 	 * Atomically reserve count/byte capacity across every supplied budget.
 	 *
@@ -579,6 +655,7 @@ class OC_Rest_API {
 		}
 
 		$prepared = [];
+		$now      = time();
 		foreach ( $specs as $spec ) {
 			$key          = is_string( $spec['key'] ?? null ) ? $spec['key'] : '';
 			$window_start = (int) ( $spec['window_start'] ?? 0 );
@@ -588,7 +665,7 @@ class OC_Rest_API {
 			$count_limit  = (int) ( $spec['count_limit'] ?? 0 );
 			$byte_limit   = (int) ( $spec['byte_limit'] ?? 0 );
 			$option_name  = self::budget_option_name( $key );
-			if ( '' === $key || $window_start <= 0 || $window_end <= time() || $window_end <= $window_start
+			if ( '' === $key || $window_start <= 0 || $window_end <= $now || $window_end <= $window_start
 				|| $count < 0 || $bytes < 0 || ( 0 === $count && 0 === $bytes )
 				|| ( $count > 0 && $count_limit < $count ) || ( $bytes > 0 && $byte_limit < $bytes )
 				|| isset( $prepared[ $option_name ] )
@@ -641,14 +718,40 @@ class OC_Rest_API {
 					$option_name
 				) );
 				$state = is_string( $raw ) ? json_decode( $raw, true ) : null;
-				if ( $inserted[ $option_name ] ) {
+				if ( $spec['sliding_window'] ) {
+					$window_seconds = $spec['window_end'] - $spec['window_start'];
+					if ( $inserted[ $option_name ] ) {
+						$state = [ 'version' => 2, 'window_type' => 'sliding', 'window_seconds' => $window_seconds, 'buckets' => [] ];
+					}
+					if ( ! is_array( $state ) ) {
+						throw new \RuntimeException( 'A persisted sliding security budget row is malformed.' );
+					}
+					$state = self::normalise_sliding_budget_state( $state, $window_seconds, $now );
+					[ $current_count, $current_bytes ] = self::sliding_budget_totals( $state['buckets'] );
+					if ( ( $spec['count'] > 0 && $current_count > $spec['count_limit'] - $spec['count'] )
+						|| ( $spec['bytes'] > 0 && $current_bytes > $spec['byte_limit'] - $spec['bytes'] )
+					) {
+						$retry_after = self::sliding_budget_retry_after( $state['buckets'], $spec, $now, $window_seconds );
+						$message = 'ai_quota_exceeded' === $spec['error_code'] ? self::ai_quota_retry_message( $retry_after ) : $spec['error_message'];
+						$error = new \WP_Error( $spec['error_code'], $message, [ 'status' => $spec['error_status'], 'retry_after' => $retry_after ] );
+						throw new \OverflowException( 'Security budget exhausted.' );
+					}
+					$last_index = count( $state['buckets'] ) - 1;
+					if ( $last_index >= 0 && $state['buckets'][ $last_index ]['timestamp'] === $now ) {
+						$state['buckets'][ $last_index ]['count'] += $spec['count'];
+						$state['buckets'][ $last_index ]['bytes'] += $spec['bytes'];
+					} else {
+						$state['buckets'][] = [ 'timestamp' => $now, 'count' => $spec['count'], 'bytes' => $spec['bytes'] ];
+					}
+					$prepared[ $option_name ]['bucket_timestamp'] = $now;
+				} elseif ( $inserted[ $option_name ] ) {
 					$state = [
 						'version'      => 1,
 						'window_start' => $spec['window_start'],
 						'window_end'   => $spec['window_end'],
 						'count'        => 0,
 						'bytes'        => 0,
-						'sliding_window' => $spec['sliding_window'],
+						'sliding_window' => false,
 					];
 				} elseif ( ! is_array( $state )
 					|| ! is_int( $state['version'] ?? null ) || 1 !== $state['version']
@@ -658,8 +761,7 @@ class OC_Rest_API {
 					|| ! is_int( $state['bytes'] ?? null ) || $state['bytes'] < 0
 				) {
 					throw new \RuntimeException( 'A persisted security budget row is malformed.' );
-				} elseif ( (bool) ( $state['sliding_window'] ?? false ) !== $spec['sliding_window']
-					|| (int) $state['window_end'] <= time()
+				} elseif ( ! empty( $state['sliding_window'] ) || (int) $state['window_end'] <= $now
 				) {
 					$state = [
 						'version'      => 1,
@@ -667,21 +769,20 @@ class OC_Rest_API {
 						'window_end'   => $spec['window_end'],
 						'count'        => 0,
 						'bytes'        => 0,
-						'sliding_window' => $spec['sliding_window'],
+						'sliding_window' => false,
 					];
-				} elseif ( ! $spec['sliding_window']
-					&& ( (int) $state['window_start'] !== $spec['window_start'] || (int) $state['window_end'] !== $spec['window_end'] )
+				} elseif ( (int) $state['window_start'] !== $spec['window_start'] || (int) $state['window_end'] !== $spec['window_end']
 				) {
 					throw new \RuntimeException( 'An active security budget has an unexpected time window.' );
 				}
 
-				$current_count = (int) $state['count'];
-				$current_bytes = (int) $state['bytes'];
-				if ( ( $spec['count'] > 0 && $current_count > $spec['count_limit'] - $spec['count'] )
+				if ( ! $spec['sliding_window'] ) {
+					$current_count = (int) $state['count'];
+					$current_bytes = (int) $state['bytes'];
+					if ( ( $spec['count'] > 0 && $current_count > $spec['count_limit'] - $spec['count'] )
 					|| ( $spec['bytes'] > 0 && $current_bytes > $spec['byte_limit'] - $spec['bytes'] )
-				) {
-					$retry_window_end = $spec['sliding_window'] ? (int) $state['window_end'] : $spec['window_end'];
-					$retry_after      = max( 1, $retry_window_end - time() );
+					) {
+					$retry_after = max( 1, $spec['window_end'] - $now );
 					$message     = $spec['error_message'];
 					if ( 'ai_quota_exceeded' === $spec['error_code'] ) {
 						$message = self::ai_quota_retry_message( $retry_after );
@@ -695,13 +796,9 @@ class OC_Rest_API {
 						]
 					);
 					throw new \OverflowException( 'Security budget exhausted.' );
-				}
-
-				$state['count'] = $current_count + $spec['count'];
-				$state['bytes'] = $current_bytes + $spec['bytes'];
-				if ( $spec['sliding_window'] ) {
-					$state['window_start'] = time();
-					$state['window_end']   = time() + ( $spec['window_end'] - $spec['window_start'] );
+					}
+					$state['count'] = $current_count + $spec['count'];
+					$state['bytes'] = $current_bytes + $spec['bytes'];
 				}
 				$encoded        = wp_json_encode( $state );
 				if ( ! is_string( $encoded ) ) {
@@ -748,9 +845,11 @@ class OC_Rest_API {
 			$bytes  = max( 0, (int) ( $reduce['bytes'] ?? 0 ) );
 			if ( $count > 0 || $bytes > 0 ) {
 				$work[ $option_name ] = [
-					'window_start' => (int) ( $item['window_start'] ?? 0 ),
-					'count'        => min( $count, (int) ( $item['count'] ?? 0 ) ),
-					'bytes'        => min( $bytes, (int) ( $item['bytes'] ?? 0 ) ),
+					'window_start'    => (int) ( $item['window_start'] ?? 0 ),
+					'bucket_timestamp' => (int) ( $item['bucket_timestamp'] ?? 0 ),
+					'sliding_window'  => ! empty( $item['sliding_window'] ),
+					'count'           => min( $count, (int) ( $item['count'] ?? 0 ) ),
+					'bytes'           => min( $bytes, (int) ( $item['bytes'] ?? 0 ) ),
 				];
 			}
 		}
@@ -772,17 +871,36 @@ class OC_Rest_API {
 					$option_name
 				) );
 				$state = is_string( $raw ) ? json_decode( $raw, true ) : null;
-				if ( ! is_array( $state ) || ! is_int( $state['version'] ?? null ) || 1 !== $state['version']
-					|| ! is_int( $state['window_start'] ?? null ) || ! is_int( $state['count'] ?? null ) || ! is_int( $state['bytes'] ?? null )
-					|| $state['count'] < 0 || $state['bytes'] < 0
-				) {
+				if ( ! is_array( $state ) ) {
 					throw new \RuntimeException( 'A reserved security budget row is unavailable.' );
 				}
+				if ( $reduce['sliding_window'] ) {
+					if ( 2 !== ( $state['version'] ?? null ) || 'sliding' !== ( $state['window_type'] ?? null ) || ! is_array( $state['buckets'] ?? null ) ) {
+						throw new \RuntimeException( 'A reserved sliding security budget row is unavailable.' );
+					}
+					foreach ( $state['buckets'] as $index => $bucket ) {
+						if ( (int) ( $bucket['timestamp'] ?? 0 ) !== $reduce['bucket_timestamp'] ) {
+							continue;
+						}
+						$state['buckets'][ $index ]['count'] = max( 0, (int) ( $bucket['count'] ?? 0 ) - $reduce['count'] );
+						$state['buckets'][ $index ]['bytes'] = max( 0, (int) ( $bucket['bytes'] ?? 0 ) - $reduce['bytes'] );
+						if ( 0 === $state['buckets'][ $index ]['count'] && 0 === $state['buckets'][ $index ]['bytes'] ) {
+							array_splice( $state['buckets'], $index, 1 );
+						}
+						break;
+					}
+				} else {
+					if ( 1 !== ( $state['version'] ?? null ) || ! is_int( $state['window_start'] ?? null )
+						|| ! is_int( $state['count'] ?? null ) || ! is_int( $state['bytes'] ?? null ) || $state['count'] < 0 || $state['bytes'] < 0
+					) {
+						throw new \RuntimeException( 'A reserved security budget row is unavailable.' );
+					}
 				if ( (int) ( $state['window_start'] ?? 0 ) !== $reduce['window_start'] ) {
 					continue;
 				}
 				$state['count'] = max( 0, (int) ( $state['count'] ?? 0 ) - $reduce['count'] );
 				$state['bytes'] = max( 0, (int) ( $state['bytes'] ?? 0 ) - $reduce['bytes'] );
+				}
 				$encoded        = wp_json_encode( $state );
 				$updated        = is_string( $encoded ) ? $wpdb->query( $wpdb->prepare(
 					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s",

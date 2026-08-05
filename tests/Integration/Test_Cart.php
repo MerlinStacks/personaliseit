@@ -156,6 +156,12 @@ class Test_Cart extends WC_Unit_Test_Case {
 	// ── add_cart_item_data ────────────────────────────────────────────────────
 
 	#[Test]
+	public function add_to_cart_validators_accept_string_variation_ids(): void {
+		$this->assertFalse( ( new OC_Frontend() )->validate( false, $this->product->get_id(), 1, '' ) );
+		$this->assertFalse( ( new OC_Cart() )->validate_legacy_artwork( false, $this->product->get_id(), 1, '' ) );
+	}
+
+	#[Test]
 	public function customisation_data_is_stored_in_cart_item(): void {
 		// Simulate the hidden input posted with the add-to-cart form.
 		$_POST['_oc_customisation'] = wp_json_encode( [

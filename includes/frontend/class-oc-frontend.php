@@ -992,7 +992,9 @@ class OC_Frontend {
 
 	// ── Validation ────────────────────────────────────────────────────────────
 
-	public function validate( bool $passed, int $product_id, int $qty, int $variation_id = 0, array $variations = [], array $cart_item_data = [] ): bool {
+	public function validate( bool $passed, int $product_id, int $qty, int|string $variation_id = 0, array $variations = [], array $cart_item_data = [] ): bool {
+		$variation_id = absint( $variation_id );
+
 		if ( ! $passed ) {
 			return false;
 		}

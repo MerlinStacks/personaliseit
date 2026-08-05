@@ -292,7 +292,7 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
-	public function customer_ai_quotas_reset_fifteen_minutes_after_the_last_attempt(): void {
+	public function customer_ai_quotas_use_a_fifteen_minute_rolling_window(): void {
 		$previous_ip = $_SERVER['REMOTE_ADDR'] ?? null;
 		$_SERVER['REMOTE_ADDR'] = '203.0.113.20';
 		wp_set_current_user( 0 );
@@ -315,6 +315,53 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 				$_SERVER['REMOTE_ADDR'] = $previous_ip;
 			}
 		}
+	}
+
+	#[Test]
+	public function rolling_quota_expires_attempts_independently_at_the_exact_boundary(): void {
+		$method = new ReflectionMethod( OC_Rest_API::class, 'normalise_sliding_budget_state' );
+		$now    = 2000000000;
+		$state  = [
+			'version'        => 2,
+			'window_type'    => 'sliding',
+			'window_seconds' => 900,
+			'buckets'        => [
+				[ 'timestamp' => $now - 900, 'count' => 1, 'bytes' => 0 ],
+				[ 'timestamp' => $now - 899, 'count' => 1, 'bytes' => 0 ],
+				[ 'timestamp' => $now - 10, 'count' => 1, 'bytes' => 0 ],
+			],
+		];
+
+		$result = $method->invoke( null, $state, 900, $now );
+		$this->assertSame( [ $now - 899, $now - 10 ], array_column( $result['buckets'], 'timestamp' ) );
+	}
+
+	#[Test]
+	public function rolling_quota_retry_uses_the_oldest_attempt_that_frees_capacity(): void {
+		$method  = new ReflectionMethod( OC_Rest_API::class, 'sliding_budget_retry_after' );
+		$now     = 2000000000;
+		$buckets = [
+			[ 'timestamp' => $now - 800, 'count' => 2, 'bytes' => 0 ],
+			[ 'timestamp' => $now - 100, 'count' => 3, 'bytes' => 0 ],
+		];
+		$spec = [ 'count' => 1, 'bytes' => 0, 'count_limit' => 5, 'byte_limit' => 0 ];
+
+		$this->assertSame( 100, $method->invoke( null, $buckets, $spec, $now, 900 ) );
+	}
+
+	#[Test]
+	public function legacy_sliding_quota_migrates_without_extending_its_expiry(): void {
+		$method = new ReflectionMethod( OC_Rest_API::class, 'normalise_sliding_budget_state' );
+		$now    = 2000000000;
+		$state  = [
+			'version' => 1, 'window_start' => $now - 100, 'window_end' => $now + 800,
+			'count' => 4, 'bytes' => 0, 'sliding_window' => true,
+		];
+
+		$result = $method->invoke( null, $state, 900, $now );
+		$this->assertSame( 2, $result['version'] );
+		$this->assertSame( $now - 100, $result['buckets'][0]['timestamp'] );
+		$this->assertSame( 4, $result['buckets'][0]['count'] );
 	}
 
 	#[Test]
