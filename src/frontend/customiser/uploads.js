@@ -201,9 +201,19 @@ const uploadMethods = {
 		let modules;
 		try {
 			modules = await Promise.all( [
-				import( '@uppy/core' ),
-				import( '@uppy/drag-drop' ),
-				import( '@uppy/xhr-upload' ),
+				import( /* webpackChunkName: "upload-tools" */ '@uppy/core' ),
+				import(
+					/* webpackChunkName: "upload-tools" */ '@uppy/drag-drop'
+				),
+				import(
+					/* webpackChunkName: "upload-tools" */ '@uppy/xhr-upload'
+				),
+				import(
+					/* webpackChunkName: "upload-tools" */ '@uppy/core/css/style.min.css'
+				),
+				import(
+					/* webpackChunkName: "upload-tools" */ '@uppy/drag-drop/css/style.min.css'
+				),
 			] );
 		} catch ( error ) {
 			if ( designGeneration === this._designGeneration ) {
@@ -226,6 +236,15 @@ const uploadMethods = {
 			if ( ! zoneEl.isConnected || zoneEl.dataset.ocUppyReady === '1' ) {
 				return;
 			}
+			this.showUploadError( zoneEl, '' );
+			this.setUploadZoneState(
+				zoneEl,
+				this.isProductionImageInput(
+					this.inputs[ parseInt( zoneEl.dataset.ocUploadZone, 10 ) ]
+				)
+					? 'uploaded'
+					: ''
+			);
 			const lid = parseInt( zoneEl.dataset.ocUploadZone, 10 );
 			if ( ! lid ) {
 				return;

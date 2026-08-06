@@ -1,0 +1,55 @@
+name: Feature request
+description: Propose a focused improvement to OverCustomise
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for proposing an improvement. Explain the workflow problem before describing a solution.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find this proposal.
+          required: true
+        - label: This request relates to WooCommerce product personalisation or print production.
+          required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Workflow problem
+      description: Who encounters this problem, and what are they trying to accomplish?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the desired behavior without prescribing implementation details unless they matter.
+    validations:
+      required: true
+  - type: dropdown
+    id: users
+    attributes:
+      label: Primary users
+      multiple: true
+      options:
+        - Store customers
+        - Store managers
+        - Designers
+        - Production staff
+        - Developers or integrators
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: How is this handled today, if at all?
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add mockups, examples, compatibility considerations, or links without including private customer data.

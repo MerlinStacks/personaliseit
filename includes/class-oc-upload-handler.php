@@ -19,37 +19,37 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Upload_Handler {
-	private const MAX_IMAGE_DIMENSION = 12000;
-	private const MAX_IMAGE_PIXELS = 40000000;
-	private const MAX_GENERATED_IMAGE_BYTES = 15728640;
-	private const ACCESS_URL_TTL = DAY_IN_SECONDS;
-	private const STORAGE_VERSION = 2;
+	private const MAX_IMAGE_DIMENSION           = 12000;
+	private const MAX_IMAGE_PIXELS              = 40000000;
+	private const MAX_GENERATED_IMAGE_BYTES     = 15728640;
+	private const ACCESS_URL_TTL                = DAY_IN_SECONDS;
+	private const STORAGE_VERSION               = 2;
 	private const FALLBACK_STORAGE_TOKEN_OPTION = 'oc_private_storage_token';
 
 	/** Nonce action used to authenticate upload requests. */
 	public const NONCE_ACTION = 'oc_upload_artwork';
 
 	/** Legacy subdirectory within WP uploads. New artwork is never written here. */
-	private const UPLOAD_SUBDIR = 'overcustomise/artwork';
+	private const UPLOAD_SUBDIR          = 'overcustomise/artwork';
 	private const PRIVATE_ARTWORK_SUBDIR = 'artwork';
 
 	/** Supported file types and their normalised type keys. */
 	private const SUPPORTED_TYPES = [
-		'image/svg+xml'              => 'svg',
-		'text/xml'                   => 'svg', // Some browsers send this for SVG
-		'application/pdf'            => 'pdf',
-		'application/postscript'     => 'eps',
-		'application/eps'            => 'eps',
-		'application/x-eps'          => 'eps',
-		'image/x-eps'                => 'eps',
-		'image/png'                  => 'png',
-		'image/jpeg'                 => 'jpg',
-		'image/jpg'                  => 'jpg',
-		'image/webp'                 => 'webp',
-		'image/heic'                 => 'heic',
-		'image/heif'                 => 'heic',
-		'image/heic-sequence'        => 'heic',
-		'image/heif-sequence'        => 'heic',
+		'image/svg+xml'          => 'svg',
+		'text/xml'               => 'svg', // Some browsers send this for SVG
+		'application/pdf'        => 'pdf',
+		'application/postscript' => 'eps',
+		'application/eps'        => 'eps',
+		'application/x-eps'      => 'eps',
+		'image/x-eps'            => 'eps',
+		'image/png'              => 'png',
+		'image/jpeg'             => 'jpg',
+		'image/jpg'              => 'jpg',
+		'image/webp'             => 'webp',
+		'image/heic'             => 'heic',
+		'image/heif'             => 'heic',
+		'image/heic-sequence'    => 'heic',
+		'image/heif-sequence'    => 'heic',
 	];
 
 	/** Allowed file extensions mapped to canonical type keys. */
@@ -144,7 +144,7 @@ class OC_Upload_Handler {
 		if ( '' === $secret ) {
 			return '';
 		}
-		$expires   = time() + self::ACCESS_URL_TTL;
+		$expires        = time() + self::ACCESS_URL_TTL;
 		$download_value = $download ? 1 : 0;
 		$signature      = hash_hmac( 'sha256', $attachment_id . '|' . $expires . '|' . $download_value, $secret );
 
@@ -308,9 +308,9 @@ class OC_Upload_Handler {
 		if ( null === $token ) {
 			return null;
 		}
-		$directory   = rtrim( wp_normalize_path( $uploads_real ), '/' )
+		$directory    = rtrim( wp_normalize_path( $uploads_real ), '/' )
 			. '/.overcustomise-private-' . $token;
-		$root        = self::prepare_storage_root( $directory, true );
+		$root         = self::prepare_storage_root( $directory, true );
 		$uploads_real = rtrim( wp_normalize_path( $uploads_real ), '/' );
 		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root ) ) {
 			return null;
@@ -407,24 +407,36 @@ class OC_Upload_Handler {
 		if ( self::STORAGE_VERSION === (int) get_option( 'oc_private_artwork_storage_version', 0 ) ) {
 			return;
 		}
-		$limit      = 50;
-		$legacy_ids = get_posts( [
-			'post_type'      => 'attachment',
-			'post_status'    => [ 'private', 'inherit' ],
-			'posts_per_page' => $limit,
-			'fields'         => 'ids',
-			'orderby'        => 'ID',
-			'order'          => 'ASC',
-			'meta_query'     => [
-				'relation' => 'AND',
-				[ 'key' => '_oc_artwork', 'value' => '1' ],
-				[
-					'relation' => 'OR',
-					[ 'key' => '_oc_private_storage_version', 'compare' => 'NOT EXISTS' ],
-					[ 'key' => '_oc_private_storage_version', 'value' => (string) self::STORAGE_VERSION, 'compare' => '!=' ],
+		$limit        = 50;
+		$legacy_ids   = get_posts(
+			[
+				'post_type'      => 'attachment',
+				'post_status'    => [ 'private', 'inherit' ],
+				'posts_per_page' => $limit,
+				'fields'         => 'ids',
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
+				'meta_query'     => [
+					'relation' => 'AND',
+					[
+						'key'   => '_oc_artwork',
+						'value' => '1',
+					],
+					[
+						'relation' => 'OR',
+						[
+							'key'     => '_oc_private_storage_version',
+							'compare' => 'NOT EXISTS',
+						],
+						[
+							'key'     => '_oc_private_storage_version',
+							'value'   => (string) self::STORAGE_VERSION,
+							'compare' => '!=',
+						],
+					],
 				],
-			],
-		] );
+			]
+		);
 		$migration_ok = true;
 		foreach ( array_map( 'absint', $legacy_ids ) as $attachment_id ) {
 			if ( ! self::migrate_legacy_attachment( $attachment_id, $private_directory ) ) {
@@ -458,7 +470,7 @@ class OC_Upload_Handler {
 		$jpeg_orientation = 1;
 		if ( in_array( $type_key, [ 'png', 'jpg', 'webp' ], true ) ) {
 			$image_info = @getimagesize( (string) $_file['tmp_name'] );
-			if ( ! is_array( $image_info ) || (string) ( $image_info['mime'] ?? '' ) !== $mime ) {
+			if ( ! is_array( $image_info ) || $image_info['mime'] !== $mime ) {
 				throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 			}
 			self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
@@ -490,7 +502,7 @@ class OC_Upload_Handler {
 
 		$source_bytes = (int) filesize( (string) $_file['tmp_name'] );
 		$count        = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
-		$reservation = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
+		$reservation  = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
 		if ( 'jpg' === $type_key && $jpeg_orientation > 1 ) {
 			$reservation = self::jpeg_orientation_reservation_bytes( $source_bytes, (int) $image_info[0], (int) $image_info[1] );
 		}
@@ -503,10 +515,10 @@ class OC_Upload_Handler {
 		}
 
 		return [
-			'type'             => $type_key,
-			'source_bytes'     => $source_bytes,
+			'type'              => $type_key,
+			'source_bytes'      => $source_bytes,
 			'reservation_bytes' => $reservation,
-			'attachment_count' => $count,
+			'attachment_count'  => $count,
 		];
 	}
 
@@ -525,8 +537,8 @@ class OC_Upload_Handler {
 	 * @throws \RuntimeException On validation or processing failure.
 	 */
 	public static function process( array $_file, ?array $overrides = null, array $context = [] ): array {
-		$inspection = self::inspect_upload( $_file, $overrides );
-		$type_key   = $inspection['type'];
+		$inspection  = self::inspect_upload( $_file, $overrides );
+		$type_key    = $inspection['type'];
 		$result      = [];
 		$base_result = [];
 		try {
@@ -606,7 +618,7 @@ class OC_Upload_Handler {
 		}
 
 		$info = @getimagesizefromstring( $bytes );
-		if ( ! is_array( $info ) || (string) ( $info['mime'] ?? '' ) !== $mime ) {
+		if ( ! is_array( $info ) || $info['mime'] !== $mime ) {
 			return new \WP_Error( 'invalid_generated_image', __( 'The generated image is invalid.', 'overcustomise' ) );
 		}
 		self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
@@ -717,8 +729,8 @@ class OC_Upload_Handler {
 		if ( 'jpg' === $type && array_intersect( [ 'jpg', 'jpeg' ], $formats ) ) {
 			$formats[] = 'jpg';
 		}
-		$max_bytes = absint( $policy['max_size_mb'] ?? 0 ) * 1024 * 1024;
-		$path      = get_attached_file( $attachment_id );
+		$max_bytes   = absint( $policy['max_size_mb'] ?? 0 ) * 1024 * 1024;
+		$path        = get_attached_file( $attachment_id );
 		$stored_size = is_string( $path ) && is_file( $path ) ? filesize( $path ) : false;
 		$source_size = absint( get_post_meta( $attachment_id, '_oc_artwork_source_bytes', true ) );
 		$size        = $source_size > 0 ? $source_size : $stored_size;
@@ -729,17 +741,25 @@ class OC_Upload_Handler {
 
 	/** Verify that customer artwork belongs to this customer and exact layer context. */
 	public static function attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token = '' ): bool {
-		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;
+		if ( ! self::artwork_file_is_valid( $attachment_id ) ) {
+			return false;
+		}
 		$context = [ $product_id, $variation_id, $design_id, $layer_id ];
-		if ( ! self::attachment_context_is_authorised( $attachment_id, $context ) ) return false;
+		if ( ! self::attachment_context_is_authorised( $attachment_id, $context ) ) {
+			return false;
+		}
 		return self::attachment_owner_matches( $attachment_id, $token, $context );
 	}
 
 	/** Verify ownership of artwork posted by the legacy product customiser. */
 	public static function legacy_attachment_is_accepted( int $attachment_id, int $product_id, int $variation_id, string $token = '' ): bool {
-		if ( ! self::artwork_file_is_valid( $attachment_id ) ) return false;
+		if ( ! self::artwork_file_is_valid( $attachment_id ) ) {
+			return false;
+		}
 		$actual = array_values( array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) ) );
-		if ( [ $product_id, $variation_id, 0, 0 ] !== $actual ) return false;
+		if ( [ $product_id, $variation_id, 0, 0 ] !== $actual ) {
+			return false;
+		}
 		return self::attachment_owner_matches( $attachment_id, $token, $actual );
 	}
 
@@ -779,9 +799,13 @@ class OC_Upload_Handler {
 	}
 
 	private static function artwork_file_is_valid( int $attachment_id ): bool {
-		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) return false;
+		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) {
+			return false;
+		}
 		$path = get_attached_file( $attachment_id );
-		if ( ! is_string( $path ) || ! self::is_allowed_artwork_path( $path ) ) return false;
+		if ( ! is_string( $path ) || ! self::is_allowed_artwork_path( $path ) ) {
+			return false;
+		}
 		return self::artwork_content_is_valid( $path, (string) get_post_mime_type( $attachment_id ) );
 	}
 
@@ -802,7 +826,7 @@ class OC_Upload_Handler {
 		$type = self::SUPPORTED_TYPES[ $mime ];
 		if ( in_array( $type, [ 'png', 'jpg', 'webp' ], true ) ) {
 			$info = @getimagesize( $path );
-			if ( ! is_array( $info ) || (string) ( $info['mime'] ?? '' ) !== $detected_mime ) {
+			if ( ! is_array( $info ) || $info['mime'] !== $detected_mime ) {
 				return false;
 			}
 			try {
@@ -876,7 +900,7 @@ class OC_Upload_Handler {
 		}
 		$size = filesize( $path );
 		$info = @getimagesize( $path );
-		if ( false === $size || $size <= 0 || $size > 15 * 1024 * 1024 || ! is_array( $info ) || (string) ( $info['mime'] ?? '' ) !== $mime ) {
+		if ( false === $size || $size <= 0 || $size > 15 * 1024 * 1024 || ! is_array( $info ) || $info['mime'] !== $mime ) {
 			return false;
 		}
 		try {
@@ -913,7 +937,9 @@ class OC_Upload_Handler {
 	/** Admin-configured defaults are immutable and need validity, not customer ownership. */
 	public static function admin_default_attachment_is_valid( int $attachment_id ): bool {
 		$path = get_attached_file( $attachment_id );
-		if ( ! is_string( $path ) || ! is_file( $path ) ) return false;
+		if ( ! is_string( $path ) || ! is_file( $path ) ) {
+			return false;
+		}
 		$stored   = (string) get_post_mime_type( $attachment_id );
 		$detected = self::detect_mime( $path, basename( $path ) );
 		return isset( self::SUPPORTED_TYPES[ $stored ], self::SUPPORTED_TYPES[ $detected ] ) && self::SUPPORTED_TYPES[ $stored ] === self::SUPPORTED_TYPES[ $detected ];
@@ -925,10 +951,16 @@ class OC_Upload_Handler {
 			return false;
 		}
 
-		$stored = update_post_meta( $attachment_id, '_oc_artwork_context', [
-			absint( $context['product_id'] ?? 0 ), absint( $context['variation_id'] ?? 0 ),
-			absint( $context['design_id'] ?? 0 ), absint( $context['layer_id'] ?? 0 ),
-		] );
+		$stored = update_post_meta(
+			$attachment_id,
+			'_oc_artwork_context',
+			[
+				absint( $context['product_id'] ?? 0 ),
+				absint( $context['variation_id'] ?? 0 ),
+				absint( $context['design_id'] ?? 0 ),
+				absint( $context['layer_id'] ?? 0 ),
+			]
+		);
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_user_id', get_current_user_id() ) && $stored;
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_session', self::session_hash() ) && $stored;
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_token', $token_hash ) && $stored;
@@ -939,10 +971,19 @@ class OC_Upload_Handler {
 
 	/** Return persisted attachment IDs and byte sizes for authoritative token registration. */
 	public static function result_attachment_usage( array $result ): array {
-		$ids = array_values( array_unique( array_filter( array_map( 'absint', array_merge(
-			[ $result['attachment_id'] ?? 0 ],
-			(array) ( $result['related_attachment_ids'] ?? [] )
-		) ) ) ) );
+		$ids   = array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						'absint',
+						array_merge(
+							[ $result['attachment_id'] ?? 0 ],
+							(array) ( $result['related_attachment_ids'] ?? [] )
+						)
+					)
+				)
+			)
+		);
 		$usage = [];
 		foreach ( $ids as $attachment_id ) {
 			$path = get_attached_file( $attachment_id );
@@ -957,10 +998,19 @@ class OC_Upload_Handler {
 
 	/** Delete every attachment created by a failed processing result. */
 	public static function delete_result_attachments( array $result ): void {
-		$ids = array_values( array_unique( array_filter( array_map( 'absint', array_merge(
-			(array) ( $result['related_attachment_ids'] ?? [] ),
-			[ $result['attachment_id'] ?? 0 ]
-		) ) ) ) );
+		$ids = array_values(
+			array_unique(
+				array_filter(
+					array_map(
+						'absint',
+						array_merge(
+							(array) ( $result['related_attachment_ids'] ?? [] ),
+							[ $result['attachment_id'] ?? 0 ]
+						)
+					)
+				)
+			)
+		);
 		foreach ( $ids as $attachment_id ) {
 			if ( 'attachment' === get_post_type( $attachment_id ) ) {
 				wp_delete_attachment( $attachment_id, true );
@@ -1237,12 +1287,12 @@ class OC_Upload_Handler {
 		}
 
 		return [
-			'attachment_id'        => $original_id,
-			'preview_attachment_id' => (int) $preview_id,
+			'attachment_id'          => $original_id,
+			'preview_attachment_id'  => (int) $preview_id,
 			'related_attachment_ids' => [ (int) $preview_id ],
-			'preview_url'          => '',
-			'original_url'         => '',
-			'file_type'            => $type,
+			'preview_url'            => '',
+			'original_url'           => '',
+			'file_type'              => $type,
 		];
 	}
 
@@ -1270,7 +1320,7 @@ class OC_Upload_Handler {
 					$staged_path = self::normalise_jpeg_orientation( $source_path, $orientation, (int) $image_info[0], (int) $image_info[1] );
 					$source_path = $staged_path;
 					$image_info  = @getimagesize( $source_path );
-					if ( ! is_array( $image_info ) || 'image/jpeg' !== (string) ( $image_info['mime'] ?? '' ) ) {
+					if ( ! is_array( $image_info ) || 'image/jpeg' !== $image_info['mime'] ) {
 						throw new \RuntimeException( __( 'The photo orientation could not be normalised.', 'overcustomise' ) );
 					}
 					self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
@@ -1385,7 +1435,7 @@ class OC_Upload_Handler {
 			}
 			return (int) ( unpack( $short_format, substr( $tiff, $offset, 2 ) )['value'] ?? 0 );
 		};
-		$read_long = static function ( int $offset ) use ( $tiff, $long_format ): ?int {
+		$read_long    = static function ( int $offset ) use ( $tiff, $long_format ): ?int {
 			if ( $offset < 0 || $offset + 4 > strlen( $tiff ) ) {
 				return null;
 			}
@@ -1405,7 +1455,7 @@ class OC_Upload_Handler {
 			if ( 0x0112 !== $read_short( $entry ) ) {
 				continue;
 			}
-			$type       = $read_short( $entry + 2 );
+			$type        = $read_short( $entry + 2 );
 			$value_count = $read_long( $entry + 4 );
 			if ( 3 !== $type || 1 !== $value_count ) {
 				return 1;
@@ -1540,7 +1590,7 @@ class OC_Upload_Handler {
 		$size = filesize( $path );
 		$info = @getimagesize( $path );
 		if ( false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES
-			|| ! is_array( $info ) || 'image/jpeg' !== (string) ( $info['mime'] ?? '' ) || 1 !== self::jpeg_exif_orientation( $path )
+			|| ! is_array( $info ) || 'image/jpeg' !== $info['mime'] || 1 !== self::jpeg_exif_orientation( $path )
 		) {
 			return false;
 		}
@@ -1587,8 +1637,8 @@ class OC_Upload_Handler {
 
 		try {
 			self::convert_heic_via_imagick( (string) $_file['tmp_name'], $output );
-			$filename = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . '.jpg';
-			$result   = self::process_raster(
+			$filename    = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . '.jpg';
+			$result      = self::process_raster(
 				[
 					'tmp_name' => $output,
 					'name'     => $filename,
@@ -1682,7 +1732,7 @@ class OC_Upload_Handler {
 
 			$size = filesize( $dest );
 			$info = @getimagesize( $dest );
-			if ( ! $written || false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES || ! is_array( $info ) || 'image/jpeg' !== (string) ( $info['mime'] ?? '' ) ) {
+			if ( ! $written || false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES || ! is_array( $info ) || 'image/jpeg' !== $info['mime'] ) {
 				throw new \RuntimeException( __( 'The converted Apple photo is invalid or too large.', 'overcustomise' ) );
 			}
 		} finally {
@@ -1721,26 +1771,34 @@ class OC_Upload_Handler {
 			$positions = [ [ 0, 0 ], [ $width - 1, 0 ], [ 0, $height - 1 ], [ $width - 1, $height - 1 ] ];
 			$samples   = [];
 			foreach ( $positions as [ $x, $y ] ) {
-				$pixel  = $image->getImagePixelColor( $x, $y );
-				$colour = $pixel->getColor( true );
+				$pixel     = $image->getImagePixelColor( $x, $y );
 				$samples[] = [
 					'x'     => $x,
 					'y'     => $y,
 					'pixel' => $pixel,
-					'rgb'   => [ (float) $colour['r'], (float) $colour['g'], (float) $colour['b'] ],
+					'rgb'   => [
+						$pixel->getColorValue( \Imagick::COLOR_RED ),
+						$pixel->getColorValue( \Imagick::COLOR_GREEN ),
+						$pixel->getColorValue( \Imagick::COLOR_BLUE ),
+					],
 				];
 			}
 
 			$background = [];
 			foreach ( $samples as $candidate ) {
-				$matching = array_values( array_filter( $samples, static function ( array $sample ) use ( $candidate ): bool {
-					$distance = sqrt(
-						( $sample['rgb'][0] - $candidate['rgb'][0] ) ** 2
-						+ ( $sample['rgb'][1] - $candidate['rgb'][1] ) ** 2
-						+ ( $sample['rgb'][2] - $candidate['rgb'][2] ) ** 2
-					);
-					return $distance <= 0.18;
-				} ) );
+				$matching = array_values(
+					array_filter(
+						$samples,
+						static function ( array $sample ) use ( $candidate ): bool {
+							$distance = sqrt(
+								( $sample['rgb'][0] - $candidate['rgb'][0] ) ** 2
+								+ ( $sample['rgb'][1] - $candidate['rgb'][1] ) ** 2
+								+ ( $sample['rgb'][2] - $candidate['rgb'][2] ) ** 2
+							);
+							return $distance <= 0.18;
+						}
+					)
+				);
 				if ( count( $matching ) > count( $background ) ) {
 					$background = $matching;
 				}
@@ -1765,8 +1823,8 @@ class OC_Upload_Handler {
 			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$image->compositeImage( $mask, \Imagick::COMPOSITE_COPYOPACITY, 0, 0 );
 
-			$alpha          = $image->getImageChannelMean( \Imagick::CHANNEL_ALPHA );
-			$visible_ratio  = $quantum_range > 0 ? (float) ( $alpha['mean'] ?? 0 ) / $quantum_range : 0.0;
+			$alpha         = $image->getImageChannelMean( \Imagick::CHANNEL_ALPHA );
+			$visible_ratio = $quantum_range > 0 ? (float) ( $alpha['mean'] ?? 0 ) / $quantum_range : 0.0;
 			if ( $visible_ratio < 0.002 ) {
 				throw new \RuntimeException( __( 'Background removal was stopped because it would remove nearly all visible artwork.', 'overcustomise' ) );
 			}
@@ -1778,7 +1836,7 @@ class OC_Upload_Handler {
 			}
 			$size = filesize( $output );
 			$info = @getimagesize( $output );
-			if ( false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES || ! is_array( $info ) || 'image/png' !== (string) ( $info['mime'] ?? '' ) ) {
+			if ( false === $size || $size <= 0 || $size > self::MAX_GENERATED_IMAGE_BYTES || ! is_array( $info ) || 'image/png' !== $info['mime'] ) {
 				throw new \RuntimeException( __( 'The background-removed image is invalid or too large.', 'overcustomise' ) );
 			}
 			return $output;
@@ -1834,22 +1892,24 @@ class OC_Upload_Handler {
 		}
 
 		try {
-			$result = OC_Command_Runner::run( [
-				$binary,
-				'-dNOPAUSE',
-				'-dBATCH',
-				'-dSAFER',
-				'-dQUIET',
-				'-dMaxBitmap=40000000',
-				'-dFirstPage=1',
-				'-dLastPage=1',
-				'-sDEVICE=png16m',
-				'-r150',
-				'-g2400x2400',
-				'-dPDFFitPage',
-				'-sOutputFile=' . $dest,
-				$source,
-			] );
+			$result = OC_Command_Runner::run(
+				[
+					$binary,
+					'-dNOPAUSE',
+					'-dBATCH',
+					'-dSAFER',
+					'-dQUIET',
+					'-dMaxBitmap=40000000',
+					'-dFirstPage=1',
+					'-dLastPage=1',
+					'-sDEVICE=png16m',
+					'-r150',
+					'-g2400x2400',
+					'-dPDFFitPage',
+					'-sOutputFile=' . $dest,
+					$source,
+				]
+			);
 		} catch ( \InvalidArgumentException $e ) {
 			OC_Logger::warning( 'Ghostscript command rejected: ' . $e->getMessage() );
 			return false;
@@ -1860,10 +1920,20 @@ class OC_Upload_Handler {
 			return false;
 		}
 
-		if ( ! file_exists( $dest ) ) return false;
+		if ( ! file_exists( $dest ) ) {
+			return false;
+		}
 		$info = @getimagesize( $dest );
-		if ( ! is_array( $info ) ) { @unlink( $dest ); return false; }
-		try { self::validate_image_dimensions( (int) $info[0], (int) $info[1] ); } catch ( \RuntimeException $e ) { @unlink( $dest ); return false; }
+		if ( ! is_array( $info ) ) {
+			@unlink( $dest );
+			return false;
+		}
+		try {
+			self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+		} catch ( \RuntimeException $e ) {
+			@unlink( $dest );
+			return false;
+		}
 		return true;
 	}
 
@@ -1988,9 +2058,9 @@ class OC_Upload_Handler {
 	/** Write deny rules for Apache/IIS and a non-listing fallback entry point. */
 	private static function protect_artwork_directory( string $directory ): bool {
 		$files = [
-			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
+			'.htaccess'  => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
 			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
-			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
+			'index.php'  => "<?php\nhttp_response_code( 404 );\nexit;\n",
 		];
 		foreach ( $files as $filename => $contents ) {
 			$path = $directory . '/' . $filename;
@@ -2021,8 +2091,8 @@ class OC_Upload_Handler {
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
 			return false;
 		}
-		$base = realpath( trailingslashit( (string) $uploads['basedir'] ) . self::UPLOAD_SUBDIR );
-		$real = realpath( $path );
+		$base         = realpath( trailingslashit( (string) $uploads['basedir'] ) . self::UPLOAD_SUBDIR );
+		$real         = realpath( $path );
 		$uploads_base = realpath( (string) $uploads['basedir'] );
 
 		return false !== $uploads_base && false !== $base && self::path_is_within( $base, $uploads_base )
@@ -2033,9 +2103,9 @@ class OC_Upload_Handler {
 	/** Require intact deny rules before any not-yet-migrated public path is used. */
 	private static function legacy_artwork_storage_is_protected( string $directory ): bool {
 		$files = [
-			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
+			'.htaccess'  => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
 			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
-			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
+			'index.php'  => "<?php\nhttp_response_code( 404 );\nexit;\n",
 		];
 		foreach ( $files as $filename => $contents ) {
 			$path = $directory . '/' . $filename;
@@ -2052,7 +2122,13 @@ class OC_Upload_Handler {
 
 	/** Move one marked legacy attachment and remove its publicly routed image sizes. */
 	private static function migrate_legacy_attachment( int $attachment_id, string $private_directory ): bool {
-		$post_update = wp_update_post( [ 'ID' => $attachment_id, 'post_status' => 'private' ], true );
+		$post_update = wp_update_post(
+			[
+				'ID'          => $attachment_id,
+				'post_status' => 'private',
+			],
+			true
+		);
 		if ( is_wp_error( $post_update ) ) {
 			OC_Logger::warning( 'Artwork migration could not make attachment private: ' . $post_update->get_error_message() );
 			return false;
@@ -2099,24 +2175,32 @@ class OC_Upload_Handler {
 		$stored_mime    = (string) get_post_mime_type( $attachment_id );
 		$detected_mime  = self::detect_mime( $dest, basename( $dest ) );
 		$extension_type = self::EXT_TO_TYPE[ $extension ] ?? null;
-		$detected_type   = self::SUPPORTED_TYPES[ $detected_mime ] ?? null;
+		$detected_type  = self::SUPPORTED_TYPES[ $detected_mime ] ?? null;
 		if ( null === $extension_type || null === $detected_type
 			|| $extension_type !== $detected_type
 			|| ! self::artwork_content_is_valid( $dest, $detected_mime )
 		) {
 			@unlink( $dest ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			OC_Logger::warning( sprintf(
-				'Artwork migration rejected invalid legacy artwork content (attachment %d, extension %s, stored MIME %s, detected MIME %s).',
-				$attachment_id,
-				$extension ?: '(none)',
-				$stored_mime ?: '(none)',
-				$detected_mime ?: '(none)'
-			) );
+			OC_Logger::warning(
+				sprintf(
+					'Artwork migration rejected invalid legacy artwork content (attachment %d, extension %s, stored MIME %s, detected MIME %s).',
+					$attachment_id,
+					$extension ?: '(none)',
+					$stored_mime ?: '(none)',
+					$detected_mime ?: '(none)'
+				)
+			);
 			return false;
 		}
 		$stored_type = self::SUPPORTED_TYPES[ $stored_mime ] ?? null;
 		if ( $stored_type !== $detected_type ) {
-			$mime_update = wp_update_post( [ 'ID' => $attachment_id, 'post_mime_type' => $detected_mime ], true );
+			$mime_update = wp_update_post(
+				[
+					'ID'             => $attachment_id,
+					'post_mime_type' => $detected_mime,
+				],
+				true
+			);
 			if ( is_wp_error( $mime_update ) ) {
 				@unlink( $dest ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				OC_Logger::warning( 'Artwork migration could not repair legacy MIME metadata: ' . $mime_update->get_error_message() );
@@ -2124,8 +2208,8 @@ class OC_Upload_Handler {
 			}
 		}
 
-		$metadata   = wp_get_attachment_metadata( $attachment_id );
-		$old_files  = [ $source ];
+		$metadata  = wp_get_attachment_metadata( $attachment_id );
+		$old_files = [ $source ];
 		if ( is_array( $metadata ) ) {
 			foreach ( (array) ( $metadata['sizes'] ?? [] ) as $size_data ) {
 				if ( is_array( $size_data ) && ! empty( $size_data['file'] ) ) {
@@ -2174,7 +2258,7 @@ class OC_Upload_Handler {
 		$ok  = false;
 		try {
 			$source_size = filesize( $source );
-			$ok = false !== $source_size && $source_size > 0
+			$ok          = false !== $source_size && $source_size > 0
 				&& copy( $source, $tmp )
 				&& filesize( $tmp ) === $source_size
 				&& @chmod( $tmp, 0640 ) // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged

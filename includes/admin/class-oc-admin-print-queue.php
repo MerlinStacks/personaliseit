@@ -231,7 +231,7 @@ class OC_Admin_Print_Queue {
 			<td class="oc-queue-actions">
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" style="display:inline;margin:0;">
 					<input type="hidden" name="action" value="oc_regenerate_print_file" />
-					<input type="hidden" name="file_id" value="<?php echo esc_attr( (int) $file->id ); ?>" />
+					<input type="hidden" name="file_id" value="<?php echo esc_attr( (string) (int) $file->id ); ?>" />
 					<?php wp_nonce_field( 'oc_regenerate_' . (int) $file->id, 'oc_print_nonce' ); ?>
 					<button type="submit" class="button button-small"><?php esc_html_e( 'Regenerate', 'overcustomise' ); ?></button>
 				</form>

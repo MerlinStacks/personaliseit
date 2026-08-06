@@ -157,10 +157,20 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 		$active_id = $this->insert_print_file( 'files_ready', $future, $file );
 		OC_DB::update_print_file( $active_id, [ 'thumbnail_path' => $thumb ] );
 
+		$reference_queries = 0;
+		$query_filter      = static function ( string $query ) use ( &$reference_queries ): string {
+			if ( str_contains( $query, 'SELECT DISTINCT file_path AS path FROM' ) && str_contains( $query, 'UNION' ) ) {
+				++$reference_queries;
+			}
+			return $query;
+		};
+		add_filter( 'query', $query_filter );
 		OC_File_Cleanup::run();
+		remove_filter( 'query', $query_filter );
 		$this->assertFileExists( $file );
 		$this->assertFileExists( $thumb );
 		$this->assertSame( 'expired', OC_DB::get_print_file( $expired_id )->file_status );
+		$this->assertSame( 1, $reference_queries );
 
 		OC_DB::update_print_file( $active_id, [ 'expires_at' => $past ] );
 		OC_File_Cleanup::run();

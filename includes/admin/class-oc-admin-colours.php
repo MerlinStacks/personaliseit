@@ -11,15 +11,13 @@ class OC_Admin_Colours {
 
 	/** Clear cached colour and colour-group data after manager changes. */
 	private static function clear_colour_cache(): void {
-		OC_Cache::delete( 'colours_active' );
-		OC_Cache::delete( 'colours_all' );
-		OC_Cache::delete( 'colour_groups' );
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
 	}
 
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
-		add_action( 'wp_ajax_oc_colour_save',         [ self::class, 'ajax_colour_save' ] );
+		add_action( 'wp_ajax_oc_colour_save', [ self::class, 'ajax_colour_save' ] );
 		add_action( 'wp_ajax_oc_colour_group_create', [ self::class, 'ajax_group_create' ] );
 		add_action( 'wp_ajax_oc_colour_group_update', [ self::class, 'ajax_group_update' ] );
 		add_action( 'wp_ajax_oc_colour_group_delete', [ self::class, 'ajax_group_delete' ] );
@@ -33,36 +31,46 @@ class OC_Admin_Colours {
 		}
 
 		$get_action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
-		if ( 'toggle' === $get_action ) { $this->handle_toggle(); }
-		if ( 'delete' === $get_action ) { $this->handle_delete(); }
+		if ( 'toggle' === $get_action ) {
+			$this->handle_toggle();
+		}
+		if ( 'delete' === $get_action ) {
+			$this->handle_delete();
+		}
 
 		$colours = OC_DB::get_colours( false );
 		$groups  = OC_DB::get_colour_groups();
 
-		$colours_js = array_map( function ( $c ) {
-			return [
-				'id'        => (int) $c->id,
-				'name'      => $c->name,
-				'hex'       => $c->hex,
-				'active'    => (bool) $c->active,
-				'toggleUrl' => wp_nonce_url(
-					admin_url( 'admin.php?page=overcustomise-colours&action=toggle&id=' . $c->id . '&state=' . ( $c->active ? '0' : '1' ) ),
-					'oc_colour_toggle_' . $c->id
-				),
-				'deleteUrl' => wp_nonce_url(
-					admin_url( 'admin.php?page=overcustomise-colours&action=delete&id=' . $c->id ),
-					'oc_colour_delete_' . $c->id
-				),
-			];
-		}, $colours );
+		$colours_js = array_map(
+			function ( $c ) {
+				return [
+					'id'        => (int) $c->id,
+					'name'      => $c->name,
+					'hex'       => $c->hex,
+					'active'    => (bool) $c->active,
+					'toggleUrl' => wp_nonce_url(
+						admin_url( 'admin.php?page=overcustomise-colours&action=toggle&id=' . $c->id . '&state=' . ( $c->active ? '0' : '1' ) ),
+						'oc_colour_toggle_' . $c->id
+					),
+					'deleteUrl' => wp_nonce_url(
+						admin_url( 'admin.php?page=overcustomise-colours&action=delete&id=' . $c->id ),
+						'oc_colour_delete_' . $c->id
+					),
+				];
+			},
+			$colours
+		);
 
-		$groups_js = array_map( function ( $g ) {
-			return [
-				'id'        => (int) $g->id,
-				'name'      => $g->name,
-				'colourIds' => array_map( 'intval', $g->colour_ids ),
-			];
-		}, $groups );
+		$groups_js = array_map(
+			function ( $g ) {
+				return [
+					'id'        => (int) $g->id,
+					'name'      => $g->name,
+					'colourIds' => array_map( 'intval', $g->colour_ids ),
+				];
+			},
+			$groups
+		);
 		?>
 		<script>
 		window.ocColoursData  = <?php echo wp_json_encode( $colours_js ); ?>;
@@ -106,7 +114,7 @@ class OC_Admin_Colours {
 					<div class="oc-card-header">
 						<h2><?php esc_html_e( 'Colours', 'overcustomise' ); ?></h2>
 						<span id="oc-colours-count" style="font-size:12px;color:var(--oc-gray-400);">
-							<?php echo esc_html( count( $colours ) ); ?> <?php echo esc_html( 1 === count( $colours ) ? __( 'colour', 'overcustomise' ) : __( 'colours', 'overcustomise' ) ); ?>
+							<?php echo esc_html( (string) count( $colours ) ); ?> <?php echo esc_html( 1 === count( $colours ) ? __( 'colour', 'overcustomise' ) : __( 'colours', 'overcustomise' ) ); ?>
 						</span>
 					</div>
 
@@ -140,18 +148,18 @@ class OC_Admin_Colours {
 											<span class="oc-code"><?php echo esc_html( strtoupper( $colour->hex ) ); ?></span>
 										</p>
 										<div class="oc-colour-card-actions">
-											<a href="<?php echo esc_url( wp_nonce_url(
-												admin_url( 'admin.php?page=overcustomise-colours&action=toggle&id=' . (int) $colour->id . '&state=' . ( $colour->active ? '0' : '1' ) ),
-												'oc_colour_toggle_' . $colour->id
-											) ); ?>" class="oc-btn oc-btn-secondary oc-btn-sm">
+										<a href="<?php echo esc_url( wp_nonce_url(
+											admin_url( 'admin.php?page=overcustomise-colours&action=toggle&id=' . (int) $colour->id . '&state=' . ( $colour->active ? '0' : '1' ) ),
+											'oc_colour_toggle_' . $colour->id
+										) ); ?>" class="oc-btn oc-btn-secondary oc-btn-sm">
 												<?php echo $colour->active ? esc_html__( 'Deactivate', 'overcustomise' ) : esc_html__( 'Activate', 'overcustomise' ); ?>
 											</a>
-											<a href="<?php echo esc_url( wp_nonce_url(
-												admin_url( 'admin.php?page=overcustomise-colours&action=delete&id=' . (int) $colour->id ),
-												'oc_colour_delete_' . $colour->id
-											) ); ?>"
-											   onclick="return confirm('<?php esc_attr_e( 'Delete this colour?', 'overcustomise' ); ?>');"
-											   class="oc-btn oc-btn-danger oc-btn-sm">
+										<a href="<?php echo esc_url( wp_nonce_url(
+											admin_url( 'admin.php?page=overcustomise-colours&action=delete&id=' . (int) $colour->id ),
+											'oc_colour_delete_' . $colour->id
+										) ); ?>"
+										   onclick="return confirm('<?php esc_attr_e( 'Delete this colour?', 'overcustomise' ); ?>');"
+										   class="oc-btn oc-btn-danger oc-btn-sm">
 												<?php esc_html_e( 'Delete', 'overcustomise' ); ?>
 											</a>
 										</div>
@@ -169,7 +177,7 @@ class OC_Admin_Colours {
 					<div class="oc-card-header">
 						<h2><?php esc_html_e( 'Colour Groups', 'overcustomise' ); ?></h2>
 						<span id="oc-colour-groups-count" style="font-size:12px;color:var(--oc-gray-400);">
-							<?php echo esc_html( count( $groups ) ); ?> <?php echo esc_html( 1 === count( $groups ) ? __( 'group', 'overcustomise' ) : __( 'groups', 'overcustomise' ) ); ?>
+							<?php echo esc_html( (string) count( $groups ) ); ?> <?php echo esc_html( 1 === count( $groups ) ? __( 'group', 'overcustomise' ) : __( 'groups', 'overcustomise' ) ); ?>
 						</span>
 					</div>
 
@@ -195,17 +203,22 @@ class OC_Admin_Colours {
 											<?php echo esc_html( $member_count . ' ' . ( 1 === $member_count ? __( 'colour', 'overcustomise' ) : __( 'colours', 'overcustomise' ) ) ); ?>
 										</p>
 										<div class="oc-colour-group-dots">
-											<?php foreach ( array_slice( $group->colour_ids, 0, 10 ) as $cid ) :
+										<?php foreach ( array_slice( $group->colour_ids, 0, 10 ) as $cid ) :
 												$cdata = null;
 												foreach ( $colours as $c ) {
-													if ( (int) $c->id === (int) $cid ) { $cdata = $c; break; }
+													if ( (int) $c->id === (int) $cid ) {
+														$cdata = $c;
+													break;
 												}
-												if ( ! $cdata ) continue;
+												}
+												if ( ! $cdata ) {
+													continue;
+												}
 												?>
 												<span class="oc-colour-dot" style="background:<?php echo esc_attr( $cdata->hex ); ?>;" title="<?php echo esc_attr( $cdata->name ); ?>"></span>
 											<?php endforeach; ?>
 											<?php if ( $member_count > 10 ) : ?>
-												<span class="oc-group-card-more">+<?php echo esc_html( $member_count - 10 ); ?></span>
+								<span class="oc-group-card-more">+<?php echo esc_html( (string) ( $member_count - 10 ) ); ?></span>
 											<?php endif; ?>
 											<?php if ( 0 === $member_count ) : ?>
 												<span style="color:var(--oc-gray-400);font-size:12px;"><?php esc_html_e( 'Empty group', 'overcustomise' ); ?></span>
@@ -329,43 +342,56 @@ class OC_Admin_Colours {
 			// Update existing.
 			$result = $wpdb->update(
 				"{$wpdb->prefix}oc_colours",
-				[ 'name' => $name, 'hex' => $hex ],
-				[ 'id'   => $id ],
-				[ '%s', '%s' ], [ '%d' ]
+				[
+					'name' => $name,
+					'hex'  => $hex,
+				],
+				[ 'id' => $id ],
+				[ '%s', '%s' ],
+				[ '%d' ]
 			);
 		} else {
 			// Create new.
 			$result = $wpdb->insert(
 				"{$wpdb->prefix}oc_colours",
-				[ 'name' => $name, 'hex' => $hex, 'active' => 1 ],
+				[
+					'name'   => $name,
+					'hex'    => $hex,
+					'active' => 1,
+				],
 				[ '%s', '%s', '%d' ]
 			);
-			$id = (int) $wpdb->insert_id;
+			$id     = (int) $wpdb->insert_id;
 		}
 		if ( false === $result || $id <= 0 ) {
 			wp_send_json_error( [ 'message' => __( 'Could not save colour.', 'overcustomise' ) ], 500 );
 		}
 
-		$active = (bool) $wpdb->get_var( $wpdb->prepare(
-			"SELECT active FROM {$wpdb->prefix}oc_colours WHERE id = %d", $id
-		) );
+		$active = (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT active FROM {$wpdb->prefix}oc_colours WHERE id = %d",
+				$id
+			)
+		);
 
 		self::clear_colour_cache();
 
-		wp_send_json_success( [
-			'id'        => $id,
-			'name'      => $name,
-			'hex'       => $hex,
-			'active'    => $active,
-			'toggleUrl' => wp_nonce_url(
-				admin_url( 'admin.php?page=overcustomise-colours&action=toggle&id=' . $id . '&state=' . ( $active ? '0' : '1' ) ),
-				'oc_colour_toggle_' . $id
-			),
-			'deleteUrl' => wp_nonce_url(
-				admin_url( 'admin.php?page=overcustomise-colours&action=delete&id=' . $id ),
-				'oc_colour_delete_' . $id
-			),
-		] );
+		wp_send_json_success(
+			[
+				'id'        => $id,
+				'name'      => $name,
+				'hex'       => $hex,
+				'active'    => $active,
+				'toggleUrl' => wp_nonce_url(
+					admin_url( 'admin.php?page=overcustomise-colours&action=toggle&id=' . $id . '&state=' . ( $active ? '0' : '1' ) ),
+					'oc_colour_toggle_' . $id
+				),
+				'deleteUrl' => wp_nonce_url(
+					admin_url( 'admin.php?page=overcustomise-colours&action=delete&id=' . $id ),
+					'oc_colour_delete_' . $id
+				),
+			]
+		);
 	}
 
 	// ── AJAX: colour group create ──────────────────────────────────────────────
@@ -375,17 +401,21 @@ class OC_Admin_Colours {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
-		$name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$name       = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$colour_ids = self::normalise_colour_ids( $_POST['colour_ids'] ?? [] );
-		if ( ! $name || strlen( $name ) > 100 ) wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
-		if ( is_wp_error( $colour_ids ) ) wp_send_json_error( [ 'message' => $colour_ids->get_error_message() ], 400 );
+		if ( ! $name || strlen( $name ) > 100 ) {
+			wp_send_json_error( [ 'message' => __( 'Name is required.', 'overcustomise' ) ] );
+		}
+		if ( is_wp_error( $colour_ids ) ) {
+			wp_send_json_error( [ 'message' => $colour_ids->get_error_message() ], 400 );
+		}
 
 		global $wpdb;
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
 		}
 		$inserted = $wpdb->insert( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ '%s' ] );
-		$id = (int) $wpdb->insert_id;
+		$id       = (int) $wpdb->insert_id;
 		if ( false === $inserted || $id <= 0 ) {
 			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
@@ -393,7 +423,11 @@ class OC_Admin_Colours {
 		foreach ( $colour_ids as $order => $colour_id ) {
 			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_colour_group_items",
-				[ 'group_id' => $id, 'colour_id' => $colour_id, 'sort_order' => $order ],
+				[
+					'group_id'   => $id,
+					'colour_id'  => $colour_id,
+					'sort_order' => $order,
+				],
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
@@ -406,7 +440,13 @@ class OC_Admin_Colours {
 			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
 		}
 		self::clear_colour_cache();
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'colourIds' => $colour_ids ] );
+		wp_send_json_success(
+			[
+				'id'        => $id,
+				'name'      => $name,
+				'colourIds' => $colour_ids,
+			]
+		);
 	}
 
 	// ── AJAX: colour group update ──────────────────────────────────────────────
@@ -421,16 +461,20 @@ class OC_Admin_Colours {
 		$name       = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$colour_ids = self::normalise_colour_ids( $_POST['colour_ids'] ?? [] );
 
-		if ( ! $id || ! $name || strlen( $name ) > 100 ) wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
-		if ( is_wp_error( $colour_ids ) ) wp_send_json_error( [ 'message' => $colour_ids->get_error_message() ], 400 );
+		if ( ! $id || ! $name || strlen( $name ) > 100 ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
+		if ( is_wp_error( $colour_ids ) ) {
+			wp_send_json_error( [ 'message' => $colour_ids->get_error_message() ], 400 );
+		}
 
 		global $wpdb;
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
 		}
 		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colour_groups WHERE id = %d FOR UPDATE", $id ) );
-		$updated = $group_exists ? $wpdb->update( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] ) : false;
-		$deleted = false !== $updated ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
+		$updated      = $group_exists ? $wpdb->update( "{$wpdb->prefix}oc_colour_groups", [ 'name' => $name ], [ 'id' => $id ], [ '%s' ], [ '%d' ] ) : false;
+		$deleted      = false !== $updated ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
 		if ( false === $updated || false === $deleted ) {
 			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
@@ -438,7 +482,11 @@ class OC_Admin_Colours {
 		foreach ( array_values( $colour_ids ) as $order => $colour_id ) {
 			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_colour_group_items",
-				[ 'group_id' => $id, 'colour_id' => $colour_id, 'sort_order' => $order ],
+				[
+					'group_id'   => $id,
+					'colour_id'  => $colour_id,
+					'sort_order' => $order,
+				],
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
@@ -451,7 +499,13 @@ class OC_Admin_Colours {
 			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
 		}
 		self::clear_colour_cache();
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'colourIds' => array_values( $colour_ids ) ] );
+		wp_send_json_success(
+			[
+				'id'        => $id,
+				'name'      => $name,
+				'colourIds' => array_values( $colour_ids ),
+			]
+		);
 	}
 
 	// ── AJAX: colour group delete ──────────────────────────────────────────────
@@ -462,13 +516,15 @@ class OC_Admin_Colours {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 		$id = (int) ( $_POST['id'] ?? 0 );
-		if ( ! $id ) wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		if ( ! $id ) {
+			wp_send_json_error( [ 'message' => __( 'Invalid request.', 'overcustomise' ) ] );
+		}
 
 		global $wpdb;
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not delete colour group.', 'overcustomise' ) ], 500 );
 		}
-		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colour_groups WHERE id = %d FOR UPDATE", $id ) );
+		$group_exists  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colour_groups WHERE id = %d FOR UPDATE", $id ) );
 		$deleted_items = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
 		$deleted_group = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_groups", [ 'id' => $id ], [ '%d' ] ) : false;
 		if ( false === $deleted_items || 1 !== $deleted_group || false === $wpdb->query( 'COMMIT' ) ) {
@@ -482,11 +538,11 @@ class OC_Admin_Colours {
 	// ── GET action handlers ────────────────────────────────────────────────────
 
 	private function handle_toggle(): void {
-		$id    = isset( $_GET['id'] )    ? (int) $_GET['id']    : 0;
+		$id    = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 		$state = isset( $_GET['state'] ) ? (int) $_GET['state'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_colour_toggle_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_colour_toggle_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -512,17 +568,26 @@ class OC_Admin_Colours {
 				return new \WP_Error( 'invalid_colours', __( 'The submitted colour list is invalid.', 'overcustomise' ) );
 			}
 			$id = absint( $raw_id );
-			if ( $id ) $ids[] = $id;
+			if ( $id ) {
+				$ids[] = $id;
+			}
 		}
 		$ids = array_values( array_unique( $ids ) );
-		if ( empty( $ids ) ) return [];
+		if ( empty( $ids ) ) {
+			return [];
+		}
 
 		global $wpdb;
 		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
-		$existing = array_map( 'intval', $wpdb->get_col( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_colours WHERE id IN ($placeholders)",
-			...$ids
-		) ) ?: [] );
+		$existing     = array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT id FROM {$wpdb->prefix}oc_colours WHERE id IN ($placeholders)",
+					...$ids
+				)
+			) ?: []
+		);
 		return array_diff( $ids, $existing )
 			? new \WP_Error( 'stale_colours', __( 'One or more selected colours no longer exist.', 'overcustomise' ) )
 			: $ids;
@@ -532,7 +597,7 @@ class OC_Admin_Colours {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_colour_delete_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_colour_delete_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -541,8 +606,8 @@ class OC_Admin_Colours {
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_die( esc_html__( 'Could not delete colour.', 'overcustomise' ) );
 		}
-		$exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colours WHERE id = %d FOR UPDATE", $id ) );
-		$deleted_items = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'colour_id' => $id ], [ '%d' ] ) : false;
+		$exists         = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_colours WHERE id = %d FOR UPDATE", $id ) );
+		$deleted_items  = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_colour_group_items", [ 'colour_id' => $id ], [ '%d' ] ) : false;
 		$deleted_colour = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_colours", [ 'id' => $id ], [ '%d' ] ) : false;
 		if ( false === $deleted_items || 1 !== $deleted_colour || false === $wpdb->query( 'COMMIT' ) ) {
 			$wpdb->query( 'ROLLBACK' );

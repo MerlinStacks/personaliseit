@@ -826,7 +826,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Parse a cmap format 12 subtable. */
-	private static function ttf_parse_cmap_format12( string $data, int $offset ): ?array {
+	private static function ttf_parse_cmap_format12( string $data, int $offset ): array {
 		$num_groups = self::ttf_u32( $data, $offset + 12 );
 		$groups     = [];
 		for ( $i = 0; $i < $num_groups; $i++ ) {
@@ -1378,9 +1378,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_eps_raster_image( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $fit = 'contain' ): void {
 		$src_w = imagesx( $image );
 		$src_h = imagesy( $image );
-		if ( $src_w < 1 || $src_h < 1 ) {
-			return;
-		}
 
 		$max_px = self::MAX_RASTER_EDGE_PX;
 		$scale  = min( 1.0, $max_px / max( $src_w, $src_h ) );
@@ -1446,9 +1443,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function append_eps_alpha_raster_rects( array &$lines, $image, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
 		$img_w = imagesx( $image );
 		$img_h = imagesy( $image );
-		if ( $img_w < 1 || $img_h < 1 ) {
-			return;
-		}
 
 		$existing_fragment_bytes = 0;
 		foreach ( $lines as $line ) {
@@ -1654,7 +1648,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Run a converter command without shell expansion. */
 	private static function run_process( array $command ): bool {
-		if ( ! class_exists( 'OC_Command_Runner' ) || ! method_exists( 'OC_Command_Runner', 'run' ) ) {
+		if ( ! class_exists( 'OC_Command_Runner' ) ) {
 			return false;
 		}
 
@@ -2104,7 +2098,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		$token_pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[-+]?(?:(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?)/';
 		preg_match_all( $token_pattern, $d, $matches );
-		$tokens = $matches[0] ?? [];
+		$tokens = $matches[0];
 		$remaining = preg_replace( $token_pattern, '', $d );
 		if ( ! is_string( $remaining ) || preg_match( '/[^\s,]/', $remaining ) || count( $tokens ) > self::MAX_SVG_PATH_TOKENS ) {
 			return null;
@@ -2587,7 +2581,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	private static function svg_points( string $points ): array {
 		preg_match_all( '/[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $points, $matches );
-		$values = array_map( 'floatval', $matches[0] ?? [] );
+		$values = array_map( 'floatval', $matches[0] );
 		$out    = [];
 		for ( $i = 0; $i + 1 < count( $values ); $i += 2 ) {
 			$out[] = [ $values[ $i ], $values[ $i + 1 ] ];
@@ -2626,7 +2620,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 			return false;
 		} finally {
-			if ( isset( $imagick ) && $imagick instanceof \Imagick ) {
+			if ( isset( $imagick ) ) {
 				$imagick->clear();
 				$imagick->destroy();
 			}
@@ -2899,7 +2893,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	private static function svg_path_bounds( string $d ): ?array {
 		preg_match_all( '/[-+]?(?:\d*\.\d+|\d+)(?:[eE][-+]?\d+)?/', $d, $matches );
-		$values = array_map( 'floatval', $matches[0] ?? [] );
+		$values = array_map( 'floatval', $matches[0] );
 		if ( count( $values ) < 2 ) {
 			return null;
 		}

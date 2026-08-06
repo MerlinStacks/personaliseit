@@ -16,10 +16,10 @@ class OC_Admin_Products {
 	// ── AJAX ──────────────────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
-		add_action( 'wp_ajax_oc_assign_design',  [ self::class, 'ajax_assign_design' ] );
+		add_action( 'wp_ajax_oc_assign_design', [ self::class, 'ajax_assign_design' ] );
 		add_action( 'wp_ajax_oc_save_design_variants', [ self::class, 'ajax_save_design_variants' ] );
 		add_action( 'wp_ajax_oc_autosave_design', [ self::class, 'ajax_autosave_design' ] );
-		add_action( 'wp_ajax_oc_restore_autosave',  [ self::class, 'ajax_restore_autosave' ] );
+		add_action( 'wp_ajax_oc_restore_autosave', [ self::class, 'ajax_restore_autosave' ] );
 	}
 
 	public static function ajax_assign_design(): void {
@@ -44,22 +44,26 @@ class OC_Admin_Products {
 			}
 			OC_DB::upsert_assignment( $product_id, $variant_id, $design_id );
 			global $wpdb;
-			$stored = $wpdb->get_var( $wpdb->prepare(
-				"SELECT design_id FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d AND variant_id = %d LIMIT 1",
-				$product_id,
-				$variant_id
-			) );
+			$stored = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT design_id FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d AND variant_id = %d LIMIT 1",
+					$product_id,
+					$variant_id
+				)
+			);
 			if ( $design_id !== (int) $stored ) {
 				wp_send_json_error( [ 'message' => __( 'Could not save the design assignment.', 'overcustomise' ) ], 500 );
 			}
 		} else {
 			OC_DB::delete_assignment( $product_id, $variant_id );
 			global $wpdb;
-			$remaining = $wpdb->get_var( $wpdb->prepare(
-				"SELECT 1 FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d AND variant_id = %d LIMIT 1",
-				$product_id,
-				$variant_id
-			) );
+			$remaining = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT 1 FROM {$wpdb->prefix}oc_product_assignments WHERE product_id = %d AND variant_id = %d LIMIT 1",
+					$product_id,
+					$variant_id
+				)
+			);
 			if ( $remaining ) {
 				wp_send_json_error( [ 'message' => __( 'Could not remove the design assignment.', 'overcustomise' ) ], 500 );
 			}
@@ -100,7 +104,7 @@ class OC_Admin_Products {
 				wp_send_json_error( [ 'message' => __( 'Each artwork option must reference a distinct active design.', 'overcustomise' ) ], 400 );
 			}
 			$seen[ $design_id ] = true;
-			$variants[] = [
+			$variants[]         = [
 				'designId' => $design_id,
 				'label'    => substr( sanitize_text_field( is_scalar( $item['label'] ?? null ) ? (string) $item['label'] : '' ), 0, 190 ),
 			];
@@ -109,16 +113,18 @@ class OC_Admin_Products {
 		global $wpdb;
 		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_product_assignments",
-			[ 'design_variants' => wp_json_encode( array_values( $variants ) ) ],
-			[ 'product_id' => $product_id, 'variant_id' => $variant_id ],
+			[ 'design_variants' => wp_json_encode( $variants ) ],
+			[
+				'product_id' => $product_id,
+				'variant_id' => $variant_id,
+			],
 			[ '%s' ],
 			[ '%d', '%d' ]
 		);
 		if ( false === $updated ) {
 			wp_send_json_error( [ 'message' => __( 'Could not save artwork options.', 'overcustomise' ) ], 500 );
 		}
-		OC_Cache::delete( 'all_assignments_v2' );
-		OC_Cache::flush_pattern( 'assignment_' );
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
 		wp_send_json_success();
 	}
 
@@ -143,7 +149,10 @@ class OC_Admin_Products {
 			}
 		}
 
-		return [ 'product' => $product, 'variation' => $variation ];
+		return [
+			'product'   => $product,
+			'variation' => $variation,
+		];
 	}
 
 	public static function ajax_autosave_design(): void {
@@ -170,10 +179,12 @@ class OC_Admin_Products {
 		$expected_revision = max( 0, (int) ( $_POST['expected_revision'] ?? 0 ) );
 		$result            = OC_Autosave::store( $design_id, $state, $revision, $expected_revision );
 		if ( 'stored' === $result['status'] ) {
-			wp_send_json_success( [
-				'timestamp' => (int) $result['timestamp'],
-				'revision'  => (int) $result['revision'],
-			] );
+			wp_send_json_success(
+				[
+					'timestamp' => (int) $result['timestamp'],
+					'revision'  => (int) $result['revision'],
+				]
+			);
 		} elseif ( 'conflict' === $result['status'] ) {
 			wp_send_json_error(
 				[
@@ -245,7 +256,7 @@ class OC_Admin_Products {
 				<div class="oc-page-header-right">
 					<?php if ( 'designs' === $active_tab ) : ?>
 						<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=edit' ) ); ?>"
-						   class="oc-btn oc-btn-primary">
+							class="oc-btn oc-btn-primary">
 							+ <?php esc_html_e( 'Add Design', 'overcustomise' ); ?>
 						</a>
 					<?php endif; ?>
@@ -255,11 +266,11 @@ class OC_Admin_Products {
 			<!-- Tab bar -->
 			<div class="oc-tabs-bar">
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ); ?>"
-				   class="oc-tab oc-ajax-nav<?php echo 'products' === $active_tab ? ' oc-tab--active' : ''; ?>">
+					class="oc-tab oc-ajax-nav<?php echo 'products' === $active_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'Products', 'overcustomise' ); ?>
 				</a>
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>"
-				   class="oc-tab oc-ajax-nav<?php echo 'designs' === $active_tab ? ' oc-tab--active' : ''; ?>">
+					class="oc-tab oc-ajax-nav<?php echo 'designs' === $active_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'Designs', 'overcustomise' ); ?>
 				</a>
 			</div>
@@ -303,7 +314,7 @@ class OC_Admin_Products {
 		$product_total = (int) $product_query->total;
 		$total_pages   = max( 1, (int) $product_query->max_num_pages );
 		if ( $current_page > $total_pages ) {
-			$current_page = $total_pages;
+			$current_page  = $total_pages;
 			$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );
 			$wc_products   = $product_query->products;
 			$product_total = (int) $product_query->total;
@@ -312,7 +323,7 @@ class OC_Admin_Products {
 			'product_search'        => $search,
 			'product_design_filter' => $product_filter,
 		];
-		$assign_map = OC_DB::get_assignments_for_product_ids( array_map( static fn ( $product ): int => (int) $product->get_id(), $wc_products ) );
+		$assign_map      = OC_DB::get_assignments_for_product_ids( array_map( static fn ( $product ): int => (int) $product->get_id(), $wc_products ) );
 
 		$nonce = wp_create_nonce( 'oc-products-nonce' );
 		?>
@@ -331,10 +342,10 @@ class OC_Admin_Products {
 					<input type="hidden" name="tab" value="products" />
 					<input type="hidden" name="product_design_filter" value="<?php echo esc_attr( $product_filter ); ?>" />
 					<span style="font-size:12px;color:var(--oc-gray-400);">
-						<?php echo esc_html( $product_total ); ?> <?php echo esc_html( 1 === $product_total ? __( 'product', 'overcustomise' ) : __( 'products', 'overcustomise' ) ); ?>
+						<?php echo esc_html( (string) $product_total ); ?> <?php echo esc_html( 1 === $product_total ? __( 'product', 'overcustomise' ) : __( 'products', 'overcustomise' ) ); ?>
 					</span>
 					<input type="search" class="oc-input oc-products-search" name="product_search" value="<?php echo esc_attr( $search ); ?>"
-					       placeholder="<?php esc_attr_e( 'Filter all products…', 'overcustomise' ); ?>" />
+							placeholder="<?php esc_attr_e( 'Filter all products…', 'overcustomise' ); ?>" />
 					<button type="submit" class="button"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></button>
 					<?php if ( '' !== $search ) : ?>
 						<a class="button oc-ajax-nav" href="<?php echo esc_url( add_query_arg( 'product_design_filter', $product_filter, admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
@@ -344,11 +355,11 @@ class OC_Admin_Products {
 
 			<div class="oc-tabs-bar oc-products-filter-tabs">
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ); ?>"
-				   class="oc-tab oc-ajax-nav<?php echo ! $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
+					class="oc-tab oc-ajax-nav<?php echo ! $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'All products', 'overcustomise' ); ?>
 				</a>
 				<a href="<?php echo esc_url( add_query_arg( 'product_design_filter', 'unassigned', admin_url( 'admin.php?page=overcustomise-products&tab=products' ) ) ); ?>"
-				   class="oc-tab oc-ajax-nav<?php echo $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
+					class="oc-tab oc-ajax-nav<?php echo $is_unassigned_tab ? ' oc-tab--active' : ''; ?>">
 					<?php esc_html_e( 'Without designs', 'overcustomise' ); ?>
 				</a>
 			</div>
@@ -384,7 +395,8 @@ class OC_Admin_Products {
 							</tr>
 						</thead>
 						<tbody>
-							<?php foreach ( $wc_products as $product ) :
+							<?php
+							foreach ( $wc_products as $product ) :
 								$pid        = $product->get_id();
 								$pname      = $product->get_name();
 								$psku       = $product->get_sku();
@@ -409,13 +421,16 @@ class OC_Admin_Products {
 										<td><span class="oc-assign-status" aria-live="polite"></span></td>
 									</tr>
 									<!-- One row per variant -->
-									<?php foreach ( $product->get_children() as $vid ) :
+									<?php
+									foreach ( $product->get_children() as $vid ) :
 										$variation = wc_get_product( $vid );
-										if ( ! $variation ) continue;
-										$vsku   = $variation->get_sku();
-										$vattrs = array_filter( $variation->get_variation_attributes() );
-										$vlabel = implode( ' / ', array_map( 'ucfirst', $vattrs ) ) ?: '#' . $vid;
-										$vsearch = strtolower( $pname . ' ' . $vlabel . ' ' . $vsku );
+										if ( ! $variation instanceof \WC_Product_Variation ) {
+											continue;
+										}
+										$vsku        = $variation->get_sku();
+										$vattrs      = array_filter( $variation->get_variation_attributes() );
+										$vlabel      = implode( ' / ', array_map( 'ucfirst', $vattrs ) ) ?: '#' . $vid;
+										$vsearch     = strtolower( $pname . ' ' . $vlabel . ' ' . $vsku );
 										$vassignment = $assign_map[ $pid ][ $vid ] ?? [ 'design_id' => 0 ];
 										?>
 										<tr class="oc-product-row oc-product-row--variant" data-search="<?php echo esc_attr( $vsearch ); ?>">
@@ -713,16 +728,18 @@ class OC_Admin_Products {
 			return $this->get_paginated_products_by_query( $page, $search, $design_filter );
 		}
 
-		return wc_get_products( [
-			'limit'    => self::ADMIN_PAGE_SIZE,
-			'page'     => max( 1, $page ),
-			'paginate' => true,
-			'type'     => [ 'simple', 'variable' ],
-			'status'   => 'publish',
-			'orderby'  => 'name',
-			'order'    => 'ASC',
-			'return'   => 'objects',
-		] );
+		return wc_get_products(
+			[
+				'limit'    => self::ADMIN_PAGE_SIZE,
+				'page'     => max( 1, $page ),
+				'paginate' => true,
+				'type'     => [ 'simple', 'variable' ],
+				'status'   => 'publish',
+				'orderby'  => 'name',
+				'order'    => 'ASC',
+				'return'   => 'objects',
+			]
+		);
 	}
 
 	private function get_paginated_products_by_query( int $page, string $search, string $design_filter = 'all' ): object {
@@ -788,13 +805,15 @@ class OC_Admin_Products {
 		<div class="oc-pagination">
 			<span style="font-size:12px;color:var(--oc-gray-500);">
 				<?php
-				echo esc_html( sprintf(
+				echo esc_html(
+					sprintf(
 					/* translators: 1: current page, 2: total pages, 3: total items. */
-					__( 'Page %1$d of %2$d (%3$d total)', 'overcustomise' ),
-					$current_page,
-					$total_pages,
-					$total_items
-				) );
+						__( 'Page %1$d of %2$d (%3$d total)', 'overcustomise' ),
+						$current_page,
+						$total_pages,
+						$total_items
+					)
+				);
 				?>
 			</span>
 			<a class="button oc-ajax-nav<?php echo 1 === $current_page ? ' disabled' : ''; ?>" href="<?php echo esc_url( $prev_url ); ?>" <?php echo 1 === $current_page ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Prev', 'overcustomise' ); ?></a>
@@ -805,7 +824,7 @@ class OC_Admin_Products {
 					<input type="hidden" name="<?php echo esc_attr( $name ); ?>" value="<?php echo esc_attr( $value ); ?>" />
 				<?php endforeach; ?>
 				<label for="oc-<?php echo esc_attr( $param ); ?>" style="font-size:12px;color:var(--oc-gray-500);"><?php esc_html_e( 'Page', 'overcustomise' ); ?></label>
-				<input id="oc-<?php echo esc_attr( $param ); ?>" class="oc-input" type="number" name="<?php echo esc_attr( $param ); ?>" value="<?php echo esc_attr( $current_page ); ?>" min="1" max="<?php echo esc_attr( $total_pages ); ?>" style="width:78px;" />
+				<input id="oc-<?php echo esc_attr( $param ); ?>" class="oc-input" type="number" name="<?php echo esc_attr( $param ); ?>" value="<?php echo esc_attr( (string) $current_page ); ?>" min="1" max="<?php echo esc_attr( (string) $total_pages ); ?>" style="width:78px;" />
 				<button type="submit" class="button"><?php esc_html_e( 'Go', 'overcustomise' ); ?></button>
 			</form>
 			<a class="button oc-ajax-nav<?php echo $current_page >= $total_pages ? ' disabled' : ''; ?>" href="<?php echo esc_url( $next_url ); ?>" <?php echo $current_page >= $total_pages ? 'aria-disabled="true"' : ''; ?>><?php esc_html_e( 'Next', 'overcustomise' ); ?></a>
@@ -822,14 +841,14 @@ class OC_Admin_Products {
 		);
 		?>
 		<select class="oc-design-assign-select oc-select"
-		        data-product-id="<?php echo esc_attr( $product_id ); ?>"
-		        data-variant-id="<?php echo esc_attr( $variant_id ); ?>"
-		        style="min-width:200px;max-width:300px;">
+				data-product-id="<?php echo esc_attr( (string) $product_id ); ?>"
+				data-variant-id="<?php echo esc_attr( (string) $variant_id ); ?>"
+				style="min-width:200px;max-width:300px;">
 			<option value="0"><?php esc_html_e( '— No Design —', 'overcustomise' ); ?></option>
 			<?php foreach ( $designs as $design ) : ?>
 				<option value="<?php echo esc_attr( $design->id ); ?>"
-				        data-assigned="<?php echo isset( $assigned_design_ids[ (int) $design->id ] ) ? '1' : '0'; ?>"
-				        <?php selected( $assigned_id, $design->id ); ?>>
+						data-assigned="<?php echo isset( $assigned_design_ids[ (int) $design->id ] ) ? '1' : '0'; ?>"
+						<?php selected( $assigned_id, $design->id ); ?>>
 					<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
 				</option>
 			<?php endforeach; ?>
@@ -879,26 +898,32 @@ class OC_Admin_Products {
 			$variants = [];
 		}
 
-		$variants = array_values( array_filter( array_map( function ( $item ) {
+		$normalised_variants = [];
+		foreach ( $variants as $item ) {
+			if ( ! is_array( $item ) ) {
+				continue;
+			}
 			$design_id = absint( $item['designId'] ?? 0 );
 			$design    = $design_id ? OC_DB::get_design( $design_id ) : null;
 			if ( ! $design || ! (bool) $design->active ) {
-				return null;
+				continue;
 			}
-			$thumb = $design_thumbs[ $design_id ] ?? '';
-			return [
+			$thumb                 = $design_thumbs[ $design_id ] ?? '';
+			$normalised_variants[] = [
 				'designId' => $design_id,
 				'label'    => sanitize_text_field( (string) ( $item['label'] ?? '' ) ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
-				'thumbUrl' => $thumb ?: '',
+				'thumbUrl' => $thumb,
 			];
-		}, $variants ) ) );
+		}
+		$variants = $normalised_variants;
 		?>
-		<div class="oc-design-variants-admin" data-product-id="<?php echo esc_attr( $product_id ); ?>" data-variant-id="<?php echo esc_attr( $variant_id ); ?>">
+		<div class="oc-design-variants-admin" data-product-id="<?php echo esc_attr( (string) $product_id ); ?>" data-variant-id="<?php echo esc_attr( (string) $variant_id ); ?>">
 			<input type="hidden" class="oc-design-variants-data" value="<?php echo esc_attr( wp_json_encode( $variants ) ); ?>" />
 			<div class="oc-design-variants-list"></div>
 			<select class="oc-select oc-design-variant-design-select" style="max-width:180px;">
 				<option value="0"><?php esc_html_e( 'Choose design…', 'overcustomise' ); ?></option>
-				<?php foreach ( $designs as $design ) :
+				<?php
+				foreach ( $designs as $design ) :
 					$thumb = $design_thumbs[ (int) $design->id ] ?? '';
 					?>
 					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ?: '' ); ?>">
@@ -916,9 +941,9 @@ class OC_Admin_Products {
 
 	private function render_designs_tab(): void {
 		if ( isset( $_GET['duplicated'] ) ) {
-		echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Design duplicated.', 'overcustomise' ) . '</p></div>';
-	}
-	if ( isset( $_GET['saved'] ) ) {
+			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Design duplicated.', 'overcustomise' ) . '</p></div>';
+		}
+		if ( isset( $_GET['saved'] ) ) {
 			echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__( 'Design saved.', 'overcustomise' ) . '</p></div>';
 		}
 		if ( isset( $_GET['deleted'] ) ) {
@@ -926,11 +951,11 @@ class OC_Admin_Products {
 		}
 
 		$current_page = $this->get_admin_page_number( 'design_page' );
-		$search        = $this->get_admin_search_term( 'design_search' );
-		$design_query  = OC_DB::get_designs_with_area_counts_paginated( $current_page, self::ADMIN_PAGE_SIZE, $search );
-		$designs       = $design_query['items'];
-		$design_total  = (int) $design_query['total'];
-		$total_pages   = (int) $design_query['total_pages'];
+		$search       = $this->get_admin_search_term( 'design_search' );
+		$design_query = OC_DB::get_designs_with_area_counts_paginated( $current_page, self::ADMIN_PAGE_SIZE, $search );
+		$designs      = $design_query['items'];
+		$design_total = (int) $design_query['total'];
+		$total_pages  = (int) $design_query['total_pages'];
 		if ( $current_page > $total_pages ) {
 			$current_page = $total_pages;
 			$design_query = OC_DB::get_designs_with_area_counts_paginated( $current_page, self::ADMIN_PAGE_SIZE, $search );
@@ -944,10 +969,10 @@ class OC_Admin_Products {
 					<input type="hidden" name="page" value="overcustomise-products" />
 					<input type="hidden" name="tab" value="designs" />
 					<span style="font-size:12px;color:var(--oc-gray-400);">
-						<?php echo esc_html( $design_total ); ?> <?php echo esc_html( 1 === $design_total ? __( 'design', 'overcustomise' ) : __( 'designs', 'overcustomise' ) ); ?>
+						<?php echo esc_html( (string) $design_total ); ?> <?php echo esc_html( 1 === $design_total ? __( 'design', 'overcustomise' ) : __( 'designs', 'overcustomise' ) ); ?>
 					</span>
 					<input type="search" class="oc-input" name="design_search" value="<?php echo esc_attr( $search ); ?>"
-					       placeholder="<?php esc_attr_e( 'Filter all designs…', 'overcustomise' ); ?>" />
+							placeholder="<?php esc_attr_e( 'Filter all designs…', 'overcustomise' ); ?>" />
 					<button type="submit" class="button"><?php esc_html_e( 'Filter', 'overcustomise' ); ?></button>
 					<?php if ( '' !== $search ) : ?>
 						<a class="button oc-ajax-nav" href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>"><?php esc_html_e( 'Clear', 'overcustomise' ); ?></a>
@@ -962,7 +987,7 @@ class OC_Admin_Products {
 					<p><?php echo '' !== $search ? esc_html__( 'Try a different design name.', 'overcustomise' ) : esc_html__( 'Create your first design to enable the customiser on products.', 'overcustomise' ); ?></p>
 					<?php if ( '' === $search ) : ?>
 						<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=edit' ) ); ?>"
-						   class="oc-btn oc-btn-primary">
+							class="oc-btn oc-btn-primary">
 							+ <?php esc_html_e( 'Add Design', 'overcustomise' ); ?>
 						</a>
 					<?php endif; ?>
@@ -1002,22 +1027,22 @@ class OC_Admin_Products {
 									<td>
 										<div class="oc-table-actions">
 											<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=edit&id=' . (int) $design->id ) ); ?>"
-											   class="oc-btn oc-btn-secondary oc-btn-sm">
+												class="oc-btn oc-btn-secondary oc-btn-sm">
 												<?php esc_html_e( 'Edit', 'overcustomise' ); ?>
 											</a>
 											<a href="<?php echo esc_url( wp_nonce_url(
 												admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=duplicate&id=' . (int) $design->id ),
 												'oc_duplicate_design_' . $design->id
 											) ); ?>"
-											   class="oc-btn oc-btn-secondary oc-btn-sm">
+												class="oc-btn oc-btn-secondary oc-btn-sm">
 												<?php esc_html_e( 'Clone', 'overcustomise' ); ?>
 											</a>
 											<a href="<?php echo esc_url( wp_nonce_url(
 												admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=delete&id=' . (int) $design->id ),
 												'oc_delete_design_' . $design->id
 											) ); ?>"
-											   onclick="return confirm('<?php esc_attr_e( 'Delete this design? Products assigned to it will be unassigned.', 'overcustomise' ); ?>');"
-											   class="oc-btn oc-btn-danger oc-btn-sm">
+												onclick="return confirm('<?php esc_attr_e( 'Delete this design? Products assigned to it will be unassigned.', 'overcustomise' ); ?>');"
+												class="oc-btn oc-btn-danger oc-btn-sm">
 												<?php esc_html_e( 'Delete', 'overcustomise' ); ?>
 											</a>
 										</div>
@@ -1065,27 +1090,30 @@ class OC_Admin_Products {
 		}
 
 		// Keep the existing per-area payload shape for saved autosaves and installs.
-		$areas_js = array_map( function ( $area ) use ( $shared_mockup_id, $shared_mockup_url ) {
-			return [
-				'id'        => (int) $area->id,
-				'label'     => $area->label,
-				'method'    => $area->print_method,
-				'material'  => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
-				'unit'      => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
-				'mockupId'  => $shared_mockup_id,
-				'mockupUrl' => $shared_mockup_url,
-				'storedMockupId' => absint( $area->mockup_attachment_id ?? 0 ),
-				'x'          => (int) $area->canvas_x,
-				'y'          => (int) $area->canvas_y,
-				'w'          => (int) $area->canvas_w,
-				'h'          => (int) $area->canvas_h,
-				'dpi'        => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
-				'rotation'   => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
-				'sortOrder'  => (int) $area->sort_order,
-				'visible'    => (bool) $area->visible,
-				'locked'     => (bool) $area->locked,
-			];
-		}, $areas );
+		$areas_js = array_map(
+			function ( $area ) use ( $shared_mockup_id, $shared_mockup_url ) {
+				return [
+					'id'             => (int) $area->id,
+					'label'          => $area->label,
+					'method'         => $area->print_method,
+					'material'       => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
+					'unit'           => isset( $area->canvas_unit ) ? (string) $area->canvas_unit : 'px',
+					'mockupId'       => $shared_mockup_id,
+					'mockupUrl'      => $shared_mockup_url,
+					'storedMockupId' => absint( $area->mockup_attachment_id ?? 0 ),
+					'x'              => (int) $area->canvas_x,
+					'y'              => (int) $area->canvas_y,
+					'w'              => (int) $area->canvas_w,
+					'h'              => (int) $area->canvas_h,
+					'dpi'            => isset( $area->canvas_dpi ) ? (int) $area->canvas_dpi : 300,
+					'rotation'       => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
+					'sortOrder'      => (int) $area->sort_order,
+					'visible'        => (bool) $area->visible,
+					'locked'         => (bool) $area->locked,
+				];
+			},
+			$areas
+		);
 
 		wp_enqueue_media();
 		$products_asset = OC_PATH . 'assets/build/admin/products-page.asset.php';
@@ -1100,43 +1128,46 @@ class OC_Admin_Products {
 		);
 		// Build layers JSON for JS.
 		$all_layers = $id > 0 ? OC_DB::get_design_layers( $id ) : [];
-		$layers_js  = array_map( function ( $l ) {
-			$type     = sanitize_key( (string) $l->type );
-			$settings = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
-			$attachment_id = absint( $settings['default_attachment_id'] ?? 0 );
-			$is_valid_attachment = 'mask' === $type
-				? self::design_mask_attachment_is_valid( $attachment_id, $attachment_id )
-				: OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id );
-			if ( $attachment_id && $is_valid_attachment ) {
-				$settings['default_attachment_url'] = (string) wp_get_attachment_url( $attachment_id );
-			} else {
-				$settings['default_attachment_id']  = 0;
-				$settings['default_attachment_url'] = '';
-			}
-			return [
-				'id'        => (int) $l->id,
-				'areaId'    => (int) $l->area_id,
-				'type'      => $type,
-				'label'     => $l->label,
-				'x'         => (int) $l->x,
-				'y'         => (int) $l->y,
-				'w'         => (int) $l->w,
-				'h'         => (int) $l->h,
-				'sortOrder' => (int) $l->sort_order,
-				'visible'   => (bool) $l->visible,
-				'locked'    => (bool) $l->locked,
-				'settings'  => $settings,
-			];
-		}, $all_layers );
+		$layers_js  = array_map(
+			function ( $l ) {
+				$type                = sanitize_key( (string) $l->type );
+				$settings            = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
+				$attachment_id       = absint( $settings['default_attachment_id'] ?? 0 );
+				$is_valid_attachment = 'mask' === $type
+					? self::design_mask_attachment_is_valid( $attachment_id, $attachment_id )
+					: OC_Upload_Handler::admin_default_attachment_is_valid( $attachment_id );
+				if ( $attachment_id && $is_valid_attachment ) {
+					$settings['default_attachment_url'] = (string) wp_get_attachment_url( $attachment_id );
+				} else {
+					$settings['default_attachment_id']  = 0;
+					$settings['default_attachment_url'] = '';
+				}
+				return [
+					'id'        => (int) $l->id,
+					'areaId'    => (int) $l->area_id,
+					'type'      => $type,
+					'label'     => $l->label,
+					'x'         => (int) $l->x,
+					'y'         => (int) $l->y,
+					'w'         => (int) $l->w,
+					'h'         => (int) $l->h,
+					'sortOrder' => (int) $l->sort_order,
+					'visible'   => (bool) $l->visible,
+					'locked'    => (bool) $l->locked,
+					'settings'  => $settings,
+				];
+			},
+			$all_layers
+		);
 
-		$clipart_groups = OC_DB::get_clipart_groups();
+		$clipart_groups            = OC_DB::get_clipart_groups();
 		$clipart_group_ids_by_item = [];
 		foreach ( $clipart_groups as $group ) {
 			foreach ( (array) $group->clipart_ids as $clipart_id ) {
 				$clipart_group_ids_by_item[ (int) $clipart_id ][] = (int) $group->id;
 			}
 		}
-		$method_settings   = OC_Admin_Print_Methods::get();
+		$method_settings    = OC_Admin_Print_Methods::get();
 		$selectable_methods = OC_Admin_Print_Methods::enabled_methods();
 		foreach ( $areas as $area ) {
 			$existing_method = sanitize_key( (string) ( $area->print_method ?? '' ) );
@@ -1145,42 +1176,92 @@ class OC_Admin_Products {
 			}
 		}
 		$selectable_methods = array_values( array_unique( $selectable_methods ) );
-		$method_labels = [];
+		$method_labels      = [];
 		foreach ( $selectable_methods as $method ) {
 			$method_labels[ $method ] = (string) $method_settings[ $method ]['label'];
 		}
 
-		wp_localize_script( 'oc-products-page', 'ocProductsData', [
-			'designId'     => $id,
-			'areas'        => $areas_js,
-			'layers'       => $layers_js,
-			'ajaxUrl'      => admin_url( 'admin-ajax.php' ),
-			'nonce'        => wp_create_nonce( 'oc-products-nonce' ),
-			'mediaTitle'   => __( 'Select Mockup Image', 'overcustomise' ),
-			'mediaBtn'     => __( 'Use as Mockup', 'overcustomise' ),
-			'fonts'        => OC_Plugin::browser_fonts(),
-			'fontGroups'    => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'fontIds' => array_map( 'intval', $g->font_ids ) ]; }, OC_DB::get_font_groups() ),
-			'colours'      => array_map( function ( $c ) { return [ 'id' => (int) $c->id, 'name' => $c->name, 'hex' => $c->hex ]; }, OC_DB::get_colours( true ) ),
-			'imageFilters' => array_map( function ( $f ) { return [ 'id' => (int) $f->id, 'name' => $f->name, 'key' => $f->filter_key, 'value' => (float) $f->value, 'isAi' => 'ai' === (string) $f->filter_key ]; }, OC_DB::get_image_filters( true ) ),
-			'colourGroups'  => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name, 'colourIds' => array_map( 'intval', $g->colour_ids ) ]; }, OC_DB::get_colour_groups() ),
-			'clipartGroups' => array_map( function ( $g ) { return [ 'id' => (int) $g->id, 'name' => $g->name ]; }, $clipart_groups ),
-			'clipartItems'  => array_values( array_filter( array_map(
-				function ( $c ) use ( $clipart_group_ids_by_item ) {
-					return [
-						'id'        => (int) $c->id,
-						'name'      => $c->name,
-						'fileType'  => strtolower( (string) $c->file_type ),
-						'url'       => OC_Admin_Clipart::get_clipart_url( (string) $c->file_path ),
-						'active'    => (bool) $c->active,
-						'groupIds'  => $clipart_group_ids_by_item[ (int) $c->id ] ?? [],
-						'colourChangeable' => ! property_exists( $c, 'colour_changeable' ) || (bool) $c->colour_changeable,
-						'allowedPrintMethods' => self::normalise_clipart_print_methods( (string) ( $c->allowed_print_methods ?? '' ) ),
-					];
-				},
-				OC_DB::get_clipart( true )
-			), static fn ( array $item ): bool => '' !== $item['url'] ) ),
-			'methodLabels' => $method_labels,
-		] );
+		wp_localize_script(
+			'oc-products-page',
+			'ocProductsData',
+			[
+				'designId'      => $id,
+				'areas'         => $areas_js,
+				'layers'        => $layers_js,
+				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
+				'nonce'         => wp_create_nonce( 'oc-products-nonce' ),
+				'mediaTitle'    => __( 'Select Mockup Image', 'overcustomise' ),
+				'mediaBtn'      => __( 'Use as Mockup', 'overcustomise' ),
+				'fonts'         => OC_Plugin::browser_fonts(),
+				'fontGroups'    => array_map(
+					function ( $g ) {
+						return [
+							'id'      => (int) $g->id,
+							'name'    => $g->name,
+							'fontIds' => array_map( 'intval', $g->font_ids ),
+						]; },
+					OC_DB::get_font_groups()
+				),
+				'colours'       => array_map(
+					function ( $c ) {
+						return [
+							'id'   => (int) $c->id,
+							'name' => $c->name,
+							'hex'  => $c->hex,
+						]; },
+					OC_DB::get_colours( true )
+				),
+				'imageFilters'  => array_map(
+					function ( $f ) {
+						return [
+							'id'    => (int) $f->id,
+							'name'  => $f->name,
+							'key'   => $f->filter_key,
+							'value' => (float) $f->value,
+							'isAi'  => 'ai' === (string) $f->filter_key,
+						]; },
+					OC_DB::get_image_filters( true )
+				),
+				'colourGroups'  => array_map(
+					function ( $g ) {
+						return [
+							'id'        => (int) $g->id,
+							'name'      => $g->name,
+							'colourIds' => array_map( 'intval', $g->colour_ids ),
+						]; },
+					OC_DB::get_colour_groups()
+				),
+				'clipartGroups' => array_map(
+					function ( $g ) {
+						return [
+							'id'   => (int) $g->id,
+							'name' => $g->name,
+						]; },
+					$clipart_groups
+				),
+				'clipartItems'  => array_values(
+					array_filter(
+						array_map(
+							function ( $c ) use ( $clipart_group_ids_by_item ) {
+								return [
+									'id'                  => (int) $c->id,
+									'name'                => $c->name,
+									'fileType'            => strtolower( (string) $c->file_type ),
+									'url'                 => OC_Admin_Clipart::get_clipart_url( (string) $c->file_path ),
+									'active'              => (bool) $c->active,
+									'groupIds'            => $clipart_group_ids_by_item[ (int) $c->id ] ?? [],
+									'colourChangeable'    => ! property_exists( $c, 'colour_changeable' ) || (bool) $c->colour_changeable,
+									'allowedPrintMethods' => self::normalise_clipart_print_methods( (string) ( $c->allowed_print_methods ?? '' ) ),
+								];
+							},
+							OC_DB::get_clipart( true )
+						),
+						static fn ( array $item ): bool => '' !== $item['url']
+					)
+				),
+				'methodLabels'  => $method_labels,
+			]
+		);
 		?>
 		<div class="wrap oc-page oc-design-editor-page">
 
@@ -1190,16 +1271,16 @@ class OC_Admin_Products {
 					<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs' ) ); ?>"><?php esc_html_e( 'Designs', 'overcustomise' ); ?></a>
 					<span class="oc-breadcrumb-sep">›</span>
 					<input type="text" name="oc_design_name" id="oc_design_name" form="oc-design-form"
-					       class="oc-design-name-input" required
-					       value="<?php echo esc_attr( $design ? $design->name : '' ); ?>"
-					       placeholder="<?php esc_attr_e( 'Design name…', 'overcustomise' ); ?>" />
+							class="oc-design-name-input" required
+							value="<?php echo esc_attr( $design ? $design->name : '' ); ?>"
+							placeholder="<?php esc_attr_e( 'Design name…', 'overcustomise' ); ?>" />
 				</div>
 				<div style="display:flex;align-items:center;gap:14px;">
 					<span id="oc-autosave-indicator" class="oc-autosave-indicator"></span>
 					<label class="oc-toggle-label" style="margin:0;font-size:12px;">
 						<span class="oc-toggle">
 							<input type="checkbox" name="oc_active" id="oc_active" value="1" form="oc-design-form"
-							       <?php checked( $design ? $design->active : 1, 1 ); ?> />
+									<?php checked( $design ? $design->active : 1, 1 ); ?> />
 							<span class="oc-toggle-slider"></span>
 						</span>
 						<?php esc_html_e( 'Active', 'overcustomise' ); ?>
@@ -1211,7 +1292,7 @@ class OC_Admin_Products {
 
 			<form method="post" id="oc-design-form">
 				<?php wp_nonce_field( 'oc_save_design', 'oc_design_nonce' ); ?>
-				<input type="hidden" name="oc_design_id" value="<?php echo esc_attr( $id ); ?>" />
+				<input type="hidden" name="oc_design_id" value="<?php echo esc_attr( (string) $id ); ?>" />
 				<!-- JS serialises areas here before submit -->
 				<div id="oc-hidden-fields"></div>
 
@@ -1464,7 +1545,7 @@ class OC_Admin_Products {
 		}
 		if ( array_key_exists( 'oc_flat_rate', $_POST ) ) {
 			$posted_rate = is_numeric( $_POST['oc_flat_rate'] ) ? (float) $_POST['oc_flat_rate'] : 0.0;
-			$flat_rate = number_format( max( 0, min( 1000000, is_finite( $posted_rate ) ? $posted_rate : 0.0 ) ), 2, '.', '' );
+			$flat_rate   = number_format( max( 0, min( 1000000, is_finite( $posted_rate ) ? $posted_rate : 0.0 ) ), 2, '.', '' );
 		}
 		if ( 0 === $design_id ) {
 			$custom_type = $custom_type ?? 'text_only';
@@ -1484,16 +1565,16 @@ class OC_Admin_Products {
 		$submitted_existing_layer_ids = [];
 		$submitted_mask_ids           = [];
 		$submitted_new_mask_count     = 0;
-		$valid_area_indexes            = [];
-		$seen_area_indexes             = [];
+		$valid_area_indexes           = [];
+		$seen_area_indexes            = [];
 		foreach ( $posted_areas as $area_index => $area_data ) {
-			$normalised_index = is_int( $area_index ) || ( is_string( $area_index ) && ctype_digit( $area_index ) ) ? (int) $area_index : -1;
+			$normalised_index = is_int( $area_index ) || ctype_digit( $area_index ) ? (int) $area_index : -1;
 			if ( ! is_array( $area_data ) || $normalised_index < 0 || isset( $seen_area_indexes[ $normalised_index ] ) ) {
 				wp_die( esc_html__( 'Invalid print area data.', 'overcustomise' ) );
 			}
 			$seen_area_indexes[ $normalised_index ] = true;
-			$area_label_raw = is_scalar( $area_data['label'] ?? null ) ? (string) $area_data['label'] : '';
-			$area_label = sanitize_text_field( wp_unslash( $area_label_raw ) );
+			$area_label_raw                         = is_scalar( $area_data['label'] ?? null ) ? (string) $area_data['label'] : '';
+			$area_label                             = sanitize_text_field( wp_unslash( $area_label_raw ) );
 			if ( $area_label ) {
 				$valid_area_indexes[ $normalised_index ] = true;
 			}
@@ -1513,13 +1594,13 @@ class OC_Admin_Products {
 			if ( ! isset( $valid_area_indexes[ $layer_area_index ] ) ) {
 				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
 			}
-			$layer_id = (int) ( $layer_data['id'] ?? 0 );
+			$layer_id   = (int) ( $layer_data['id'] ?? 0 );
 			$layer_type = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
 			if ( 'mask' === $layer_type ) {
 				if ( $layer_id > 0 ) {
 					$submitted_mask_ids[] = $layer_id;
 				} else {
-					$submitted_new_mask_count++;
+					++$submitted_new_mask_count;
 				}
 			}
 			if ( $layer_id > 0 ) {
@@ -1552,10 +1633,10 @@ class OC_Admin_Products {
 		}
 
 		try {
-			$existing_area_ids          = [];
-			$existing_area_data         = [];
-			$existing_layer_area_ids    = [];
-			$existing_layer_settings    = [];
+			$existing_area_ids       = [];
+			$existing_area_data      = [];
+			$existing_layer_area_ids = [];
+			$existing_layer_settings = [];
 			if ( $design_id > 0 ) {
 				$locked_design = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
 				if ( ! $locked_design ) {
@@ -1563,7 +1644,7 @@ class OC_Admin_Products {
 				}
 				$existing_areas = $wpdb->get_results( $wpdb->prepare( "SELECT id, print_method, mockup_attachment_id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) ?: [];
 				foreach ( $existing_areas as $existing_area ) {
-					$existing_area_ids[]                         = (int) $existing_area->id;
+					$existing_area_ids[]                            = (int) $existing_area->id;
 					$existing_area_data[ (int) $existing_area->id ] = $existing_area;
 				}
 				if ( array_diff( $submitted_existing_area_ids, $existing_area_ids ) ) {
@@ -1599,14 +1680,14 @@ class OC_Admin_Products {
 			}
 
 			// Save print areas and build the submitted index to database ID map.
-			$submitted_ids = [];
-			$area_id_map   = [];
+			$submitted_ids  = [];
+			$area_id_map    = [];
 			$used_area_keys = [];
 
 			foreach ( $posted_areas as $area_index => $area_data ) {
-				$area_id = (int) ( $area_data['id'] ?? 0 );
+				$area_id   = (int) ( $area_data['id'] ?? 0 );
 				$label_raw = is_scalar( $area_data['label'] ?? null ) ? (string) $area_data['label'] : '';
-				$label   = sanitize_text_field( wp_unslash( $label_raw ) );
+				$label     = sanitize_text_field( wp_unslash( $label_raw ) );
 				if ( ! $label ) {
 					continue;
 				}
@@ -1614,7 +1695,7 @@ class OC_Admin_Products {
 					throw new RuntimeException( 'Print area label is too long.' );
 				}
 
-				$area_key   = substr( sanitize_key( $label ), 0, 50 );
+				$area_key = substr( sanitize_key( $label ), 0, 50 );
 				if ( '' === $area_key ) {
 					throw new RuntimeException( 'Print area label must contain a usable key.' );
 				}
@@ -1622,21 +1703,21 @@ class OC_Admin_Products {
 					throw new RuntimeException( 'Print area labels must be unique.' );
 				}
 				$used_area_keys[ $area_key ] = true;
-				$method     = sanitize_key( is_scalar( $area_data['print_method'] ?? null ) ? (string) $area_data['print_method'] : '' );
-				$all_methods = OC_Admin_Print_Methods::get();
-				$old_method  = sanitize_key( (string) ( $existing_area_data[ $area_id ]->print_method ?? '' ) );
+				$method                      = sanitize_key( is_scalar( $area_data['print_method'] ?? null ) ? (string) $area_data['print_method'] : '' );
+				$all_methods                 = OC_Admin_Print_Methods::get();
+				$old_method                  = sanitize_key( (string) ( $existing_area_data[ $area_id ]->print_method ?? '' ) );
 				if ( ! isset( $all_methods[ $method ] )
 					|| ( ( 0 === $area_id || $method !== $old_method ) && ! OC_Admin_Print_Methods::is_enabled( $method ) )
 				) {
 					throw new RuntimeException( 'The selected print method is disabled or invalid.' );
 				}
-				$material   = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather' ], true )
+				$material      = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather' ], true )
 					? sanitize_key( $area_data['engraving_material'] )
 					: 'silver_metal';
-				$unit       = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
+				$unit          = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
 					? sanitize_key( $area_data['canvas_unit'] )
 					: 'px';
-				$mockup_id  = (int) ( $area_data['mockup_attachment_id'] ?? 0 );
+				$mockup_id     = (int) ( $area_data['mockup_attachment_id'] ?? 0 );
 				$old_mockup_id = (int) ( $existing_area_data[ $area_id ]->mockup_attachment_id ?? 0 );
 				if ( $mockup_id && ! self::design_attachment_is_valid( $mockup_id, $old_mockup_id, true ) ) {
 					throw new RuntimeException( 'The selected mockup is invalid or inaccessible.' );
@@ -1650,7 +1731,7 @@ class OC_Admin_Products {
 				$rotation   = ( ( $rotation % 360 ) + 360 ) % 360;
 				$sort_order = (int) ( $area_data['sort_order'] ?? 0 );
 
-				$row = [
+				$row     = [
 					'design_id'            => $design_id,
 					'area_key'             => $area_key,
 					'label'                => $label,
@@ -1666,12 +1747,21 @@ class OC_Admin_Products {
 					'canvas_rotation'      => $rotation,
 					'sort_order'           => $sort_order,
 					'visible'              => isset( $area_data['visible'] ) && $area_data['visible'] !== '0' ? 1 : 0,
-					'locked'               => ! empty( $area_data['locked'] ) && $area_data['locked'] !== '0' ? 1 : 0,
+					'locked'               => ! empty( $area_data['locked'] ) ? 1 : 0,
 				];
 				$row_fmt = [ '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%d' ];
 
 				if ( $area_id > 0 ) {
-					if ( false === $wpdb->update( "{$wpdb->prefix}oc_design_print_areas", $row, [ 'id' => $area_id, 'design_id' => $design_id ], $row_fmt, [ '%d', '%d' ] ) ) {
+					if ( false === $wpdb->update(
+						"{$wpdb->prefix}oc_design_print_areas",
+						$row,
+						[
+							'id'        => $area_id,
+							'design_id' => $design_id,
+						],
+						$row_fmt,
+						[ '%d', '%d' ]
+					) ) {
 						throw new RuntimeException( 'Could not update print area.' );
 					}
 					$db_area_id = $area_id;
@@ -1700,7 +1790,7 @@ class OC_Admin_Products {
 					throw new RuntimeException( 'Invalid design layer type.' );
 				}
 				$label_raw = is_scalar( $layer_data['label'] ?? null ) ? (string) $layer_data['label'] : '';
-				$label = sanitize_text_field( wp_unslash( $label_raw ) );
+				$label     = sanitize_text_field( wp_unslash( $label_raw ) );
 				if ( strlen( $label ) > 100 ) {
 					throw new RuntimeException( 'Layer label is too long.' );
 				}
@@ -1717,12 +1807,14 @@ class OC_Admin_Products {
 						break;
 					}
 				}
-				$settings = wp_json_encode( self::normalise_design_layer_settings(
-					$decoded,
-					$type,
-					$area_method,
-					$existing_layer_settings[ $layer_id ] ?? []
-				) );
+				$settings = wp_json_encode(
+					self::normalise_design_layer_settings(
+						$decoded,
+						$type,
+						$area_method,
+						$existing_layer_settings[ $layer_id ] ?? []
+					)
+				);
 				if ( false === $settings ) {
 					throw new RuntimeException( 'Could not encode design layer settings.' );
 				}
@@ -1738,7 +1830,7 @@ class OC_Admin_Products {
 					'h'          => min( 100000, max( 1, (int) ( $layer_data['h'] ?? 50 ) ) ),
 					'sort_order' => (int) ( $layer_data['sort_order'] ?? $sort ),
 					'visible'    => isset( $layer_data['visible'] ) && $layer_data['visible'] !== '0' ? 1 : 0,
-					'locked'     => ! empty( $layer_data['locked'] ) && $layer_data['locked'] !== '0' ? 1 : 0,
+					'locked'     => ! empty( $layer_data['locked'] ) ? 1 : 0,
 					'settings'   => $settings ?: '{}',
 				];
 				$layer_fmt = [ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ];
@@ -1750,7 +1842,11 @@ class OC_Admin_Products {
 					$updated = $wpdb->update(
 						"{$wpdb->prefix}oc_design_layers",
 						$layer_row,
-						[ 'id' => $layer_id, 'design_id' => $design_id, 'area_id' => $area_db_id ],
+						[
+							'id'        => $layer_id,
+							'design_id' => $design_id,
+							'area_id'   => $area_db_id,
+						],
 						$layer_fmt,
 						[ '%d', '%d', '%d' ]
 					);
@@ -1764,12 +1860,26 @@ class OC_Admin_Products {
 
 			// Remove only records omitted by this submission, after all ownership checks pass.
 			foreach ( array_diff( array_keys( $existing_layer_area_ids ), $submitted_existing_layer_ids ) as $del_id ) {
-				if ( 1 !== $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'id' => (int) $del_id, 'design_id' => $design_id ], [ '%d', '%d' ] ) ) {
+				if ( 1 !== $wpdb->delete(
+					"{$wpdb->prefix}oc_design_layers",
+					[
+						'id'        => (int) $del_id,
+						'design_id' => $design_id,
+					],
+					[ '%d', '%d' ]
+				) ) {
 					throw new RuntimeException( 'Could not remove design layer.' );
 				}
 			}
 			foreach ( array_diff( $existing_area_ids, $submitted_ids ) as $del_id ) {
-				if ( 1 !== $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'id' => (int) $del_id, 'design_id' => $design_id ], [ '%d', '%d' ] ) ) {
+				if ( 1 !== $wpdb->delete(
+					"{$wpdb->prefix}oc_design_print_areas",
+					[
+						'id'        => (int) $del_id,
+						'design_id' => $design_id,
+					],
+					[ '%d', '%d' ]
+				) ) {
 					throw new RuntimeException( 'Could not remove print area.' );
 				}
 			}
@@ -1783,18 +1893,13 @@ class OC_Admin_Products {
 		}
 
 		OC_Autosave::clear( $design_id );
-		$this->clear_design_cache( $design_id );
+		$this->clear_design_cache();
 
 		return $design_id;
 	}
 
-	private function clear_design_cache( int $design_id ): void {
-		OC_Cache::delete( 'design_' . $design_id );
-		OC_Cache::delete( 'design_areas_' . $design_id );
-		OC_Cache::delete( 'design_layers_' . $design_id );
-		OC_Cache::delete( 'designs_all' );
-		OC_Cache::delete( 'designs_active' );
-		OC_Cache::delete( 'designs_area_counts' );
+	private function clear_design_cache(): void {
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
 	}
 
 	/** Validate media selected for a design without breaking an unchanged existing relationship. */
@@ -1811,9 +1916,9 @@ class OC_Admin_Products {
 
 	/** Validate a preview-only mask without requiring locally stored production artwork. */
 	private static function design_mask_attachment_is_valid( int $attachment_id, int $existing_attachment_id = 0 ): bool {
-		$url      = (string) wp_get_attachment_url( $attachment_id );
-		$mime     = strtolower( (string) get_post_mime_type( $attachment_id ) );
-		$url_path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$url          = (string) wp_get_attachment_url( $attachment_id );
+		$mime         = strtolower( (string) get_post_mime_type( $attachment_id ) );
+		$url_path     = (string) wp_parse_url( $url, PHP_URL_PATH );
 		$is_supported = in_array( $mime, [ 'image/png', 'image/x-png', 'image/svg+xml', 'image/webp' ], true )
 			|| ( str_starts_with( $mime, 'image/' ) && in_array( strtolower( pathinfo( $url_path, PATHINFO_EXTENSION ) ), [ 'png', 'svg', 'webp' ], true ) );
 		if (
@@ -1832,18 +1937,18 @@ class OC_Admin_Products {
 	private static function normalise_design_layer_settings( array $raw, string $type, string $print_method, array $existing = [] ): array {
 		$settings = OC_Cart::normalise_layer_settings( $raw, $type );
 
-		$font_groups    = OC_DB::get_font_groups();
-		$colour_groups  = OC_DB::get_colour_groups();
-		$clipart_groups = OC_DB::get_clipart_groups();
-		$font_group_ids = array_map( static fn ( $group ): int => (int) $group->id, $font_groups );
-		$colour_group_ids = array_map( static fn ( $group ): int => (int) $group->id, $colour_groups );
+		$font_groups       = OC_DB::get_font_groups();
+		$colour_groups     = OC_DB::get_colour_groups();
+		$clipart_groups    = OC_DB::get_clipart_groups();
+		$font_group_ids    = array_map( static fn ( $group ): int => (int) $group->id, $font_groups );
+		$colour_group_ids  = array_map( static fn ( $group ): int => (int) $group->id, $colour_groups );
 		$clipart_group_ids = array_map( static fn ( $group ): int => (int) $group->id, $clipart_groups );
 
 		$settings['font_groups']    = array_values( array_intersect( $settings['font_groups'], $font_group_ids ) );
 		$settings['colour_groups']  = array_values( array_intersect( $settings['colour_groups'], $colour_group_ids ) );
 		$settings['clipart_groups'] = array_values( array_intersect( $settings['clipart_groups'], $clipart_group_ids ) );
 
-		$active_font_ids = array_map( static fn ( $font ): int => (int) $font->id, OC_DB::get_fonts( true ) );
+		$active_font_ids  = array_map( static fn ( $font ): int => (int) $font->id, OC_DB::get_fonts( true ) );
 		$allowed_font_ids = $settings['font_groups']
 			? array_values( array_intersect( $active_font_ids, OC_DB::get_font_ids_for_groups( $settings['font_groups'] ) ) )
 			: $active_font_ids;
@@ -1852,24 +1957,28 @@ class OC_Admin_Products {
 		}
 
 		if ( $settings['colour_groups'] ) {
-			$allowed_colours = array_values( array_filter( array_map(
-				static fn ( $colour ): ?string => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ),
-				OC_DB::get_colours_for_groups( $settings['colour_groups'] )
-			) ) );
+			$allowed_colours = array_values(
+				array_filter(
+					array_map(
+						static fn ( $colour ): ?string => sanitize_hex_color( (string) ( $colour->hex ?? '' ) ),
+						OC_DB::get_colours_for_groups( $settings['colour_groups'] )
+					)
+				)
+			);
 			if ( $allowed_colours && ! in_array( strtolower( $settings['default_color'] ), array_map( 'strtolower', $allowed_colours ), true ) ) {
 				$settings['default_color'] = $allowed_colours[0];
 			}
 		}
 
-		$active_filter_ids = array_map( static fn ( $filter ): int => (int) $filter->id, OC_DB::get_image_filters( true ) );
+		$active_filter_ids            = array_map( static fn ( $filter ): int => (int) $filter->id, OC_DB::get_image_filters( true ) );
 		$settings['image_filter_ids'] = array_values( array_intersect( $settings['image_filter_ids'], $active_filter_ids ) );
 		if ( ! in_array( $settings['default_image_filter_id'], $settings['image_filter_ids'], true ) ) {
 			$settings['default_image_filter_id'] = 0;
 		}
 
-		$attachment_id = in_array( $type, [ 'image', 'clipmask', 'mask' ], true ) ? (int) $settings['default_attachment_id'] : 0;
+		$attachment_id          = in_array( $type, [ 'image', 'clipmask', 'mask' ], true ) ? (int) $settings['default_attachment_id'] : 0;
 		$existing_attachment_id = (int) ( $existing['default_attachment_id'] ?? 0 );
-		$is_valid_attachment = 'mask' === $type
+		$is_valid_attachment    = 'mask' === $type
 			? self::design_mask_attachment_is_valid( $attachment_id, $existing_attachment_id )
 			: self::design_attachment_is_valid( $attachment_id, $existing_attachment_id, true );
 		if ( $attachment_id && ! $is_valid_attachment ) {
@@ -1879,15 +1988,15 @@ class OC_Admin_Products {
 		$settings['default_attachment_url'] = '';
 
 		$default_clipart_id = 'clipart' === $type ? (int) $settings['default_clipart_id'] : 0;
-		$active_clipart = [];
+		$active_clipart     = [];
 		foreach ( OC_DB::get_clipart( true ) as $clipart ) {
 			if ( '' !== OC_Admin_Clipart::get_clipart_url( (string) ( $clipart->file_path ?? '' ) ) ) {
 				$active_clipart[ (int) $clipart->id ] = $clipart;
 			}
 		}
 		if ( $default_clipart_id && isset( $active_clipart[ $default_clipart_id ] ) ) {
-			$clipart = $active_clipart[ $default_clipart_id ];
-			$allowed_methods = self::normalise_clipart_print_methods( (string) ( $clipart->allowed_print_methods ?? '' ) );
+			$clipart           = $active_clipart[ $default_clipart_id ];
+			$allowed_methods   = self::normalise_clipart_print_methods( (string) ( $clipart->allowed_print_methods ?? '' ) );
 			$in_selected_group = empty( $settings['clipart_groups'] );
 			foreach ( $clipart_groups as $group ) {
 				if ( in_array( (int) $group->id, $settings['clipart_groups'], true )
@@ -1916,7 +2025,7 @@ class OC_Admin_Products {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_delete_design_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_delete_design_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -1940,12 +2049,12 @@ class OC_Admin_Products {
 					throw new RuntimeException( 'Could not delete VDP fields.' );
 				}
 			}
-			$deleted_template   = $wpdb->delete( "{$wpdb->prefix}oc_vdp_templates", [ 'design_id' => $id ], [ '%d' ] );
-			$deleted_layers     = $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $id ], [ '%d' ] );
-			$deleted_areas      = $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'design_id' => $id ], [ '%d' ] );
-			$updated_variants   = OC_DB::remove_design_from_assignment_variants( $id );
+			$deleted_template    = $wpdb->delete( "{$wpdb->prefix}oc_vdp_templates", [ 'design_id' => $id ], [ '%d' ] );
+			$deleted_layers      = $wpdb->delete( "{$wpdb->prefix}oc_design_layers", [ 'design_id' => $id ], [ '%d' ] );
+			$deleted_areas       = $wpdb->delete( "{$wpdb->prefix}oc_design_print_areas", [ 'design_id' => $id ], [ '%d' ] );
+			$updated_variants    = OC_DB::remove_design_from_assignment_variants( $id );
 			$deleted_assignments = $wpdb->delete( "{$wpdb->prefix}oc_product_assignments", [ 'design_id' => $id ], [ '%d' ] );
-			$deleted_design     = $wpdb->delete( "{$wpdb->prefix}oc_designs", [ 'id' => $id ], [ '%d' ] );
+			$deleted_design      = $wpdb->delete( "{$wpdb->prefix}oc_designs", [ 'id' => $id ], [ '%d' ] );
 			if ( false === $deleted_template || false === $deleted_layers || false === $deleted_areas || ! $updated_variants || false === $deleted_assignments || 1 !== $deleted_design ) {
 				throw new RuntimeException( 'Could not delete design records.' );
 			}
@@ -1961,9 +2070,7 @@ class OC_Admin_Products {
 			OC_Rest_API::delete_vdp_file( $csv_path );
 		}
 		OC_Autosave::clear( $id );
-		OC_Cache::delete( 'all_assignments_v2' );
-		OC_Cache::flush_pattern( 'assignment_' );
-		$this->clear_design_cache( $id );
+		$this->clear_design_cache();
 
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&deleted=1' ) );
 		exit;
@@ -1973,7 +2080,7 @@ class OC_Admin_Products {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_duplicate_design_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_duplicate_design_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -2012,7 +2119,7 @@ class OC_Admin_Products {
 
 			$area_id_map = [];
 			foreach ( $areas as $area ) {
-				$inserted = $wpdb->insert(
+				$inserted    = $wpdb->insert(
 					"{$wpdb->prefix}oc_design_print_areas",
 					[
 						'design_id'            => $new_id,
@@ -2073,7 +2180,7 @@ class OC_Admin_Products {
 			wp_die( esc_html__( 'Could not duplicate design. No changes were applied.', 'overcustomise' ) );
 		}
 
-		$this->clear_design_cache( $new_id );
+		$this->clear_design_cache();
 
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-products&tab=designs&duplicated=1' ) );
 		exit;

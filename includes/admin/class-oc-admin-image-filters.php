@@ -20,7 +20,7 @@ class OC_Admin_Image_Filters {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ], 403 );
 		}
 
-		$prompt = isset( $_POST['prompt'] ) ? trim( (string) wp_unslash( $_POST['prompt'] ) ) : '';
+		$prompt            = isset( $_POST['prompt'] ) ? trim( (string) wp_unslash( $_POST['prompt'] ) ) : '';
 		$remove_background = ! empty( $_POST['remove_background'] );
 		if ( '' === $prompt || strlen( $prompt ) > 10000 || empty( $_FILES['test_image'] ) ) {
 			wp_send_json_error( [ 'message' => __( 'Enter a prompt and choose a test image.', 'overcustomise' ) ], 400 );
@@ -92,11 +92,13 @@ class OC_Admin_Image_Filters {
 				wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 			}
 			$saved = $this->handle_save();
-			wp_safe_redirect( add_query_arg(
-				'oc_filter_notice',
-				$saved ? 'saved' : 'error',
-				admin_url( 'admin.php?page=overcustomise-image-filters' )
-			) );
+			wp_safe_redirect(
+				add_query_arg(
+					'oc_filter_notice',
+					$saved ? 'saved' : 'error',
+					admin_url( 'admin.php?page=overcustomise-image-filters' )
+				)
+			);
 			exit;
 		}
 
@@ -128,7 +130,7 @@ class OC_Admin_Image_Filters {
 				<div class="oc-card-header"><h2><?php echo $editing ? esc_html__( 'Edit Filter', 'overcustomise' ) : esc_html__( 'Add Filter', 'overcustomise' ); ?></h2></div>
 				<form method="post" id="oc-ai-filter-form" style="padding:18px;">
 					<?php wp_nonce_field( 'oc_image_filter_save', 'oc_image_filter_nonce' ); ?>
-					<input type="hidden" name="filter_id" value="<?php echo esc_attr( $edit_id ); ?>" />
+					<input type="hidden" name="filter_id" value="<?php echo esc_attr( (string) $edit_id ); ?>" />
 					<div class="oc-form-grid">
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_name"><?php esc_html_e( 'Filter name', 'overcustomise' ); ?></label></div>
@@ -152,7 +154,7 @@ class OC_Admin_Image_Filters {
 			</div>
 
 			<div class="oc-card">
-				<div class="oc-card-header"><h2><?php esc_html_e( 'Filters', 'overcustomise' ); ?></h2><span style="font-size:12px;color:var(--oc-gray-400);"><?php echo esc_html( count( $filters ) ); ?></span></div>
+				<div class="oc-card-header"><h2><?php esc_html_e( 'Filters', 'overcustomise' ); ?></h2><span style="font-size:12px;color:var(--oc-gray-400);"><?php echo esc_html( (string) count( $filters ) ); ?></span></div>
 				<?php if ( empty( $filters ) ) : ?>
 					<div class="oc-empty"><h3><?php esc_html_e( 'No filters yet', 'overcustomise' ); ?></h3><p><?php esc_html_e( 'Add a prompt above, then enable it on image layers in the design editor.', 'overcustomise' ); ?></p></div>
 				<?php else : ?>
@@ -185,20 +187,31 @@ class OC_Admin_Image_Filters {
 
 	private function get_filter( int $id ): ?object {
 		foreach ( OC_DB::get_image_filters( false ) as $filter ) {
-			if ( (int) $filter->id === $id ) return $filter;
+			if ( (int) $filter->id === $id ) {
+				return $filter;
+			}
 		}
 		return null;
 	}
 
 	private function handle_save(): bool {
-		$name = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
-		$prompt = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) );
+		$name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
+		$prompt            = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) );
 		$remove_background = ! empty( $_POST['remove_background'] ) ? 1 : 0;
-		$id = absint( $_POST['filter_id'] ?? 0 );
-		if ( '' === $name || '' === trim( $prompt ) || strlen( $name ) > 100 || strlen( $prompt ) > 10000 ) return false;
+		$id                = absint( $_POST['filter_id'] ?? 0 );
+		if ( '' === $name || '' === trim( $prompt ) || strlen( $name ) > 100 || strlen( $prompt ) > 10000 ) {
+			return false;
+		}
 
 		global $wpdb;
-		$data = [ 'name' => $name, 'filter_key' => 'ai', 'value' => 1, 'prompt' => $prompt, 'remove_background' => $remove_background, 'active' => 1 ];
+		$data = [
+			'name'              => $name,
+			'filter_key'        => 'ai',
+			'value'             => 1,
+			'prompt'            => $prompt,
+			'remove_background' => $remove_background,
+			'active'            => 1,
+		];
 		if ( $id && ! $this->get_filter( $id ) ) {
 			return false;
 		}
@@ -207,20 +220,35 @@ class OC_Admin_Image_Filters {
 		} else {
 			$result = $wpdb->insert( $wpdb->prefix . 'oc_image_filters', $data, [ '%s', '%s', '%f', '%s', '%d', '%d' ] );
 		}
-		if ( false === $result ) return false;
+		if ( false === $result ) {
+			return false;
+		}
 		OC_DB::clear_image_filter_cache();
 		return true;
 	}
 
 	private function handle_toggle(): void {
-		$id = absint( $_GET['id'] ?? 0 ); $state = ! empty( $_GET['state'] ) ? 1 : 0;
-		if ( ! $id || empty( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( wp_unslash( $_GET['_wpnonce'] ) ), 'oc_image_filter_toggle_' . $id ) ) return;
-		global $wpdb; $wpdb->update( $wpdb->prefix . 'oc_image_filters', [ 'active' => $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] ); OC_DB::clear_image_filter_cache(); wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-image-filters' ) ); exit;
+		$id    = absint( $_GET['id'] ?? 0 );
+		$state = ! empty( $_GET['state'] ) ? 1 : 0;
+		if ( ! $id || empty( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( wp_unslash( $_GET['_wpnonce'] ) ), 'oc_image_filter_toggle_' . $id ) ) {
+			return;
+		}
+		global $wpdb;
+		$wpdb->update( $wpdb->prefix . 'oc_image_filters', [ 'active' => $state ], [ 'id' => $id ], [ '%d' ], [ '%d' ] );
+		OC_DB::clear_image_filter_cache();
+		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-image-filters' ) );
+		exit;
 	}
 
 	private function handle_delete(): void {
 		$id = absint( $_GET['id'] ?? 0 );
-		if ( ! $id || empty( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( wp_unslash( $_GET['_wpnonce'] ) ), 'oc_image_filter_delete_' . $id ) ) return;
-		global $wpdb; $wpdb->delete( $wpdb->prefix . 'oc_image_filters', [ 'id' => $id ], [ '%d' ] ); OC_DB::clear_image_filter_cache(); wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-image-filters' ) ); exit;
+		if ( ! $id || empty( $_GET['_wpnonce'] ) || ! wp_verify_nonce( sanitize_key( wp_unslash( $_GET['_wpnonce'] ) ), 'oc_image_filter_delete_' . $id ) ) {
+			return;
+		}
+		global $wpdb;
+		$wpdb->delete( $wpdb->prefix . 'oc_image_filters', [ 'id' => $id ], [ '%d' ] );
+		OC_DB::clear_image_filter_cache();
+		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-image-filters' ) );
+		exit;
 	}
 }

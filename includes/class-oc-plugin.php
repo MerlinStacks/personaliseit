@@ -12,6 +12,9 @@ class OC_Plugin {
 	/** @var OC_Plugin|null Singleton instance. */
 	private static ?OC_Plugin $instance = null;
 
+	/** @var array<int,array<int,array<string,mixed>>> Request-local validated browser fonts by site. */
+	private static array $browser_fonts = [];
+
 	public static function instance(): self {
 		if ( null === self::$instance ) {
 			self::$instance = new self();
@@ -26,6 +29,8 @@ class OC_Plugin {
 	}
 
 	private function load_includes(): void {
+		spl_autoload_register( [ self::class, 'autoload_print_renderer' ] );
+
 		// Core utilities.
 		require_once OC_PATH . 'includes/class-oc-tooltips.php';
 		require_once OC_PATH . 'includes/class-oc-cache.php';
@@ -50,10 +55,6 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/class-oc-vdp.php';
 		require_once OC_PATH . 'includes/class-oc-webhooks.php';
 		require_once OC_PATH . 'includes/print/class-oc-print-base.php';
-		require_once OC_PATH . 'includes/print/class-oc-print-engraving.php';
-		require_once OC_PATH . 'includes/print/class-oc-print-uv.php';
-		require_once OC_PATH . 'includes/print/class-oc-print-sublimation.php';
-		require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
 
 		// Settings must be available outside admin (REST API + frontend use it).
 		require_once OC_PATH . 'includes/admin/class-oc-admin-settings.php';
@@ -81,66 +82,87 @@ class OC_Plugin {
 	}
 
 	private function register_hooks(): void {
-		// Font registry (MIME types + @font-face CSS — both admin and frontend).
-		$font_registry = new OC_Font_Registry();
-		$font_registry->register();
-		remove_action( 'wp_head', [ $font_registry, 'output_font_face_css' ], 5 );
-		remove_action( 'admin_head', [ $font_registry, 'output_font_face_css' ], 5 );
-		add_action( 'wp_head', [ self::class, 'output_font_face_css' ], 5 );
-		add_action( 'admin_head', [ self::class, 'output_font_face_css' ], 5 );
+		$this->register_frontend_services();
+		$print_generator = $this->register_print_services();
+		$this->register_admin_services( $print_generator );
+		$this->register_maintenance_hooks();
+	}
 
-		// REST API.
+	/** Register public, REST, upload, and storefront services. */
+	private function register_frontend_services(): void {
+		( new OC_Font_Registry() )->register();
 		( new OC_Rest_API() )->register();
 		OC_Upload_Handler::register();
-
-		// Mockup taxonomy + AJAX handlers.
 		OC_Admin_Mockups::init();
-
-		// Frontend hooks (non-admin context, plus cart/order hooks for AJAX/checkout).
 		( new OC_Frontend() )->register();
 		( new OC_Cart() )->register();
 		( new OC_Blocks_Integration() )->register();
+	}
 
-		// Print file generation (fires on checkout order creation).
+	/** Register print generation, queue, webhooks, and coordinated storage maintenance. */
+	private function register_print_services(): OC_Print_Generator {
 		$print_generator = new OC_Print_Generator();
 		$print_generator->register();
-		if ( is_admin() ) {
-			// Mutating admin actions are POST-only; downloads remain nonce-protected GETs.
-			remove_action( 'admin_init', [ $print_generator, 'handle_admin_regenerate' ] );
-			remove_action( 'admin_init', [ $print_generator, 'handle_admin_generate_missing' ] );
-			remove_action( 'admin_init', [ $print_generator, 'handle_admin_process_queue' ] );
-			add_action( 'admin_post_oc_regenerate_print_file', [ self::class, 'handle_regenerate_print_file' ] );
-			add_action( 'admin_post_oc_generate_print_files', [ self::class, 'handle_generate_print_files' ] );
-			add_action( 'admin_post_oc_process_print_queue_order', [ self::class, 'handle_process_print_queue_order' ] );
-			add_action( 'admin_post_oc_manage_print_queue', [ new OC_Admin_Print_Queue(), 'handle_action' ] );
-		}
-
-		// Print queue processor.
+		remove_action( 'init', [ OC_Rest_API::class, 'ensure_vdp_storage' ] );
+		remove_action( 'init', [ OC_Upload_Handler::class, 'ensure_private_storage' ] );
+		remove_action( 'init', [ OC_Print_Base::class, 'ensure_output_storage_protected' ] );
+		add_action( 'init', [ self::class, 'maintain_storage' ] );
 		OC_Print_Queue::instance()->register();
-
-		// Webhooks.
 		( new OC_Webhooks() )->register();
+		return $print_generator;
+	}
 
-		if ( is_admin() ) {
-			( new OC_Admin_Menu() )->register();
-			( new OC_Admin_Order_Metabox() )->register();
-			OC_Admin_Customer_Uploads::register_hooks();
-			OC_Admin_Products::register_ajax();
-			OC_Admin_Fonts::register_ajax();
-			OC_Admin_Colours::register_ajax();
-			OC_Admin_Image_Filters::register_ajax();
-			OC_Admin_Clipart::register_ajax();
+	/** Register admin-only UI and mutation handlers. */
+	private function register_admin_services( OC_Print_Generator $print_generator ): void {
+		if ( ! is_admin() ) {
+			return;
 		}
 
-		// Register custom cron recurrence.
-		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
+		// Mutating admin actions are POST-only; downloads remain nonce-protected GETs.
+		remove_action( 'admin_init', [ $print_generator, 'handle_admin_regenerate' ] );
+		remove_action( 'admin_init', [ $print_generator, 'handle_admin_generate_missing' ] );
+		remove_action( 'admin_init', [ $print_generator, 'handle_admin_process_queue' ] );
+		add_action( 'admin_post_oc_regenerate_print_file', [ self::class, 'handle_regenerate_print_file' ] );
+		add_action( 'admin_post_oc_generate_print_files', [ self::class, 'handle_generate_print_files' ] );
+		add_action( 'admin_post_oc_process_print_queue_order', [ self::class, 'handle_process_print_queue_order' ] );
+		add_action( 'admin_post_oc_manage_print_queue', [ new OC_Admin_Print_Queue(), 'handle_action' ] );
 
-		// DB upgrades.
+		( new OC_Admin_Menu() )->register();
+		( new OC_Admin_Order_Metabox() )->register();
+		OC_Admin_Customer_Uploads::register_hooks();
+		OC_Admin_Products::register_ajax();
+		OC_Admin_Fonts::register_ajax();
+		OC_Admin_Colours::register_ajax();
+		OC_Admin_Image_Filters::register_ajax();
+		OC_Admin_Clipart::register_ajax();
+	}
+
+	/** Register cron, upgrade, and cleanup hooks. */
+	private function register_maintenance_hooks(): void {
+		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
 		add_action( 'init', [ OC_DB::class, 'maybe_upgrade' ] );
 		add_action( 'init', [ self::class, 'ensure_cron_events' ] );
-
-		// File cleanup cron callback.
 		add_action( 'oc_daily_file_cleanup', [ 'OC_File_Cleanup', 'run' ] );
+	}
+
+	/** Load method-specific print renderers only when generation needs them. */
+	public static function autoload_print_renderer( string $class ): void {
+		$renderers = [
+			'OC_Print_Engraving'   => 'class-oc-print-engraving.php',
+			'OC_Print_UV'          => 'class-oc-print-uv.php',
+			'OC_Print_Sublimation' => 'class-oc-print-sublimation.php',
+			'OC_Print_Embroidery'  => 'class-oc-print-embroidery.php',
+		];
+		if ( isset( $renderers[ $class ] ) ) {
+			require_once OC_PATH . 'includes/print/' . $renderers[ $class ];
+		}
+	}
+
+	/** Run storage protection and bounded migrations in their established order. */
+	public static function maintain_storage(): void {
+		OC_Rest_API::ensure_vdp_storage();
+		OC_Upload_Handler::ensure_private_storage();
+		OC_Print_Base::ensure_output_storage_protected();
 	}
 
 	// -------------------------------------------------------------------------
@@ -181,15 +203,20 @@ class OC_Plugin {
 
 	/** Return active font data with allowlisted metadata and stable CSS family identifiers. */
 	public static function browser_fonts(): array {
+		$blog_id = get_current_blog_id();
+		if ( array_key_exists( $blog_id, self::$browser_fonts ) ) {
+			return self::$browser_fonts[ $blog_id ];
+		}
+
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) ) {
-			return [];
+			return self::$browser_fonts[ $blog_id ] = [];
 		}
 		$uploads_dir = realpath( (string) $uploads['basedir'] );
 		$base_dir    = realpath( trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/fonts' );
 		$uploads_prefix = $uploads_dir ? rtrim( wp_normalize_path( $uploads_dir ), '/' ) . '/' : '';
 		if ( ! $base_dir || '' === $uploads_prefix || ! str_starts_with( wp_normalize_path( $base_dir ), $uploads_prefix ) ) {
-			return [];
+			return self::$browser_fonts[ $blog_id ] = [];
 		}
 		$base_prefix = rtrim( wp_normalize_path( $base_dir ), '/' ) . '/';
 		$result      = [];
@@ -217,7 +244,13 @@ class OC_Plugin {
 			];
 		}
 
-		return $result;
+		self::$browser_fonts[ $blog_id ] = $result;
+		return self::$browser_fonts[ $blog_id ];
+	}
+
+	/** Clear request-local font data after a font manager mutation. */
+	public static function reset_browser_fonts(): void {
+		unset( self::$browser_fonts[ get_current_blog_id() ] );
 	}
 
 	/** Output font declarations without using administrator labels as CSS identifiers. */
@@ -225,31 +258,30 @@ class OC_Plugin {
 		if ( 'wp_head' === current_filter() && ! is_product() ) {
 			return;
 		}
-
-		$uploads = wp_upload_dir();
-		if ( ! empty( $uploads['error'] ) ) {
-			return;
-		}
-
-		$uploads_dir = realpath( (string) $uploads['basedir'] );
-		$base_dir    = realpath( trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/fonts' );
-		$uploads_prefix = $uploads_dir ? rtrim( wp_normalize_path( $uploads_dir ), '/' ) . '/' : '';
-		if ( ! $base_dir || '' === $uploads_prefix || ! str_starts_with( wp_normalize_path( $base_dir ), $uploads_prefix ) ) {
-			return;
-		}
-		$base_prefix = rtrim( wp_normalize_path( $base_dir ), '/' ) . '/';
-		$rules       = [];
-
-		foreach ( OC_DB::get_fonts( true ) as $font ) {
-			$font_id = absint( $font->id ?? 0 );
-			$relative = ltrim( wp_normalize_path( is_scalar( $font->file_path ?? null ) ? (string) $font->file_path : '' ), '/' );
-			$real     = '' !== $relative ? realpath( trailingslashit( (string) $uploads['basedir'] ) . $relative ) : false;
-			$real     = $real ? wp_normalize_path( $real ) : '';
-			if ( ! $font_id || ! str_starts_with( $relative, 'overcustomise/fonts/' ) || '' === $real || ! str_starts_with( $real, $base_prefix ) || ! is_file( $real ) ) {
-				continue;
+		if ( 'admin_head' === current_filter() ) {
+			$screen    = get_current_screen();
+			$screen_id = $screen ? (string) $screen->id : '';
+			$is_oc_screen = str_starts_with( $screen_id, 'overcustomise_page_' ) || 'toplevel_page_overcustomise' === $screen_id;
+			$is_order_screen = 'shop_order' === $screen_id || str_starts_with( $screen_id, 'woocommerce_page_wc-orders' );
+			if ( ! $is_oc_screen && ! $is_order_screen ) {
+				return;
 			}
+		}
 
-			$extension = strtolower( pathinfo( $relative, PATHINFO_EXTENSION ) );
+		$css = OC_Cache::remember( 'font_face_css_v1', [ self::class, 'build_font_face_css' ], OC_Cache::TTL_SHORT );
+		if ( is_string( $css ) && '' !== $css ) {
+			echo '<style id="oc-font-faces">' . $css . '</style>' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every CSS token is allowlisted in build_font_face_css().
+		}
+	}
+
+	/** Build validated font declarations for cross-request object caching. */
+	public static function build_font_face_css(): string {
+		$rules = [];
+
+		foreach ( self::browser_fonts() as $font ) {
+			$font_id   = (int) $font['id'];
+			$url_path  = wp_parse_url( (string) $font['url'], PHP_URL_PATH );
+			$extension = strtolower( pathinfo( is_string( $url_path ) ? $url_path : '', PATHINFO_EXTENSION ) );
 			$format    = match ( $extension ) {
 				'woff2' => 'woff2',
 				'woff'  => 'woff',
@@ -261,12 +293,12 @@ class OC_Plugin {
 				continue;
 			}
 
-			$url      = esc_url( trailingslashit( (string) $uploads['baseurl'] ) . $relative );
+			$url      = esc_url( (string) $font['url'] );
 			$family   = self::font_family( $font_id );
-			$weight   = self::font_weight( $font->weight ?? 'normal' );
-			$style    = self::font_style( $font->style ?? 'normal' );
+			$weight   = self::font_weight( $font['weight'] ?? 'normal' );
+			$style    = self::font_style( $font['style'] ?? 'normal' );
 			$families = [ $family ];
-			$label    = self::safe_font_label( $font->name ?? '' );
+			$label    = self::safe_font_label( $font['name'] ?? '' );
 			// Keep existing admin previews working only when the label is already a safe CSS family token.
 			if ( '' !== $label ) {
 				$families[] = $label;
@@ -284,9 +316,7 @@ class OC_Plugin {
 			}
 		}
 
-		if ( $rules ) {
-			echo '<style id="oc-font-faces">' . implode( "\n", $rules ) . '</style>' . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every CSS token is allowlisted above.
-		}
+		return implode( "\n", $rules );
 	}
 
 	/** Regenerate one print file after an explicit nonce-protected admin POST. */
@@ -384,6 +414,10 @@ class OC_Plugin {
 		if ( ! wp_next_scheduled( 'oc_process_print_queue' ) ) {
 			wp_schedule_event( time(), 'oc_every_minute', 'oc_process_print_queue' );
 		}
+
+		if ( ! wp_next_scheduled( 'oc_recover_webhook_deliveries' ) ) {
+			wp_schedule_event( time() + 1, 'oc_every_minute', 'oc_recover_webhook_deliveries' );
+		}
 	}
 
 	// -------------------------------------------------------------------------
@@ -407,6 +441,10 @@ class OC_Plugin {
 
 		if ( ! wp_next_scheduled( 'oc_process_print_queue' ) ) {
 			wp_schedule_event( time(), 'oc_every_minute', 'oc_process_print_queue' );
+		}
+
+		if ( ! wp_next_scheduled( 'oc_recover_webhook_deliveries' ) ) {
+			wp_schedule_event( time() + 1, 'oc_every_minute', 'oc_recover_webhook_deliveries' );
 		}
 
 	}
@@ -510,6 +548,7 @@ class OC_Plugin {
 		if ( $uninstalling ) {
 			$prefixes[] = 'oc_private_preview_';
 			$prefixes[] = 'oc_budget_';
+			self::delete_webhook_jobs();
 		}
 		$clauses = implode( ' OR ', array_fill( 0, count( $prefixes ), 'option_name LIKE %s' ) );
 		$patterns = array_map(
@@ -538,13 +577,31 @@ class OC_Plugin {
 		delete_option( 'oc_db_upgrade_lock' );
 	}
 
+	/** Delete durable webhook jobs directly in bounded uninstall batches. */
+	private static function delete_webhook_jobs(): void {
+		global $wpdb;
+		$like = $wpdb->esc_like( 'oc_wh_job_' ) . '%';
+		do {
+			$deleted = $wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 500",
+					$like
+				)
+			);
+		} while ( 500 === (int) $deleted );
+		delete_option( 'oc_wh_recovery_cursor' );
+		wp_cache_delete( 'alloptions', 'options' );
+	}
+
 	/** Remove every duplicate event, including single events with arguments. */
 	private static function clear_scheduled_events(): void {
 		$hooks = [
 			'oc_daily_file_cleanup',
 			'oc_process_print_queue',
 			'oc_process_print_queue_now',
+			'oc_webhook_deliver',
 			'oc_webhook_retry',
+			'oc_recover_webhook_deliveries',
 			'oc_retry_order_print_generation',
 			'oc_recover_order_print_generation',
 		];
@@ -572,6 +629,7 @@ class OC_Plugin {
 			foreach ( $hooks as $hook ) {
 				as_unschedule_all_actions( $hook, [], 'overcustomise' );
 			}
+			as_unschedule_all_actions( '', [], 'overcustomise-webhooks' );
 		}
 	}
 

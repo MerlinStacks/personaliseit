@@ -11,6 +11,8 @@
 
 use PHPUnit\Framework\Attributes\Test;
 
+require_once OC_PATH . 'includes/frontend/class-oc-frontend.php';
+
 class Test_REST_API extends WP_Test_REST_TestCase {
 
 	/** @var int Admin user ID. */
@@ -49,6 +51,156 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	public function authorise_artwork_context_route_is_registered(): void {
 		$routes = rest_get_server()->get_routes();
 		$this->assertArrayHasKey( '/overcustomise/v1/authorise-artwork-context', $routes );
+	}
+
+	#[Test]
+	public function product_design_route_accepts_a_distinct_design_id(): void {
+		$routes = rest_get_server()->get_routes();
+		$route  = $routes['/overcustomise/v1/product-design/(?P<product_id>\d+)'][0] ?? [];
+
+		$this->assertArrayHasKey( 'design_id', $route['args'] ?? [] );
+		$this->assertArrayHasKey( 'variant_id', $route['args'] ?? [] );
+	}
+
+	#[Test]
+	public function product_design_rejects_an_unassigned_requested_design(): void {
+		$product = new WC_Product_Simple();
+		$product->set_name( 'Public customisable product' );
+		$product->set_status( 'publish' );
+		$product->set_catalog_visibility( 'visible' );
+		$product->set_regular_price( '10' );
+		$product_id = $product->save();
+
+		$request = new WP_REST_Request( 'GET', "/overcustomise/v1/product-design/{$product_id}" );
+		$request->set_query_params(
+			[
+				'variant_id' => 0,
+				'design_id'  => 999999,
+			]
+		);
+		$response = rest_get_server()->dispatch( $request );
+
+		$this->assertSame( 404, $response->get_status() );
+		$this->assertSame( 'invalid_design', $response->get_data()['code'] );
+	}
+
+	#[Test]
+	public function product_design_read_allows_public_initial_variation_fallback_without_weakening_write_context(): void {
+		global $wpdb;
+
+		$product = new WC_Product_Variable();
+		$product->set_name( 'Variable customisable product' );
+		$product->set_status( 'publish' );
+		$product->set_catalog_visibility( 'visible' );
+		$product_id = $product->save();
+
+		$variation = new WC_Product_Variation();
+		$variation->set_parent_id( $product_id );
+		$variation->set_status( 'publish' );
+		$variation->set_regular_price( '10' );
+		$variation_id = $variation->save();
+		WC_Product_Variable::sync( $product_id );
+
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_designs',
+			[
+				'name'   => 'Fallback Design',
+				'active' => 1,
+			]
+		);
+		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_product_assignments',
+			[
+				'product_id' => $product_id,
+				'variant_id' => $variation_id,
+				'design_id'  => $design_id,
+			]
+		);
+		OC_Cache::flush_group();
+
+		$read_method  = new ReflectionMethod( OC_Rest_API::class, 'public_read_assignment_context' );
+		$read_context = $read_method->invoke( null, $product_id, 0 );
+		$this->assertNotWPError( $read_context );
+		$this->assertSame( $variation_id, (int) $read_context['assignment']->variant_id );
+
+		$write_method  = new ReflectionMethod( OC_Rest_API::class, 'active_assignment_design' );
+		$write_context = $write_method->invoke( null, $product_id, 0, $design_id );
+		$this->assertWPError( $write_context );
+		$this->assertSame( 'invalid_variation', $write_context->get_error_code() );
+	}
+
+	#[Test]
+	public function frontend_design_context_excludes_hidden_areas_and_layers(): void {
+		global $wpdb;
+
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_designs',
+			[
+				'name'   => 'Hidden Auxiliary Rows',
+				'active' => 1,
+			]
+		);
+		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_design_print_areas',
+			[
+				'design_id' => $design_id,
+				'area_key'  => 'front',
+				'label'     => 'Front',
+				'visible'   => 1,
+			]
+		);
+		$visible_area_id = (int) $wpdb->insert_id;
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_design_print_areas',
+			[
+				'design_id' => $design_id,
+				'area_key'  => 'internal',
+				'label'     => 'Internal',
+				'visible'   => 0,
+			]
+		);
+		$hidden_area_id = (int) $wpdb->insert_id;
+
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_design_layers',
+			[
+				'design_id' => $design_id,
+				'area_id'   => $visible_area_id,
+				'type'      => 'text',
+				'label'     => 'Visible',
+				'visible'   => 1,
+			]
+		);
+		$visible_layer_id = (int) $wpdb->insert_id;
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_design_layers',
+			[
+				'design_id' => $design_id,
+				'area_id'   => $visible_area_id,
+				'type'      => 'text',
+				'label'     => 'Hidden layer',
+				'visible'   => 0,
+			]
+		);
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_design_layers',
+			[
+				'design_id' => $design_id,
+				'area_id'   => $hidden_area_id,
+				'type'      => 'text',
+				'label'     => 'Hidden area layer',
+				'visible'   => 1,
+			]
+		);
+		OC_Cache::flush_group();
+
+		$method  = new ReflectionMethod( OC_Frontend::class, 'get_usable_design_context' );
+		$context = $method->invoke( new OC_Frontend(), $design_id );
+
+		$this->assertSame( [ $visible_area_id ], array_map( static fn ( $area ): int => (int) $area->id, $context['areas'] ) );
+		$this->assertSame( [ $visible_layer_id ], array_map( static fn ( $layer ): int => (int) $layer->id, $context['layers'] ) );
 	}
 
 	#[Test]

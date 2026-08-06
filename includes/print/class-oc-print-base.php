@@ -172,7 +172,7 @@ abstract class OC_Print_Base {
 
 	/** Return the customer-facing order number as a safe filename segment. */
 	protected static function order_filename_part( \WC_Order $order ): string {
-		$order_number = method_exists( $order, 'get_order_number' ) ? (string) $order->get_order_number() : (string) $order->get_id();
+		$order_number = (string) $order->get_order_number();
 		$order_number = sanitize_file_name( $order_number );
 
 		return '' !== $order_number ? $order_number : (string) $order->get_id();
@@ -261,11 +261,18 @@ abstract class OC_Print_Base {
 		if ( ! $font_id ) {
 			return null;
 		}
+		static $fonts_by_site = [];
+		$blog_id = function_exists( 'get_current_blog_id' ) ? get_current_blog_id() : 0;
+		if ( array_key_exists( $font_id, $fonts_by_site[ $blog_id ] ?? [] ) ) {
+			return $fonts_by_site[ $blog_id ][ $font_id ];
+		}
 		global $wpdb;
-		return $wpdb->get_row( $wpdb->prepare(
+		$font = $wpdb->get_row( $wpdb->prepare(
 			"SELECT * FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
 			$font_id
 		) ) ?: null;
+		$fonts_by_site[ $blog_id ][ $font_id ] = $font;
+		return $font;
 	}
 
 	/** Return the absolute path to a font file, or null if not accessible. */
@@ -762,7 +769,7 @@ abstract class OC_Print_Base {
 	private static function normalise_svg_path_data_for_tcpdf( string $data ): ?string {
 		$pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?/';
 		preg_match_all( $pattern, $data, $matches );
-		$tokens  = $matches[0] ?? [];
+		$tokens  = $matches[0];
 		$residue = preg_replace( $pattern, '', $data ) ?? $data;
 		if ( empty( $tokens ) || count( $tokens ) > 200000 || preg_match( '/[^\s,]/', $residue ) || ! in_array( $tokens[0], [ 'M', 'm' ], true ) ) {
 			return null;
@@ -1071,7 +1078,6 @@ abstract class OC_Print_Base {
 		$height = [];
 		return preg_match( '/[\s]+width[\s]*=[\s]*"([^"]*)"/si', $attrs, $width )
 			&& preg_match( '/[\s]+height[\s]*=[\s]*"([^"]*)"/si', $attrs, $height )
-			&& isset( $width[1], $height[1] )
 			&& self::tcpdf_svg_length_is_positive( $width[1] )
 			&& self::tcpdf_svg_length_is_positive( $height[1] );
 	}
@@ -1773,7 +1779,7 @@ abstract class OC_Print_Base {
 		$marker_pos = strpos( $normalised, '/uploads/' );
 		if ( false !== $marker_pos ) {
 			$relative = substr( $normalised, $marker_pos + strlen( '/uploads/' ) );
-			if ( is_string( $relative ) && '' !== $relative ) {
+			if ( '' !== $relative ) {
 				if ( '' !== $base_real ) {
 					$candidates[] = trailingslashit( (string) $uploads['basedir'] ) . ltrim( $relative, '/\\' );
 				}
@@ -2302,11 +2308,11 @@ abstract class OC_Print_Base {
 			OC_Logger::warning( 'Engraving text raster font render failed for ' . basename( $font_path ) . ': ' . $e->getMessage() );
 			return false;
 		} finally {
-			if ( isset( $draw ) && $draw instanceof \ImagickDraw ) {
+			if ( isset( $draw ) ) {
 				$draw->clear();
 				$draw->destroy();
 			}
-			if ( isset( $image ) && $image instanceof \Imagick ) {
+			if ( isset( $image ) ) {
 				$image->clear();
 				$image->destroy();
 			}
@@ -2314,6 +2320,7 @@ abstract class OC_Print_Base {
 		}
 	}
 
+	/** @return \Imagick::GRAVITY_NORTHWEST|\Imagick::GRAVITY_NORTH|\Imagick::GRAVITY_NORTHEAST|\Imagick::GRAVITY_WEST|\Imagick::GRAVITY_CENTER|\Imagick::GRAVITY_EAST|\Imagick::GRAVITY_SOUTHWEST|\Imagick::GRAVITY_SOUTH|\Imagick::GRAVITY_SOUTHEAST */
 	private static function imagick_text_gravity( string $align, string $valign ): int {
 		return match ( $valign ) {
 			'T' => match ( $align ) {
@@ -2356,7 +2363,7 @@ abstract class OC_Print_Base {
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
-		if ( ! class_exists( 'OC_Print_Embroidery' ) || ! method_exists( 'OC_Print_Embroidery', 'ttf_text_outline' ) ) {
+		if ( ! class_exists( 'OC_Print_Embroidery' ) ) {
 			return false;
 		}
 
@@ -2526,7 +2533,7 @@ abstract class OC_Print_Base {
 	}
 
 	private static function engraving_outline_text_width( string $font_path, string $text, float $font_size ): float {
-		if ( '' === $text || ! class_exists( 'OC_Print_Embroidery' ) || ! method_exists( 'OC_Print_Embroidery', 'ttf_text_outline' ) ) {
+		if ( '' === $text || ! class_exists( 'OC_Print_Embroidery' ) ) {
 			return 0.0;
 		}
 
@@ -2731,7 +2738,7 @@ abstract class OC_Print_Base {
 					throw new \RuntimeException( __( 'The selected clipart could not be prepared for engraving.', 'overcustomise' ) );
 				}
 			} else {
-				if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
+				if ( ! class_exists( 'OC_Print_Engraving' ) ) {
 					throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
 				}
 				$engraved_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
@@ -2779,7 +2786,7 @@ abstract class OC_Print_Base {
 		}
 		$temp_path = null;
 		if ( 'engraving' === $mode ) {
-			if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
+			if ( ! class_exists( 'OC_Print_Engraving' ) ) {
 				throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
 			}
 			$temp_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
@@ -3038,10 +3045,6 @@ abstract class OC_Print_Base {
 
 		$w = imagesx( $src );
 		$h = imagesy( $src );
-		if ( $w < 1 || $h < 1 ) {
-			imagedestroy( $src );
-			return null;
-		}
 
 		$dst = imagecreatetruecolor( $w, $h );
 		imagealphablending( $dst, false );

@@ -724,7 +724,7 @@ const galleryPreviewMethods = {
 		}, 100 );
 	},
 
-	async fetchProductVariationState( key, requestSeq ) {
+	async fetchProductVariationState( key, requestSeq, designId = 0 ) {
 		const designUrl =
 			this.data.productDesignUrl ||
 			`${
@@ -734,6 +734,9 @@ const galleryPreviewMethods = {
 			}`;
 		const url = new URL( designUrl, window.location.origin );
 		url.searchParams.set( 'variant_id', key );
+		if ( designId ) {
+			url.searchParams.set( 'design_id', String( designId ) );
+		}
 		const request = this.createStateAbortController( 10000 );
 		this._variationAbortController = request.controller;
 
@@ -755,9 +758,6 @@ const galleryPreviewMethods = {
 				Array.isArray( state )
 			) {
 				throw new Error( 'Variation design response was invalid.' );
-			}
-			if ( requestSeq === this._variationRequestSeq ) {
-				this.productVariationStates[ key ] = state;
 			}
 			return state;
 		} catch ( error ) {
@@ -880,6 +880,7 @@ const galleryPreviewMethods = {
 		const initialSnapshot = this.saveActiveVariationState();
 		const requestSeq = ++this._variationRequestSeq;
 		this._variationAbortController?.abort();
+		this.cancelPendingDesignVariantRequest();
 		this._pendingVariationKey = key;
 		this._variationSwitchPending = true;
 		this._variationSwitchFailed = false;
@@ -906,22 +907,61 @@ const galleryPreviewMethods = {
 				}
 
 				if ( ! previousKey && initialSnapshot && state.active ) {
-					const initialVariantState =
-						state.designVariantStates?.[
-							initialSnapshot.selectedDesignVariant
-						];
-					if (
-						initialVariantState &&
-						parseInt( initialVariantState.designId, 10 ) ===
-							initialSnapshot.designId
-					) {
-						state.selectedDesignVariant =
-							initialSnapshot.selectedDesignVariant;
-						initialVariantState.layerInputs = this.cloneLayerInputs(
-							initialSnapshot.layerInputs
-						);
+					const defaultDesignId = Number(
+						state.designId || state.design_id
+					);
+					const allowedVariant =
+						state.designVariants?.find(
+							( variant ) =>
+								Number( variant.designId ) ===
+								initialSnapshot.designId
+						) ||
+						( defaultDesignId === initialSnapshot.designId
+							? {
+									id:
+										state.selectedDesignVariant ||
+										`design-${ defaultDesignId }`,
+									designId: defaultDesignId,
+							  }
+							: null );
+					if ( allowedVariant ) {
+						let initialVariantState =
+							state.designVariantStates?.[ allowedVariant.id ];
+						if ( ! initialVariantState?.panelHtml ) {
+							try {
+								const restoredState =
+									await this.fetchProductVariationState(
+										key,
+										requestSeq,
+										initialSnapshot.designId
+									);
+								initialVariantState =
+									restoredState.designVariantStates?.[
+										allowedVariant.id
+									];
+							} catch ( error ) {
+								console.warn(
+									'[OC] Initial design restore failed; using variation default:',
+									error
+								);
+							}
+						}
+						if ( initialVariantState?.panelHtml ) {
+							state.designVariantStates ||= {};
+							state.designVariantStates[ allowedVariant.id ] =
+								initialVariantState;
+							state.selectedDesignVariant = allowedVariant.id;
+							initialVariantState.layerInputs =
+								this.cloneLayerInputs(
+									initialSnapshot.layerInputs
+								);
+						}
 					}
 				}
+				if ( requestSeq !== this._variationRequestSeq ) {
+					return false;
+				}
+				this.productVariationStates[ key ] = state;
 
 				if ( ! state.active || ! state.panelHtml ) {
 					this._activeVariationKey = key;

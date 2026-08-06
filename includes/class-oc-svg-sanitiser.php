@@ -123,14 +123,6 @@ class OC_SVG_Sanitiser {
 		$dom               = new \DOMDocument();
 		$dom->formatOutput = false;
 
-		// Belt-and-braces: disable external entity loading on PHP < 8 where
-		// this call is still meaningful; it's a no-op on PHP 8+ where libxml
-		// 2.9+ disables this by default. Suppress deprecation notices.
-		$prev_entity_loader = null;
-		if ( PHP_VERSION_ID < 80000 && function_exists( 'libxml_disable_entity_loader' ) ) {
-			$prev_entity_loader = @libxml_disable_entity_loader( true ); // phpcs:ignore Generic.PHP.DeprecatedFunctions.Deprecated
-		}
-
 		// Suppress XML parse errors; we'll check $dom->documentElement after.
 		$previous = libxml_use_internal_errors( true );
 		$loaded   = false;
@@ -141,9 +133,6 @@ class OC_SVG_Sanitiser {
 		} finally {
 			libxml_clear_errors();
 			libxml_use_internal_errors( $previous );
-			if ( null !== $prev_entity_loader && function_exists( 'libxml_disable_entity_loader' ) ) {
-				@libxml_disable_entity_loader( $prev_entity_loader ); // phpcs:ignore Generic.PHP.DeprecatedFunctions.Deprecated
-			}
 		}
 
 		if ( ! $loaded || ! $dom->documentElement ) {

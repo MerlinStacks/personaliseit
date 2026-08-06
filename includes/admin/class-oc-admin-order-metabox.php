@@ -18,12 +18,11 @@ class OC_Admin_Order_Metabox {
 	}
 
 	public function add_meta_box(): void {
-		$screens    = [ 'shop_order' ];
-		$hpos_class = '\\Automattic\\WooCommerce\\Internal\\Admin\\Orders\\PageController';
+		$screens = [ 'shop_order' ];
 
-		if ( function_exists( 'wc_get_container' ) && class_exists( $hpos_class ) ) {
+		if ( function_exists( 'wc_get_container' ) && class_exists( \Automattic\WooCommerce\Internal\Admin\Orders\PageController::class ) ) {
 			try {
-				$hpos_screen = wc_get_container()->get( $hpos_class )->get_edit_screen_id();
+				$hpos_screen = wc_get_container()->get( \Automattic\WooCommerce\Internal\Admin\Orders\PageController::class )->get_edit_screen_id();
 				if ( $hpos_screen ) {
 					$screens[] = $hpos_screen;
 				}
@@ -68,6 +67,9 @@ class OC_Admin_Order_Metabox {
 		$has_queue_work          = false;
 
 		foreach ( $items as $item_id => $item ) {
+			if ( ! $item instanceof \WC_Order_Item_Product ) {
+				continue;
+			}
 			$product_id = $item->get_product_id();
 			$config_id     = (int) $item->get_meta( '_oc_config_id', true );
 			$customisation = $item->get_meta( '_oc_customisation', true );
@@ -116,11 +118,7 @@ class OC_Admin_Order_Metabox {
 							$color     = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
 							$font_name = '';
 							if ( ! empty( $area_data['fontId'] ) ) {
-								global $wpdb;
-								$font_name = (string) $wpdb->get_var( $wpdb->prepare(
-									"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
-									$area_data['fontId']
-								) );
+								$font_name = OC_DB::get_font_name( absint( $area_data['fontId'] ) );
 							}
 							printf(
 								'<li><strong>%s:</strong> %s%s%s</li>',
@@ -294,11 +292,7 @@ class OC_Admin_Order_Metabox {
 			$value     = is_scalar( $layer_data['value'] ?? null ) ? trim( (string) $layer_data['value'] ) : '';
 			$font_name = '';
 			if ( ! empty( $layer_data['fontId'] ) ) {
-				global $wpdb;
-				$font_name = (string) $wpdb->get_var( $wpdb->prepare(
-					"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d LIMIT 1",
-					(int) $layer_data['fontId']
-				) );
+				$font_name = OC_DB::get_font_name( absint( $layer_data['fontId'] ) );
 			}
 			if ( '' === $value ) {
 				return '';

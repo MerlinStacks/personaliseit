@@ -269,10 +269,6 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 		$w = imagesx( $src );
 		$h = imagesy( $src );
-		if ( $w < 1 || $h < 1 ) {
-			imagedestroy( $src );
-			return null;
-		}
 		$is_transparent_logo = self::is_transparent_logo( $src );
 		if ( ! $is_transparent_logo && ! self::image_has_engraving_mark( $src ) ) {
 			imagedestroy( $src );

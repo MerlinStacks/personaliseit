@@ -3,13 +3,21 @@
 
 # Composer dev tooling. Runtime Composer libraries are bundled with the plugin.
 /vendor/bin/
+/vendor/dealerdirect/
+/vendor/digitalrevolution/
 /vendor/myclabs/
 /vendor/nikic/
 /vendor/phar-io/
+/vendor/php-stubs/
+/vendor/phpcsstandards/
+/vendor/phpstan/
 /vendor/phpunit/
 /vendor/sebastian/
+/vendor/squizlabs/
 /vendor/staabm/
+/vendor/szepeviktor/
 /vendor/theseer/
+/vendor/wp-coding-standards/
 /vendor/wp-phpunit/
 
 # OS
@@ -25,6 +33,9 @@ Thumbs.db
 # Test artefacts
 /.phpunit.result.cache
 /coverage/
+/playwright-report/
+/test-results/
+/.phpstan-cache/
 
 # Claude Code
 /.claude/

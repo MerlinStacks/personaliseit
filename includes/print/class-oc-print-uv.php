@@ -207,10 +207,6 @@ class OC_Print_UV extends OC_Print_Base {
 	}
 
 	private static function set_spot_fill_colour( \TCPDF $pdf, string $spot_name ): void {
-		if ( ! method_exists( $pdf, 'AddSpotColor' ) || ! method_exists( $pdf, 'setFillSpotColor' ) || ! method_exists( $pdf, 'setTextSpotColor' ) ) {
-			throw new \RuntimeException( __( 'The bundled TCPDF spot-colour APIs are unavailable; a true white-ink plate cannot be generated.', 'overcustomise' ) );
-		}
-
 		$pdf->AddSpotColor( $spot_name, 0, 0, 0, 0 );
 		$pdf->setFillSpotColor( $spot_name, 100 );
 		$pdf->setTextSpotColor( $spot_name, 100 );

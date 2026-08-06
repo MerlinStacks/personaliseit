@@ -9,6 +9,11 @@
 /package-lock.json
 /package.json
 /phpunit.xml
+/phpcs.xml.dist
+/phpcs.baseline.xml
+/phpstan.neon.dist
+/phpstan-baseline.neon
+/playwright.config.js
 /webpack.config.js
 /assets/build/**/*.map
 /vendor/**/test

@@ -10,6 +10,8 @@ defined( 'ABSPATH' ) || exit;
 class OC_Admin_Print_Methods {
 
 	private const OPTION_KEY = 'oc_print_methods';
+	private static ?array $normalised_cache = null;
+	private static string $normalised_cache_signature = '';
 
 	/** Return settings for all print methods. */
 	public static function get( string $method = '' ): mixed {
@@ -55,6 +57,10 @@ class OC_Admin_Print_Methods {
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
+		$signature = md5( serialize( $saved ) );
+		if ( null !== self::$normalised_cache && hash_equals( self::$normalised_cache_signature, $signature ) ) {
+			return '' !== $method ? ( self::$normalised_cache[ $method ] ?? null ) : self::$normalised_cache;
+		}
 		$saved = is_array( $saved ) ? $saved : [];
 		$all   = [];
 
@@ -62,6 +68,8 @@ class OC_Admin_Print_Methods {
 			$row = is_array( $saved[ $key ] ?? null ) ? $saved[ $key ] : [];
 			$all[ $key ] = self::normalise_method_settings( $key, wp_parse_args( $row, $def ), $def );
 		}
+		self::$normalised_cache           = $all;
+		self::$normalised_cache_signature = $signature;
 
 		if ( '' !== $method ) {
 			return $all[ $method ] ?? null;
@@ -360,6 +368,8 @@ class OC_Admin_Print_Methods {
 		$saved[ $active_method ] = $this->sanitize_method_settings( $active_method, $posted, $current[ $active_method ] );
 
 		update_option( self::OPTION_KEY, $saved );
+		self::$normalised_cache           = null;
+		self::$normalised_cache_signature = '';
 		add_settings_error( 'oc_print_methods', 'saved', __( 'Print method settings saved.', 'overcustomise' ), 'success' );
 	}
 

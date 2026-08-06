@@ -30,7 +30,7 @@ class OC_Blocks_Integration {
 		}
 
 		woocommerce_store_api_register_endpoint_data( [
-			'endpoint'        => \Automattic\WooCommerce\StoreApi\Schemas\V1\CartItemSchema::IDENTIFIER,
+			'endpoint'        => 'cart-item',
 			'namespace'       => 'overcustomise',
 			'data_callback'   => [ $this, 'cart_item_data' ],
 			'schema_callback' => [ $this, 'cart_item_schema' ],
@@ -194,23 +194,6 @@ class OC_Blocks_Integration {
 
 	private function get_css(): string {
 		return '
-		.oc-cart-preview-thumb,
-		.oc-checkout-preview-thumb img,
-		.wc-block-components-product-image img[src*="/overcustomise/previews/"],
-		.wc-block-mini-cart-items img[src*="/overcustomise/previews/"] {
-			width: 80px;
-			height: 80px;
-			object-fit: contain !important;
-			border: 1px solid #e0e0e0;
-			border-radius: 4px;
-			background: #fff;
-		}
-		.oc-checkout-preview-thumb {
-			display: inline-flex;
-			align-items: center;
-			margin-right: 10px;
-			vertical-align: middle;
-		}
 		.oc-blocks-personalisation-summary {
 			list-style: none;
 			margin: 6px 0 0;
@@ -221,21 +204,6 @@ class OC_Blocks_Integration {
 		}
 		.oc-blocks-personalisation-summary li {
 			margin: 2px 0;
-		}
-		.widget_shopping_cart .woocommerce-mini-cart-item,
-		.woocommerce.widget_shopping_cart .woocommerce-mini-cart-item {
-			position: relative;
-			min-height: 92px;
-			padding-left: 92px !important;
-		}
-		.widget_shopping_cart .woocommerce-mini-cart-item img.oc-cart-preview-thumb,
-		.woocommerce.widget_shopping_cart .woocommerce-mini-cart-item img.oc-cart-preview-thumb {
-			position: absolute;
-			left: 0;
-			top: 0;
-			width: 80px !important;
-			height: 80px !important;
-			margin: 0 !important;
 		}
 		';
 	}

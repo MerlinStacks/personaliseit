@@ -394,9 +394,6 @@ class OC_Print_Queue {
 			$print_files[ (int) $print_file->id ] = $print_file;
 		}
 
-		if ( empty( $areas ) || empty( $print_files ) ) {
-			throw new \RuntimeException( 'Combined print job did not contain any usable print areas.' );
-		}
 		$print_files = array_values( $print_files );
 
 		$retention_days = (int) OC_Admin_Settings::get( 'file_retention_days' ) ?: 90;

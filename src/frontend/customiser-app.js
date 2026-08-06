@@ -7,13 +7,9 @@
  * @package
  */
 
-import '@uppy/core/css/style.min.css';
-import '@uppy/drag-drop/css/style.min.css';
 import './customiser-app.scss';
-import canvasRendererMethods from './customiser/canvas-renderer';
 import inputControlMethods from './customiser/input-controls';
 import cartSerializationMethods from './customiser/cart-serialization';
-import designVariantMethods from './customiser/design-variants';
 import galleryPreviewMethods from './customiser/gallery-preview';
 import clipartMethods from './customiser/clipart';
 import preflightMethods from './customiser/preflight';
@@ -23,12 +19,105 @@ import checkoutMethods from './customiser/checkout';
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
+const setBootLoading = ( loading ) => {
+	const panel = document.getElementById( 'oc-customiser-panel' );
+	if ( ! panel ) {
+		return;
+	}
+	panel.inert = loading;
+	panel.setAttribute( 'aria-busy', loading ? 'true' : 'false' );
+};
+
+const setBootSubmitDisabled = ( disabled ) => {
+	const panel = document.getElementById( 'oc-customiser-panel' );
+	const form = panel?.closest( 'form' );
+	const controls =
+		form?.querySelectorAll(
+			'[type="submit"], .single_add_to_cart_button'
+		) || [];
+	controls.forEach( ( control ) => {
+		if ( disabled ) {
+			if ( control.dataset.ocBootDisabled === undefined ) {
+				control.dataset.ocBootDisabled = control.disabled ? '1' : '0';
+			}
+			control.disabled = true;
+			control.setAttribute( 'aria-disabled', 'true' );
+			return;
+		}
+		if ( control.dataset.ocBootDisabled === undefined ) {
+			return;
+		}
+		control.disabled = control.dataset.ocBootDisabled === '1';
+		control.setAttribute(
+			'aria-disabled',
+			control.disabled ? 'true' : 'false'
+		);
+		delete control.dataset.ocBootDisabled;
+	} );
+};
+
+const renderBootFailure = ( retry ) => {
+	const root = document.getElementById( 'oc-preflight-messages' );
+	if ( ! root ) {
+		return;
+	}
+	const message = document.createElement( 'div' );
+	message.className = 'oc-preflight-error';
+	message.setAttribute( 'role', 'alert' );
+	message.textContent =
+		'The customisation preview could not load. Check your connection and retry.';
+	const button = document.createElement( 'button' );
+	button.type = 'button';
+	button.className = 'oc-upload-retry';
+	button.textContent = 'Retry customiser';
+	button.addEventListener( 'click', retry, { once: true } );
+	root.replaceChildren( message, button );
+	root.dataset.ocBootFailure = '1';
+	root.hidden = false;
+};
+
+const clearBootFailure = () => {
+	const root = document.getElementById( 'oc-preflight-messages' );
+	if ( root?.dataset.ocBootFailure !== '1' ) {
+		return;
+	}
+	root.replaceChildren();
+	delete root.dataset.ocBootFailure;
+	root.hidden = true;
+};
+
+const bootCustomiser = async ( data ) => {
+	setBootLoading( true );
+	let modules;
+	try {
+		modules = await Promise.all( [
+			import(
+				/* webpackChunkName: "customiser-core" */ './customiser/canvas-renderer'
+			),
+			import(
+				/* webpackChunkName: "customiser-core" */ './customiser/design-variants'
+			),
+		] );
+	} catch {
+		setBootLoading( false );
+		setBootSubmitDisabled( true );
+		renderBootFailure( () => bootCustomiser( data ) );
+		return;
+	}
+	const [ { default: canvasMethods }, { default: variantMethods } ] = modules;
+	Object.assign( OCCustomiser.prototype, canvasMethods, variantMethods );
+	setBootSubmitDisabled( false );
+	setBootLoading( false );
+	clearBootFailure();
+	new OCCustomiser( data ).init();
+};
+
 document.addEventListener( 'DOMContentLoaded', () => {
 	const data = window.ocCustomiserData;
 	if ( ! data || ! data.areas?.length ) {
 		return;
 	}
-	new OCCustomiser( data ).init();
+	bootCustomiser( data );
 } );
 
 // ── Main class ─────────────────────────────────────────────────────────────────
@@ -87,6 +176,9 @@ class OCCustomiser {
 		this._pendingVariationKey = '';
 		this._variationAbortController = null;
 		this._variationSwitchPromise = null;
+		this._designVariantRequestSeq = 0;
+		this._designVariantAbortController = null;
+		this._designVariantPendingSeq = 0;
 		this._designGeneration = 0;
 		this.spotifyValidateTimers = {};
 		this.spotifyValidateTokens = {};
@@ -312,6 +404,16 @@ class OCCustomiser {
 			);
 			delete control.dataset.ocLockDisabled;
 		} );
+		if ( this._designVariantPendingSeq ) {
+			cartForm
+				?.querySelectorAll(
+					'[type="submit"], .single_add_to_cart_button'
+				)
+				.forEach( ( control ) => {
+					control.disabled = true;
+					control.setAttribute( 'aria-disabled', 'true' );
+				} );
+		}
 	}
 
 	restHeaders( extra = {} ) {
@@ -431,10 +533,8 @@ class OCCustomiser {
 	}
 }
 
-Object.assign( OCCustomiser.prototype, canvasRendererMethods );
 Object.assign( OCCustomiser.prototype, inputControlMethods );
 Object.assign( OCCustomiser.prototype, cartSerializationMethods );
-Object.assign( OCCustomiser.prototype, designVariantMethods );
 Object.assign( OCCustomiser.prototype, galleryPreviewMethods );
 Object.assign( OCCustomiser.prototype, clipartMethods );
 Object.assign( OCCustomiser.prototype, preflightMethods );

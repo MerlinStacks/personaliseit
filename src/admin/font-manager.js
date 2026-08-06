@@ -639,7 +639,17 @@
 
 		const buffer = await response.arrayBuffer();
 		const sourceType = fontSourceType( font, buffer );
-		const { createFont } = await import( 'fonteditor-core' );
+		let createFont;
+		try {
+			( { createFont } = await import(
+				/* webpackChunkName: "font-conversion" */ 'fonteditor-core'
+			) );
+		} catch ( error ) {
+			throw new Error(
+				'Font conversion tools could not load. Check your connection and retry.',
+				{ cause: error }
+			);
+		}
 		const source = createFont( buffer, {
 			type: sourceType,
 			compound2simple: true,

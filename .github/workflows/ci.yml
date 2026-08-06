@@ -3,37 +3,16 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
-  javascript:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
-      - run: npm run lint:js -- --no-cache
-      - run: npm run lint:css
-
-  php-unit:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.4'
-          extensions: dom, gd, libxml, mbstring, xml, xmlwriter
-          coverage: none
-      - name: Verify bundled production autoloader
-        run: php -r "require 'vendor/autoload.php';"
-      - run: composer install --no-interaction --prefer-dist
-      - run: composer test:unit
-
   php-syntax:
     runs-on: ubuntu-latest
     strategy:
@@ -45,4 +24,41 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           coverage: none
-      - run: git ls-files -z -- '*.php' ':(exclude)vendor/**' | xargs -0 -n1 php -l
+      - run: php scripts/lint-php.php
+
+  php-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, gd, libxml, mbstring, xml, xmlwriter
+          coverage: none
+      - uses: ramsey/composer-install@v3
+      - run: composer test
+      - run: composer phpcs
+      - run: composer phpstan
+
+  frontend:
+    runs-on: ubuntu-latest
+    env:
+      E2E_BASE_URL: ${{ vars.E2E_BASE_URL }}
+      E2E_PRODUCT_PATH: ${{ vars.E2E_PRODUCT_PATH }}
+      E2E_CART_PATH: ${{ vars.E2E_CART_PATH }}
+      E2E_PRODUCT_NAME: ${{ vars.E2E_PRODUCT_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint:js
+      - run: npm run lint:css
+      - run: npm run test:js
+      - run: npm run build
+      - run: npm run test:performance
+      - run: npx playwright install --with-deps chromium
+        if: env.E2E_BASE_URL != ''
+      - run: npm run test:e2e

@@ -53,7 +53,7 @@ PROMPT;
 		$source_size = filesize( $path );
 		$source_info = @getimagesize( $path );
 		if ( false === $source_size || $source_size <= 0 || $source_size > self::MAX_SOURCE_BYTES
-			|| ! is_array( $source_info ) || (string) ( $source_info['mime'] ?? '' ) !== $mime
+			|| ! is_array( $source_info ) || $source_info['mime'] !== $mime
 			|| (int) $source_info[0] <= 0 || (int) $source_info[1] <= 0
 			|| (int) $source_info[0] > self::MAX_IMAGE_DIMENSION || (int) $source_info[1] > self::MAX_IMAGE_DIMENSION
 			|| (int) $source_info[0] * (int) $source_info[1] > self::MAX_IMAGE_PIXELS
@@ -208,8 +208,8 @@ PROMPT;
 		}
 		$info = @getimagesizefromstring( $bytes );
 		if ( ! is_array( $info )
-			|| ! in_array( (string) ( $info['mime'] ?? '' ), [ 'image/png', 'image/jpeg', 'image/webp' ], true )
-			|| ( '' !== $mime && $mime !== (string) ( $info['mime'] ?? '' ) )
+			|| ! in_array( $info['mime'], [ 'image/png', 'image/jpeg', 'image/webp' ], true )
+			|| ( '' !== $mime && $mime !== $info['mime'] )
 			|| (int) $info[0] <= 0 || (int) $info[1] <= 0
 			|| (int) $info[0] > self::MAX_IMAGE_DIMENSION || (int) $info[1] > self::MAX_IMAGE_DIMENSION
 			|| (int) $info[0] * (int) $info[1] > self::MAX_IMAGE_PIXELS

@@ -46,6 +46,12 @@ const checkoutMethods = {
 	},
 
 	handleVariationSubmitBlock() {
+		if ( this._designVariantPendingSeq ) {
+			window.alert(
+				'Please wait while the selected artwork option finishes loading.'
+			);
+			return true;
+		}
 		if ( this._variationSwitchPending ) {
 			window.alert(
 				'Please wait while the personalisation options finish loading.'

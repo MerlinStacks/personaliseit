@@ -176,19 +176,18 @@ class OC_Preview_Generator {
 	private static function valid_rendered_image( string $path ): bool {
 		$info = is_file( $path ) ? @getimagesize( $path ) : false;
 		return is_array( $info )
-			&& 'image/png' === (string) ( $info['mime'] ?? '' )
+			&& 'image/png' === $info['mime']
 			&& (int) $info[0] > 0
 			&& (int) $info[1] > 0
 			&& (int) $info[0] <= self::MAX_RENDER_DIMENSION
-			&& (int) $info[1] <= self::MAX_RENDER_DIMENSION
-			&& (int) $info[0] * (int) $info[1] <= self::MAX_RENDER_PIXELS;
+			&& (int) $info[1] <= self::MAX_RENDER_DIMENSION;
 	}
 
 	/** Validate the final thumbnail written by either renderer. */
 	private static function valid_thumbnail( string $path ): bool {
 		$info = is_file( $path ) ? @getimagesize( $path ) : false;
 		return is_array( $info )
-			&& 'image/png' === (string) ( $info['mime'] ?? '' )
+			&& 'image/png' === $info['mime']
 			&& (int) $info[0] > 0
 			&& (int) $info[1] > 0
 			&& (int) $info[0] <= 300

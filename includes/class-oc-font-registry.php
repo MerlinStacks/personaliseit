@@ -70,63 +70,7 @@ class OC_Font_Registry {
 
 	/** Output @font-face declarations for all active fonts. */
 	public function output_font_face_css(): void {
-		if ( 'wp_head' === current_filter() && ! is_product() ) {
-			return;
-		}
-
-		$fonts = OC_DB::get_fonts( true );
-		if ( empty( $fonts ) ) {
-			return;
-		}
-
-		$upload = wp_upload_dir();
-		if ( ! empty( $upload['error'] ) ) {
-			return;
-		}
-		$output = '';
-
-		foreach ( $fonts as $font ) {
-			$rel = ltrim( (string) $font->file_path, '/' );
-			if ( '' === $rel ) {
-				continue;
-			}
-			// Block paths that try to escape the uploads directory.
-			if ( str_contains( $rel, '..' ) ) {
-				continue;
-			}
-			$abs = $upload['basedir'] . '/' . $rel;
-			if ( ! file_exists( $abs ) ) {
-				continue;
-			}
-
-			$url    = esc_url( $upload['baseurl'] . '/' . $rel );
-			$format = $this->get_font_format( $rel );
-			$output .= sprintf(
-				"@font-face {\n\tfont-family: '%s';\n\tsrc: url('%s') format('%s');\n\tfont-weight: %s;\n\tfont-style: %s;\n\tfont-display: swap;\n}\n",
-				esc_js( $font->name ),
-				$url,
-				esc_attr( $format ),
-				esc_attr( $font->weight ),
-				esc_attr( $font->style )
-			);
-		}
-
-		if ( '' === $output ) {
-			return;
-		}
-
-		echo "\n<style id=\"oc-font-faces\">\n" . $output . "</style>\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-	}
-
-	/** Return CSS format string for a font file path. */
-	private function get_font_format( string $file_path ): string {
-		$ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
-		return match ( $ext ) {
-			'woff2' => 'woff2',
-			'woff'  => 'woff',
-			'otf'   => 'opentype',
-			default => 'truetype',
-		};
+		OC_Plugin::output_font_face_css();
 	}
 
 	/**

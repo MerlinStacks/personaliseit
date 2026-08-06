@@ -1,0 +1,73 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Method OC_Print_Queue\:\:queue_job_contains_print_area\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: includes/class-oc-print-queue.php
+
+		-
+			message: '#^If condition is always true\.$#'
+			identifier: if.alwaysTrue
+			count: 1
+			path: includes/class-oc-rest-api.php
+
+		-
+			message: '#^Property WooCommerce\:\:\$session \(WC_Session\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 3
+			path: includes/class-oc-rest-api.php
+
+		-
+			message: '#^Static method OC_Rest_API\:\:normalise_clipart_print_methods\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: includes/class-oc-rest-api.php
+
+		-
+			message: '#^Comparison operation "\>\=" between int\<80200, 80599\> and 80200 is always true\.$#'
+			identifier: greaterOrEqual.alwaysTrue
+			count: 1
+			path: includes/class-oc-system-status.php
+
+		-
+			message: '#^Property WooCommerce\:\:\$session \(WC_Session\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: includes/class-oc-upload-handler.php
+
+		-
+			message: '#^Parameter \#2 \$value of method WC_Data\:\:update_meta_data\(\) expects array\|string, float given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/frontend/class-oc-cart.php
+
+		-
+			message: '#^Parameter \#2 \$value of method WC_Data\:\:update_meta_data\(\) expects array\|string, int\<0, max\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: includes/frontend/class-oc-cart.php
+
+		-
+			message: '#^Property WooCommerce\:\:\$cart \(WC_Cart\) on left side of \?\? is not nullable\.$#'
+			identifier: nullCoalesce.property
+			count: 1
+			path: includes/frontend/class-oc-cart.php
+
+		-
+			message: '#^Cannot access property \$prefix on class\-string\|object\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: includes/print/class-oc-print-base.php
+
+		-
+			message: '#^Static method OC_Print_Embroidery\:\:append_eps_artwork_box\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: includes/print/class-oc-print-embroidery.php
+
+		-
+			message: '#^Static method OC_Print_Embroidery\:\:ps_name_escape\(\) is unused\.$#'
+			identifier: method.unused
+			count: 1
+			path: includes/print/class-oc-print-embroidery.php

@@ -7,6 +7,8 @@
 
 use PHPUnit\Framework\Attributes\Test;
 
+require_once OC_PATH . 'includes/admin/class-oc-admin-print-methods.php';
+
 class Test_Admin_Settings extends WP_UnitTestCase {
 
 	/** @var callable|null */
@@ -101,5 +103,23 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 		} finally {
 			delete_option( 'oc_settings' );
 		}
+	}
+
+	#[Test]
+	public function normalised_settings_cache_observes_writes_in_the_same_request(): void {
+		update_option( 'oc_settings', [ 'file_retention_days' => 7 ] );
+		$this->assertSame( 7, OC_Admin_Settings::get( 'file_retention_days' ) );
+
+		update_option( 'oc_settings', [ 'file_retention_days' => 30 ] );
+		$this->assertSame( 30, OC_Admin_Settings::get( 'file_retention_days' ) );
+	}
+
+	#[Test]
+	public function normalised_print_method_cache_observes_writes_in_the_same_request(): void {
+		update_option( 'oc_print_methods', [ 'uv' => [ 'dpi' => 300 ] ] );
+		$this->assertSame( 300, OC_Admin_Print_Methods::get( 'uv' )['dpi'] );
+
+		update_option( 'oc_print_methods', [ 'uv' => [ 'dpi' => 600 ] ] );
+		$this->assertSame( 600, OC_Admin_Print_Methods::get( 'uv' )['dpi'] );
 	}
 }

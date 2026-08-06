@@ -15,10 +15,9 @@ class OC_Logger {
 
 	private const SOURCE = 'overcustomise';
 
-	/** @var \WC_Logger_Interface|null */
-	private static ?\WC_Logger_Interface $logger = null;
+	private static \WC_Logger_Interface|OC_Fallback_Logger|null $logger = null;
 
-	private static function get_logger(): \WC_Logger_Interface {
+	private static function get_logger(): \WC_Logger_Interface|OC_Fallback_Logger {
 		if ( null === self::$logger ) {
 			// Fallback to error_log if WooCommerce is not active.
 			if ( ! function_exists( 'wc_get_logger' ) ) {

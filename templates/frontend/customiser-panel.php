@@ -10,10 +10,11 @@ defined( 'ABSPATH' ) || exit;
 
 if ( empty( $areas ) ) return;
 
+$clipart_by_layer = $clipart_by_layer ?? [];
 $areas = array_values( array_filter( $areas, static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible ) );
 $visible_area_ids = array_fill_keys( array_filter( array_map( static fn ( $area ): int => absint( $area->id ?? 0 ), $areas ) ), true );
 $layers = array_values( array_filter(
-	$layers,
+	$layers ?? [],
 	static fn ( $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] )
 ) );
 if ( empty( $areas ) || empty( $layers ) ) return;
@@ -92,7 +93,7 @@ $render_colour_picker = static function ( array $colours, int $layer_id, string 
 				style="background:<?php echo esc_attr( $colour->hex ); ?>;color:<?php echo esc_attr( $colour_contrast_text( (string) $colour->hex ) ); ?>;"
 				aria-label="<?php echo esc_attr( $aria_label ); ?>"
 				aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
-				data-oc-layer-swatch="<?php echo esc_attr( $layer_id ); ?>"
+				data-oc-layer-swatch="<?php echo esc_attr( (string) $layer_id ); ?>"
 				data-colour-name="<?php echo esc_attr( $colour->name ); ?>"
 				data-hex="<?php echo esc_attr( $colour->hex ); ?>">
 				<span><?php echo esc_html( $colour->name ); ?></span>
@@ -200,7 +201,7 @@ foreach ( $layers as $layer ) {
 	<?php foreach ( $areas as $i => $area ) :
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
 		?>
-		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( $i ); ?>" data-area-index="<?php echo esc_attr( $i ); ?>">
+		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( (string) $i ); ?>" data-area-index="<?php echo esc_attr( (string) $i ); ?>">
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
@@ -281,7 +282,7 @@ foreach ( $layers as $layer ) {
 					?>
 					<div class="oc-layer-section">
 						<?php if ( in_array( $layer->type, [ 'image', 'clipmask' ], true ) && $default_attachment_url ) : ?>
-							<span hidden data-oc-default-image="<?php echo esc_attr( $layer->id ); ?>" data-oc-default-image-id="<?php echo esc_attr( $default_attachment_id ); ?>" data-oc-default-image-url="<?php echo esc_url( $default_attachment_url ); ?>"></span>
+							<span hidden data-oc-default-image="<?php echo esc_attr( (string) $layer->id ); ?>" data-oc-default-image-id="<?php echo esc_attr( (string) $default_attachment_id ); ?>" data-oc-default-image-url="<?php echo esc_url( $default_attachment_url ); ?>"></span>
 						<?php endif; ?>
 						<?php if ( $show_header_label || $show_required_in_header ) : ?>
 						<div class="oc-layer-header">
@@ -307,10 +308,10 @@ foreach ( $layers as $layer ) {
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											autocomplete="off"
 											inputmode="text"
-											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
+										<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( (string) $char_lim ) . '"' : ''; ?>
 											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 										/>
-										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
+									<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( (string) $layer->id ); ?>" data-char-limit="<?php echo esc_attr( (string) $char_lim ); ?>"></span>
 									</div>
 								</div>
 
@@ -323,10 +324,10 @@ foreach ( $layers as $layer ) {
 											name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]"
 											placeholder="<?php echo esc_attr( $default ?: __( 'Enter text…', 'overcustomise' ) ); ?>"
 											inputmode="text"
-											<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( $char_lim ) . '"' : ''; ?>
+										<?php echo $char_lim > 0 ? 'maxlength="' . esc_attr( (string) $char_lim ) . '"' : ''; ?>
 											data-oc-layer-text="<?php echo esc_attr( $layer->id ); ?>"
 										></textarea>
-										<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( $layer->id ); ?>" data-char-limit="<?php echo esc_attr( $char_lim ); ?>"></span>
+									<span class="oc-char-counter" data-oc-char-counter="<?php echo esc_attr( (string) $layer->id ); ?>" data-char-limit="<?php echo esc_attr( (string) $char_lim ); ?>"></span>
 									</div>
 								</div>
 
@@ -366,7 +367,7 @@ foreach ( $layers as $layer ) {
 											<select id="oc-image-filter-<?php echo esc_attr( $layer->id ); ?>" data-oc-layer-image-filter="<?php echo esc_attr( $layer->id ); ?>">
 													<option value="0" <?php selected( $default_image_filter_id, 0 ); ?>><?php esc_html_e( 'Original', 'overcustomise' ); ?></option>
 													<?php foreach ( $available_filters as $filter ) : ?>
-														<option value="<?php echo esc_attr( (int) $filter->id ); ?>" <?php selected( $default_image_filter_id, (int) $filter->id ); ?>><?php echo esc_html( $filter->name ); ?></option>
+												<option value="<?php echo esc_attr( (string) (int) $filter->id ); ?>" <?php selected( $default_image_filter_id, (int) $filter->id ); ?>><?php echo esc_html( $filter->name ); ?></option>
 													<?php endforeach; ?>
 											</select>
 										</div>
@@ -396,16 +397,19 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'clipart' ) : ?>
 								<?php
-								$items = array_map( static function ( array $item ) {
-									return (object) [
-										'id' => $item['id'] ?? 0,
-										'name' => $item['name'] ?? '',
-										'url' => $item['url'] ?? '',
-										'file_type' => $item['fileType'] ?? 'svg',
-										'recolourable' => ! empty( $item['recolourable'] ),
-										'group_names' => implode( '||', is_array( $item['groupNames'] ?? null ) ? $item['groupNames'] : [] ),
-									];
-								}, is_array( $clipart_by_layer[ (int) $layer->id ] ?? null ) ? $clipart_by_layer[ (int) $layer->id ] : [] );
+								$items       = array_map(
+									static function ( array $item ) {
+										return (object) [
+											'id'           => $item['id'] ?? 0,
+											'name'         => $item['name'] ?? '',
+											'url'          => $item['url'] ?? '',
+											'file_type'    => $item['fileType'] ?? 'svg',
+											'recolourable' => ! empty( $item['recolourable'] ),
+											'group_names'  => implode( '||', is_array( $item['groupNames'] ?? null ) ? $item['groupNames'] : [] ),
+										];
+									},
+									is_array( $clipart_by_layer[ (int) $layer->id ] ?? null ) ? $clipart_by_layer[ (int) $layer->id ] : []
+								);
 								$group_names = [];
 								foreach ( $items as $ci ) {
 									if ( ! empty( $ci->group_names ) ) {
@@ -557,13 +561,13 @@ foreach ( $layers as $layer ) {
 								<div class="oc-control-group" data-oc-font-size-control="<?php echo esc_attr( $layer->id ); ?>">
 									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>" data-oc-font-size-label>
 										<?php esc_html_e( 'Text size', 'overcustomise' ); ?>
-										<span class="oc-range-value" data-oc-range-value="<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $font_size_value ); ?></span>
+										<span class="oc-range-value" data-oc-range-value="<?php echo esc_attr( (string) $layer->id ); ?>"><?php echo esc_html( (string) $font_size_value ); ?></span>
 									</label>
 									<input type="range"
-										min="<?php echo esc_attr( $font_size_min ); ?>"
-										max="<?php echo esc_attr( $font_size_max ); ?>"
+										min="<?php echo esc_attr( (string) $font_size_min ); ?>"
+										max="<?php echo esc_attr( (string) $font_size_max ); ?>"
 										step="1"
-										value="<?php echo esc_attr( $font_size_value ); ?>"
+										value="<?php echo esc_attr( (string) $font_size_value ); ?>"
 										id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"
 										data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
 									<p class="oc-font-size-notice" data-oc-font-size-notice hidden><?php esc_html_e( 'This font is already at the largest size that fits your text.', 'overcustomise' ); ?></p>
@@ -598,7 +602,7 @@ foreach ( $layers as $layer ) {
 	<!-- Hidden canvases — Fabric.js renders here; gallery <img> is updated via toDataURL() -->
 	<div style="display:none;" aria-hidden="true">
 		<?php foreach ( $areas as $i => $area ) : ?>
-			<canvas id="oc-canvas-<?php echo esc_attr( $i ); ?>"></canvas>
+			<canvas id="oc-canvas-<?php echo esc_attr( (string) $i ); ?>"></canvas>
 		<?php endforeach; ?>
 	</div>
 

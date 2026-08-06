@@ -23,10 +23,11 @@ const designVariantMethods = {
 						const variant = this.designVariants.find(
 							( item ) => item.id === btn.dataset.ocDesignVariant
 						);
-						if (
-							! variant ||
-							variant.id === this.selectedDesignVariant
-						) {
+						if ( ! variant ) {
+							return;
+						}
+						if ( variant.id === this.selectedDesignVariant ) {
+							this.cancelPendingDesignVariantRequest();
 							return;
 						}
 
@@ -326,19 +327,62 @@ const designVariantMethods = {
 	},
 
 	async switchDesignVariant( variantId ) {
-		const state = this.data.designVariantStates?.[ variantId ];
-		if (
-			! state?.panelHtml ||
-			this._variationSwitchPending ||
-			this._controlLocks.has( 'design' )
-		) {
+		const variant = this.designVariants.find(
+			( item ) => item.id === variantId
+		);
+		if ( ! variant || this._variationSwitchPending ) {
 			return;
 		}
 
-		this.setControlLock( 'design', true );
+		this.cancelPendingDesignVariantRequest();
+		const requestSeq = ++this._designVariantRequestSeq;
+		this.setDesignVariantCartPending( requestSeq, true );
+		const button = document.querySelector(
+			`[data-oc-design-variant="${ CSS.escape( variantId ) }"]`
+		);
+		button?.classList.add( 'oc-loading' );
+		button?.setAttribute( 'aria-busy', 'true' );
+
 		try {
-			await this.applyDesignState( state, variantId, true );
+			let state = this.data.designVariantStates?.[ variantId ];
+			if ( ! state?.panelHtml ) {
+				state = await this.fetchDesignVariantState(
+					variant,
+					requestSeq
+				);
+			}
+			if ( requestSeq !== this._designVariantRequestSeq ) {
+				return;
+			}
+
+			this.data.designVariantStates ||= {};
+			this.data.designVariantStates[ variantId ] = state;
+			const variationState =
+				this.productVariationStates[ this._activeVariationKey ];
+			if ( variationState ) {
+				variationState.designVariantStates ||= {};
+				variationState.designVariantStates[ variantId ] = state;
+			}
+
+			const applied = await this.applyDesignState(
+				state,
+				variantId,
+				true
+			);
+			if ( ! applied || requestSeq !== this._designVariantRequestSeq ) {
+				return;
+			}
+			if ( variationState ) {
+				variationState.selectedDesignVariant = variantId;
+			}
+			this.updateDesignVariantUrl( variantId );
 		} catch ( error ) {
+			if (
+				requestSeq !== this._designVariantRequestSeq ||
+				error?.name === 'AbortError'
+			) {
+				return;
+			}
 			console.error( '[OC] Design option switch failed:', error );
 			this.renderPreflightMessages(
 				[
@@ -347,8 +391,126 @@ const designVariantMethods = {
 				[]
 			);
 		} finally {
-			this.setControlLock( 'design', false );
+			this.setDesignVariantCartPending( requestSeq, false );
+			button?.classList.remove( 'oc-loading' );
+			button?.removeAttribute( 'aria-busy' );
 		}
+	},
+
+	cancelPendingDesignVariantRequest() {
+		if ( ! this._designVariantPendingSeq ) {
+			return false;
+		}
+		const pendingSeq = this._designVariantPendingSeq;
+		this._designVariantRequestSeq += 1;
+		this._designVariantAbortController?.abort();
+		this._designVariantAbortController = null;
+		this.setDesignVariantCartPending( pendingSeq, false );
+		document
+			.querySelectorAll( '[data-oc-design-variant].oc-loading' )
+			.forEach( ( button ) => {
+				button.classList.remove( 'oc-loading' );
+				button.removeAttribute( 'aria-busy' );
+			} );
+		return true;
+	},
+
+	setDesignVariantCartPending( requestSeq, pending ) {
+		const form = this.getCustomiserCartForm?.();
+		const submitControls = form?.querySelectorAll(
+			'[type="submit"], .single_add_to_cart_button'
+		);
+		if ( pending ) {
+			this._designVariantPendingSeq = requestSeq;
+			submitControls?.forEach( ( control ) => {
+				if ( control.dataset.ocDesignLoadDisabled === undefined ) {
+					control.dataset.ocDesignLoadDisabled = control.disabled ? '1' : '0';
+				}
+				control.disabled = true;
+				control.setAttribute( 'aria-disabled', 'true' );
+			} );
+			return;
+		}
+		if ( this._designVariantPendingSeq !== requestSeq ) {
+			return;
+		}
+		this._designVariantPendingSeq = 0;
+		submitControls?.forEach( ( control ) => {
+			if ( control.dataset.ocDesignLoadDisabled === undefined ) {
+				return;
+			}
+			control.disabled = control.dataset.ocDesignLoadDisabled === '1';
+			control.setAttribute(
+				'aria-disabled',
+				control.disabled ? 'true' : 'false'
+			);
+			delete control.dataset.ocDesignLoadDisabled;
+		} );
+		this.applyControlLocks();
+	},
+
+	async fetchDesignVariantState( variant, requestSeq ) {
+		const designUrl =
+			this.data.productDesignUrl ||
+			`${ window.location.origin }/wp-json/overcustomise/v1/product-design/${
+				this.data.productId || 0
+			}`;
+		const url = new URL( designUrl, window.location.origin );
+		url.searchParams.set( 'variant_id', String( this.currentVariationId() ) );
+		url.searchParams.set( 'design_id', String( variant.designId ) );
+		const request = this.createStateAbortController( 10000 );
+		this._designVariantAbortController = request.controller;
+
+		try {
+			const response = await fetch( url.toString(), {
+				credentials: 'same-origin',
+				headers: { Accept: 'application/json' },
+				signal: request.controller.signal,
+			} );
+			const body = await response.json().catch( () => null );
+			if ( ! response.ok ) {
+				throw new Error(
+					body?.message ||
+						`Artwork option request failed (${ response.status })`
+				);
+			}
+			if ( requestSeq !== this._designVariantRequestSeq ) {
+				throw new DOMException( 'Superseded request', 'AbortError' );
+			}
+
+			const state = body?.designVariantStates?.[ variant.id ];
+			if (
+				! body?.active ||
+				! state?.panelHtml ||
+				Number( state.designId ) !== Number( variant.designId ) ||
+				body.selectedDesignVariant !== variant.id
+			) {
+				throw new Error( 'Artwork option response was invalid.' );
+			}
+			state.designVariants = body.designVariants || this.designVariants;
+			return state;
+		} catch ( error ) {
+			if ( request.timedOut() ) {
+				throw new Error(
+					'Artwork option request timed out. Please retry.'
+				);
+			}
+			throw error;
+		} finally {
+			request.release();
+			if ( this._designVariantAbortController === request.controller ) {
+				this._designVariantAbortController = null;
+			}
+		}
+	},
+
+	updateDesignVariantUrl( variantId ) {
+		if ( ! window.history?.replaceState ) {
+			return;
+		}
+		const url = new URL( window.location.href );
+		url.searchParams.set( 'oc_design_variant', variantId );
+		window.history.replaceState( window.history.state, '', url.toString() );
 	},
 
 	cloneLayerInputs( inputs = this.inputs ) {

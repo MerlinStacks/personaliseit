@@ -12,6 +12,8 @@ class OC_Admin_Settings {
 	private const OPTION_KEY = 'oc_settings';
 	private const OPENROUTER_MODELS_TRANSIENT = 'oc_openrouter_image_models_v2';
 	private const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
+	private static ?array $normalised_cache = null;
+	private static string $normalised_cache_signature = '';
 
 	private const OPENROUTER_IMAGE_MODELS = [
 		'google/gemini-2.5-flash-image' => 'Google: Nano Banana (Gemini 2.5 Flash Image)',
@@ -45,6 +47,10 @@ class OC_Admin_Settings {
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
+		$signature = md5( serialize( $saved ) );
+		if ( null !== self::$normalised_cache && hash_equals( self::$normalised_cache_signature, $signature ) ) {
+			return '' !== $key ? ( self::$normalised_cache[ $key ] ?? null ) : self::$normalised_cache;
+		}
 		$all   = wp_parse_args( is_array( $saved ) ? $saved : [], $defaults );
 		$formats = is_array( $all['allowed_upload_formats'] ?? null ) ? $all['allowed_upload_formats'] : [];
 		$formats = array_values( array_unique( array_intersect(
@@ -68,6 +74,8 @@ class OC_Admin_Settings {
 			'openrouter_api_key_enc' => is_string( $all['openrouter_api_key_enc'] ?? null ) && strlen( $all['openrouter_api_key_enc'] ) <= 4096 ? $all['openrouter_api_key_enc'] : '',
 			'openrouter_image_model' => is_scalar( $all['openrouter_image_model'] ?? null ) ? substr( sanitize_text_field( (string) $all['openrouter_image_model'] ), 0, 255 ) : $defaults['openrouter_image_model'],
 		];
+		self::$normalised_cache           = $all;
+		self::$normalised_cache_signature = $signature;
 
 		if ( '' !== $key ) {
 			return $all[ $key ] ?? null;
@@ -798,6 +806,8 @@ class OC_Admin_Settings {
 		];
 
 		update_option( self::OPTION_KEY, $settings );
+		self::$normalised_cache           = null;
+		self::$normalised_cache_signature = '';
 		if ( '' !== $posted_api_key || ! empty( $_POST['oc_openrouter_api_key_clear'] ) ) {
 			delete_transient( self::OPENROUTER_MODELS_TRANSIENT );
 		}

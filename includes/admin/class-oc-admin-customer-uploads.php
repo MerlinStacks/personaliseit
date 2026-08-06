@@ -290,7 +290,7 @@ class OC_Admin_Customer_Uploads {
 		<div class="oc-customer-upload-card">
 			<div class="oc-customer-upload-preview">
 				<label class="oc-customer-upload-select" title="<?php esc_attr_e( 'Select upload', 'overcustomise' ); ?>">
-					<input type="checkbox" name="upload_ids[]" value="<?php echo esc_attr( $id ); ?>" form="oc-customer-upload-bulk-form" data-oc-upload-select />
+					<input type="checkbox" name="upload_ids[]" value="<?php echo esc_attr( (string) $id ); ?>" form="oc-customer-upload-bulk-form" data-oc-upload-select />
 					<span class="screen-reader-text"><?php echo esc_html( sprintf( __( 'Select %s', 'overcustomise' ), $filename ) ); ?></span>
 				</label>
 				<?php echo $thumb ?: '<span>' . esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) . '</span>'; ?>
@@ -344,7 +344,7 @@ class OC_Admin_Customer_Uploads {
 					<?php endif; ?>
 					<form method="post" style="display:inline;margin:0;">
 						<input type="hidden" name="oc_customer_upload_action" value="delete" />
-						<input type="hidden" name="id" value="<?php echo esc_attr( $id ); ?>" />
+						<input type="hidden" name="id" value="<?php echo esc_attr( (string) $id ); ?>" />
 						<?php wp_nonce_field( 'oc_customer_upload_delete_' . $id ); ?>
 						<button type="submit" class="oc-btn oc-btn-danger oc-btn-sm" onclick="return confirm('<?php esc_attr_e( 'Delete this customer upload? This cannot be undone.', 'overcustomise' ); ?>');"><?php esc_html_e( 'Delete', 'overcustomise' ); ?></button>
 					</form>

@@ -15,19 +15,19 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Rest_API {
 
-	private const NAMESPACE = 'overcustomise/v1';
-	private const PUBLIC_TOKEN_TTL = 21600; // 6 hours.
-	private const AI_LOCK_TTL = 300;
-	private const PREVIEW_LOCK_TTL = 60;
-	private const MAX_PREVIEW_BYTES = 10485760;
-	private const MAX_AI_RESULT_BYTES = 15728640;
-	private const MAX_AI_PROMPT_BYTES = 16384;
-	private const MAX_AI_FILTER_ATTEMPTS = 3;
-	private const SPOTIFY_RESPONSE_BYTES = 524288;
-	private const SPOTIFY_VALID_CACHE_TTL = 43200;
+	private const NAMESPACE                 = 'overcustomise/v1';
+	private const PUBLIC_TOKEN_TTL          = 21600; // 6 hours.
+	private const AI_LOCK_TTL               = 300;
+	private const PREVIEW_LOCK_TTL          = 60;
+	private const MAX_PREVIEW_BYTES         = 10485760;
+	private const MAX_AI_RESULT_BYTES       = 15728640;
+	private const MAX_AI_PROMPT_BYTES       = 16384;
+	private const MAX_AI_FILTER_ATTEMPTS    = 3;
+	private const SPOTIFY_RESPONSE_BYTES    = 524288;
+	private const SPOTIFY_VALID_CACHE_TTL   = 43200;
 	private const SPOTIFY_INVALID_CACHE_TTL = 3600;
-	private const PUBLIC_TOKEN_SESSION_KEY = 'oc_public_request_token';
-	private const PREVIEW_OPTION_PREFIX = 'oc_private_preview_';
+	private const PUBLIC_TOKEN_SESSION_KEY  = 'oc_public_request_token';
+	private const PREVIEW_OPTION_PREFIX     = 'oc_private_preview_';
 
 	public function register(): void {
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
@@ -54,91 +54,145 @@ class OC_Rest_API {
 
 	public function register_routes(): void {
 		// Product config + print areas for the frontend customiser.
-		register_rest_route( self::NAMESPACE, '/product-config/(?P<product_id>\d+)', [
-			'methods'             => \WP_REST_Server::READABLE,
-			'callback'            => [ $this, 'get_product_config' ],
-			'permission_callback' => '__return_true', // Public — only returns active configs.
-			'args'                => [
-				'product_id' => [
-					'validate_callback' => fn( $v ) => is_numeric( $v ) && $v > 0,
-					'sanitize_callback' => 'absint',
+		register_rest_route(
+			self::NAMESPACE,
+			'/product-config/(?P<product_id>\d+)',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_product_config' ],
+				'permission_callback' => '__return_true', // Public — only returns active configs.
+				'args'                => [
+					'product_id' => [
+						'validate_callback' => fn( $v ) => is_numeric( $v ) && $v > 0,
+						'sanitize_callback' => 'absint',
+					],
 				],
-			],
-		] );
+			]
+		);
 
 		// Active fonts list (public — needed by frontend customiser).
-		register_rest_route( self::NAMESPACE, '/fonts', [
-			'methods'             => \WP_REST_Server::READABLE,
-			'callback'            => [ $this, 'get_fonts' ],
-			'permission_callback' => '__return_true',
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/fonts',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_fonts' ],
+				'permission_callback' => '__return_true',
+			]
+		);
 
 		// Reusable session-bound token for guest writes and cart validation.
-		register_rest_route( self::NAMESPACE, '/session-token', [
-			'methods'             => \WP_REST_Server::READABLE,
-			'callback'            => [ $this, 'get_session_token' ],
-			'permission_callback' => '__return_true',
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/session-token',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_session_token' ],
+				'permission_callback' => '__return_true',
+			]
+		);
 
 		// Artwork upload (customer).
-		register_rest_route( self::NAMESPACE, '/upload-artwork', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'upload_artwork' ],
-			'permission_callback' => [ $this, 'public_write_permission' ],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/upload-artwork',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'upload_artwork' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
 
 		// Authorise an owned upload for a matching layer on this product.
-		register_rest_route( self::NAMESPACE, '/authorise-artwork-context', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'authorise_artwork_context' ],
-			'permission_callback' => [ $this, 'public_write_permission' ],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/authorise-artwork-context',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'authorise_artwork_context' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
 
 		// Apply an AI prompt filter to previously uploaded artwork.
-		register_rest_route( self::NAMESPACE, '/apply-image-filter', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'apply_image_filter' ],
-			'permission_callback' => [ $this, 'public_write_permission' ],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/apply-image-filter',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'apply_image_filter' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
 
 		// Design assignment for a specific product / variation (used by frontend JS).
-		register_rest_route( self::NAMESPACE, '/product-design/(?P<product_id>\d+)', [
-			'methods'             => \WP_REST_Server::READABLE,
-			'callback'            => [ $this, 'get_product_design' ],
-			'permission_callback' => '__return_true',
-			'args'                => [
-				'product_id' => [ 'validate_callback' => fn( $v ) => is_numeric( $v ) && $v > 0, 'sanitize_callback' => 'absint' ],
-				'variant_id' => [ 'default' => 0, 'sanitize_callback' => 'absint' ],
-			],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/product-design/(?P<product_id>\d+)',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_product_design' ],
+				'permission_callback' => '__return_true',
+				'args'                => [
+					'product_id' => [
+						'validate_callback' => fn( $v ) => is_numeric( $v ) && $v > 0,
+						'sanitize_callback' => 'absint',
+					],
+					'variant_id' => [
+						'default'           => 0,
+						'sanitize_callback' => 'absint',
+					],
+					'design_id'  => [
+						'default'           => 0,
+						'sanitize_callback' => 'absint',
+					],
+				],
+			]
+		);
 
 		// Save canvas snapshot as a JPEG for cart/order preview.
-		register_rest_route( self::NAMESPACE, '/save-preview', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'save_preview' ],
-			'permission_callback' => [ $this, 'public_write_permission' ],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/save-preview',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'save_preview' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
 
 		// Validate Spotify links and detect private/unavailable resources.
-		register_rest_route( self::NAMESPACE, '/validate-spotify', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'validate_spotify' ],
-			'permission_callback' => [ $this, 'public_write_permission' ],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/validate-spotify',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'validate_spotify' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
 
 		// Admin: regenerate print files for an order item.
-		register_rest_route( self::NAMESPACE, '/regenerate-files', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'regenerate_files' ],
-			'permission_callback' => fn() => current_user_can( 'manage_woocommerce' ),
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/regenerate-files',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'regenerate_files' ],
+				'permission_callback' => fn() => current_user_can( 'manage_woocommerce' ),
+			]
+		);
 
 		// Admin: upload CSV for VDP.
-		register_rest_route( self::NAMESPACE, '/vdp-upload-csv', [
-			'methods'             => \WP_REST_Server::CREATABLE,
-			'callback'            => [ $this, 'upload_vdp_csv' ],
-			'permission_callback' => fn() => current_user_can( 'manage_woocommerce' ),
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/vdp-upload-csv',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'upload_vdp_csv' ],
+				'permission_callback' => fn() => current_user_can( 'manage_woocommerce' ),
+			]
+		);
 	}
 
 	/** Issue or reuse a fixed-lifetime token bound to this WC session or client IP. */
@@ -350,10 +404,16 @@ class OC_Rest_API {
 		if ( null === $binding ) {
 			if ( 'session' === $state['binding_type'] ) {
 				$session_hash = self::wc_session_hash();
-				$binding = '' !== $session_hash ? [ 'type' => 'session', 'hash' => $session_hash ] : null;
+				$binding      = '' !== $session_hash ? [
+					'type' => 'session',
+					'hash' => $session_hash,
+				] : null;
 			} else {
-				$ip = self::client_ip();
-				$binding = '' !== $ip ? [ 'type' => 'ip', 'hash' => hash( 'sha256', $ip ) ] : null;
+				$ip      = self::client_ip();
+				$binding = '' !== $ip ? [
+					'type' => 'ip',
+					'hash' => hash( 'sha256', $ip ),
+				] : null;
 			}
 		}
 		if ( null === $binding
@@ -375,11 +435,17 @@ class OC_Rest_API {
 	private static function current_request_binding(): ?array {
 		$session_hash = self::wc_session_hash();
 		if ( '' !== $session_hash ) {
-			return [ 'type' => 'session', 'hash' => $session_hash ];
+			return [
+				'type' => 'session',
+				'hash' => $session_hash,
+			];
 		}
 
 		$ip = self::client_ip();
-		return '' !== $ip ? [ 'type' => 'ip', 'hash' => hash( 'sha256', $ip ) ] : null;
+		return '' !== $ip ? [
+			'type' => 'ip',
+			'hash' => hash( 'sha256', $ip ),
+		] : null;
 	}
 
 	/** Hash the current WC customer/session identifier without exposing it. */
@@ -491,7 +557,10 @@ class OC_Rest_API {
 			if ( false === $packed || $prefix < 0 || $prefix > $bits ) {
 				return [];
 			}
-			$ranges[] = [ 'network' => $packed, 'prefix' => $prefix ];
+			$ranges[] = [
+				'network' => $packed,
+				'prefix'  => $prefix,
+			];
 		}
 
 		return $ranges;
@@ -551,10 +620,12 @@ class OC_Rest_API {
 		}
 
 		global $wpdb;
-		$engine = $wpdb->get_var( $wpdb->prepare(
-			'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-			$wpdb->options
-		) );
+		$engine    = $wpdb->get_var(
+			$wpdb->prepare(
+				'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
+				$wpdb->options
+			)
+		);
 		$supported = is_string( $engine ) && in_array( strtoupper( $engine ), [ 'INNODB', 'XTRADB' ], true );
 		return $supported;
 	}
@@ -586,7 +657,12 @@ class OC_Rest_API {
 					'bytes'     => $state['bytes'],
 				];
 			}
-			$state = [ 'version' => 2, 'window_type' => 'sliding', 'window_seconds' => $window_seconds, 'buckets' => $buckets ];
+			$state = [
+				'version'        => 2,
+				'window_type'    => 'sliding',
+				'window_seconds' => $window_seconds,
+				'buckets'        => $buckets,
+			];
 		}
 
 		if ( 2 !== ( $state['version'] ?? null ) || 'sliding' !== ( $state['window_type'] ?? null )
@@ -674,19 +750,19 @@ class OC_Rest_API {
 				return new \WP_Error( 'security_budget_unavailable', __( 'This request cannot be processed safely right now.', 'overcustomise' ), [ 'status' => 503 ] );
 			}
 			$prepared[ $option_name ] = [
-				'option_name'  => $option_name,
-				'window_start' => $window_start,
-				'window_end'   => $window_end,
-				'count'        => $count,
-				'bytes'        => $bytes,
-				'count_limit'  => $count_limit,
-				'byte_limit'   => $byte_limit,
-				'count_mode'   => (string) ( $spec['count_mode'] ?? 'none' ),
-				'bytes_mode'   => (string) ( $spec['bytes_mode'] ?? 'none' ),
+				'option_name'    => $option_name,
+				'window_start'   => $window_start,
+				'window_end'     => $window_end,
+				'count'          => $count,
+				'bytes'          => $bytes,
+				'count_limit'    => $count_limit,
+				'byte_limit'     => $byte_limit,
+				'count_mode'     => (string) ( $spec['count_mode'] ?? 'none' ),
+				'bytes_mode'     => (string) ( $spec['bytes_mode'] ?? 'none' ),
 				'sliding_window' => ! empty( $spec['sliding_window'] ),
-				'error_code'   => sanitize_key( (string) ( $spec['error_code'] ?? 'rate_limited' ) ),
-				'error_message' => (string) ( $spec['error_message'] ?? __( 'The request limit has been reached. Please try again later.', 'overcustomise' ) ),
-				'error_status' => (int) ( $spec['error_status'] ?? 429 ),
+				'error_code'     => sanitize_key( (string) ( $spec['error_code'] ?? 'rate_limited' ) ),
+				'error_message'  => (string) ( $spec['error_message'] ?? __( 'The request limit has been reached. Please try again later.', 'overcustomise' ) ),
+				'error_status'   => (int) ( $spec['error_status'] ?? 429 ),
 			];
 		}
 		ksort( $prepared, SORT_STRING );
@@ -701,11 +777,13 @@ class OC_Rest_API {
 		$error    = null;
 		try {
 			foreach ( $prepared as $option_name => $spec ) {
-				$result = $wpdb->query( $wpdb->prepare(
-					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
-					$option_name,
-					'{}'
-				) );
+				$result = $wpdb->query(
+					$wpdb->prepare(
+						"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, 'no')",
+						$option_name,
+						'{}'
+					)
+				);
 				if ( false === $result ) {
 					throw new \RuntimeException( 'A security budget row could not be created: ' . $wpdb->last_error );
 				}
@@ -713,27 +791,41 @@ class OC_Rest_API {
 			}
 
 			foreach ( $prepared as $option_name => $spec ) {
-				$raw = $wpdb->get_var( $wpdb->prepare(
-					"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
-					$option_name
-				) );
+				$raw   = $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
+						$option_name
+					)
+				);
 				$state = is_string( $raw ) ? json_decode( $raw, true ) : null;
 				if ( $spec['sliding_window'] ) {
 					$window_seconds = $spec['window_end'] - $spec['window_start'];
 					if ( $inserted[ $option_name ] ) {
-						$state = [ 'version' => 2, 'window_type' => 'sliding', 'window_seconds' => $window_seconds, 'buckets' => [] ];
+						$state = [
+							'version'        => 2,
+							'window_type'    => 'sliding',
+							'window_seconds' => $window_seconds,
+							'buckets'        => [],
+						];
 					}
 					if ( ! is_array( $state ) ) {
 						throw new \RuntimeException( 'A persisted sliding security budget row is malformed.' );
 					}
-					$state = self::normalise_sliding_budget_state( $state, $window_seconds, $now );
+					$state                             = self::normalise_sliding_budget_state( $state, $window_seconds, $now );
 					[ $current_count, $current_bytes ] = self::sliding_budget_totals( $state['buckets'] );
 					if ( ( $spec['count'] > 0 && $current_count > $spec['count_limit'] - $spec['count'] )
 						|| ( $spec['bytes'] > 0 && $current_bytes > $spec['byte_limit'] - $spec['bytes'] )
 					) {
 						$retry_after = self::sliding_budget_retry_after( $state['buckets'], $spec, $now, $window_seconds );
-						$message = 'ai_quota_exceeded' === $spec['error_code'] ? self::ai_quota_retry_message( $retry_after ) : $spec['error_message'];
-						$error = new \WP_Error( $spec['error_code'], $message, [ 'status' => $spec['error_status'], 'retry_after' => $retry_after ] );
+						$message     = 'ai_quota_exceeded' === $spec['error_code'] ? self::ai_quota_retry_message( $retry_after ) : $spec['error_message'];
+						$error       = new \WP_Error(
+							$spec['error_code'],
+							$message,
+							[
+								'status'      => $spec['error_status'],
+								'retry_after' => $retry_after,
+							]
+						);
 						throw new \OverflowException( 'Security budget exhausted.' );
 					}
 					$last_index = count( $state['buckets'] ) - 1;
@@ -741,16 +833,20 @@ class OC_Rest_API {
 						$state['buckets'][ $last_index ]['count'] += $spec['count'];
 						$state['buckets'][ $last_index ]['bytes'] += $spec['bytes'];
 					} else {
-						$state['buckets'][] = [ 'timestamp' => $now, 'count' => $spec['count'], 'bytes' => $spec['bytes'] ];
+						$state['buckets'][] = [
+							'timestamp' => $now,
+							'count'     => $spec['count'],
+							'bytes'     => $spec['bytes'],
+						];
 					}
 					$prepared[ $option_name ]['bucket_timestamp'] = $now;
 				} elseif ( $inserted[ $option_name ] ) {
 					$state = [
-						'version'      => 1,
-						'window_start' => $spec['window_start'],
-						'window_end'   => $spec['window_end'],
-						'count'        => 0,
-						'bytes'        => 0,
+						'version'        => 1,
+						'window_start'   => $spec['window_start'],
+						'window_end'     => $spec['window_end'],
+						'count'          => 0,
+						'bytes'          => 0,
 						'sliding_window' => false,
 					];
 				} elseif ( ! is_array( $state )
@@ -764,11 +860,11 @@ class OC_Rest_API {
 				} elseif ( ! empty( $state['sliding_window'] ) || (int) $state['window_end'] <= $now
 				) {
 					$state = [
-						'version'      => 1,
-						'window_start' => $spec['window_start'],
-						'window_end'   => $spec['window_end'],
-						'count'        => 0,
-						'bytes'        => 0,
+						'version'        => 1,
+						'window_start'   => $spec['window_start'],
+						'window_end'     => $spec['window_end'],
+						'count'          => 0,
+						'bytes'          => 0,
 						'sliding_window' => false,
 					];
 				} elseif ( (int) $state['window_start'] !== $spec['window_start'] || (int) $state['window_end'] !== $spec['window_end']
@@ -782,33 +878,35 @@ class OC_Rest_API {
 					if ( ( $spec['count'] > 0 && $current_count > $spec['count_limit'] - $spec['count'] )
 					|| ( $spec['bytes'] > 0 && $current_bytes > $spec['byte_limit'] - $spec['bytes'] )
 					) {
-					$retry_after = max( 1, $spec['window_end'] - $now );
-					$message     = $spec['error_message'];
-					if ( 'ai_quota_exceeded' === $spec['error_code'] ) {
-						$message = self::ai_quota_retry_message( $retry_after );
-					}
-					$error = new \WP_Error(
-						$spec['error_code'],
-						$message,
-						[
-							'status'      => $spec['error_status'],
-							'retry_after' => $retry_after,
-						]
-					);
-					throw new \OverflowException( 'Security budget exhausted.' );
+						$retry_after = max( 1, $spec['window_end'] - $now );
+						$message     = $spec['error_message'];
+						if ( 'ai_quota_exceeded' === $spec['error_code'] ) {
+							$message = self::ai_quota_retry_message( $retry_after );
+						}
+						$error = new \WP_Error(
+							$spec['error_code'],
+							$message,
+							[
+								'status'      => $spec['error_status'],
+								'retry_after' => $retry_after,
+							]
+						);
+						throw new \OverflowException( 'Security budget exhausted.' );
 					}
 					$state['count'] = $current_count + $spec['count'];
 					$state['bytes'] = $current_bytes + $spec['bytes'];
 				}
-				$encoded        = wp_json_encode( $state );
+				$encoded = wp_json_encode( $state );
 				if ( ! is_string( $encoded ) ) {
 					throw new \RuntimeException( 'A security budget row could not be encoded.' );
 				}
-				$updated = $wpdb->query( $wpdb->prepare(
-					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s",
-					$encoded,
-					$option_name
-				) );
+				$updated = $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s",
+						$encoded,
+						$option_name
+					)
+				);
 				if ( 1 !== $updated ) {
 					throw new \RuntimeException( 'A security budget row could not be reserved: ' . $wpdb->last_error );
 				}
@@ -845,11 +943,11 @@ class OC_Rest_API {
 			$bytes  = max( 0, (int) ( $reduce['bytes'] ?? 0 ) );
 			if ( $count > 0 || $bytes > 0 ) {
 				$work[ $option_name ] = [
-					'window_start'    => (int) ( $item['window_start'] ?? 0 ),
+					'window_start'     => (int) ( $item['window_start'] ?? 0 ),
 					'bucket_timestamp' => (int) ( $item['bucket_timestamp'] ?? 0 ),
-					'sliding_window'  => ! empty( $item['sliding_window'] ),
-					'count'           => min( $count, (int) ( $item['count'] ?? 0 ) ),
-					'bytes'           => min( $bytes, (int) ( $item['bytes'] ?? 0 ) ),
+					'sliding_window'   => ! empty( $item['sliding_window'] ),
+					'count'            => min( $count, (int) ( $item['count'] ?? 0 ) ),
+					'bytes'            => min( $bytes, (int) ( $item['bytes'] ?? 0 ) ),
 				];
 			}
 		}
@@ -866,10 +964,12 @@ class OC_Rest_API {
 
 		try {
 			foreach ( $work as $option_name => $reduce ) {
-				$raw = $wpdb->get_var( $wpdb->prepare(
-					"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
-					$option_name
-				) );
+				$raw   = $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s FOR UPDATE",
+						$option_name
+					)
+				);
 				$state = is_string( $raw ) ? json_decode( $raw, true ) : null;
 				if ( ! is_array( $state ) ) {
 					throw new \RuntimeException( 'A reserved security budget row is unavailable.' );
@@ -895,18 +995,20 @@ class OC_Rest_API {
 					) {
 						throw new \RuntimeException( 'A reserved security budget row is unavailable.' );
 					}
-				if ( (int) ( $state['window_start'] ?? 0 ) !== $reduce['window_start'] ) {
-					continue;
+					if ( (int) ( $state['window_start'] ?? 0 ) !== $reduce['window_start'] ) {
+						continue;
+					}
+					$state['count'] = max( 0, (int) ( $state['count'] ?? 0 ) - $reduce['count'] );
+					$state['bytes'] = max( 0, (int) ( $state['bytes'] ?? 0 ) - $reduce['bytes'] );
 				}
-				$state['count'] = max( 0, (int) ( $state['count'] ?? 0 ) - $reduce['count'] );
-				$state['bytes'] = max( 0, (int) ( $state['bytes'] ?? 0 ) - $reduce['bytes'] );
-				}
-				$encoded        = wp_json_encode( $state );
-				$updated        = is_string( $encoded ) ? $wpdb->query( $wpdb->prepare(
-					"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s",
-					$encoded,
-					$option_name
-				) ) : false;
+				$encoded = wp_json_encode( $state );
+				$updated = is_string( $encoded ) ? $wpdb->query(
+					$wpdb->prepare(
+						"UPDATE {$wpdb->options} SET option_value = %s WHERE option_name = %s",
+						$encoded,
+						$option_name
+					)
+				) : false;
 				if ( 1 !== $updated ) {
 					throw new \RuntimeException( 'A security budget row could not be released: ' . $wpdb->last_error );
 				}
@@ -968,7 +1070,7 @@ class OC_Rest_API {
 				'attachments' => $attachment_count,
 				default       => 0,
 			};
-			$keep_bytes = 'actual' === ( $item['bytes_mode'] ?? 'none' ) ? $bytes : 0;
+			$keep_bytes                 = 'actual' === ( $item['bytes_mode'] ?? 'none' ) ? $bytes : 0;
 			$reductions[ $option_name ] = [
 				'count' => max( 0, (int) ( $item['count'] ?? 0 ) - $keep_count ),
 				'bytes' => max( 0, (int) ( $item['bytes'] ?? 0 ) - $keep_bytes ),
@@ -984,9 +1086,9 @@ class OC_Rest_API {
 			return new \WP_Error( 'security_budget_unavailable', __( 'This request cannot be processed safely right now.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
-		$ip_count_limit = self::filtered_limit( 'oc_artwork_upload_ip_hourly_limit', 60, 1, 10000 );
-		$ip_byte_limit  = self::filtered_limit( 'oc_artwork_upload_ip_hourly_bytes', 1073741824, 1048576, 107374182400 );
-		$site_byte_limit = self::filtered_limit( 'oc_artwork_upload_site_hourly_bytes', 10737418240, 1048576, 1099511627776 );
+		$ip_count_limit    = self::filtered_limit( 'oc_artwork_upload_ip_hourly_limit', 60, 1, 10000 );
+		$ip_byte_limit     = self::filtered_limit( 'oc_artwork_upload_ip_hourly_bytes', 1073741824, 1048576, 107374182400 );
+		$site_byte_limit   = self::filtered_limit( 'oc_artwork_upload_site_hourly_bytes', 10737418240, 1048576, 1099511627776 );
 		$token_count_limit = self::filtered_limit( 'oc_public_token_attachment_limit', 50, 1, 1000 );
 		$token_byte_limit  = self::filtered_limit( 'oc_public_token_attachment_bytes', 536870912, 1048576, 107374182400 );
 		if ( null === $ip_count_limit || null === $ip_byte_limit || null === $site_byte_limit
@@ -997,17 +1099,33 @@ class OC_Rest_API {
 		}
 
 		[ $window_start, $window_end ] = self::hourly_window();
-		$message = __( 'The artwork upload limit has been reached. Please try again later.', 'overcustomise' );
-		$specs   = [
+		$message                       = __( 'The artwork upload limit has been reached. Please try again later.', 'overcustomise' );
+		$specs                         = [
 			[
-				'key' => 'upload:ip:' . hash( 'sha256', $ip ), 'window_start' => $window_start, 'window_end' => $window_end,
-				'count' => $count_request ? 1 : 0, 'bytes' => $bytes, 'count_limit' => $ip_count_limit, 'byte_limit' => $ip_byte_limit,
-				'count_mode' => $count_request ? 'request' : 'none', 'bytes_mode' => 'actual', 'error_code' => 'upload_limit_reached', 'error_message' => $message,
+				'key'           => 'upload:ip:' . hash( 'sha256', $ip ),
+				'window_start'  => $window_start,
+				'window_end'    => $window_end,
+				'count'         => $count_request ? 1 : 0,
+				'bytes'         => $bytes,
+				'count_limit'   => $ip_count_limit,
+				'byte_limit'    => $ip_byte_limit,
+				'count_mode'    => $count_request ? 'request' : 'none',
+				'bytes_mode'    => 'actual',
+				'error_code'    => 'upload_limit_reached',
+				'error_message' => $message,
 			],
 			[
-				'key' => 'upload:site:' . (int) get_current_blog_id(), 'window_start' => $window_start, 'window_end' => $window_end,
-				'count' => 0, 'bytes' => $bytes, 'count_limit' => 0, 'byte_limit' => $site_byte_limit,
-				'count_mode' => 'none', 'bytes_mode' => 'actual', 'error_code' => 'upload_limit_reached', 'error_message' => $message,
+				'key'           => 'upload:site:' . (int) get_current_blog_id(),
+				'window_start'  => $window_start,
+				'window_end'    => $window_end,
+				'count'         => 0,
+				'bytes'         => $bytes,
+				'count_limit'   => 0,
+				'byte_limit'    => $site_byte_limit,
+				'count_mode'    => 'none',
+				'bytes_mode'    => 'actual',
+				'error_code'    => 'upload_limit_reached',
+				'error_message' => $message,
 			],
 		];
 
@@ -1016,10 +1134,16 @@ class OC_Rest_API {
 				return new \WP_Error( 'invalid_token', __( 'Security verification failed.', 'overcustomise' ), [ 'status' => 403 ] );
 			}
 			$specs[] = [
-				'key' => 'upload:token:' . hash( 'sha256', $token ),
-				'window_start' => (int) $token_state['created_at'], 'window_end' => (int) $token_state['expires_at'],
-				'count' => $attachment_count, 'bytes' => $bytes, 'count_limit' => $token_count_limit, 'byte_limit' => $token_byte_limit,
-				'count_mode' => 'attachments', 'bytes_mode' => 'actual', 'error_code' => 'token_upload_limit_reached',
+				'key'           => 'upload:token:' . hash( 'sha256', $token ),
+				'window_start'  => (int) $token_state['created_at'],
+				'window_end'    => (int) $token_state['expires_at'],
+				'count'         => $attachment_count,
+				'bytes'         => $bytes,
+				'count_limit'   => $token_count_limit,
+				'byte_limit'    => $token_byte_limit,
+				'count_mode'    => 'attachments',
+				'bytes_mode'    => 'actual',
+				'error_code'    => 'token_upload_limit_reached',
 				'error_message' => __( 'This upload session has reached its artwork limit. Please refresh and try again.', 'overcustomise' ),
 			];
 		}
@@ -1029,9 +1153,9 @@ class OC_Rest_API {
 
 	/** Build atomic preview request/byte budgets. */
 	private static function preview_budget_specs( int $bytes ): array|\WP_Error {
-		$ip = self::client_ip();
-		$ip_count_limit = self::filtered_limit( 'oc_preview_ip_hourly_limit', 30, 1, 10000 );
-		$ip_byte_limit  = self::filtered_limit( 'oc_preview_ip_hourly_bytes', 314572800, 1048576, 107374182400 );
+		$ip              = self::client_ip();
+		$ip_count_limit  = self::filtered_limit( 'oc_preview_ip_hourly_limit', 30, 1, 10000 );
+		$ip_byte_limit   = self::filtered_limit( 'oc_preview_ip_hourly_bytes', 314572800, 1048576, 107374182400 );
 		$site_byte_limit = self::filtered_limit( 'oc_preview_site_hourly_bytes', 5368709120, 1048576, 1099511627776 );
 		if ( '' === $ip || null === $ip_count_limit || null === $ip_byte_limit || null === $site_byte_limit ) {
 			OC_Logger::error( 'Preview security budgets are unavailable or malformed.' );
@@ -1039,17 +1163,33 @@ class OC_Rest_API {
 		}
 
 		[ $window_start, $window_end ] = self::hourly_window();
-		$message = __( 'The preview upload limit has been reached. Please try again later.', 'overcustomise' );
+		$message                       = __( 'The preview upload limit has been reached. Please try again later.', 'overcustomise' );
 		return [
 			[
-				'key' => 'preview:ip:' . hash( 'sha256', $ip ), 'window_start' => $window_start, 'window_end' => $window_end,
-				'count' => 1, 'bytes' => $bytes, 'count_limit' => $ip_count_limit, 'byte_limit' => $ip_byte_limit,
-				'count_mode' => 'request', 'bytes_mode' => 'actual', 'error_code' => 'preview_limit_reached', 'error_message' => $message,
+				'key'           => 'preview:ip:' . hash( 'sha256', $ip ),
+				'window_start'  => $window_start,
+				'window_end'    => $window_end,
+				'count'         => 1,
+				'bytes'         => $bytes,
+				'count_limit'   => $ip_count_limit,
+				'byte_limit'    => $ip_byte_limit,
+				'count_mode'    => 'request',
+				'bytes_mode'    => 'actual',
+				'error_code'    => 'preview_limit_reached',
+				'error_message' => $message,
 			],
 			[
-				'key' => 'preview:site:' . (int) get_current_blog_id(), 'window_start' => $window_start, 'window_end' => $window_end,
-				'count' => 0, 'bytes' => $bytes, 'count_limit' => 0, 'byte_limit' => $site_byte_limit,
-				'count_mode' => 'none', 'bytes_mode' => 'actual', 'error_code' => 'preview_limit_reached', 'error_message' => $message,
+				'key'           => 'preview:site:' . (int) get_current_blog_id(),
+				'window_start'  => $window_start,
+				'window_end'    => $window_end,
+				'count'         => 0,
+				'bytes'         => $bytes,
+				'count_limit'   => 0,
+				'byte_limit'    => $site_byte_limit,
+				'count_mode'    => 'none',
+				'bytes_mode'    => 'actual',
+				'error_code'    => 'preview_limit_reached',
+				'error_message' => $message,
 			],
 		];
 	}
@@ -1071,16 +1211,41 @@ class OC_Rest_API {
 
 		$window_start = time();
 		$window_end   = $window_start + 15 * MINUTE_IN_SECONDS;
-		$message = __( 'The image processing limit has been reached. Please try again later.', 'overcustomise' );
-		$base    = [
-			'window_start' => $window_start, 'window_end' => $window_end, 'count' => 1, 'bytes' => 0, 'byte_limit' => 0,
+		$message      = __( 'The image processing limit has been reached. Please try again later.', 'overcustomise' );
+		$base         = [
+			'window_start'   => $window_start,
+			'window_end'     => $window_end,
+			'count'          => 1,
+			'bytes'          => 0,
+			'byte_limit'     => 0,
 			'sliding_window' => true,
-			'count_mode' => 'request', 'bytes_mode' => 'none', 'error_code' => 'ai_quota_exceeded', 'error_message' => $message,
+			'count_mode'     => 'request',
+			'bytes_mode'     => 'none',
+			'error_code'     => 'ai_quota_exceeded',
+			'error_message'  => $message,
 		];
 		return [
-			array_merge( $base, [ 'key' => 'ai:actor:' . hash( 'sha256', $actor ), 'count_limit' => $actor_limit ] ),
-			array_merge( $base, [ 'key' => 'ai:ip:' . hash( 'sha256', $ip ), 'count_limit' => $ip_limit ] ),
-			array_merge( $base, [ 'key' => 'ai:site:' . (int) get_current_blog_id(), 'count_limit' => $site_limit ] ),
+			array_merge(
+				$base,
+				[
+					'key'         => 'ai:actor:' . hash( 'sha256', $actor ),
+					'count_limit' => $actor_limit,
+				]
+			),
+			array_merge(
+				$base,
+				[
+					'key'         => 'ai:ip:' . hash( 'sha256', $ip ),
+					'count_limit' => $ip_limit,
+				]
+			),
+			array_merge(
+				$base,
+				[
+					'key'         => 'ai:site:' . (int) get_current_blog_id(),
+					'count_limit' => $site_limit,
+				]
+			),
 		];
 	}
 
@@ -1105,11 +1270,23 @@ class OC_Rest_API {
 			return new \WP_Error( 'security_budget_unavailable', __( 'This request cannot be processed safely right now.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 		[ $window_start, $window_end ] = self::hourly_window();
-		return self::reserve_budgets( [ [
-			'key' => 'request:' . $scope . ':' . hash( 'sha256', $ip ), 'window_start' => $window_start, 'window_end' => $window_end,
-			'count' => 1, 'bytes' => 0, 'count_limit' => $limit, 'byte_limit' => 0,
-			'count_mode' => 'request', 'bytes_mode' => 'none', 'error_code' => 'rate_limited', 'error_message' => $message,
-		] ] );
+		return self::reserve_budgets(
+			[
+				[
+					'key'           => 'request:' . $scope . ':' . hash( 'sha256', $ip ),
+					'window_start'  => $window_start,
+					'window_end'    => $window_end,
+					'count'         => 1,
+					'bytes'         => 0,
+					'count_limit'   => $limit,
+					'byte_limit'    => 0,
+					'count_mode'    => 'request',
+					'bytes_mode'    => 'none',
+					'error_code'    => 'rate_limited',
+					'error_message' => $message,
+				],
+			]
+		);
 	}
 
 	/** Resolve only published, catalog-visible product/variation contexts. */
@@ -1132,7 +1309,10 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_variation', __( 'Please select an available product variation.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		return [ 'product' => $product, 'variation' => $variation ];
+		return [
+			'product'   => $product,
+			'variation' => $variation,
+		];
 	}
 
 	/** Require publish status and WooCommerce's public visibility decision. */
@@ -1163,50 +1343,54 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_design', __( 'This customisation design is not available.', 'overcustomise' ), [ 'status' => 404 ] );
 		}
 
-		return array_merge( $product_context, [ 'assignment' => $assignment, 'design' => $design ] );
+		return array_merge(
+			$product_context,
+			[
+				'assignment' => $assignment,
+				'design'     => $design,
+			]
+		);
+	}
+
+	/** Resolve a public assignment for a read, including initial variable-product fallback. */
+	private static function public_read_assignment_context( int $product_id, int $variation_id ): array|\WP_Error {
+		$product_context = self::public_product_context( $product_id, $variation_id, false );
+		if ( is_wp_error( $product_context ) ) {
+			return $product_context;
+		}
+
+		$assignment            = OC_DB::get_assignment_for_product( $product_id, $variation_id, 0 === $variation_id );
+		$assigned_variation_id = absint( $assignment->variant_id ?? 0 );
+		if ( 0 === $variation_id && $assigned_variation_id ) {
+			$fallback_context = self::public_product_context( $product_id, $assigned_variation_id, true );
+			if ( is_wp_error( $fallback_context ) ) {
+				return $fallback_context;
+			}
+		}
+
+		return array_merge( $product_context, [ 'assignment' => $assignment ] );
 	}
 
 	/** Fetch a visible, editable layer whose containing area is also visible. */
 	private static function public_design_layer( int $design_id, int $layer_id, array $eligible_types ): object {
 		global $wpdb;
-		$layer = $wpdb->get_row( $wpdb->prepare(
-			"SELECT l.id, l.design_id, l.area_id, l.type, l.visible, l.locked, l.settings
+		$layer = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT l.id, l.design_id, l.area_id, l.type, l.visible, l.locked, l.settings
 			 FROM {$wpdb->prefix}oc_design_layers l
 			 INNER JOIN {$wpdb->prefix}oc_design_print_areas a ON a.id = l.area_id AND a.design_id = l.design_id
 			 INNER JOIN {$wpdb->prefix}oc_designs d ON d.id = l.design_id
 			 WHERE l.id = %d AND l.design_id = %d AND l.visible = 1 AND l.locked = 0 AND a.visible = 1 AND d.active = 1
 			 LIMIT 1",
-			$layer_id,
-			$design_id
-		) );
+				$layer_id,
+				$design_id
+			)
+		);
 		if ( ! $layer || ! in_array( (string) $layer->type, $eligible_types, true ) ) {
 			return new \WP_Error( 'invalid_layer', __( 'This customisation layer is not available.', 'overcustomise' ), [ 'status' => 404 ] );
 		}
 
 		return $layer;
-	}
-
-	/** Confirm preloaded variant state cannot contain hidden areas or layers. */
-	private static function design_state_is_fully_public( int $design_id ): bool {
-		global $wpdb;
-		$counts = $wpdb->get_row( $wpdb->prepare(
-			"SELECT
-				(SELECT COUNT(*) FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d) AS area_count,
-				(SELECT COUNT(*) FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d AND visible = 1) AS visible_area_count,
-				(SELECT COUNT(*) FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d) AS layer_count,
-				(SELECT COUNT(*) FROM {$wpdb->prefix}oc_design_layers l
-				 INNER JOIN {$wpdb->prefix}oc_design_print_areas a ON a.id = l.area_id AND a.design_id = l.design_id
-				 WHERE l.design_id = %d AND l.visible = 1 AND a.visible = 1) AS visible_layer_count",
-			$design_id,
-			$design_id,
-			$design_id,
-			$design_id
-		) );
-		return $counts
-			&& (int) $counts->area_count > 0
-			&& (int) $counts->layer_count > 0
-			&& (int) $counts->area_count === (int) $counts->visible_area_count
-			&& (int) $counts->layer_count === (int) $counts->visible_layer_count;
 	}
 
 	/** Decode a layer settings JSON object, rejecting malformed or oversized data. */
@@ -1320,7 +1504,11 @@ class OC_Rest_API {
 			return new \WP_Error( 'image_change_locked', __( 'The image is fixed for this design.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		return [ 'formats' => $formats, 'max_size_mb' => $max_size, 'remove_background' => $remove_bg ];
+		return [
+			'formats'           => $formats,
+			'max_size_mb'       => $max_size,
+			'remove_background' => $remove_bg,
+		];
 	}
 
 	// -------------------------------------------------------------------------
@@ -1332,16 +1520,24 @@ class OC_Rest_API {
 	 * Used by the frontend JS to detect design changes on variation switch.
 	 */
 	public function get_product_design( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
-		$product_id = absint( $request->get_param( 'product_id' ) );
-		$variant_id = (int) $request->get_param( 'variant_id' );
+		$product_id   = absint( $request->get_param( 'product_id' ) );
+		$variant_id   = (int) $request->get_param( 'variant_id' );
+		$design_id    = absint( $request->get_param( 'design_id' ) );
+		$read_context = self::public_read_assignment_context( $product_id, $variant_id );
+		if ( is_wp_error( $read_context ) ) {
+			return $read_context;
+		}
+		$assignment = $read_context['assignment'];
 
-		$product_context = self::public_product_context( $product_id, $variant_id, false );
-		if ( is_wp_error( $product_context ) ) {
-			return $product_context;
+		if ( $design_id ) {
+			$design = OC_DB::get_design( $design_id );
+			if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $design_id ) || ! $design || ! (bool) $design->active ) {
+				return new \WP_Error( 'invalid_design', __( 'This customisation design is not available.', 'overcustomise' ), [ 'status' => 404 ] );
+			}
 		}
 
 		try {
-			$state = OC_Frontend::build_assignment_state( (int) $product_id, $variant_id );
+			$state = OC_Frontend::build_assignment_state( (int) $product_id, $variant_id, $design_id, 0 === $variant_id );
 		} catch ( \Throwable $e ) {
 			OC_Logger::error( 'Public product design state could not be built: ' . $e->getMessage() );
 			return new \WP_Error( 'design_unavailable', __( 'This customisation is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
@@ -1350,21 +1546,31 @@ class OC_Rest_API {
 			return $state;
 		}
 		if ( empty( $state['active'] ) ) {
-			return rest_ensure_response( [ 'design_id' => 0, 'active' => false ] );
+			return rest_ensure_response(
+				[
+					'design_id' => 0,
+					'active'    => false,
+				]
+			);
 		}
 
-		// OC_Frontend preloads alternate states. Retain only variants whose entire
-		// preloaded payload is public, since hidden rows cannot be safely trimmed out
-		// of their rendered panel HTML here.
-		$assignment       = OC_DB::get_assignment_for_product( $product_id, $variant_id );
+		$selected_design_id = absint( $state['designId'] ?? $state['design_id'] ?? 0 );
+		$selected_design    = $selected_design_id ? OC_DB::get_design( $selected_design_id ) : null;
+		if ( ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $selected_design_id )
+			|| ! $selected_design || ! (bool) $selected_design->active
+		) {
+			return new \WP_Error( 'invalid_design', __( 'This customisation design is not available.', 'overcustomise' ), [ 'status' => 404 ] );
+		}
+
+		// Retain only options whose complete frontend state can be requested publicly.
 		$public_variants  = [];
 		$public_state_ids = [];
 		foreach ( is_array( $state['designVariants'] ?? null ) ? $state['designVariants'] : [] as $variant ) {
 			$variant_design_id = absint( $variant['designId'] ?? 0 );
 			$variant_state_id  = is_string( $variant['id'] ?? null ) ? $variant['id'] : '';
 			$variant_design    = $variant_design_id ? OC_DB::get_design( $variant_design_id ) : null;
-			if ( '' === $variant_state_id || ! $assignment || ! OC_DB::assignment_allows_design( $assignment, $variant_design_id )
-				|| ! $variant_design || ! (bool) $variant_design->active || ! self::design_state_is_fully_public( $variant_design_id )
+			if ( '' === $variant_state_id || ! OC_DB::assignment_allows_design( $assignment, $variant_design_id )
+				|| ! $variant_design || ! (bool) $variant_design->active
 			) {
 				continue;
 			}
@@ -1385,12 +1591,12 @@ class OC_Rest_API {
 	/** Return the active product config, print areas, and font list for the customiser. */
 	public function get_product_config( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		$product_id = absint( $request->get_param( 'product_id' ) );
-		$product     = self::public_product_context( $product_id );
+		$product    = self::public_product_context( $product_id );
 		if ( is_wp_error( $product ) ) {
 			return $product;
 		}
 
-		$config     = OC_DB::get_config_by_product( $product_id );
+		$config = OC_DB::get_config_by_product( $product_id );
 
 		if ( ! $config || ! $config->active ) {
 			return new \WP_Error( 'not_found', __( 'No active customisation config for this product.', 'overcustomise' ), [ 'status' => 404 ] );
@@ -1404,40 +1610,45 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_config', __( 'This customisation is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
-		$areas_out = array_map( function( $area ) {
-			$mockup_id     = absint( $area->mockup_attachment_id ?? 0 );
-			$mockup_status = $mockup_id ? get_post_status( $mockup_id ) : false;
-			$mockup_url    = $mockup_id && in_array( $mockup_status, [ 'inherit', 'publish' ], true )
+		$areas_out = array_map(
+			function ( $area ) {
+				$mockup_id     = absint( $area->mockup_attachment_id ?? 0 );
+				$mockup_status = $mockup_id ? get_post_status( $mockup_id ) : false;
+				$mockup_url    = $mockup_id && in_array( $mockup_status, [ 'inherit', 'publish' ], true )
 				? wp_get_attachment_image_url( $mockup_id, 'full' )
 				: '';
 
-			return [
-				'id'           => (int) $area->id,
-				'area_key'     => $area->area_key,
-				'label'        => $area->label,
-				'print_method' => $area->print_method,
-				'engraving_material' => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
-				'mockup_url'   => $mockup_url,
-				'canvas'       => [
-					'x' => (int) $area->canvas_x,
-					'y' => (int) $area->canvas_y,
-					'w' => (int) $area->canvas_w,
-					'h' => (int) $area->canvas_h,
-					'rotation' => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
-				],
-			];
-		}, $areas );
+				return [
+					'id'                 => (int) $area->id,
+					'area_key'           => $area->area_key,
+					'label'              => $area->label,
+					'print_method'       => $area->print_method,
+					'engraving_material' => isset( $area->engraving_material ) ? (string) $area->engraving_material : 'silver_metal',
+					'mockup_url'         => $mockup_url,
+					'canvas'             => [
+						'x'        => (int) $area->canvas_x,
+						'y'        => (int) $area->canvas_y,
+						'w'        => (int) $area->canvas_w,
+						'h'        => (int) $area->canvas_h,
+						'rotation' => isset( $area->canvas_rotation ) ? (int) $area->canvas_rotation : 0,
+					],
+				];
+			},
+			$areas
+		);
 
-		return rest_ensure_response( [
-			'config_id'          => (int) $config->id,
-			'product_id'         => (int) $config->product_id,
-			'custom_type'        => $config->custom_type,
-			'flat_rate'          => (float) $config->flat_rate,
-			'print_areas'        => array_values( $areas_out ),
-			'fonts'              => OC_Font_Registry::get_fonts_for_js(),
-			'allowed_formats'    => $allowed_formats,
-			'max_upload_size_mb' => $max_upload_mb,
-		] );
+		return rest_ensure_response(
+			[
+				'config_id'          => (int) $config->id,
+				'product_id'         => (int) $config->product_id,
+				'custom_type'        => $config->custom_type,
+				'flat_rate'          => (float) $config->flat_rate,
+				'print_areas'        => array_values( $areas_out ),
+				'fonts'              => OC_Font_Registry::get_fonts_for_js(),
+				'allowed_formats'    => $allowed_formats,
+				'max_upload_size_mb' => $max_upload_mb,
+			]
+		);
 	}
 
 	/** Return all active fonts. */
@@ -1510,13 +1721,17 @@ class OC_Rest_API {
 		}
 
 		try {
-			$result = OC_Upload_Handler::process( $files['artwork'], $layer_overrides, [
-				'product_id'   => $product_id,
-				'variation_id' => $variation_id,
-				'design_id'    => $design_id,
-				'layer_id'     => $layer_id,
-				'token_hash'   => $token ? hash( 'sha256', $token ) : '',
-			] );
+			$result = OC_Upload_Handler::process(
+				$files['artwork'],
+				$layer_overrides,
+				[
+					'product_id'   => $product_id,
+					'variation_id' => $variation_id,
+					'design_id'    => $design_id,
+					'layer_id'     => $layer_id,
+					'token_hash'   => $token ? hash( 'sha256', $token ) : '',
+				]
+			);
 		} catch ( \Throwable $e ) {
 			self::finalise_budget_reservation( $reservation, 0, 0 );
 			OC_Logger::warning( 'Artwork upload failed: ' . $e->getMessage() );
@@ -1647,11 +1862,18 @@ class OC_Rest_API {
 			return new \WP_Error( 'authorisation_failed', __( 'The filtered image could not be prepared for this design.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
-		return rest_ensure_response( [
-			'source_attachment_id'     => $source_attachment_id,
-			'derivative_attachment_id' => $derivative_attachment_id,
-			'context'                  => [ 'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id, 'layer_id' => $layer_id ],
-		] );
+		return rest_ensure_response(
+			[
+				'source_attachment_id'     => $source_attachment_id,
+				'derivative_attachment_id' => $derivative_attachment_id,
+				'context'                  => [
+					'product_id'   => $product_id,
+					'variation_id' => $variation_id,
+					'design_id'    => $design_id,
+					'layer_id'     => $layer_id,
+				],
+			]
+		);
 	}
 
 	/** Apply an allowed AI filter and persist the result as owned artwork. */
@@ -1758,25 +1980,37 @@ class OC_Rest_API {
 		$source_is_default = $source_attachment_id === $default_attachment_id
 			&& OC_Upload_Handler::admin_default_attachment_is_valid( $source_attachment_id )
 			&& OC_Upload_Handler::ai_source_is_valid( $source_attachment_id, false );
-		$source_is_owned = ! $source_is_default
+		$source_is_owned   = ! $source_is_default
 			&& OC_Upload_Handler::attachment_is_accepted( $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token )
 			&& OC_Upload_Handler::ai_source_is_valid( $source_attachment_id, true );
 		if ( ! $source_is_default && ! $source_is_owned ) {
 			return new \WP_Error( 'invalid_attachment', __( 'The source image is not valid for this customisation.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$actor = is_user_logged_in()
+		$actor       = is_user_logged_in()
 			? 'user:' . get_current_user_id()
 			: (string) $token_state['binding_type'] . ':' . (string) $token_state['binding_hash'];
 		$fingerprint = OC_Upload_Handler::attachment_fingerprint( $source_attachment_id );
 		if ( '' === $fingerprint ) {
 			return new \WP_Error( 'invalid_attachment', __( 'The source image could not be identified.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
-		$group = hash( 'sha256', implode( '|', [
-			$actor, $fingerprint, $product_id, $variation_id, $design_id, $layer_id, $filter_id,
-		] ) );
+		$group       = hash(
+			'sha256',
+			implode(
+				'|',
+				[
+					$actor,
+					$fingerprint,
+					$product_id,
+					$variation_id,
+					$design_id,
+					$layer_id,
+					$filter_id,
+				]
+			)
+		);
 		$attempt_key = 'oc_ai_filter_attempt_' . $group;
-		$results = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
+		$results     = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
 		if ( ! empty( $body['list_only'] ) ) {
 			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
 			return rest_ensure_response( self::image_filter_result_payload( $results, $attempt_count ) );
@@ -1815,7 +2049,7 @@ class OC_Rest_API {
 				self::release_budget_reservation( $storage_reservation );
 				return $quota_reservation;
 			}
-			$attempt = $attempt_count + 1;
+			$attempt        = $attempt_count + 1;
 			$retention_days = max( 1, (int) OC_Admin_Settings::get( 'artwork_retention_days' ) ?: 90 );
 			if ( ! set_transient( $attempt_key, $attempt, $retention_days * DAY_IN_SECONDS ) ) {
 				self::release_budget_reservation( $storage_reservation );
@@ -1849,12 +2083,18 @@ class OC_Rest_API {
 					is_string( $generated['bytes'] ?? null ) ? $generated['bytes'] : '',
 					is_string( $generated['mime'] ?? null ) ? $generated['mime'] : '',
 					[
-						'product_id' => $product_id, 'variation_id' => $variation_id, 'design_id' => $design_id,
-						'layer_id' => $layer_id, 'token_hash' => $token ? hash( 'sha256', $token ) : '',
+						'product_id'   => $product_id,
+						'variation_id' => $variation_id,
+						'design_id'    => $design_id,
+						'layer_id'     => $layer_id,
+						'token_hash'   => $token ? hash( 'sha256', $token ) : '',
 					],
 					[
-						'source_attachment_id' => $source_attachment_id, 'filter_id' => $filter_id,
-						'attempt' => $attempt, 'group' => $group, 'model' => (string) ( $generated['model'] ?? $model ),
+						'source_attachment_id' => $source_attachment_id,
+						'filter_id'            => $filter_id,
+						'attempt'              => $attempt,
+						'group'                => $group,
+						'model'                => (string) ( $generated['model'] ?? $model ),
 					],
 					! empty( $filter->remove_background )
 				);
@@ -1897,16 +2137,18 @@ class OC_Rest_API {
 
 	/** Return authorised generated results belonging to one source/filter group. */
 	private static function image_filter_results( string $group, int $_source_attachment_id, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token ): array {
-		$ids = get_posts( [
-			'post_type'      => 'attachment',
-			'post_status'    => [ 'private', 'inherit' ],
-			'posts_per_page' => self::MAX_AI_FILTER_ATTEMPTS,
-			'fields'         => 'ids',
-			'orderby'        => 'ID',
-			'order'          => 'ASC',
-			'meta_key'       => '_oc_ai_filter_group',
-			'meta_value'     => $group,
-		] );
+		$ids     = get_posts(
+			[
+				'post_type'      => 'attachment',
+				'post_status'    => [ 'private', 'inherit' ],
+				'posts_per_page' => self::MAX_AI_FILTER_ATTEMPTS,
+				'fields'         => 'ids',
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
+				'meta_key'       => '_oc_ai_filter_group',
+				'meta_value'     => $group,
+			]
+		);
 		$results = [];
 		foreach ( array_map( 'absint', is_array( $ids ) ? $ids : [] ) as $attachment_id ) {
 			if ( ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token )
@@ -1973,11 +2215,13 @@ class OC_Rest_API {
 	private static function delete_owned_option( string $option_name, string $expected_value ): bool {
 		global $wpdb;
 
-		$deleted = $wpdb->query( $wpdb->prepare(
-			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
-			$option_name,
-			$expected_value
-		) );
+		$deleted = $wpdb->query(
+			$wpdb->prepare(
+				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+				$option_name,
+				$expected_value
+			)
+		);
 		if ( 1 !== $deleted ) {
 			return false;
 		}
@@ -2066,8 +2310,8 @@ class OC_Rest_API {
 			}
 
 			try {
-				$random   = bin2hex( random_bytes( 20 ) );
-				$secret   = bin2hex( random_bytes( 32 ) );
+				$random = bin2hex( random_bytes( 20 ) );
+				$secret = bin2hex( random_bytes( 32 ) );
 			} catch ( \Throwable $e ) {
 				self::finalise_budget_reservation( $reservation, 0, 0 );
 				OC_Logger::error( 'Secure private preview identifiers could not be generated.' );
@@ -2081,7 +2325,7 @@ class OC_Rest_API {
 				return new \WP_Error( 'preview_save_failed', __( 'The preview could not be saved safely.', 'overcustomise' ), [ 'status' => 503 ] );
 			}
 
-			$record = [
+			$record  = [
 				'version'      => 1,
 				'file'         => $filename,
 				'mime'         => $decoded['mime'],
@@ -2123,7 +2367,7 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_image', __( 'Invalid preview image data.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 		$image_info = @getimagesizefromstring( $data );
-		$mime       = is_array( $image_info ) ? (string) ( $image_info['mime'] ?? '' ) : '';
+		$mime       = is_array( $image_info ) ? $image_info['mime'] : '';
 		if ( ! in_array( $mime, [ 'image/jpeg', 'image/png' ], true ) ) {
 			$last_error = error_get_last();
 			OC_Logger::warning( 'Private preview validation failed: ' . ( $last_error['message'] ?? 'unsupported image data' ) );
@@ -2189,9 +2433,9 @@ class OC_Rest_API {
 
 		return add_query_arg(
 			[
-				'action'    => 'oc_serve_preview',
+				'action'     => 'oc_serve_preview',
 				'preview_id' => $id,
-				'signature' => hash_hmac( 'sha256', $id, $secret ),
+				'signature'  => hash_hmac( 'sha256', $id, $secret ),
 			],
 			admin_url( 'admin-post.php' )
 		);
@@ -2240,7 +2484,7 @@ class OC_Rest_API {
 		}
 
 		$image_info = @getimagesize( $record['path'] );
-		if ( ! is_array( $image_info ) || (string) ( $image_info['mime'] ?? '' ) !== $record['mime'] ) {
+		if ( ! is_array( $image_info ) || $image_info['mime'] !== $record['mime'] ) {
 			OC_Logger::warning( 'A signed private preview failed its serving-time MIME check.' );
 			wp_die( esc_html__( 'Preview is not available.', 'overcustomise' ), '', [ 'response' => 404 ] );
 		}
@@ -2352,12 +2596,15 @@ class OC_Rest_API {
 			}
 		}
 
-		$response = wp_safe_remote_get( $oembed_url, [
-			'timeout'             => 8,
-			'redirection'         => 3,
-			'limit_response_size' => self::SPOTIFY_RESPONSE_BYTES,
-			'headers'             => [ 'Accept' => 'application/json' ],
-		] );
+		$response = wp_safe_remote_get(
+			$oembed_url,
+			[
+				'timeout'             => 8,
+				'redirection'         => 3,
+				'limit_response_size' => self::SPOTIFY_RESPONSE_BYTES,
+				'headers'             => [ 'Accept' => 'application/json' ],
+			]
+		);
 
 		if ( is_wp_error( $response ) ) {
 			OC_Logger::warning( 'Spotify validation request failed: ' . $response->get_error_message() );
@@ -2410,7 +2657,7 @@ class OC_Rest_API {
 
 	/** Attach a time-bound proof to one successful Spotify validation result. */
 	private static function spotify_validation_with_proof( array $result, string $spotify_uri, int $expires = 0 ): array {
-		$expires = $expires > time() ? $expires : time() + 600;
+		$expires                     = $expires > time() ? $expires : time() + 600;
 		$result['validationExpires'] = $expires;
 		$result['validationProof']   = hash_hmac( 'sha256', $spotify_uri . '|' . $expires, wp_salt( 'auth' ) );
 		return $result;
@@ -2501,12 +2748,14 @@ class OC_Rest_API {
 			return new \WP_Error( 'generation_failed', $e->getMessage(), [ 'status' => 500 ] );
 		}
 
-		return rest_ensure_response( [
-			'file_id'   => $file_id,
-			'file_path' => basename( (string) ( $result['file_path'] ?? '' ) ),
-			'status'    => $result['status'] ?? '',
-			'warning'   => (string) ( $result['warning'] ?? '' ),
-		] );
+		return rest_ensure_response(
+			[
+				'file_id'   => $file_id,
+				'file_path' => basename( (string) ( $result['file_path'] ?? '' ) ),
+				'status'    => $result['status'] ?? '',
+				'warning'   => (string) ( $result['warning'] ?? '' ),
+			]
+		);
 	}
 
 	/** Upload and register a CSV file for VDP on a design. */
@@ -2576,10 +2825,12 @@ class OC_Rest_API {
 			@unlink( $filepath );
 			return new \WP_Error( 'invalid_csv', (string) ( $csv_data['error'] ?? __( 'CSV must contain at least one data row.', 'overcustomise' ) ), [ 'status' => 422 ] );
 		}
-		$all_layers = array_values( array_filter(
-			OC_DB::get_design_layers( $design_id ),
-			static fn( object $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true )
-		) );
+		$all_layers = array_values(
+			array_filter(
+				OC_DB::get_design_layers( $design_id ),
+				static fn( object $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true )
+			)
+		);
 		if ( count( $csv_data['headers'] ) > count( $all_layers ) ) {
 			self::delete_vdp_file( $filepath );
 			return new \WP_Error( 'invalid_csv_fields', __( 'The CSV contains more fields than the design has editable variable layers.', 'overcustomise' ), [ 'status' => 422 ] );
@@ -2608,11 +2859,13 @@ class OC_Rest_API {
 			if ( ! OC_DB::delete_vdp_template( $design_id ) ) {
 				throw new \RuntimeException( 'Could not remove the previous VDP template.' );
 			}
-			if ( ! OC_DB::upsert_vdp_template( [
-				'design_id'     => $design_id,
-				'csv_file_path' => $filepath,
-				'active'        => 1,
-			] ) ) {
+			if ( ! OC_DB::upsert_vdp_template(
+				[
+					'design_id'     => $design_id,
+					'csv_file_path' => $filepath,
+					'active'        => 1,
+				]
+			) ) {
 				throw new \RuntimeException( 'Could not create the VDP template.' );
 			}
 
@@ -2622,12 +2875,14 @@ class OC_Rest_API {
 			}
 
 			foreach ( $csv_data['headers'] as $index => $header ) {
-				$inserted = OC_DB::insert_vdp_field( [
-					'template_id' => (int) $template->id,
-					'field_name'  => $header,
-					'layer_id'    => $layer_ids[ $index ] ?? 0,
-					'sort_order'  => $index,
-				] );
+				$inserted = OC_DB::insert_vdp_field(
+					[
+						'template_id' => (int) $template->id,
+						'field_name'  => $header,
+						'layer_id'    => $layer_ids[ $index ] ?? 0,
+						'sort_order'  => $index,
+					]
+				);
 				if ( $inserted <= 0 ) {
 					throw new \RuntimeException( 'Could not save VDP fields.' );
 				}
@@ -2647,13 +2902,15 @@ class OC_Rest_API {
 			self::delete_vdp_file( $old_filepath );
 		}
 
-		return rest_ensure_response( [
-			'success'    => true,
-			'template_id' => (int) $template->id,
-			'fields'     => $csv_data['headers'],
-			'row_count'  => count( $csv_data['rows'] ),
-			'file_name'  => sanitize_file_name( basename( (string) $files['csv']['name'] ) ) ?: 'data.csv',
-		] );
+		return rest_ensure_response(
+			[
+				'success'     => true,
+				'template_id' => (int) $template->id,
+				'fields'      => $csv_data['headers'],
+				'row_count'   => count( $csv_data['rows'] ),
+				'file_name'   => sanitize_file_name( basename( (string) $files['csv']['name'] ) ) ?: 'data.csv',
+			]
+		);
 	}
 
 	/** Return the VDP directory outside public uploads. */
@@ -2675,10 +2932,12 @@ class OC_Rest_API {
 		self::protect_legacy_vdp_directory( $legacy_real );
 
 		global $wpdb;
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, csv_file_path FROM {$wpdb->prefix}oc_vdp_templates WHERE csv_file_path LIKE %s ORDER BY id ASC LIMIT 25",
-			$wpdb->esc_like( rtrim( wp_normalize_path( $legacy_directory ), '/' ) ) . '/%'
-		) ) ?: [];
+		$rows = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, csv_file_path FROM {$wpdb->prefix}oc_vdp_templates WHERE csv_file_path LIKE %s ORDER BY id ASC LIMIT 25",
+				$wpdb->esc_like( rtrim( wp_normalize_path( $legacy_directory ), '/' ) ) . '/%'
+			)
+		) ?: [];
 		foreach ( $rows as $row ) {
 			$source = realpath( (string) $row->csv_file_path );
 			if ( false === $source || ! is_file( $source ) || ! self::path_is_within( $source, $legacy_real ) ) {
@@ -2690,12 +2949,14 @@ class OC_Rest_API {
 				OC_Logger::warning( 'A legacy VDP file could not be copied into private storage.' );
 				continue;
 			}
-			$updated = $wpdb->query( $wpdb->prepare(
-				"UPDATE {$wpdb->prefix}oc_vdp_templates SET csv_file_path = %s WHERE id = %d AND csv_file_path = %s",
-				$destination,
-				(int) $row->id,
-				(string) $row->csv_file_path
-			) );
+			$updated = $wpdb->query(
+				$wpdb->prepare(
+					"UPDATE {$wpdb->prefix}oc_vdp_templates SET csv_file_path = %s WHERE id = %d AND csv_file_path = %s",
+					$destination,
+					(int) $row->id,
+					(string) $row->csv_file_path
+				)
+			);
 			if ( 1 !== $updated ) {
 				@unlink( $destination ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				OC_Logger::warning( 'A legacy VDP migration lost its database update race.' );
@@ -2722,9 +2983,9 @@ class OC_Rest_API {
 	/** Install best-effort deny rules while bounded VDP migration is in progress. */
 	private static function protect_legacy_vdp_directory( string $directory ): bool {
 		$files = [
-			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
+			'.htaccess'  => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
 			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
-			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
+			'index.php'  => "<?php\nhttp_response_code( 404 );\nexit;\n",
 		];
 		foreach ( $files as $filename => $contents ) {
 			$path = $directory . '/' . $filename;
@@ -2751,7 +3012,7 @@ class OC_Rest_API {
 			return;
 		}
 
-		$uploads = wp_upload_dir();
+		$uploads      = wp_upload_dir();
 		$uploads_real = empty( $uploads['error'] ) ? realpath( (string) ( $uploads['basedir'] ?? '' ) ) : false;
 		$legacy       = false !== $uploads_real ? realpath( $uploads_real . '/overcustomise/vdp' ) : false;
 		if ( false !== $uploads_real && false !== $legacy && self::path_is_within( $legacy, $uploads_real ) && self::path_is_within( $real, $legacy ) ) {
@@ -2768,7 +3029,7 @@ class OC_Rest_API {
 		$ok  = false;
 		try {
 			$source_size = filesize( $source );
-			$ok = false !== $source_size && $source_size > 0
+			$ok          = false !== $source_size && $source_size > 0
 				&& copy( $source, $tmp )
 				&& filesize( $tmp ) === $source_size
 				&& @chmod( $tmp, 0640 ) // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -2822,5 +3083,4 @@ class OC_Rest_API {
 
 		return array_values( array_intersect( $allowed, array_map( 'sanitize_key', $methods ) ) );
 	}
-
 }

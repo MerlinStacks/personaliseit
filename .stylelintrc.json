@@ -1,0 +1,13 @@
+{
+	"extends": "@wordpress/stylelint-config/scss-stylistic",
+	"rules": {
+		"selector-class-pattern": null,
+		"@stylistic/declaration-colon-newline-after": null,
+		"@stylistic/function-comma-space-after": null,
+		"@stylistic/function-parentheses-space-inside": null,
+		"@stylistic/indentation": null,
+		"@stylistic/value-list-comma-newline-after": null,
+		"at-rule-empty-line-before": null,
+		"rule-empty-line-before": null
+	}
+}

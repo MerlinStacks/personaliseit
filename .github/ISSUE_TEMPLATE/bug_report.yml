@@ -1,0 +1,80 @@
+name: Bug report
+description: Report a reproducible problem in OverCustomise
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve OverCustomise. Search existing issues first and remove all customer data, credentials, and secrets from your report. Security vulnerabilities must be reported privately according to SECURITY.md.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and did not find a duplicate.
+          required: true
+        - label: This is not a security vulnerability or a general support request.
+          required: true
+        - label: I removed customer data, credentials, webhook secrets, and other sensitive information.
+          required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem
+      description: What happened, and what did you expect instead?
+      placeholder: Describe the observable problem and expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create or configure ...
+        2. Open ...
+        3. Select ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: OverCustomise version or commit
+      placeholder: 1.16.3 or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include WordPress, WooCommerce, PHP, browser, and relevant server component versions.
+      placeholder: WordPress x.x, WooCommerce x.x, PHP x.x, Chrome x
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Storefront customiser
+        - Cart or checkout
+        - Design or asset administration
+        - Uploads or image filters
+        - Print queue or generated files
+        - Webhooks or integrations
+        - Installation or upgrade
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Drag files here if useful. Remove personal information, private artwork, filesystem paths, tokens, and secrets.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Include the active theme, relevant plugins, print method, or configuration if it may affect the issue.

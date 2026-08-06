@@ -75,6 +75,38 @@ module.exports = {
 	output: {
 		...defaultConfig.output,
 		path: path.resolve( __dirname, 'assets/build' ),
+		// Entry files live one directory below the build root. Webpack's automatic
+		// public path derives that root from the enqueued WordPress script URL.
+		publicPath: 'auto',
+		chunkFilename: 'chunks/[name].[contenthash:8].js',
+	},
+	optimization: {
+		...defaultConfig.optimization,
+		splitChunks: {
+			...defaultConfig.optimization.splitChunks,
+			cacheGroups: {
+				...defaultConfig.optimization.splitChunks.cacheGroups,
+				defaultVendors: false,
+				customiserCore: {
+					test: /[\\/]node_modules[\\/]fabric[\\/]/,
+					chunks: 'async',
+					name: 'customiser-core',
+					enforce: true,
+				},
+				fontConversion: {
+					test: /[\\/]node_modules[\\/]fonteditor-core[\\/]/,
+					chunks: 'async',
+					name: 'font-conversion',
+					enforce: true,
+				},
+				uploadTools: {
+					test: /[\\/]node_modules[\\/]@uppy[\\/]/,
+					chunks: 'async',
+					name: 'upload-tools',
+					enforce: true,
+				},
+			},
+		},
 	},
 	plugins: [
 		// Replace the default DependencyExtractionWebpackPlugin with one that

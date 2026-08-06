@@ -10,28 +10,25 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Fonts {
 
-	private const FONT_SUBDIR = 'overcustomise/fonts';
+	private const FONT_SUBDIR        = 'overcustomise/fonts';
 	private const INITIAL_CARD_LIMIT = 60;
 
 	/** Clear cached font and font-group data after manager changes. */
 	private static function clear_font_cache(): void {
-		OC_Cache::delete( 'fonts_active' );
-		OC_Cache::delete( 'fonts_all' );
-		OC_Cache::delete( 'fonts_v2_active' );
-		OC_Cache::delete( 'fonts_v2_all' );
-		OC_Cache::delete( 'font_groups' );
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
+		OC_Plugin::reset_browser_fonts();
 	}
 
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
-		add_action( 'wp_ajax_oc_font_upload',       [ self::class, 'ajax_upload' ] );
-		add_action( 'wp_ajax_oc_font_rename',       [ self::class, 'ajax_rename' ] );
-		add_action( 'wp_ajax_oc_font_convert',      [ self::class, 'ajax_convert' ] );
+		add_action( 'wp_ajax_oc_font_upload', [ self::class, 'ajax_upload' ] );
+		add_action( 'wp_ajax_oc_font_rename', [ self::class, 'ajax_rename' ] );
+		add_action( 'wp_ajax_oc_font_convert', [ self::class, 'ajax_convert' ] );
 		add_action( 'wp_ajax_oc_font_replace_print', [ self::class, 'ajax_replace_print' ] );
-		add_action( 'wp_ajax_oc_group_create',      [ self::class, 'ajax_group_create' ] );
-		add_action( 'wp_ajax_oc_group_update',      [ self::class, 'ajax_group_update' ] );
-		add_action( 'wp_ajax_oc_group_delete',      [ self::class, 'ajax_group_delete' ] );
+		add_action( 'wp_ajax_oc_group_create', [ self::class, 'ajax_group_create' ] );
+		add_action( 'wp_ajax_oc_group_update', [ self::class, 'ajax_group_update' ] );
+		add_action( 'wp_ajax_oc_group_delete', [ self::class, 'ajax_group_delete' ] );
 	}
 
 	// ── Page render ────────────────────────────────────────────────────────────
@@ -42,8 +39,12 @@ class OC_Admin_Fonts {
 		}
 
 		$get_action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
-		if ( 'toggle' === $get_action ) { $this->handle_toggle(); }
-		if ( 'delete' === $get_action ) { $this->handle_delete(); }
+		if ( 'toggle' === $get_action ) {
+			$this->handle_toggle();
+		}
+		if ( 'delete' === $get_action ) {
+			$this->handle_delete();
+		}
 
 		$fonts  = OC_DB::get_fonts( false );
 		$groups = OC_DB::get_font_groups();
@@ -52,13 +53,16 @@ class OC_Admin_Fonts {
 		$fonts_js = array_map( [ self::class, 'font_payload' ], $fonts );
 
 		// JS payload — groups.
-		$groups_js = array_map( function ( $g ) {
-			return [
-				'id'      => (int) $g->id,
-				'name'    => $g->name,
-				'fontIds' => array_map( 'intval', $g->font_ids ),
-			];
-		}, $groups );
+		$groups_js = array_map(
+			function ( $g ) {
+				return [
+					'id'      => (int) $g->id,
+					'name'    => $g->name,
+					'fontIds' => array_map( 'intval', $g->font_ids ),
+				];
+			},
+			$groups
+		);
 		?>
 		<script>
 		window.ocFontsData  = <?php echo wp_json_encode( $fonts_js ); ?>;
@@ -103,7 +107,7 @@ class OC_Admin_Fonts {
 					<div class="oc-card-header">
 						<h2><?php esc_html_e( 'Installed Fonts', 'overcustomise' ); ?></h2>
 						<span id="oc-fonts-count" style="font-size:12px;color:var(--oc-gray-400);">
-							<?php echo esc_html( count( $fonts ) ); ?> <?php echo esc_html( 1 === count( $fonts ) ? __( 'font', 'overcustomise' ) : __( 'fonts', 'overcustomise' ) ); ?>
+							<?php echo esc_html( (string) count( $fonts ) ); ?> <?php echo esc_html( 1 === count( $fonts ) ? __( 'font', 'overcustomise' ) : __( 'fonts', 'overcustomise' ) ); ?>
 						</span>
 					</div>
 
@@ -117,10 +121,10 @@ class OC_Admin_Fonts {
 					<?php else : ?>
 						<div class="oc-font-grid" id="oc-font-grid">
 			<?php foreach ( array_slice( $fonts, 0, self::INITIAL_CARD_LIMIT ) as $font ) :
-								$font_url   = self::get_font_url( $font->file_path );
-								$ext        = strtoupper( pathinfo( $font->file_path, PATHINFO_EXTENSION ) );
+								$font_url    = self::get_font_url( $font->file_path );
+								$ext         = strtoupper( pathinfo( $font->file_path, PATHINFO_EXTENSION ) );
 								$can_convert = self::can_convert_for_print( (string) $font->file_path );
-								$preview_id = 'oc-preview-' . (int) $font->id;
+								$preview_id  = 'oc-preview-' . (int) $font->id;
 								$font_weight = self::normalise_font_weight( $font->weight ?? 'normal' );
 								$font_style  = self::normalise_font_style( $font->style ?? 'normal' );
 								?>
@@ -190,7 +194,7 @@ class OC_Admin_Fonts {
 						</div>
 						<?php if ( count( $fonts ) > self::INITIAL_CARD_LIMIT ) : ?>
 							<div style="padding:0 18px 18px;text-align:center;">
-								<button type="button" class="button" id="oc-font-load-more" data-offset="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>">
+								<button type="button" class="button" id="oc-font-load-more" data-offset="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>">
 									<?php esc_html_e( 'Load more fonts', 'overcustomise' ); ?>
 								</button>
 							</div>
@@ -207,7 +211,7 @@ class OC_Admin_Fonts {
 					<div class="oc-card-header">
 						<h2><?php esc_html_e( 'Font Groups', 'overcustomise' ); ?></h2>
 						<span id="oc-groups-count" style="font-size:12px;color:var(--oc-gray-400);">
-							<?php echo esc_html( count( $groups ) ); ?> <?php echo esc_html( 1 === count( $groups ) ? __( 'group', 'overcustomise' ) : __( 'groups', 'overcustomise' ) ); ?>
+							<?php echo esc_html( (string) count( $groups ) ); ?> <?php echo esc_html( 1 === count( $groups ) ? __( 'group', 'overcustomise' ) : __( 'groups', 'overcustomise' ) ); ?>
 						</span>
 					</div>
 
@@ -233,19 +237,24 @@ class OC_Admin_Fonts {
 											<?php echo esc_html( $member_count . ' ' . ( 1 === $member_count ? __( 'font', 'overcustomise' ) : __( 'fonts', 'overcustomise' ) ) ); ?>
 										</p>
 										<div class="oc-group-card-previews">
-											<?php foreach ( array_slice( $group->font_ids, 0, 5 ) as $fid ) :
+										<?php foreach ( array_slice( $group->font_ids, 0, 5 ) as $fid ) :
 												// Find the font by ID.
 												$fdata = null;
 												foreach ( $fonts as $f ) {
-													if ( (int) $f->id === (int) $fid ) { $fdata = $f; break; }
+													if ( (int) $f->id === (int) $fid ) {
+														$fdata = $f;
+													break;
 												}
-												if ( ! $fdata ) continue;
+												}
+												if ( ! $fdata ) {
+													continue;
+												}
 												?>
-												<span style="font-family:'oc-preview-<?php echo (int) $fid; ?>';font-weight:<?php echo esc_attr( self::normalise_font_weight( $fdata->weight ?? 'normal' ) ); ?>;font-style:<?php echo esc_attr( self::normalise_font_style( $fdata->style ?? 'normal' ) ); ?>;"
-												      title="<?php echo esc_attr( $fdata->name ); ?>">Aa</span>
+											<span style="font-family:'oc-preview-<?php echo (int) $fid; ?>';font-weight:<?php echo esc_attr( self::normalise_font_weight( $fdata->weight ?? 'normal' ) ); ?>;font-style:<?php echo esc_attr( self::normalise_font_style( $fdata->style ?? 'normal' ) ); ?>;"
+											      title="<?php echo esc_attr( $fdata->name ); ?>">Aa</span>
 											<?php endforeach; ?>
 											<?php if ( $member_count > 5 ) : ?>
-												<span class="oc-group-card-more">+<?php echo esc_html( $member_count - 5 ); ?></span>
+								<span class="oc-group-card-more">+<?php echo esc_html( (string) ( $member_count - 5 ) ); ?></span>
 											<?php endif; ?>
 											<?php if ( 0 === $member_count ) : ?>
 												<span style="color:var(--oc-gray-400);font-size:12px;"><?php esc_html_e( 'Empty group', 'overcustomise' ); ?></span>
@@ -265,8 +274,8 @@ class OC_Admin_Fonts {
 				<div class="oc-modal oc-font-detail-modal">
 					<div class="oc-modal-header">
 						<div class="oc-font-detail-name-wrap">
-							<input type="text" id="oc-detail-name" class="oc-input oc-detail-name-input"
-							       placeholder="<?php esc_attr_e( 'Font family name', 'overcustomise' ); ?>" />
+			<input type="text" id="oc-detail-name" class="oc-input oc-detail-name-input"
+			       placeholder="<?php esc_attr_e( 'Font family name', 'overcustomise' ); ?>" />
 							<button id="oc-detail-save-name" class="oc-btn oc-btn-primary oc-btn-sm" type="button">
 								<?php esc_html_e( 'Rename', 'overcustomise' ); ?>
 							</button>
@@ -420,9 +429,12 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
-		$old_name = $wpdb->get_var( $wpdb->prepare(
-			"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d", $id
-		) );
+		$old_name = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT name FROM {$wpdb->prefix}oc_fonts WHERE id = %d",
+				$id
+			)
+		);
 
 		if ( ! $old_name ) {
 			wp_send_json_error( [ 'message' => __( 'Font not found.', 'overcustomise' ) ] );
@@ -432,14 +444,20 @@ class OC_Admin_Fonts {
 			"{$wpdb->prefix}oc_fonts",
 			[ 'name' => $new_name ],
 			[ 'id' => $id ],
-			[ '%s' ], [ '%d' ]
+			[ '%s' ],
+			[ '%d' ]
 		);
 		if ( false === $updated ) {
 			wp_send_json_error( [ 'message' => __( 'Could not rename font.', 'overcustomise' ) ], 500 );
 		}
 		self::clear_font_cache();
 
-		wp_send_json_success( [ 'newName' => $new_name, 'oldName' => $old_name ] );
+		wp_send_json_success(
+			[
+				'newName' => $new_name,
+				'oldName' => $old_name,
+			]
+		);
 	}
 
 	// ── AJAX: convert WOFF font to print-compatible sfnt ────────────────────────
@@ -498,7 +516,7 @@ class OC_Admin_Fonts {
 			wp_send_json_error( [ 'message' => __( 'Could not create font group.', 'overcustomise' ) ] );
 		}
 		$inserted = $wpdb->insert( "{$wpdb->prefix}oc_font_groups", [ 'name' => $name ], [ '%s' ] );
-		$id = (int) $wpdb->insert_id;
+		$id       = (int) $wpdb->insert_id;
 		if ( false === $inserted || $id <= 0 ) {
 			$wpdb->query( 'ROLLBACK' );
 			wp_send_json_error( [ 'message' => __( 'Could not create font group.', 'overcustomise' ) ] );
@@ -506,7 +524,11 @@ class OC_Admin_Fonts {
 		foreach ( $font_ids as $order => $font_id ) {
 			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_font_group_items",
-				[ 'group_id' => $id, 'font_id' => $font_id, 'sort_order' => $order ],
+				[
+					'group_id'   => $id,
+					'font_id'    => $font_id,
+					'sort_order' => $order,
+				],
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
@@ -520,7 +542,13 @@ class OC_Admin_Fonts {
 		}
 		self::clear_font_cache();
 
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'fontIds' => $font_ids ] );
+		wp_send_json_success(
+			[
+				'id'      => $id,
+				'name'    => $name,
+				'fontIds' => $font_ids,
+			]
+		);
 	}
 
 	// ── AJAX: group update (name + font members) ───────────────────────────────
@@ -554,8 +582,9 @@ class OC_Admin_Fonts {
 		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_font_groups",
 			[ 'name' => $name ],
-			[ 'id'   => $id ],
-			[ '%s' ], [ '%d' ]
+			[ 'id' => $id ],
+			[ '%s' ],
+			[ '%d' ]
 		);
 		if ( false === $updated ) {
 			$wpdb->query( 'ROLLBACK' );
@@ -571,7 +600,11 @@ class OC_Admin_Fonts {
 		foreach ( array_values( $font_ids ) as $order => $font_id ) {
 			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_font_group_items",
-				[ 'group_id' => $id, 'font_id' => $font_id, 'sort_order' => $order ],
+				[
+					'group_id'   => $id,
+					'font_id'    => $font_id,
+					'sort_order' => $order,
+				],
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
@@ -585,7 +618,13 @@ class OC_Admin_Fonts {
 		}
 		self::clear_font_cache();
 
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'fontIds' => array_values( $font_ids ) ] );
+		wp_send_json_success(
+			[
+				'id'      => $id,
+				'name'    => $name,
+				'fontIds' => array_values( $font_ids ),
+			]
+		);
 	}
 
 	// ── AJAX: group delete ─────────────────────────────────────────────────────
@@ -605,7 +644,7 @@ class OC_Admin_Fonts {
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not delete font group.', 'overcustomise' ) ], 500 );
 		}
-		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_font_groups WHERE id = %d FOR UPDATE", $id ) );
+		$group_exists  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_font_groups WHERE id = %d FOR UPDATE", $id ) );
 		$deleted_items = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_font_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
 		$deleted_group = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_font_groups", [ 'id' => $id ], [ '%d' ] ) : false;
 		if ( false === $deleted_items || 1 !== $deleted_group || false === $wpdb->query( 'COMMIT' ) ) {
@@ -649,7 +688,7 @@ class OC_Admin_Fonts {
 			return new \WP_Error( 'bad_font', __( 'The uploaded file is not a valid font container.', 'overcustomise' ) );
 		}
 
-		$upload   = wp_upload_dir();
+		$upload = wp_upload_dir();
 		if ( ! empty( $upload['error'] ) ) {
 			return new \WP_Error( 'upload_dir_error', (string) $upload['error'] );
 		}
@@ -688,12 +727,18 @@ class OC_Admin_Fonts {
 		global $wpdb;
 		$inserted = $wpdb->insert(
 			"{$wpdb->prefix}oc_fonts",
-			[ 'name' => $name, 'file_path' => $rel_path, 'weight' => $weight,
-			  'style' => $style, 'embroidery_suitable' => $embroidery, 'active' => 1 ],
+			[
+				'name'                => $name,
+				'file_path'           => $rel_path,
+				'weight'              => $weight,
+				'style'               => $style,
+				'embroidery_suitable' => $embroidery,
+				'active'              => 1,
+			],
 			[ '%s', '%s', '%s', '%s', '%d', '%d' ]
 		);
 
-		$id  = (int) $wpdb->insert_id;
+		$id = (int) $wpdb->insert_id;
 		if ( false === $inserted || $id <= 0 ) {
 			wp_delete_file( $dest );
 			return new \WP_Error( 'db_error', __( 'Could not save font record.', 'overcustomise' ) );
@@ -734,10 +779,10 @@ class OC_Admin_Fonts {
 			return new \WP_Error( 'upload_dir_error', (string) $upload['error'] );
 		}
 
-		$source = trailingslashit( $upload['basedir'] ) . ltrim( (string) $font->file_path, '/' );
-		$real   = realpath( $source );
-		$real   = $real ? wp_normalize_path( $real ) : '';
-		$base   = self::managed_font_directory( $upload );
+		$source      = trailingslashit( $upload['basedir'] ) . ltrim( (string) $font->file_path, '/' );
+		$real        = realpath( $source );
+		$real        = $real ? wp_normalize_path( $real ) : '';
+		$base        = self::managed_font_directory( $upload );
 		$base_prefix = $base ? rtrim( $base, '/' ) . '/' : '';
 		if ( ! $real || '' === $base_prefix || ! str_starts_with( $real, $base_prefix ) || ! is_file( $real ) ) {
 			return new \WP_Error( 'missing_file', __( 'Stored font file could not be found.', 'overcustomise' ) );
@@ -904,10 +949,15 @@ class OC_Admin_Fonts {
 
 		global $wpdb;
 		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
-		$existing = array_map( 'intval', $wpdb->get_col( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_fonts WHERE id IN ($placeholders)",
-			...$ids
-		) ) ?: [] );
+		$existing     = array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT id FROM {$wpdb->prefix}oc_fonts WHERE id IN ($placeholders)",
+					...$ids
+				)
+			) ?: []
+		);
 		if ( array_diff( $ids, $existing ) ) {
 			return new \WP_Error( 'stale_fonts', __( 'One or more selected fonts no longer exist.', 'overcustomise' ) );
 		}
@@ -959,7 +1009,7 @@ class OC_Admin_Fonts {
 		$state = isset( $_GET['state'] ) ? (int) $_GET['state'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_font_toggle_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_font_toggle_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -978,7 +1028,7 @@ class OC_Admin_Fonts {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_font_delete_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_font_delete_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -996,14 +1046,14 @@ class OC_Admin_Fonts {
 	}
 
 	private static function get_font_url( string $rel_path ): string {
-		$upload = wp_upload_dir();
+		$upload   = wp_upload_dir();
 		$rel_path = ltrim( wp_normalize_path( $rel_path ), '/' );
 		if ( ! str_starts_with( $rel_path, self::FONT_SUBDIR . '/' ) || str_contains( $rel_path, '../' ) ) {
 			return '';
 		}
-		$font_dir = self::managed_font_directory( $upload );
-		$base_dir = realpath( (string) ( $upload['basedir'] ?? '' ) );
-		$real     = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . $rel_path );
+		$font_dir  = self::managed_font_directory( $upload );
+		$base_dir  = realpath( (string) ( $upload['basedir'] ?? '' ) );
+		$real      = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . $rel_path );
 		$base_path = $base_dir ? rtrim( wp_normalize_path( $base_dir ), '/' ) : '';
 		$real_path = $real ? wp_normalize_path( $real ) : '';
 		if ( false === $font_dir || '' === $base_path || '' === $real_path || ! is_file( $real ) || ! str_starts_with( $real_path, rtrim( $font_dir, '/' ) . '/' ) ) {
@@ -1014,8 +1064,8 @@ class OC_Admin_Fonts {
 
 	/** Return the canonical font directory only when it remains inside uploads. */
 	private static function managed_font_directory( array $upload ): string|false {
-		$base = realpath( (string) ( $upload['basedir'] ?? '' ) );
-		$font = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . self::FONT_SUBDIR );
+		$base      = realpath( (string) ( $upload['basedir'] ?? '' ) );
+		$font      = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . self::FONT_SUBDIR );
 		$base_path = $base ? rtrim( wp_normalize_path( $base ), '/' ) : '';
 		$font_path = $font ? rtrim( wp_normalize_path( $font ), '/' ) : '';
 		return '' !== $base_path && '' !== $font_path && str_starts_with( $font_path, $base_path . '/' ) ? $font_path : false;

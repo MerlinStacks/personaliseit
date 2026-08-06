@@ -51,10 +51,18 @@ class OC_File_Cleanup {
 		$base_real     = $uploads_base ? realpath( trailingslashit( (string) $uploads_base ) . 'overcustomise/print-files' ) : false;
 		$handled_paths = [];
 		$expired_count = 0;
+		$shared_paths  = self::get_active_shared_paths( $expired );
+		if ( null === $shared_paths ) {
+			OC_Logger::warning( 'File cleanup retained a print-file batch because its shared references could not be checked.' );
+			self::cleanup_preview_images();
+			self::cleanup_customer_artwork();
+			self::cleanup_security_budgets();
+			return;
+		}
 
 		foreach ( $expired as $record ) {
-			$file_handled  = self::cleanup_record_path( $record, 'file_path', $base_real, $wp_filesystem, $handled_paths );
-			$thumb_handled = self::cleanup_record_path( $record, 'thumbnail_path', $base_real, $wp_filesystem, $handled_paths );
+			$file_handled  = self::cleanup_record_path( $record, 'file_path', $base_real, $wp_filesystem, $handled_paths, $shared_paths );
+			$thumb_handled = self::cleanup_record_path( $record, 'thumbnail_path', $base_real, $wp_filesystem, $handled_paths, $shared_paths );
 
 			if ( $file_handled && $thumb_handled ) {
 				if ( OC_DB::update_print_file( (int) $record->id, [ 'file_status' => 'expired', 'file_path' => null, 'thumbnail_path' => null ] ) ) {
@@ -74,8 +82,7 @@ class OC_File_Cleanup {
 	}
 
 	/** Delete one path when safe, retaining shared files needed by active records. */
-	private static function cleanup_record_path( object $record, string $column, string|false $base_real, mixed $wp_filesystem, array &$handled_paths ): bool {
-		global $wpdb;
+	private static function cleanup_record_path( object $record, string $column, string|false $base_real, mixed $wp_filesystem, array &$handled_paths, array $shared_paths ): bool {
 		$path = (string) ( $record->{$column} ?? '' );
 		if ( '' === $path || isset( $handled_paths[ $path ] ) ) {
 			return true;
@@ -93,21 +100,7 @@ class OC_File_Cleanup {
 			return false;
 		}
 
-		$shared_active = $wpdb->get_var( $wpdb->prepare(
-			"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files
-			 WHERE (file_path = %s OR thumbnail_path = %s) AND id <> %d AND file_status <> 'expired'
-			 AND NOT (file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
-			 AND expires_at IS NOT NULL AND expires_at < %s)",
-			$path,
-			$path,
-			(int) $record->id,
-			current_time( 'mysql', true )
-		) );
-		if ( null === $shared_active && '' !== (string) $wpdb->last_error ) {
-			OC_Logger::warning( 'File cleanup retained a print artifact because its shared references could not be checked.' );
-			return false;
-		}
-		if ( (int) $shared_active > 0 ) {
+		if ( isset( $shared_paths[ $path ] ) ) {
 			return true;
 		}
 
@@ -121,6 +114,59 @@ class OC_File_Cleanup {
 		}
 
 		return false;
+	}
+
+	/** Resolve all active references for an expiry batch with one bounded query. */
+	private static function get_active_shared_paths( array $records ): ?array {
+		global $wpdb;
+		$paths = [];
+		foreach ( $records as $record ) {
+			foreach ( [ 'file_path', 'thumbnail_path' ] as $column ) {
+				$path = (string) ( $record->{$column} ?? '' );
+				if ( '' !== $path ) {
+					$paths[ $path ] = true;
+				}
+			}
+		}
+		$path_lookup = $paths;
+		$paths       = array_keys( $paths );
+		if ( empty( $path_lookup ) ) {
+			return [];
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $paths ), '%s' ) );
+		$now          = current_time( 'mysql', true );
+		$args         = array_merge( $paths, [ $now ], $paths, [ $now ] );
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- placeholders are generated from the bounded path count and every value is passed to prepare().
+		$active_paths = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT file_path AS path FROM {$wpdb->prefix}oc_print_files
+			 WHERE file_path IN ({$placeholders})
+			 AND file_status <> 'expired'
+			 AND NOT (file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
+			 AND expires_at IS NOT NULL AND expires_at < %s)
+			 UNION
+			 SELECT DISTINCT thumbnail_path AS path FROM {$wpdb->prefix}oc_print_files
+			 WHERE thumbnail_path IN ({$placeholders})
+			 AND file_status <> 'expired'
+			 AND NOT (file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
+			 AND expires_at IS NOT NULL AND expires_at < %s)",
+				...$args
+			)
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+		if ( ! is_array( $active_paths ) || self::database_has_error( $wpdb ) ) {
+			return null;
+		}
+
+		$active = [];
+		foreach ( $active_paths as $path ) {
+			$path = (string) $path;
+			if ( isset( $path_lookup[ $path ] ) ) {
+				$active[ $path ] = true;
+			}
+		}
+		return $active;
 	}
 
 	/** Delete old current and legacy saved preview images in bounded batches. */
@@ -463,7 +509,11 @@ class OC_File_Cleanup {
 		update_option( 'oc_artwork_cleanup_cursor', max( array_map( 'absint', $attachments ) ), false );
 	}
 
-	/** Check orders, active WC sessions, and persistent customer carts. */
+	/**
+	 * Check orders, active WC sessions, and persistent customer carts.
+	 *
+	 * @phpstan-impure
+	 */
 	public static function customer_artwork_is_referenced( int $attachment_id ): bool {
 		if ( $attachment_id <= 0 ) {
 			return false;
@@ -494,7 +544,7 @@ class OC_File_Cleanup {
 			 WHERE meta_key = '_oc_customisation' AND ({$clauses}) LIMIT 1",
 			...$patterns
 		) );
-		if ( '' !== (string) $wpdb->last_error ) {
+		if ( self::database_has_error( $wpdb ) ) {
 			return true;
 		}
 		if ( $found ) {
@@ -503,7 +553,7 @@ class OC_File_Cleanup {
 
 		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
 		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
-		if ( '' !== (string) $wpdb->last_error ) {
+		if ( self::database_has_error( $wpdb ) ) {
 			return true;
 		}
 		if ( $sessions_exists === $sessions_table ) {
@@ -514,7 +564,7 @@ class OC_File_Cleanup {
 				 WHERE session_expiry >= %d AND ({$session_clauses}) LIMIT 1",
 				...$session_args
 			) );
-			if ( '' !== (string) $wpdb->last_error ) {
+			if ( self::database_has_error( $wpdb ) ) {
 				return true;
 			}
 			if ( $found ) {
@@ -530,7 +580,7 @@ class OC_File_Cleanup {
 			$persistent_key,
 			...$patterns
 		) );
-		return '' !== (string) $wpdb->last_error || (bool) $found;
+		return self::database_has_error( $wpdb ) || (bool) $found;
 	}
 
 	/** Return candidate fragments referenced by order metadata, active sessions, or persistent carts. */
@@ -586,7 +636,7 @@ class OC_File_Cleanup {
 				$order_max = $wpdb->get_var(
 					"SELECT MAX(meta_id) FROM {$order_table} WHERE meta_key IN ('_oc_customisation','_oc_preview_url')"
 				);
-				if ( '' !== (string) $wpdb->last_error ) {
+				if ( self::database_has_error( $wpdb ) ) {
 					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 				}
 				$order_max    = absint( $order_max );
@@ -605,7 +655,7 @@ class OC_File_Cleanup {
 					$order_max,
 					$page_size
 				) );
-				if ( '' !== (string) $wpdb->last_error || ! is_array( $rows ) ) {
+				if ( self::database_has_error( $wpdb ) || ! is_array( $rows ) ) {
 					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 				}
 				if ( empty( $rows ) ) {
@@ -628,7 +678,7 @@ class OC_File_Cleanup {
 		if ( 'session' === $source && ! empty( $unresolved ) ) {
 			$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
 			$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
-			if ( '' !== (string) $wpdb->last_error ) {
+			if ( self::database_has_error( $wpdb ) ) {
 				return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 			}
 			if ( $sessions_exists === $sessions_table ) {
@@ -640,7 +690,7 @@ class OC_File_Cleanup {
 						"SELECT MAX(session_id) FROM {$sessions_table} WHERE session_expiry >= %d",
 						$active_at
 					) );
-					if ( '' !== (string) $wpdb->last_error ) {
+					if ( self::database_has_error( $wpdb ) ) {
 						return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 					}
 					$session_max       = absint( $session_max );
@@ -661,7 +711,7 @@ class OC_File_Cleanup {
 						$session_max,
 						$page_size
 					) );
-					if ( '' !== (string) $wpdb->last_error || ! is_array( $rows ) ) {
+					if ( self::database_has_error( $wpdb ) || ! is_array( $rows ) ) {
 						return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 					}
 					if ( empty( $rows ) ) {
@@ -691,7 +741,7 @@ class OC_File_Cleanup {
 					"SELECT MAX(umeta_id) FROM {$wpdb->usermeta} WHERE meta_key LIKE %s",
 					$persistent_key
 				) );
-				if ( '' !== (string) $wpdb->last_error ) {
+				if ( self::database_has_error( $wpdb ) ) {
 					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 				}
 				$persistent_max = absint( $persistent_max );
@@ -711,7 +761,7 @@ class OC_File_Cleanup {
 					$persistent_max,
 					$page_size
 				) );
-				if ( '' !== (string) $wpdb->last_error || ! is_array( $rows ) ) {
+				if ( self::database_has_error( $wpdb ) || ! is_array( $rows ) ) {
 					return self::pause_preview_reference_scan( $option_name, $scan_key, $state, $references, $clean_needles );
 				}
 				if ( empty( $rows ) ) {
@@ -765,7 +815,7 @@ class OC_File_Cleanup {
 		$order_max   = $wpdb->get_var(
 			"SELECT MAX(meta_id) FROM {$order_table} WHERE meta_key IN ('_oc_customisation','_oc_preview_url')"
 		);
-		if ( '' !== (string) $wpdb->last_error ) {
+		if ( self::database_has_error( $wpdb ) ) {
 			return new \WP_Error( 'preview_reference_scan_failed' );
 		}
 		$order_seen = max( 0, (int) ( $state['order_seen'] ?? 0 ) );
@@ -779,7 +829,7 @@ class OC_File_Cleanup {
 
 		$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
 		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
-		if ( '' !== (string) $wpdb->last_error ) {
+		if ( self::database_has_error( $wpdb ) ) {
 			return new \WP_Error( 'preview_reference_scan_failed' );
 		}
 		if ( $sessions_exists === $sessions_table ) {
@@ -788,7 +838,7 @@ class OC_File_Cleanup {
 				"SELECT MAX(session_id) FROM {$sessions_table} WHERE session_expiry >= %d",
 				$active_at
 			) );
-			if ( '' !== (string) $wpdb->last_error ) {
+			if ( self::database_has_error( $wpdb ) ) {
 				return new \WP_Error( 'preview_reference_scan_failed' );
 			}
 			$session_seen = max( 0, (int) ( $state['session_seen'] ?? 0 ) );
@@ -807,7 +857,7 @@ class OC_File_Cleanup {
 			"SELECT MAX(umeta_id) FROM {$wpdb->usermeta} WHERE meta_key LIKE %s",
 			$persistent_key
 		) );
-		if ( '' !== (string) $wpdb->last_error ) {
+		if ( self::database_has_error( $wpdb ) ) {
 			return new \WP_Error( 'preview_reference_scan_failed' );
 		}
 		$persistent_seen = max( 0, (int) ( $state['persistent_seen'] ?? 0 ) );
@@ -833,7 +883,7 @@ class OC_File_Cleanup {
 		$pattern = implode( '|', array_map( static fn ( string $needle ): string => preg_quote( $needle, '/' ), $needles ) );
 		$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
 		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
-		if ( '' !== (string) $wpdb->last_error ) {
+		if ( self::database_has_error( $wpdb ) ) {
 			return null;
 		}
 		if ( $sessions_exists === $sessions_table ) {
@@ -842,7 +892,7 @@ class OC_File_Cleanup {
 				time(),
 				$pattern
 			) );
-			if ( '' !== (string) $wpdb->last_error ) {
+			if ( self::database_has_error( $wpdb ) ) {
 				return null;
 			}
 			if ( $found ) {
@@ -855,7 +905,16 @@ class OC_File_Cleanup {
 			$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
 			$pattern
 		) );
-		return '' !== (string) $wpdb->last_error ? null : (bool) $found;
+		return self::database_has_error( $wpdb ) ? null : (bool) $found;
+	}
+
+	/**
+	 * WordPress stubs model the default value rather than this mutable runtime property.
+	 *
+	 * @phpstan-impure Database queries mutate last_error outside PHP-visible assignments.
+	 */
+	private static function database_has_error( \wpdb $database ): bool {
+		return '' !== (string) $database->last_error;
 	}
 
 	/** Record candidate fragments found in one bounded payload page. */

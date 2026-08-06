@@ -9,26 +9,24 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Clipart {
 
-	private const CLIPART_SUBDIR = 'overcustomise/clipart';
-	private const PRINT_METHODS = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
-	private const INITIAL_CARD_LIMIT = 60;
-	private const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+	private const CLIPART_SUBDIR       = 'overcustomise/clipart';
+	private const PRINT_METHODS        = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
+	private const INITIAL_CARD_LIMIT   = 60;
+	private const MAX_UPLOAD_BYTES     = 15 * 1024 * 1024;
 	private const MAX_RASTER_DIMENSION = 6000;
-	private const MAX_RASTER_PIXELS = 16000000;
+	private const MAX_RASTER_PIXELS    = 16000000;
 
 	/** Clear cached clipart and clipart-group data after manager changes. */
 	private static function clear_clipart_cache(): void {
-		OC_Cache::delete( 'clipart_active' );
-		OC_Cache::delete( 'clipart_all' );
-		OC_Cache::delete( 'clipart_groups' );
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
 	}
 
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
-		add_action( 'wp_ajax_oc_clipart_upload',       [ self::class, 'ajax_upload' ] );
-		add_action( 'wp_ajax_oc_clipart_convert_svg',  [ self::class, 'ajax_convert_svg' ] );
-		add_action( 'wp_ajax_oc_clipart_rename',       [ self::class, 'ajax_rename' ] );
+		add_action( 'wp_ajax_oc_clipart_upload', [ self::class, 'ajax_upload' ] );
+		add_action( 'wp_ajax_oc_clipart_convert_svg', [ self::class, 'ajax_convert_svg' ] );
+		add_action( 'wp_ajax_oc_clipart_rename', [ self::class, 'ajax_rename' ] );
 		add_action( 'wp_ajax_oc_clipart_group_create', [ self::class, 'ajax_group_create' ] );
 		add_action( 'wp_ajax_oc_clipart_group_update', [ self::class, 'ajax_group_update' ] );
 		add_action( 'wp_ajax_oc_clipart_group_delete', [ self::class, 'ajax_group_delete' ] );
@@ -37,10 +35,10 @@ class OC_Admin_Clipart {
 	// ── URL helper ────────────────────────────────────────────────────────────
 
 	public static function get_clipart_url( string $file_path ): string {
-		$upload_dir = wp_upload_dir();
-		$base_dir   = realpath( (string) ( $upload_dir['basedir'] ?? '' ) );
-		$real_path  = realpath( $file_path );
-		$clipart_dir = realpath( trailingslashit( (string) ( $upload_dir['basedir'] ?? '' ) ) . self::CLIPART_SUBDIR );
+		$upload_dir   = wp_upload_dir();
+		$base_dir     = realpath( (string) ( $upload_dir['basedir'] ?? '' ) );
+		$real_path    = realpath( $file_path );
+		$clipart_dir  = realpath( trailingslashit( (string) ( $upload_dir['basedir'] ?? '' ) ) . self::CLIPART_SUBDIR );
 		$base_path    = $base_dir ? rtrim( wp_normalize_path( $base_dir ), '/' ) : '';
 		$clipart_path = $clipart_dir ? rtrim( wp_normalize_path( $clipart_dir ), '/' ) : '';
 		$real         = $real_path ? wp_normalize_path( $real_path ) : '';
@@ -61,43 +59,53 @@ class OC_Admin_Clipart {
 		}
 
 		$get_action = isset( $_GET['action'] ) ? sanitize_key( wp_unslash( $_GET['action'] ) ) : '';
-		if ( 'toggle' === $get_action ) { $this->handle_toggle(); }
-		if ( 'delete' === $get_action ) { $this->handle_delete(); }
+		if ( 'toggle' === $get_action ) {
+			$this->handle_toggle();
+		}
+		if ( 'delete' === $get_action ) {
+			$this->handle_delete();
+		}
 
 		$clipart = OC_DB::get_clipart( false );
 		$groups  = OC_DB::get_clipart_groups();
 
 		// JS payload — clipart items.
-		$clipart_js = array_map( function ( $c ) {
-			$file_type = strtolower( (string) $c->file_type );
-			return [
-				'id'        => (int) $c->id,
-				'name'      => $c->name,
-				'fileType'   => $file_type,
-				'canConvert' => 'svg' !== $file_type,
-				'colourChangeable' => self::clipart_colour_changeable( $c ),
-				'allowedPrintMethods' => self::clipart_allowed_print_methods( $c ),
-				'url'       => self::get_clipart_url( $c->file_path ),
-				'active'    => (bool) $c->active,
-				'toggleUrl' => wp_nonce_url(
-					admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $c->id . '&state=' . ( $c->active ? '0' : '1' ) ),
-					'oc_clipart_toggle_' . $c->id
-				),
-				'deleteUrl' => wp_nonce_url(
-					admin_url( 'admin.php?page=overcustomise-clipart&action=delete&id=' . $c->id ),
-					'oc_clipart_delete_' . $c->id
-				),
-			];
-		}, $clipart );
+		$clipart_js = array_map(
+			function ( $c ) {
+				$file_type = strtolower( (string) $c->file_type );
+				return [
+					'id'                  => (int) $c->id,
+					'name'                => $c->name,
+					'fileType'            => $file_type,
+					'canConvert'          => 'svg' !== $file_type,
+					'colourChangeable'    => self::clipart_colour_changeable( $c ),
+					'allowedPrintMethods' => self::clipart_allowed_print_methods( $c ),
+					'url'                 => self::get_clipart_url( $c->file_path ),
+					'active'              => (bool) $c->active,
+					'toggleUrl'           => wp_nonce_url(
+						admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $c->id . '&state=' . ( $c->active ? '0' : '1' ) ),
+						'oc_clipart_toggle_' . $c->id
+					),
+					'deleteUrl'           => wp_nonce_url(
+						admin_url( 'admin.php?page=overcustomise-clipart&action=delete&id=' . $c->id ),
+						'oc_clipart_delete_' . $c->id
+					),
+				];
+			},
+			$clipart
+		);
 
 		// JS payload — groups.
-		$groups_js = array_map( function ( $g ) {
-			return [
-				'id'        => (int) $g->id,
-				'name'      => $g->name,
-				'clipartIds' => array_map( 'intval', $g->clipart_ids ),
-			];
-		}, $groups );
+		$groups_js = array_map(
+			function ( $g ) {
+				return [
+					'id'         => (int) $g->id,
+					'name'       => $g->name,
+					'clipartIds' => array_map( 'intval', $g->clipart_ids ),
+				];
+			},
+			$groups
+		);
 		?>
 		<script>
 		window.ocClipartData   = <?php echo wp_json_encode( $clipart_js ); ?>;
@@ -141,7 +149,7 @@ class OC_Admin_Clipart {
 					<div class="oc-card-header">
 						<h2><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></h2>
 						<span id="oc-clipart-count" style="font-size:12px;color:var(--oc-gray-400);">
-							<?php echo esc_html( count( $clipart ) ); ?> <?php echo esc_html( 1 === count( $clipart ) ? __( 'item', 'overcustomise' ) : __( 'items', 'overcustomise' ) ); ?>
+							<?php echo esc_html( (string) count( $clipart ) ); ?> <?php echo esc_html( 1 === count( $clipart ) ? __( 'item', 'overcustomise' ) : __( 'items', 'overcustomise' ) ); ?>
 						</span>
 					</div>
 
@@ -204,7 +212,7 @@ class OC_Admin_Clipart {
 						</div>
 						<?php if ( count( $clipart ) > self::INITIAL_CARD_LIMIT ) : ?>
 							<div style="padding:0 18px 18px;text-align:center;">
-								<button type="button" class="button" id="oc-clipart-load-more" data-offset="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( self::INITIAL_CARD_LIMIT ); ?>">
+								<button type="button" class="button" id="oc-clipart-load-more" data-offset="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>">
 									<?php esc_html_e( 'Load more clipart', 'overcustomise' ); ?>
 								</button>
 							</div>
@@ -219,7 +227,7 @@ class OC_Admin_Clipart {
 					<div class="oc-card-header">
 						<h2><?php esc_html_e( 'Clipart Groups', 'overcustomise' ); ?></h2>
 						<span id="oc-clipart-groups-count" style="font-size:12px;color:var(--oc-gray-400);">
-							<?php echo esc_html( count( $groups ) ); ?> <?php echo esc_html( 1 === count( $groups ) ? __( 'group', 'overcustomise' ) : __( 'groups', 'overcustomise' ) ); ?>
+							<?php echo esc_html( (string) count( $groups ) ); ?> <?php echo esc_html( 1 === count( $groups ) ? __( 'group', 'overcustomise' ) : __( 'groups', 'overcustomise' ) ); ?>
 						</span>
 					</div>
 
@@ -245,12 +253,17 @@ class OC_Admin_Clipart {
 											<?php echo esc_html( $member_count . ' ' . ( 1 === $member_count ? __( 'item', 'overcustomise' ) : __( 'items', 'overcustomise' ) ) ); ?>
 										</p>
 										<div class="oc-clipart-group-thumbs">
-											<?php foreach ( array_slice( $group->clipart_ids, 0, 6 ) as $cid ) :
+										<?php foreach ( array_slice( $group->clipart_ids, 0, 6 ) as $cid ) :
 												$cdata = null;
-												foreach ( $clipart as $c ) {
-													if ( (int) $c->id === (int) $cid ) { $cdata = $c; break; }
+											foreach ( $clipart as $c ) {
+												if ( (int) $c->id === (int) $cid ) {
+													$cdata = $c;
+													break;
 												}
-												if ( ! $cdata ) continue;
+												}
+												if ( ! $cdata ) {
+													continue;
+												}
 												$thumb_url = self::get_clipart_url( $cdata->file_path );
 												?>
 												<div class="oc-clipart-thumb" title="<?php echo esc_attr( $cdata->name ); ?>">
@@ -258,7 +271,7 @@ class OC_Admin_Clipart {
 												</div>
 											<?php endforeach; ?>
 											<?php if ( $member_count > 6 ) : ?>
-												<span class="oc-group-card-more">+<?php echo esc_html( $member_count - 6 ); ?></span>
+								<span class="oc-group-card-more">+<?php echo esc_html( (string) ( $member_count - 6 ) ); ?></span>
 											<?php endif; ?>
 											<?php if ( 0 === $member_count ) : ?>
 												<span style="color:var(--oc-gray-400);font-size:12px;"><?php esc_html_e( 'Empty group', 'overcustomise' ); ?></span>
@@ -288,8 +301,8 @@ class OC_Admin_Clipart {
 				<div class="oc-upload-fields">
 					<div class="oc-upload-field">
 						<label for="oc_clipart_name"><?php esc_html_e( 'Clipart name', 'overcustomise' ); ?></label>
-						<input type="text" id="oc_clipart_name" class="oc-input" required
-						       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
+					<input type="text" id="oc_clipart_name" class="oc-input" required
+					       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
 					</div>
 					<div class="oc-upload-field">
 						<label><input type="checkbox" id="oc_clipart_colour_changeable" /> <?php esc_html_e( 'Colour changeable', 'overcustomise' ); ?></label>
@@ -386,8 +399,8 @@ class OC_Admin_Clipart {
 				<div class="oc-upload-fields">
 					<div class="oc-upload-field">
 						<label for="oc_clipart_upload_name"><?php esc_html_e( 'Clipart name', 'overcustomise' ); ?></label>
-						<input type="text" id="oc_clipart_upload_name" class="oc-input" required
-						       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
+					<input type="text" id="oc_clipart_upload_name" class="oc-input" required
+					       placeholder="<?php esc_attr_e( 'e.g. Star Shape', 'overcustomise' ); ?>" />
 					</div>
 					<div class="oc-upload-field">
 						<label><input type="checkbox" id="oc_clipart_upload_colour_changeable" checked /> <?php esc_html_e( 'Colour changeable', 'overcustomise' ); ?></label>
@@ -468,10 +481,12 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$row = $wpdb->get_row( $wpdb->prepare(
-			"SELECT * FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
-			$id
-		) );
+		$row = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT * FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1",
+				$id
+			)
+		);
 
 		if ( ! $row || empty( $row->file_path ) || ! self::managed_clipart_path( (string) $row->file_path ) ) {
 			wp_send_json_error( [ 'message' => __( 'Clipart file was not found.', 'overcustomise' ) ] );
@@ -494,7 +509,10 @@ class OC_Admin_Clipart {
 		$old_path = (string) $row->file_path;
 		$updated  = $wpdb->update(
 			"{$wpdb->prefix}oc_clipart",
-			[ 'file_path' => $converted, 'file_type' => 'svg' ],
+			[
+				'file_path' => $converted,
+				'file_type' => 'svg',
+			],
 			[ 'id' => $id ],
 			[ '%s', '%s' ],
 			[ '%d' ]
@@ -522,7 +540,7 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ] );
 		}
 
-		$id   = (int) ( $_POST['id'] ?? 0 );
+		$id                = (int) ( $_POST['id'] ?? 0 );
 		$name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
 		$colour_changeable = ! empty( $_POST['colour_changeable'] );
 		$allowed_methods   = self::normalise_print_methods( $_POST['allowed_print_methods'] ?? [] );
@@ -538,24 +556,27 @@ class OC_Admin_Clipart {
 		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_clipart",
 			[
-				'name' => $name,
-				'colour_changeable' => (int) $colour_changeable,
+				'name'                  => $name,
+				'colour_changeable'     => (int) $colour_changeable,
 				'allowed_print_methods' => self::encode_print_methods( $allowed_methods ),
 			],
-			[ 'id'   => $id ],
-			[ '%s', '%d', '%s' ], [ '%d' ]
+			[ 'id' => $id ],
+			[ '%s', '%d', '%s' ],
+			[ '%d' ]
 		);
 		if ( false === $updated ) {
 			wp_send_json_error( [ 'message' => __( 'Could not rename clipart.', 'overcustomise' ) ] );
 		}
 
 		self::clear_clipart_cache();
-		wp_send_json_success( [
-			'id' => $id,
-			'name' => $name,
-			'colourChangeable' => $colour_changeable,
-			'allowedPrintMethods' => $allowed_methods,
-		] );
+		wp_send_json_success(
+			[
+				'id'                  => $id,
+				'name'                => $name,
+				'colourChangeable'    => $colour_changeable,
+				'allowedPrintMethods' => $allowed_methods,
+			]
+		);
 	}
 
 	// ── AJAX: clipart group create ────────────────────────────────────────────
@@ -588,7 +609,11 @@ class OC_Admin_Clipart {
 		foreach ( $clipart_ids as $order => $clipart_id ) {
 			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_clipart_group_items",
-				[ 'group_id' => $id, 'clipart_id' => $clipart_id, 'sort_order' => $order ],
+				[
+					'group_id'   => $id,
+					'clipart_id' => $clipart_id,
+					'sort_order' => $order,
+				],
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
@@ -601,7 +626,13 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'Could not create clipart group.', 'overcustomise' ) ] );
 		}
 		self::clear_clipart_cache();
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => $clipart_ids ] );
+		wp_send_json_success(
+			[
+				'id'         => $id,
+				'name'       => $name,
+				'clipartIds' => $clipart_ids,
+			]
+		);
 	}
 
 	// ── AJAX: clipart group update ────────────────────────────────────────────
@@ -645,7 +676,11 @@ class OC_Admin_Clipart {
 		foreach ( array_values( $clipart_ids ) as $order => $clipart_id ) {
 			$inserted = $wpdb->insert(
 				"{$wpdb->prefix}oc_clipart_group_items",
-				[ 'group_id' => $id, 'clipart_id' => $clipart_id, 'sort_order' => $order ],
+				[
+					'group_id'   => $id,
+					'clipart_id' => $clipart_id,
+					'sort_order' => $order,
+				],
 				[ '%d', '%d', '%d' ]
 			);
 			if ( false === $inserted ) {
@@ -658,7 +693,13 @@ class OC_Admin_Clipart {
 			wp_send_json_error( [ 'message' => __( 'Could not update clipart group.', 'overcustomise' ) ] );
 		}
 		self::clear_clipart_cache();
-		wp_send_json_success( [ 'id' => $id, 'name' => $name, 'clipartIds' => array_values( $clipart_ids ) ] );
+		wp_send_json_success(
+			[
+				'id'         => $id,
+				'name'       => $name,
+				'clipartIds' => array_values( $clipart_ids ),
+			]
+		);
 	}
 
 	// ── AJAX: clipart group delete ────────────────────────────────────────────
@@ -678,7 +719,7 @@ class OC_Admin_Clipart {
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not delete clipart group.', 'overcustomise' ) ], 500 );
 		}
-		$group_exists = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart_groups WHERE id = %d FOR UPDATE", $id ) );
+		$group_exists  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart_groups WHERE id = %d FOR UPDATE", $id ) );
 		$deleted_items = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'group_id' => $id ], [ '%d' ] ) : false;
 		$deleted_group = $group_exists ? $wpdb->delete( "{$wpdb->prefix}oc_clipart_groups", [ 'id' => $id ], [ '%d' ] ) : false;
 		if ( false === $deleted_items || 1 !== $deleted_group || false === $wpdb->query( 'COMMIT' ) ) {
@@ -692,11 +733,11 @@ class OC_Admin_Clipart {
 	// ── GET action handlers ────────────────────────────────────────────────────
 
 	private function handle_toggle(): void {
-		$id    = isset( $_GET['id'] )    ? (int) $_GET['id']    : 0;
+		$id    = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 		$state = isset( $_GET['state'] ) ? (int) $_GET['state'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_clipart_toggle_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_clipart_toggle_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -715,7 +756,7 @@ class OC_Admin_Clipart {
 		$id = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
 
 		if ( ! current_user_can( 'manage_woocommerce' ) || ! $id || ! isset( $_GET['_wpnonce'] )
-		     || ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_clipart_delete_' . $id )
+			|| ! wp_verify_nonce( sanitize_key( $_GET['_wpnonce'] ), 'oc_clipart_delete_' . $id )
 		) {
 			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ) );
 		}
@@ -776,7 +817,7 @@ class OC_Admin_Clipart {
 		if ( ! wp_mkdir_p( $target_dir ) ) {
 			return new \WP_Error( 'mkdir_failed', __( 'Could not create upload directory.', 'overcustomise' ) );
 		}
-		$base_dir   = realpath( (string) $upload_dir['basedir'] );
+		$base_dir    = realpath( (string) $upload_dir['basedir'] );
 		$target_real = realpath( $target_dir );
 		$base_path   = $base_dir ? rtrim( wp_normalize_path( $base_dir ), '/' ) : '';
 		$target_path = $target_real ? rtrim( wp_normalize_path( $target_real ), '/' ) : '';
@@ -815,35 +856,35 @@ class OC_Admin_Clipart {
 		$inserted = $wpdb->insert(
 			"{$wpdb->prefix}oc_clipart",
 			[
-				'name'      => $name,
-				'file_path' => $dest,
-				'file_type' => 'svg',
-				'colour_changeable' => (int) $colour_changeable,
+				'name'                  => $name,
+				'file_path'             => $dest,
+				'file_type'             => 'svg',
+				'colour_changeable'     => (int) $colour_changeable,
 				'allowed_print_methods' => self::encode_print_methods( $allowed_methods ),
-				'active'    => 1,
+				'active'                => 1,
 			],
 			[ '%s', '%s', '%s', '%d', '%s', '%d' ]
 		);
-		$id = (int) $wpdb->insert_id;
+		$id       = (int) $wpdb->insert_id;
 		if ( false === $inserted || $id <= 0 ) {
 			@unlink( $dest );
 			return new \WP_Error( 'db_error', __( 'Could not save clipart record.', 'overcustomise' ) );
 		}
 
 		return [
-			'id'        => $id,
-			'name'      => $name,
-				'fileType'   => 'svg',
-				'canConvert' => false,
-			'colourChangeable' => $colour_changeable,
+			'id'                  => $id,
+			'name'                => $name,
+			'fileType'            => 'svg',
+			'canConvert'          => false,
+			'colourChangeable'    => $colour_changeable,
 			'allowedPrintMethods' => $allowed_methods,
-			'url'       => self::get_clipart_url( $dest ),
-			'active'    => true,
-			'toggleUrl' => wp_nonce_url(
+			'url'                 => self::get_clipart_url( $dest ),
+			'active'              => true,
+			'toggleUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $id . '&state=0' ),
 				'oc_clipart_toggle_' . $id
 			),
-			'deleteUrl' => wp_nonce_url(
+			'deleteUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-clipart&action=delete&id=' . $id ),
 				'oc_clipart_delete_' . $id
 			),
@@ -852,19 +893,19 @@ class OC_Admin_Clipart {
 
 	private static function clipart_response( int $id, string $name, string $path, string $file_type, bool $active, ?object $row = null ): array {
 		return [
-			'id'        => $id,
-			'name'      => $name,
-			'fileType'   => $file_type,
-			'canConvert' => 'svg' !== strtolower( $file_type ),
-			'colourChangeable' => $row ? self::clipart_colour_changeable( $row ) : true,
+			'id'                  => $id,
+			'name'                => $name,
+			'fileType'            => $file_type,
+			'canConvert'          => 'svg' !== strtolower( $file_type ),
+			'colourChangeable'    => $row ? self::clipart_colour_changeable( $row ) : true,
 			'allowedPrintMethods' => $row ? self::clipart_allowed_print_methods( $row ) : [],
-			'url'       => self::get_clipart_url( $path ),
-			'active'    => $active,
-			'toggleUrl' => wp_nonce_url(
+			'url'                 => self::get_clipart_url( $path ),
+			'active'              => $active,
+			'toggleUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $id . '&state=' . ( $active ? '0' : '1' ) ),
 				'oc_clipart_toggle_' . $id
 			),
-			'deleteUrl' => wp_nonce_url(
+			'deleteUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-clipart&action=delete&id=' . $id ),
 				'oc_clipart_delete_' . $id
 			),
@@ -882,7 +923,7 @@ class OC_Admin_Clipart {
 	}
 
 	private static function normalise_print_methods( mixed $methods ): array {
-		$methods = is_array( $methods ) ? $methods : [ $methods ];
+		$methods    = is_array( $methods ) ? $methods : [ $methods ];
 		$normalised = [];
 		foreach ( $methods as $method ) {
 			if ( is_scalar( $method ) ) {
@@ -903,17 +944,26 @@ class OC_Admin_Clipart {
 				return new \WP_Error( 'invalid_clipart', __( 'The submitted clipart list is invalid.', 'overcustomise' ) );
 			}
 			$id = absint( $raw_id );
-			if ( $id ) $ids[] = $id;
+			if ( $id ) {
+				$ids[] = $id;
+			}
 		}
 		$ids = array_values( array_unique( $ids ) );
-		if ( empty( $ids ) ) return [];
+		if ( empty( $ids ) ) {
+			return [];
+		}
 
 		global $wpdb;
 		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
-		$existing = array_map( 'intval', $wpdb->get_col( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id IN ($placeholders)",
-			...$ids
-		) ) ?: [] );
+		$existing     = array_map(
+			'intval',
+			$wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id IN ($placeholders)",
+					...$ids
+				)
+			) ?: []
+		);
 		return array_diff( $ids, $existing )
 			? new \WP_Error( 'stale_clipart', __( 'One or more selected clipart items no longer exist.', 'overcustomise' ) )
 			: $ids;
@@ -921,10 +971,10 @@ class OC_Admin_Clipart {
 
 	/** Return the canonical managed path for a stored clipart file. */
 	private static function managed_clipart_path( string $path ): string|false {
-		$upload = wp_upload_dir();
-		$base   = realpath( (string) ( $upload['basedir'] ?? '' ) );
-		$root   = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . self::CLIPART_SUBDIR );
-		$real   = realpath( $path );
+		$upload    = wp_upload_dir();
+		$base      = realpath( (string) ( $upload['basedir'] ?? '' ) );
+		$root      = realpath( trailingslashit( (string) ( $upload['basedir'] ?? '' ) ) . self::CLIPART_SUBDIR );
+		$real      = realpath( $path );
 		$base_path = $base ? rtrim( wp_normalize_path( $base ), '/' ) : '';
 		$root_path = $root ? rtrim( wp_normalize_path( $root ), '/' ) : '';
 		$real_path = $real ? wp_normalize_path( $real ) : '';
@@ -1035,7 +1085,7 @@ class OC_Admin_Clipart {
 			return new \WP_Error( 'read_failed', __( 'Could not read image for conversion.', 'overcustomise' ) );
 		}
 
-		$width = (int) $image_info[0];
+		$width  = (int) $image_info[0];
 		$height = (int) $image_info[1];
 		$canvas = imagecreatetruecolor( $width, $height );
 		if ( false === $canvas ) {
@@ -1051,10 +1101,10 @@ class OC_Admin_Clipart {
 		for ( $y = 0; $y < $height; $y++ ) {
 			for ( $x = 0; $x < $width; $x++ ) {
 				$rgba = imagecolorat( $canvas, $x, $y );
-				$a = ( $rgba & 0x7F000000 ) >> 24;
-				$r = ( $rgba >> 16 ) & 0xFF;
-				$g = ( $rgba >> 8 ) & 0xFF;
-				$b = $rgba & 0xFF;
+				$a    = ( $rgba & 0x7F000000 ) >> 24;
+				$r    = ( $rgba >> 16 ) & 0xFF;
+				$g    = ( $rgba >> 8 ) & 0xFF;
+				$b    = $rgba & 0xFF;
 				if ( $a < 127 && $r >= 245 && $g >= 245 && $b >= 245 && ( max( $r, $g, $b ) - min( $r, $g, $b ) ) <= 12 ) {
 					imagesetpixel( $canvas, $x, $y, $transparent );
 				}
@@ -1091,7 +1141,7 @@ class OC_Admin_Clipart {
 		if ( false === $size || $size <= 0 || $size > self::MAX_UPLOAD_BYTES ) {
 			return new \WP_Error( 'too_large', __( 'Clipart files must be no larger than 15 MB.', 'overcustomise' ) );
 		}
-		$image_info = @getimagesize( $path );
+		$image_info    = @getimagesize( $path );
 		$expected_mime = [
 			'png'  => 'image/png',
 			'jpg'  => 'image/jpeg',
@@ -1099,11 +1149,11 @@ class OC_Admin_Clipart {
 			'webp' => 'image/webp',
 			'gif'  => 'image/gif',
 		][ $ext ] ?? '';
-		if ( ! is_array( $image_info ) || (string) ( $image_info['mime'] ?? '' ) !== $expected_mime ) {
+		if ( ! is_array( $image_info ) || $image_info['mime'] !== $expected_mime ) {
 			return new \WP_Error( 'not_image', __( 'The file contents do not match the selected image type.', 'overcustomise' ) );
 		}
-		$width  = (int) ( $image_info[0] ?? 0 );
-		$height = (int) ( $image_info[1] ?? 0 );
+		$width  = $image_info[0];
+		$height = $image_info[1];
 		if ( $width <= 0 || $height <= 0
 			|| $width > self::MAX_RASTER_DIMENSION
 			|| $height > self::MAX_RASTER_DIMENSION

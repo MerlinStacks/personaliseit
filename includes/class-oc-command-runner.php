@@ -107,10 +107,6 @@ class OC_Command_Runner {
 				break;
 			}
 			$status = proc_get_status( $process );
-			if ( ! is_array( $status ) ) {
-				$code = 125;
-				break;
-			}
 			if ( ! $status['running'] ) { $code = (int) $status['exitcode']; break; }
 			if ( microtime( true ) - $started >= $timeout ) {
 				proc_terminate( $process, 9 );
@@ -132,7 +128,7 @@ class OC_Command_Runner {
 
 		return [
 			'code'    => (int) $code,
-			'output'  => array_values( $output ),
+			'output'  => $output,
 			'command' => $cmd,
 		];
 	}
