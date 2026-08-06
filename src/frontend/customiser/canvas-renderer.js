@@ -2441,6 +2441,10 @@ const canvasRendererMethods = {
 			img._ocLayerId = Number( effects.layerId ) || 0;
 			img._ocContainScale = containScale;
 			img._ocCoverScale = coverScale;
+			// Dither pixels are generated for the current placement size. The crop
+			// slider may scale this object immediately, then a debounced redraw must
+			// regenerate the pattern so its dots remain preview-pixel accurate.
+			img._ocScaleSensitiveFilter = isDitheredEngraving;
 			if ( isEngraving && effects.preserveRecolouredPixels ) {
 				img.set( {
 					opacity: palette.opacity,
@@ -2510,6 +2514,7 @@ const canvasRendererMethods = {
 				if ( ! images.length ) {
 					return;
 				}
+				let requiresFilteredRedraw = false;
 				images.forEach( ( image ) => {
 					const containScale = Number( image._ocContainScale ) || 0;
 					const coverScale =
@@ -2519,6 +2524,9 @@ const canvasRendererMethods = {
 						( coverScale - containScale ) * cropAmount;
 					image.set( { scaleX: scale, scaleY: scale } );
 					image.setCoords?.();
+					requiresFilteredRedraw =
+						requiresFilteredRedraw ||
+						Boolean( image._ocScaleSensitiveFilter );
 					updatedLayerIds.add( Number( image._ocLayerId ) );
 				} );
 				canvas.renderAll?.();
@@ -2536,6 +2544,9 @@ const canvasRendererMethods = {
 					)
 				) {
 					this.scheduleCropGalleryPush( canvas );
+				}
+				if ( requiresFilteredRedraw ) {
+					this.scheduleRedraw( Number( areaIndex ) );
 				}
 			}
 		);
