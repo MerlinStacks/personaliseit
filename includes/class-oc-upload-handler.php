@@ -1431,51 +1431,59 @@ class OC_Upload_Handler {
 			throw new \RuntimeException( __( 'The photo orientation could not be normalised.', 'overcustomise' ) );
 		}
 
-		try {
-			if ( extension_loaded( 'imagick' ) && class_exists( '\\Imagick' ) ) {
-				$image = new \Imagick();
-				try {
-					$image->setResourceLimit( \Imagick::RESOURCETYPE_MEMORY, 256 * 1024 * 1024 );
-					$image->setResourceLimit( \Imagick::RESOURCETYPE_MAP, 256 * 1024 * 1024 );
-					$image->setResourceLimit( \Imagick::RESOURCETYPE_DISK, 512 * 1024 * 1024 );
-					if ( defined( '\\Imagick::RESOURCETYPE_AREA' ) ) {
-						$image->setResourceLimit( \Imagick::RESOURCETYPE_AREA, self::MAX_IMAGE_PIXELS );
-					}
-					$image->readImage( $source . '[0]' );
-					$image->setIteratorIndex( 0 );
-					self::apply_imagick_orientation( $image, $orientation );
-					$image->setImageOrientation( \Imagick::ORIENTATION_TOPLEFT );
-					$image->setImageFormat( 'jpeg' );
-					$image->stripImage();
-					foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
-						$image->setImageCompressionQuality( $quality );
-						if ( $image->writeImage( $output ) && self::normalised_jpeg_is_valid( $output ) ) {
-							return $output;
-						}
-					}
-				} finally {
-					$image->clear();
-					$image->destroy();
-				}
-			} else {
-				if ( ! self::gd_orientation_memory_is_safe( $width, $height ) ) {
-					throw new \RuntimeException( __( 'This photo is too large to rotate safely on this server. Please export it as a new JPEG or PNG and try again.', 'overcustomise' ) );
-				}
-				require_once ABSPATH . 'wp-admin/includes/image.php';
-				$editor = wp_get_image_editor( $source );
-				if ( ! is_wp_error( $editor ) ) {
-					self::apply_image_editor_orientation( $editor, $orientation );
-					foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
-						$editor->set_quality( $quality );
-						$result = $editor->save( $output, 'image/jpeg' );
-						if ( ! is_wp_error( $result ) && self::normalised_jpeg_is_valid( $output ) ) {
-							return $output;
-						}
+		$imagick_failed = false;
+		if ( extension_loaded( 'imagick' ) && class_exists( '\\Imagick' ) ) {
+			$image = new \Imagick();
+			try {
+				// Respect the administrator's ImageMagick policy. setResourceLimit()
+				// changes process-wide limits and the previous fixed disk limit was too
+				// small for some otherwise valid photos during a 90-degree rotation.
+				$image->readImage( $source . '[0]' );
+				$image->setIteratorIndex( 0 );
+				self::apply_imagick_orientation( $image, $orientation );
+				$image->setImageOrientation( \Imagick::ORIENTATION_TOPLEFT );
+				$image->setImageFormat( 'jpeg' );
+				$image->stripImage();
+				foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
+					$image->setImageCompressionQuality( $quality );
+					if ( $image->writeImage( $output ) && self::normalised_jpeg_is_valid( $output ) ) {
+						return $output;
 					}
 				}
+			} catch ( \Throwable $e ) {
+				$imagick_failed = true;
+				OC_Logger::warning( 'JPEG orientation normalisation via ImageMagick failed; trying GD: ' . $e->getMessage() );
+			} finally {
+				$image->clear();
+				$image->destroy();
 			}
-		} catch ( \Throwable $e ) {
-			OC_Logger::warning( 'JPEG orientation normalisation failed: ' . $e->getMessage() );
+		}
+
+		// Do not ask WordPress to choose an editor here: it would select Imagick
+		// again after an ImageMagick cache failure. Use GD explicitly as a
+		// resource-independent fallback when PHP has enough memory for it.
+		if ( self::gd_orientation_memory_is_safe( $width, $height ) ) {
+			try {
+				require_once ABSPATH . WPINC . '/class-wp-image-editor.php';
+				require_once ABSPATH . WPINC . '/class-wp-image-editor-gd.php';
+				$editor = new \WP_Image_Editor_GD( $source );
+				$loaded = $editor->load();
+				if ( is_wp_error( $loaded ) ) {
+					throw new \RuntimeException( $loaded->get_error_message() );
+				}
+				self::apply_image_editor_orientation( $editor, $orientation );
+				foreach ( [ 92, 85, 78, 70, 60, 50 ] as $quality ) {
+					$editor->set_quality( $quality );
+					$result = $editor->save( $output, 'image/jpeg' );
+					if ( ! is_wp_error( $result ) && self::normalised_jpeg_is_valid( $output ) ) {
+						return $output;
+					}
+				}
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( 'JPEG orientation normalisation via GD failed: ' . $e->getMessage() );
+			}
+		} elseif ( $imagick_failed || ! extension_loaded( 'imagick' ) || ! class_exists( '\\Imagick' ) ) {
+			OC_Logger::warning( 'JPEG orientation normalisation via GD skipped: insufficient PHP memory headroom.' );
 		}
 
 		@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
