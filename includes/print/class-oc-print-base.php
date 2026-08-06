@@ -2725,6 +2725,10 @@ abstract class OC_Print_Base {
 			}
 		}
 		if ( 'engraving' === $mode ) {
+			$crop_amount = 'image' === (string) ( $layer['type'] ?? '' )
+				? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) )
+				: 0.0;
+			[ , , $engraving_w, $engraving_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, $crop_amount );
 			if ( 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
 				$engraved_path = self::build_black_clipart( $path );
 				if ( ! is_string( $engraved_path ) || '' === $engraved_path ) {
@@ -2734,7 +2738,7 @@ abstract class OC_Print_Base {
 				if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
 					throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
 				}
-				$engraved_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
+				$engraved_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [], $engraving_w, $engraving_h );
 			}
 			$temp_paths[]  = $engraved_path;
 			$path          = $engraved_path;
@@ -2782,7 +2786,8 @@ abstract class OC_Print_Base {
 			if ( ! class_exists( 'OC_Print_Engraving' ) || ! method_exists( 'OC_Print_Engraving', 'prepare_artwork_for_layer' ) ) {
 				throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
 			}
-			$temp_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [] );
+			[ , , $engraving_w, $engraving_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, 'cover' );
+			$temp_path = OC_Print_Engraving::prepare_artwork_for_layer( $path, is_array( $options['engraving_profile'] ?? null ) ? $options['engraving_profile'] : [], $engraving_w, $engraving_h );
 			$path      = $temp_path;
 		}
 

@@ -16,6 +16,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 	/** @var array<string,mixed> */
 	private const DEFAULT_PROFILE = [
 		'material'   => 'default',
+		'dpi'        => 600,
 		'gamma'      => 2.0,
 		'contrast'   => 0,
 		'edge_boost' => 0,
@@ -178,6 +179,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		$gamma      = max( 0.2, min( 4.0, (float) ( $profile['gamma'] ?? 2.0 ) ) );
+		$dpi        = max( 72, min( 2400, (int) ( $profile['dpi'] ?? 600 ) ) );
 		$contrast   = max( -100, min( 100, (int) ( $profile['contrast'] ?? 0 ) ) );
 		$edge_boost = max( 0, min( 100, (int) ( $profile['edge_boost'] ?? 0 ) ) );
 		$dithering  = sanitize_key( (string) ( $profile['dithering'] ?? 'none' ) );
@@ -234,6 +236,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 		return [
 			'material'   => $material,
+			'dpi'        => $dpi,
 			'gamma'      => $gamma,
 			'contrast'   => $contrast,
 			'edge_boost' => $edge_boost,
@@ -242,9 +245,9 @@ class OC_Print_Engraving extends OC_Print_Base {
 	}
 
 	/** Convert one canonical image/SVG layer through the selected material profile. */
-	public static function prepare_artwork_for_layer( string $artwork_path, array $profile ): string {
+	public static function prepare_artwork_for_layer( string $artwork_path, array $profile, float $width_mm = 0.0, float $height_mm = 0.0 ): string {
 		$profile = array_merge( self::DEFAULT_PROFILE, $profile );
-		$path    = self::build_engraving_raster( $artwork_path, $profile );
+		$path    = self::build_engraving_raster( $artwork_path, $profile, $width_mm, $height_mm );
 		if ( ! $path ) {
 			throw new \RuntimeException(
 				sprintf(
@@ -257,12 +260,13 @@ class OC_Print_Engraving extends OC_Print_Base {
 		return $path;
 	}
 
-	private static function build_engraving_raster( string $artwork_path, array $profile ): ?string {
+	private static function build_engraving_raster( string $artwork_path, array $profile, float $width_mm = 0.0, float $height_mm = 0.0 ): ?string {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 			return null;
 		}
 
-		$src = self::open_image_resource( $artwork_path );
+		[ $target_width, $target_height ] = self::engraving_raster_dimensions( $profile, $width_mm, $height_mm );
+		$src                             = self::open_image_resource( $artwork_path, $target_width, $target_height );
 		if ( ! $src ) {
 			return null;
 		}
@@ -279,12 +283,14 @@ class OC_Print_Engraving extends OC_Print_Base {
 			return null;
 		}
 
-		$dst = imagecreatetruecolor( $w, $h );
+		$target_width  = $target_width > 0 ? $target_width : $w;
+		$target_height = $target_height > 0 ? $target_height : $h;
+		$dst           = imagecreatetruecolor( $target_width, $target_height );
 		imagealphablending( $dst, false );
 		imagesavealpha( $dst, true );
 		$transparent = imagecolorallocatealpha( $dst, 0, 0, 0, 127 );
-		imagefilledrectangle( $dst, 0, 0, $w, $h, $transparent );
-		imagecopy( $dst, $src, 0, 0, 0, 0, $w, $h );
+		imagefilledrectangle( $dst, 0, 0, $target_width, $target_height, $transparent );
+		imagecopyresampled( $dst, $src, 0, 0, 0, 0, $target_width, $target_height, $w, $h );
 		imagedestroy( $src );
 
 		if ( $is_transparent_logo ) {
@@ -303,10 +309,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 			$edge_boost = (int) ( $profile['edge_boost'] ?? 0 );
 			if ( $edge_boost > 0 ) {
-				for ( $i = 0; $i < min( 3, (int) ceil( $edge_boost / 35 ) ); $i++ ) {
-					imagefilter( $dst, IMG_FILTER_EDGEDETECT );
-					imagefilter( $dst, IMG_FILTER_CONTRAST, -15 );
-				}
+				self::apply_unsharp_mask( $dst, $edge_boost );
 			}
 
 			if ( 'floyd_steinberg' === ( $profile['dithering'] ?? 'none' ) ) {
@@ -333,6 +336,40 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		return $tmp;
+	}
+
+	/** Calculate the final-size engraving raster at the configured machine DPI. */
+	private static function engraving_raster_dimensions( array $profile, float $width_mm, float $height_mm ): array {
+		if ( $width_mm <= 0.0 || $height_mm <= 0.0 ) {
+			return [ 0, 0 ];
+		}
+
+		$dpi = max( 72, min( 2400, (int) ( $profile['dpi'] ?? 600 ) ) );
+		return self::bounded_work_dimensions(
+			max( 1, (int) ceil( $width_mm / 25.4 * $dpi ) ),
+			max( 1, (int) ceil( $height_mm / 25.4 * $dpi ) )
+		);
+	}
+
+	/** Sharpen tonal detail without replacing the photograph with a destructive edge map. */
+	private static function apply_unsharp_mask( $image, int $amount ): void {
+		if ( ! function_exists( 'imageconvolution' ) ) {
+			return;
+		}
+
+		$strength = max( 0.0, min( 1.0, $amount / 100 ) );
+		$side     = -0.75 * $strength;
+		$centre   = 1.0 - ( 4 * $side );
+		imageconvolution(
+			$image,
+			[
+				[ 0.0, $side, 0.0 ],
+				[ $side, $centre, $side ],
+				[ 0.0, $side, 0.0 ],
+			],
+			1.0,
+			0.0
+		);
 	}
 
 	/**
@@ -425,10 +462,10 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 	}
 
-	private static function open_image_resource( string $path ) {
+	private static function open_image_resource( string $path, int $target_width = 0, int $target_height = 0 ) {
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		if ( 'svg' === $ext ) {
-			return self::open_svg_image_resource( $path );
+			return self::open_svg_image_resource( $path, $target_width, $target_height );
 		}
 		self::assert_safe_raster_dimensions( $path );
 		$image = match ( $ext ) {
@@ -440,11 +477,11 @@ class OC_Print_Engraving extends OC_Print_Base {
 			default => false,
 		};
 
-		return $image ? self::bounded_gd_resource( $image, 2048, 4000000 ) : false;
+		return $image ? self::bounded_gd_resource( $image, self::MAX_WORK_RASTER_DIMENSION, self::MAX_WORK_RASTER_PIXELS ) : false;
 	}
 
 	/** Rasterise SVG with a transparent background before material conversion. */
-	private static function open_svg_image_resource( string $path ) {
+	private static function open_svg_image_resource( string $path, int $target_width = 0, int $target_height = 0 ) {
 		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || ! is_readable( $path ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
 			return false;
 		}
@@ -453,18 +490,20 @@ class OC_Print_Engraving extends OC_Print_Base {
 			$image = new \Imagick();
 			self::configure_imagick_limits( $image );
 			$image->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
-			$image->setResolution( 300, 300 );
+			$image->setResolution( 600, 600 );
 			$image->readImage( $path );
 			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$image->setImageFormat( 'png32' );
-			[ $width, $height ] = self::bounded_work_dimensions( $image->getImageWidth(), $image->getImageHeight() );
+			[ $width, $height ] = $target_width > 0 && $target_height > 0
+				? self::bounded_work_dimensions( $target_width, $target_height )
+				: self::bounded_work_dimensions( $image->getImageWidth(), $image->getImageHeight() );
 			$image->resizeImage( $width, $height, \Imagick::FILTER_LANCZOS, 1, true );
 			$blob = $image->getImageBlob();
 			$image->clear();
 			$image->destroy();
 
 			$resource = is_string( $blob ) && '' !== $blob ? @imagecreatefromstring( $blob ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			return $resource ? self::bounded_gd_resource( $resource, 2048, 4000000 ) : false;
+			return $resource ? self::bounded_gd_resource( $resource, self::MAX_WORK_RASTER_DIMENSION, self::MAX_WORK_RASTER_PIXELS ) : false;
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'Engraving SVG conversion failed: ' . $e->getMessage() );
 			return false;

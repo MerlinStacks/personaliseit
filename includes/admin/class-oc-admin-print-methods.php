@@ -173,7 +173,13 @@ class OC_Admin_Print_Methods {
 								       min="72" step="1" class="small-text oc-input" style="width:90px;" />
 								<span style="font-size:13px;color:var(--oc-gray-400);">DPI</span>
 							</div>
-							<p class="oc-form-help"><?php esc_html_e( 'Stored as method metadata. Generated dimensions use the DPI saved on each design print area.', 'overcustomise' ); ?></p>
+							<p class="oc-form-help">
+								<?php if ( 'engraving' === $key ) : ?>
+									<?php esc_html_e( 'Photo engraving rasters are generated at this DPI, within production safety limits.', 'overcustomise' ); ?>
+								<?php else : ?>
+									<?php esc_html_e( 'Stored as method metadata. Generated dimensions use the DPI saved on each design print area.', 'overcustomise' ); ?>
+								<?php endif; ?>
+							</p>
 						</div>
 					</div>
 					<div class="oc-form-row">

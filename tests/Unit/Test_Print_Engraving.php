@@ -174,6 +174,43 @@ class Test_Print_Engraving extends TestCase {
 		$this->assertSame( 'silver_plaque', $profile['material'] );
 		$this->assertSame( 1.25, $profile['gamma'] );
 		$this->assertSame( 'floyd_steinberg', $profile['dithering'] );
+		$this->assertSame( 600, $profile['dpi'] );
+	}
+
+	#[Test]
+	public function photo_engraving_is_rasterised_at_its_final_print_size(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$temp   = tempnam( sys_get_temp_dir(), 'oc-photo-dpi-' );
+		$source = $temp . '.png';
+		@unlink( $temp );
+		$image = imagecreatetruecolor( 40, 20 );
+		for ( $x = 0; $x < 40; $x++ ) {
+			$gray = imagecolorallocate( $image, $x * 6, $x * 6, $x * 6 );
+			imagefilledrectangle( $image, $x, 0, $x, 19, $gray );
+		}
+		imagepng( $image, $source );
+		imagedestroy( $image );
+
+		$output = '';
+		try {
+			$output = OC_Print_Engraving::prepare_artwork_for_layer(
+				$source,
+				[ 'dpi' => 600, 'gamma' => 1.0, 'dithering' => 'floyd_steinberg' ],
+				25.4,
+				12.7
+			);
+			$size = getimagesize( $output );
+			$this->assertSame( 600, $size[0] );
+			$this->assertSame( 300, $size[1] );
+		} finally {
+			@unlink( $source );
+			if ( '' !== $output ) {
+				@unlink( $output );
+			}
+		}
 	}
 
 	#[Test]
