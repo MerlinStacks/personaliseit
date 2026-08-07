@@ -417,10 +417,10 @@ class OCCustomiser {
 	}
 
 	restHeaders( extra = {} ) {
-		const headers = {
-			'X-WP-Nonce': this.data.uploadNonce,
-			...extra,
-		};
+		const headers = { ...extra };
+		if ( this.data.uploadNonce ) {
+			headers[ 'X-WP-Nonce' ] = this.data.uploadNonce;
+		}
 		if ( this.data.requestToken ) {
 			headers[ 'X-OC-Token' ] = this.data.requestToken;
 		}

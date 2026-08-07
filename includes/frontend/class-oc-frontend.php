@@ -116,7 +116,10 @@ class OC_Frontend {
 		$state['requestTokenUrl']       = rest_url( 'overcustomise/v1/session-token' );
 		$state['productDesignUrl']      = rest_url( 'overcustomise/v1/product-design/' . (int) get_queried_object_id() );
 		$state['productId']             = (int) get_queried_object_id();
-		$state['uploadNonce']           = wp_create_nonce( 'wp_rest' );
+		// Sending a stale guest nonce makes REST cookie authentication reject the
+		// request before our short-lived public token can be verified. Product pages
+		// may be cached, so only expose a REST nonce for authenticated users.
+		$state['uploadNonce']           = is_user_logged_in() ? wp_create_nonce( 'wp_rest' ) : '';
 		$state['requestToken']          = '';
 		$state['maxUploadSizeMb']       = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
 		$state['allowedFormats']        = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
