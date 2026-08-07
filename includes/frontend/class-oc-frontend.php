@@ -101,7 +101,11 @@ class OC_Frontend {
 
 	/** Build the complete initial state for the Interactivity API store. */
 	private function build_state(): array {
-		$state = $this->build_design_state( $this->design, $this->areas, $this->layers );
+		$state              = $this->build_design_state( $this->design, $this->areas, $this->layers );
+		$max_upload_size_mb = (int) OC_Admin_Settings::get( 'max_upload_size_mb' );
+		if ( 0 === $max_upload_size_mb ) {
+			$max_upload_size_mb = 10;
+		}
 
 		$state['designVariants']        = $this->design_variants;
 		$state['selectedDesignVariant'] = $this->selected_design_variant;
@@ -121,7 +125,7 @@ class OC_Frontend {
 		// may be cached, so only expose a REST nonce for authenticated users.
 		$state['uploadNonce']     = is_user_logged_in() ? wp_create_nonce( 'wp_rest' ) : '';
 		$state['requestToken']    = '';
-		$state['maxUploadSizeMb'] = (int) OC_Admin_Settings::get( 'max_upload_size_mb' ) ?: 10;
+		$state['maxUploadSizeMb'] = $max_upload_size_mb;
 		$state['allowedFormats']  = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
 
 		return $state;
