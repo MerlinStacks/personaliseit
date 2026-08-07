@@ -185,7 +185,7 @@ class Test_Print_Engraving extends TestCase {
 
 		$temp   = tempnam( sys_get_temp_dir(), 'oc-photo-dpi-' );
 		$source = $temp . '.png';
-		@unlink( $temp );
+		unlink( $temp ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
 		$image = imagecreatetruecolor( 40, 20 );
 		for ( $x = 0; $x < 40; $x++ ) {
 			$gray = imagecolorallocate( $image, $x * 6, $x * 6, $x * 6 );
@@ -198,11 +198,15 @@ class Test_Print_Engraving extends TestCase {
 		try {
 			$output = OC_Print_Engraving::prepare_artwork_for_layer(
 				$source,
-				[ 'dpi' => 600, 'gamma' => 1.0, 'dithering' => 'floyd_steinberg' ],
+				[
+					'dpi'       => 600,
+					'gamma'     => 1.0,
+					'dithering' => 'floyd_steinberg',
+				],
 				25.4,
 				12.7
 			);
-			$size = getimagesize( $output );
+			$size   = getimagesize( $output );
 			$this->assertSame( 600, $size[0] );
 			$this->assertSame( 300, $size[1] );
 		} finally {

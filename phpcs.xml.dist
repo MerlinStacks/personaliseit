@@ -44,6 +44,9 @@
 	<rule ref="Generic.CodeAnalysis.UnusedFunctionParameter">
 		<exclude-pattern>tests/*</exclude-pattern>
 	</rule>
+	<rule ref="Generic.Classes.DuplicateClassName">
+		<exclude-pattern>tests/*</exclude-pattern>
+	</rule>
 	<rule ref="WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize">
 		<exclude-pattern>tests/*</exclude-pattern>
 	</rule>

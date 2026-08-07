@@ -266,7 +266,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		}
 
 		[ $target_width, $target_height ] = self::engraving_raster_dimensions( $profile, $width_mm, $height_mm );
-		$src                             = self::open_image_resource( $artwork_path, $target_width, $target_height );
+		$src                              = self::open_image_resource( $artwork_path, $target_width, $target_height );
 		if ( ! $src ) {
 			return null;
 		}

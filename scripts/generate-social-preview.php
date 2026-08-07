@@ -10,6 +10,7 @@
 declare(strict_types=1);
 
 if ( ! extension_loaded( 'gd' ) ) {
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- This is a standalone CLI script.
 	fwrite( STDERR, "The GD extension is required.\n" );
 	exit( 1 );
 }
@@ -21,17 +22,21 @@ $temp      = [];
 
 /** Expand a bundled TCPDF font for GD's FreeType functions. */
 function oc_preview_font( string $compressed_path, array &$temp ): string {
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a local bundled font in a standalone CLI script.
 	$data = file_get_contents( $compressed_path );
 	if ( false === $data ) {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Exception text is emitted only by this CLI script.
 		throw new RuntimeException( 'Unable to read bundled font: ' . $compressed_path );
 	}
 
 	$decoded = zlib_decode( $data );
 	if ( false === $decoded ) {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Exception text is emitted only by this CLI script.
 		throw new RuntimeException( 'Unable to decode bundled font: ' . $compressed_path );
 	}
 
 	$path = tempnam( sys_get_temp_dir(), 'oc-font-' );
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- WordPress is not loaded by this standalone CLI script.
 	if ( false === $path || false === file_put_contents( $path, $decoded ) ) {
 		throw new RuntimeException( 'Unable to prepare a temporary font.' );
 	}
@@ -160,12 +165,15 @@ try {
 		throw new RuntimeException( 'Unable to write social preview: ' . $output );
 	}
 	imagedestroy( $image );
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- This is a standalone CLI script.
 	fwrite( STDOUT, "Generated {$output}\n" );
 } catch ( Throwable $error ) {
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- This is a standalone CLI script.
 	fwrite( STDERR, $error->getMessage() . "\n" );
 	exit( 1 );
 } finally {
-	foreach ( $temp as $path ) {
-		@unlink( $path );
+	foreach ( $temp as $temporary_path ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- WordPress is not loaded by this standalone CLI script.
+		unlink( $temporary_path );
 	}
 }
