@@ -185,6 +185,14 @@ export function createLayerPreviewRenderer( deps ) {
 	}
 
 	function engravingPreview( material ) {
+		if ( material === 'black_metal' ) {
+			return {
+				color: '#d8d8d8',
+				filter: 'brightness(0) saturate(100%) invert(86%) opacity(0.95) drop-shadow(0 0 1px rgba(0, 0, 0, 0.42))',
+				shadow: '0 0 1px rgba(0, 0, 0, 0.42)',
+			};
+		}
+
 		if ( material === 'silver_plaque' ) {
 			return {
 				color: '#17191b',

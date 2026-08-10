@@ -583,16 +583,18 @@ const canvasRendererMethods = {
 				};
 
 				if ( isEngraving ) {
-					// Fake etched depth: subtle light highlight below + soft dark shadow above.
+					// Fake etched depth with a subtle edge shadow on dark substrates.
 					obj.set( {
 						opacity: engravingPalette.opacity,
 						globalCompositeOperation:
 							engravingPalette.composite || 'source-over',
 						shadow: new Shadow( {
-							color: engravingPalette.highlight,
+							color:
+								engravingPalette.shadow ||
+								engravingPalette.highlight,
 							offsetX: 0,
-							offsetY: 1,
-							blur: 1,
+							offsetY: engravingPalette.shadow ? 0 : 1,
+							blur: engravingPalette.shadow ? 1.25 : 1,
 						} ),
 					} );
 				} else if ( isEmbroidery ) {
@@ -1390,6 +1392,7 @@ const canvasRendererMethods = {
 				imageTint: '#d8d8d8',
 				bg: '1F2328',
 				highlight: 'rgba(255,255,255,0.24)',
+				shadow: 'rgba(0,0,0,0.42)',
 				brightness: -0.34,
 				contrast: 0.28,
 				opacity: 0.95,
@@ -2450,6 +2453,16 @@ const canvasRendererMethods = {
 					opacity: palette.opacity,
 					globalCompositeOperation:
 						palette.composite || 'source-over',
+					...( palette.shadow
+						? {
+								shadow: new Shadow( {
+									color: palette.shadow,
+									offsetX: 0,
+									offsetY: 0,
+									blur: 1.25,
+								} ),
+						  }
+						: {} ),
 				} );
 			} else if ( isEngraving ) {
 				img.set( {
@@ -2457,10 +2470,10 @@ const canvasRendererMethods = {
 					globalCompositeOperation:
 						palette.composite || 'source-over',
 					shadow: new Shadow( {
-						color: palette.highlight,
+						color: palette.shadow || palette.highlight,
 						offsetX: 0,
-						offsetY: 1,
-						blur: 1,
+						offsetY: palette.shadow ? 0 : 1,
+						blur: palette.shadow ? 1.25 : 1,
 					} ),
 				} );
 			} else if ( effects.embroidery || effects.embroideryColor ) {
