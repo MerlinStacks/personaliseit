@@ -1952,10 +1952,13 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_filter', __( 'This image effect is unavailable.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
-		$api_key = OC_Admin_Settings::get_openrouter_api_key();
-		$model   = trim( OC_Admin_Settings::get_openrouter_image_model() );
-		if ( '' === $api_key || $api_key !== trim( $api_key ) || strlen( $api_key ) > 4096 || ! preg_match( '/^[A-Za-z0-9._:-]+$/D', $api_key )
-			|| ! preg_match( '#^[A-Za-z0-9._:-]+/[A-Za-z0-9._:-]+$#D', $model ) || strlen( $model ) > 200
+		$ai_config = OC_Admin_Settings::get_ai_image_configuration();
+		$api_key   = (string) ( $ai_config['api_key'] ?? '' );
+		$model     = trim( (string) ( $ai_config['model'] ?? '' ) );
+		$provider  = (string) ( $ai_config['provider'] ?? '' );
+		if ( '' === $api_key || trim( $api_key ) !== $api_key || 4096 < strlen( $api_key ) || ! preg_match( '/^[A-Za-z0-9._:-]+$/D', $api_key )
+			|| ! array_key_exists( $provider, OC_Admin_Settings::get_ai_image_providers() )
+			|| ! preg_match( '#^[A-Za-z0-9._:/-]+$#D', $model ) || 200 < strlen( $model )
 		) {
 			OC_Logger::warning( 'AI image filtering was requested with unavailable or malformed provider configuration.' );
 			return new \WP_Error( 'ai_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
@@ -2068,8 +2071,8 @@ class OC_Rest_API {
 				self::release_budget_reservation( $storage_reservation );
 				OC_Logger::warning( 'AI image generation failed after quota reservation: ' . $generated->get_error_code() . ' - ' . $generated->get_error_message() );
 				$status = match ( $generated->get_error_code() ) {
-					'openrouter_rate_limited' => 429,
-					'openrouter_unavailable'  => 503,
+					'ai_rate_limited', 'openrouter_rate_limited' => 429,
+					'ai_unavailable', 'openrouter_unavailable'   => 503,
 					default                   => 422,
 				};
 				$message = 429 === $status
@@ -2095,6 +2098,7 @@ class OC_Rest_API {
 						'attempt'              => $attempt,
 						'group'                => $group,
 						'model'                => (string) ( $generated['model'] ?? $model ),
+						'provider'             => (string) ( $generated['provider'] ?? $provider ),
 					],
 					! empty( $filter->remove_background )
 				);

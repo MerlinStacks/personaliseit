@@ -1,6 +1,6 @@
 <?php
 /**
- * Unit tests for OpenRouter image response parsing.
+ * Unit tests for AI image provider response parsing.
  *
  * @package OverCustomise
  */
@@ -17,6 +17,12 @@ class Test_AI_Image_Filter extends TestCase {
 
 	private function extract_image( array $body ): array|WP_Error {
 		$method = ( new ReflectionClass( OC_AI_Image_Filter::class ) )->getMethod( 'extract_image' );
+		$method->setAccessible( true );
+		return $method->invoke( null, $body );
+	}
+
+	private function extract_provider_image( string $method_name, array $body ): array|WP_Error {
+		$method = ( new ReflectionClass( OC_AI_Image_Filter::class ) )->getMethod( $method_name );
 		$method->setAccessible( true );
 		return $method->invoke( null, $body );
 	}
@@ -52,5 +58,41 @@ class Test_AI_Image_Filter extends TestCase {
 
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'invalid_ai_response', $result->get_error_code() );
+	}
+
+	#[Test]
+	public function extracts_google_inline_image_data(): void {
+		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$result = $this->extract_provider_image(
+			'extract_google_image',
+			[
+				'candidates' => [
+					[
+						'content' => [
+							'parts' => [
+								[
+									'inlineData' => [
+										'mimeType' => 'image/png',
+										'data'     => base64_encode( $png ),
+									],
+								],
+							],
+						],
+					],
+				],
+			]
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( $png, $result['bytes'] );
+	}
+
+	#[Test]
+	public function extracts_openai_base64_image_data(): void {
+		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$result = $this->extract_provider_image( 'extract_openai_image', [ 'data' => [ [ 'b64_json' => base64_encode( $png ) ] ] ] );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'image/png', $result['mime'] );
 	}
 }

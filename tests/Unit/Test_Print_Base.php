@@ -120,6 +120,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 		return self::make_pdf( $w_mm, $h_mm, $bleed );
 	}
 
+	public static function test_resolve_font( int $font_id ): string {
+		return self::resolve_font( $font_id );
+	}
+
 	public static function test_has_vector_snapshot_payload( array $area_data ): bool {
 		return self::has_vector_snapshot_payload( $area_data );
 	}
@@ -415,6 +419,40 @@ class Test_Print_Base extends TestCase {
 		$this->assertGreaterThan( $pdf->getPageHeight(), $pdf->getPageWidth() );
 		$this->assertEqualsWithDelta( 126.0, $pdf->getPageWidth(), 0.001 );
 		$this->assertEqualsWithDelta( 46.0, $pdf->getPageHeight(), 0.001 );
+	}
+
+	#[Test]
+	public function woff2_font_failure_explains_how_to_prepare_it_for_print(): void {
+		global $wpdb;
+		$previous_wpdb = $wpdb ?? null;
+		$font_dir      = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/fonts';
+		wp_mkdir_p( $font_dir );
+		$font_path = $font_dir . '/web-font.woff2';
+		file_put_contents( $font_path, 'wOF2' );
+
+		$wpdb = new class {
+			public string $prefix = 'wp_';
+
+			public function prepare( string $query, int $font_id ): string {
+				return $query . ' -- ' . $font_id;
+			}
+
+			public function get_row( string $query ): object {
+				return (object) [
+					'id'        => 33,
+					'file_path' => 'overcustomise/fonts/web-font.woff2',
+				];
+			}
+		};
+
+		try {
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessage( 'Convert it for print in OverCustomise > Fonts' );
+			OC_Print_Base_Testable::test_resolve_font( 33 );
+		} finally {
+			@unlink( $font_path );
+			$wpdb = $previous_wpdb;
+		}
 	}
 
 	#[Test]

@@ -9,16 +9,38 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Settings {
 
-	private const OPTION_KEY = 'oc_settings';
-	private const OPENROUTER_MODELS_TRANSIENT = 'oc_openrouter_image_models_v2';
-	private const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-2.5-flash-image';
-	private static ?array $normalised_cache = null;
+	private const OPTION_KEY                       = 'oc_settings';
+	private const OPENROUTER_MODELS_TRANSIENT      = 'oc_openrouter_image_models_v2';
+	private const GOOGLE_MODELS_TRANSIENT          = 'oc_google_image_models_v1';
+	private const OPENAI_MODELS_TRANSIENT          = 'oc_openai_image_models_v1';
+	private const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-3.1-flash-image';
+	private const DEFAULT_GOOGLE_IMAGE_MODEL     = 'gemini-3.1-flash-image';
+	private const DEFAULT_OPENAI_IMAGE_MODEL     = 'gpt-image-2';
+	private static ?array $normalised_cache      = null;
 	private static string $normalised_cache_signature = '';
 
 	private const OPENROUTER_IMAGE_MODELS = [
-		'google/gemini-2.5-flash-image' => 'Google: Nano Banana (Gemini 2.5 Flash Image)',
-		'google/gemini-3.1-flash-image' => 'Google: Nano Banana 2 (Gemini 3.1 Flash Image)',
-		'openai/gpt-5-image'             => 'OpenAI: GPT-5 Image',
+		'google/gemini-3.1-flash-lite-image' => 'Google: Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)',
+		'google/gemini-3.1-flash-image'      => 'Google: Nano Banana 2 (Gemini 3.1 Flash Image)',
+		'google/gemini-3-pro-image'          => 'Google: Nano Banana Pro (Gemini 3 Pro Image)',
+		'google/gemini-2.5-flash-image'      => 'Google: Nano Banana (Gemini 2.5 Flash Image)',
+		'openai/gpt-5.4-image-2'             => 'OpenAI: GPT-5.4 Image 2',
+		'openai/gpt-5-image-mini'            => 'OpenAI: GPT-5 Image Mini',
+		'openai/gpt-5-image'                 => 'OpenAI: GPT-5 Image',
+	];
+
+	private const GOOGLE_IMAGE_MODELS = [
+		'gemini-3.1-flash-image'      => 'Gemini 3.1 Flash Image (Nano Banana 2) - recommended',
+		'gemini-3-pro-image'          => 'Gemini 3 Pro Image (Nano Banana Pro)',
+		'gemini-3.1-flash-lite-image' => 'Gemini 3.1 Flash Lite Image (Nano Banana 2 Lite)',
+		'gemini-2.5-flash-image'      => 'Gemini 2.5 Flash Image (Nano Banana) - retires October 2026',
+	];
+
+	private const OPENAI_IMAGE_MODELS = [
+		'gpt-image-2'      => 'GPT Image 2 - recommended',
+		'gpt-image-1.5'    => 'GPT Image 1.5',
+		'gpt-image-1'      => 'GPT Image 1',
+		'gpt-image-1-mini' => 'GPT Image 1 Mini - lower cost',
 	];
 
 	/** Return the full settings array with defaults applied. */
@@ -42,8 +64,13 @@ class OC_Admin_Settings {
 			'icc_sublimation'        => 'ISOcoated_v2_300_eci',
 
 			// AI image filter generation.
+			'ai_image_provider'      => 'openrouter',
 			'openrouter_api_key_enc' => '',
 			'openrouter_image_model' => self::DEFAULT_OPENROUTER_IMAGE_MODEL,
+			'google_api_key_enc'     => '',
+			'google_image_model'     => self::DEFAULT_GOOGLE_IMAGE_MODEL,
+			'openai_api_key_enc'     => '',
+			'openai_image_model'     => self::DEFAULT_OPENAI_IMAGE_MODEL,
 		];
 
 		$saved = get_option( self::OPTION_KEY, [] );
@@ -71,8 +98,13 @@ class OC_Admin_Settings {
 			'icc_engraving'          => is_scalar( $all['icc_engraving'] ?? null ) ? substr( sanitize_text_field( (string) $all['icc_engraving'] ), 0, 255 ) : $defaults['icc_engraving'],
 			'icc_uv'                 => is_scalar( $all['icc_uv'] ?? null ) ? substr( sanitize_text_field( (string) $all['icc_uv'] ), 0, 255 ) : $defaults['icc_uv'],
 			'icc_sublimation'        => is_scalar( $all['icc_sublimation'] ?? null ) ? substr( sanitize_text_field( (string) $all['icc_sublimation'] ), 0, 255 ) : $defaults['icc_sublimation'],
-			'openrouter_api_key_enc' => is_string( $all['openrouter_api_key_enc'] ?? null ) && strlen( $all['openrouter_api_key_enc'] ) <= 4096 ? $all['openrouter_api_key_enc'] : '',
-			'openrouter_image_model' => is_scalar( $all['openrouter_image_model'] ?? null ) ? substr( sanitize_text_field( (string) $all['openrouter_image_model'] ), 0, 255 ) : $defaults['openrouter_image_model'],
+			'ai_image_provider'      => in_array( $all['ai_image_provider'] ?? null, array_keys( self::get_ai_image_providers() ), true ) ? $all['ai_image_provider'] : 'openrouter',
+			'openrouter_api_key_enc' => self::normalise_encrypted_secret( $all['openrouter_api_key_enc'] ?? null ),
+			'openrouter_image_model' => self::normalise_model( $all['openrouter_image_model'] ?? null, $defaults['openrouter_image_model'] ),
+			'google_api_key_enc'     => self::normalise_encrypted_secret( $all['google_api_key_enc'] ?? null ),
+			'google_image_model'     => self::normalise_model( $all['google_image_model'] ?? null, $defaults['google_image_model'] ),
+			'openai_api_key_enc'     => self::normalise_encrypted_secret( $all['openai_api_key_enc'] ?? null ),
+			'openai_image_model'     => self::normalise_model( $all['openai_image_model'] ?? null, $defaults['openai_image_model'] ),
 		];
 		self::$normalised_cache           = $all;
 		self::$normalised_cache_signature = $signature;
@@ -88,6 +120,188 @@ class OC_Admin_Settings {
 	public static function get_openrouter_api_key(): string {
 		$encrypted = (string) self::get( 'openrouter_api_key_enc' );
 		return self::decrypt_secret( $encrypted );
+	}
+
+	/** Return supported direct and routed AI image providers. */
+	public static function get_ai_image_providers(): array {
+		return [
+			'openrouter' => __( 'OpenRouter', 'overcustomise' ),
+			'google'     => __( 'Google Gemini', 'overcustomise' ),
+			'openai'     => __( 'OpenAI (ChatGPT)', 'overcustomise' ),
+		];
+	}
+
+	/** Return the selected AI image provider. Existing installs default to OpenRouter. */
+	public static function get_ai_image_provider(): string {
+		$provider = (string) self::get( 'ai_image_provider' );
+		return isset( self::get_ai_image_providers()[ $provider ] ) ? $provider : 'openrouter';
+	}
+
+	/** Return the selected provider's decrypted key, model, and display name. */
+	public static function get_ai_image_configuration(): array {
+		$provider = self::get_ai_image_provider();
+		$key_name = $provider . '_api_key_enc';
+		$model    = 'openrouter' === $provider
+			? self::get_openrouter_image_model()
+			: self::get_provider_image_model( $provider );
+
+		return [
+			'provider'       => $provider,
+			'provider_label' => self::get_ai_image_providers()[ $provider ],
+			'api_key'        => self::decrypt_secret( (string) self::get( $key_name ) ),
+			'model'          => $model,
+		];
+	}
+
+	/** Return model choices for an AI image provider. */
+	public static function get_ai_image_models( string $provider, bool $force_refresh = false ): array {
+		return match ( $provider ) {
+			'google' => self::get_direct_provider_image_models( 'google', $force_refresh ),
+			'openai' => self::get_direct_provider_image_models( 'openai', $force_refresh ),
+			default  => self::get_openrouter_image_models( $force_refresh ),
+		};
+	}
+
+	/** Return account-available direct-provider models, cached with a verified fallback. */
+	private static function get_direct_provider_image_models( string $provider, bool $force_refresh ): array {
+		$fallback  = 'google' === $provider ? self::GOOGLE_IMAGE_MODELS : self::OPENAI_IMAGE_MODELS;
+		$transient = 'google' === $provider ? self::GOOGLE_MODELS_TRANSIENT : self::OPENAI_MODELS_TRANSIENT;
+		if ( ! $force_refresh ) {
+			$cached = get_transient( $transient );
+			if ( is_array( $cached ) && ! empty( $cached ) ) {
+				return $cached;
+			}
+		}
+
+		$api_key = self::decrypt_secret( (string) self::get( $provider . '_api_key_enc' ) );
+		if ( '' === $api_key ) {
+			return $fallback;
+		}
+
+		$models = 'google' === $provider
+			? self::fetch_google_image_models( $api_key )
+			: self::fetch_openai_image_models( $api_key );
+		if ( empty( $models ) ) {
+			return $fallback;
+		}
+
+		set_transient( $transient, $models, 6 * HOUR_IN_SECONDS );
+		return $models;
+	}
+
+	/** Fetch image-output Gemini models available to the configured API key. */
+	private static function fetch_google_image_models( string $api_key ): array {
+		$response = wp_remote_get(
+			'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+			[
+				'timeout'             => 15,
+				'redirection'         => 0,
+				'limit_response_size' => 2097152,
+				'sslverify'           => true,
+				'headers'             => [
+					'Accept'         => 'application/json',
+					'x-goog-api-key' => $api_key,
+				],
+			]
+		);
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return [];
+		}
+
+		$body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		return self::parse_google_image_models( is_array( $body ) ? $body : [] );
+	}
+
+	/** Extract Gemini models that explicitly support generation and use image-output model IDs. */
+	private static function parse_google_image_models( array $body ): array {
+		$models = [];
+		foreach ( is_array( $body['models'] ?? null ) ? $body['models'] : [] as $model ) {
+			if ( ! is_array( $model ) ) {
+				continue;
+			}
+			$model_id = preg_replace( '#^models/#', '', (string) ( $model['name'] ?? '' ) );
+			$methods  = is_array( $model['supportedGenerationMethods'] ?? null ) ? $model['supportedGenerationMethods'] : [];
+			if ( ! is_string( $model_id ) || ! preg_match( '/^gemini-[A-Za-z0-9.-]+-image(?:-preview)?$/D', $model_id )
+				|| ! in_array( 'generateContent', $methods, true )
+			) {
+				continue;
+			}
+			$models[ $model_id ] = self::GOOGLE_IMAGE_MODELS[ $model_id ] ?? sanitize_text_field( (string) ( $model['displayName'] ?? $model_id ) );
+		}
+
+		return self::order_discovered_models( $models, self::GOOGLE_IMAGE_MODELS );
+	}
+
+	/** Fetch GPT Image models available to the configured API key. */
+	private static function fetch_openai_image_models( string $api_key ): array {
+		$response = wp_remote_get(
+			'https://api.openai.com/v1/models',
+			[
+				'timeout'             => 15,
+				'redirection'         => 0,
+				'limit_response_size' => 2097152,
+				'sslverify'           => true,
+				'headers'             => [
+					'Accept'        => 'application/json',
+					'Authorization' => 'Bearer ' . $api_key,
+				],
+			]
+		);
+		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return [];
+		}
+
+		$body = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		return self::parse_openai_image_models( is_array( $body ) ? $body : [] );
+	}
+
+	/** Extract stable GPT Image aliases while excluding dated snapshots and non-image models. */
+	private static function parse_openai_image_models( array $body ): array {
+		$models = [];
+		foreach ( is_array( $body['data'] ?? null ) ? $body['data'] : [] as $model ) {
+			$model_id = is_array( $model ) ? sanitize_text_field( (string) ( $model['id'] ?? '' ) ) : '';
+			if ( ! preg_match( '/^gpt-image-\d+(?:\.\d+)?(?:-mini)?$/D', $model_id ) ) {
+				continue;
+			}
+			$models[ $model_id ] = self::OPENAI_IMAGE_MODELS[ $model_id ] ?? ucwords( str_replace( '-', ' ', $model_id ) );
+		}
+
+		return self::order_discovered_models( $models, self::OPENAI_IMAGE_MODELS );
+	}
+
+	/** Keep documented preferred models first and append newly discovered aliases naturally. */
+	private static function order_discovered_models( array $models, array $preferred ): array {
+		$ordered = [];
+		foreach ( $preferred as $model_id => $label ) {
+			if ( isset( $models[ $model_id ] ) ) {
+				$ordered[ $model_id ] = $models[ $model_id ];
+				unset( $models[ $model_id ] );
+			}
+		}
+		asort( $models, SORT_NATURAL | SORT_FLAG_CASE );
+		return $ordered + $models;
+	}
+
+	/** Return a validated model for a direct provider. */
+	private static function get_provider_image_model( string $provider ): string {
+		$models  = self::get_ai_image_models( $provider );
+		$default = 'google' === $provider ? self::DEFAULT_GOOGLE_IMAGE_MODEL : self::DEFAULT_OPENAI_IMAGE_MODEL;
+		$model   = (string) self::get( $provider . '_image_model' );
+		if ( isset( $models[ $model ] ) ) {
+			return $model;
+		}
+
+		return isset( $models[ $default ] ) ? $default : (string) array_key_first( $models );
+	}
+
+	/** Bound an encrypted setting before it is retained in normalised settings. */
+	private static function normalise_encrypted_secret( mixed $value ): string {
+		return is_string( $value ) && strlen( $value ) <= 4096 ? $value : '';
+	}
+
+	/** Sanitize a model identifier, falling back when the setting is malformed. */
+	private static function normalise_model( mixed $value, string $fallback ): string {
+		return is_scalar( $value ) ? substr( sanitize_text_field( (string) $value ), 0, 255 ) : $fallback;
 	}
 
 	/** Return the configured OpenRouter image model. */
@@ -179,8 +393,9 @@ class OC_Admin_Settings {
 			$this->save();
 		}
 
-		$s = self::get();
-		$image_models = self::get_openrouter_image_models();
+		$s                           = self::get();
+		$image_models                = self::get_openrouter_image_models();
+		$providers                   = self::get_ai_image_providers();
 		$s['openrouter_image_model'] = self::get_openrouter_image_model();
 
 		$tabs = [
@@ -401,42 +616,64 @@ class OC_Admin_Settings {
 									<div class="oc-form-grid">
 										<div class="oc-form-row">
 											<div class="oc-form-label">
-												<label for="oc_openrouter_api_key"><?php esc_html_e( 'OpenRouter API key', 'overcustomise' ); ?></label>
+												<label for="oc_ai_image_provider"><?php esc_html_e( 'Provider', 'overcustomise' ); ?></label>
 											</div>
 											<div class="oc-form-field">
-												<input
-													type="password"
-													id="oc_openrouter_api_key"
-													name="oc_openrouter_api_key"
-													value=""
-													class="regular-text oc-input"
-													autocomplete="new-password"
-													placeholder="<?php echo '' !== (string) $s['openrouter_api_key_enc'] ? esc_attr__( 'API key saved. Enter a new key to replace it.', 'overcustomise' ) : esc_attr__( 'sk-or-v1-...', 'overcustomise' ); ?>" />
-												<p class="oc-form-help"><?php esc_html_e( 'Stored encrypted in the WordPress options table and only used server-side.', 'overcustomise' ); ?></p>
-												<?php if ( '' !== (string) $s['openrouter_api_key_enc'] ) : ?>
-													<label class="oc-checkbox-label" style="margin-top:8px;">
-														<input type="checkbox" name="oc_openrouter_api_key_clear" value="1" />
-														<?php esc_html_e( 'Clear saved API key', 'overcustomise' ); ?>
-													</label>
-												<?php endif; ?>
+												<select id="oc_ai_image_provider" name="oc_ai_image_provider" class="oc-select oc-select-wide">
+													<?php foreach ( $providers as $provider_id => $provider_label ) : ?>
+														<option value="<?php echo esc_attr( $provider_id ); ?>" <?php selected( $s['ai_image_provider'], $provider_id ); ?>><?php echo esc_html( $provider_label ); ?></option>
+													<?php endforeach; ?>
+												</select>
+												<p class="oc-form-help"><?php esc_html_e( 'Choose whether image requests use OpenRouter or connect directly to Google or OpenAI.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 
-										<div class="oc-form-row">
-											<div class="oc-form-label">
-												<label for="oc_openrouter_image_model"><?php esc_html_e( 'Image model', 'overcustomise' ); ?></label>
+										<?php
+										$provider_fields = [
+											'openrouter' => [
+												'label'       => 'OpenRouter',
+												'placeholder' => 'sk-or-v1-...',
+												'models'      => $image_models,
+												'help'        => __( 'Image-capable models are fetched from OpenRouter and cached for 6 hours.', 'overcustomise' ),
+											],
+											'google'     => [
+												'label'       => 'Google Gemini',
+												'placeholder' => 'AIza...',
+												'models'      => self::get_ai_image_models( 'google' ),
+												'help'        => __( 'Fetched from the Gemini API and filtered to image-output models. Cached for 6 hours.', 'overcustomise' ),
+											],
+											'openai'     => [
+												'label'       => 'OpenAI',
+												'placeholder' => 'sk-...',
+												'models'      => self::get_ai_image_models( 'openai' ),
+												'help'        => __( 'Fetched from your OpenAI account and filtered to stable GPT Image models. Cached for 6 hours.', 'overcustomise' ),
+											],
+										];
+										foreach ( $provider_fields as $provider_id => $field ) :
+											$key_setting   = $provider_id . '_api_key_enc';
+											$model_setting = $provider_id . '_image_model';
+											?>
+											<div class="oc-ai-provider-fields" data-ai-provider="<?php echo esc_attr( $provider_id ); ?>">
+												<div class="oc-form-row">
+													<div class="oc-form-label"><label for="oc_<?php echo esc_attr( $provider_id ); ?>_api_key"><?php echo esc_html( $field['label'] . ' ' . __( 'API key', 'overcustomise' ) ); ?></label></div>
+													<div class="oc-form-field">
+														<input type="password" id="oc_<?php echo esc_attr( $provider_id ); ?>_api_key" name="oc_<?php echo esc_attr( $provider_id ); ?>_api_key" value="" class="regular-text oc-input" autocomplete="new-password" placeholder="<?php echo '' !== (string) $s[ $key_setting ] ? esc_attr__( 'API key saved. Enter a new key to replace it.', 'overcustomise' ) : esc_attr( $field['placeholder'] ); ?>" />
+														<p class="oc-form-help"><?php esc_html_e( 'Stored encrypted in the WordPress options table and only used server-side.', 'overcustomise' ); ?></p>
+														<?php if ( '' !== (string) $s[ $key_setting ] ) : ?>
+															<label class="oc-checkbox-label" style="margin-top:8px;"><input type="checkbox" name="oc_<?php echo esc_attr( $provider_id ); ?>_api_key_clear" value="1" /> <?php esc_html_e( 'Clear saved API key', 'overcustomise' ); ?></label>
+														<?php endif; ?>
+													</div>
+												</div>
+												<div class="oc-form-row">
+													<div class="oc-form-label"><label for="oc_<?php echo esc_attr( $provider_id ); ?>_image_model"><?php esc_html_e( 'Image model', 'overcustomise' ); ?></label></div>
+													<div class="oc-form-field"><select id="oc_<?php echo esc_attr( $provider_id ); ?>_image_model" name="oc_<?php echo esc_attr( $provider_id ); ?>_image_model" class="oc-select oc-select-wide">
+														<?php foreach ( $field['models'] as $model_id => $model_label ) : ?>
+															<option value="<?php echo esc_attr( $model_id ); ?>" <?php selected( $s[ $model_setting ], $model_id ); ?>><?php echo esc_html( $model_label ); ?></option>
+														<?php endforeach; ?>
+													</select><p class="oc-form-help"><?php echo esc_html( $field['help'] ); ?></p></div>
+												</div>
 											</div>
-											<div class="oc-form-field">
-												<select id="oc_openrouter_image_model" name="oc_openrouter_image_model" class="oc-select oc-select-wide">
-													<?php foreach ( $image_models as $model_id => $model_label ) : ?>
-														<option value="<?php echo esc_attr( $model_id ); ?>" <?php selected( $s['openrouter_image_model'], $model_id ); ?>>
-															<?php echo esc_html( $model_label ); ?>
-														</option>
-													<?php endforeach; ?>
-												</select>
-												<p class="oc-form-help"><?php esc_html_e( 'Shows models that accept an image and generate an image. Fetched from OpenRouter and cached for 6 hours.', 'overcustomise' ); ?></p>
-											</div>
-										</div>
+										<?php endforeach; ?>
 									</div>
 								</div>
 							</div>
@@ -707,6 +944,19 @@ class OC_Admin_Settings {
 				}
 			});
 
+			const providerSelect = document.getElementById("oc_ai_image_provider");
+			const providerFields = Array.from(document.querySelectorAll(".oc-ai-provider-fields[data-ai-provider]"));
+			const showSelectedProvider = () => {
+				const selected = providerSelect ? providerSelect.value : "openrouter";
+				providerFields.forEach((fields) => {
+					fields.hidden = fields.dataset.aiProvider !== selected;
+				});
+			};
+			if (providerSelect) {
+				providerSelect.addEventListener("change", showSelectedProvider);
+			}
+			showSelectedProvider();
+
 			const form = document.querySelector(".oc-settings-page form");
 			const dirtyIndicator = document.getElementById("oc-settings-dirty-indicator");
 			let isDirty = false;
@@ -769,20 +1019,30 @@ class OC_Admin_Settings {
 			? array_intersect( (array) $_POST['oc_allowed_upload_formats'], $allowed_formats )
 			: [];
 		$current_settings = self::get();
-		$api_key_encrypted = (string) ( $current_settings['openrouter_api_key_enc'] ?? '' );
-		$posted_api_key = isset( $_POST['oc_openrouter_api_key'] ) ? trim( (string) wp_unslash( $_POST['oc_openrouter_api_key'] ) ) : '';
-		if ( ! empty( $_POST['oc_openrouter_api_key_clear'] ) ) {
-			$api_key_encrypted = '';
-		} elseif ( '' !== $posted_api_key ) {
-			$api_key_encrypted = self::encrypt_secret( $posted_api_key );
-		}
+		$provider = sanitize_key( wp_unslash( $_POST['oc_ai_image_provider'] ?? 'openrouter' ) );
+		$provider = isset( self::get_ai_image_providers()[ $provider ] ) ? $provider : 'openrouter';
+		$api_keys = [];
+		$models   = [];
+		$keys_changed = false;
+		foreach ( array_keys( self::get_ai_image_providers() ) as $provider_id ) {
+			$key_setting = $provider_id . '_api_key_enc';
+			$encrypted   = (string) ( $current_settings[ $key_setting ] ?? '' );
+			$posted_key  = isset( $_POST[ 'oc_' . $provider_id . '_api_key' ] ) ? trim( (string) wp_unslash( $_POST[ 'oc_' . $provider_id . '_api_key' ] ) ) : '';
+			$clear_key   = ! empty( $_POST[ 'oc_' . $provider_id . '_api_key_clear' ] );
+			if ( $clear_key ) {
+				$encrypted = '';
+			} elseif ( '' !== $posted_key ) {
+				$encrypted = self::encrypt_secret( $posted_key );
+			}
+			$api_keys[ $key_setting ] = $encrypted;
+			$keys_changed = $keys_changed || $clear_key || '' !== $posted_key;
 
-		$model = sanitize_text_field( wp_unslash( $_POST['oc_openrouter_image_model'] ?? '' ) );
-		$image_models = self::get_openrouter_image_models();
-		if ( ! isset( $image_models[ $model ] ) ) {
-			$model = isset( $image_models[ self::DEFAULT_OPENROUTER_IMAGE_MODEL ] )
-				? self::DEFAULT_OPENROUTER_IMAGE_MODEL
-				: (string) array_key_first( $image_models );
+			$model_choices = self::get_ai_image_models( $provider_id );
+			$model          = sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) );
+			if ( ! isset( $model_choices[ $model ] ) ) {
+				$model = (string) array_key_first( $model_choices );
+			}
+			$models[ $provider_id . '_image_model' ] = $model;
 		}
 
 		$flat_rate = is_numeric( $_POST['oc_flat_rate_default'] ?? null ) ? (float) $_POST['oc_flat_rate_default'] : 0.0;
@@ -801,15 +1061,22 @@ class OC_Admin_Settings {
 			'icc_engraving'          => substr( sanitize_text_field( wp_unslash( $_POST['oc_icc_engraving'] ?? '' ) ), 0, 255 ),
 			'icc_uv'                 => substr( sanitize_text_field( wp_unslash( $_POST['oc_icc_uv'] ?? '' ) ), 0, 255 ),
 			'icc_sublimation'        => substr( sanitize_text_field( wp_unslash( $_POST['oc_icc_sublimation'] ?? '' ) ), 0, 255 ),
-			'openrouter_api_key_enc' => $api_key_encrypted,
-			'openrouter_image_model' => $model,
+			'ai_image_provider'      => $provider,
+			'openrouter_api_key_enc' => $api_keys['openrouter_api_key_enc'],
+			'openrouter_image_model' => $models['openrouter_image_model'],
+			'google_api_key_enc'     => $api_keys['google_api_key_enc'],
+			'google_image_model'     => $models['google_image_model'],
+			'openai_api_key_enc'     => $api_keys['openai_api_key_enc'],
+			'openai_image_model'     => $models['openai_image_model'],
 		];
 
 		update_option( self::OPTION_KEY, $settings );
 		self::$normalised_cache           = null;
 		self::$normalised_cache_signature = '';
-		if ( '' !== $posted_api_key || ! empty( $_POST['oc_openrouter_api_key_clear'] ) ) {
+		if ( $keys_changed ) {
 			delete_transient( self::OPENROUTER_MODELS_TRANSIENT );
+			delete_transient( self::GOOGLE_MODELS_TRANSIENT );
+			delete_transient( self::OPENAI_MODELS_TRANSIENT );
 		}
 		add_settings_error( 'oc_settings', 'saved', __( 'Settings saved.', 'overcustomise' ), 'success' );
 	}

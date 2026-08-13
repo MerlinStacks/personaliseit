@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- Added selectable OpenRouter, direct Google Gemini, and direct OpenAI providers for AI image filters, each with encrypted API-key storage and dynamically discovered compatible models.
+
 ## 1.16.3 - 2026-08-03
 
 - Improved filtered-image preview reliability during checkout.

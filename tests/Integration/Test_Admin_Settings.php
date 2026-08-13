@@ -20,6 +20,8 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 			$this->http_mock = null;
 		}
 		delete_transient( 'oc_openrouter_image_models_v2' );
+		delete_transient( 'oc_google_image_models_v1' );
+		delete_transient( 'oc_openai_image_models_v1' );
 		parent::tearDown();
 	}
 
@@ -112,6 +114,84 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 
 		update_option( 'oc_settings', [ 'file_retention_days' => 30 ] );
 		$this->assertSame( 30, OC_Admin_Settings::get( 'file_retention_days' ) );
+	}
+
+	#[Test]
+	public function existing_install_defaults_to_openrouter_provider(): void {
+		update_option( 'oc_settings', [ 'openrouter_image_model' => 'google/gemini-2.5-flash-image' ] );
+		try {
+			$this->assertSame( 'openrouter', OC_Admin_Settings::get_ai_image_provider() );
+			$this->assertSame( 'openrouter', OC_Admin_Settings::get_ai_image_configuration()['provider'] );
+		} finally {
+			delete_option( 'oc_settings' );
+		}
+	}
+
+	#[Test]
+	public function direct_provider_models_are_available_without_remote_discovery(): void {
+		$google_models = OC_Admin_Settings::get_ai_image_models( 'google' );
+		$openai_models = OC_Admin_Settings::get_ai_image_models( 'openai' );
+
+		$this->assertSame( 'gemini-3.1-flash-image', array_key_first( $google_models ) );
+		$this->assertArrayHasKey( 'gemini-3-pro-image', $google_models );
+		$this->assertArrayHasKey( 'gemini-3.1-flash-lite-image', $google_models );
+		$this->assertArrayHasKey( 'gemini-2.5-flash-image', $google_models );
+		$this->assertSame( 'gpt-image-2', array_key_first( $openai_models ) );
+		$this->assertArrayHasKey( 'gpt-image-1.5', $openai_models );
+		$this->assertArrayHasKey( 'gpt-image-1', $openai_models );
+		$this->assertArrayHasKey( 'gpt-image-1-mini', $openai_models );
+	}
+
+	#[Test]
+	public function google_discovery_only_keeps_image_generation_models(): void {
+		$method = ( new ReflectionClass( OC_Admin_Settings::class ) )->getMethod( 'parse_google_image_models' );
+		$result = $method->invoke(
+			null,
+			[
+				'models' => [
+					[
+						'name'                       => 'models/gemini-3.1-flash-image',
+						'displayName'                => 'Gemini 3.1 Flash Image',
+						'supportedGenerationMethods' => [ 'generateContent' ],
+					],
+					[
+						'name'                       => 'models/gemini-4-flash-image',
+						'displayName'                => 'Gemini 4 Flash Image',
+						'supportedGenerationMethods' => [ 'generateContent' ],
+					],
+					[
+						'name'                       => 'models/gemini-3.1-flash',
+						'displayName'                => 'Vision only',
+						'supportedGenerationMethods' => [ 'generateContent' ],
+					],
+					[
+						'name'                       => 'models/gemini-old-image',
+						'displayName'                => 'No generation method',
+						'supportedGenerationMethods' => [ 'countTokens' ],
+					],
+				],
+			]
+		);
+
+		$this->assertSame( [ 'gemini-3.1-flash-image', 'gemini-4-flash-image' ], array_keys( $result ) );
+	}
+
+	#[Test]
+	public function openai_discovery_keeps_stable_gpt_image_aliases_only(): void {
+		$method = ( new ReflectionClass( OC_Admin_Settings::class ) )->getMethod( 'parse_openai_image_models' );
+		$result = $method->invoke(
+			null,
+			[
+				'data' => [
+					[ 'id' => 'gpt-image-2' ],
+					[ 'id' => 'gpt-image-2-mini' ],
+					[ 'id' => 'gpt-image-2-2026-04-21' ],
+					[ 'id' => 'gpt-5.6' ],
+				],
+			]
+		);
+
+		$this->assertSame( [ 'gpt-image-2', 'gpt-image-2-mini' ], array_keys( $result ) );
 	}
 
 	#[Test]

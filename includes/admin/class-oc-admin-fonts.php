@@ -915,7 +915,7 @@ class OC_Admin_Fonts {
 			'url'                 => self::get_font_url( (string) $font->file_path ),
 			'ext'                 => $ext,
 			'canPrintConvert'     => self::can_convert_for_print( (string) $font->file_path ),
-			'printNote'           => 'WOFF2' === $ext ? __( 'WOFF2 needs the original TTF or OTF for print output.', 'overcustomise' ) : '',
+			'printNote'           => 'WOFF2' === $ext ? __( 'Convert this WOFF2 font before generating print output.', 'overcustomise' ) : '',
 			'toggleUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-fonts&action=toggle&id=' . (int) $font->id . '&state=' . ( $font->active ? '0' : '1' ) ),
 				'oc_font_toggle_' . (int) $font->id
@@ -976,7 +976,7 @@ class OC_Admin_Fonts {
 	}
 
 	private static function can_convert_for_print( string $file_path ): bool {
-		return in_array( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ), [ 'woff', 'otf' ], true );
+		return in_array( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ), [ 'woff', 'woff2', 'otf' ], true );
 	}
 
 	private static function is_cff_opentype_file( string $path ): bool {

@@ -622,6 +622,10 @@
 	display: contents;
 }
 
+.oc-ai-provider-fields {
+	display: contents;
+}
+
 .oc-form-label {
 	padding: 15px 16px 15px 0;
 	font-size: 13px;

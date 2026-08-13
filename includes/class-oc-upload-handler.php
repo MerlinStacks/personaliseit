@@ -10,7 +10,7 @@
  *  3. SVG  → sanitise via OC_SVG_Sanitiser → save to WP media library.
  *  4. PDF/EPS → convert page 1 to PNG preview via Imagick or GhostScript.
  *  5. HEIC/HEIF → convert to an auto-oriented JPEG.
- *  6. PNG/JPG/WebP → save directly to WP media library.
+ *  6. PNG/JPG/WebP → optionally remove a plain background, then save.
  *  7. Return structured result: { attachment_id, preview_url, original_url, file_type }.
  *
  * @package OverCustomise
@@ -500,11 +500,26 @@ class OC_Upload_Handler {
 			}
 		}
 
-		$source_bytes = (int) filesize( (string) $_file['tmp_name'] );
-		$count        = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
-		$reservation  = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
+		$source_bytes           = (int) filesize( (string) $_file['tmp_name'] );
+		$count                  = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
+		$reservation            = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
+		$remove_background      = ! empty( $overrides['remove_background'] );
+		$use_builtin_bg_removal = $remove_background && ! has_filter( 'oc_upload_remove_background' );
+		if ( $use_builtin_bg_removal ) {
+			if ( ! in_array( $type_key, [ 'png', 'jpg', 'webp', 'heic' ], true ) ) {
+				throw new \RuntimeException( __( 'Automatic background removal is only available for PNG, JPEG, WebP, HEIC, and HEIF images.', 'overcustomise' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+			if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\\Imagick' ) ) {
+				throw new \RuntimeException( __( 'Automatic background removal requires the PHP ImageMagick extension on this server.', 'overcustomise' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
+			}
+		}
 		if ( 'jpg' === $type_key && $jpeg_orientation > 1 ) {
 			$reservation = self::jpeg_orientation_reservation_bytes( $source_bytes, (int) $image_info[0], (int) $image_info[1] );
+		}
+		if ( $use_builtin_bg_removal ) {
+			// Background removal always produces a PNG and therefore supersedes the
+			// smaller reservation calculated for JPEG orientation normalisation.
+			$reservation = self::MAX_GENERATED_IMAGE_BYTES;
 		}
 		if ( 2 === $count ) {
 			$preview_limit = self::filtered_positive_int( 'oc_document_preview_max_bytes', 20 * 1024 * 1024, 1024, 100 * 1024 * 1024 );
@@ -537,21 +552,23 @@ class OC_Upload_Handler {
 	 * @throws \RuntimeException On validation or processing failure.
 	 */
 	public static function process( array $_file, ?array $overrides = null, array $context = [] ): array {
-		$inspection  = self::inspect_upload( $_file, $overrides );
-		$type_key    = $inspection['type'];
-		$result      = [];
-		$base_result = [];
+		$inspection             = self::inspect_upload( $_file, $overrides );
+		$type_key               = $inspection['type'];
+		$remove_background      = ! empty( $overrides['remove_background'] );
+		$use_builtin_bg_removal = $remove_background && ! has_filter( 'oc_upload_remove_background' );
+		$result                 = [];
+		$base_result            = [];
 		try {
 			$base_result = match ( $type_key ) {
 				'svg'   => self::process_svg( $_file ),
 				'pdf'   => self::process_pdf_eps( $_file, 'pdf' ),
 				'eps'   => self::process_pdf_eps( $_file, 'eps' ),
-				'heic'  => self::process_heic( $_file ),
-				default => self::process_raster( $_file, $type_key ),
+				'heic'  => self::process_heic( $_file, $use_builtin_bg_removal ),
+				default => self::process_raster( $_file, $type_key, $use_builtin_bg_removal ),
 			};
 			$result = $base_result;
 
-			if ( ! empty( $overrides['remove_background'] ) ) {
+			if ( $remove_background ) {
 				$filtered = apply_filters( 'oc_upload_remove_background', $result, $_file, $type_key );
 				if ( ! is_array( $filtered ) || absint( $filtered['attachment_id'] ?? 0 ) !== absint( $base_result['attachment_id'] ?? 0 ) ) {
 					throw new \RuntimeException( __( 'The background-removal result could not be validated.', 'overcustomise' ) );
@@ -1296,8 +1313,8 @@ class OC_Upload_Handler {
 		];
 	}
 
-	/** Process PNG / JPG / WebP: validate and store a consistently oriented image. */
-	private static function process_raster( array $_file, string $type ): array {
+	/** Process PNG / JPG / WebP: validate, orient, optionally remove the background, and store. */
+	private static function process_raster( array $_file, string $type, bool $remove_background = false, bool $record_source_metadata = true ): array {
 		// Confirm it is actually an image via getimagesize.
 		$image_info = @getimagesize( $_file['tmp_name'] );
 		if ( ! $image_info || empty( $image_info['mime'] ) ) {
@@ -1307,9 +1324,10 @@ class OC_Upload_Handler {
 		}
 		self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
 
-		$mime        = $image_info['mime'];
-		$source_path = (string) $_file['tmp_name'];
-		$staged_path = null;
+		$mime         = $image_info['mime'];
+		$source_path  = (string) $_file['tmp_name'];
+		$staged_paths = [];
+		$filename     = sanitize_file_name( basename( (string) $_file['name'] ) );
 		try {
 			// Browsers disagree with server-side renderers about whether JPEG EXIF
 			// orientation should be applied. Bake it into the pixels once so the
@@ -1317,9 +1335,10 @@ class OC_Upload_Handler {
 			if ( 'image/jpeg' === $mime ) {
 				$orientation = self::jpeg_exif_orientation( $source_path );
 				if ( $orientation > 1 ) {
-					$staged_path = self::normalise_jpeg_orientation( $source_path, $orientation, (int) $image_info[0], (int) $image_info[1] );
-					$source_path = $staged_path;
-					$image_info  = @getimagesize( $source_path );
+					$oriented_path  = self::normalise_jpeg_orientation( $source_path, $orientation, (int) $image_info[0], (int) $image_info[1] );
+					$staged_paths[] = $oriented_path;
+					$source_path    = $oriented_path;
+					$image_info     = @getimagesize( $source_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 					if ( ! is_array( $image_info ) || 'image/jpeg' !== $image_info['mime'] ) {
 						throw new \RuntimeException( __( 'The photo orientation could not be normalised.', 'overcustomise' ) );
 					}
@@ -1327,24 +1346,36 @@ class OC_Upload_Handler {
 				}
 			}
 
+			if ( $remove_background ) {
+				$background_path = self::remove_background_via_imagick( $source_path );
+				if ( is_wp_error( $background_path ) ) {
+					throw new \RuntimeException( $background_path->get_error_message() );
+				}
+				$staged_paths[] = $background_path;
+				$source_path    = $background_path;
+				$mime           = 'image/png';
+				$type           = 'png';
+				$filename       = pathinfo( $filename, PATHINFO_FILENAME ) . '.png';
+			}
+
 			$attachment_id = self::save_to_media_library(
 				$source_path,
-				sanitize_file_name( basename( (string) $_file['name'] ) ),
+				$filename,
 				$mime
 			);
-			if ( is_string( $staged_path ) && ! is_wp_error( $attachment_id ) ) {
+			if ( $record_source_metadata && ! empty( $staged_paths ) && ! is_wp_error( $attachment_id ) ) {
 				$source_size = filesize( (string) $_file['tmp_name'] );
 				if ( false === $source_size || $source_size <= 0
-					|| ! update_post_meta( (int) $attachment_id, '_oc_artwork_source_type', 'jpg' )
+					|| ! update_post_meta( (int) $attachment_id, '_oc_artwork_source_type', self::type_from_extension( pathinfo( (string) $_file['name'], PATHINFO_EXTENSION ) ) ?? $type )
 					|| ! update_post_meta( (int) $attachment_id, '_oc_artwork_source_bytes', (int) $source_size )
 				) {
 					wp_delete_attachment( (int) $attachment_id, true );
-					throw new \RuntimeException( __( 'The photo source metadata could not be retained.', 'overcustomise' ) );
+					throw new \RuntimeException( __( 'The image source metadata could not be retained.', 'overcustomise' ) );
 				}
 			}
 		} finally {
-			if ( is_string( $staged_path ) ) {
-				@unlink( $staged_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			foreach ( $staged_paths as $staged_path ) {
+				@unlink( $staged_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged,WordPress.WP.AlternativeFunctions.unlink_unlink
 			}
 		}
 
@@ -1357,6 +1388,7 @@ class OC_Upload_Handler {
 			'preview_url'   => '',
 			'original_url'  => '',
 			'file_type'     => $type,
+			'stored_name'   => $filename,
 		];
 	}
 
@@ -1629,7 +1661,7 @@ class OC_Upload_Handler {
 	}
 
 	/** Convert an Apple HEIC/HEIF upload to a browser- and filter-compatible JPEG. */
-	private static function process_heic( array $_file ): array {
+	private static function process_heic( array $_file, bool $remove_background = false ): array {
 		$output = self::temp_path( 'oc-heic.jpg' );
 		if ( false === $output ) {
 			throw new \RuntimeException( __( 'Could not stage the converted Apple photo.', 'overcustomise' ) );
@@ -1637,13 +1669,15 @@ class OC_Upload_Handler {
 
 		try {
 			self::convert_heic_via_imagick( (string) $_file['tmp_name'], $output );
-			$filename    = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . '.jpg';
+			$filename    = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . ( $remove_background ? '.png' : '.jpg' );
 			$result      = self::process_raster(
 				[
 					'tmp_name' => $output,
 					'name'     => $filename,
 				],
-				'jpg'
+				'jpg',
+				$remove_background,
+				false
 			);
 			$source_type = self::normalise_extension( pathinfo( (string) $_file['name'], PATHINFO_EXTENSION ) );
 			$source_size = filesize( (string) $_file['tmp_name'] );
@@ -1764,6 +1798,7 @@ class OC_Upload_Handler {
 			}
 			$image->readImage( $source . '[0]' );
 			$image->setIteratorIndex( 0 );
+			$image->transformImageColorspace( \Imagick::COLORSPACE_SRGB );
 			$width  = $image->getImageWidth();
 			$height = $image->getImageHeight();
 			self::validate_image_dimensions( $width, $height );

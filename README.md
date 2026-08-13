@@ -70,7 +70,7 @@ The print queue surfaces pending, processing, completed, and failed generation j
 - Design variants and multiple print areas
 - Product gallery, cart, checkout, and order previews
 - Customer uploads including SVG, PDF, EPS, PNG, JPEG, WebP, HEIC, and HEIF where the server supports the required conversions
-- Optional OpenRouter-powered image-to-image filters
+- Optional image-to-image filters through OpenRouter, Google Gemini, or OpenAI
 
 ### Design and catalogue management
 
@@ -103,7 +103,7 @@ Optional capabilities:
 
 - **Imagick/ImageMagick** for higher-quality conversion, image effects, and HEIC/HEIF support when the necessary codec is installed.
 - **Ghostscript** for outlining embedded PDF fonts.
-- **OpenRouter API access** for AI image filters. Provider usage may incur charges, and submitted images are handled according to the selected provider's policies.
+- **OpenRouter, Google Gemini, or OpenAI API access** for AI image filters. Provider usage may incur charges, and submitted images are handled according to the selected provider's policies.
 
 ## Installation
 
@@ -206,4 +206,4 @@ Please follow the [Code of Conduct](CODE_OF_CONDUCT.md) in all project spaces.
 
 OverCustomise is free software licensed under the [GNU General Public License v2.0 or later](LICENSE).
 
-WordPress, WooCommerce, OpenRouter, Spotify, Fabric.js, and TCPDF are trademarks or projects of their respective owners. Their mention does not imply endorsement.
+WordPress, WooCommerce, OpenRouter, Google Gemini, OpenAI, Spotify, Fabric.js, and TCPDF are trademarks or projects of their respective owners. Their mention does not imply endorsement.

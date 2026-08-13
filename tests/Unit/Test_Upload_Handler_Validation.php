@@ -84,6 +84,12 @@ class UploadHandlerReflector {
 		$m->setAccessible( true );
 		return $m->invoke( null, $source_bytes, $width, $height );
 	}
+
+	public static function remove_background_via_imagick( string $path ): string|\WP_Error {
+		$m = self::rc()->getMethod( 'remove_background_via_imagick' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $path );
+	}
 }
 
 class Test_Upload_Handler_Validation extends TestCase {
@@ -365,6 +371,43 @@ class Test_Upload_Handler_Validation extends TestCase {
 		$this->assertGreaterThan( 1, filesize( $tmp ) );
 		$this->assertTrue( UploadHandlerReflector::normalised_jpeg_is_valid( $tmp ) );
 		@unlink( $tmp );
+	}
+
+	#[Test]
+	public function background_removal_creates_a_transparent_png(): void {
+		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\\Imagick' ) ) {
+			$this->markTestSkipped( 'ImageMagick is not available.' );
+		}
+
+		$source = tempnam( sys_get_temp_dir(), 'oc-background-source-' );
+		$this->assertIsString( $source );
+		$this->temporary_files[] = $source;
+
+		$image = new \Imagick();
+		$image->newImage( 100, 100, new \ImagickPixel( 'white' ), 'png' );
+		$image->setImageFormat( 'png' );
+		$draw = new \ImagickDraw();
+		$draw->setStrokeColor( new \ImagickPixel( 'black' ) );
+		$draw->setStrokeWidth( 8 );
+		$draw->setFillColor( new \ImagickPixel( 'black' ) );
+		$draw->circle( 50, 50, 70, 50 );
+		$image->drawImage( $draw );
+		$image->writeImage( $source );
+		$draw->clear();
+		$draw->destroy();
+		$image->clear();
+		$image->destroy();
+
+		$output = UploadHandlerReflector::remove_background_via_imagick( $source );
+		$this->assertIsString( $output );
+		$this->temporary_files[] = $output;
+
+		$result = new \Imagick( $output );
+		$this->assertSame( 'PNG', strtoupper( $result->getImageFormat() ) );
+		$this->assertLessThan( 0.05, $result->getImagePixelColor( 0, 0 )->getColorValue( \Imagick::COLOR_ALPHA ) );
+		$this->assertGreaterThan( 0.9, $result->getImagePixelColor( 50, 50 )->getColorValue( \Imagick::COLOR_ALPHA ) );
+		$result->clear();
+		$result->destroy();
 	}
 
 	#[Test]

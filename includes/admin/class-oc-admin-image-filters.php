@@ -115,12 +115,13 @@ class OC_Admin_Image_Filters {
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
 					<h1 class="oc-page-title"><?php esc_html_e( 'AI Image Filters', 'overcustomise' ); ?></h1>
-					<p class="oc-page-subtitle"><?php esc_html_e( 'Create reusable OpenRouter prompts, test them, then enable them on image layers in a design.', 'overcustomise' ); ?></p>
+					<p class="oc-page-subtitle"><?php esc_html_e( 'Create reusable AI image prompts, test them, then enable them on image layers in a design.', 'overcustomise' ); ?></p>
 				</div>
 			</div>
 
-			<?php if ( '' === OC_Admin_Settings::get_openrouter_api_key() ) : ?>
-				<div class="notice notice-warning inline"><p><?php esc_html_e( 'Add an OpenRouter API key in Settings > AI Image Filters before testing or using AI filters.', 'overcustomise' ); ?></p></div>
+			<?php $ai_config = OC_Admin_Settings::get_ai_image_configuration(); ?>
+			<?php if ( '' === (string) $ai_config['api_key'] ) : ?>
+				<div class="notice notice-warning inline"><p><?php /* translators: %s: Selected AI provider name. */ echo esc_html( sprintf( __( 'Add an API key for the selected provider (%s) in Settings > AI Image Filters before testing or using AI filters.', 'overcustomise' ), (string) $ai_config['provider_label'] ) ); ?></p></div>
 			<?php endif; ?>
 			<?php if ( ! extension_loaded( 'imagick' ) ) : ?>
 				<div class="notice notice-warning inline"><p><?php esc_html_e( 'Enable the PHP ImageMagick extension to use AI filter background removal.', 'overcustomise' ); ?></p></div>
@@ -138,7 +139,7 @@ class OC_Admin_Image_Filters {
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_prompt"><?php esc_html_e( 'AI prompt', 'overcustomise' ); ?></label></div>
-							<div class="oc-form-field"><textarea id="oc_filter_prompt" name="prompt" class="large-text code" rows="18" required placeholder="<?php esc_attr_e( 'Describe exactly how the uploaded image should be transformed...', 'overcustomise' ); ?>"><?php echo esc_textarea( (string) ( $editing->prompt ?? '' ) ); ?></textarea><p class="oc-form-help"><?php esc_html_e( 'The customer image is sent to the globally selected OpenRouter image model with this prompt.', 'overcustomise' ); ?></p></div>
+							<div class="oc-form-field"><textarea id="oc_filter_prompt" name="prompt" class="large-text code" rows="18" required placeholder="<?php esc_attr_e( 'Describe exactly how the uploaded image should be transformed...', 'overcustomise' ); ?>"><?php echo esc_textarea( (string) ( $editing->prompt ?? '' ) ); ?></textarea><p class="oc-form-help"><?php esc_html_e( 'The customer image is sent to the globally selected AI image provider and model with this prompt.', 'overcustomise' ); ?></p></div>
 						</div>
 						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_remove_background"><?php esc_html_e( 'Remove background', 'overcustomise' ); ?></label></div>

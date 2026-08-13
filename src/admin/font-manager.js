@@ -604,7 +604,7 @@
 
 			if ( ! json.success ) {
 				if (
-					[ 'OTF', 'WOFF' ].includes(
+					[ 'OTF', 'WOFF', 'WOFF2' ].includes(
 						String( font.ext || '' ).toUpperCase()
 					)
 				) {
@@ -640,8 +640,9 @@
 		const buffer = await response.arrayBuffer();
 		const sourceType = fontSourceType( font, buffer );
 		let createFont;
+		let woff2;
 		try {
-			( { createFont } = await import(
+			( { createFont, woff2 } = await import(
 				/* webpackChunkName: "font-conversion" */ 'fonteditor-core'
 			) );
 		} catch ( error ) {
@@ -649,6 +650,13 @@
 				'Font conversion tools could not load. Check your connection and retry.',
 				{ cause: error }
 			);
+		}
+		if ( sourceType === 'woff2' ) {
+			const wasmUrl = new URL(
+				'../../node_modules/fonteditor-core/woff2/woff2.wasm',
+				import.meta.url
+			);
+			await woff2.init( wasmUrl.href );
 		}
 		const source = createFont( buffer, {
 			type: sourceType,

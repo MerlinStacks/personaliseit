@@ -1483,6 +1483,10 @@ abstract class OC_Print_Base {
 		if ( ! $font ) {
 			throw new \RuntimeException( sprintf( __( 'The selected print font #%d is no longer retained.', 'overcustomise' ), $font_id ) );
 		}
+		$raw_path = self::get_raw_font_path( $font );
+		if ( is_string( $raw_path ) && 'woff2' === strtolower( pathinfo( $raw_path, PATHINFO_EXTENSION ) ) ) {
+			throw new \RuntimeException( sprintf( __( 'The selected print font #%d is a WOFF2 web font. Convert it for print in OverCustomise > Fonts, then regenerate this file.', 'overcustomise' ), $font_id ) );
+		}
 		$path = self::get_font_path( $font );
 		if ( ! $path ) {
 			throw new \RuntimeException( sprintf( __( 'The selected print font #%d has no renderable production file.', 'overcustomise' ), $font_id ) );
