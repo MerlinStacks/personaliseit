@@ -155,6 +155,10 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 	public static function test_browser_rendered_text_lines( array $input, string $text ): ?array {
 		return self::browser_rendered_text_lines( $input, $text );
 	}
+
+	public static function test_browser_rendered_font_size( array $input, float $configured_size ): ?float {
+		return self::browser_rendered_font_size( $input, $configured_size );
+	}
 }
 
 class Test_Print_Base extends TestCase {
@@ -179,6 +183,21 @@ class Test_Print_Base extends TestCase {
 				[ 'renderedLines' => [ 'Different customer text' ] ],
 				'Original customer text'
 			)
+		);
+	}
+
+	#[Test]
+	public function browser_rendered_font_size_preserves_preview_autofit(): void {
+		$this->assertSame(
+			18.25,
+			OC_Print_Base_Testable::test_browser_rendered_font_size( [ 'renderedFontSize' => 18.25 ], 24.0 )
+		);
+	}
+
+	#[Test]
+	public function browser_rendered_font_size_cannot_enlarge_configured_text(): void {
+		$this->assertNull(
+			OC_Print_Base_Testable::test_browser_rendered_font_size( [ 'renderedFontSize' => 30 ], 24.0 )
 		);
 	}
 
@@ -428,9 +447,11 @@ class Test_Print_Base extends TestCase {
 		$font_dir      = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/fonts';
 		wp_mkdir_p( $font_dir );
 		$font_path = $font_dir . '/web-font.woff2';
+		// Direct fixture creation is appropriate in this isolated filesystem test.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 		file_put_contents( $font_path, 'wOF2' );
 
-		$wpdb = new class {
+		$wpdb = new class() {
 			public string $prefix = 'wp_';
 
 			public function prepare( string $query, int $font_id ): string {
@@ -450,7 +471,11 @@ class Test_Print_Base extends TestCase {
 			$this->expectExceptionMessage( 'Convert it for print in OverCustomise > Fonts' );
 			OC_Print_Base_Testable::test_resolve_font( 33 );
 		} finally {
-			@unlink( $font_path );
+			if ( file_exists( $font_path ) ) {
+				// Direct fixture cleanup is appropriate in this isolated filesystem test.
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
+				unlink( $font_path );
+			}
 			$wpdb = $previous_wpdb;
 		}
 	}

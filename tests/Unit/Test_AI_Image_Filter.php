@@ -62,7 +62,7 @@ class Test_AI_Image_Filter extends TestCase {
 
 	#[Test]
 	public function extracts_google_inline_image_data(): void {
-		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$png    = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decoding a PNG test fixture.
 		$result = $this->extract_provider_image(
 			'extract_google_image',
 			[
@@ -73,7 +73,7 @@ class Test_AI_Image_Filter extends TestCase {
 								[
 									'inlineData' => [
 										'mimeType' => 'image/png',
-										'data'     => base64_encode( $png ),
+										'data'     => base64_encode( $png ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encoding image API fixture data.
 									],
 								],
 							],
@@ -89,8 +89,8 @@ class Test_AI_Image_Filter extends TestCase {
 
 	#[Test]
 	public function extracts_openai_base64_image_data(): void {
-		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
-		$result = $this->extract_provider_image( 'extract_openai_image', [ 'data' => [ [ 'b64_json' => base64_encode( $png ) ] ] ] );
+		$png    = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decoding a PNG test fixture.
+		$result = $this->extract_provider_image( 'extract_openai_image', [ 'data' => [ [ 'b64_json' => base64_encode( $png ) ] ] ] ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encoding image API fixture data.
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 'image/png', $result['mime'] );

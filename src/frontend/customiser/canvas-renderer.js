@@ -16,6 +16,7 @@ import {
 	displayBounds,
 	displayFontSize,
 	displayLayer,
+	unitPxScale,
 } from '../../shared/render-math';
 
 const canvasRendererMethods = {
@@ -448,8 +449,9 @@ const canvasRendererMethods = {
 			case 'textarea': {
 				const isSingleLineText = layer.type === 'text';
 				const capturesTextLayout = canvas._ocArea === area;
-				if ( ! isSingleLineText && capturesTextLayout ) {
+				if ( capturesTextLayout ) {
 					delete input.renderedLines;
+					delete input.renderedFontSize;
 				}
 				let inputValue = input.value;
 				if ( inputValue === undefined ) {
@@ -701,6 +703,16 @@ const canvasRendererMethods = {
 					}
 				}
 				obj.initDimensions?.();
+				if ( capturesTextLayout ) {
+					const displayScale = unitPxScale( areaBounds ) * scale;
+					if ( displayScale > 0 ) {
+						// Production must start from Fabric's final auto-fitted size,
+						// not the larger size originally selected by the customer.
+						input.renderedFontSize = Number(
+							( fontSize / displayScale ).toFixed( 4 )
+						);
+					}
+				}
 				if (
 					! isSingleLineText &&
 					capturesTextLayout &&

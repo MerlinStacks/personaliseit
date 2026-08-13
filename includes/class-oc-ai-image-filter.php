@@ -119,7 +119,8 @@ PROMPT;
 							[
 								'inline_data' => [
 									'mime_type' => $mime,
-									'data'      => base64_encode( $bytes ),
+									// Binary image data is base64-encoded for the Gemini JSON API.
+									'data'      => base64_encode( $bytes ), // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 								],
 							],
 						],
@@ -157,7 +158,7 @@ PROMPT;
 			'image/webp' => 'webp',
 			default      => 'png',
 		};
-		$body .= '--' . $boundary . "\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"source." . $extension . "\"\r\nContent-Type: " . $mime . "\r\n\r\n" . $bytes . "\r\n--" . $boundary . "--\r\n";
+		$body    .= '--' . $boundary . "\r\nContent-Disposition: form-data; name=\"image[]\"; filename=\"source." . $extension . "\"\r\nContent-Type: " . $mime . "\r\n\r\n" . $bytes . "\r\n--" . $boundary . "--\r\n";
 		$response = self::post(
 			self::OPENAI_ENDPOINT,
 			$body,
@@ -279,7 +280,7 @@ PROMPT;
 			if ( ! is_array( $data ) || ! is_string( $data['data'] ?? null ) ) {
 				continue;
 			}
-			$mime = (string) ( $data['mimeType'] ?? $data['mime_type'] ?? 'image/png' );
+			$mime   = (string) ( $data['mimeType'] ?? $data['mime_type'] ?? 'image/png' );
 			$result = self::decode_image_url( 'data:' . $mime . ';base64,' . $data['data'] );
 			if ( ! is_wp_error( $result ) ) {
 				return $result;
@@ -294,7 +295,7 @@ PROMPT;
 			if ( ! is_array( $image ) ) {
 				continue;
 			}
-			$url = ! empty( $image['b64_json'] ) ? 'data:image/png;base64,' . $image['b64_json'] : (string) ( $image['url'] ?? '' );
+			$url    = ! empty( $image['b64_json'] ) ? 'data:image/png;base64,' . $image['b64_json'] : (string) ( $image['url'] ?? '' );
 			$result = self::decode_image_url( $url );
 			if ( ! is_wp_error( $result ) ) {
 				return $result;

@@ -1485,7 +1485,8 @@ abstract class OC_Print_Base {
 		}
 		$raw_path = self::get_raw_font_path( $font );
 		if ( is_string( $raw_path ) && 'woff2' === strtolower( pathinfo( $raw_path, PATHINFO_EXTENSION ) ) ) {
-			throw new \RuntimeException( sprintf( __( 'The selected print font #%d is a WOFF2 web font. Convert it for print in OverCustomise > Fonts, then regenerate this file.', 'overcustomise' ), $font_id ) );
+			/* translators: %d: Font database ID. */
+			throw new \RuntimeException( sprintf( __( 'The selected print font #%d is a WOFF2 web font. Convert it for print in OverCustomise > Fonts, then regenerate this file.', 'overcustomise' ), $font_id ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Exception messages are not rendered as HTML.
 		}
 		$path = self::get_font_path( $font );
 		if ( ! $path ) {
@@ -2160,8 +2161,10 @@ abstract class OC_Print_Base {
 		$raw_font_path       = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
 		$engraving_font_path = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
 		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : self::px_to_pt( 1.0 );
-		$font_size = ! empty( $input['fontSize'] ) || ! empty( $settings['default_font_size'] )
-			? max( 4.0, (float) ( $input['fontSize'] ?? $settings['default_font_size'] ) * $font_px_to_pt )
+		$configured_font_size = (float) ( $input['fontSize'] ?? $settings['default_font_size'] ?? 0 );
+		$rendered_font_size   = self::browser_rendered_font_size( $input, $configured_font_size );
+		$font_size = $configured_font_size > 0
+			? max( 4.0, ( $rendered_font_size ?? $configured_font_size ) * $font_px_to_pt )
 			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.72 * $font_px_to_pt );
 		$min_size  = ! empty( $settings['min_font_size'] ) ? (float) $settings['min_font_size'] * $font_px_to_pt : 0.0;
 		$max_size  = ! empty( $settings['max_font_size'] ) ? (float) $settings['max_font_size'] * $font_px_to_pt : 0.0;
@@ -2255,6 +2258,17 @@ abstract class OC_Print_Base {
 		$normalise = static fn( string $value ): string => preg_replace( '/\s+/u', ' ', trim( $value ) ) ?? '';
 
 		return $normalise( implode( "\n", $lines ) ) === $normalise( $text ) ? $lines : null;
+	}
+
+	/** Use Fabric's final auto-fitted size only when it cannot enlarge the configured text. */
+	protected static function browser_rendered_font_size( array $input, float $configured_size ): ?float {
+		$rendered_size = $input['renderedFontSize'] ?? null;
+		if ( ! is_numeric( $rendered_size ) || $configured_size <= 0.0 ) {
+			return null;
+		}
+
+		$rendered_size = (float) $rendered_size;
+		return $rendered_size > 0.0 && $rendered_size <= $configured_size ? $rendered_size : null;
 	}
 
 	/** Check fixed browser lines without allowing TCPDF to choose different wraps. */

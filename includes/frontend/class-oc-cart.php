@@ -790,6 +790,14 @@ class OC_Cart {
 					$normalised[ $layer_id ]['renderedLines'] = $rendered_lines;
 				}
 			}
+			if ( in_array( $type, [ 'text', 'textarea' ], true ) && is_numeric( $source['renderedFontSize'] ?? null ) ) {
+				$rendered_font_size = round( (float) $source['renderedFontSize'], 4 );
+				$rendered_floor     = $min_font_size > 0 ? $min_font_size : min( 4, $font_size );
+				$rendered_ceiling   = $font_size > 0 ? $font_size : max( 4, $max_font_size );
+				if ( $rendered_font_size >= $rendered_floor && $rendered_font_size <= $rendered_ceiling ) {
+					$normalised[ $layer_id ]['renderedFontSize'] = $rendered_font_size;
+				}
+			}
 		}
 
 		$normalised = self::synchronise_normalised_linked_colours( $design_layers, $normalised );

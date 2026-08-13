@@ -9,14 +9,14 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Settings {
 
-	private const OPTION_KEY                       = 'oc_settings';
-	private const OPENROUTER_MODELS_TRANSIENT      = 'oc_openrouter_image_models_v2';
-	private const GOOGLE_MODELS_TRANSIENT          = 'oc_google_image_models_v1';
-	private const OPENAI_MODELS_TRANSIENT          = 'oc_openai_image_models_v1';
-	private const DEFAULT_OPENROUTER_IMAGE_MODEL = 'google/gemini-3.1-flash-image';
-	private const DEFAULT_GOOGLE_IMAGE_MODEL     = 'gemini-3.1-flash-image';
-	private const DEFAULT_OPENAI_IMAGE_MODEL     = 'gpt-image-2';
-	private static ?array $normalised_cache      = null;
+	private const OPTION_KEY                          = 'oc_settings';
+	private const OPENROUTER_MODELS_TRANSIENT         = 'oc_openrouter_image_models_v2';
+	private const GOOGLE_MODELS_TRANSIENT             = 'oc_google_image_models_v1';
+	private const OPENAI_MODELS_TRANSIENT             = 'oc_openai_image_models_v1';
+	private const DEFAULT_OPENROUTER_IMAGE_MODEL      = 'google/gemini-3.1-flash-image';
+	private const DEFAULT_GOOGLE_IMAGE_MODEL          = 'gemini-3.1-flash-image';
+	private const DEFAULT_OPENAI_IMAGE_MODEL          = 'gpt-image-2';
+	private static ?array $normalised_cache           = null;
 	private static string $normalised_cache_signature = '';
 
 	private const OPENROUTER_IMAGE_MODELS = [
@@ -631,22 +631,22 @@ class OC_Admin_Settings {
 										<?php
 										$provider_fields = [
 											'openrouter' => [
-												'label'       => 'OpenRouter',
+												'label'  => 'OpenRouter',
 												'placeholder' => 'sk-or-v1-...',
-												'models'      => $image_models,
-												'help'        => __( 'Image-capable models are fetched from OpenRouter and cached for 6 hours.', 'overcustomise' ),
+												'models' => $image_models,
+												'help'   => __( 'Image-capable models are fetched from OpenRouter and cached for 6 hours.', 'overcustomise' ),
 											],
 											'google'     => [
-												'label'       => 'Google Gemini',
+												'label'  => 'Google Gemini',
 												'placeholder' => 'AIza...',
-												'models'      => self::get_ai_image_models( 'google' ),
-												'help'        => __( 'Fetched from the Gemini API and filtered to image-output models. Cached for 6 hours.', 'overcustomise' ),
+												'models' => self::get_ai_image_models( 'google' ),
+												'help'   => __( 'Fetched from the Gemini API and filtered to image-output models. Cached for 6 hours.', 'overcustomise' ),
 											],
 											'openai'     => [
-												'label'       => 'OpenAI',
+												'label'  => 'OpenAI',
 												'placeholder' => 'sk-...',
-												'models'      => self::get_ai_image_models( 'openai' ),
-												'help'        => __( 'Fetched from your OpenAI account and filtered to stable GPT Image models. Cached for 6 hours.', 'overcustomise' ),
+												'models' => self::get_ai_image_models( 'openai' ),
+												'help'   => __( 'Fetched from your OpenAI account and filtered to stable GPT Image models. Cached for 6 hours.', 'overcustomise' ),
 											],
 										];
 										foreach ( $provider_fields as $provider_id => $field ) :
@@ -1019,11 +1019,11 @@ class OC_Admin_Settings {
 			? array_intersect( (array) $_POST['oc_allowed_upload_formats'], $allowed_formats )
 			: [];
 		$current_settings = self::get();
-		$provider = sanitize_key( wp_unslash( $_POST['oc_ai_image_provider'] ?? 'openrouter' ) );
-		$provider = isset( self::get_ai_image_providers()[ $provider ] ) ? $provider : 'openrouter';
-		$api_keys = [];
-		$models   = [];
-		$keys_changed = false;
+		$provider         = sanitize_key( wp_unslash( $_POST['oc_ai_image_provider'] ?? 'openrouter' ) );
+		$provider         = isset( self::get_ai_image_providers()[ $provider ] ) ? $provider : 'openrouter';
+		$api_keys         = [];
+		$models           = [];
+		$keys_changed     = false;
 		foreach ( array_keys( self::get_ai_image_providers() ) as $provider_id ) {
 			$key_setting = $provider_id . '_api_key_enc';
 			$encrypted   = (string) ( $current_settings[ $key_setting ] ?? '' );
@@ -1035,10 +1035,10 @@ class OC_Admin_Settings {
 				$encrypted = self::encrypt_secret( $posted_key );
 			}
 			$api_keys[ $key_setting ] = $encrypted;
-			$keys_changed = $keys_changed || $clear_key || '' !== $posted_key;
+			$keys_changed             = $keys_changed || $clear_key || '' !== $posted_key;
 
 			$model_choices = self::get_ai_image_models( $provider_id );
-			$model          = sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) );
+			$model         = sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) );
 			if ( ! isset( $model_choices[ $model ] ) ) {
 				$model = (string) array_key_first( $model_choices );
 			}
