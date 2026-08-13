@@ -29,6 +29,9 @@ abstract class OC_Print_Base {
 
 	/** Engraving print files must output customer text and clipart as black. */
 	protected const ENGRAVING_TONE_RGB = [ 0, 0, 0 ];
+	/** Fabric.js single-line text metrics used by the customer preview. */
+	private const FABRIC_FONT_SIZE_MULTIPLIER = 1.13;
+	private const FABRIC_FONT_SIZE_FRACTION = 0.222;
 
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
@@ -2155,15 +2158,15 @@ abstract class OC_Print_Base {
 		$rendered_lines = $is_textarea ? self::browser_rendered_text_lines( $input, $text ) : null;
 		$render_text    = null !== $rendered_lines ? implode( "\n", $rendered_lines ) : $text;
 
-		$font_id             = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
-		$font                = $font_id ? self::get_font( $font_id ) : null;
-		$font_name           = self::resolve_font( $font_id, $pdf );
-		$raw_font_path       = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
-		$engraving_font_path = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
-		$font_px_to_pt = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : self::px_to_pt( 1.0 );
+		$font_id              = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+		$font                 = $font_id ? self::get_font( $font_id ) : null;
+		$font_name            = self::resolve_font( $font_id, $pdf );
+		$raw_font_path        = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
+		$engraving_font_path  = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
+		$font_px_to_pt        = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : self::px_to_pt( 1.0 );
 		$configured_font_size = (float) ( $input['fontSize'] ?? $settings['default_font_size'] ?? 0 );
 		$rendered_font_size   = self::browser_rendered_font_size( $input, $configured_font_size );
-		$font_size = $configured_font_size > 0
+		$font_size            = $configured_font_size > 0
 			? max( 4.0, ( $rendered_font_size ?? $configured_font_size ) * $font_px_to_pt )
 			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.72 * $font_px_to_pt );
 		$min_size  = ! empty( $settings['min_font_size'] ) ? (float) $settings['min_font_size'] * $font_px_to_pt : 0.0;
@@ -2411,7 +2414,11 @@ abstract class OC_Print_Base {
 		$layout_min_x = min( 0.0, (float) $bbox[0] );
 		$layout_max_x = max( $width, (float) $bbox[2] );
 		$layout_w     = max( 0.01, $layout_max_x - $layout_min_x );
-		$fit_scale = min( 1.0, $box_w_pt / $layout_w, $box_h_pt / $glyph_h );
+		// Fabric positions every single-line text object from the same typographic
+		// baseline. Centring each string's visible glyph box here moves script and
+		// capitals by different amounts and destroys intentional layer overlaps.
+		$line_h    = $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER;
+		$fit_scale = min( 1.0, $box_w_pt / $layout_w, $box_h_pt / $line_h );
 		$fit_scale = max( 0.01, $fit_scale );
 		$pad       = max( 1.0, $font_size * $fit_scale * 0.08 );
 		$advance_w = $width * $fit_scale;
@@ -2422,9 +2429,10 @@ abstract class OC_Print_Base {
 			'L' => (float) $bbox[0] * $fit_scale - $pad,
 			default => ( $box_w_pt - $advance_w ) / 2 + (float) $bbox[0] * $fit_scale - $pad,
 		};
-		$origin_y  = ( $box_h_pt - $draw_h ) / 2;
 		$path_x    = -1 * (float) $bbox[0] * $fit_scale + $pad;
 		$path_y    = (float) $bbox[3] * $fit_scale + $pad;
+		$baseline_y = $box_h_pt / 2 + $line_h * $fit_scale * ( 0.5 - self::FABRIC_FONT_SIZE_FRACTION );
+		$origin_y   = $baseline_y - $path_y;
 
 		$svg = sprintf(
 			'<svg xmlns="http://www.w3.org/2000/svg" width="%.4Fpt" height="%.4Fpt" viewBox="0 0 %.4F %.4F"><g transform="translate(%.4F %.4F) scale(%.8F %.8F)"><path d="%s" fill="#000000" fill-rule="nonzero" clip-rule="nonzero"/></g></svg>',

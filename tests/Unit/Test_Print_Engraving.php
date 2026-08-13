@@ -14,6 +14,8 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 		public int $image_svg_call_count = 0;
 		public bool $image_called = false;
 		public string $image_svg = '';
+		/** @var array<int, array{x: float, y: float, w: float, h: float, svg: string}> */
+		public array $image_svg_calls = [];
 
 		public function Image( $file, $x = '', $y = '', $w = 0, $h = 0, $type = '', $link = '', $align = '', $resize = false, $dpi = 300, $palign = '', $ismask = false, $imgmask = false, $border = 0, $fitbox = false, $hidden = false, $fitonpage = false, $alt = false, $altimgs = [] ) {
 			$this->image_called = true;
@@ -23,6 +25,13 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 			$this->image_svg_called = true;
 			++$this->image_svg_call_count;
 			$this->image_svg        = is_readable( (string) $file ) ? ( file_get_contents( (string) $file ) ?: '' ) : '';
+			$this->image_svg_calls[] = [
+				'x'   => (float) $x,
+				'y'   => (float) $y,
+				'w'   => (float) $w,
+				'h'   => (float) $h,
+				'svg' => $this->image_svg,
+			];
 		}
 	}
 }
@@ -235,6 +244,31 @@ class Test_Print_Engraving extends TestCase {
 		$this->assertMatchesRegularExpression( '/<svg[^>]+width="[0-9.]+pt"[^>]+height="[0-9.]+pt"/', $pdf->image_svg );
 		$this->assertStringContainsString( '<path d=', $pdf->image_svg );
 		$this->assertStringContainsString( 'fill-rule="nonzero"', $pdf->image_svg );
+	}
+
+	#[Test]
+	public function engraving_outline_uses_fabric_baseline_independent_of_glyph_bounds(): void {
+		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
+			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
+		}
+
+		$pdf    = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+		$method = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_text_outline' );
+		foreach ( [ 'BRIDE', 'gjpqy' ] as $text ) {
+			$this->assertTrue( $method->invokeArgs( null, [ $pdf, $text, $font_path, 18.0, 0.0, 0.0, 80.0, 20.0, 'C' ] ) );
+		}
+
+		$baselines = array_map(
+			static function ( array $call ): float {
+				preg_match( '/translate\([0-9.-]+ ([0-9.-]+)\)/', $call['svg'], $matches );
+				return $call['y'] * 72 / 25.4 + (float) $matches[1];
+			},
+			$pdf->image_svg_calls
+		);
+
+		$this->assertCount( 2, $baselines );
+		$this->assertEqualsWithDelta( $baselines[0], $baselines[1], 0.001 );
 	}
 
 	#[Test]
