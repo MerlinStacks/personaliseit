@@ -53,4 +53,13 @@ test( 'built customiser references the emitted upload chunk', async () => {
 		buildSource,
 		new RegExp( `"upload-tools":"${ chunkHash }"` )
 	);
+
+	const chunkSource = await readFile(
+		`assets/build/chunks/${ uploadChunks[ 0 ] }`,
+		'utf8'
+	);
+	assert.match(
+		chunkSource,
+		/\.push\(\[\[\s*["']upload-tools["']\s*\],/
+	);
 } );
