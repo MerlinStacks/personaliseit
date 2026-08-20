@@ -12,8 +12,8 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 	class OC_Test_Engraving_PDF extends TCPDF {
 		public bool $image_svg_called = false;
 		public int $image_svg_call_count = 0;
-		public bool $image_called = false;
-		public string $image_svg = '';
+		public bool $image_called        = false;
+		public string $image_svg         = '';
 		/** @var array<int, array{x: float, y: float, w: float, h: float, svg: string}> */
 		public array $image_svg_calls = [];
 
@@ -24,7 +24,8 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
 			$this->image_svg_called = true;
 			++$this->image_svg_call_count;
-			$this->image_svg        = is_readable( (string) $file ) ? ( file_get_contents( (string) $file ) ?: '' ) : '';
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- TCPDF supplies a local temporary SVG path.
+			$this->image_svg         = is_readable( (string) $file ) ? (string) file_get_contents( (string) $file ) : '';
 			$this->image_svg_calls[] = [
 				'x'   => (float) $x,
 				'y'   => (float) $y,

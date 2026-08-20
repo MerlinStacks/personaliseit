@@ -31,7 +31,7 @@ abstract class OC_Print_Base {
 	protected const ENGRAVING_TONE_RGB = [ 0, 0, 0 ];
 	/** Fabric.js single-line text metrics used by the customer preview. */
 	private const FABRIC_FONT_SIZE_MULTIPLIER = 1.13;
-	private const FABRIC_FONT_SIZE_FRACTION = 0.222;
+	private const FABRIC_FONT_SIZE_FRACTION   = 0.222;
 
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
@@ -2437,8 +2437,8 @@ abstract class OC_Print_Base {
 			'L' => (float) $bbox[0] * $fit_scale - $pad,
 			default => ( $box_w_pt - $advance_w ) / 2 + (float) $bbox[0] * $fit_scale - $pad,
 		};
-		$path_x    = -1 * (float) $bbox[0] * $fit_scale + $pad;
-		$path_y    = (float) $bbox[3] * $fit_scale + $pad;
+		$path_x     = -1 * (float) $bbox[0] * $fit_scale + $pad;
+		$path_y     = (float) $bbox[3] * $fit_scale + $pad;
 		$baseline_y = $box_h_pt / 2 + $line_h * $fit_scale * ( 0.5 - self::FABRIC_FONT_SIZE_FRACTION );
 		$origin_y   = $baseline_y - $path_y;
 
