@@ -70,8 +70,5 @@ test( 'built customiser references the emitted upload chunk', async () => {
 		`assets/build/chunks/${ uploadChunks[ 0 ] }`,
 		'utf8'
 	);
-	assert.match(
-		chunkSource,
-		/\.push\(\[\[\s*["']upload-tools["']\s*\],/
-	);
+	assert.match( chunkSource, /\.push\(\[\[\s*["']upload-tools["']\s*\],/ );
 } );
