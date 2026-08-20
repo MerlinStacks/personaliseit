@@ -1,6 +1,10 @@
 /* eslint-disable no-nested-ternary */
 
 import { cache, FabricText, StaticCanvas, Textbox } from 'fabric';
+import {
+	layoutMultilineTextbox,
+	multilineTextboxFits,
+} from '../shared/text-layout';
 
 export function createLayerPreviewRenderer( deps ) {
 	const { fontLimit, layerLabel, normaliseHex } = deps;
@@ -34,17 +38,11 @@ export function createLayerPreviewRenderer( deps ) {
 			fontSize,
 		} );
 		measured.initDimensions?.();
-		const marginX = multiline
-			? Math.max( 1, Math.ceil( fontSize * 0.06 ) )
-			: 0;
-		const marginY = multiline
-			? Math.max( 2, Math.ceil( fontSize * 0.12 ) )
-			: 0;
+		if ( multiline ) {
+			return multilineTextboxFits( measured, width, height, fontSize );
+		}
 
-		return (
-			( multiline || measured.width + marginX * 2 <= width ) &&
-			measured.height + marginY * 2 <= height
-		);
+		return measured.width <= width && measured.height <= height;
 	}
 
 	function renderTextPreview(
@@ -102,6 +100,9 @@ export function createLayerPreviewRenderer( deps ) {
 			objectCaching: false,
 		} );
 		textObject.initDimensions?.();
+		if ( ! isSingleLine ) {
+			layoutMultilineTextbox( textObject, width, fontSize );
+		}
 
 		if ( isSingleLine ) {
 			const renderedWidth = Math.max( 1, Math.ceil( textObject.width ) );

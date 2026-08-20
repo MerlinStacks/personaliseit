@@ -90,6 +90,11 @@ class OC_Admin_Order_Metabox {
 			$legacy_areas = $config_id ? OC_DB::get_print_areas( $config_id ) : [];
 			$design_areas = $design_id ? OC_DB::get_design_print_areas( $design_id ) : [];
 
+			$legacy_area_methods = [];
+			foreach ( $legacy_areas as $legacy_area ) {
+				$legacy_area_methods[ sanitize_key( (string) ( $legacy_area->area_key ?? '' ) ) ] = sanitize_key( (string) ( $legacy_area->print_method ?? '' ) );
+			}
+
 			if ( empty( $print_files ) && is_array( $customisation ) && ( ! empty( $legacy_areas ) || ! empty( $design_areas ) ) ) {
 				$has_missing_print_files = true;
 			}
@@ -114,8 +119,11 @@ class OC_Admin_Order_Metabox {
 					foreach ( $customisation as $area_key => $area_data ) {
 						if ( is_array( $area_data ) ) {
 							// Nested structure: { areaKey: { text, fontId, color } }.
-							$text      = is_scalar( $area_data['text'] ?? null ) ? (string) $area_data['text'] : '';
-							$color     = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
+							$text  = is_scalar( $area_data['text'] ?? null ) ? (string) $area_data['text'] : '';
+							$color = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
+							if ( 'engraving' === ( $legacy_area_methods[ sanitize_key( (string) $area_key ) ] ?? '' ) ) {
+								$color = '';
+							}
 							$font_name = '';
 							if ( ! empty( $area_data['fontId'] ) ) {
 								$font_name = OC_DB::get_font_name( absint( $area_data['fontId'] ) );
@@ -257,6 +265,7 @@ class OC_Admin_Order_Metabox {
 				$layer_map[ (int) $layer->id ] = $layer;
 			}
 		}
+		$print_method_map = $this->layer_print_method_map( $customisation, $layer_map, $design_id );
 
 		echo '<ul style="margin:0 0 10px;padding-left:18px;">';
 		foreach ( $layers as $layer_id => $layer_data ) {
@@ -269,8 +278,8 @@ class OC_Admin_Order_Metabox {
 			if ( $this->is_fixed_clipart_layer( $layer_obj, $layer_data ) ) {
 				continue;
 			}
-			$label      = $layer_obj ? ( $layer_obj->label ?: ucfirst( (string) $layer_obj->type ) ) : ucfirst( $type );
-			$value_html = $this->v2_layer_display_value( $layer_data, $layer_obj );
+			$label      = $layer_obj ? ( ! empty( $layer_obj->label ) ? $layer_obj->label : ucfirst( (string) $layer_obj->type ) ) : ucfirst( $type );
+			$value_html = $this->v2_layer_display_value( $layer_data, $layer_obj, $print_method_map[ (int) $layer_id ] ?? '' );
 
 			if ( '' === $value_html ) {
 				continue;
@@ -285,8 +294,9 @@ class OC_Admin_Order_Metabox {
 		echo '</ul>';
 	}
 
-	private function v2_layer_display_value( array $layer_data, ?object $layer = null ): string {
-		$type = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
+	private function v2_layer_display_value( array $layer_data, ?object $layer = null, string $print_method = '' ): string {
+		$type        = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
+		$show_colour = 'engraving' !== sanitize_key( $print_method );
 
 		if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) ) {
 			$value     = is_scalar( $layer_data['value'] ?? null ) ? trim( (string) $layer_data['value'] ) : '';
@@ -302,7 +312,7 @@ class OC_Admin_Order_Metabox {
 			if ( '' !== $font_name && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
 				$html .= ' &mdash; ' . esc_html( $font_name );
 			}
-			$colour_html = $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+			$colour_html = $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 			if ( '' !== $colour_html ) {
 				$html .= ' &mdash; ' . $colour_html;
 			}
@@ -316,8 +326,8 @@ class OC_Admin_Order_Metabox {
 				'<img src="%s" alt="" width="48" height="48" loading="lazy" style="vertical-align:middle;border:1px solid #ddd;border-radius:2px;" />',
 				esc_url( $url )
 			) : '';
-			$html        = $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
-			$colour_html = $this->image_layer_has_order_colour( $layer_data, $layer )
+			$html          = '' !== $thumb ? $thumb : esc_html__( '[Image uploaded]', 'overcustomise' );
+			$colour_html   = $show_colour && $this->image_layer_has_order_colour( $layer_data, $layer )
 				? $this->colour_display_value( $layer_data, $this->legacy_linked_image_colour_requires_lookup( $layer_data, $layer ) )
 				: '';
 			return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
@@ -330,15 +340,46 @@ class OC_Admin_Order_Metabox {
 			}
 
 			$html        = esc_html__( '[Clipart selected]', 'overcustomise' );
-			$colour_html = $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+			$colour_html = $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 			return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 		}
 
 		if ( 'lineart' === $type ) {
-			return $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+			return $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 		}
 
 		return '';
+	}
+
+	/** Resolve each v2 layer's production method, preferring the order-time snapshot. */
+	private function layer_print_method_map( array $customisation, array $layer_map, int $design_id ): array {
+		$methods     = [];
+		$render_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		foreach ( is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : [] as $area ) {
+			if ( ! is_array( $area ) ) {
+				continue;
+			}
+			$print_method = sanitize_key( (string) ( $area['printMethod'] ?? '' ) );
+			foreach ( is_array( $area['layers'] ?? null ) ? $area['layers'] : [] as $layer ) {
+				$layer_id = is_array( $layer ) ? absint( $layer['id'] ?? 0 ) : 0;
+				if ( $layer_id > 0 && '' !== $print_method ) {
+					$methods[ $layer_id ] = $print_method;
+				}
+			}
+		}
+
+		$area_methods = [];
+		foreach ( $design_id > 0 ? OC_DB::get_design_print_areas( $design_id ) : [] as $area ) {
+			$area_methods[ (int) $area->id ] = sanitize_key( (string) $area->print_method );
+		}
+		foreach ( $layer_map as $layer_id => $layer ) {
+			$area_id = (int) ( $layer->area_id ?? 0 );
+			if ( ! isset( $methods[ $layer_id ] ) && isset( $area_methods[ $area_id ] ) ) {
+				$methods[ $layer_id ] = $area_methods[ $area_id ];
+			}
+		}
+
+		return $methods;
 	}
 
 	/** Return an escaped colour swatch and hex value for order admin summaries. */

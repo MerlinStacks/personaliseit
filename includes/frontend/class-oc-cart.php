@@ -53,6 +53,10 @@ class OC_Cart {
 
 	/** Ensure personalised previews are contained rather than cropped across classic, Blocks, and Mini Cart. */
 	public function enqueue_preview_styles(): void {
+		if ( is_checkout() || is_account_page() ) {
+			$this->enqueue_order_preview_modal();
+		}
+
 		$cart_has_customisation = self::cart_has_customisation();
 		if ( ( is_cart() || is_checkout() ) && ! $cart_has_customisation ) {
 			return;
@@ -64,6 +68,27 @@ class OC_Cart {
 		wp_register_style( 'oc-cart-preview', false, [], OC_VERSION );
 		wp_enqueue_style( 'oc-cart-preview' );
 		wp_add_inline_style( 'oc-cart-preview', self::preview_css() );
+	}
+
+	/** Load the customer-facing order preview lightbox on order-related pages. */
+	private function enqueue_order_preview_modal(): void {
+		$asset_file = OC_PATH . 'assets/build/frontend/order-preview-modal.asset.php';
+		$asset      = file_exists( $asset_file ) ? include $asset_file : [];
+		$version    = isset( $asset['version'] ) ? (string) $asset['version'] : OC_VERSION;
+
+		wp_enqueue_script(
+			'oc-order-preview-modal',
+			OC_ASSETS_URL . 'frontend/order-preview-modal.js',
+			$asset['dependencies'] ?? [],
+			$version,
+			true
+		);
+		wp_enqueue_style(
+			'oc-order-preview-modal',
+			OC_ASSETS_URL . 'frontend/order-preview-modal.css',
+			[],
+			$version
+		);
 	}
 
 	/** Shared personalised-preview styles for classic and Blocks carts. */
@@ -850,7 +875,16 @@ class OC_Cart {
 			return is_string( $text ) ? $text : '';
 		};
 
-		return $normalise( implode( "\n", $lines ) ) === $normalise( $value ) ? $lines : null;
+		$rendered_text = implode( "\n", $lines );
+		if ( $normalise( $rendered_text ) === $normalise( $value ) ) {
+			return $lines;
+		}
+
+		// Fabric may soft-wrap an unbroken word between graphemes. Ignore
+		// whitespace placement when confirming that no characters were changed.
+		$compact = static fn( string $text ): string => preg_replace( '/\s+/u', '', $text ) ?? '';
+
+		return $compact( $rendered_text ) === $compact( $value ) ? $lines : null;
 	}
 
 	/** Copy the one rendered linked control to every server-confirmed group member. */
@@ -1227,7 +1261,6 @@ class OC_Cart {
 					$layer_map[ (int) $l->id ] = $l;
 				}
 			}
-
 			foreach ( $layers as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) {
 					continue;
@@ -1517,8 +1550,11 @@ class OC_Cart {
 			$preview_link_url = $admin_context
 				? add_query_arg( 'TB_iframe', 'true', $preview_url )
 				: $preview_url;
+			$preview_class    = $admin_context ? 'thickbox' : 'oc-order-preview-trigger';
 			echo '<div style="flex:0 0 auto;">'
-				. '<a href="' . esc_url( $preview_link_url ) . '" class="thickbox" style="display:inline-block;">'
+				. '<a href="' . esc_url( $preview_link_url ) . '" class="' . esc_attr( $preview_class ) . '" '
+				. ( $admin_context ? '' : 'aria-haspopup="dialog" aria-label="' . esc_attr__( 'Open personalised preview', 'overcustomise' ) . '" ' )
+				. 'style="display:inline-block;">'
 				. '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
 				. 'style="display:block;width:120px;height:120px;object-fit:contain;border:1px solid #dcdcde;border-radius:5px;background:#f6f7f7;cursor:zoom-in;" />'
 				. '</a>'
@@ -1546,6 +1582,7 @@ class OC_Cart {
 					$layer_map[ (int) $l->id ] = $l;
 				}
 			}
+			$print_method_map = $this->layer_print_method_map( $customisation, $layer_map, $design_id );
 
 			foreach ( $layers as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) {
@@ -1556,8 +1593,10 @@ class OC_Cart {
 					continue;
 				}
 				$type  = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
-				$label = $layer ? ( $layer->label ?: ucfirst( (string) $layer->type ) ) : ucfirst( $type ?: __( 'Layer', 'overcustomise' ) );
-				$value = $this->layer_display_value( $layer_data, $layer, $admin_context );
+				$label = $layer
+					? ( ! empty( $layer->label ) ? $layer->label : ucfirst( (string) $layer->type ) )
+					: ucfirst( '' !== $type ? $type : __( 'Layer', 'overcustomise' ) );
+				$value = $this->layer_display_value( $layer_data, $layer, $admin_context, $print_method_map[ (int) $layer_id ] ?? '' );
 				if ( ! $value ) {
 					continue;
 				}
@@ -1596,20 +1635,21 @@ class OC_Cart {
 						echo ' &mdash; ' . esc_html( $font_name );
 					}
 				}
-				$legacy_colour = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
-				if ( $legacy_colour ) {
-					printf(
-						' &mdash; <span style="display:inline-block;width:12px;height:12px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
-						esc_attr( $legacy_colour ),
-						esc_html( $legacy_colour )
-					);
-				}
 			}
 			if ( $has_artwork ) {
 				$attachment_id = absint( $area_data['artworkAttachmentId'] );
 				$preview_id    = absint( get_post_meta( $attachment_id, '_oc_artwork_preview_attachment_id', true ) );
 				$thumb         = $this->artwork_thumbnail_html( $preview_id ?: $attachment_id, 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;' );
 				echo $thumb ?: ' ' . esc_html__( '[Artwork]', 'overcustomise' );
+			}
+			$legacy_colour = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
+			$print_method  = $this->legacy_area_print_method( $item, (string) $area_key );
+			if ( $legacy_colour && 'engraving' !== $print_method ) {
+				printf(
+					' &mdash; <span style="display:inline-block;width:12px;height:12px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
+					esc_attr( $legacy_colour ),
+					esc_html( $legacy_colour )
+				);
 			}
 			echo '</div></div>';
 		}
@@ -1634,8 +1674,9 @@ class OC_Cart {
 	 * Return a safe display string for a single v2 layer input array.
 	 * Returns empty string if there's nothing to show.
 	 */
-	private function layer_display_value( array $layer_data, ?object $layer = null, bool $admin_context = false ): string {
-		$type = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
+	private function layer_display_value( array $layer_data, ?object $layer = null, bool $admin_context = false, string $print_method = '' ): string {
+		$type        = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
+		$show_colour = $this->should_display_layer_colour( $print_method, $admin_context );
 		switch ( $type ) {
 			case 'text':
 			case 'textarea':
@@ -1652,7 +1693,7 @@ class OC_Cart {
 						$html .= ' &mdash; ' . esc_html( $font_name );
 					}
 				}
-				if ( $admin_context && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
+				if ( $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ) {
 					$colour_html = $this->colour_display_value( $layer_data );
 					if ( '' !== $colour_html ) {
 						$html .= ' &mdash; ' . $colour_html;
@@ -1666,8 +1707,8 @@ class OC_Cart {
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
 					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
 					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' );
-					$html          = $thumb ?: esc_html__( '[Image uploaded]', 'overcustomise' );
-					$colour_html   = $admin_context && $this->image_layer_has_order_colour( $layer_data, $layer )
+					$html          = '' !== $thumb ? $thumb : esc_html__( '[Image uploaded]', 'overcustomise' );
+					$colour_html   = $show_colour && $this->image_layer_has_order_colour( $layer_data, $layer )
 						? $this->colour_display_value( $layer_data, $this->legacy_linked_image_colour_requires_lookup( $layer_data, $layer ) )
 						: '';
 
@@ -1681,15 +1722,68 @@ class OC_Cart {
 				}
 
 				$html        = esc_html__( '[Clipart selected]', 'overcustomise' );
-				$colour_html = $admin_context && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+				$colour_html = $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 				return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 
 			case 'lineart':
-				return $admin_context && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+				return $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
 
 			default:
 				return '';
 		}
+	}
+
+	/** Resolve each v2 layer's production method, preferring the immutable order snapshot. */
+	private function layer_print_method_map( array $customisation, array $layer_map, int $design_id ): array {
+		$methods     = [];
+		$render_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		foreach ( is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : [] as $area ) {
+			if ( ! is_array( $area ) ) {
+				continue;
+			}
+			$print_method = sanitize_key( (string) ( $area['printMethod'] ?? '' ) );
+			foreach ( is_array( $area['layers'] ?? null ) ? $area['layers'] : [] as $layer ) {
+				$layer_id = is_array( $layer ) ? absint( $layer['id'] ?? 0 ) : 0;
+				if ( $layer_id > 0 && '' !== $print_method ) {
+					$methods[ $layer_id ] = $print_method;
+				}
+			}
+		}
+
+		$area_methods = [];
+		foreach ( $design_id > 0 ? OC_DB::get_design_print_areas( $design_id ) : [] as $area ) {
+			$area_methods[ (int) $area->id ] = sanitize_key( (string) $area->print_method );
+		}
+		foreach ( $layer_map as $layer_id => $layer ) {
+			$area_id = (int) ( $layer->area_id ?? 0 );
+			if ( ! isset( $methods[ $layer_id ] ) && isset( $area_methods[ $area_id ] ) ) {
+				$methods[ $layer_id ] = $area_methods[ $area_id ];
+			}
+		}
+
+		return $methods;
+	}
+
+	/** Embroidery colours belong on customer documents; engraving colours never do. */
+	private function should_display_layer_colour( string $print_method, bool $admin_context ): bool {
+		$print_method = sanitize_key( $print_method );
+		if ( 'engraving' === $print_method ) {
+			return false;
+		}
+
+		return 'embroidery' === $print_method || $admin_context;
+	}
+
+	/** Resolve the print method for a historical area-keyed order payload. */
+	private function legacy_area_print_method( WC_Order_Item $item, string $area_key ): string {
+		$config_id = absint( $item->get_meta( '_oc_config_id', true ) );
+		foreach ( $config_id > 0 ? OC_DB::get_print_areas( $config_id ) : [] as $area ) {
+			if ( sanitize_key( (string) ( $area->area_key ?? '' ) ) === sanitize_key( $area_key ) ) {
+				return sanitize_key( (string) ( $area->print_method ?? '' ) );
+			}
+		}
+
+		return '';
 	}
 
 	/** Render customer artwork through its signed endpoint instead of its uploads URL. */

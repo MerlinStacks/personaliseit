@@ -18,6 +18,15 @@ import {
 	displayLayer,
 	unitPxScale,
 } from '../../shared/render-math';
+import {
+	layoutMultilineTextbox,
+	multilineTextSafetyMargin,
+	multilineTextboxFits,
+} from '../../shared/text-layout';
+import {
+	imagePlacementClipPath,
+	imagePlacementScale,
+} from '../../shared/image-layout';
 
 const canvasRendererMethods = {
 	// ── Canvas initialisation ──────────────────────────────────────────────────
@@ -530,7 +539,14 @@ const canvasRendererMethods = {
 					? this.leatherEngravingPattern( fontSize )
 					: color;
 				const textClass = isSingleLineText ? FabricText : Textbox;
-				const textBoxSize = isSingleLineText ? {} : { width: lw };
+				const textBoxSize = isSingleLineText
+					? {}
+					: {
+							width: Math.max(
+								1,
+								lw - multilineTextSafetyMargin( fontSize ).x * 2
+							),
+					  };
 				const singleLineMaxWidth = Math.max( 1, lw );
 				const singleLineMaxHeight = Math.max( 1, lh );
 				const obj = new textClass( raw, {
@@ -702,7 +718,17 @@ const canvasRendererMethods = {
 						stitchLift.set( { fontSize } );
 					}
 				}
-				obj.initDimensions?.();
+				if ( isSingleLineText ) {
+					obj.initDimensions?.();
+				} else {
+					layoutMultilineTextbox( obj, lw, fontSize );
+					if ( stitchPad ) {
+						layoutMultilineTextbox( stitchPad, lw, fontSize );
+					}
+					if ( stitchLift ) {
+						layoutMultilineTextbox( stitchLift, lw, fontSize );
+					}
+				}
 				if ( capturesTextLayout ) {
 					const displayScale = unitPxScale( areaBounds ) * scale;
 					if ( displayScale > 0 ) {
@@ -838,8 +864,16 @@ const canvasRendererMethods = {
 						layer,
 						input.imageFilterId
 					);
+					const imageCropClipPath = this.rectClipPath(
+						lx,
+						ly,
+						lw,
+						lh,
+						rotation
+					);
 					const imageEffects = {
 						layerId: layer.id,
+						imageCropClipPath,
 						...( imageFilter ? { imageFilter } : {} ),
 						...( imageFilter && layer.settings?.enable_image_colour
 							? {
@@ -864,7 +898,7 @@ const canvasRendererMethods = {
 						false,
 						rotation,
 						engravingPalette,
-						this.rectClipPath( lx, ly, lw, lh, rotation ),
+						imagePlacementClipPath( imageCrop, imageCropClipPath ),
 						imageCrop,
 						'',
 						imageEffects,
@@ -1137,15 +1171,6 @@ const canvasRendererMethods = {
 		return Math.max( 2, Math.ceil( ( Number( fontSize ) || 0 ) * 0.18 ) );
 	},
 
-	textFitSafetyMargin( fontSize ) {
-		const size = Number( fontSize ) || 0;
-
-		return {
-			x: Math.max( 1, Math.ceil( size * 0.06 ) ),
-			y: Math.max( 2, Math.ceil( size * 0.12 ) ),
-		};
-	},
-
 	textFitsBox(
 		raw,
 		font,
@@ -1159,9 +1184,6 @@ const canvasRendererMethods = {
 			return true;
 		}
 
-		const margin = multiline
-			? this.textFitSafetyMargin( fontSize )
-			: { x: 0, y: 0 };
 		const textClass = multiline ? Textbox : FabricText;
 		const textBoxSize = multiline ? { width: Math.max( 1, maxW ) } : {};
 		const obj = new textClass( raw, {
@@ -1180,20 +1202,21 @@ const canvasRendererMethods = {
 		} );
 		obj.initDimensions?.();
 		obj.setCoords?.();
-		const measured = obj.getBoundingRect?.( true, true ) || obj;
 
 		if ( multiline ) {
-			return (
-				Number( measured.height || 0 ) + margin.y * 2 <=
-				Math.max( maxH, 10 )
+			return multilineTextboxFits(
+				obj,
+				Math.max( maxW, 10 ),
+				Math.max( maxH, 10 ),
+				fontSize
 			);
 		}
 
+		const measured = obj.getBoundingRect?.( true, true ) || obj;
+
 		return (
-			Number( measured.width || 0 ) + margin.x * 2 <=
-				Math.max( maxW, 10 ) &&
-			Number( measured.height || 0 ) + margin.y * 2 <=
-				Math.max( maxH, 10 )
+			Number( measured.width || 0 ) <= Math.max( maxW, 10 ) &&
+			Number( measured.height || 0 ) <= Math.max( maxH, 10 )
 		);
 	},
 
@@ -2430,17 +2453,13 @@ const canvasRendererMethods = {
 				img.filters = filters;
 				img.applyFilters();
 			}
-			const cropAmount =
-				fit === 'cover'
-					? 1
-					: Math.max(
-							0,
-							Math.min( 1, ( Number( fit ) || 0 ) / 100 )
-					  );
 			const containScale = Math.min( w / img.width, h / img.height );
 			const coverScale = Math.max( w / img.width, h / img.height );
-			const imageScale =
-				containScale + ( coverScale - containScale ) * cropAmount;
+			const imageScale = imagePlacementScale(
+				containScale,
+				coverScale,
+				fit
+			);
 			img.set( {
 				left: x + w / 2,
 				top: y + h / 2,
@@ -2456,6 +2475,7 @@ const canvasRendererMethods = {
 			img._ocLayerId = Number( effects.layerId ) || 0;
 			img._ocContainScale = containScale;
 			img._ocCoverScale = coverScale;
+			img._ocCropClipPath = effects.imageCropClipPath || null;
 			// Dither pixels are generated for the current placement size. The crop
 			// slider may scale this object immediately, then a debounced redraw must
 			// regenerate the pattern so its dots remain preview-pixel accurate.
@@ -2525,10 +2545,6 @@ const canvasRendererMethods = {
 				Number
 			)
 		);
-		const cropAmount = Math.max(
-			0,
-			Math.min( 1, ( Number( amount ) || 0 ) / 100 )
-		);
 		const updatedLayerIds = new Set();
 		Object.entries( this.canvases || {} ).forEach(
 			( [ areaIndex, canvas ] ) => {
@@ -2544,10 +2560,19 @@ const canvasRendererMethods = {
 					const containScale = Number( image._ocContainScale ) || 0;
 					const coverScale =
 						Number( image._ocCoverScale ) || containScale;
-					const scale =
-						containScale +
-						( coverScale - containScale ) * cropAmount;
-					image.set( { scaleX: scale, scaleY: scale } );
+					const scale = imagePlacementScale(
+						containScale,
+						coverScale,
+						amount
+					);
+					image.set( {
+						scaleX: scale,
+						scaleY: scale,
+						clipPath: imagePlacementClipPath(
+							amount,
+							image._ocCropClipPath
+						),
+					} );
 					image.setCoords?.();
 					requiresFilteredRedraw =
 						requiresFilteredRedraw ||

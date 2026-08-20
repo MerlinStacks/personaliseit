@@ -177,6 +177,19 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function browser_rendered_text_lines_preserve_grapheme_wrapping(): void {
+		$lines = [ 'personali', 'sation' ];
+
+		$this->assertSame(
+			$lines,
+			OC_Print_Base_Testable::test_browser_rendered_text_lines(
+				[ 'renderedLines' => $lines ],
+				'personalisation'
+			)
+		);
+	}
+
+	#[Test]
 	public function browser_rendered_text_lines_reject_changed_text(): void {
 		$this->assertNull(
 			OC_Print_Base_Testable::test_browser_rendered_text_lines(

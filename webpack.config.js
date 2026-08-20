@@ -69,6 +69,7 @@ module.exports = {
 		'admin/print-bounds-editor': './src/admin/print-bounds-editor.js',
 		// Frontend customiser
 		'frontend/customiser-app': './src/frontend/customiser-app.js',
+		'frontend/order-preview-modal': './src/frontend/order-preview-modal.js',
 		// WooCommerce Blocks integration
 		'frontend/blocks-integration': './src/frontend/blocks-integration.js',
 	},

@@ -2260,7 +2260,15 @@ abstract class OC_Print_Base {
 		}
 		$normalise = static fn( string $value ): string => preg_replace( '/\s+/u', ' ', trim( $value ) ) ?? '';
 
-		return $normalise( implode( "\n", $lines ) ) === $normalise( $text ) ? $lines : null;
+		$rendered_text = implode( "\n", $lines );
+		if ( $normalise( $rendered_text ) === $normalise( $text ) ) {
+			return $lines;
+		}
+
+		// Grapheme wrapping can add a soft line boundary inside an unbroken word.
+		$compact = static fn( string $value ): string => preg_replace( '/\s+/u', '', $value ) ?? '';
+
+		return $compact( $rendered_text ) === $compact( $text ) ? $lines : null;
 	}
 
 	/** Use Fabric's final auto-fitted size only when it cannot enlarge the configured text. */
