@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 
@@ -34,4 +34,23 @@ test( 'clears stale upload import errors after a successful retry', async () => 
 	);
 	assert.match( successPath, /showUploadError\( zoneEl, '' \)/ );
 	assert.match( successPath, /setUploadZoneState/ );
+} );
+
+test( 'built customiser references the emitted upload chunk', async () => {
+	const [ buildSource, chunkFiles ] = await Promise.all( [
+		readFile( 'assets/build/frontend/customiser-app.js', 'utf8' ),
+		readdir( 'assets/build/chunks' ),
+	] );
+	const uploadChunks = chunkFiles.filter( ( file ) =>
+		/^upload-tools\.[a-f0-9]{8}\.js$/.test( file )
+	);
+
+	assert.equal( uploadChunks.length, 1 );
+	const chunkHash = uploadChunks[ 0 ].match(
+		/^upload-tools\.([a-f0-9]{8})\.js$/
+	)[ 1 ];
+	assert.match(
+		buildSource,
+		new RegExp( `"upload-tools":"${ chunkHash }"` )
+	);
 } );
