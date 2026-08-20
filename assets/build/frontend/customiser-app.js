@@ -4204,7 +4204,8 @@ const uploadMethods = {
         endpoint: this.uploadEndpoint(uploadUrl, lid),
         formData: true,
         fieldName: 'artwork',
-        headers: this.restHeaders()
+        headers: this.restHeaders(),
+        shouldRetry: xhr => xhr.status === 0 || xhr.status === 408 || xhr.status === 429 || xhr.status >= 500
       });
       zoneEl.dataset.ocUppyReady = '1';
       this.uppyInstances.add(uppy);

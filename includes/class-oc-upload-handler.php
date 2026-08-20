@@ -504,11 +504,10 @@ class OC_Upload_Handler {
 		$count                  = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
 		$reservation            = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
 		$remove_background      = ! empty( $overrides['remove_background'] );
-		$use_builtin_bg_removal = $remove_background && ! has_filter( 'oc_upload_remove_background' );
+		$use_builtin_bg_removal = $remove_background
+			&& ! has_filter( 'oc_upload_remove_background' )
+			&& in_array( $type_key, [ 'png', 'jpg', 'webp', 'heic' ], true );
 		if ( $use_builtin_bg_removal ) {
-			if ( ! in_array( $type_key, [ 'png', 'jpg', 'webp', 'heic' ], true ) ) {
-				throw new \RuntimeException( __( 'Automatic background removal is only available for PNG, JPEG, WebP, HEIC, and HEIF images.', 'overcustomise' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
-			}
 			if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\\Imagick' ) ) {
 				throw new \RuntimeException( __( 'Automatic background removal requires the PHP ImageMagick extension on this server.', 'overcustomise' ) ); // phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped
 			}
@@ -555,7 +554,9 @@ class OC_Upload_Handler {
 		$inspection             = self::inspect_upload( $_file, $overrides );
 		$type_key               = $inspection['type'];
 		$remove_background      = ! empty( $overrides['remove_background'] );
-		$use_builtin_bg_removal = $remove_background && ! has_filter( 'oc_upload_remove_background' );
+		$use_builtin_bg_removal = $remove_background
+			&& ! has_filter( 'oc_upload_remove_background' )
+			&& in_array( $type_key, [ 'png', 'jpg', 'webp', 'heic' ], true );
 		$result                 = [];
 		$base_result            = [];
 		try {
@@ -1348,14 +1349,17 @@ class OC_Upload_Handler {
 
 			if ( $remove_background ) {
 				$background_path = self::remove_background_via_imagick( $source_path );
-				if ( is_wp_error( $background_path ) ) {
-					throw new \RuntimeException( $background_path->get_error_message() );
+				if ( ! is_wp_error( $background_path ) ) {
+					$staged_paths[] = $background_path;
+					$source_path    = $background_path;
+					$mime           = 'image/png';
+					$type           = 'png';
+					$filename       = pathinfo( $filename, PATHINFO_FILENAME ) . '.png';
+				} else {
+					// Background removal is an enhancement. Keep valid artwork rather
+					// than rejecting logos whose edges are not a plain background.
+					OC_Logger::warning( 'Artwork retained without background removal: ' . $background_path->get_error_message() );
 				}
-				$staged_paths[] = $background_path;
-				$source_path    = $background_path;
-				$mime           = 'image/png';
-				$type           = 'png';
-				$filename       = pathinfo( $filename, PATHINFO_FILENAME ) . '.png';
 			}
 
 			$attachment_id = self::save_to_media_library(
@@ -1669,7 +1673,7 @@ class OC_Upload_Handler {
 
 		try {
 			self::convert_heic_via_imagick( (string) $_file['tmp_name'], $output );
-			$filename    = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . ( $remove_background ? '.png' : '.jpg' );
+			$filename    = pathinfo( sanitize_file_name( basename( (string) $_file['name'] ) ), PATHINFO_FILENAME ) . '.jpg';
 			$result      = self::process_raster(
 				[
 					'tmp_name' => $output,
@@ -1688,7 +1692,6 @@ class OC_Upload_Handler {
 				wp_delete_attachment( (int) $result['attachment_id'], true );
 				throw new \RuntimeException( __( 'The converted Apple photo metadata could not be retained.', 'overcustomise' ) );
 			}
-			$result['stored_name'] = $filename;
 			return $result;
 		} finally {
 			@unlink( $output ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged

@@ -36,6 +36,18 @@ test( 'clears stale upload import errors after a successful retry', async () => 
 	assert.match( successPath, /setUploadZoneState/ );
 } );
 
+test( 'does not retry permanent upload validation failures', async () => {
+	const source = await readFile(
+		'src/frontend/customiser/uploads.js',
+		'utf8'
+	);
+
+	assert.match( source, /shouldRetry: \( xhr \) =>/ );
+	assert.match( source, /xhr\.status === 429/ );
+	assert.match( source, /xhr\.status >= 500/ );
+	assert.doesNotMatch( source, /xhr\.status === 422/ );
+} );
+
 test( 'built customiser references the emitted upload chunk', async () => {
 	const [ buildSource, chunkFiles ] = await Promise.all( [
 		readFile( 'assets/build/frontend/customiser-app.js', 'utf8' ),
