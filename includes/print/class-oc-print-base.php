@@ -2266,9 +2266,10 @@ abstract class OC_Print_Base {
 		}
 
 		// Grapheme wrapping can add a soft line boundary inside an unbroken word.
-		$compact = static fn( string $value ): string => preg_replace( '/\s+/u', '', $value ) ?? '';
+		// Remove only those boundaries so customer-entered spaces stay meaningful.
+		$without_line_breaks = static fn( string $value ): string => str_replace( "\n", '', str_replace( [ "\r\n", "\r" ], "\n", $value ) );
 
-		return $compact( $rendered_text ) === $compact( $text ) ? $lines : null;
+		return $without_line_breaks( $rendered_text ) === $without_line_breaks( $text ) ? $lines : null;
 	}
 
 	/** Use Fabric's final auto-fitted size only when it cannot enlarge the configured text. */

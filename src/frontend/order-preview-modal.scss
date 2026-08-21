@@ -151,6 +151,31 @@ body.oc-preview-modal-open {
 		display: none;
 	}
 
+	&.is-error &__loader,
+	&.is-error &__image {
+		display: none;
+	}
+
+	&__error {
+		position: relative;
+		max-width: 440px;
+		padding: 24px;
+		border: 1px solid #fecaca;
+		border-radius: 12px;
+		color: #7f1d1d;
+		background: #fef2f2;
+		text-align: center;
+
+		p {
+			margin: 0 0 12px;
+		}
+
+		a {
+			color: #1d4ed8;
+			font-weight: 600;
+		}
+	}
+
 	&__hint {
 		margin: 0;
 		padding: 14px 22px;
@@ -183,11 +208,19 @@ body.oc-preview-modal-open {
 @media (prefers-reduced-motion: reduce) {
 	.oc-preview-modal,
 	.oc-order-preview-trigger {
+		&,
+		&::before,
+		&::after,
 		*,
 		*::before,
 		*::after {
 			animation-duration: 0.01ms !important;
 			transition-duration: 0.01ms !important;
 		}
+	}
+
+	.oc-order-preview-trigger:hover,
+	.oc-preview-modal__close:hover {
+		transform: none;
 	}
 }

@@ -83,6 +83,19 @@ class OC_Cart {
 			$version,
 			true
 		);
+		wp_localize_script(
+			'oc-order-preview-modal',
+			'ocOrderPreviewModal',
+			[
+				'eyebrow'         => __( 'Your customisation', 'overcustomise' ),
+				'title'           => __( 'Personalised preview', 'overcustomise' ),
+				'closeLabel'      => __( 'Close preview', 'overcustomise' ),
+				'imageAlt'        => __( 'Personalised product preview', 'overcustomise' ),
+				'hint'            => __( 'Preview shown for reference. Final colours may vary slightly.', 'overcustomise' ),
+				'errorMessage'    => __( 'The preview could not be loaded. The link may have expired.', 'overcustomise' ),
+				'openDirectLabel' => __( 'Open preview directly', 'overcustomise' ),
+			]
+		);
 		wp_enqueue_style(
 			'oc-order-preview-modal',
 			OC_ASSETS_URL . 'frontend/order-preview-modal.css',
@@ -880,11 +893,11 @@ class OC_Cart {
 			return $lines;
 		}
 
-		// Fabric may soft-wrap an unbroken word between graphemes. Ignore
-		// whitespace placement when confirming that no characters were changed.
-		$compact = static fn( string $text ): string => preg_replace( '/\s+/u', '', $text ) ?? '';
+		// Fabric may insert soft line boundaries inside an unbroken word. Remove
+		// only those boundaries so customer-entered spaces remain significant.
+		$without_line_breaks = static fn( string $text ): string => str_replace( "\n", '', str_replace( [ "\r\n", "\r" ], "\n", $text ) );
 
-		return $compact( $rendered_text ) === $compact( $value ) ? $lines : null;
+		return $without_line_breaks( $rendered_text ) === $without_line_breaks( $value ) ? $lines : null;
 	}
 
 	/** Copy the one rendered linked control to every server-confirmed group member. */
@@ -1255,8 +1268,8 @@ class OC_Cart {
 			}
 
 			// Build label map from design layers.
-			$layer_map = [];
-			if ( $design_id ) {
+			$layer_map = $this->render_spec_layer_map( $customisation );
+			if ( ! array_key_exists( 'renderSpec', $customisation ) && $design_id ) {
 				foreach ( OC_DB::get_design_layers( $design_id ) as $l ) {
 					$layer_map[ (int) $l->id ] = $l;
 				}
@@ -1750,18 +1763,43 @@ class OC_Cart {
 			}
 		}
 
-		$area_methods = [];
-		foreach ( $design_id > 0 ? OC_DB::get_design_print_areas( $design_id ) : [] as $area ) {
-			$area_methods[ (int) $area->id ] = sanitize_key( (string) $area->print_method );
-		}
-		foreach ( $layer_map as $layer_id => $layer ) {
-			$area_id = (int) ( $layer->area_id ?? 0 );
-			if ( ! isset( $methods[ $layer_id ] ) && isset( $area_methods[ $area_id ] ) ) {
-				$methods[ $layer_id ] = $area_methods[ $area_id ];
+		if ( ! array_key_exists( 'renderSpec', $customisation ) ) {
+			$area_methods = [];
+			foreach ( $design_id > 0 ? OC_DB::get_design_print_areas( $design_id ) : [] as $area ) {
+				$area_methods[ (int) $area->id ] = sanitize_key( (string) $area->print_method );
+			}
+			foreach ( $layer_map as $layer_id => $layer ) {
+				$area_id = (int) ( $layer->area_id ?? 0 );
+				if ( ! isset( $methods[ $layer_id ] ) && isset( $area_methods[ $area_id ] ) ) {
+					$methods[ $layer_id ] = $area_methods[ $area_id ];
+				}
 			}
 		}
 
 		return $methods;
+	}
+
+	/** Materialise immutable layer metadata from the order-time render specification. */
+	private function render_spec_layer_map( array $customisation ): array {
+		$render_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		$layers      = [];
+		foreach ( is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : [] as $area ) {
+			foreach ( is_array( $area['layers'] ?? null ) ? $area['layers'] : [] as $layer ) {
+				$layer_id = is_array( $layer ) ? absint( $layer['id'] ?? 0 ) : 0;
+				if ( $layer_id <= 0 ) {
+					continue;
+				}
+				$layers[ $layer_id ] = (object) [
+					'id'       => $layer_id,
+					'type'     => sanitize_key( (string) ( $layer['type'] ?? '' ) ),
+					'label'    => sanitize_text_field( (string) ( $layer['label'] ?? '' ) ),
+					'settings' => is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [],
+					'locked'   => ! empty( $layer['locked'] ),
+				];
+			}
+		}
+
+		return $layers;
 	}
 
 	/** Embroidery colours belong on customer documents; engraving colours never do. */
@@ -1802,10 +1840,27 @@ class OC_Cart {
 
 	/** Return an escaped colour swatch and hex value for order admin summaries. */
 	private function colour_display_value( array $layer_data, bool $verify_name = false ): string {
+		$label  = $this->colour_display_label( $layer_data, $verify_name );
 		$colour = ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] )
 			? sanitize_hex_color( $layer_data['colorHex'] )
 			: '';
 
+		if ( '' === $colour || '' === $label ) {
+			return '';
+		}
+
+		return sprintf(
+			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
+			esc_attr( $colour ),
+			esc_html( $label )
+		);
+	}
+
+	/** Resolve a safe customer-facing colour name, falling back to its hex value. */
+	private function colour_display_label( array $layer_data, bool $verify_name = false ): string {
+		$colour = ! empty( $layer_data['colorHex'] ) && is_string( $layer_data['colorHex'] )
+			? sanitize_hex_color( $layer_data['colorHex'] )
+			: '';
 		if ( '' === $colour ) {
 			return '';
 		}
@@ -1825,11 +1880,7 @@ class OC_Cart {
 			$colour_name     = 1 === count( $canonical_names ) ? $canonical_names[0] : '';
 		}
 
-		return sprintf(
-			'<span style="display:inline-block;width:10px;height:10px;background:%s;border:1px solid #ccc;vertical-align:middle;border-radius:2px;"></span> %s',
-			esc_attr( $colour ),
-			esc_html( '' !== $colour_name ? $colour_name : $colour )
-		);
+		return '' !== $colour_name ? $colour_name : $colour;
 	}
 
 	/** Layer settings default to customer-changeable unless explicitly disabled. */
@@ -1894,10 +1945,13 @@ class OC_Cart {
 		$lines = [ __( 'Customisation:', 'overcustomise' ) ];
 		if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
 			$design_id = absint( $customisation['designId'] ?? $item->get_meta( '_oc_design_id', true ) );
-			$layer_map = [];
-			foreach ( $design_id ? OC_DB::get_design_layers( $design_id ) : [] as $layer ) {
-				$layer_map[ (int) $layer->id ] = $layer;
+			$layer_map = $this->render_spec_layer_map( $customisation );
+			if ( ! array_key_exists( 'renderSpec', $customisation ) ) {
+				foreach ( $design_id ? OC_DB::get_design_layers( $design_id ) : [] as $layer ) {
+					$layer_map[ (int) $layer->id ] = $layer;
+				}
 			}
+			$print_method_map = $this->layer_print_method_map( $customisation, $layer_map, $design_id );
 			if ( is_scalar( $customisation['designVariantLabel'] ?? null ) && '' !== trim( (string) $customisation['designVariantLabel'] ) ) {
 				$lines[] = __( 'Artwork Option', 'overcustomise' ) . ': ' . sanitize_text_field( (string) $customisation['designVariantLabel'] );
 			}
@@ -1909,14 +1963,13 @@ class OC_Cart {
 				if ( $this->is_fixed_clipart_layer( $layer, $layer_data ) ) {
 					continue;
 				}
-				$type  = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
-				$label = $layer ? ( (string) $layer->label ?: ucfirst( (string) $layer->type ) ) : ucfirst( $type ?: __( 'Layer', 'overcustomise' ) );
-				$value = match ( $type ) {
-					'text', 'textarea', 'spotify' => is_scalar( $layer_data['value'] ?? null ) ? sanitize_textarea_field( (string) $layer_data['value'] ) : '',
-					'image', 'clipmask'            => ! empty( $layer_data['attachmentId'] ) ? __( 'Image uploaded', 'overcustomise' ) : '',
-					'clipart'                      => ! empty( $layer_data['clipartId'] ) ? __( 'Clipart selected', 'overcustomise' ) : '',
-					default                        => '',
-				};
+				$type           = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
+				$fallback_label = '' !== $type ? ucfirst( $type ) : __( 'Layer', 'overcustomise' );
+				$label          = $layer && '' !== (string) ( $layer->label ?? '' )
+					? (string) $layer->label
+					: ucfirst( (string) ( $layer->type ?? $fallback_label ) );
+				$print_method   = $print_method_map[ absint( $layer_id ) ] ?? '';
+				$value          = $this->plain_text_layer_display_value( $layer_data, $layer, $print_method );
 				if ( '' !== trim( $value ) ) {
 					$lines[] = sanitize_text_field( $label ) . ': ' . $value;
 				}
@@ -1943,6 +1996,30 @@ class OC_Cart {
 			$lines[] = __( 'Preview', 'overcustomise' ) . ': ' . esc_url_raw( $preview_url );
 		}
 		echo "\n" . implode( "\n", $lines ) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- plain-email values are sanitised above.
+	}
+
+	/** Return one order layer as a safe plain-text email value. */
+	private function plain_text_layer_display_value( array $layer_data, ?object $layer, string $print_method ): string {
+		$type  = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
+		$value = match ( $type ) {
+			'text', 'textarea', 'spotify' => is_scalar( $layer_data['value'] ?? null ) ? sanitize_textarea_field( (string) $layer_data['value'] ) : '',
+			'image', 'clipmask'            => ! empty( $layer_data['attachmentId'] ) ? __( 'Image uploaded', 'overcustomise' ) : '',
+			'clipart'                      => ! empty( $layer_data['clipartId'] ) ? __( 'Clipart selected', 'overcustomise' ) : '',
+			default                        => '',
+		};
+		if ( '' === trim( $value ) && 'lineart' !== $type ) {
+			return '';
+		}
+		$has_colour = in_array( $type, [ 'text', 'textarea', 'spotify', 'clipart', 'lineart' ], true )
+			? $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' )
+			: in_array( $type, [ 'image', 'clipmask' ], true ) && $this->image_layer_has_order_colour( $layer_data, $layer );
+		if ( ! $this->should_display_layer_colour( $print_method, false ) || ! $has_colour ) {
+			return $value;
+		}
+
+		$colour = $this->colour_display_label( $layer_data, $this->legacy_linked_image_colour_requires_lookup( $layer_data, $layer ) );
+
+		return '' !== $colour ? ( '' !== $value ? $value . '; ' . $colour : $colour ) : $value;
 	}
 
 	/**

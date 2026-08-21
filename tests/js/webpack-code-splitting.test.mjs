@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile, readdir } from 'node:fs/promises';
+import { access, readFile, readdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 
@@ -48,6 +48,16 @@ test( 'does not retry permanent upload validation failures', async () => {
 	assert.doesNotMatch( source, /xhr\.status === 422/ );
 } );
 
+test( 'warns when automatic background removal keeps the original', async () => {
+	const source = await readFile(
+		'src/frontend/customiser/uploads.js',
+		'utf8'
+	);
+
+	assert.match( source, /background_removed === false/ );
+	assert.match( source, /kept your original image/ );
+} );
+
 test( 'built customiser references the emitted upload chunk', async () => {
 	const [ buildSource, chunkFiles ] = await Promise.all( [
 		readFile( 'assets/build/frontend/customiser-app.js', 'utf8' ),
@@ -61,14 +71,33 @@ test( 'built customiser references the emitted upload chunk', async () => {
 	const chunkHash = uploadChunks[ 0 ].match(
 		/^upload-tools\.([a-f0-9]{8})\.js$/
 	)[ 1 ];
-	assert.match(
-		buildSource,
-		new RegExp( `"upload-tools":"${ chunkHash }"` )
-	);
+	assert.match( buildSource, new RegExp( chunkHash ) );
+	assert.match( buildSource, /"\.\.\/"/ );
+	await Promise.all( [
+		access( 'assets/build/upload-tools.css' ),
+		access( 'assets/build/upload-tools-rtl.css' ),
+	] );
 
 	const chunkSource = await readFile(
 		`assets/build/chunks/${ uploadChunks[ 0 ] }`,
 		'utf8'
 	);
-	assert.match( chunkSource, /\.push\(\[\[\s*["']upload-tools["']\s*\],/ );
+	assert.match( chunkSource, /webpackChunkovercustomise/ );
+	assert.ok( chunkSource.length > 1000 );
+} );
+
+test( 'includes the customer order preview entry and asset manifest', async () => {
+	const [ script, css, asset ] = await Promise.all( [
+		readFile( 'assets/build/frontend/order-preview-modal.js', 'utf8' ),
+		readFile( 'assets/build/frontend/order-preview-modal.css', 'utf8' ),
+		readFile(
+			'assets/build/frontend/order-preview-modal.asset.php',
+			'utf8'
+		),
+	] );
+
+	assert.match( script, /oc-order-preview-trigger/ );
+	assert.match( script, /is-error/ );
+	assert.match( css, /oc-preview-modal__error/ );
+	assert.match( asset, /'version'/ );
 } );

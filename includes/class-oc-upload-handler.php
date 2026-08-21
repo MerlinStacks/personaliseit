@@ -547,15 +547,16 @@ class OC_Upload_Handler {
 	 *
 	 * @param  array      $_file     An element from $_FILES.
 	 * @param  array|null $overrides Per-layer validation and processing overrides.
-	 * @return array{attachment_id:int,preview_url:string,original_url:string,file_type:string,preview_attachment_id?:int,related_attachment_ids?:array<int,int>}
+	 * @return array{attachment_id:int,preview_url:string,original_url:string,file_type:string,preview_attachment_id?:int,related_attachment_ids?:array<int,int>,background_removed?:bool}
 	 * @throws \RuntimeException On validation or processing failure.
 	 */
 	public static function process( array $_file, ?array $overrides = null, array $context = [] ): array {
 		$inspection             = self::inspect_upload( $_file, $overrides );
 		$type_key               = $inspection['type'];
 		$remove_background      = ! empty( $overrides['remove_background'] );
+		$has_custom_bg_removal  = $remove_background && false !== has_filter( 'oc_upload_remove_background' );
 		$use_builtin_bg_removal = $remove_background
-			&& ! has_filter( 'oc_upload_remove_background' )
+			&& ! $has_custom_bg_removal
 			&& in_array( $type_key, [ 'png', 'jpg', 'webp', 'heic' ], true );
 		$result                 = [];
 		$base_result            = [];
@@ -575,6 +576,11 @@ class OC_Upload_Handler {
 					throw new \RuntimeException( __( 'The background-removal result could not be validated.', 'overcustomise' ) );
 				}
 				$result = $filtered;
+				if ( ! array_key_exists( 'background_removed', $result ) ) {
+					// A custom removal filter that returns successfully is treated as having
+					// completed unless it explicitly reports a fallback.
+					$result['background_removed'] = $has_custom_bg_removal;
+				}
 			}
 
 			$attachment_id = absint( $result['attachment_id'] ?? 0 );
@@ -1350,15 +1356,17 @@ class OC_Upload_Handler {
 			if ( $remove_background ) {
 				$background_path = self::remove_background_via_imagick( $source_path );
 				if ( ! is_wp_error( $background_path ) ) {
-					$staged_paths[] = $background_path;
-					$source_path    = $background_path;
-					$mime           = 'image/png';
-					$type           = 'png';
-					$filename       = pathinfo( $filename, PATHINFO_FILENAME ) . '.png';
+					$staged_paths[]     = $background_path;
+					$source_path        = $background_path;
+					$mime               = 'image/png';
+					$type               = 'png';
+					$filename           = pathinfo( $filename, PATHINFO_FILENAME ) . '.png';
+					$background_removed = true;
 				} else {
 					// Background removal is an enhancement. Keep valid artwork rather
 					// than rejecting logos whose edges are not a plain background.
 					OC_Logger::warning( 'Artwork retained without background removal: ' . $background_path->get_error_message() );
+					$background_removed = false;
 				}
 			}
 
@@ -1387,13 +1395,18 @@ class OC_Upload_Handler {
 			throw new \RuntimeException( $attachment_id->get_error_message() );
 		}
 
-		return [
+		$result = [
 			'attachment_id' => $attachment_id,
 			'preview_url'   => '',
 			'original_url'  => '',
 			'file_type'     => $type,
 			'stored_name'   => $filename,
 		];
+		if ( $remove_background ) {
+			$result['background_removed'] = $background_removed ?? false;
+		}
+
+		return $result;
 	}
 
 	/** Read the orientation value from a JPEG EXIF APP1 segment without requiring ext-exif. */

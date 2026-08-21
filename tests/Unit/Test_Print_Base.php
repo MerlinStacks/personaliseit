@@ -190,6 +190,16 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function browser_rendered_text_lines_reject_relocated_spaces(): void {
+		$this->assertNull(
+			OC_Print_Base_Testable::test_browser_rendered_text_lines(
+				[ 'renderedLines' => [ 'foob', 'ar' ] ],
+				'foo bar'
+			)
+		);
+	}
+
+	#[Test]
 	public function browser_rendered_text_lines_reject_changed_text(): void {
 		$this->assertNull(
 			OC_Print_Base_Testable::test_browser_rendered_text_lines(

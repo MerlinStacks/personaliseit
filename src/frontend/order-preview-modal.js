@@ -1,9 +1,15 @@
 import './order-preview-modal.scss';
+import { shouldOpenPreviewModal } from '../shared/modal-events';
 
 const triggerSelector = '.oc-order-preview-trigger';
+const strings = window.ocOrderPreviewModal || {};
+const text = ( key, fallback ) => String( strings[ key ] || fallback );
 let modal;
 let previewImage;
+let previewError;
+let directLink;
 let previousFocus;
+let imageRequestController;
 
 const closeModal = () => {
 	if ( ! modal || modal.hidden ) {
@@ -12,8 +18,10 @@ const closeModal = () => {
 
 	modal.hidden = true;
 	document.body.classList.remove( 'oc-preview-modal-open' );
+	imageRequestController?.abort();
+	imageRequestController = null;
 	previewImage.removeAttribute( 'src' );
-	if ( previousFocus ) {
+	if ( previousFocus?.isConnected ) {
 		previousFocus.focus();
 	}
 };
@@ -30,25 +38,50 @@ const createModal = () => {
 		<div class="oc-preview-modal__panel" role="document">
 			<div class="oc-preview-modal__header">
 				<div>
-					<p class="oc-preview-modal__eyebrow">Your customisation</p>
-					<h2 id="oc-preview-modal-title">Personalised preview</h2>
+					<p class="oc-preview-modal__eyebrow"></p>
+					<h2 id="oc-preview-modal-title"></h2>
 				</div>
-				<button class="oc-preview-modal__close" type="button" data-oc-preview-close aria-label="Close preview">
+				<button class="oc-preview-modal__close" type="button" data-oc-preview-close>
 					<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
 				</button>
 			</div>
 			<div class="oc-preview-modal__image-wrap">
 				<div class="oc-preview-modal__loader" aria-hidden="true"></div>
-				<img class="oc-preview-modal__image" alt="Personalised product preview" />
+				<img class="oc-preview-modal__image" />
+				<div class="oc-preview-modal__error" role="alert" hidden>
+					<p></p>
+					<a target="_blank" rel="noopener noreferrer"></a>
+				</div>
 			</div>
-			<p class="oc-preview-modal__hint">Preview shown for reference. Final colours may vary slightly.</p>
+			<p class="oc-preview-modal__hint"></p>
 		</div>`;
 
 	document.body.appendChild( modal );
 	previewImage = modal.querySelector( '.oc-preview-modal__image' );
-	previewImage.addEventListener( 'load', () => {
-		modal.classList.add( 'is-loaded' );
-	} );
+	previewError = modal.querySelector( '.oc-preview-modal__error' );
+	directLink = previewError.querySelector( 'a' );
+	modal.querySelector( '.oc-preview-modal__eyebrow' ).textContent = text(
+		'eyebrow',
+		'Your customisation'
+	);
+	modal.querySelector( 'h2' ).textContent = text(
+		'title',
+		'Personalised preview'
+	);
+	modal.querySelector( '.oc-preview-modal__close' ).ariaLabel = text(
+		'closeLabel',
+		'Close preview'
+	);
+	previewImage.alt = text( 'imageAlt', 'Personalised product preview' );
+	modal.querySelector( '.oc-preview-modal__hint' ).textContent = text(
+		'hint',
+		'Preview shown for reference. Final colours may vary slightly.'
+	);
+	previewError.querySelector( 'p' ).textContent = text(
+		'errorMessage',
+		'The preview could not be loaded. The link may have expired.'
+	);
+	directLink.textContent = text( 'openDirectLabel', 'Open preview directly' );
 	modal.addEventListener( 'click', ( event ) => {
 		if ( event.target.closest( '[data-oc-preview-close]' ) ) {
 			closeModal();
@@ -62,16 +95,48 @@ const openModal = ( trigger ) => {
 	}
 
 	previousFocus = trigger;
-	modal.classList.remove( 'is-loaded' );
+	modal.classList.remove( 'is-loaded', 'is-error' );
+	previewError.hidden = true;
 	modal.hidden = false;
 	document.body.classList.add( 'oc-preview-modal-open' );
+	directLink.href = trigger.href;
+	imageRequestController?.abort();
+	imageRequestController = new AbortController();
+	const { signal } = imageRequestController;
+	previewImage.addEventListener(
+		'load',
+		() => {
+			if ( modal.hidden ) {
+				return;
+			}
+			modal.classList.remove( 'is-error' );
+			modal.classList.add( 'is-loaded' );
+			previewError.hidden = true;
+		},
+		{ once: true, signal }
+	);
+	previewImage.addEventListener(
+		'error',
+		() => {
+			if ( modal.hidden ) {
+				return;
+			}
+			modal.classList.remove( 'is-loaded' );
+			modal.classList.add( 'is-error' );
+			previewError.hidden = false;
+		},
+		{ once: true, signal }
+	);
 	previewImage.src = trigger.href;
 	modal.querySelector( '.oc-preview-modal__close' ).focus();
 };
 
 document.addEventListener( 'click', ( event ) => {
-	const trigger = event.target.closest( triggerSelector );
+	const trigger = event.target.closest?.( triggerSelector );
 	if ( ! trigger ) {
+		return;
+	}
+	if ( ! shouldOpenPreviewModal( event ) ) {
 		return;
 	}
 
@@ -85,7 +150,18 @@ document.addEventListener( 'keydown', ( event ) => {
 	}
 
 	if ( 'Tab' === event.key && modal && ! modal.hidden ) {
-		event.preventDefault();
-		modal.querySelector( '.oc-preview-modal__close' ).focus();
+		const focusable = [
+			...modal.querySelectorAll( 'button:not([disabled]), a[href]' ),
+		].filter( ( element ) => ! element.closest( '[hidden]' ) );
+		const first = focusable[ 0 ];
+		const last = focusable[ focusable.length - 1 ];
+		const activeElement = modal.ownerDocument.activeElement;
+		if ( event.shiftKey && activeElement === first ) {
+			event.preventDefault();
+			last.focus();
+		} else if ( ! event.shiftKey && activeElement === last ) {
+			event.preventDefault();
+			first.focus();
+		}
 	}
 } );

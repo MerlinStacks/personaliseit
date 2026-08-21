@@ -425,6 +425,8 @@ const uploadMethods = {
 				}
 				const attachmentId = Number( res.body.attachment_id || 0 );
 				const attachmentUrl = String( res.body.preview_url || '' );
+				const backgroundRemovalFailed =
+					res.body.background_removed === false;
 				if ( ! attachmentId || ! attachmentUrl ) {
 					this.markArtworkReplacementFailed(
 						lid,
@@ -499,6 +501,9 @@ const uploadMethods = {
 				const warnEl = document.querySelector(
 					`.oc-resolution-warning[data-oc-resolution-warning="${ lid }"]`
 				);
+				const backgroundWarning = backgroundRemovalFailed
+					? ' We also kept your original image because its background could not be removed automatically.'
+					: '';
 
 				if ( belowHalf ) {
 					if ( warnEl ) {
@@ -518,7 +523,13 @@ const uploadMethods = {
 					if ( belowThreshold ) {
 						warnEl.className =
 							'oc-resolution-warning oc-res-warning';
-						warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${ threshold.width } x ${ threshold.height } pixels.`;
+						warnEl.textContent = `This image may not print clearly at full size. Recommended minimum: ${ threshold.width } x ${ threshold.height } pixels.${ backgroundWarning }`;
+						warnEl.style.display = '';
+					} else if ( backgroundRemovalFailed ) {
+						warnEl.className =
+							'oc-resolution-warning oc-res-warning';
+						warnEl.textContent =
+							'We kept your original image because its background could not be removed automatically. Please check the preview.';
 						warnEl.style.display = '';
 					} else {
 						warnEl.style.display = 'none';

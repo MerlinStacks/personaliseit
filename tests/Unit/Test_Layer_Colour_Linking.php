@@ -39,6 +39,14 @@ if ( ! function_exists( 'esc_html__' ) ) {
 
 class Test_Layer_Colour_Linking extends TestCase {
 	#[Test]
+	public function rendered_lines_reject_relocated_customer_spaces(): void {
+		$method = new ReflectionMethod( OC_Cart::class, 'normalise_rendered_text_lines' );
+
+		$this->assertNull( $method->invoke( null, [ 'foob', 'ar' ], 'foo bar' ) );
+		$this->assertSame( [ 'personali', 'sation' ], $method->invoke( null, [ 'personali', 'sation' ], 'personalisation' ) );
+	}
+
+	#[Test]
 	public function image_colour_settings_are_normalised(): void {
 		$settings = OC_Cart::normalise_layer_settings( [
 			'enable_image_colour' => 'yes',
@@ -269,6 +277,88 @@ class Test_Layer_Colour_Linking extends TestCase {
 				20 => 'engraving',
 			],
 			$result
+		);
+	}
+
+	#[Test]
+	public function order_time_render_spec_is_the_layer_settings_authority(): void {
+		$cart   = new OC_Cart();
+		$method = new ReflectionMethod( OC_Cart::class, 'render_spec_layer_map' );
+		$result = $method->invoke(
+			$cart,
+			[
+				'renderSpec' => [
+					'areas' => [
+						[
+							'layers' => [
+								[
+									'id'       => 10,
+									'type'     => 'text',
+									'label'    => 'Name',
+									'settings' => [ 'allow_colour_change' => false ],
+								],
+							],
+						],
+					],
+				],
+			]
+		);
+
+		$this->assertFalse( $result[10]->settings['allow_colour_change'] );
+		$this->assertSame( 'Name', $result[10]->label );
+	}
+
+	#[Test]
+	public function plain_text_order_details_include_embroidery_colour(): void {
+		$method = new ReflectionMethod( OC_Cart::class, 'plain_text_layer_display_value' );
+		$output = $method->invoke(
+			new OC_Cart(),
+			[
+				'type'      => 'text',
+				'value'     => 'Jones',
+				'colorHex'  => '#cc3300',
+				'colorName' => 'Burnt Orange',
+			],
+			(object) [
+				'type'     => 'text',
+				'settings' => [ 'allow_colour_change' => true ],
+			],
+			'embroidery'
+		);
+
+		$this->assertSame( 'Jones; Burnt Orange', $output );
+		$this->assertSame(
+			'Jones',
+			$method->invoke(
+				new OC_Cart(),
+				[
+					'type'      => 'text',
+					'value'     => 'Jones',
+					'colorHex'  => '#cc3300',
+					'colorName' => 'Burnt Orange',
+				],
+				(object) [
+					'type'     => 'text',
+					'settings' => [ 'allow_colour_change' => true ],
+				],
+				'engraving'
+			)
+		);
+		$this->assertSame(
+			'',
+			$method->invoke(
+				new OC_Cart(),
+				[
+					'type'     => 'text',
+					'value'    => '',
+					'colorHex' => '#cc3300',
+				],
+				(object) [
+					'type'     => 'text',
+					'settings' => [ 'allow_colour_change' => true ],
+				],
+				'embroidery'
+			)
 		);
 	}
 
