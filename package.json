@@ -3,6 +3,18 @@
   "version": "1.16.3",
   "description": "WooCommerce product customiser for Custom Kings",
   "private": true,
+  "files": [
+    "assets/build",
+    "includes",
+    "templates",
+    "vendor/autoload.php",
+    "vendor/composer",
+    "vendor/tecnickcom",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "overcustomise.php"
+  ],
   "scripts": {
     "build": "wp-scripts build",
     "start": "wp-scripts start",
@@ -12,7 +24,8 @@
     "test:js": "node --test tests/js/*.test.mjs",
     "test:e2e": "playwright test",
     "test:e2e:performance": "playwright test tests/e2e/performance.spec.js",
-    "test:performance": "node scripts/check-bundle-size.mjs"
+    "test:performance": "node scripts/check-bundle-size.mjs",
+    "plugin-zip": "bash scripts/build-plugin-zip.sh"
   },
   "dependencies": {
     "@uppy/core": "^5.2.0",

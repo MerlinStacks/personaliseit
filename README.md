@@ -107,7 +107,11 @@ Optional capabilities:
 
 ## Installation
 
-Packaged GitHub releases are not available yet. To install from source:
+CI builds an installable `overcustomise.zip` artifact with production Composer
+dependencies and compiled frontend assets. Use that artifact for WordPress
+installations rather than GitHub's automatically generated source archive.
+
+To install from source:
 
 1. Clone or download this repository into `wp-content/plugins/`.
 2. Install PHP runtime dependencies:

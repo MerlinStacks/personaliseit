@@ -36,6 +36,7 @@ Thumbs.db
 /playwright-report/
 /test-results/
 /.phpstan-cache/
+/overcustomise.zip
 
 # Claude Code
 /.claude/

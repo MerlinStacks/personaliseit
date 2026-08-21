@@ -62,3 +62,32 @@ jobs:
       - run: npx playwright install --with-deps chromium
         if: env.E2E_BASE_URL != ''
       - run: npm run test:e2e
+
+  distribution:
+    needs: [php-quality, frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+      - run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-progress
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run plugin-zip
+      - name: Verify bundled runtime dependencies
+        run: |
+          unzip -t overcustomise.zip
+          unzip -l overcustomise.zip | grep -q 'overcustomise/vendor/autoload.php'
+          unzip -l overcustomise.zip | grep -q 'overcustomise/vendor/tecnickcom/tcpdf/tcpdf.php'
+          ! unzip -l overcustomise.zip | grep -Eq 'overcustomise/vendor/.*/(test|tests|example|examples)/'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: overcustomise-${{ github.sha }}
+          path: overcustomise.zip
+          if-no-files-found: error
