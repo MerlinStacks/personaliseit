@@ -2481,7 +2481,14 @@ abstract class OC_Print_Base {
 		$line_box_h = self::pt_to_mm_value( $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER );
 		$line_step  = self::pt_to_mm_value( $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER * self::FABRIC_TEXTBOX_LINE_HEIGHT );
 		$total_h    = self::engraving_textbox_height_mm( count( $lines ), $font_size );
-		$offset_y   = match ( $valign ) {
+		// Keep every submitted line when this low-level renderer receives a
+		// constrained box directly. The normal layer path shrinks the font first,
+		// but regenerated legacy payloads and helper callers may bypass that fit.
+		$layout_scale = min( 1.0, $h_mm / max( 0.001, $total_h ) );
+		$line_box_h  *= $layout_scale;
+		$line_step   *= $layout_scale;
+		$total_h     *= $layout_scale;
+		$offset_y     = match ( $valign ) {
 			'T' => 0.0,
 			'B' => max( 0.0, $h_mm - $total_h ),
 			default => max( 0.0, ( $h_mm - $total_h ) / 2 ),
