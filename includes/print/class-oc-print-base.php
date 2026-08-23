@@ -32,6 +32,7 @@ abstract class OC_Print_Base {
 	/** Fabric.js single-line text metrics used by the customer preview. */
 	private const FABRIC_FONT_SIZE_MULTIPLIER = 1.13;
 	private const FABRIC_FONT_SIZE_FRACTION   = 0.222;
+	private const FABRIC_TEXTBOX_LINE_HEIGHT  = 1.16;
 
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
@@ -2209,21 +2210,15 @@ abstract class OC_Print_Base {
 			default => 'C',
 		};
 
-		$textarea_wraps = false;
-		if ( $is_textarea ) {
-			$pdf->SetFont( $font_name, '', $font_size );
-			$textarea_wraps = null !== $rendered_lines && count( $rendered_lines ) > 1;
-			$textarea_wraps = $textarea_wraps || str_contains( $render_text, "\n" ) || ( is_string( $engraving_font_path ) && '' !== $engraving_font_path
-				? count( self::wrap_engraving_outline_lines( $text, $engraving_font_path, $font_size, self::mm_to_pt_value( $draw_w_mm ) ) ) > 1
-				: (int) $pdf->getNumLines( $text, $w_mm ) > 1 );
-		}
-
 		if ( 'engraving' === $mode && is_string( $engraving_font_path ) && '' !== $engraving_font_path ) {
-			if ( $textarea_wraps && self::render_engraving_multiline_text_outline( $pdf, $render_text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign, $rendered_lines ) ) {
+			// A Fabric Textbox uses its configured vertical alignment even when the
+			// content happens to occupy one line. Sending that case through the
+			// single-line renderer always centred it in the layer instead.
+			if ( $is_textarea && self::render_engraving_multiline_text_outline( $pdf, $render_text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign, $rendered_lines ) ) {
 				return;
 			}
 
-			if ( ! $textarea_wraps && self::render_engraving_text_outline( $pdf, $render_text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
+			if ( ! $is_textarea && self::render_engraving_text_outline( $pdf, $render_text, $engraving_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align ) ) {
 				return;
 			}
 		}
@@ -2377,7 +2372,7 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
+		return self::engraving_textbox_height_mm( count( $lines ), $font_size ) <= $h_mm;
 	}
 
 	/** Check fixed browser lines against outline metrics, shrinking all lines uniformly when needed. */
@@ -2389,7 +2384,7 @@ abstract class OC_Print_Base {
 			}
 		}
 
-		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
+		return self::engraving_textbox_height_mm( count( $lines ), $font_size ) <= $h_mm;
 	}
 
 	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
@@ -2483,9 +2478,10 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		$line_h = min( self::cell_h( $font_size ), $h_mm / count( $lines ) );
-		$total_h = count( $lines ) * $line_h;
-		$offset_y = match ( $valign ) {
+		$line_box_h = self::pt_to_mm_value( $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER );
+		$line_step  = self::pt_to_mm_value( $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER * self::FABRIC_TEXTBOX_LINE_HEIGHT );
+		$total_h    = self::engraving_textbox_height_mm( count( $lines ), $font_size );
+		$offset_y   = match ( $valign ) {
 			'T' => 0.0,
 			'B' => max( 0.0, $h_mm - $total_h ),
 			default => max( 0.0, ( $h_mm - $total_h ) / 2 ),
@@ -2493,15 +2489,24 @@ abstract class OC_Print_Base {
 
 		$rendered = false;
 		foreach ( $lines as $index => $line ) {
-			$line_y = $y_mm + $offset_y + ( $index * $line_h );
-			if ( $line_y + $line_h > $y_mm + $h_mm + 0.001 ) {
+			$line_y = $y_mm + $offset_y + ( $index * $line_step );
+			if ( $line_y + $line_box_h > $y_mm + $h_mm + 0.001 ) {
 				break;
 			}
 
-			$rendered = self::render_engraving_text_outline( $pdf, $line, $font_path, $font_size, $x_mm, $line_y, $w_mm, $line_h, $align ) || $rendered;
+			$rendered = self::render_engraving_text_outline( $pdf, $line, $font_path, $font_size, $x_mm, $line_y, $w_mm, $line_box_h, $align ) || $rendered;
 		}
 
 		return $rendered;
+	}
+
+	/** Match Fabric Textbox's final-line and inter-line height calculation. */
+	private static function engraving_textbox_height_mm( int $line_count, float $font_size ): float {
+		$line_count = max( 1, $line_count );
+		$line_box   = $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER;
+		$line_step  = $line_box * self::FABRIC_TEXTBOX_LINE_HEIGHT;
+
+		return self::pt_to_mm_value( $line_box + ( $line_count - 1 ) * $line_step );
 	}
 
 	/** @return string[] */

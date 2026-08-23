@@ -102,6 +102,10 @@ class OC_Cart {
 			[],
 			$version
 		);
+		wp_add_inline_style(
+			'oc-order-preview-modal',
+			'.oc-preview-modal__panel{display:grid;grid-template-rows:auto minmax(0,1fr) auto;height:min(820px,calc(100vh - clamp(32px,8vw,96px)));height:min(820px,calc(100dvh - clamp(32px,8vw,96px)));overflow:hidden}.oc-preview-modal__image-wrap{min-height:0;overflow:hidden}.oc-preview-modal__image{width:100%;height:100%;max-height:100%;object-fit:contain}'
+		);
 	}
 
 	/** Shared personalised-preview styles for classic and Blocks carts. */
@@ -158,7 +162,7 @@ class OC_Cart {
 		return false;
 	}
 
-	/** Load WordPress' image modal on WooCommerce order admin screens. */
+	/** Load the responsive preview modal on WooCommerce order admin screens. */
 	public function enqueue_admin_preview_modal(): void {
 		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
 		if ( ! $screen ) {
@@ -169,7 +173,7 @@ class OC_Cart {
 			return;
 		}
 
-		add_thickbox();
+		$this->enqueue_order_preview_modal();
 	}
 
 	// -------------------------------------------------------------------------
@@ -1560,13 +1564,9 @@ class OC_Cart {
 
 		// ── Preview image ─────────────────────────────────────────────────────
 		if ( $preview_url ) {
-			$preview_link_url = $admin_context
-				? add_query_arg( 'TB_iframe', 'true', $preview_url )
-				: $preview_url;
-			$preview_class    = $admin_context ? 'thickbox' : 'oc-order-preview-trigger';
 			echo '<div style="flex:0 0 auto;">'
-				. '<a href="' . esc_url( $preview_link_url ) . '" class="' . esc_attr( $preview_class ) . '" '
-				. ( $admin_context ? '' : 'aria-haspopup="dialog" aria-label="' . esc_attr__( 'Open personalised preview', 'overcustomise' ) . '" ' )
+				. '<a href="' . esc_url( $preview_url ) . '" class="oc-order-preview-trigger" '
+				. 'aria-haspopup="dialog" aria-label="' . esc_attr__( 'Open personalised preview', 'overcustomise' ) . '" '
 				. 'style="display:inline-block;">'
 				. '<img src="' . esc_url( $preview_url ) . '" alt="' . esc_attr__( 'Personalised preview', 'overcustomise' ) . '" '
 				. 'style="display:block;width:120px;height:120px;object-fit:contain;border:1px solid #dcdcde;border-radius:5px;background:#f6f7f7;cursor:zoom-in;" />'

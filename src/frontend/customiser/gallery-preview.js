@@ -940,10 +940,15 @@ const galleryPreviewMethods = {
 										allowedVariant.id
 									];
 							} catch ( error ) {
-								console.warn(
-									'[OC] Initial design restore failed; using variation default:',
-									error
-								);
+								if (
+									requestSeq === this._variationRequestSeq &&
+									error?.name !== 'AbortError'
+								) {
+									console.warn(
+										'[OC] Initial design restore failed; using variation default:',
+										error
+									);
+								}
 							}
 						}
 						if ( initialVariantState?.panelHtml ) {

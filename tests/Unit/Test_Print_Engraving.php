@@ -303,6 +303,25 @@ class Test_Print_Engraving extends TestCase {
 	}
 
 	#[Test]
+	public function single_line_engraving_textarea_honours_vertical_alignment(): void {
+		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
+			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
+		}
+
+		$method     = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' );
+		$top_pdf    = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+		$bottom_pdf = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+		$args       = [ 'Let there be Rock!', $font_path, 18.0, 0.0, 2.0, 80.0, 20.0, 'C' ];
+
+		$this->assertTrue( $method->invokeArgs( null, [ $top_pdf, ...$args, 'T', [ 'Let there be Rock!' ] ] ) );
+		$this->assertTrue( $method->invokeArgs( null, [ $bottom_pdf, ...$args, 'B', [ 'Let there be Rock!' ] ] ) );
+		$this->assertCount( 1, $top_pdf->image_svg_calls );
+		$this->assertCount( 1, $bottom_pdf->image_svg_calls );
+		$this->assertGreaterThan( $top_pdf->image_svg_calls[0]['y'], $bottom_pdf->image_svg_calls[0]['y'] );
+	}
+
+	#[Test]
 	public function engraving_svg_clipart_remains_vector(): void {
 		if ( ! class_exists( 'TCPDF' ) ) {
 			$this->markTestSkipped( 'TCPDF is not available.' );
