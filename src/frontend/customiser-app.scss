@@ -180,44 +180,47 @@
 
 	.oc-night-sky-combobox {
 		position: relative;
+		z-index: 2;
 
 		input {
 			width: 100%;
-			padding-right: 38px;
-			background-image: linear-gradient(45deg, transparent 50%, var(--oc-fg-muted) 50%),
-				linear-gradient(135deg, var(--oc-fg-muted) 50%, transparent 50%);
-			background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
-			background-size: 5px 5px, 5px 5px;
-			background-repeat: no-repeat;
 		}
 	}
 
 	.oc-night-sky-results {
 		position: absolute;
-		z-index: 30;
-		top: calc(100% + 4px);
+		z-index: 100;
+		top: calc(100% + 6px);
 		left: 0;
 		right: 0;
 		max-height: 240px;
 		overflow-y: auto;
-		background: var(--oc-surface);
-		border: 1px solid var(--oc-border);
-		border-radius: var(--oc-radius-sm);
-		box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+		overflow-x: hidden;
+		background: var(--oc-bg, #fff);
+		border: 1px solid var(--oc-border-strong);
+		border-radius: var(--oc-radius);
+		box-shadow: 0 14px 32px rgba(15, 23, 42, 0.2);
 	}
 
 	.oc-night-sky-result {
 		display: block;
 		width: 100%;
-		padding: 10px 12px;
+		min-width: 0;
+		height: auto;
+		min-height: 44px;
+		padding: 10px 14px;
 		border: 0;
 		border-bottom: 1px solid var(--oc-border);
-		background: transparent;
+		border-radius: 0;
+		background: var(--oc-bg, #fff);
 		color: var(--oc-fg);
 		font: inherit;
 		font-size: 0.88em;
 		line-height: 1.35;
 		text-align: left;
+		white-space: normal;
+		overflow-wrap: anywhere;
+		box-sizing: border-box;
 		cursor: pointer;
 
 		&:last-child {
@@ -231,8 +234,33 @@
 		}
 	}
 
+	.oc-night-sky-result-title,
+	.oc-night-sky-result-detail {
+		display: block;
+	}
+
+	.oc-night-sky-result-title {
+		font-weight: 650;
+	}
+
+	.oc-night-sky-result-detail {
+		margin-top: 2px;
+		color: var(--oc-fg-muted);
+		font-size: 0.9em;
+	}
+
+	.oc-night-sky-result-status {
+		padding: 12px 14px;
+		color: var(--oc-fg-muted);
+		font-size: 0.84em;
+		line-height: 1.4;
+	}
+
 	.oc-night-sky-switch {
-		margin: 2px 0 0;
+		display: flex;
+		align-items: baseline;
+		gap: 4px;
+		margin: 4px 0 0;
 		font-size: 0.8em;
 		color: var(--oc-fg-muted);
 

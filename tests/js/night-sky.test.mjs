@@ -126,8 +126,11 @@ test( 'customer chooses an address or coordinates without seeing UTC controls', 
 	assert.doesNotMatch( templateSource, /UTC offset at that date/ );
 	assert.doesNotMatch( templateSource, /Place search © OpenStreetMap/ );
 	assert.match( templateSource, /data-oc-night-sky-results/ );
+	assert.match( templateSource, /Searching addresses…/ );
 	assert.match( templateSource, /data-oc-night-sky-use-coordinates/ );
 	assert.match( templateSource, /data-oc-night-sky-use-address/ );
 	assert.match( controlsSource, /timezoneLookup/ );
 	assert.match( controlsSource, /localUtcOffset/ );
+	assert.match( controlsSource, /showResultStatus/ );
+	assert.match( controlsSource, /}, 350 \);/ );
 } );

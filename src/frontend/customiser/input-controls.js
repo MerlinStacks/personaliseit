@@ -687,12 +687,27 @@ const inputControlMethods = {
 				};
 				const showResults = ( results ) => {
 					resultsEl.replaceChildren();
+					resultsEl.removeAttribute( 'aria-busy' );
 					results.forEach( ( result ) => {
 						const option = document.createElement( 'button' );
+						const addressParts = String( result.displayName || '' )
+							.split( ',' )
+							.map( ( part ) => part.trim() )
+							.filter( Boolean );
+						const title = document.createElement( 'span' );
+						const detail = document.createElement( 'span' );
 						option.type = 'button';
 						option.className = 'oc-night-sky-result';
 						option.setAttribute( 'role', 'option' );
-						option.textContent = result.displayName;
+						title.className = 'oc-night-sky-result-title';
+						title.textContent =
+							addressParts.shift() || result.displayName;
+						option.appendChild( title );
+						if ( addressParts.length ) {
+							detail.className = 'oc-night-sky-result-detail';
+							detail.textContent = addressParts.join( ', ' );
+							option.appendChild( detail );
+						}
 						option.addEventListener(
 							'click',
 							() => selectResult( result ),
@@ -706,6 +721,19 @@ const inputControlMethods = {
 						results.length ? 'true' : 'false'
 					);
 				};
+				const showResultStatus = ( message, busy = false ) => {
+					const status = document.createElement( 'div' );
+					status.className = 'oc-night-sky-result-status';
+					status.setAttribute( 'role', 'status' );
+					status.textContent = message;
+					resultsEl.replaceChildren( status );
+					resultsEl.hidden = false;
+					resultsEl.toggleAttribute( 'aria-busy', busy );
+					fields.locationLabel.setAttribute(
+						'aria-expanded',
+						'true'
+					);
+				};
 				fields.locationLabel?.addEventListener(
 					'input',
 					() => {
@@ -714,11 +742,15 @@ const inputControlMethods = {
 						update();
 						this.clearStateTimeout( searchTimer );
 						const query = fields.locationLabel.value.trim();
+						const sequence = ++searchSequence;
 						if ( query.length < 3 ) {
 							showResults( [] );
 							return;
 						}
-						const sequence = ++searchSequence;
+						showResultStatus(
+							resultsEl.dataset.searchingLabel || 'Searching…',
+							true
+						);
 						searchTimer = this.setStateTimeout( async () => {
 							try {
 								await this.ensureRequestToken();
@@ -739,26 +771,38 @@ const inputControlMethods = {
 										signal: stateSignal,
 									}
 								);
-								const payload = response.ok
-									? await response.json()
-									: null;
+								if ( ! response.ok ) {
+									throw new Error( 'Location lookup failed' );
+								}
+								const payload = await response.json();
 								if ( sequence === searchSequence ) {
-									showResults(
-										payload?.results ||
-											( payload?.result
-												? [ payload.result ]
-												: [] )
-									);
+									let results = [];
+									if ( Array.isArray( payload?.results ) ) {
+										results = payload.results;
+									} else if ( payload?.result ) {
+										results = [ payload.result ];
+									}
+									if ( results.length ) {
+										showResults( results );
+									} else {
+										showResultStatus(
+											resultsEl.dataset.emptyLabel ||
+												'No matching addresses found.'
+										);
+									}
 								}
 							} catch ( err ) {
 								if (
 									err?.name !== 'AbortError' &&
 									sequence === searchSequence
 								) {
-									showResults( [] );
+									showResultStatus(
+										resultsEl.dataset.errorLabel ||
+											'Address search is unavailable.'
+									);
 								}
 							}
-						}, 1000 );
+						}, 350 );
 					},
 					{ signal: stateSignal }
 				);

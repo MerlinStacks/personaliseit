@@ -528,17 +528,17 @@ foreach ( $layers as $layer ) {
 											*<?php endif; ?></label>
 										<div class="oc-night-sky-combobox">
 											<input type="search" id="oc-night-sky-location-<?php echo esc_attr( $layer->id ); ?>" autocomplete="off" placeholder="<?php esc_attr_e( 'Start typing a town, city or address', 'overcustomise' ); ?>" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="oc-night-sky-results-<?php echo esc_attr( $layer->id ); ?>" data-oc-night-sky-location="<?php echo esc_attr( (string) $layer->id ); ?>" />
-											<div id="oc-night-sky-results-<?php echo esc_attr( $layer->id ); ?>" class="oc-night-sky-results" role="listbox" data-oc-night-sky-results hidden></div>
+											<div id="oc-night-sky-results-<?php echo esc_attr( $layer->id ); ?>" class="oc-night-sky-results" role="listbox" data-oc-night-sky-results data-searching-label="<?php esc_attr_e( 'Searching addresses…', 'overcustomise' ); ?>" data-empty-label="<?php esc_attr_e( 'No matching addresses found.', 'overcustomise' ); ?>" data-error-label="<?php esc_attr_e( 'Address search is unavailable. Try coordinates instead.', 'overcustomise' ); ?>" hidden></div>
 										</div>
 										</div>
-										<p class="oc-night-sky-switch"><?php esc_html_e( 'Can’t find the address?', 'overcustomise' ); ?> <button type="button" data-oc-night-sky-use-coordinates><?php esc_html_e( 'Click here to enter the coordinates', 'overcustomise' ); ?></button></p>
+										<p class="oc-night-sky-switch"><span><?php esc_html_e( 'Can’t find it?', 'overcustomise' ); ?></span> <button type="button" data-oc-night-sky-use-coordinates><?php esc_html_e( 'Enter coordinates', 'overcustomise' ); ?></button></p>
 									</div>
 									<div data-oc-night-sky-coordinate-mode hidden>
 										<div class="oc-night-sky-grid">
 											<div class="oc-control-group"><label for="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Latitude', 'overcustomise' ); ?></label><input id="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-90" max="90" step="0.0001" placeholder="51.5074" data-oc-night-sky-latitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 											<div class="oc-control-group"><label for="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Longitude', 'overcustomise' ); ?></label><input id="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-180" max="180" step="0.0001" placeholder="-0.1278" data-oc-night-sky-longitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 										</div>
-										<p class="oc-night-sky-switch"><?php esc_html_e( 'Don’t know the coordinates?', 'overcustomise' ); ?> <button type="button" data-oc-night-sky-use-address><?php esc_html_e( 'Click here to enter the address', 'overcustomise' ); ?></button></p>
+										<p class="oc-night-sky-switch"><button type="button" data-oc-night-sky-use-address><?php esc_html_e( 'Search by address instead', 'overcustomise' ); ?></button></p>
 									</div>
 									<div class="oc-night-sky-grid">
 										<div class="oc-control-group"><label for="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Date', 'overcustomise' ); ?></label><input type="date" id="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>" min="1900-01-01" max="2100-12-31" data-oc-night-sky-date="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
