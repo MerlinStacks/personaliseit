@@ -265,8 +265,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 				case 'clipart':
 				case 'image':
+				case 'ai_image':
 				case 'clipmask':
-					$fit = 'clipmask' === $type ? 'cover' : ( 'image' === $type ? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) ) : 0.0 );
+					$fit = 'clipmask' === $type ? 'cover' : ( in_array( $type, [ 'image', 'ai_image' ], true ) ? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) ) : 0.0 );
 					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) && ! $artwork_used ) {
 						$fallback_path = self::resolve_artwork_path( $area_data );
 						if ( $fallback_path ) {
@@ -1252,7 +1253,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				}
 			}
 		}
-		if ( 'image' === (string) ( $layer['type'] ?? '' ) ) {
+		if ( in_array( (string) ( $layer['type'] ?? '' ), [ 'image', 'ai_image' ], true ) ) {
 			$filtered_path = self::build_filtered_image( $path, $layer, $input );
 			if ( is_string( $filtered_path ) && '' !== $filtered_path ) {
 				if ( $filtered_path !== $path ) {
@@ -1264,7 +1265,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
-		$clipped = 'clipmask' === (string) ( $layer['type'] ?? '' ) || ( 'image' === (string) ( $layer['type'] ?? '' ) && (float) $fit > 0.0 );
+		$clipped = 'clipmask' === (string) ( $layer['type'] ?? '' ) || ( in_array( (string) ( $layer['type'] ?? '' ), [ 'image', 'ai_image' ], true ) && (float) $fit > 0.0 );
 		if ( $clipped ) {
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 			$clip_shape = 'clipmask' === (string) ( $layer['type'] ?? '' )

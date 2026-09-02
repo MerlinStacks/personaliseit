@@ -2063,7 +2063,7 @@ abstract class OC_Print_Base {
 			if (
 				'colour' === $mode
 				&& ! empty( $options['full_bleed_artwork'] )
-				&& in_array( $type, [ 'image', 'clipart', 'clipmask' ], true )
+				&& in_array( $type, [ 'image', 'ai_image', 'clipart', 'clipmask' ], true )
 			) {
 				$bleed_mm = max( 0.0, (float) ( $options['bleed_mm'] ?? 0.0 ) );
 				$background = ! empty( $settings['background'] ) || ! empty( $settings['is_background'] ) || ! empty( $settings['full_bleed'] );
@@ -2109,6 +2109,7 @@ abstract class OC_Print_Base {
 						break;
 
 					case 'image':
+					case 'ai_image':
 					case 'clipart':
 						self::render_layer_image( $pdf, $layer, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $options );
 						break;
@@ -2127,12 +2128,63 @@ abstract class OC_Print_Base {
 						}
 						$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'F' );
 						break;
+
+					case 'night_sky':
+						self::render_layer_night_sky( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+						break;
 				}
 			} finally {
 				if ( $transformed ) {
 					$pdf->StopTransform();
 				}
 			}
+		}
+	}
+
+	/** Draw bounded night-sky primitives directly into production PDFs. */
+	private static function render_layer_night_sky( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
+		$geometry = is_array( $input['nightSkyGeometry'] ?? null ) ? $input['nightSkyGeometry'] : [];
+		if ( 1 !== (int) ( $geometry['v'] ?? 0 ) ) {
+			return;
+		}
+		$hex = (string) ( $input['colorHex'] ?? '#000000' );
+		if ( 'engraving' === $mode ) {
+			$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
+			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
+		} elseif ( 'spot' !== $mode ) {
+			[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
+			$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
+			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
+		}
+		$scale = min( $w_mm, $h_mm );
+		foreach ( is_array( $geometry['segments'] ?? null ) ? $geometry['segments'] : [] as $segment ) {
+			$x1     = $x_mm + (float) $segment['x1'] * $w_mm;
+			$y1     = $y_mm + (float) $segment['y1'] * $h_mm;
+			$x2     = $x_mm + (float) $segment['x2'] * $w_mm;
+			$y2     = $y_mm + (float) $segment['y2'] * $h_mm;
+			$half   = max( 0.025, (float) $segment['w'] * $scale / 2 );
+			$length = max( 0.0001, hypot( $x2 - $x1, $y2 - $y1 ) );
+			$px     = -( $y2 - $y1 ) / $length * $half;
+			$py     = ( $x2 - $x1 ) / $length * $half;
+			$pdf->Polygon( [ $x1 + $px, $y1 + $py, $x2 + $px, $y2 + $py, $x2 - $px, $y2 - $py, $x1 - $px, $y1 - $py ], 'F' );
+		}
+		foreach ( is_array( $geometry['stars'] ?? null ) ? $geometry['stars'] : [] as $star ) {
+			$r = max( 0.04, (float) $star['r'] * $scale );
+			$pdf->Circle( $x_mm + (float) $star['x'] * $w_mm, $y_mm + (float) $star['y'] * $h_mm, $r, 0, 360, 'F' );
+		}
+		if ( ! empty( $geometry['border'] ) ) {
+			for ( $index = 0; $index < 120; $index++ ) {
+				$angle = 2 * M_PI * $index / 120;
+				$pdf->Circle( $x_mm + $w_mm / 2 + cos( $angle ) * $scale * 0.48, $y_mm + $h_mm / 2 + sin( $angle ) * $scale * 0.48, max( 0.025, $scale * 0.00125 ), 0, 360, 'F' );
+			}
+		}
+		foreach ( is_array( $geometry['labels'] ?? null ) ? $geometry['labels'] : [] as $label ) {
+			$text = sanitize_text_field( (string) ( $label['text'] ?? '' ) );
+			if ( '' === $text ) {
+				continue;
+			}
+			$pdf->SetFont( 'helvetica', '', max( 4.0, (float) $label['size'] * $scale * 2.83464567 ) );
+			$pdf->Text( $x_mm + (float) $label['x'] * $w_mm, $y_mm + (float) $label['y'] * $h_mm, $text );
 		}
 	}
 
@@ -2767,7 +2819,7 @@ abstract class OC_Print_Base {
 				}
 			}
 		}
-		if ( 'image' === (string) ( $layer['type'] ?? '' ) ) {
+		if ( in_array( (string) ( $layer['type'] ?? '' ), [ 'image', 'ai_image' ], true ) ) {
 			$filtered_path = self::build_filtered_image( $path, $layer, $input );
 			if ( is_string( $filtered_path ) && '' !== $filtered_path ) {
 				if ( $filtered_path !== $path ) {
@@ -2779,7 +2831,7 @@ abstract class OC_Print_Base {
 			}
 		}
 		if ( 'engraving' === $mode ) {
-			$crop_amount                       = 'image' === (string) ( $layer['type'] ?? '' )
+			$crop_amount                       = in_array( (string) ( $layer['type'] ?? '' ), [ 'image', 'ai_image' ], true )
 				? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) )
 				: 0.0;
 			[ , , $engraving_w, $engraving_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, $crop_amount );
@@ -2798,7 +2850,7 @@ abstract class OC_Print_Base {
 			$path          = $engraved_path;
 		}
 
-		$crop_amount = 'image' === (string) ( $layer['type'] ?? '' )
+		$crop_amount                           = in_array( (string) ( $layer['type'] ?? '' ), [ 'image', 'ai_image' ], true )
 			? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) )
 			: 0.0;
 		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, $crop_amount );

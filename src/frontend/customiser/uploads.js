@@ -189,7 +189,306 @@ const uploadMethods = {
 		}
 	},
 
+	setupAiImageControls() {
+		document
+			.querySelectorAll( '[data-oc-ai-image-generate]' )
+			.forEach( ( button ) => {
+				if ( button.dataset.ocAiReady === '1' ) {
+					return;
+				}
+				button.dataset.ocAiReady = '1';
+				const layerId = Number( button.dataset.ocAiImageGenerate || 0 );
+				const description = document.querySelector(
+					`[data-oc-ai-image-description="${ layerId }"]`
+				);
+				const run = () =>
+					this.generateAiImage(
+						layerId,
+						String( description?.value || '' ),
+						false
+					);
+				button.addEventListener( 'click', run, {
+					signal: this._panelListenerController?.signal,
+				} );
+				description?.addEventListener(
+					'input',
+					() => {
+						this.inputs[ layerId ] = this.inputs[ layerId ] || {};
+						this.inputs[ layerId ].aiDescription =
+							description.value.slice( 0, 4096 );
+					},
+					{ signal: this._panelListenerController?.signal }
+				);
+				document
+					.querySelector( `[data-oc-ai-image-retry="${ layerId }"]` )
+					?.addEventListener(
+						'click',
+						() =>
+							this.generateAiImage(
+								layerId,
+								String( description?.value || '' ),
+								true
+							),
+						{ signal: this._panelListenerController?.signal }
+					);
+			} );
+	},
+
+	renderAiImageResults( layerId ) {
+		const wrap = document.querySelector(
+			`[data-oc-ai-image-results="${ layerId }"]`
+		);
+		const input = this.inputs[ layerId ];
+		if ( ! wrap || ! input ) {
+			return;
+		}
+		const results = Array.isArray( input.aiImageResults )
+			? input.aiImageResults
+			: [];
+		const attempts = Math.max(
+			results.length,
+			Number( input.aiImageAttemptCount || 0 )
+		);
+		const remaining = Math.max( 0, 3 - attempts );
+		const grid = wrap.querySelector( '[data-oc-ai-image-result-grid]' );
+		grid?.replaceChildren(
+			...results.map( ( result ) => {
+				const choice = document.createElement( 'button' );
+				choice.type = 'button';
+				choice.className = 'oc-image-filter-result';
+				choice.setAttribute(
+					'aria-pressed',
+					Number( input.sourceAttachmentId || 0 ) ===
+						Number( result.attachment_id )
+						? 'true'
+						: 'false'
+				);
+				const image = document.createElement( 'img' );
+				image.src = result.preview_url;
+				image.alt = '';
+				const label = document.createElement( 'span' );
+				label.textContent = `Result ${ Number( result.attempt || 0 ) }`;
+				choice.append( image, label );
+				choice.addEventListener(
+					'click',
+					() => this.selectAiImageResult( layerId, result ),
+					{ signal: this._panelListenerController?.signal }
+				);
+				return choice;
+			} )
+		);
+		const remainingEl = wrap.querySelector(
+			'[data-oc-ai-image-remaining]'
+		);
+		if ( remainingEl ) {
+			remainingEl.textContent = remaining
+				? `${ remaining } ${
+						remaining === 1 ? 'try' : 'tries'
+				  } remaining`
+				: 'No tries remaining';
+		}
+		const retry = wrap.querySelector( '[data-oc-ai-image-retry]' );
+		const generate = document.querySelector(
+			`[data-oc-ai-image-generate="${ layerId }"]`
+		);
+		if ( generate ) {
+			generate.disabled = Boolean(
+				this.aiFilterAbortControllers[ layerId ]
+			);
+		}
+		if ( retry ) {
+			retry.disabled =
+				remaining <= 0 ||
+				Boolean( this.aiFilterAbortControllers[ layerId ] );
+		}
+		wrap.hidden = results.length === 0;
+	},
+
+	async selectAiImageResult( layerId, result ) {
+		const input = this.inputs[ layerId ] || {};
+		const attachmentId = Number( result?.attachment_id || 0 );
+		const attachmentUrl = String( result?.preview_url || '' );
+		if ( ! attachmentId || ! attachmentUrl ) {
+			return false;
+		}
+		const fileType = String( result.file_type || 'png' ).toLowerCase();
+		Object.assign( input, {
+			attachmentId,
+			attachmentUrl,
+			originalAttachmentUrl: String(
+				result.original_url || attachmentUrl
+			),
+			sourceAttachmentId: attachmentId,
+			sourceAttachmentUrl: attachmentUrl,
+			sourceOriginalAttachmentUrl: String(
+				result.original_url || attachmentUrl
+			),
+			artworkFileType: fileType,
+			sourceArtworkFileType: fileType,
+			baseAttachmentId: attachmentId,
+			baseAttachmentUrl: attachmentUrl,
+			baseOriginalAttachmentUrl: String(
+				result.original_url || attachmentUrl
+			),
+			baseArtworkFileType: fileType,
+			aiPromptHash: String(
+				result.prompt_hash || input.aiPromptHash || ''
+			),
+			customerUploaded: true,
+			artworkContextLayerId: layerId,
+			imageCrop: Number( input.imageCrop || 0 ),
+			imageFilterResults: {},
+			imageFilterAttemptCount: {},
+		} );
+		this.inputs[ layerId ] = input;
+		input.imageMeta = await this.getTrackedImageMeta(
+			attachmentUrl,
+			layerId
+		);
+		if (
+			this.inputs[ layerId ] !== input ||
+			Number( input.sourceAttachmentId || 0 ) !== attachmentId
+		) {
+			return false;
+		}
+		input.sourceImageMeta = input.imageMeta;
+		input.baseImageMeta = input.imageMeta;
+		this.updateImageCropControl( layerId );
+		this.renderAiImageResults( layerId );
+		const filtered = await this.applyAiImageFilter(
+			layerId,
+			Number( input.imageFilterId || 0 )
+		);
+		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		this.requestPreviewFocus();
+		this.updateHiddenField();
+		return filtered;
+	},
+
+	async generateAiImage( layerId, description, forceRetry = false ) {
+		description = description.trim();
+		const errorEl = document.querySelector(
+			`[data-oc-ai-image-error="${ layerId }"]`
+		);
+		if (
+			! description ||
+			description.length > 4096 ||
+			! this.data?.generateAiImageUrl
+		) {
+			if ( errorEl ) {
+				errorEl.textContent =
+					'Enter a description of up to 4096 characters.';
+			}
+			return false;
+		}
+		if ( this.aiFilterAbortControllers[ layerId ] ) {
+			return false;
+		}
+		await this.ensureRequestToken();
+		if ( this.aiFilterAbortControllers[ layerId ] ) {
+			return false;
+		}
+		this.aiFilterGenerations[ layerId ] =
+			( this.aiFilterGenerations[ layerId ] || 0 ) + 1;
+		const generation = this.aiFilterGenerations[ layerId ];
+		const request = this.createStateAbortController( 150000 );
+		this.aiFilterAbortControllers[ layerId ] = request.controller;
+		this.renderAiImageResults( layerId );
+		const body = {
+			product_id: Number( this.data.productId || 0 ),
+			variation_id: this.currentVariationId(),
+			design_id: Number( this.data.designId || 0 ),
+			layer_id: Number( layerId ),
+			description,
+		};
+		// The handle is deliberately consumed in finally across every return path.
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return
+		const operation = this.beginArtworkOperation( 'generation', layerId );
+		try {
+			if ( errorEl ) {
+				errorEl.textContent =
+					'Generating image... This can take up to two minutes.';
+			}
+			const listResponse = await fetch( this.data.generateAiImageUrl, {
+				method: 'POST',
+				signal: request.controller.signal,
+				headers: this.restHeaders( {
+					'Content-Type': 'application/json',
+				} ),
+				body: JSON.stringify( { ...body, list_only: true } ),
+			} );
+			const listed = await listResponse.json().catch( () => null );
+			if ( ! listResponse.ok || ! Array.isArray( listed?.results ) ) {
+				throw new Error(
+					listed?.message || 'Generated images could not be loaded.'
+				);
+			}
+			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+				return false;
+			}
+			const input = this.inputs[ layerId ] || {};
+			input.aiDescription = description;
+			input.aiPromptHash = String( listed.prompt_hash || '' );
+			input.aiImageResults = listed.results;
+			input.aiImageAttemptCount =
+				3 - Number( listed.retries_remaining || 0 );
+			this.inputs[ layerId ] = input;
+			this.renderAiImageResults( layerId );
+			if ( ! forceRetry && listed.results.length ) {
+				return await this.selectAiImageResult(
+					layerId,
+					listed.results.at( -1 )
+				);
+			}
+			const response = await fetch( this.data.generateAiImageUrl, {
+				method: 'POST',
+				signal: request.controller.signal,
+				headers: this.restHeaders( {
+					'Content-Type': 'application/json',
+				} ),
+				body: JSON.stringify( body ),
+			} );
+			const result = await response.json().catch( () => null );
+			if (
+				! response.ok ||
+				! result?.attachment_id ||
+				! result?.preview_url
+			) {
+				throw new Error(
+					result?.message || 'The image could not be generated.'
+				);
+			}
+			if ( generation !== this.aiFilterGenerations[ layerId ] ) {
+				return false;
+			}
+			input.aiPromptHash = String( result.prompt_hash || '' );
+			input.aiImageAttemptCount = Number( result.attempt || 0 );
+			input.aiImageResults = [ ...listed.results, result ];
+			if ( errorEl ) {
+				errorEl.textContent = '';
+			}
+			return await this.selectAiImageResult( layerId, result );
+		} catch ( error ) {
+			if ( errorEl ) {
+				errorEl.textContent = request.timedOut()
+					? 'Image generation timed out. Please try again.'
+					: error?.message || 'The image could not be generated.';
+			}
+			return false;
+		} finally {
+			this.finishArtworkOperation( operation );
+			request.release();
+			if (
+				this.aiFilterAbortControllers[ layerId ] === request.controller
+			) {
+				delete this.aiFilterAbortControllers[ layerId ];
+			}
+			this.renderAiImageResults( layerId );
+		}
+	},
+
 	async setupUploadZones() {
+		this.setupAiImageControls();
 		const designGeneration = this._designGeneration;
 		const zoneEls = Array.from(
 			document.querySelectorAll( '[data-oc-upload-zone]' )
@@ -310,7 +609,7 @@ const uploadMethods = {
 				fileOperations.delete( fileId );
 			};
 			const uppy = new Uppy( {
-				autoProceed: true,
+				autoProceed: false,
 				onBeforeFileAdded: () => {
 					activeGeneration += 1;
 					this.uploadGenerations[ lid ] = activeGeneration;
@@ -326,9 +625,10 @@ const uploadMethods = {
 					allowedFileTypes: allowedExt,
 				},
 			} );
-			uppy.on( 'file-added', ( file ) => {
+			uppy.on( 'file-added', async ( file ) => {
 				uppy.getPlugin( 'XHRUpload' )?.setOptions( {
 					endpoint: this.uploadEndpoint( uploadUrl, lid ),
+					headers: () => this.restHeaders(),
 				} );
 				fileGenerations.set( file.id, activeGeneration );
 				fileOperations.set(
@@ -337,6 +637,16 @@ const uploadMethods = {
 				);
 				this.setUploadProgress( zoneEl, 0, 'Starting upload...' );
 				this.showUploadError( zoneEl, '' );
+				try {
+					await this.ensureRequestToken();
+					await uppy.upload();
+				} catch ( error ) {
+					this.showUploadError(
+						zoneEl,
+						error?.message || 'Security verification failed.'
+					);
+					uppy.removeFile( file.id );
+				}
 			} );
 			uppy.on( 'file-removed', ( file ) =>
 				finishFileTransfer( file?.id )
@@ -369,7 +679,7 @@ const uploadMethods = {
 				endpoint: this.uploadEndpoint( uploadUrl, lid ),
 				formData: true,
 				fieldName: 'artwork',
-				headers: this.restHeaders(),
+				headers: () => this.restHeaders(),
 				shouldRetry: ( xhr ) =>
 					xhr.status === 0 ||
 					xhr.status === 408 ||
@@ -853,6 +1163,14 @@ const uploadMethods = {
 			this.aiFilterErrors[ layerId ] =
 				'Upload an image before applying this filter.';
 			this.syncLinkedImageInput( layerId );
+			this.updateHiddenField();
+			return false;
+		}
+		try {
+			await this.ensureRequestToken();
+		} catch ( error ) {
+			this.aiFilterErrors[ layerId ] =
+				error?.message || 'Security verification failed.';
 			this.updateHiddenField();
 			return false;
 		}

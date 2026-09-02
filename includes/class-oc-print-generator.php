@@ -1039,11 +1039,17 @@ class OC_Print_Generator {
 			if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) && '' !== trim( (string) ( $input['value'] ?? '' ) ) ) {
 				return true;
 			}
-			if ( in_array( $type, [ 'image', 'clipmask' ], true ) && absint( $input['attachmentId'] ?? $layer['artworkAttachmentId'] ?? 0 ) > 0 ) {
+			if ( in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) && absint( $input['attachmentId'] ?? $layer['artworkAttachmentId'] ?? 0 ) > 0 ) {
 				return true;
 			}
 			if ( 'clipart' === $type && ( absint( $input['clipartId'] ?? 0 ) > 0 || ! empty( $layer['artworkPath'] ) ) ) {
 				return true;
+			}
+			if ( 'night_sky' === $type ) {
+				$geometry = is_array( $input['nightSkyGeometry'] ?? null ) ? $input['nightSkyGeometry'] : [];
+				if ( ! empty( $geometry['stars'] ) || ! empty( $geometry['segments'] ) ) {
+					return true;
+				}
 			}
 		}
 

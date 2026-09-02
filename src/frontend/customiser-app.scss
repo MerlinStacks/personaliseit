@@ -161,6 +161,43 @@
 		gap: 8px;
 	}
 
+	.oc-night-sky-controls {
+		display: flex;
+		flex-direction: column;
+		gap: var(--oc-gap-sm);
+
+		.oc-input-wrap {
+			display: flex;
+			gap: var(--oc-gap-xs);
+
+			input {
+				flex: 1;
+				min-width: 0;
+				padding-right: 10px;
+			}
+		}
+	}
+
+	.oc-night-sky-grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--oc-gap-sm);
+	}
+
+	.oc-night-sky-coordinates summary {
+		cursor: pointer;
+		font-size: 0.85em;
+		font-weight: 600;
+		color: var(--oc-fg-muted);
+		margin-bottom: var(--oc-gap-xs);
+	}
+
+	.oc-night-sky-error {
+		min-height: 1em;
+		font-size: 0.8em;
+		color: var(--oc-danger);
+	}
+
 	// ── Generic control group ─────────────────────────────────────────────
 	.oc-control-group {
 		display: flex;
@@ -2289,4 +2326,9 @@ img.oc-live-preview-applied {
 .oc-preview-disclaimer:hover .oc-preview-disclaimer-text,
 .oc-preview-disclaimer:focus-within .oc-preview-disclaimer-text {
 	display: block;
+}
+.oc-artwork-error[data-oc-ai-image-error] {
+	color: #b32d2e;
+	font-size: 12px;
+	min-height: 1.4em;
 }

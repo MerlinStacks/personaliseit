@@ -7,7 +7,9 @@
 const preflightMethods = {
 	clearCustomValidity() {
 		document
-			.querySelectorAll( '[data-oc-layer-text], [data-oc-layer-spotify]' )
+			.querySelectorAll(
+				'[data-oc-layer-text], [data-oc-ai-image-description], [data-oc-layer-spotify], [data-oc-night-sky-location], [data-oc-night-sky-date], [data-oc-night-sky-time], [data-oc-night-sky-latitude], [data-oc-night-sky-longitude]'
+			)
 			.forEach( ( el ) => {
 				if ( typeof el.setCustomValidity === 'function' ) {
 					el.setCustomValidity( '' );
@@ -30,7 +32,20 @@ const preflightMethods = {
 				return document.querySelector(
 					`[data-oc-layer-spotify="${ layer.id }"]`
 				);
+			case 'night_sky':
+				return document.querySelector(
+					`[data-oc-night-sky-location="${ layer.id }"]`
+				);
 			case 'image':
+			case 'ai_image':
+				return (
+					document.querySelector(
+						`[data-oc-ai-image-description="${ layer.id }"]`
+					) ||
+					document.querySelector(
+						`[data-oc-upload-zone="${ layer.id }"]`
+					)
+				);
 			case 'clipmask':
 				return document.querySelector(
 					`[data-oc-upload-zone="${ layer.id }"]`
@@ -159,9 +174,11 @@ const preflightMethods = {
 
 		for ( const area of this.areas ) {
 			for ( const layer of area.layers || [] ) {
-				const isImageLayer = [ 'image', 'clipmask' ].includes(
-					layer.type
-				);
+				const isImageLayer = [
+					'image',
+					'ai_image',
+					'clipmask',
+				].includes( layer.type );
 				if ( layer.locked && ! isImageLayer ) {
 					continue;
 				}
@@ -242,6 +259,7 @@ const preflightMethods = {
 						break;
 
 					case 'image':
+					case 'ai_image':
 					case 'clipmask':
 						if (
 							! this.isProductionImageInput( input ) &&
@@ -385,6 +403,41 @@ const preflightMethods = {
 							}
 						}
 						break;
+
+					case 'night_sky': {
+						const valid = Boolean(
+							input.locationLabel &&
+								input.date &&
+								input.time &&
+								input.latitude !== null &&
+								input.latitude !== undefined &&
+								input.latitude !== '' &&
+								input.longitude !== null &&
+								input.longitude !== undefined &&
+								input.longitude !== '' &&
+								Number.isFinite( Number( input.latitude ) ) &&
+								Number.isFinite( Number( input.longitude ) ) &&
+								input.nightSkyGeometry?.v === 1 &&
+								( input.nightSkyGeometry.stars?.length ||
+									input.nightSkyGeometry.segments?.length )
+						);
+						if (
+							( required || input.locationLabel || input.date ) &&
+							! valid
+						) {
+							errors.push(
+								`${ label } needs a valid place, date, time and UTC offset.`
+							);
+							fieldEl?.classList.add(
+								'oc-preflight-field-error'
+							);
+							fieldEl?.setCustomValidity?.(
+								'Find a place and complete the date and time.'
+							);
+							fieldEl?.setAttribute( 'aria-invalid', 'true' );
+						}
+						break;
+					}
 				}
 			}
 		}
@@ -399,9 +452,11 @@ const preflightMethods = {
 
 		for ( const area of this.areas ) {
 			for ( const layer of area.layers || [] ) {
-				const isImageLayer = [ 'image', 'clipmask' ].includes(
-					layer.type
-				);
+				const isImageLayer = [
+					'image',
+					'ai_image',
+					'clipmask',
+				].includes( layer.type );
 				if ( layer.locked && ! isImageLayer ) {
 					continue;
 				}
@@ -436,12 +491,22 @@ const preflightMethods = {
 						break;
 
 					case 'image':
+					case 'ai_image':
 					case 'clipmask':
 						filled = this.isProductionImageInput( input );
 						break;
 
 					case 'clipart':
 						filled = Boolean( input.clipartId );
+						break;
+
+					case 'night_sky':
+						filled = Boolean(
+							input.locationLabel &&
+								input.date &&
+								input.time &&
+								input.nightSkyGeometry?.v === 1
+						);
 						break;
 
 					default:

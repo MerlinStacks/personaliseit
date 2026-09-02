@@ -110,6 +110,7 @@ export function createProductsPageDataNormalisers( deps ) {
 					colour_link_group: '',
 				};
 			case 'image':
+			case 'ai_image':
 				return {
 					formats: [
 						'png',
@@ -135,6 +136,7 @@ export function createProductsPageDataNormalisers( deps ) {
 					required: false,
 					link_group: '',
 					colour_link_group: '',
+					ai_prompt_instruction: '',
 				};
 			case 'clipmask':
 				return {
@@ -173,6 +175,19 @@ export function createProductsPageDataNormalisers( deps ) {
 					link_group: '',
 					colour_link_group: '',
 				};
+			case 'night_sky':
+				return {
+					show_constellations: true,
+					show_planets: true,
+					show_labels: true,
+					show_border: true,
+					default_color: '#000000',
+					colour_groups: [],
+					allow_colour_change: true,
+					required: false,
+					link_group: '',
+					colour_link_group: '',
+				};
 			default:
 				return { required: false, link_group: '' };
 		}
@@ -205,7 +220,7 @@ export function createProductsPageDataNormalisers( deps ) {
 			settings.default_attachment_url =
 				settings.default_attachment_url || '';
 		}
-		if ( type === 'image' ) {
+		if ( [ 'image', 'ai_image' ].includes( type ) ) {
 			settings.image_filter_ids = Array.isArray(
 				settings.image_filter_ids
 			)
@@ -225,6 +240,26 @@ export function createProductsPageDataNormalisers( deps ) {
 			settings.allow_image_filter_change =
 				settings.allow_image_filter_change !== false;
 			settings.enable_image_colour = !! settings.enable_image_colour;
+			settings.allow_colour_change =
+				settings.allow_colour_change !== false;
+			if ( type === 'ai_image' ) {
+				settings.default_attachment_id = 0;
+				settings.default_attachment_url = '';
+				settings.allow_image_change = true;
+				settings.ai_prompt_instruction = String(
+					settings.ai_prompt_instruction || ''
+				).slice( 0, 16384 );
+			}
+		}
+		if ( type === 'night_sky' ) {
+			[
+				'show_constellations',
+				'show_planets',
+				'show_labels',
+				'show_border',
+			].forEach( ( key ) => {
+				settings[ key ] = settings[ key ] !== false;
+			} );
 			settings.allow_colour_change =
 				settings.allow_colour_change !== false;
 		}

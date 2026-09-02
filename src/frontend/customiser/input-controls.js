@@ -1,5 +1,10 @@
 /* eslint-disable no-console, @wordpress/no-unused-vars-before-return */
 
+import {
+	generateNightSkyGeometry,
+	nightSkyLabel,
+} from '../../shared/night-sky';
+
 const LINKED_IMAGE_INPUT_KEYS = [
 	'attachmentId',
 	'attachmentUrl',
@@ -25,10 +30,34 @@ const LINKED_IMAGE_INPUT_KEYS = [
 	'baseImageMeta',
 	'imageFilterResults',
 	'imageFilterAttemptCount',
+	'aiPromptHash',
 ];
 
 const inputControlMethods = {
 	// ── Input listeners ─────────────────────────────────────────────────────────
+
+	regenerateNightSkyInput( layerId ) {
+		const layer = this.getLayerById( layerId );
+		const input = this.inputs[ layerId ] || ( this.inputs[ layerId ] = {} );
+		input.nightSkyGeometry = generateNightSkyGeometry(
+			input,
+			layer?.settings || {}
+		);
+		input.nightSkyLabel = nightSkyLabel( input );
+		this.syncLinkedLayerInput( layerId, [
+			'date',
+			'time',
+			'utcOffset',
+			'locationLabel',
+			'latitude',
+			'longitude',
+			'nightSkyGeometry',
+			'nightSkyLabel',
+		] );
+		this.requestPreviewFocus();
+		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		this.updateHiddenField();
+	},
 
 	closeFontComboboxes( resetSearch = false ) {
 		document
@@ -469,6 +498,128 @@ const inputControlMethods = {
 						);
 						delete this.spotifyValidateTimers[ lid ];
 						this.validateSpotifyLayer( lid, el.value, el );
+					},
+					{ signal: stateSignal }
+				);
+			} );
+
+		// Night sky date, place and coordinates. Astronomy runs locally; the
+		// optional place lookup goes through the same-origin privacy proxy.
+		document
+			.querySelectorAll( '[data-oc-night-sky-controls]' )
+			.forEach( ( root ) => {
+				const lid = parseInt( root.dataset.ocNightSkyControls, 10 );
+				if ( ! lid ) {
+					return;
+				}
+				const fields = {
+					date: root.querySelector( '[data-oc-night-sky-date]' ),
+					time: root.querySelector( '[data-oc-night-sky-time]' ),
+					utcOffset: root.querySelector(
+						'[data-oc-night-sky-offset]'
+					),
+					locationLabel: root.querySelector(
+						'[data-oc-night-sky-location]'
+					),
+					latitude: root.querySelector(
+						'[data-oc-night-sky-latitude]'
+					),
+					longitude: root.querySelector(
+						'[data-oc-night-sky-longitude]'
+					),
+				};
+				const update = () => {
+					const input =
+						this.inputs[ lid ] || ( this.inputs[ lid ] = {} );
+					input.date = fields.date?.value || '';
+					input.time = fields.time?.value || '';
+					input.utcOffset = Number( fields.utcOffset?.value ) || 0;
+					input.locationLabel =
+						fields.locationLabel?.value.trim() || '';
+					input.latitude =
+						fields.latitude?.value === ''
+							? null
+							: Number( fields.latitude?.value );
+					input.longitude =
+						fields.longitude?.value === ''
+							? null
+							: Number( fields.longitude?.value );
+					Object.values( fields ).forEach( ( field ) => {
+						field?.setCustomValidity?.( '' );
+						field?.classList.remove( 'oc-preflight-field-error' );
+					} );
+					this.regenerateNightSkyInput( lid );
+				};
+				Object.values( fields ).forEach( ( field ) =>
+					field?.addEventListener( 'input', update, {
+						signal: stateSignal,
+					} )
+				);
+				root.querySelector(
+					'[data-oc-night-sky-find]'
+				)?.addEventListener(
+					'click',
+					async ( event ) => {
+						const button = event.currentTarget;
+						const error = root.querySelector(
+							'[data-oc-night-sky-error]'
+						);
+						const query = fields.locationLabel?.value.trim() || '';
+						if ( ! query ) {
+							fields.locationLabel?.focus();
+							return;
+						}
+						button.disabled = true;
+						if ( error ) {
+							error.textContent = 'Finding place…';
+						}
+						try {
+							if ( ! this.data.locationLookupUrl ) {
+								throw new Error( 'Place lookup unavailable' );
+							}
+							await this.ensureRequestToken();
+							const response = await fetch(
+								this.data.locationLookupUrl,
+								{
+									method: 'POST',
+									credentials: 'same-origin',
+									cache: 'no-store',
+									headers: this.restHeaders( {
+										Accept: 'application/json',
+										'Content-Type': 'application/json',
+									} ),
+									body: JSON.stringify( { query } ),
+									signal: stateSignal,
+								}
+							);
+							const payload = await response
+								.json()
+								.catch( () => null );
+							const result = response.ok ? payload?.result : null;
+							if ( ! result ) {
+								throw new Error( 'Place not found' );
+							}
+							fields.latitude.value = Number(
+								result.latitude
+							).toFixed( 4 );
+							fields.longitude.value = Number(
+								result.longitude
+							).toFixed( 4 );
+							fields.locationLabel.value =
+								result.displayName || query;
+							if ( error ) {
+								error.textContent =
+									'Place found. Check the UTC offset for the selected date.';
+							}
+							update();
+						} catch ( err ) {
+							if ( err?.name !== 'AbortError' && error ) {
+								error.textContent =
+									'Place lookup failed. Enter the coordinates manually.';
+							}
+						} finally {
+							button.disabled = false;
+						}
 					},
 					{ signal: stateSignal }
 				);
@@ -1076,22 +1227,34 @@ const inputControlMethods = {
 					return;
 				}
 
-				if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+				if (
+					[ 'image', 'ai_image', 'clipmask' ].includes( layer.type )
+				) {
 					const zone = document.querySelector(
 						`[data-oc-upload-zone="${ layer.id }"]`
+					);
+					const aiDescription = document.querySelector(
+						`[data-oc-ai-image-description="${ layer.id }"]`
 					);
 					const fallback = document.querySelector(
 						`[data-oc-default-image="${ layer.id }"]`
 					);
 					this.ensureLayerControlHeader(
 						layer,
-						zone || fallback,
+						zone || aiDescription || fallback,
 						required
 					);
 					if ( zone ) {
 						zone.setAttribute( 'role', 'group' );
 						zone.setAttribute( 'aria-label', label );
 						zone.setAttribute(
+							'aria-required',
+							required ? 'true' : 'false'
+						);
+					}
+					if ( aiDescription ) {
+						aiDescription.required = required;
+						aiDescription.setAttribute(
 							'aria-required',
 							required ? 'true' : 'false'
 						);
@@ -1273,7 +1436,9 @@ const inputControlMethods = {
 		const seeded = new Set();
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
-				if ( ! [ 'image', 'clipmask' ].includes( layer.type ) ) {
+				if (
+					! [ 'image', 'ai_image', 'clipmask' ].includes( layer.type )
+				) {
 					return;
 				}
 				const canonicalId = this.canonicalLinkedLayerId( layer.id );
@@ -1406,7 +1571,7 @@ const inputControlMethods = {
 		if ( ! layer || layer.visible === false || layer.locked ) {
 			return false;
 		}
-		if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+		if ( [ 'image', 'ai_image', 'clipmask' ].includes( layer.type ) ) {
 			return layer.settings?.allow_image_change !== false;
 		}
 		if ( layer.type === 'clipart' ) {
@@ -1419,7 +1584,7 @@ const inputControlMethods = {
 		const group = String( layer?.settings?.link_group || '' ).trim();
 		if (
 			! group ||
-			! [ 'text', 'textarea', 'image', 'clipmask' ].includes(
+			! [ 'text', 'textarea', 'image', 'ai_image', 'clipmask' ].includes(
 				layer?.type
 			) ||
 			! this.isLinkedLayerEligible( layer )
@@ -1523,7 +1688,7 @@ const inputControlMethods = {
 		const canChangeFilter =
 			layer.settings?.allow_image_filter_change !== false;
 		const filterAllowed =
-			layer.type === 'image' &&
+			[ 'image', 'ai_image' ].includes( layer.type ) &&
 			allowedFilters.includes( filterId ) &&
 			( canChangeFilter ||
 				Number( layer.settings?.default_image_filter_id || 0 ) ===
@@ -1761,15 +1926,17 @@ const inputControlMethods = {
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
 				const colourEnabled =
-					layer.type !== 'image' ||
+					! [ 'image', 'ai_image' ].includes( layer.type ) ||
 					layer.settings?.enable_image_colour === true;
 				if (
 					[
 						'text',
 						'textarea',
 						'image',
+						'ai_image',
 						'clipart',
 						'lineart',
+						'night_sky',
 					].includes( layer.type ) &&
 					layer.visible !== false &&
 					! layer.locked &&
@@ -1983,6 +2150,36 @@ const inputControlMethods = {
 				textEl.value = inp.value;
 			}
 
+			const nightSkyFields = {
+				date: document.querySelector(
+					`[data-oc-night-sky-date="${ layerId }"]`
+				),
+				time: document.querySelector(
+					`[data-oc-night-sky-time="${ layerId }"]`
+				),
+				utcOffset: document.querySelector(
+					`[data-oc-night-sky-offset="${ layerId }"]`
+				),
+				locationLabel: document.querySelector(
+					`[data-oc-night-sky-location="${ layerId }"]`
+				),
+				latitude: document.querySelector(
+					`[data-oc-night-sky-latitude="${ layerId }"]`
+				),
+				longitude: document.querySelector(
+					`[data-oc-night-sky-longitude="${ layerId }"]`
+				),
+			};
+			Object.entries( nightSkyFields ).forEach( ( [ key, field ] ) => {
+				if (
+					field &&
+					inp[ key ] !== undefined &&
+					inp[ key ] !== null
+				) {
+					field.value = inp[ key ];
+				}
+			} );
+
 			const fontEl = document.querySelector(
 				`[data-oc-layer-font="${ layerId }"]`
 			);
@@ -2100,6 +2297,43 @@ const inputControlMethods = {
 				);
 				if ( spotifyEl ) {
 					input.value = spotifyEl.value;
+				}
+
+				const nightSkyRoot = document.querySelector(
+					`[data-oc-night-sky-controls="${ layerId }"]`
+				);
+				if ( nightSkyRoot ) {
+					input.date =
+						nightSkyRoot.querySelector( '[data-oc-night-sky-date]' )
+							?.value || '';
+					input.time =
+						nightSkyRoot.querySelector( '[data-oc-night-sky-time]' )
+							?.value || '';
+					input.utcOffset =
+						Number(
+							nightSkyRoot.querySelector(
+								'[data-oc-night-sky-offset]'
+							)?.value
+						) || 0;
+					input.locationLabel =
+						nightSkyRoot
+							.querySelector( '[data-oc-night-sky-location]' )
+							?.value.trim() || '';
+					const latValue = nightSkyRoot.querySelector(
+						'[data-oc-night-sky-latitude]'
+					)?.value;
+					const lonValue = nightSkyRoot.querySelector(
+						'[data-oc-night-sky-longitude]'
+					)?.value;
+					input.latitude =
+						latValue === '' ? null : Number( latValue );
+					input.longitude =
+						lonValue === '' ? null : Number( lonValue );
+					input.nightSkyGeometry = generateNightSkyGeometry(
+						input,
+						layer.settings || {}
+					);
+					input.nightSkyLabel = nightSkyLabel( input );
 				}
 
 				const fontEl = document.querySelector(

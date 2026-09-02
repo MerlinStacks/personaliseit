@@ -178,7 +178,7 @@ class OC_Render_Spec {
 				}
 			}
 
-			if ( 'lineart' === $type && '' === $color && ! empty( $input['colorHex'] ) ) {
+			if ( in_array( $type, [ 'lineart', 'night_sky' ], true ) && '' === $color && ! empty( $input['colorHex'] ) ) {
 				$color = (string) $input['colorHex'];
 			}
 			if ( ! $attachment && ! empty( $layer['artworkAttachmentId'] ) ) {
@@ -214,6 +214,7 @@ class OC_Render_Spec {
 			if ( ! is_array( $settings ) ) {
 				$settings = [];
 			}
+			unset( $settings['ai_prompt_instruction'] );
 
 			$spec_layer = [
 				'id'       => $layer_id,

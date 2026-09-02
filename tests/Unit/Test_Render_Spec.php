@@ -100,6 +100,55 @@ class Test_Render_Spec extends \PHPUnit\Framework\TestCase {
 	}
 
 	#[Test]
+	public function render_spec_omits_private_ai_instruction_but_keeps_generated_artwork(): void {
+		$area   = (object) [
+			'id'              => 10,
+			'area_key'        => 'front',
+			'label'           => 'Front',
+			'print_method'    => 'uv',
+			'canvas_unit'     => 'px',
+			'canvas_x'        => 0,
+			'canvas_y'        => 0,
+			'canvas_w'        => 300,
+			'canvas_h'        => 300,
+			'canvas_dpi'      => 300,
+			'canvas_rotation' => 0,
+		];
+		$layer  = (object) [
+			'id'       => 22,
+			'type'     => 'ai_image',
+			'label'    => 'Generated artwork',
+			'x'        => 0,
+			'y'        => 0,
+			'w'        => 300,
+			'h'        => 300,
+			'locked'   => 0,
+			'settings' => wp_json_encode(
+				[
+					'required'              => true,
+					'ai_prompt_instruction' => 'Private store rule',
+				]
+			),
+		];
+		$method = ( new ReflectionClass( OC_Render_Spec::class ) )->getMethod( 'build_area' );
+		$result = $method->invoke(
+			null,
+			$area,
+			[ $layer ],
+			[
+				22 => [
+					'attachmentId' => 88,
+					'aiPromptHash' => str_repeat( 'a', 64 ),
+				],
+			]
+		);
+
+		$this->assertArrayNotHasKey( 'ai_prompt_instruction', $result['layers'][0]['settings'] );
+		$this->assertSame( 88, $result['layers'][0]['artworkAttachmentId'] );
+		$this->assertSame( 'ai_image', $result['layers'][0]['type'] );
+	}
+
+	#[Test]
 	public function area_to_print_data_preserves_but_excludes_mask_layers_from_print_summary(): void {
 		$area = [
 			'layers' => [

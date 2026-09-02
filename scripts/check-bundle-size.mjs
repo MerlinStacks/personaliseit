@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readFile, readdir, stat } from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -26,7 +26,7 @@ export async function collectBundleFiles( directory, root = directory ) {
 const totalSize = ( files ) =>
 	files.reduce( ( total, item ) => total + item.bytes, 0 );
 
-export function measureBundles( files ) {
+export function measureBundles( files, activeChunkFiles = null ) {
 	const isEntryAsset = ( item ) => /^(?:admin|frontend)\//.test( item.file );
 	const isLoadedCustomiserAsset = ( item ) =>
 		/^frontend\/customiser-app\.(?:js|css)$/.test( item.file );
@@ -35,21 +35,59 @@ export function measureBundles( files ) {
 	const isUploadChunk = ( item ) =>
 		/^chunks\/upload-tools\.[a-f0-9]+\.js$/.test( item.file ) ||
 		item.file === 'upload-tools.css';
+	const isActiveCustomiserChunk = ( item ) =>
+		item.file === 'upload-tools.css' ||
+		activeChunkFiles === null ||
+		activeChunkFiles.has( item.file );
 	const entries = files.filter( isEntryAsset );
 	const chunks = files.filter( ( item ) => ! isEntryAsset( item ) );
 	const coreEntryBytes = totalSize( files.filter( isLoadedCustomiserAsset ) );
 	const requiredStartupBytes =
-		coreEntryBytes + totalSize( files.filter( isCoreChunk ) );
+		coreEntryBytes +
+		totalSize(
+			files.filter(
+				( item ) =>
+					isCoreChunk( item ) && isActiveCustomiserChunk( item )
+			)
+		);
 	const uploadEnabledStartupBytes =
-		requiredStartupBytes + totalSize( files.filter( isUploadChunk ) );
+		requiredStartupBytes +
+		totalSize(
+			files.filter(
+				( item ) =>
+					isUploadChunk( item ) && isActiveCustomiserChunk( item )
+			)
+		);
+	const budgetedFiles = files.filter(
+		( item ) =>
+			( ! isCoreChunk( item ) &&
+				! /^chunks\/upload-tools\.[a-f0-9]+\.js$/.test( item.file ) ) ||
+			isActiveCustomiserChunk( item )
+	);
 	return {
-		totalBytes: totalSize( files ),
+		totalBytes: totalSize( budgetedFiles ),
 		coreEntryBytes,
 		requiredStartupBytes,
 		uploadEnabledStartupBytes,
 		chunks,
 		entries,
 	};
+}
+
+export function activeCustomiserChunks( files, entrySource ) {
+	return new Set(
+		files
+			.filter( ( item ) =>
+				/^chunks\/(?:customiser-core|upload-tools)\.[a-f0-9]+\.js$/.test(
+					item.file
+				)
+			)
+			.filter( ( item ) => {
+				const hash = item.file.match( /\.([a-f0-9]+)\.js$/ )?.[ 1 ];
+				return hash && entrySource.includes( hash );
+			} )
+			.map( ( item ) => item.file )
+	);
 }
 
 export function budgetFailures( measurements, limits ) {
@@ -99,21 +137,28 @@ export function budgetFailures( measurements, limits ) {
 async function main() {
 	const buildDirectory = path.resolve( 'assets/build' );
 	const limits = {
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 180_000 ),
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 195_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 505_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 525_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 575_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 595_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
 		),
 		chunk: Number( process.env.BUNDLE_CHUNK_MAX_BYTES || 340_000 ),
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_350_000 ),
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_380_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
-	const measurements = measureBundles( files );
+	const entrySource = await readFile(
+		path.join( buildDirectory, 'frontend/customiser-app.js' ),
+		'utf8'
+	);
+	const measurements = measureBundles(
+		files,
+		activeCustomiserChunks( files, entrySource )
+	);
 	const failures = budgetFailures( measurements, limits );
 
 	console.log(

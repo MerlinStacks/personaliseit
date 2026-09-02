@@ -769,6 +769,7 @@ const checkoutMethods = {
 		if ( ! this.data.savePreviewUrl ) {
 			throw new Error( 'The preview upload service is unavailable.' );
 		}
+		await this.ensureRequestToken();
 
 		const request = this.createStateAbortController( 20000 );
 		try {

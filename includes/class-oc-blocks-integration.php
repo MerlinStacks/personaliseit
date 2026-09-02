@@ -127,9 +127,15 @@ class OC_Blocks_Integration {
 			case 'clipmask':
 				return ! empty( $layer_data['attachmentId'] )
 					? __( 'Image uploaded', 'overcustomise' ) : '';
+			case 'ai_image':
+				return ! empty( $layer_data['attachmentId'] )
+					? __( 'Image generated', 'overcustomise' ) : '';
 			case 'clipart':
 				return ! empty( $layer_data['clipartId'] )
 					? __( 'Clipart selected', 'overcustomise' ) : '';
+			case 'night_sky':
+				return is_scalar( $layer_data['nightSkyLabel'] ?? null ) && '' !== trim( (string) $layer_data['nightSkyLabel'] )
+					? sanitize_text_field( (string) $layer_data['nightSkyLabel'] ) : __( 'Night sky generated', 'overcustomise' );
 			default:
 				return '';
 		}

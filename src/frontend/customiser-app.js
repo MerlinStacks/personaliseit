@@ -428,9 +428,15 @@ class OCCustomiser {
 	}
 
 	async ensureRequestToken() {
-		if ( this.data.requestToken || ! this.data.requestTokenUrl ) {
+		const expiresAt = Number( this.data.requestTokenExpiresAt || 0 );
+		if ( this.data.requestToken && expiresAt > Date.now() + 300000 ) {
 			return;
 		}
+		if ( ! this.data.requestTokenUrl ) {
+			return;
+		}
+		this.data.requestToken = '';
+		this.data.requestTokenExpiresAt = 0;
 
 		const request = this.createStateAbortController( 12000 );
 		try {
@@ -442,6 +448,11 @@ class OCCustomiser {
 			} );
 			const body = await response.json().catch( () => null );
 			const token = typeof body?.token === 'string' ? body.token : '';
+			const expiresIn = Number( body?.expires_in );
+			const tokenLifetime = Math.max(
+				1,
+				Number.isFinite( expiresIn ) ? expiresIn : 300
+			);
 			if ( ! response.ok || ! /^[A-Za-z0-9]{64}$/.test( token ) ) {
 				throw new Error(
 					body?.message ||
@@ -450,6 +461,15 @@ class OCCustomiser {
 			}
 
 			this.data.requestToken = token;
+			this.data.requestTokenExpiresAt = Date.now() + tokenLifetime * 1000;
+			clearTimeout( this._requestTokenRefreshTimer );
+			this._requestTokenRefreshTimer = setTimeout(
+				() => {
+					this.data.requestTokenExpiresAt = 0;
+					this.ensureRequestToken().catch( () => {} );
+				},
+				Math.max( 1000, ( tokenLifetime - 300 ) * 1000 )
+			);
 		} catch ( error ) {
 			if ( request.timedOut() ) {
 				throw new Error(

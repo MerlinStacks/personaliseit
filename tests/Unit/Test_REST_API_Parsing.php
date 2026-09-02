@@ -27,6 +27,16 @@ class Test_REST_API_Parsing extends TestCase {
 	}
 
 	#[Test]
+	public function location_query_validation_is_strict_and_utf8_safe(): void {
+		$this->assertTrue( OC_Rest_API::validate_location_query( 'St John\'s, Newfoundland' ) );
+		$this->assertTrue( OC_Rest_API::validate_location_query( 'Kathmandu, Nepal' ) );
+		$this->assertFalse( OC_Rest_API::validate_location_query( ' London' ) );
+		$this->assertFalse( OC_Rest_API::validate_location_query( "London\nUK" ) );
+		$this->assertFalse( OC_Rest_API::validate_location_query( str_repeat( 'x', 201 ) ) );
+		$this->assertFalse( OC_Rest_API::validate_location_query( [ 'London' ] ) );
+	}
+
+	#[Test]
 	public function sliding_budgets_expire_attempts_independently(): void {
 		$method = new ReflectionMethod( OC_Rest_API::class, 'normalise_sliding_budget_state' );
 		$now    = 2000000000;

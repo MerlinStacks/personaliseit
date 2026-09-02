@@ -319,7 +319,7 @@ class OC_Admin_Order_Metabox {
 			return $html;
 		}
 
-		if ( in_array( $type, [ 'image', 'clipmask' ], true ) && ! empty( $layer_data['attachmentId'] ) ) {
+		if ( in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) && ! empty( $layer_data['attachmentId'] ) ) {
 			$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
 			$url           = OC_Upload_Handler::attachment_access_url( $attachment_id );
 			$thumb         = $url ? sprintf(
@@ -346,6 +346,12 @@ class OC_Admin_Order_Metabox {
 
 		if ( 'lineart' === $type ) {
 			return $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+		}
+
+		if ( 'night_sky' === $type ) {
+			$html        = esc_html( is_scalar( $layer_data['nightSkyLabel'] ?? null ) && '' !== trim( (string) $layer_data['nightSkyLabel'] ) ? (string) $layer_data['nightSkyLabel'] : __( 'Night sky generated', 'overcustomise' ) );
+			$colour_html = $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+			return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 		}
 
 		return '';
@@ -429,7 +435,7 @@ class OC_Admin_Order_Metabox {
 	/** Whether a recolourable image has a customer-selected or linked production colour. */
 	private function image_layer_has_order_colour( array $layer_data, ?object $layer ): bool {
 		$type = sanitize_key( (string) ( $layer_data['type'] ?? $layer->type ?? '' ) );
-		if ( 'image' !== $type || ! sanitize_hex_color( (string) ( $layer_data['colorHex'] ?? '' ) ) ) {
+		if ( ! in_array( $type, [ 'image', 'ai_image' ], true ) || ! sanitize_hex_color( (string) ( $layer_data['colorHex'] ?? '' ) ) ) {
 			return false;
 		}
 		if ( ! empty( $layer_data['colourLinked'] ) ) {

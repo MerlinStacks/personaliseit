@@ -264,25 +264,37 @@ class OC_Admin_Customer_Uploads {
 
 	/** Render one upload card. */
 	private function render_upload_card( WP_Post $attachment, array $designs, array $filters ): void {
-		$id       = (int) $attachment->ID;
-		$url      = OC_Upload_Handler::attachment_access_url( $id );
-		$download_url = OC_Upload_Handler::attachment_access_url( $id, true );
-		$path     = get_attached_file( $id );
-		$mime     = get_post_mime_type( $id );
-		$filename = $path ? basename( $path ) : basename( (string) get_attached_file( $id ) );
-		$size     = $path && file_exists( $path ) ? size_format( filesize( $path ) ) : __( 'Missing file', 'overcustomise' );
-		$preview_id  = absint( get_post_meta( $id, '_oc_print_derivative_attachment_id', true ) );
-		$preview_url = OC_Upload_Handler::attachment_access_url( $preview_id ?: $id );
-		$thumb       = '';
-		$context     = array_values( array_map( 'absint', (array) get_post_meta( $id, '_oc_artwork_context', true ) ) );
-		$design_id   = $context[2] ?? 0;
-		$design      = $designs[ $design_id ] ?? null;
-		$is_ai       = 1 === (int) get_post_meta( $id, '_oc_ai_filter', true );
-		$filter_id   = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_id', true ) ) : 0;
-		$filter      = $filters[ $filter_id ] ?? null;
-		$attempt     = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_attempt', true ) ) : 0;
-		$source_id   = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_source_id', true ) ) : 0;
-		$source_url  = $source_id ? OC_Upload_Handler::attachment_access_url( $source_id ) : '';
+		$id                = (int) $attachment->ID;
+		$url               = OC_Upload_Handler::attachment_access_url( $id );
+		$download_url      = OC_Upload_Handler::attachment_access_url( $id, true );
+		$path              = get_attached_file( $id );
+		$mime              = get_post_mime_type( $id );
+		$filename          = $path ? basename( $path ) : basename( (string) get_attached_file( $id ) );
+		$size              = $path && file_exists( $path ) ? size_format( filesize( $path ) ) : __( 'Missing file', 'overcustomise' );
+		$preview_id        = absint( get_post_meta( $id, '_oc_print_derivative_attachment_id', true ) );
+		$preview_url       = OC_Upload_Handler::attachment_access_url( $preview_id > 0 ? $preview_id : $id );
+		$thumb             = '';
+		$context           = array_values( array_map( 'absint', (array) get_post_meta( $id, '_oc_artwork_context', true ) ) );
+		$design_id         = $context[2] ?? 0;
+		$design            = $designs[ $design_id ] ?? null;
+		$is_generation     = 1 === (int) get_post_meta( $id, '_oc_ai_generation', true );
+		$is_ai             = 1 === (int) get_post_meta( $id, '_oc_ai_filter', true );
+		$filter_id         = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_id', true ) ) : 0;
+		$filter            = $filters[ $filter_id ] ?? null;
+		$attempt           = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_attempt', true ) ) : 0;
+		$source_id         = $is_ai ? absint( get_post_meta( $id, '_oc_ai_filter_source_id', true ) ) : 0;
+		$source_url        = $source_id ? OC_Upload_Handler::attachment_access_url( $source_id ) : '';
+		$provider          = $is_generation ? sanitize_key( (string) get_post_meta( $id, '_oc_ai_filter_provider', true ) ) : '';
+		$model             = $is_generation ? sanitize_text_field( (string) get_post_meta( $id, '_oc_ai_filter_model', true ) ) : '';
+		$prompt_hash       = $is_generation ? sanitize_key( (string) get_post_meta( $id, '_oc_ai_prompt_hash', true ) ) : '';
+		$instruction_hash  = $is_generation ? sanitize_key( (string) get_post_meta( $id, '_oc_ai_instruction_hash', true ) ) : '';
+		$type_label        = $is_generation ? __( 'AI generation', 'overcustomise' ) : ( $is_ai ? __( 'AI filter result', 'overcustomise' ) : __( 'Original', 'overcustomise' ) );
+		$mime_label        = $mime ? $mime : __( 'Unknown type', 'overcustomise' );
+		$design_name       = $design && $design->name ? $design->name : __( 'Untitled design', 'overcustomise' );
+		$model_label       = $model ? $model : __( 'Unknown model', 'overcustomise' );
+		$provider_label    = $provider ? $provider : __( 'unknown provider', 'overcustomise' );
+		$prompt_audit      = $prompt_hash ? $prompt_hash : 'missing';
+		$instruction_audit = $instruction_hash ? $instruction_hash : 'missing';
 		if ( $preview_url && ( $preview_id || str_starts_with( (string) $mime, 'image/' ) ) ) {
 			$thumb = sprintf( '<img src="%s" alt="" loading="lazy" />', esc_url( $preview_url ) );
 		}
@@ -293,8 +305,8 @@ class OC_Admin_Customer_Uploads {
 					<input type="checkbox" name="upload_ids[]" value="<?php echo esc_attr( (string) $id ); ?>" form="oc-customer-upload-bulk-form" data-oc-upload-select />
 					<span class="screen-reader-text"><?php echo esc_html( sprintf( __( 'Select %s', 'overcustomise' ), $filename ) ); ?></span>
 				</label>
-				<?php echo $thumb ?: '<span>' . esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) . '</span>'; ?>
-				<span class="oc-customer-upload-type"><?php echo esc_html( $is_ai ? __( 'AI result', 'overcustomise' ) : __( 'Original', 'overcustomise' ) ); ?></span>
+				<?php echo wp_kses_post( '' !== $thumb ? $thumb : '<span>' . esc_html( strtoupper( pathinfo( $filename, PATHINFO_EXTENSION ) ) ) . '</span>' ); ?>
+				<span class="oc-customer-upload-type"><?php echo esc_html( $type_label ); ?></span>
 			</div>
 			<div class="oc-customer-upload-body">
 				<strong title="<?php echo esc_attr( $filename ); ?>"><?php echo esc_html( $filename ); ?></strong>
@@ -302,19 +314,24 @@ class OC_Admin_Customer_Uploads {
 					<span><?php echo esc_html( $size ); ?></span>
 					<span><?php echo esc_html( get_the_date( '', $id ) ); ?></span>
 				</div>
-				<p><?php echo esc_html( $mime ?: __( 'Unknown type', 'overcustomise' ) ); ?></p>
+				<p><?php echo esc_html( $mime_label ); ?></p>
 				<div class="oc-customer-upload-context">
 					<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Design', 'overcustomise' ); ?></span>
 					<?php if ( $design ) : ?>
 						<a href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-products&tab=designs&action=edit&id=' . $design_id ) ); ?>">
-							<?php echo esc_html( ( $design->name ?: __( 'Untitled design', 'overcustomise' ) ) . ' (#' . $design_id . ')' ); ?>
+							<?php echo esc_html( $design_name . ' (#' . $design_id . ')' ); ?>
 						</a>
 					<?php elseif ( $design_id ) : ?>
 						<span><?php echo esc_html( sprintf( __( 'Deleted design (#%d)', 'overcustomise' ), $design_id ) ); ?></span>
 					<?php else : ?>
 						<span><?php esc_html_e( 'Unknown', 'overcustomise' ); ?></span>
 					<?php endif; ?>
-					<?php if ( $is_ai ) : ?>
+					<?php if ( $is_generation ) : ?>
+						<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Text-to-image generation', 'overcustomise' ); ?></span>
+						<span><?php echo esc_html( sprintf( /* translators: 1: AI model, 2: AI provider, 3: generation attempt. */ __( '%1$s via %2$s, attempt %3$d', 'overcustomise' ), $model_label, $provider_label, absint( get_post_meta( $id, '_oc_ai_filter_attempt', true ) ) ) ); ?></span>
+						<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Audit hashes', 'overcustomise' ); ?></span>
+						<code><?php echo esc_html( sprintf( 'prompt:%1$s instruction:%2$s', $prompt_audit, $instruction_audit ) ); ?></code>
+					<?php elseif ( $is_ai ) : ?>
 						<span class="oc-customer-upload-context__label"><?php esc_html_e( 'Filter result', 'overcustomise' ); ?></span>
 						<span>
 							<?php

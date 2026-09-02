@@ -1130,8 +1130,12 @@ class OC_Admin_Products {
 		$all_layers = $id > 0 ? OC_DB::get_design_layers( $id ) : [];
 		$layers_js  = array_map(
 			function ( $l ) {
-				$type                = sanitize_key( (string) $l->type );
-				$settings            = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
+				$type            = sanitize_key( (string) $l->type );
+				$settings        = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
+				$stored_settings = is_string( $l->settings ?? null ) ? json_decode( $l->settings, true ) : [];
+				if ( 'ai_image' === $type && is_array( $stored_settings ) ) {
+					$settings['ai_prompt_instruction'] = is_string( $stored_settings['ai_prompt_instruction'] ?? null ) ? $stored_settings['ai_prompt_instruction'] : '';
+				}
 				$attachment_id       = absint( $settings['default_attachment_id'] ?? 0 );
 				$is_valid_attachment = 'mask' === $type
 					? self::design_mask_attachment_is_valid( $attachment_id, $attachment_id )
@@ -1469,10 +1473,12 @@ class OC_Admin_Products {
 								<button type="button" class="oc-layer-type-btn" data-type="text"><span class="oc-layer-type-btn-icon" style="color:#0284c7;">Aa</span><span><?php esc_html_e( 'Text', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="textarea"><span class="oc-layer-type-btn-icon" style="color:#7c3aed;">&para;</span><span><?php esc_html_e( 'Text Area', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="image"><span class="oc-layer-type-btn-icon" style="color:#059669;">&#x1f5bc;</span><span><?php esc_html_e( 'Image', 'overcustomise' ); ?></span></button>
+								<button type="button" class="oc-layer-type-btn" data-type="ai_image"><span class="oc-layer-type-btn-icon" style="color:#db2777;">AI</span><span><?php esc_html_e( 'AI Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipmask"><span class="oc-layer-type-btn-icon" style="color:#0d9488;">&#9711;</span><span><?php esc_html_e( 'Clipping Mask', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="spotify"><span class="oc-layer-type-btn-icon" style="color:#1db954;">&#x266b;</span><span><?php esc_html_e( 'Spotify', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="lineart"><span class="oc-layer-type-btn-icon" style="color:#d97706;">&#x270f;</span><span><?php esc_html_e( 'Line Art', 'overcustomise' ); ?></span></button>
-								<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
+				<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
+				<button type="button" class="oc-layer-type-btn" data-type="night_sky"><span class="oc-layer-type-btn-icon" style="color:#4338ca;">&#x2606;</span><span><?php esc_html_e( 'Night Sky', 'overcustomise' ); ?></span></button>
 							</div>
 						</div>
 
@@ -1779,7 +1785,7 @@ class OC_Admin_Products {
 				$area_id_map[ (int) $area_index ] = $db_area_id;
 			}
 
-			$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart' ];
+			$valid_types = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky' ];
 			foreach ( $posted_layers as $sort => $layer_data ) {
 				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;
@@ -1806,6 +1812,9 @@ class OC_Admin_Products {
 						$area_method = sanitize_key( is_scalar( $posted_area['print_method'] ?? null ) ? (string) $posted_area['print_method'] : '' );
 						break;
 					}
+				}
+				if ( 'night_sky' === $type && 'embroidery' === $area_method ) {
+					throw new RuntimeException( 'Night Sky layers are not supported for embroidery.' );
 				}
 				$settings = wp_json_encode(
 					self::normalise_design_layer_settings(
@@ -1936,6 +1945,14 @@ class OC_Admin_Products {
 	/** Normalize layer settings and retain only live, related resources. */
 	private static function normalise_design_layer_settings( array $raw, string $type, string $print_method, array $existing = [] ): array {
 		$settings = OC_Cart::normalise_layer_settings( $raw, $type );
+		if ( 'ai_image' === $type ) {
+			$raw_instruction = is_string( $raw['ai_prompt_instruction'] ?? null ) ? $raw['ai_prompt_instruction'] : '';
+			$instruction     = trim( wp_check_invalid_utf8( $raw_instruction, true ) );
+			if ( '' === $instruction || trim( $raw_instruction ) !== $instruction || strlen( $instruction ) > 16384 ) {
+				throw new RuntimeException( 'AI Image layers require a valid admin instruction.' );
+			}
+			$settings['ai_prompt_instruction'] = $instruction;
+		}
 
 		$font_groups       = OC_DB::get_font_groups();
 		$colour_groups     = OC_DB::get_colour_groups();

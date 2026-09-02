@@ -48,9 +48,64 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
+	public function location_lookup_route_is_registered_as_a_secured_write(): void {
+		$routes = rest_get_server()->get_routes();
+		$this->assertArrayHasKey( '/overcustomise/v1/location-lookup', $routes );
+
+		$request = new WP_REST_Request( 'POST', '/overcustomise/v1/location-lookup' );
+		$request->set_body_params( [ 'query' => 'London' ] );
+		$this->assertSame( 403, rest_get_server()->dispatch( $request )->get_status() );
+	}
+
+	#[Test]
+	public function location_lookup_reduces_valid_upstream_json_without_caching_it(): void {
+		$requests = [];
+		$mock     = static function ( $preempt, array $args, string $url ) use ( &$requests ): array|false {
+			if ( ! str_starts_with( $url, 'https://nominatim.openstreetmap.org/search?' ) ) {
+				return false;
+			}
+			$requests[] = [ $args, $url ];
+			return [
+				'response' => [ 'code' => 200 ],
+				'body'     => wp_json_encode(
+					[
+						[
+							'lat'          => '51.5074',
+							'lon'          => '-0.1278',
+							'display_name' => 'London, Greater London, England',
+						],
+					]
+				),
+			];
+		};
+		add_filter( 'pre_http_request', $mock, 10, 3 );
+		try {
+			$result = OC_Rest_API::find_location( 'London', false );
+			$this->assertSame( 51.5074, $result['latitude'] );
+			$this->assertSame( -0.1278, $result['longitude'] );
+			$this->assertSame( 'London, Greater London, England', $result['displayName'] );
+			$this->assertSame( 5, $requests[0][0]['timeout'] );
+			$this->assertSame( 0, $requests[0][0]['redirection'] );
+			$this->assertSame( 65536, $requests[0][0]['limit_response_size'] );
+			$this->assertStringContainsString( 'q=London', $requests[0][1] );
+		} finally {
+			remove_filter( 'pre_http_request', $mock, 10 );
+		}
+	}
+
+	#[Test]
 	public function authorise_artwork_context_route_is_registered(): void {
 		$routes = rest_get_server()->get_routes();
 		$this->assertArrayHasKey( '/overcustomise/v1/authorise-artwork-context', $routes );
+	}
+
+	#[Test]
+	public function ai_image_generation_route_is_registered_and_secured(): void {
+		$routes = rest_get_server()->get_routes();
+		$this->assertArrayHasKey( '/overcustomise/v1/generate-ai-image', $routes );
+
+		$response = rest_get_server()->dispatch( new WP_REST_Request( 'POST', '/overcustomise/v1/generate-ai-image' ) );
+		$this->assertSame( 403, $response->get_status() );
 	}
 
 	#[Test]
@@ -461,6 +516,47 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 				$this->assertSame( 15 * MINUTE_IN_SECONDS, $spec['window_end'] - $spec['window_start'] );
 			}
 		} finally {
+			if ( null === $previous_ip ) {
+				unset( $_SERVER['REMOTE_ADDR'] );
+			} else {
+				$_SERVER['REMOTE_ADDR'] = $previous_ip;
+			}
+		}
+	}
+
+	#[Test]
+	public function text_to_image_quotas_use_separate_hooks_and_key_namespaces(): void {
+		$previous_ip            = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.21';
+		wp_set_current_user( 0 );
+		$filter_method     = new ReflectionMethod( OC_Rest_API::class, 'ai_quota_specs' );
+		$generation_method = new ReflectionMethod( OC_Rest_API::class, 'ai_generation_quota_specs' );
+		$limits            = [
+			'oc_ai_filter_actor_hourly_limit'     => 7,
+			'oc_ai_filter_ip_hourly_limit'        => 8,
+			'oc_ai_filter_site_hourly_limit'      => 9,
+			'oc_ai_generation_actor_hourly_limit' => 3,
+			'oc_ai_generation_ip_hourly_limit'    => 4,
+			'oc_ai_generation_site_hourly_limit'  => 5,
+		];
+		$callbacks         = [];
+		foreach ( $limits as $hook => $limit ) {
+			$callbacks[ $hook ] = static fn (): int => $limit;
+			add_filter( $hook, $callbacks[ $hook ] );
+		}
+
+		try {
+			$filter_specs     = $filter_method->invoke( null, 'ip:test-customer' );
+			$generation_specs = $generation_method->invoke( null, 'ip:test-customer' );
+			$this->assertSame( [ 7, 8, 9 ], array_column( $filter_specs, 'count_limit' ) );
+			$this->assertSame( [ 3, 4, 5 ], array_column( $generation_specs, 'count_limit' ) );
+			$this->assertSame( [ 'ai:actor:', 'ai:ip:', 'ai:site:' ], array_map( static fn ( array $spec ): string => substr( $spec['key'], 0, strrpos( $spec['key'], ':' ) + 1 ), $filter_specs ) );
+			$this->assertSame( [ 'ai-generation:actor:', 'ai-generation:ip:', 'ai-generation:site:' ], array_map( static fn ( array $spec ): string => substr( $spec['key'], 0, strrpos( $spec['key'], ':' ) + 1 ), $generation_specs ) );
+			$this->assertSame( [], array_intersect( array_column( $filter_specs, 'key' ), array_column( $generation_specs, 'key' ) ) );
+		} finally {
+			foreach ( $callbacks as $hook => $callback ) {
+				remove_filter( $hook, $callback );
+			}
 			if ( null === $previous_ip ) {
 				unset( $_SERVER['REMOTE_ADDR'] );
 			} else {

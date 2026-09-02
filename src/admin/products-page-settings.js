@@ -502,8 +502,10 @@ export function createProductsPageSettings( deps ) {
 			'text',
 			'textarea',
 			'image',
+			'ai_image',
 			'clipart',
 			'lineart',
+			'night_sky',
 		].includes( layer.type );
 
 		switch ( tabId ) {
@@ -558,6 +560,13 @@ export function createProductsPageSettings( deps ) {
 							esc( s.char_limit || 0 ) +
 							'" />'
 					)
+				);
+			case 'prompt':
+				return field(
+					'Required admin instruction <span class="oc-hint">(never shown to customers, max 16 KiB)</span>',
+					'<textarea id="oc-set-ai-prompt-instruction" class="oc-input" maxlength="16384" rows="10" required style="width:100%;resize:vertical;">' +
+						esc( s.ai_prompt_instruction || '' ) +
+						'</textarea>'
 				);
 			case 'style': {
 				const fontGroupsSelected = selectedGroupIds( s.font_groups );
@@ -659,7 +668,9 @@ export function createProductsPageSettings( deps ) {
 			}
 			case 'file':
 				return (
-					field( 'Default image', mediaDefaultField( s ) ) +
+					( layer.type === 'image'
+						? field( 'Default image', mediaDefaultField( s ) )
+						: '' ) +
 					field(
 						'Enabled image filters <span class="oc-hint">(available choices)</span>',
 						imageFilterChecks(
@@ -703,6 +714,29 @@ export function createProductsPageSettings( deps ) {
 						!! s.remove_background
 					)
 				);
+			case 'sky':
+				return (
+					toggleField(
+						'Show constellation lines',
+						'oc-set-show-constellations',
+						s.show_constellations !== false
+					) +
+					toggleField(
+						'Show planets',
+						'oc-set-show-planets',
+						s.show_planets !== false
+					) +
+					toggleField(
+						'Show constellation and planet labels',
+						'oc-set-show-labels',
+						s.show_labels !== false
+					) +
+					toggleField(
+						'Show horizon border',
+						'oc-set-show-border',
+						s.show_border !== false
+					)
+				);
 			case 'mask':
 				return field(
 					'Mask shape',
@@ -717,7 +751,7 @@ export function createProductsPageSettings( deps ) {
 				if ( isEngraving ) {
 					return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
 				}
-				if ( layer.type === 'image' ) {
+				if ( [ 'image', 'ai_image' ].includes( layer.type ) ) {
 					const selected = selectedGroupIds( s.colour_groups );
 					const available = coloursForSelectedGroups(
 						colours,
@@ -758,16 +792,31 @@ export function createProductsPageSettings( deps ) {
 							  ) )
 					);
 				}
-				return cGroups.length
-					? field(
-							'Colour groups <span class="oc-hint">(empty = all)</span>',
-							groupChecks(
-								'oc-cg-check',
-								cGroups,
-								s.colour_groups || []
-							)
-					  )
-					: '<span class="oc-settings-empty">No colour groups created yet.</span>';
+				return (
+					( layer.type === 'night_sky'
+						? field(
+								'Default colour',
+								'<input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' +
+									esc( normaliseHex( s.default_color ) ) +
+									'" />'
+						  ) +
+						  toggleField(
+								'Customer can change colour',
+								'oc-set-allow-colour-change',
+								s.allow_colour_change !== false
+						  )
+						: '' ) +
+					( cGroups.length
+						? field(
+								'Colour groups <span class="oc-hint">(empty = all)</span>',
+								groupChecks(
+									'oc-cg-check',
+									cGroups,
+									s.colour_groups || []
+								)
+						  )
+						: '<span class="oc-settings-empty">No colour groups created yet.</span>' )
+				);
 			case 'library': {
 				const availableClipartItems = clipartForSelectedGroups(
 					data.clipartItems || [],
@@ -815,14 +864,16 @@ export function createProductsPageSettings( deps ) {
 						: '' )
 				);
 			case 'properties':
-				if ( layer.type === 'image' ) {
+				if ( [ 'image', 'ai_image' ].includes( layer.type ) ) {
 					return (
 						'<p class="oc-settings-section-hdr">Customer can change</p>' +
-						toggleField(
-							'Image',
-							'oc-set-allow-image-change',
-							s.allow_image_change !== false
-						) +
+						( layer.type === 'image'
+							? toggleField(
+									'Image',
+									'oc-set-allow-image-change',
+									s.allow_image_change !== false
+							  )
+							: '' ) +
 						toggleField(
 							'Filter',
 							'oc-set-allow-image-filter-change',
@@ -898,6 +949,12 @@ export function createProductsPageSettings( deps ) {
 					);
 			}
 		);
+		document
+			.getElementById( 'oc-set-ai-prompt-instruction' )
+			?.addEventListener( 'input', ( e ) => {
+				s.ai_prompt_instruction = e.target.value.slice( 0, 16384 );
+				commitChange();
+			} );
 		document
 			.getElementById( 'oc-set-default-text' )
 			?.addEventListener( 'input', ( e ) => {
@@ -1186,6 +1243,19 @@ export function createProductsPageSettings( deps ) {
 				s.required = e.target.checked;
 				commitChange();
 			} );
+		[
+			[ 'oc-set-show-constellations', 'show_constellations' ],
+			[ 'oc-set-show-planets', 'show_planets' ],
+			[ 'oc-set-show-labels', 'show_labels' ],
+			[ 'oc-set-show-border', 'show_border' ],
+		].forEach( ( [ id, key ] ) => {
+			document
+				.getElementById( id )
+				?.addEventListener( 'change', ( e ) => {
+					s[ key ] = e.target.checked;
+					commitChange( { canvas: true } );
+				} );
+		} );
 		document
 			.getElementById( 'oc-set-clipart-display' )
 			?.addEventListener( 'change', ( e ) => {

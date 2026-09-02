@@ -115,18 +115,21 @@ class OC_Frontend {
 		$state['uploadUrl']             = rest_url( 'overcustomise/v1/upload-artwork' );
 		$state['authoriseArtworkUrl']   = rest_url( 'overcustomise/v1/authorise-artwork-context' );
 		$state['applyImageFilterUrl']   = rest_url( 'overcustomise/v1/apply-image-filter' );
+		$state['generateAiImageUrl']    = rest_url( 'overcustomise/v1/generate-ai-image' );
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
+		$state['locationLookupUrl']     = rest_url( 'overcustomise/v1/location-lookup' );
 		$state['requestTokenUrl']       = rest_url( 'overcustomise/v1/session-token' );
 		$state['productDesignUrl']      = rest_url( 'overcustomise/v1/product-design/' . (int) get_queried_object_id() );
 		$state['productId']             = (int) get_queried_object_id();
 		// Sending a stale guest nonce makes REST cookie authentication reject the
 		// request before our short-lived public token can be verified. Product pages
 		// may be cached, so only expose a REST nonce for authenticated users.
-		$state['uploadNonce']     = is_user_logged_in() ? wp_create_nonce( 'wp_rest' ) : '';
-		$state['requestToken']    = '';
-		$state['maxUploadSizeMb'] = $max_upload_size_mb;
-		$state['allowedFormats']  = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
+		$state['uploadNonce']           = is_user_logged_in() ? wp_create_nonce( 'wp_rest' ) : '';
+		$state['requestToken']          = '';
+		$state['requestTokenExpiresAt'] = 0;
+		$state['maxUploadSizeMb']       = $max_upload_size_mb;
+		$state['allowedFormats']        = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
 
 		return $state;
 	}
@@ -334,7 +337,9 @@ class OC_Frontend {
 					continue;
 				}
 
-				$settings         = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
+				$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
+				// Enforced AI instructions are server-only and must never enter public design state.
+				unset( $settings['ai_prompt_instruction'] );
 				$font_group_ids   = array_values( array_intersect( array_map( 'absint', $settings['font_groups'] ), $valid_font_group_ids ) );
 				$allowed_font_ids = $font_group_ids
 					? array_values( array_intersect( $active_browser_font_ids, OC_DB::get_font_ids_for_groups( $font_group_ids ) ) )
@@ -410,15 +415,24 @@ class OC_Frontend {
 					'fontId'              => absint( $settings['default_font_id'] ),
 					'fontSize'            => absint( $settings['default_font_size'] ?? 0 ),
 					'colorHex'            => $default_colour,
-					'attachmentId'        => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_id : 0,
-					'attachmentUrl'       => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_url : '',
-					'sourceAttachmentId'  => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_id : 0,
-					'sourceAttachmentUrl' => in_array( $layer->type, [ 'image', 'clipmask' ], true ) ? $default_attachment_url : '',
-					'imageFilterId'       => 'image' === $layer->type ? $default_image_filter_id : 0,
+					'attachmentId'        => in_array( $layer->type, [ 'image', 'ai_image', 'clipmask' ], true ) ? $default_attachment_id : 0,
+					'attachmentUrl'       => in_array( $layer->type, [ 'image', 'ai_image', 'clipmask' ], true ) ? $default_attachment_url : '',
+					'sourceAttachmentId'  => in_array( $layer->type, [ 'image', 'ai_image', 'clipmask' ], true ) ? $default_attachment_id : 0,
+					'sourceAttachmentUrl' => in_array( $layer->type, [ 'image', 'ai_image', 'clipmask' ], true ) ? $default_attachment_url : '',
+					'imageFilterId'       => in_array( $layer->type, [ 'image', 'ai_image' ], true ) ? $default_image_filter_id : 0,
+					'aiDescription'       => '',
 					'imageCrop'           => 0,
 					'clipartId'           => 0,
 					'clipartUrl'          => '',
 					'clipartRecolourable' => false,
+					'date'                => '',
+					'time'                => '22:00',
+					'utcOffset'           => 0,
+					'locationLabel'       => '',
+					'latitude'            => null,
+					'longitude'           => null,
+					'nightSkyGeometry'    => null,
+					'nightSkyLabel'       => '',
 				];
 			}
 
@@ -658,7 +672,7 @@ class OC_Frontend {
 				continue;
 			}
 
-			if ( in_array( (string) $layer->type, [ 'image', 'clipart' ], true ) ) {
+			if ( in_array( (string) $layer->type, [ 'image', 'ai_image', 'clipart' ], true ) ) {
 				$url = $this->get_design_layer_artwork_url( $layer, $settings );
 				if ( '' === $url ) {
 					continue;

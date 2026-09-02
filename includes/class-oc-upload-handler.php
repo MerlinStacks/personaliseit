@@ -678,12 +678,17 @@ class OC_Upload_Handler {
 			wp_delete_attachment( $attachment_id, true );
 			return new \WP_Error( 'generated_image_save_failed', __( 'Could not retain the generated image.', 'overcustomise' ) );
 		}
-		$provenance_ok = update_post_meta( $attachment_id, '_oc_ai_filter', 1 )
+		$is_generation = 'text_to_image' === ( $provenance['kind'] ?? '' );
+		$provenance_ok = update_post_meta( $attachment_id, '_oc_ai_filter', $is_generation ? 0 : 1 )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_source_id', absint( $provenance['source_attachment_id'] ?? 0 ) )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_id', absint( $provenance['filter_id'] ?? 0 ) )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_attempt', absint( $provenance['attempt'] ?? 0 ) )
 			&& update_post_meta( $attachment_id, '_oc_ai_filter_group', sanitize_key( (string) ( $provenance['group'] ?? '' ) ) )
-			&& update_post_meta( $attachment_id, '_oc_ai_filter_model', sanitize_text_field( (string) ( $provenance['model'] ?? '' ) ) );
+			&& update_post_meta( $attachment_id, '_oc_ai_filter_model', sanitize_text_field( (string) ( $provenance['model'] ?? '' ) ) )
+			&& update_post_meta( $attachment_id, '_oc_ai_filter_provider', sanitize_key( (string) ( $provenance['provider'] ?? '' ) ) )
+			&& update_post_meta( $attachment_id, '_oc_ai_generation', $is_generation ? 1 : 0 )
+			&& update_post_meta( $attachment_id, '_oc_ai_prompt_hash', sanitize_key( (string) ( $provenance['prompt_hash'] ?? '' ) ) )
+			&& update_post_meta( $attachment_id, '_oc_ai_instruction_hash', sanitize_key( (string) ( $provenance['instruction_hash'] ?? '' ) ) );
 		if ( ! $provenance_ok ) {
 			wp_delete_attachment( $attachment_id, true );
 			return new \WP_Error( 'generated_image_save_failed', __( 'Could not retain the generated image.', 'overcustomise' ) );

@@ -17,6 +17,7 @@ class OC_Rest_API {
 
 	private const NAMESPACE                 = 'overcustomise/v1';
 	private const PUBLIC_TOKEN_TTL          = 21600; // 6 hours.
+	private const PUBLIC_TOKEN_REFRESH      = 300; // Rotate before long-running AI requests can outlive it.
 	private const AI_LOCK_TTL               = 300;
 	private const PREVIEW_LOCK_TTL          = 60;
 	private const MAX_PREVIEW_BYTES         = 10485760;
@@ -24,6 +25,7 @@ class OC_Rest_API {
 	private const MAX_AI_PROMPT_BYTES       = 16384;
 	private const MAX_AI_FILTER_ATTEMPTS    = 3;
 	private const SPOTIFY_RESPONSE_BYTES    = 524288;
+	private const LOCATION_RESPONSE_BYTES   = 65536;
 	private const SPOTIFY_VALID_CACHE_TTL   = 43200;
 	private const SPOTIFY_INVALID_CACHE_TTL = 3600;
 	private const PUBLIC_TOKEN_SESSION_KEY  = 'oc_public_request_token';
@@ -125,6 +127,17 @@ class OC_Rest_API {
 			]
 		);
 
+		// Generate owned artwork for an AI Image layer.
+		register_rest_route(
+			self::NAMESPACE,
+			'/generate-ai-image',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'generate_ai_image' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
+
 		// Design assignment for a specific product / variation (used by frontend JS).
 		register_rest_route(
 			self::NAMESPACE,
@@ -172,6 +185,23 @@ class OC_Rest_API {
 			]
 		);
 
+		// Privacy-preserving place lookup for the Night Sky customer control.
+		register_rest_route(
+			self::NAMESPACE,
+			'/location-lookup',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'lookup_location' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+				'args'                => [
+					'query' => [
+						'required'          => true,
+						'validate_callback' => [ self::class, 'validate_location_query' ],
+					],
+				],
+			]
+		);
+
 		// Admin: regenerate print files for an order item.
 		register_rest_route(
 			self::NAMESPACE,
@@ -204,7 +234,7 @@ class OC_Rest_API {
 		}
 
 		$current = self::token_for_binding( $binding );
-		if ( '' !== $current && self::public_token_state( $current, $binding ) ) {
+		if ( '' !== $current && self::public_token_is_reusable( $current, $binding ) ) {
 			return $current;
 		}
 
@@ -213,12 +243,12 @@ class OC_Rest_API {
 		if ( is_wp_error( $lock ) ) {
 			// A concurrent token request may have completed after the first lookup.
 			$current = self::token_for_binding( $binding );
-			return '' !== $current && self::public_token_state( $current, $binding ) ? $current : '';
+			return '' !== $current && self::public_token_is_reusable( $current, $binding ) ? $current : '';
 		}
 
 		try {
 			$current = self::token_for_binding( $binding );
-			if ( '' !== $current && self::public_token_state( $current, $binding ) ) {
+			if ( '' !== $current && self::public_token_is_reusable( $current, $binding ) ) {
 				return $current;
 			}
 			try {
@@ -253,6 +283,12 @@ class OC_Rest_API {
 		} finally {
 			self::delete_owned_option( $lock_key, (string) $lock );
 		}
+	}
+
+	/** Confirm a bound token has enough lifetime for a long-running write. */
+	private static function public_token_is_reusable( string $token, array $binding ): bool {
+		$state = self::public_token_state( $token, $binding );
+		return is_array( $state ) && (int) $state['expires_at'] > time() + self::PUBLIC_TOKEN_REFRESH;
 	}
 
 	/** Return a public token response which intermediaries must never cache. */
@@ -817,8 +853,12 @@ class OC_Rest_API {
 						|| ( $spec['bytes'] > 0 && $current_bytes > $spec['byte_limit'] - $spec['bytes'] )
 					) {
 						$retry_after = self::sliding_budget_retry_after( $state['buckets'], $spec, $now, $window_seconds );
-						$message     = 'ai_quota_exceeded' === $spec['error_code'] ? self::ai_quota_retry_message( $retry_after ) : $spec['error_message'];
-						$error       = new \WP_Error(
+						$message     = match ( $spec['error_code'] ) {
+							'ai_quota_exceeded'            => self::ai_quota_retry_message( $retry_after ),
+							'ai_generation_quota_exceeded' => self::ai_generation_quota_retry_message( $retry_after ),
+							default                        => $spec['error_message'],
+						};
+						$error = new \WP_Error(
 							$spec['error_code'],
 							$message,
 							[
@@ -880,9 +920,11 @@ class OC_Rest_API {
 					) {
 						$retry_after = max( 1, $spec['window_end'] - $now );
 						$message     = $spec['error_message'];
-						if ( 'ai_quota_exceeded' === $spec['error_code'] ) {
-							$message = self::ai_quota_retry_message( $retry_after );
-						}
+						$message     = match ( $spec['error_code'] ) {
+							'ai_quota_exceeded'            => self::ai_quota_retry_message( $retry_after ),
+							'ai_generation_quota_exceeded' => self::ai_generation_quota_retry_message( $retry_after ),
+							default                        => $message,
+						};
 						$error = new \WP_Error(
 							$spec['error_code'],
 							$message,
@@ -1196,22 +1238,35 @@ class OC_Rest_API {
 
 	/** Build all-or-none paid AI actor/IP/site quota rows. */
 	private static function ai_quota_specs( string $actor ): array|\WP_Error {
+		return self::paid_ai_quota_specs( $actor, false );
+	}
+
+	/** Build isolated text-to-image actor/IP/site quota rows. */
+	private static function ai_generation_quota_specs( string $actor ): array|\WP_Error {
+		return self::paid_ai_quota_specs( $actor, true );
+	}
+
+	/** Build paid AI quotas without sharing hooks or storage keys between features. */
+	private static function paid_ai_quota_specs( string $actor, bool $text_to_image ): array|\WP_Error {
 		if ( current_user_can( 'manage_options' ) ) {
 			return [];
 		}
 
-		$ip          = self::client_ip();
-		$actor_limit = self::filtered_limit( 'oc_ai_filter_actor_hourly_limit', 5, 1, 100 );
-		$ip_limit    = self::filtered_limit( 'oc_ai_filter_ip_hourly_limit', 10, 1, 500 );
-		$site_limit  = self::filtered_limit( 'oc_ai_filter_site_hourly_limit', 100, 1, 10000 );
+		$ip            = self::client_ip();
+		$filter_prefix = $text_to_image ? 'oc_ai_generation_' : 'oc_ai_filter_';
+		$key_prefix    = $text_to_image ? 'ai-generation:' : 'ai:';
+		$actor_limit   = self::filtered_limit( $filter_prefix . 'actor_hourly_limit', 5, 1, 100 );
+		$ip_limit      = self::filtered_limit( $filter_prefix . 'ip_hourly_limit', 10, 1, 500 );
+		$site_limit    = self::filtered_limit( $filter_prefix . 'site_hourly_limit', 100, 1, 10000 );
 		if ( '' === $actor || '' === $ip || null === $actor_limit || null === $ip_limit || null === $site_limit ) {
 			OC_Logger::error( 'AI quota configuration is unavailable or malformed.' );
-			return new \WP_Error( 'ai_quota_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+			$message = $text_to_image ? __( 'Image generation is temporarily unavailable.', 'overcustomise' ) : __( 'Image processing is temporarily unavailable.', 'overcustomise' );
+			return new \WP_Error( 'ai_quota_unavailable', $message, [ 'status' => 503 ] );
 		}
 
 		$window_start = time();
 		$window_end   = $window_start + 15 * MINUTE_IN_SECONDS;
-		$message      = __( 'The image processing limit has been reached. Please try again later.', 'overcustomise' );
+		$message      = $text_to_image ? __( 'The image generation limit has been reached. Please try again later.', 'overcustomise' ) : __( 'The image processing limit has been reached. Please try again later.', 'overcustomise' );
 		$base         = [
 			'window_start'   => $window_start,
 			'window_end'     => $window_end,
@@ -1221,28 +1276,28 @@ class OC_Rest_API {
 			'sliding_window' => true,
 			'count_mode'     => 'request',
 			'bytes_mode'     => 'none',
-			'error_code'     => 'ai_quota_exceeded',
+			'error_code'     => $text_to_image ? 'ai_generation_quota_exceeded' : 'ai_quota_exceeded',
 			'error_message'  => $message,
 		];
 		return [
 			array_merge(
 				$base,
 				[
-					'key'         => 'ai:actor:' . hash( 'sha256', $actor ),
+					'key'         => $key_prefix . 'actor:' . hash( 'sha256', $actor ),
 					'count_limit' => $actor_limit,
 				]
 			),
 			array_merge(
 				$base,
 				[
-					'key'         => 'ai:ip:' . hash( 'sha256', $ip ),
+					'key'         => $key_prefix . 'ip:' . hash( 'sha256', $ip ),
 					'count_limit' => $ip_limit,
 				]
 			),
 			array_merge(
 				$base,
 				[
-					'key'         => 'ai:site:' . (int) get_current_blog_id(),
+					'key'         => $key_prefix . 'site:' . (int) get_current_blog_id(),
 					'count_limit' => $site_limit,
 				]
 			),
@@ -1253,9 +1308,25 @@ class OC_Rest_API {
 	private static function ai_quota_retry_message( int $retry_after ): string {
 		$minutes = max( 1, (int) ceil( max( 1, $retry_after ) / MINUTE_IN_SECONDS ) );
 		return sprintf(
+			/* translators: %d: Number of minutes until another generated image is allowed. */
 			_n(
 				'You have reached the live photo preview limit. You can make more previews in %d minute.',
 				'You have reached the live photo preview limit. You can make more previews in %d minutes.',
+				$minutes,
+				'overcustomise'
+			),
+			$minutes
+		);
+	}
+
+	/** Format a text-to-image quota reset as customer-friendly rounded-up minutes. */
+	private static function ai_generation_quota_retry_message( int $retry_after ): string {
+		$minutes = max( 1, (int) ceil( max( 1, $retry_after ) / MINUTE_IN_SECONDS ) );
+		return sprintf(
+			/* translators: %d: Number of minutes until another generated image is allowed. */
+			_n(
+				'You have reached the image generation limit. You can generate another image in %d minute.',
+				'You have reached the image generation limit. You can generate another image in %d minutes.',
 				$minutes,
 				'overcustomise'
 			),
@@ -1789,7 +1860,7 @@ class OC_Rest_API {
 		if ( is_wp_error( $destination ) ) {
 			return $destination;
 		}
-		$target_layer = self::public_design_layer( $design_id, $layer_id, [ 'image', 'clipmask' ] );
+		$target_layer = self::public_design_layer( $design_id, $layer_id, [ 'image', 'ai_image', 'clipmask' ] );
 		if ( is_wp_error( $target_layer ) ) {
 			return $target_layer;
 		}
@@ -1808,7 +1879,7 @@ class OC_Rest_API {
 		}
 
 		$source_assignment = self::active_assignment_design( $source_context[0], $source_context[1], $source_context[2] );
-		$source_layer      = is_wp_error( $source_assignment ) ? $source_assignment : self::public_design_layer( $source_context[2], $source_context[3], [ 'image', 'clipmask' ] );
+		$source_layer      = is_wp_error( $source_assignment ) ? $source_assignment : self::public_design_layer( $source_context[2], $source_context[3], [ 'image', 'ai_image', 'clipmask' ] );
 		if ( is_wp_error( $source_layer ) || (string) $source_layer->type !== (string) $target_layer->type ) {
 			return new \WP_Error( 'invalid_link_group', __( 'This image cannot be shared with the selected design.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
@@ -1841,7 +1912,7 @@ class OC_Rest_API {
 					break;
 				}
 			}
-			if ( 'image' !== (string) $target_layer->type || null === $derivative_context || $derivative_context[0] !== $product_id
+			if ( ! in_array( (string) $target_layer->type, [ 'image', 'ai_image' ], true ) || null === $derivative_context || $derivative_context[0] !== $product_id
 				|| ! OC_Upload_Handler::attachment_is_accepted( $derivative_attachment_id, ...array_merge( $derivative_context, [ $token ] ) )
 				|| ! OC_Upload_Handler::attachment_matches_upload_policy( $derivative_attachment_id, $target_policy, false )
 				|| 1 !== (int) get_post_meta( $derivative_attachment_id, '_oc_ai_filter', true )
@@ -1876,6 +1947,233 @@ class OC_Rest_API {
 		);
 	}
 
+	/** Generate prompt-bound artwork for an AI Image layer. */
+	public function generate_ai_image( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$auth = $this->verify_public_write_auth( $request );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		$body         = $request->get_json_params();
+		$body         = is_array( $body ) ? $body : [];
+		$product_id   = absint( $body['product_id'] ?? 0 );
+		$variation_id = absint( $body['variation_id'] ?? 0 );
+		$design_id    = absint( $body['design_id'] ?? 0 );
+		$layer_id     = absint( $body['layer_id'] ?? 0 );
+		$description  = is_string( $body['description'] ?? null ) ? trim( $body['description'] ) : '';
+		if ( ! $product_id || ! $design_id || ! $layer_id ) {
+			return new \WP_Error( 'invalid_context', __( 'Product, design, and layer are required.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		if ( '' === $description || strlen( $description ) > 4096 || wp_check_invalid_utf8( $description, true ) !== $description ) {
+			return new \WP_Error( 'invalid_description', __( 'Enter a valid image description of up to 4 KiB.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$context = self::active_assignment_design( $product_id, $variation_id, $design_id );
+		if ( is_wp_error( $context ) ) {
+			return $context;
+		}
+		$layer = self::public_design_layer( $design_id, $layer_id, [ 'ai_image' ] );
+		if ( is_wp_error( $layer ) ) {
+			return $layer;
+		}
+		$settings = self::decode_layer_settings( $layer->settings ?? null );
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		$instruction = is_string( $settings['ai_prompt_instruction'] ?? null ) ? trim( $settings['ai_prompt_instruction'] ) : '';
+		if ( '' === $instruction || strlen( $instruction ) > self::MAX_AI_PROMPT_BYTES || wp_check_invalid_utf8( $instruction, true ) !== $instruction ) {
+			return new \WP_Error( 'invalid_ai_instruction', __( 'This AI Image layer is not configured correctly.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+
+		$ai_config = OC_Admin_Settings::get_ai_image_configuration();
+		$api_key   = (string) ( $ai_config['api_key'] ?? '' );
+		$model     = trim( (string) ( $ai_config['model'] ?? '' ) );
+		$provider  = (string) ( $ai_config['provider'] ?? '' );
+		if ( '' === $api_key || trim( $api_key ) !== $api_key || 4096 < strlen( $api_key ) || ! preg_match( '/^[A-Za-z0-9._:-]+$/D', $api_key )
+			|| ! array_key_exists( $provider, OC_Admin_Settings::get_ai_image_providers() )
+			|| ! preg_match( '#^[A-Za-z0-9._:/-]+$#D', $model ) || 200 < strlen( $model )
+		) {
+			return new \WP_Error( 'ai_unavailable', __( 'Image generation is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+		$provider_error = OC_AI_Image_Filter::text_generation_provider_error( $provider );
+		if ( is_wp_error( $provider_error ) ) {
+			return $provider_error;
+		}
+
+		$token       = trim( (string) $request->get_header( 'X-OC-Token' ) );
+		$token_state = '' !== $token ? self::public_token_state( $token ) : null;
+		if ( '' !== $token && null === $token_state ) {
+			if ( ! is_user_logged_in() ) {
+				return new \WP_Error( 'invalid_token', __( 'Security verification failed.', 'overcustomise' ), [ 'status' => 403 ] );
+			}
+			$token = '';
+		}
+		$actor            = is_user_logged_in()
+			? 'user:' . get_current_user_id()
+			: (string) $token_state['binding_type'] . ':' . (string) $token_state['binding_hash'];
+		$instruction_hash = hash_hmac( 'sha256', $instruction, wp_salt( 'auth' ) );
+		$prompt_hash      = hash_hmac( 'sha256', $instruction . "\0" . $description, wp_salt( 'auth' ) );
+		$group            = hash( 'sha256', implode( '|', [ $actor, $prompt_hash, $product_id, $variation_id, $design_id, $layer_id ] ) );
+		$attempt_key      = 'oc_ai_image_attempt_' . $group;
+		$list_limit       = self::filtered_limit( 'oc_ai_image_list_ip_hourly_limit', 120, 1, 10000 );
+		if ( null === $list_limit ) {
+			return new \WP_Error( 'security_budget_unavailable', __( 'Image generation is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+		$list_reservation = self::reserve_request_rate( 'ai-image-list', $list_limit, __( 'Too many image generation requests. Please try again later.', 'overcustomise' ) );
+		if ( is_wp_error( $list_reservation ) ) {
+			return $list_reservation;
+		}
+		$results = self::ai_image_results( $group, $prompt_hash, $product_id, $variation_id, $design_id, $layer_id, $token );
+		if ( ! empty( $body['list_only'] ) ) {
+			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
+			return rest_ensure_response( array_merge( self::image_filter_result_payload( $results, $attempt_count ), [ 'prompt_hash' => $prompt_hash ] ) );
+		}
+
+		$quota_specs = self::ai_generation_quota_specs( $actor );
+		if ( is_wp_error( $quota_specs ) ) {
+			return $quota_specs;
+		}
+		$storage_specs = self::upload_capacity_specs( self::MAX_AI_RESULT_BYTES, 1, $token, $token_state, false );
+		if ( is_wp_error( $storage_specs ) ) {
+			return $storage_specs;
+		}
+		$lock_key   = 'oc_ai_image_lock_' . $group;
+		$lock_owner = self::acquire_option_lock( $lock_key, self::AI_LOCK_TTL );
+		if ( is_wp_error( $lock_owner ) ) {
+			return new \WP_Error( 'ai_generation_in_progress', __( 'This image is already being generated.', 'overcustomise' ), [ 'status' => 409 ] );
+		}
+
+		try {
+			$results       = self::ai_image_results( $group, $prompt_hash, $product_id, $variation_id, $design_id, $layer_id, $token );
+			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
+			if ( $attempt_count >= self::MAX_AI_FILTER_ATTEMPTS ) {
+				return new \WP_Error( 'ai_image_attempt_limit', __( 'You have used all generation attempts for this description.', 'overcustomise' ), array_merge( [ 'status' => 429 ], self::image_filter_result_payload( $results, $attempt_count ) ) );
+			}
+			$storage_reservation = self::reserve_budgets( $storage_specs );
+			if ( is_wp_error( $storage_reservation ) ) {
+				return $storage_reservation;
+			}
+			$quota_reservation = self::reserve_budgets( $quota_specs );
+			if ( is_wp_error( $quota_reservation ) ) {
+				self::release_budget_reservation( $storage_reservation );
+				return $quota_reservation;
+			}
+			$attempt        = $attempt_count + 1;
+			$retention_days = max( 1, (int) OC_Admin_Settings::get( 'artwork_retention_days' ) ?: 90 );
+			if ( ! set_transient( $attempt_key, $attempt, $retention_days * DAY_IN_SECONDS ) ) {
+				self::release_budget_reservation( $storage_reservation );
+				self::release_budget_reservation( $quota_reservation );
+				return new \WP_Error( 'ai_attempt_unavailable', __( 'Image generation is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+			}
+			try {
+				$generated = OC_AI_Image_Filter::generate_from_text( $instruction, $description );
+			} catch ( \Throwable $e ) {
+				self::release_budget_reservation( $storage_reservation );
+				OC_Logger::error( 'AI text-to-image generation threw an exception: ' . $e->getMessage() );
+				return new \WP_Error( 'ai_generation_failed', __( 'The image could not be generated. Please try again.', 'overcustomise' ), [ 'status' => 503 ] );
+			}
+			if ( is_wp_error( $generated ) ) {
+				self::release_budget_reservation( $storage_reservation );
+				if ( 'ai_provider_role_required' === $generated->get_error_code() ) {
+					return $generated;
+				}
+				$status = 'ai_rate_limited' === $generated->get_error_code() ? 429 : ( 'ai_unavailable' === $generated->get_error_code() ? 503 : 422 );
+				return new \WP_Error( 'ai_generation_failed', __( 'The image could not be generated. Please try again.', 'overcustomise' ), [ 'status' => $status ] );
+			}
+			try {
+				$result = OC_Upload_Handler::save_generated_image(
+					is_string( $generated['bytes'] ?? null ) ? $generated['bytes'] : '',
+					is_string( $generated['mime'] ?? null ) ? $generated['mime'] : '',
+					[
+						'product_id'   => $product_id,
+						'variation_id' => $variation_id,
+						'design_id'    => $design_id,
+						'layer_id'     => $layer_id,
+						'token_hash'   => $token ? hash( 'sha256', $token ) : '',
+					],
+					[
+						'kind'             => 'text_to_image',
+						'attempt'          => $attempt,
+						'group'            => $group,
+						'prompt_hash'      => $prompt_hash,
+						'instruction_hash' => $instruction_hash,
+						'model'            => (string) ( $generated['model'] ?? $model ),
+						'provider'         => (string) ( $generated['provider'] ?? $provider ),
+					],
+					! empty( $settings['remove_background'] )
+				);
+			} catch ( \Throwable $e ) {
+				self::release_budget_reservation( $storage_reservation );
+				OC_Logger::error( 'AI-generated image storage threw an exception: ' . $e->getMessage() );
+				return new \WP_Error( 'generated_image_save_failed', __( 'The generated image could not be retained safely.', 'overcustomise' ), [ 'status' => 422 ] );
+			}
+			if ( is_wp_error( $result ) ) {
+				self::release_budget_reservation( $storage_reservation );
+				return new \WP_Error( 'generated_image_save_failed', __( 'The generated image could not be retained safely.', 'overcustomise' ), [ 'status' => 422 ] );
+			}
+			$usage        = OC_Upload_Handler::result_attachment_usage( $result );
+			$actual_bytes = array_sum( $usage );
+			if ( 1 !== count( $usage ) || ! self::reservation_covers_usage( $storage_reservation, 1, $actual_bytes ) || ( '' !== $token && ! self::validate_public_token( $token ) ) ) {
+				OC_Upload_Handler::delete_result_attachments( $result );
+				self::release_budget_reservation( $storage_reservation );
+				return new \WP_Error( 'generated_image_save_failed', __( 'The generated image could not be retained safely.', 'overcustomise' ), [ 'status' => 422 ] );
+			}
+			if ( ! self::finalise_budget_reservation( $storage_reservation, 1, $actual_bytes ) ) {
+				OC_Upload_Handler::delete_result_attachments( $result );
+				self::release_budget_reservation( $storage_reservation );
+				OC_Logger::error( 'AI-generated image storage budget could not be reconciled.' );
+				return new \WP_Error( 'generated_image_save_failed', __( 'The generated image could not be retained safely.', 'overcustomise' ), [ 'status' => 503 ] );
+			}
+			$result['source_attachment_id'] = (int) $result['attachment_id'];
+			$result['prompt_hash']          = $prompt_hash;
+			$result['attempt']              = $attempt;
+			$result['attempt_limit']        = self::MAX_AI_FILTER_ATTEMPTS;
+			$result['retries_remaining']    = self::MAX_AI_FILTER_ATTEMPTS - $attempt;
+			return rest_ensure_response( $result );
+		} finally {
+			self::delete_owned_option( $lock_key, (string) $lock_owner );
+		}
+	}
+
+	/** Return generated results for one actor, prompt, and exact layer context. */
+	private static function ai_image_results( string $group, string $prompt_hash, int $product_id, int $variation_id, int $design_id, int $layer_id, string $token ): array {
+		$ids     = get_posts(
+			[
+				'post_type'      => 'attachment',
+				'post_status'    => [ 'private', 'inherit' ],
+				'posts_per_page' => self::MAX_AI_FILTER_ATTEMPTS,
+				'fields'         => 'ids',
+				'orderby'        => 'ID',
+				'order'          => 'ASC',
+				'meta_key'       => '_oc_ai_filter_group',
+				'meta_value'     => $group,
+			]
+		);
+		$results = [];
+		foreach ( array_map( 'absint', is_array( $ids ) ? $ids : [] ) as $attachment_id ) {
+			if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_ai_generation', true )
+				|| ! hash_equals( $prompt_hash, (string) get_post_meta( $attachment_id, '_oc_ai_prompt_hash', true ) )
+				|| ! OC_Upload_Handler::attachment_is_accepted( $attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token )
+			) {
+				continue;
+			}
+			$url = OC_Upload_Handler::attachment_access_url( $attachment_id );
+			if ( '' === $url ) {
+				continue;
+			}
+			$results[] = [
+				'attachment_id'        => $attachment_id,
+				'source_attachment_id' => $attachment_id,
+				'preview_url'          => $url,
+				'original_url'         => $url,
+				'file_type'            => sanitize_key( (string) get_post_meta( $attachment_id, '_oc_artwork_type', true ) ),
+				'attempt'              => absint( get_post_meta( $attachment_id, '_oc_ai_filter_attempt', true ) ),
+				'prompt_hash'          => $prompt_hash,
+			];
+		}
+		usort( $results, static fn ( array $a, array $b ): int => $a['attempt'] <=> $b['attempt'] );
+		return $results;
+	}
+
 	/** Apply an allowed AI filter and persist the result as owned artwork. */
 	public function apply_image_filter( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		$auth = $this->verify_public_write_auth( $request );
@@ -1899,7 +2197,7 @@ class OC_Rest_API {
 		if ( is_wp_error( $context ) ) {
 			return $context;
 		}
-		$layer = self::public_design_layer( $design_id, $layer_id, [ 'image' ] );
+		$layer = self::public_design_layer( $design_id, $layer_id, [ 'image', 'ai_image' ] );
 		if ( is_wp_error( $layer ) ) {
 			return $layer;
 		}
@@ -2538,6 +2836,112 @@ class OC_Rest_API {
 
 		$result = self::validate_spotify_availability( (string) $request->get_param( 'url' ) );
 		return is_wp_error( $result ) ? $result : rest_ensure_response( $result );
+	}
+
+	/** Proxy a strictly bounded place search without exposing the customer to Nominatim. */
+	public function lookup_location( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$auth = $this->verify_public_write_auth( $request );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+
+		$result = self::find_location( (string) $request->get_param( 'query' ) );
+		if ( is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		$response = new \WP_REST_Response( [ 'result' => $result ], 200 );
+		$response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+		$response->header( 'Pragma', 'no-cache' );
+		$response->header( 'Expires', '0' );
+		$response->header( 'Vary', 'Cookie, Origin' );
+		$response->header( 'X-Robots-Tag', 'noindex, nofollow' );
+		return $response;
+	}
+
+	/** Validate a human-readable place query without silently altering it. */
+	public static function validate_location_query( mixed $query ): bool {
+		if ( ! is_string( $query ) || trim( $query ) !== $query ) {
+			return false;
+		}
+		$length = strlen( $query );
+		return $length >= 2
+			&& $length <= 200
+			&& 1 === preg_match( '//u', $query )
+			&& 0 === preg_match( '/[\x00-\x1F\x7F]/u', $query );
+	}
+
+	/** Fetch and reduce one Nominatim result. The optional flag is for isolated HTTP tests. */
+	public static function find_location( string $query, bool $reserve_rate_limit = true ): array|null|\WP_Error {
+		if ( ! self::validate_location_query( $query ) ) {
+			return new \WP_Error( 'invalid_location_query', __( 'Enter a valid place name.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+
+		if ( $reserve_rate_limit ) {
+			$limit = self::filtered_limit( 'oc_location_lookup_ip_hourly_limit', 30, 1, 1000 );
+			if ( null === $limit ) {
+				return new \WP_Error( 'lookup_unavailable', __( 'Place lookup is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+			}
+			$reservation = self::reserve_request_rate( 'location-lookup', $limit, __( 'Too many place searches. Please try again later.', 'overcustomise' ) );
+			if ( is_wp_error( $reservation ) ) {
+				return $reservation;
+			}
+		}
+
+		$url       = add_query_arg(
+			[
+				'format' => 'jsonv2',
+				'limit'  => 1,
+				'q'      => $query,
+			],
+			'https://nominatim.openstreetmap.org/search'
+		);
+		$site_host = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
+		$response  = wp_safe_remote_get(
+			$url,
+			[
+				'timeout'             => 5,
+				'redirection'         => 0,
+				'limit_response_size' => self::LOCATION_RESPONSE_BYTES,
+				'user-agent'          => 'OverCustomise location lookup (' . $site_host . ')',
+				'headers'             => [ 'Accept' => 'application/json' ],
+			]
+		);
+		if ( is_wp_error( $response ) ) {
+			return new \WP_Error( 'lookup_unavailable', __( 'Place lookup is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+		if ( 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
+			return new \WP_Error( 'lookup_unavailable', __( 'Place lookup is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+
+		$body = wp_remote_retrieve_body( $response );
+		if ( ! is_string( $body ) || strlen( $body ) > self::LOCATION_RESPONSE_BYTES ) {
+			return new \WP_Error( 'invalid_lookup_response', __( 'Place lookup returned an invalid response.', 'overcustomise' ), [ 'status' => 502 ] );
+		}
+		$decoded = json_decode( $body, true );
+		if ( ! is_array( $decoded ) || ! array_is_list( $decoded ) ) {
+			return new \WP_Error( 'invalid_lookup_response', __( 'Place lookup returned an invalid response.', 'overcustomise' ), [ 'status' => 502 ] );
+		}
+		if ( empty( $decoded ) ) {
+			return null;
+		}
+
+		$item         = $decoded[0];
+		$latitude     = is_array( $item ) && is_numeric( $item['lat'] ?? null ) ? (float) $item['lat'] : NAN;
+		$longitude    = is_array( $item ) && is_numeric( $item['lon'] ?? null ) ? (float) $item['lon'] : NAN;
+		$display_name = is_array( $item ) && is_string( $item['display_name'] ?? null ) ? trim( $item['display_name'] ) : '';
+		if ( ! is_finite( $latitude ) || ! is_finite( $longitude ) || $latitude < -90 || $latitude > 90
+			|| $longitude < -180 || $longitude > 180 || '' === $display_name || strlen( $display_name ) > 300
+			|| 1 !== preg_match( '//u', $display_name ) || 1 === preg_match( '/[\x00-\x1F\x7F]/u', $display_name )
+		) {
+			return new \WP_Error( 'invalid_lookup_response', __( 'Place lookup returned an invalid response.', 'overcustomise' ), [ 'status' => 502 ] );
+		}
+
+		return [
+			'latitude'    => round( $latitude, 6 ),
+			'longitude'   => round( $longitude, 6 ),
+			'displayName' => $display_name,
+		];
 	}
 
 	/** Validate Spotify format and public availability, reusing bounded server-side cache state. */

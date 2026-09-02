@@ -7,6 +7,7 @@ import {
 	Textbox,
 	Rect,
 	Circle,
+	Line,
 	Shadow,
 	Pattern,
 	filters as FabricFilters,
@@ -854,7 +855,8 @@ const canvasRendererMethods = {
 				break;
 			}
 
-			case 'image': {
+			case 'image':
+			case 'ai_image': {
 				if ( input.attachmentUrl ) {
 					const imageCrop = Math.max(
 						0,
@@ -1068,6 +1070,107 @@ const canvasRendererMethods = {
 				r._ocContent = true;
 				this.applyContentClip( r, contentClip() );
 				canvas.add( r );
+				break;
+			}
+
+			case 'night_sky': {
+				const geometry = input.nightSkyGeometry;
+				if ( ! geometry || geometry.v !== 1 ) {
+					break;
+				}
+				const color = isEngraving
+					? engravingPalette.text
+					: input.colorHex ||
+					  layer.settings?.default_color ||
+					  '#000000';
+				const rad = ( rotation * Math.PI ) / 180;
+				const point = ( x, y ) => {
+					const dx = ( Number( x ) - 0.5 ) * lw;
+					const dy = ( Number( y ) - 0.5 ) * lh;
+					return {
+						x: lcX + dx * Math.cos( rad ) - dy * Math.sin( rad ),
+						y: lcY + dx * Math.sin( rad ) + dy * Math.cos( rad ),
+					};
+				};
+				const add = ( object ) => {
+					object._ocContent = true;
+					this.applyContentClip( object, contentClip() );
+					canvas.add( object );
+				};
+				( geometry.segments || [] ).forEach( ( segment ) => {
+					const a = point( segment.x1, segment.y1 );
+					const b = point( segment.x2, segment.y2 );
+					add(
+						new Line( [ a.x, a.y, b.x, b.y ], {
+							stroke: color,
+							strokeWidth: Math.max(
+								0.45,
+								Number( segment.w ) * Math.min( lw, lh )
+							),
+							opacity: 0.48,
+							selectable: false,
+							evented: false,
+						} )
+					);
+				} );
+				( geometry.stars || [] ).forEach( ( star ) => {
+					const p = point( star.x, star.y );
+					add(
+						new Circle( {
+							left: p.x,
+							top: p.y,
+							originX: 'center',
+							originY: 'center',
+							radius: Math.max(
+								0.55,
+								Number( star.r ) * Math.min( lw, lh )
+							),
+							fill: color,
+							selectable: false,
+							evented: false,
+						} )
+					);
+				} );
+				( geometry.labels || [] ).forEach( ( label ) => {
+					const p = point( label.x, label.y );
+					add(
+						new FabricText( String( label.text || '' ), {
+							left: p.x,
+							top: p.y,
+							originX: 'center',
+							originY: 'center',
+							angle: rotation,
+							fontFamily: 'sans-serif',
+							fontSize: Math.max(
+								6,
+								Number( label.size ) * Math.min( lw, lh )
+							),
+							fill: color,
+							opacity: 0.78,
+							selectable: false,
+							evented: false,
+						} )
+					);
+				} );
+				if ( geometry.border ) {
+					add(
+						new Circle( {
+							left: lcX,
+							top: lcY,
+							originX: 'center',
+							originY: 'center',
+							radius: Math.max( 1, Math.min( lw, lh ) * 0.48 ),
+							fill: 'transparent',
+							stroke: color,
+							strokeWidth: Math.max(
+								0.6,
+								Math.min( lw, lh ) * 0.0025
+							),
+							selectable: false,
+							evented: false,
+						} )
+					);
+				}
 				break;
 			}
 

@@ -487,6 +487,96 @@ class Test_Cart extends WC_Unit_Test_Case {
 	}
 
 	#[Test]
+	public function linked_ai_images_validate_the_generated_artworks_effective_context(): void {
+		global $wpdb;
+		$user_id = self::factory()->user->create();
+		wp_set_current_user( $user_id );
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_designs',
+			[
+				'name'   => 'Linked AI design',
+				'active' => 1,
+			]
+		);
+		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_design_print_areas',
+			[
+				'design_id' => $design_id,
+				'area_key'  => 'front',
+				'label'     => 'Front',
+			]
+		);
+		$area_id     = (int) $wpdb->insert_id;
+		$instruction = 'Create a blue paper-cut portrait.';
+		$settings    = wp_json_encode(
+			[
+				'link_group'            => 'generated-art',
+				'required'              => true,
+				'ai_prompt_instruction' => $instruction,
+			]
+		);
+		$layer_ids   = [];
+		foreach ( [ 'Front artwork', 'Back artwork' ] as $label ) {
+			$wpdb->insert(
+				$wpdb->prefix . 'oc_design_layers',
+				[
+					'design_id' => $design_id,
+					'area_id'   => $area_id,
+					'type'      => 'ai_image',
+					'label'     => $label,
+					'visible'   => 1,
+					'settings'  => $settings,
+				]
+			);
+			$layer_ids[] = (int) $wpdb->insert_id;
+		}
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_product_assignments',
+			[
+				'product_id' => $this->product->get_id(),
+				'variant_id' => 0,
+				'design_id'  => $design_id,
+			]
+		);
+		OC_Cache::flush_group();
+
+		$attachment_id = $this->create_artwork_attachment( [ $this->product->get_id(), 0, $design_id, $layer_ids[1] ] );
+		$prompt_hash   = hash_hmac( 'sha256', $instruction . "\0Customer description", wp_salt( 'auth' ) );
+		update_post_meta( $attachment_id, '_oc_artwork_user_id', $user_id );
+		update_post_meta( $attachment_id, '_oc_ai_generation', 1 );
+		update_post_meta( $attachment_id, '_oc_ai_prompt_hash', $prompt_hash );
+		update_post_meta( $attachment_id, '_oc_ai_instruction_hash', hash_hmac( 'sha256', $instruction, wp_salt( 'auth' ) ) );
+		$input = [
+			'type'               => 'ai_image',
+			'attachmentId'       => $attachment_id,
+			'sourceAttachmentId' => $attachment_id,
+			'aiPromptHash'       => $prompt_hash,
+		];
+
+		$result = OC_Cart::normalise_v2_layers(
+			$this->product->get_id(),
+			0,
+			$design_id,
+			[
+				$layer_ids[0] => $input,
+				$layer_ids[1] => $input,
+			]
+		);
+		$this->assertNotWPError( $result );
+		$this->assertSame( $attachment_id, $result['layers'][ $layer_ids[0] ]['attachmentId'] );
+		$this->assertSame( $attachment_id, $result['layers'][ $layer_ids[1] ]['attachmentId'] );
+
+		$other_product = WC_Helper_Product::create_simple_product();
+		try {
+			$this->assertFalse( OC_Upload_Handler::authorise_attachment_context( $attachment_id, [ $other_product->get_id(), 0, $design_id, $layer_ids[0] ] ) );
+		} finally {
+			$other_product->delete( true );
+			wp_set_current_user( 0 );
+		}
+	}
+
+	#[Test]
 	public function artwork_from_a_stale_variation_context_is_authorised_for_submission(): void {
 		$user_id       = self::factory()->user->create();
 		$product_id    = $this->product->get_id();

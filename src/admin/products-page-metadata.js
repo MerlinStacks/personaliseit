@@ -2,21 +2,25 @@ export const LAYER_TYPES = {
 	text: { label: 'Text', icon: 'Aa', color: '#0284c7' },
 	textarea: { label: 'Text Area', icon: '\u00b6', color: '#7c3aed' },
 	image: { label: 'Image', icon: '\ud83d\uddbc', color: '#059669' },
+	ai_image: { label: 'AI Image', icon: 'AI', color: '#db2777' },
 	clipmask: { label: 'Clipping Mask', icon: '◯', color: '#0d9488' },
 	mask: { label: 'Mask', icon: '\u25a0', color: '#64748b' },
 	spotify: { label: 'Spotify Code', icon: '\u266b', color: '#1db954' },
 	lineart: { label: 'Line Art', icon: '\u270f', color: '#d97706' },
 	clipart: { label: 'Clipart', icon: '\u2726', color: '#dc2626' },
+	night_sky: { label: 'Night Sky', icon: '\u2606', color: '#4338ca' },
 };
 
 export const LAYER_DEFAULTS = {
 	text: { w: 300, h: 50 },
 	textarea: { w: 300, h: 120 },
 	image: { w: 200, h: 200 },
+	ai_image: { w: 200, h: 200 },
 	clipmask: { w: 200, h: 200 },
 	spotify: { w: 150, h: 150 },
 	lineart: { w: 200, h: 200 },
 	clipart: { w: 150, h: 150 },
+	night_sky: { w: 250, h: 250 },
 };
 
 export function layerIcon( type ) {
@@ -62,6 +66,14 @@ export const LAYER_TABS = {
 		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		{ id: 'properties', label: 'Properties', icon: '\u2699' },
 	],
+	ai_image: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'prompt', label: 'AI / Prompt', icon: 'AI' },
+		{ id: 'file', label: 'Image', icon: '\ud83d\uddbc' },
+		{ id: 'colours', label: 'Colours', icon: '\u25cf' },
+		{ id: 'validation', label: 'Validation', icon: '\u2713' },
+		{ id: 'properties', label: 'Properties', icon: '\u2699' },
+	],
 	clipmask: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'file', label: 'File', icon: '\ud83d\uddbc' },
@@ -83,6 +95,12 @@ export const LAYER_TABS = {
 		{ id: 'library', label: 'Library', icon: '\u2726' },
 		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		{ id: 'properties', label: 'Properties', icon: '\u2699' },
+	],
+	night_sky: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'sky', label: 'Sky', icon: '\u2606' },
+		{ id: 'colours', label: 'Colours', icon: '\u25cf' },
+		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 	],
 };
 

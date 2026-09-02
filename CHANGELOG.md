@@ -1,9 +1,19 @@
 # Changelog
 
-## Unreleased
+## 1.17.0 - 2026-09-02
 
 ### Added
 - Added selectable OpenRouter, direct Google Gemini, and direct OpenAI providers for AI image filters, each with encrypted API-key storage and dynamically discovered compatible models.
+- Added customer-generated AI Image layers with isolated quotas and auditable generation provenance.
+- Added deterministic Night Sky layers with authoritative server-side production geometry and fractional UTC offsets.
+
+### Security
+- Added a same-origin, token-protected and rate-limited place-search proxy.
+- Reject direct OpenAI text-to-image generation when mandatory store instructions cannot be role-separated.
+
+### Fixed
+- Preserve linked AI Image authorization without weakening product, design, layer, or ownership checks.
+- Keep existing AI image-filter quotas independent from text-to-image generation traffic.
 
 ## 1.16.3 - 2026-08-03
 

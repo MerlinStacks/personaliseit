@@ -311,7 +311,9 @@ export function createLayerPreviewRenderer( deps ) {
 			img.src = s.default_attachment_url;
 			img.alt = '';
 			el.appendChild( img );
-		} else if ( layer.type === 'image' || layer.type === 'clipmask' ) {
+		} else if (
+			[ 'image', 'ai_image', 'clipmask' ].includes( layer.type )
+		) {
 			if ( layer.type === 'image' && s.default_attachment_url ) {
 				const img = document.createElement( 'img' );
 				img.className = 'oc-lp oc-lp-media';
@@ -375,12 +377,14 @@ export function createLayerPreviewRenderer( deps ) {
 				spotify: '\u266b',
 				lineart: '\u270f',
 				clipart: '\u2726',
+				night_sky: '\u2606',
 			};
 			const labels = {
 				mask: 'Mask',
 				spotify: 'Spotify Code',
 				lineart: 'Line Art',
 				clipart: 'Clipart',
+				night_sky: 'Night Sky',
 			};
 			const fs = Math.max( 14, Math.min( renderedH * 0.35, 36 ) );
 			const d = document.createElement( 'div' );

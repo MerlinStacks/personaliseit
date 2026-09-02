@@ -36,7 +36,9 @@ const cartSerializationMethods = {
 					}
 				}
 
-				if ( [ 'image', 'clipmask' ].includes( layer.type ) ) {
+				if (
+					[ 'image', 'ai_image', 'clipmask' ].includes( layer.type )
+				) {
 					[
 						'imageFilterResults',
 						'imageFilterAttemptCount',
@@ -47,6 +49,9 @@ const cartSerializationMethods = {
 						'basePreviewAttachmentId',
 						'baseImageMeta',
 					].forEach( ( key ) => delete input[ key ] );
+					delete input.aiDescription;
+					delete input.aiImageResults;
+					delete input.aiImageAttemptCount;
 					const canonicalId = this.canonicalLinkedLayerId( layer.id );
 					const linkedMembers = this.linkedLayerMembers( layer.id );
 					if ( linkedMembers.length > 1 ) {

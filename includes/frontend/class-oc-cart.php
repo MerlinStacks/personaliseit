@@ -636,7 +636,7 @@ class OC_Cart {
 			$active_filters[ (int) $filter->id ] = $filter;
 		}
 		$normalised  = [];
-		$valid_types = [ 'text', 'textarea', 'image', 'clipmask', 'spotify', 'lineart', 'clipart' ];
+		$valid_types = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'spotify', 'lineart', 'clipart', 'night_sky' ];
 
 		foreach ( $design_layers as $layer ) {
 			if ( isset( $layer->visible ) && ! (bool) $layer->visible ) {
@@ -728,8 +728,8 @@ class OC_Cart {
 			if ( $default_attachment && ( ! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment ) || ! str_starts_with( (string) get_post_mime_type( $default_attachment ), 'image/' ) ) ) {
 				$default_attachment = 0;
 			}
-			$attachment_id        = in_array( $type, [ 'image', 'clipmask' ], true ) ? absint( $source['attachmentId'] ?? $default_attachment ) : 0;
-			$source_attachment_id = in_array( $type, [ 'image', 'clipmask' ], true ) ? absint( $source['sourceAttachmentId'] ?? $attachment_id ) : 0;
+			$attachment_id        = in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) ? absint( $source['attachmentId'] ?? $default_attachment ) : 0;
+			$source_attachment_id = in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) ? absint( $source['sourceAttachmentId'] ?? $attachment_id ) : 0;
 			$can_image_change     = ! array_key_exists( 'allow_image_change', $settings ) || ! empty( $settings['allow_image_change'] );
 			if ( ! $editable || ! $can_image_change ) {
 				$attachment_id        = $default_attachment;
@@ -749,8 +749,8 @@ class OC_Cart {
 				return new \WP_Error( 'invalid_attachment', sprintf( __( 'The source artwork for "%s" is not valid for this customisation.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
 			}
 
-			$filter_ids        = 'image' === $type ? array_values( array_intersect( self::id_list( $settings['image_filter_ids'] ?? [] ), array_keys( $active_filters ) ) ) : [];
-			$default_filter    = 'image' === $type ? absint( $settings['default_image_filter_id'] ?? 0 ) : 0;
+			$filter_ids        = in_array( $type, [ 'image', 'ai_image' ], true ) ? array_values( array_intersect( self::id_list( $settings['image_filter_ids'] ?? [] ), array_keys( $active_filters ) ) ) : [];
+			$default_filter    = in_array( $type, [ 'image', 'ai_image' ], true ) ? absint( $settings['default_image_filter_id'] ?? 0 ) : 0;
 			$filter_id         = absint( $source['imageFilterId'] ?? $default_filter );
 			$can_filter_change = ! array_key_exists( 'allow_image_filter_change', $settings ) || ! empty( $settings['allow_image_filter_change'] );
 			if ( ! in_array( $default_filter, $filter_ids, true ) ) {
@@ -760,7 +760,7 @@ class OC_Cart {
 				$filter_id = $default_filter;
 			}
 			$selected_filter = $filter_id ? ( $active_filters[ $filter_id ] ?? null ) : null;
-			$image_crop      = 'image' === $type && $editable && $can_image_change
+			$image_crop      = in_array( $type, [ 'image', 'ai_image' ], true ) && $editable && $can_image_change
 				? max( 0, min( 100, absint( $source['imageCrop'] ?? 0 ) ) )
 				: 0;
 			if ( $filter_id && $selected_filter && 'ai' === (string) $selected_filter->filter_key ) {
@@ -769,6 +769,24 @@ class OC_Cart {
 				if ( $generated_filter_id !== $filter_id || $generated_source_id !== $source_attachment_id ) {
 					/* translators: %s: Personalisation layer label. */
 					return new \WP_Error( 'ai_filter_required', sprintf( __( 'The image effect for "%s" is still processing.', 'overcustomise' ), $layer->label ?: ucfirst( $type ) ) );
+				}
+			}
+			if ( 'ai_image' === $type ) {
+				$prompt_hash              = is_scalar( $source['aiPromptHash'] ?? null ) ? strtolower( (string) $source['aiPromptHash'] ) : '';
+				$generation_attachment_id = $source_attachment_id > 0 ? $source_attachment_id : $attachment_id;
+				$requires_generation      = ! empty( $settings['required'] ) || $attachment_id > 0;
+				$raw_ai_settings          = is_string( $layer->settings ?? null ) ? json_decode( $layer->settings, true ) : ( is_array( $layer->settings ?? null ) ? $layer->settings : [] );
+				$current_instruction      = is_array( $raw_ai_settings ) && is_string( $raw_ai_settings['ai_prompt_instruction'] ?? null ) ? trim( $raw_ai_settings['ai_prompt_instruction'] ) : '';
+				$current_instruction_hash = '' !== $current_instruction ? hash_hmac( 'sha256', $current_instruction, wp_salt( 'auth' ) ) : '';
+				if ( $requires_generation && ( ! $generation_attachment_id || 1 !== (int) get_post_meta( $generation_attachment_id, '_oc_ai_generation', true )
+					|| ! preg_match( '/^[a-f0-9]{64}$/D', $prompt_hash )
+					|| ! hash_equals( $prompt_hash, (string) get_post_meta( $generation_attachment_id, '_oc_ai_prompt_hash', true ) )
+					|| ! preg_match( '/^[a-f0-9]{64}$/D', $current_instruction_hash )
+					|| ! hash_equals( $current_instruction_hash, (string) get_post_meta( $generation_attachment_id, '_oc_ai_instruction_hash', true ) )
+					|| ! OC_Upload_Handler::attachment_context_is_authorised( $generation_attachment_id, [ $product_id, $variation_id, $design_id, $attachment_context_layer_id ] )
+				) ) {
+					/* translators: %s: Personalisation layer label. */
+					return new \WP_Error( 'ai_image_required', sprintf( __( 'Please generate artwork for "%s".', 'overcustomise' ), $layer->label ? $layer->label : ucfirst( $type ) ) );
 				}
 			}
 
@@ -795,10 +813,22 @@ class OC_Cart {
 				}
 			}
 
+			$night_sky = null;
+			if ( 'night_sky' === $type ) {
+				if ( 'embroidery' === ( $methods[ absint( $layer->area_id ?? 0 ) ] ?? '' ) ) {
+					return new \WP_Error( 'unsupported_night_sky', __( 'Night sky artwork is not supported for embroidery.', 'overcustomise' ) );
+				}
+				$night_sky = self::normalise_night_sky_input( $source, $settings );
+				if ( is_wp_error( $night_sky ) ) {
+					return $night_sky;
+				}
+			}
+
 			$filled = match ( $type ) {
 				'text', 'textarea', 'spotify' => '' !== trim( $value ),
-				'image', 'clipmask'            => $attachment_id > 0,
+				'image', 'ai_image', 'clipmask' => $attachment_id > 0,
 				'clipart'                      => $clipart_id > 0,
+				'night_sky'                    => ! empty( $night_sky['nightSkyGeometry']['stars'] ) || ! empty( $night_sky['nightSkyGeometry']['segments'] ),
 				default                        => true,
 			};
 			if ( $editable && ! empty( $settings['required'] ) && ! $filled ) {
@@ -807,6 +837,7 @@ class OC_Cart {
 			}
 
 			$preview_attachment_id   = $attachment_id ? absint( get_post_meta( $attachment_id, '_oc_print_derivative_attachment_id', true ) ) : 0;
+			$prompt_attachment_id    = $source_attachment_id > 0 ? $source_attachment_id : $attachment_id;
 			$normalised[ $layer_id ] = [
 				'type'                => $type,
 				'value'               => $value,
@@ -822,6 +853,7 @@ class OC_Cart {
 				'imageFilterKey'      => $selected_filter ? sanitize_key( (string) $selected_filter->filter_key ) : '',
 				'imageFilterValue'    => $selected_filter ? (float) $selected_filter->value : 0.0,
 				'previewAttachmentId' => $preview_attachment_id,
+				'aiPromptHash'        => 'ai_image' === $type ? (string) get_post_meta( $prompt_attachment_id, '_oc_ai_prompt_hash', true ) : '',
 				'clipartId'           => $clipart_id,
 				'clipartUrl'          => $clipart ? self::clipart_url( (string) $clipart->file_path ) : '',
 				'clipartRecolourable' => $clipart && (bool) $clipart->colour_changeable && 'svg' === strtolower( (string) $clipart->file_type ),
@@ -839,6 +871,9 @@ class OC_Cart {
 				if ( $rendered_font_size >= $rendered_floor && $rendered_font_size <= $rendered_ceiling ) {
 					$normalised[ $layer_id ]['renderedFontSize'] = $rendered_font_size;
 				}
+			}
+			if ( 'night_sky' === $type && is_array( $night_sky ) ) {
+				$normalised[ $layer_id ] = array_merge( $normalised[ $layer_id ], $night_sky );
 			}
 		}
 
@@ -956,14 +991,14 @@ class OC_Cart {
 		$groups = [];
 		foreach ( $layers as $layer ) {
 			$type = sanitize_key( (string) ( $layer->type ?? '' ) );
-			if ( ! in_array( $type, [ 'text', 'textarea', 'image', 'clipart', 'lineart' ], true )
+			if ( ! in_array( $type, [ 'text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky' ], true )
 				|| ( isset( $layer->visible ) && ! (bool) $layer->visible )
 				|| ! empty( $layer->locked )
 			) {
 				continue;
 			}
 			$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
-			if ( 'image' === $type && empty( $settings['enable_image_colour'] ) ) {
+			if ( in_array( $type, [ 'image', 'ai_image' ], true ) && empty( $settings['enable_image_colour'] ) ) {
 				continue;
 			}
 			$group = $settings['colour_link_group'];
@@ -1006,13 +1041,13 @@ class OC_Cart {
 		foreach ( $layers as $layer ) {
 			$type = sanitize_key( (string) ( $layer->type ?? '' ) );
 			if ( ! isset( $normalised[ (int) $layer->id ] )
-				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'clipart', 'lineart' ], true )
+				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky' ], true )
 				|| ! empty( $layer->locked )
 			) {
 				continue;
 			}
 			$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
-			if ( 'image' === $type && empty( $settings['enable_image_colour'] ) ) {
+			if ( in_array( $type, [ 'image', 'ai_image' ], true ) && empty( $settings['enable_image_colour'] ) ) {
 				continue;
 			}
 			if ( '' !== $settings['colour_link_group'] ) {
@@ -1062,6 +1097,68 @@ class OC_Cart {
 		}
 
 		return '';
+	}
+
+	/** Validate observation fields and regenerate authoritative night-sky artwork. */
+	private static function normalise_night_sky_input( array $source, array $settings ): array|\WP_Error {
+		$date           = is_scalar( $source['date'] ?? null ) ? sanitize_text_field( (string) $source['date'] ) : '';
+		$time           = is_scalar( $source['time'] ?? null ) ? sanitize_text_field( (string) $source['time'] ) : '';
+		$location_label = is_scalar( $source['locationLabel'] ?? null ) ? sanitize_text_field( (string) $source['locationLabel'] ) : '';
+		$location_label = self::string_length_static( $location_label ) > 200 ? self::truncate_utf8_static( $location_label, 200 ) : $location_label;
+		$latitude       = is_numeric( $source['latitude'] ?? null ) ? round( (float) $source['latitude'], 6 ) : null;
+		$longitude      = is_numeric( $source['longitude'] ?? null ) ? round( (float) $source['longitude'], 6 ) : null;
+		$utc_offset     = is_numeric( $source['utcOffset'] ?? null ) ? (int) $source['utcOffset'] : 0;
+		if ( '' === $date && '' === $location_label && null === $latitude && null === $longitude ) {
+			return [
+				'date'             => '',
+				'time'             => '',
+				'utcOffset'        => 0,
+				'locationLabel'    => '',
+				'latitude'         => null,
+				'longitude'        => null,
+				'nightSkyLabel'    => '',
+				'nightSkyGeometry' => [
+					'v'               => 1,
+					'coordinateSpace' => 'unit-box-v1',
+					'stars'           => [],
+					'segments'        => [],
+					'labels'          => [],
+					'border'          => ! empty( $settings['show_border'] ),
+				],
+			];
+		}
+
+		$date_valid = preg_match( '/^(\d{4})-(\d{2})-(\d{2})$/', $date, $parts )
+			&& (int) $parts[1] >= 1900 && (int) $parts[1] <= 2100
+			&& checkdate( (int) $parts[2], (int) $parts[3], (int) $parts[1] );
+		$time_valid = preg_match( '/^(\d{2}):(\d{2})$/', $time, $parts ) && (int) $parts[1] <= 23 && (int) $parts[2] <= 59;
+		if ( ! $date_valid || ! $time_valid || null === $latitude || null === $longitude || ! is_finite( $latitude ) || ! is_finite( $longitude ) || $latitude < -90 || $latitude > 90 || $longitude < -180 || $longitude > 180 || $utc_offset < -840 || $utc_offset > 840 || '' === $location_label ) {
+			return new \WP_Error( 'invalid_night_sky', __( 'The night sky place, date or time is invalid.', 'overcustomise' ) );
+		}
+
+		$observation = [
+			'date'          => $date,
+			'time'          => $time,
+			'utcOffset'     => $utc_offset,
+			'locationLabel' => $location_label,
+			'latitude'      => $latitude,
+			'longitude'     => $longitude,
+		];
+		$geometry    = OC_Night_Sky::generate( $observation, $settings );
+		if ( null === $geometry ) {
+			return new \WP_Error( 'invalid_night_sky', __( 'The night sky place, date or time is invalid.', 'overcustomise' ) );
+		}
+
+		return [
+			'date'             => $date,
+			'time'             => $time,
+			'utcOffset'        => $utc_offset,
+			'locationLabel'    => $location_label,
+			'latitude'         => $latitude,
+			'longitude'        => $longitude,
+			'nightSkyLabel'    => OC_Night_Sky::label( $observation ),
+			'nightSkyGeometry' => $geometry,
+		];
 	}
 
 	/** Return the authoritative stored variant ID and label for a selected design. */
@@ -1114,7 +1211,7 @@ class OC_Cart {
 		$line_alignment  = sanitize_key( $string( $value['line_alignment'] ?? 'top', 'top' ) );
 		$mask_shape      = sanitize_key( $string( $value['mask_shape'] ?? 'circle', 'circle' ) );
 		$default_formats = match ( $type ) {
-			'image'    => [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp' ],
+			'image', 'ai_image' => [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp' ],
 			'clipmask' => [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'webp' ],
 			default    => [],
 		};
@@ -1172,6 +1269,10 @@ class OC_Cart {
 			'clipart_display'              => 'carousel' === sanitize_key( $string( $value['clipart_display'] ?? 'grid', 'grid' ) ) ? 'carousel' : 'grid',
 			'link_group'                   => $link_group,
 			'colour_link_group'            => $colour_link_group,
+			'show_constellations'          => $boolean( $value['show_constellations'] ?? true, true ),
+			'show_planets'                 => $boolean( $value['show_planets'] ?? true, true ),
+			'show_labels'                  => $boolean( $value['show_labels'] ?? true, true ),
+			'show_border'                  => $boolean( $value['show_border'] ?? true, true ),
 		];
 	}
 
@@ -1190,6 +1291,18 @@ class OC_Cart {
 
 	private static function string_length_static( string $value ): int {
 		return function_exists( 'mb_strlen' ) ? (int) mb_strlen( $value, 'UTF-8' ) : strlen( $value );
+	}
+
+	/** Truncate valid UTF-8 without splitting a multibyte character. */
+	private static function truncate_utf8_static( string $value, int $length ): string {
+		if ( function_exists( 'mb_substr' ) ) {
+			return mb_substr( $value, 0, $length, 'UTF-8' );
+		}
+		if ( false !== preg_match_all( '/./us', $value, $characters ) ) {
+			return implode( '', array_slice( $characters[0], 0, $length ) );
+		}
+
+		return '';
 	}
 
 	private static function get_allowed_clipart( int $clipart_id, array $group_ids, string $print_method ): ?object {
@@ -1716,6 +1829,7 @@ class OC_Cart {
 				return $html;
 
 			case 'image':
+			case 'ai_image':
 			case 'clipmask':
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
 					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
@@ -1740,6 +1854,11 @@ class OC_Cart {
 
 			case 'lineart':
 				return $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+
+			case 'night_sky':
+				$html        = esc_html( is_scalar( $layer_data['nightSkyLabel'] ?? null ) && '' !== trim( (string) $layer_data['nightSkyLabel'] ) ? (string) $layer_data['nightSkyLabel'] : __( 'Night sky generated', 'overcustomise' ) );
+				$colour_html = $show_colour && $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' ) ? $this->colour_display_value( $layer_data ) : '';
+				return '' !== $colour_html ? $html . ' &mdash; ' . $colour_html : $html;
 
 			default:
 				return '';
@@ -1900,7 +2019,7 @@ class OC_Cart {
 	/** Whether a recolourable image has a customer-selected or linked production colour. */
 	private function image_layer_has_order_colour( array $layer_data, ?object $layer ): bool {
 		$type = sanitize_key( (string) ( $layer_data['type'] ?? $layer->type ?? '' ) );
-		if ( 'image' !== $type || ! sanitize_hex_color( (string) ( $layer_data['colorHex'] ?? '' ) ) ) {
+		if ( ! in_array( $type, [ 'image', 'ai_image' ], true ) || ! sanitize_hex_color( (string) ( $layer_data['colorHex'] ?? '' ) ) ) {
 			return false;
 		}
 		if ( ! empty( $layer_data['colourLinked'] ) ) {
@@ -1909,7 +2028,7 @@ class OC_Cart {
 		if ( ! $layer ) {
 			return false;
 		}
-		$settings = self::normalise_layer_settings( $layer->settings ?? [], 'image' );
+		$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
 		return ! empty( $settings['enable_image_colour'] )
 			&& ( ! empty( $settings['allow_colour_change'] ) || ! empty( $layer_data['colourLinked'] ) || '' !== $settings['colour_link_group'] );
 	}
@@ -2004,15 +2123,17 @@ class OC_Cart {
 		$value = match ( $type ) {
 			'text', 'textarea', 'spotify' => is_scalar( $layer_data['value'] ?? null ) ? sanitize_textarea_field( (string) $layer_data['value'] ) : '',
 			'image', 'clipmask'            => ! empty( $layer_data['attachmentId'] ) ? __( 'Image uploaded', 'overcustomise' ) : '',
+			'ai_image'                     => ! empty( $layer_data['attachmentId'] ) ? __( 'Image generated', 'overcustomise' ) : '',
 			'clipart'                      => ! empty( $layer_data['clipartId'] ) ? __( 'Clipart selected', 'overcustomise' ) : '',
+			'night_sky'                    => is_scalar( $layer_data['nightSkyLabel'] ?? null ) ? sanitize_text_field( (string) $layer_data['nightSkyLabel'] ) : __( 'Night sky generated', 'overcustomise' ),
 			default                        => '',
 		};
 		if ( '' === trim( $value ) && 'lineart' !== $type ) {
 			return '';
 		}
-		$has_colour = in_array( $type, [ 'text', 'textarea', 'spotify', 'clipart', 'lineart' ], true )
+		$has_colour = in_array( $type, [ 'text', 'textarea', 'spotify', 'clipart', 'lineart', 'night_sky' ], true )
 			? $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' )
-			: in_array( $type, [ 'image', 'clipmask' ], true ) && $this->image_layer_has_order_colour( $layer_data, $layer );
+			: in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) && $this->image_layer_has_order_colour( $layer_data, $layer );
 		if ( ! $this->should_display_layer_colour( $print_method, false ) || ! $has_colour ) {
 			return $value;
 		}
