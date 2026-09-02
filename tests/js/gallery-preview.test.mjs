@@ -46,6 +46,10 @@ test( 'gallery previews use a managed blob URL instead of a large data URL', () 
 
 test( 'preview frame does not combine aspect ratio with padding compensation', () => {
 	assert.doesNotMatch( source, /const ratioPadding/ );
+	assert.doesNotMatch(
+		source,
+		/link\.classList\.add\( 'oc-live-preview-frame' \)/
+	);
 	assert.match(
 		source,
 		/galleryItem\.style\.aspectRatio = aspectRatio;[\s\S]*?galleryItem\.style\.paddingBottom = '0';/

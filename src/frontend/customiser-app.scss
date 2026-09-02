@@ -2435,6 +2435,10 @@ img.oc-live-preview-applied {
 	overflow: visible !important;
 }
 
+.oc-live-preview-frame > a {
+	position: static !important;
+}
+
 .oc-live-preview-frame > img.oc-live-preview-applied,
 .oc-live-preview-frame > a > img.oc-live-preview-applied {
 	position: absolute !important;

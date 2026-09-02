@@ -298,17 +298,6 @@ const galleryPreviewMethods = {
 				galleryItem.style.height = 'auto';
 				galleryItem.style.paddingTop = '0';
 				galleryItem.style.paddingBottom = '0';
-
-				const link = img.closest( 'a' );
-				if ( link && galleryItem.contains( link ) ) {
-					const linkState = this.captureGalleryNodeState( link );
-					link.classList.add( 'oc-live-preview-frame' );
-					link.style.aspectRatio = aspectRatio;
-					link.style.height = 'auto';
-					link.style.paddingTop = '0';
-					link.style.paddingBottom = '0';
-					this.recordGalleryNodeState( link, linkState );
-				}
 			}
 			this.recordGalleryNodeState( galleryItem, galleryItemState );
 		}

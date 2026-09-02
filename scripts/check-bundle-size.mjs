@@ -137,11 +137,12 @@ export function budgetFailures( measurements, limits ) {
 async function main() {
 	const buildDirectory = path.resolve( 'assets/build' );
 	const limits = {
-		// Night Sky and AI layers add customer-facing controls to the core entry.
-		// Timezone boundary data remains lazy-loaded and is covered by the total.
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 200_000 ),
+		// Night Sky, AI layers, and native gallery preview support add
+		// customer-facing controls to the core entry. Timezone boundary data
+		// remains lazy-loaded and is covered by the total.
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 202_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 530_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 532_000
 		),
 		uploadEnabledStartup: Number(
 			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 600_000
