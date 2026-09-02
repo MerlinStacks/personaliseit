@@ -1271,7 +1271,6 @@ const galleryPreviewMethods = {
     const imageState = this.captureGalleryNodeState(img);
     const hasDimensions = dimensions?.width && dimensions?.height;
     const aspectRatio = hasDimensions ? `${dimensions.width} / ${dimensions.height}` : '';
-    const ratioPadding = hasDimensions ? `${dimensions.height / dimensions.width * 100}%` : '';
     img.src = dataUrl;
     img.srcset = '';
     img.sizes = '';
@@ -1326,7 +1325,7 @@ const galleryPreviewMethods = {
         galleryItem.style.aspectRatio = aspectRatio;
         galleryItem.style.height = 'auto';
         galleryItem.style.paddingTop = '0';
-        galleryItem.style.paddingBottom = ratioPadding;
+        galleryItem.style.paddingBottom = '0';
         const link = img.closest('a');
         if (link && galleryItem.contains(link)) {
           const linkState = this.captureGalleryNodeState(link);
@@ -1334,13 +1333,56 @@ const galleryPreviewMethods = {
           link.style.aspectRatio = aspectRatio;
           link.style.height = 'auto';
           link.style.paddingTop = '0';
-          link.style.paddingBottom = ratioPadding;
+          link.style.paddingBottom = '0';
           this.recordGalleryNodeState(link, linkState);
         }
       }
       this.recordGalleryNodeState(galleryItem, galleryItemState);
     }
     this.addPreviewDisclaimer(img);
+  },
+  bindPreviewToNativeLightbox(previewSlide) {
+    const previewAnchor = previewSlide?.querySelector('a');
+    const previewImg = previewAnchor?.querySelector('img');
+    if (!previewAnchor || !previewImg || previewAnchor._ocLightboxBound) {
+      return;
+    }
+    previewAnchor._ocLightboxBound = true;
+    previewAnchor.addEventListener('click', event => {
+      const nativeAnchor = Array.from(document.querySelectorAll('.woocommerce-product-gallery__image:not(.oc-live-preview-slide) > a, ' + '.swiper-slide:not(.oc-live-preview-slide) .woocommerce-product-gallery__image > a, ' + '.product-gallery-slider .slide:not(.oc-live-preview-slide) > a')).find(anchor => !anchor.closest('.oc-live-preview-slide'));
+      const nativeImg = nativeAnchor?.querySelector('img');
+      if (!nativeAnchor || !nativeImg) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const linkAttributes = ['href', 'data-src', 'data-size'];
+      const imageAttributes = ['data-large_image', 'data-large-image', 'data-large_image_width', 'data-large_image_height', 'data-large-image-width', 'data-large-image-height', 'data-zoom-image'];
+      const copyAttributes = (target, source, names) => names.map(name => {
+        const original = target.hasAttribute(name) ? target.getAttribute(name) : null;
+        const preview = source.getAttribute(name);
+        if (preview !== null) {
+          target.setAttribute(name, preview);
+        }
+        return [name, original];
+      });
+      const restoreAttributes = (target, attributes) => {
+        attributes.forEach(([name, value]) => {
+          if (value === null) {
+            target.removeAttribute(name);
+          } else {
+            target.setAttribute(name, value);
+          }
+        });
+      };
+      const originalLinkAttributes = copyAttributes(nativeAnchor, previewAnchor, linkAttributes);
+      const originalImageAttributes = copyAttributes(nativeImg, previewImg, imageAttributes);
+      nativeAnchor.click();
+      this.setStateTimeout(() => {
+        restoreAttributes(nativeAnchor, originalLinkAttributes);
+        restoreAttributes(nativeImg, originalImageAttributes);
+      }, 0);
+    });
   },
   refreshFlatsomeGallery() {
     const slider = document.querySelector('.product-gallery-slider');
@@ -1382,6 +1424,7 @@ const galleryPreviewMethods = {
     if (previewImg) {
       this.applyPreviewToImage(previewImg, dataUrl, dimensions);
     }
+    this.bindPreviewToNativeLightbox(previewSlide);
     previewSlide.setAttribute('data-thumb', dataUrl);
     previewSlide.querySelector('a')?.setAttribute('href', dataUrl);
     flickity = this.getFlickityInstance(slider);
@@ -1521,6 +1564,7 @@ const galleryPreviewMethods = {
     if (mainImg) {
       this.applyPreviewToImage(mainImg, dataUrl, dimensions);
     }
+    this.bindPreviewToNativeLightbox(mainPreviewSlide);
     const thumbSliderEl = document.querySelector('.tvpg-thumb-slider');
     const thumbWrapper = thumbSliderEl?.querySelector('.swiper-wrapper');
     if (thumbWrapper) {

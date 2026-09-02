@@ -43,3 +43,20 @@ test( 'gallery previews use a managed blob URL instead of a large data URL', () 
 		/window\.URL\?\.revokeObjectURL\?\.\( this\._galleryPreviewObjectUrl \);/
 	);
 } );
+
+test( 'preview frame does not combine aspect ratio with padding compensation', () => {
+	assert.doesNotMatch( source, /const ratioPadding/ );
+	assert.match(
+		source,
+		/galleryItem\.style\.aspectRatio = aspectRatio;[\s\S]*?galleryItem\.style\.paddingBottom = '0';/
+	);
+} );
+
+test( 'synthetic slides proxy clicks through an existing native lightbox link', () => {
+	assert.match( source, /bindPreviewToNativeLightbox\( previewSlide \);/ );
+	assert.match(
+		source,
+		/bindPreviewToNativeLightbox\( mainPreviewSlide \);/
+	);
+	assert.match( source, /nativeAnchor\.click\(\);/ );
+} );
