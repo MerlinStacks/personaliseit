@@ -28,3 +28,18 @@ test( 'TVPG live preview uses the linked WooCommerce image structure', () => {
 		/'<div class="woocommerce-product-gallery__image">' \+\s*'<a>' \+\s*'<img class="oc-live-preview-image" alt="Custom preview">' \+\s*'<\/a>'/
 	);
 } );
+
+test( 'gallery previews use a managed blob URL instead of a large data URL', () => {
+	assert.match(
+		source,
+		/const galleryUrl = this\.createGalleryPreviewUrl\( dataUrl \);/
+	);
+	assert.match(
+		source,
+		/window\.URL\.createObjectURL\(\s*new Blob\( \[ bytes \], \{ type: match\[ 1 \] \} \)/
+	);
+	assert.match(
+		source,
+		/window\.URL\?\.revokeObjectURL\?\.\( this\._galleryPreviewObjectUrl \);/
+	);
+} );

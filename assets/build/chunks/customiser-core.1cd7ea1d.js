@@ -1,3931 +1,2433 @@
-/******/ (() => { // webpackBootstrap
-/******/ 	"use strict";
-/******/ 	var __webpack_modules__ = ({
+"use strict";
+(globalThis["webpackChunkovercustomise"] = globalThis["webpackChunkovercustomise"] || []).push([["customiser-core"],{
 
-/***/ "./src/admin/products-page-canvas.js"
-/*!*******************************************!*\
-  !*** ./src/admin/products-page-canvas.js ***!
-  \*******************************************/
+/***/ "./src/frontend/customiser/canvas-renderer.js"
+/*!****************************************************!*\
+  !*** ./src/frontend/customiser/canvas-renderer.js ***!
+  \****************************************************/
 (__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   createProductsPageCanvas: () => (/* binding */ createProductsPageCanvas)
-/* harmony export */ });
-/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
-/* harmony import */ var _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./products-page-metadata */ "./src/admin/products-page-metadata.js");
-/* eslint-disable @wordpress/no-unused-vars-before-return */
-
-
-
-function createProductsPageCanvas(deps) {
-  const {
-    addLayerWithBounds,
-    applyLayerPreview,
-    clamp,
-    clampLayerToArea,
-    currentAspectRatio,
-    getAreas,
-    getDesignMaskEntry,
-    getScale,
-    getSelectedIndex,
-    getSelectedLayerIndex,
-    hexRgba,
-    markDirty,
-    normaliseDpi,
-    normaliseRotation,
-    renderAll,
-    renderHiddenFields,
-    renderRatioLockButton,
-    selectedArea,
-    selectedLayer,
-    setSelectedLayerIndex,
-    setVal,
-    snapshot,
-    updateAspectRatio
-  } = deps;
-  let drag = null;
-  let drawState = null;
-  let drawEl = null;
-  let drawPopup = null;
-  let drawModeArea = null;
-  let drawModeButton = null;
-  function renderCanvas() {
-    const stage = document.getElementById('oc-canvas-stage');
-    const noMockup = document.getElementById('oc-canvas-no-mockup');
-    const coords = document.getElementById('oc-canvas-coords');
-    const noMsg = document.getElementById('oc-canvas-no-mockup-msg');
-    if (!stage) {
-      return;
-    }
-    const area = selectedArea();
-    if (!area || !area.mockupUrl) {
-      drawModeArea = null;
-      stage.style.display = 'none';
-      noMockup.style.display = '';
-      if (coords) {
-        coords.style.display = 'none';
-      }
-      if (noMsg) {
-        noMsg.textContent = getAreas().length === 0 ? 'Click \u201c+ Add\u201d on the left to create a print area.' : 'Select a print area and choose its mockup image.';
-      }
-      updateDrawModeControl();
-      return;
-    }
-    noMockup.style.display = 'none';
-    stage.style.display = '';
-    if (coords) {
-      coords.style.display = '';
-    }
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    if (img.getAttribute('src') !== area.mockupUrl) {
-      img.src = area.mockupUrl;
-      img.onload = () => {
-        updateBoundsBox();
-        renderGhosts();
-      };
-    } else {
-      updateBoundsBox();
-      renderGhosts();
-    }
-    const entity = getSelectedLayerIndex() >= 0 ? area.layers[getSelectedLayerIndex()] || area : area;
-    updateCoordsReadout(entity);
-    updateDrawModeControl();
-  }
-  function updateBoundsBox() {
-    const box = document.getElementById('oc-bounds-box');
-    const img = document.getElementById('oc-canvas-mockup-img');
-    const area = selectedArea();
-    if (!box || !img || !area) {
-      if (box) {
-        box.style.display = 'none';
-      }
-      return;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    const layer = selectedLayer();
-    const entity = layer || area;
-    const display = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(entity, layer ? area : null);
-    const color = layer ? (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type) : (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(getSelectedIndex());
-    const isHidden = layer ? !layer.visible : !area.visible;
-    const isLocked = layer ? layer.locked : area.locked;
-    const hideForLocked = !layer && area.locked;
-    box.style.display = isHidden || hideForLocked ? 'none' : '';
-    box.style.opacity = '';
-    pos(box, display, scale, layer ? normaliseRotation(area.rotation) : normaliseRotation(entity.rotation), layer ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area) : null);
-    box.style.borderColor = color;
-    box.style.background = hexRgba(color, 0.12);
-    box.title = layer ? 'Drag to move this layer.' : 'Drag to move this area, or use Draw layer to create a layer.';
-    box.classList.toggle('oc-bounds-box--locked', isLocked);
-    box.classList.toggle('oc-bounds-box--rotatable', !layer);
-    box.querySelectorAll('.oc-bounds-handle').forEach(h => {
-      h.style.borderColor = color;
-    });
-    box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
-      h.style.borderColor = color;
-      h.style.color = color;
-      h.style.display = layer ? 'none' : '';
-    });
-    box.querySelectorAll('.oc-bounds-box-pill').forEach(el => el.remove());
-    const renderedW = Math.round(display.w * scale);
-    const renderedH = Math.round(display.h * scale);
-    applyLayerPreview(layer, box, renderedW, renderedH, false, area.method === 'engraving', area.material);
-    if (layer) {
-      const pill = document.createElement('div');
-      pill.className = 'oc-bounds-box-pill';
-      pill.style.background = color;
-      pill.textContent = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(layer.type) + ' ' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(layer.type);
-      box.appendChild(pill);
-    }
-  }
-  function renderGhosts() {
-    const ghosts = document.getElementById('oc-canvas-ghosts');
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!ghosts || !img) {
-      return;
-    }
-    ghosts.innerHTML = '';
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    const area = selectedArea();
-    const activeMockupId = Number(area?.mockupId) || 0;
-    const activeMockup = area?.mockupUrl || '';
-    getAreas().forEach((a, i) => {
-      const sameMockup = activeMockupId && Number(a.mockupId) ? Number(a.mockupId) === activeMockupId : a.mockupUrl === activeMockup;
-      if (i === getSelectedIndex() || !sameMockup || !activeMockup || !a.visible) {
-        return;
-      }
-      const g = ghost(a, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(i), 0.06);
-      g.appendChild(ghostLabel(a.label || 'Area ' + (i + 1), (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.areaColor)(i)));
-      pos(g, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(a), scale, normaliseRotation(a.rotation));
-      ghosts.appendChild(g);
-    });
-    if (!area) {
-      return;
-    }
-    if (getSelectedLayerIndex() >= 0) {
-      const outline = document.createElement('div');
-      outline.className = 'oc-canvas-area-outline';
-      pos(outline, (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area), scale, normaliseRotation(area.rotation));
-      ghosts.appendChild(outline);
-    }
-    const designMask = getDesignMaskEntry();
-    const previewLayers = (area.layers || []).map((layer, li) => ({
-      area,
-      layer,
-      li
-    })).filter(entry => entry.layer.type !== 'mask');
-    if (designMask) {
-      previewLayers.push({
-        area: designMask.area,
-        layer: designMask.layer,
-        li: -1
-      });
-    }
-    previewLayers.sort((a, b) => Number(a.layer.type === 'mask') - Number(b.layer.type === 'mask')).forEach(({
-      area: layerArea,
-      layer,
-      li
-    }) => {
-      if (li >= 0 && li === getSelectedLayerIndex() || !layer.visible) {
-        return;
-      }
-      const isDesignMask = layer.type === 'mask';
-      const displayLayer = isDesignMask ? {
-        x: 0,
-        y: 0,
-        w: img.naturalWidth || Math.round(img.width / scale),
-        h: img.naturalHeight || Math.round(img.height / scale)
-      } : (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layer, layerArea);
-      const g = ghost(layer, (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type), 0.1);
-      g.classList.add('oc-canvas-layer-ghost');
-      g.appendChild(ghostLabel((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(layer.type) + ' ' + (layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(layer.type)), (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(layer.type)));
-      applyLayerPreview(layer, g, Math.round(displayLayer.w * scale), Math.round(displayLayer.h * scale), true, layerArea.method === 'engraving', layerArea.material);
-      pos(g, displayLayer, scale, isDesignMask ? 0 : normaliseRotation(layerArea.rotation), isDesignMask ? null : (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(layerArea));
-      if (layer.locked && !isDesignMask) {
-        g.style.cursor = 'not-allowed';
-        g.style.opacity = '0.5';
-      } else if (li >= 0) {
-        g.style.cursor = 'pointer';
-        g.addEventListener('click', () => {
-          setSelectedLayerIndex(li);
-          renderAll();
-        });
-      }
-      ghosts.appendChild(g);
-    });
-  }
-  function ghost(entity, color, bgAlpha) {
-    const g = document.createElement('div');
-    g.className = 'oc-canvas-ghost';
-    g.style.borderColor = color;
-    g.style.background = hexRgba(color, bgAlpha);
-    return g;
-  }
-  function ghostLabel(text, color) {
-    const l = document.createElement('span');
-    l.className = 'oc-canvas-ghost-label';
-    l.textContent = text;
-    l.style.color = color;
-    return l;
-  }
-  function pos(el, entity, scale, rotation = 0, area = null) {
-    let cx = entity.x + entity.w / 2;
-    let cy = entity.y + entity.h / 2;
-    if (area && rotation) {
-      const acx = area.x + area.w / 2;
-      const acy = area.y + area.h / 2;
-      const rad = rotation * Math.PI / 180;
-      const dx = cx - acx;
-      const dy = cy - acy;
-      cx = acx + dx * Math.cos(rad) - dy * Math.sin(rad);
-      cy = acy + dx * Math.sin(rad) + dy * Math.cos(rad);
-    }
-    el.style.left = Math.round((cx - entity.w / 2) * scale) + 'px';
-    el.style.top = Math.round((cy - entity.h / 2) * scale) + 'px';
-    el.style.width = Math.round(entity.w * scale) + 'px';
-    el.style.height = Math.round(entity.h * scale) + 'px';
-    el.style.transform = rotation ? 'rotate(' + rotation + 'deg)' : '';
-    el.style.transformOrigin = 'center center';
-  }
-  function updateCoordsReadout(entity) {
-    const el = document.getElementById('oc-coords-text');
-    if (el && entity) {
-      el.textContent = 'X\u2009' + entity.x + '\u2002 Y\u2009' + entity.y + '\u2002 W\u2009' + entity.w + '\u2002 H\u2009' + entity.h + (entity.rotation ? '\u2002 R\u2009' + entity.rotation + '\u00b0' : '');
-    }
-  }
-  function initCanvasInteractions() {
-    initDrawModeControl();
-    document.getElementById('oc-canvas-stage')?.addEventListener('mousedown', routeCanvasMouseDown, true);
-    const box = document.getElementById('oc-bounds-box');
-    if (box) {
-      box.addEventListener('mousedown', e => {
-        if (e.target !== box) {
-          return;
-        }
-        e.preventDefault();
-        e.stopPropagation();
-        startDrag(e, 'move', '');
-      });
-      box.querySelectorAll('.oc-bounds-handle').forEach(h => {
-        h.addEventListener('mousedown', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          startDrag(e, 'resize', h.dataset.dir);
-        });
-      });
-      box.querySelectorAll('.oc-bounds-rotate-handle').forEach(h => {
-        h.addEventListener('mousedown', e => {
-          e.preventDefault();
-          e.stopPropagation();
-          startDrag(e, 'rotate', '');
-        });
-      });
-    }
-    document.addEventListener('mousemove', e => {
-      if (drag) {
-        onDragMove(e);
-        return;
-      }
-      if (drawState) {
-        onDrawMove(e);
-      }
-    });
-    document.addEventListener('mouseup', e => {
-      if (drag) {
-        onDragEnd();
-        return;
-      }
-      if (drawState) {
-        onDrawEnd(e);
-      }
-    });
-    document.addEventListener('keydown', e => {
-      if (e.key !== 'Escape' || drawPopup) {
-        return;
-      }
-      if (drawState) {
-        cancelDraw();
-        e.preventDefault();
-      } else if (drawModeArea) {
-        setDrawMode(false);
-        e.preventDefault();
-      }
-    });
-  }
-  function initDrawModeControl() {
-    const wrap = document.querySelector('.oc-editor-canvas-wrap');
-    if (!wrap) {
-      return;
-    }
-    drawModeButton = document.createElement('button');
-    drawModeButton.type = 'button';
-    drawModeButton.className = 'oc-canvas-draw-toggle';
-    drawModeButton.textContent = 'Draw layer';
-    drawModeButton.setAttribute('aria-pressed', 'false');
-    drawModeButton.addEventListener('click', () => {
-      setDrawMode(drawModeArea !== selectedArea());
-    });
-    wrap.appendChild(drawModeButton);
-    updateDrawModeControl();
-  }
-  function canDrawInArea(area) {
-    return !!(area?.mockupUrl && area.visible && !area.locked && getSelectedLayerIndex() < 0);
-  }
-  function setDrawMode(enabled) {
-    const area = selectedArea();
-    drawModeArea = enabled && canDrawInArea(area) ? area : null;
-    updateDrawModeControl();
-  }
-  function updateDrawModeControl() {
-    const area = selectedArea();
-    const available = canDrawInArea(area);
-    if (drawModeArea && (drawModeArea !== area || !available)) {
-      drawModeArea = null;
-    }
-    const active = !!drawModeArea;
-    if (drawModeButton) {
-      let title = 'Select an unlocked, visible area to draw a layer';
-      if (available) {
-        title = active ? 'Cancel drawing' : 'Draw a layer inside the selected area';
-      }
-      drawModeButton.hidden = !area?.mockupUrl;
-      drawModeButton.disabled = !available;
-      drawModeButton.setAttribute('aria-pressed', active ? 'true' : 'false');
-      drawModeButton.title = title;
-    }
-    document.getElementById('oc-canvas-stage')?.classList.toggle('oc-canvas-stage--draw-mode', active);
-  }
-  function routeCanvasMouseDown(e) {
-    if (e.button !== 0 || !drawModeArea) {
-      return;
-    }
-    if (startDrawRect(e, drawModeArea)) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-    }
-  }
-  function startDrawRect(e, area) {
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return false;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return false;
-    }
-    const rect = img.getBoundingClientRect();
-    const pointX = (e.clientX - rect.left) / scale;
-    const pointY = (e.clientY - rect.top) / scale;
-    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area);
-    if (pointX < bounds.x || pointX > bounds.x + bounds.w || pointY < bounds.y || pointY > bounds.y + bounds.h) {
-      return false;
-    }
-    const sx = clamp(Math.round(pointX), bounds.x, bounds.x + bounds.w);
-    const sy = clamp(Math.round(pointY), bounds.y, bounds.y + bounds.h);
-    drawState = {
-      area,
-      bounds,
-      startX: sx,
-      startY: sy,
-      curX: sx,
-      curY: sy
-    };
-    drawEl = document.createElement('div');
-    drawEl.className = 'oc-canvas-draw-preview';
-    document.getElementById('oc-canvas-stage')?.appendChild(drawEl);
-    updateDrawEl();
-    return true;
-  }
-  function onDrawMove(e) {
-    if (!drawState) {
-      return;
-    }
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    const rect = img.getBoundingClientRect();
-    drawState.curX = clamp(Math.round((e.clientX - rect.left) / scale), drawState.bounds.x, drawState.bounds.x + drawState.bounds.w);
-    drawState.curY = clamp(Math.round((e.clientY - rect.top) / scale), drawState.bounds.y, drawState.bounds.y + drawState.bounds.h);
-    updateDrawEl();
-  }
-  function updateDrawEl() {
-    if (!drawEl || !drawState) {
-      return;
-    }
-    const img = document.getElementById('oc-canvas-mockup-img');
-    if (!img) {
-      return;
-    }
-    const scale = getScale(img);
-    const x = Math.min(drawState.startX, drawState.curX);
-    const y = Math.min(drawState.startY, drawState.curY);
-    const w = Math.abs(drawState.curX - drawState.startX);
-    const h = Math.abs(drawState.curY - drawState.startY);
-    drawEl.style.left = Math.round(x * scale) + 'px';
-    drawEl.style.top = Math.round(y * scale) + 'px';
-    drawEl.style.width = Math.round(w * scale) + 'px';
-    drawEl.style.height = Math.round(h * scale) + 'px';
-  }
-  function onDrawEnd(e) {
-    if (!drawState) {
-      return;
-    }
-    const state = drawState;
-    drawState = null;
-    if (drawEl) {
-      drawEl.remove();
-      drawEl = null;
-    }
-    const x = Math.min(state.startX, state.curX);
-    const y = Math.min(state.startY, state.curY);
-    const w = Math.abs(state.curX - state.startX);
-    const h = Math.abs(state.curY - state.startY);
-    if (w < 10 || h < 10) {
-      return;
-    } // too small — treat as click miss
-    setDrawMode(false);
-    showDrawTypePicker(state.area, x, y, w, h, e.clientX, e.clientY);
-  }
-  function cancelDraw() {
-    drawState = null;
-    if (drawEl) {
-      drawEl.remove();
-      drawEl = null;
-    }
-  }
-  function showDrawTypePicker(area, natX, natY, natW, natH, clientX, clientY) {
-    closeDrawTypePicker();
-    const backdrop = document.createElement('div');
-    backdrop.className = 'oc-draw-popup-backdrop';
-    const popup = document.createElement('div');
-    popup.className = 'oc-draw-type-popup';
-    popup.id = 'oc-draw-type-popup';
-    popup.setAttribute('role', 'dialog');
-    popup.setAttribute('aria-label', 'Choose layer type');
-    popup.setAttribute('aria-modal', 'true');
-    Object.keys(_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_TYPES).forEach(type => {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'oc-draw-type-btn';
-      btn.innerHTML = '<span style="font-size:18px;color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerColor)(type) + ';">' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerIcon)(type) + '</span><span>' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(type) + '</span>';
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        addLayerAt(type, area, natX, natY, natW, natH);
-        closeDrawTypePicker();
-      });
-      popup.appendChild(btn);
-    });
-    document.body.appendChild(backdrop);
-    document.body.appendChild(popup);
-    drawPopup = {
-      popup,
-      backdrop,
-      returnFocus: drawModeButton
-    };
-    window.requestAnimationFrame(() => {
-      if (drawPopup?.popup !== popup) {
-        return;
-      }
-      const pw = popup.offsetWidth,
-        ph = popup.offsetHeight;
-      const vw = window.innerWidth,
-        vh = window.innerHeight;
-      let left = clientX + 8;
-      let top = clientY + 8;
-      if (left + pw > vw - 8) {
-        left = clientX - pw - 8;
-      }
-      if (top + ph > vh - 8) {
-        top = clientY - ph - 8;
-      }
-      popup.style.left = Math.max(8, left) + 'px';
-      popup.style.top = Math.max(8, top) + 'px';
-      popup.querySelector('button')?.focus();
-    });
-    backdrop.addEventListener('click', closeDrawTypePicker);
-    document.addEventListener('keydown', onDrawPickerKey);
-  }
-  function onDrawPickerKey(e) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closeDrawTypePicker();
-    }
-  }
-  function closeDrawTypePicker() {
-    let returnFocus = null;
-    if (drawPopup) {
-      returnFocus = drawPopup.returnFocus;
-      drawPopup.popup.remove();
-      drawPopup.backdrop.remove();
-      drawPopup = null;
-    }
-    document.removeEventListener('keydown', onDrawPickerKey);
-    if (returnFocus?.isConnected && !returnFocus.hidden && !returnFocus.disabled) {
-      returnFocus.focus();
-    }
-  }
-  function addLayerAt(type, area, x, y, w, h) {
-    if (!area || selectedArea() !== area) {
-      return;
-    }
-    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
-    addLayerWithBounds(type, area.x + Math.round((x - area.x) / px), area.y + Math.round((y - area.y) / px), Math.max(1, Math.round(w / px)), Math.max(1, Math.round(h / px)));
-  }
-  function activeEntity() {
-    const area = selectedArea();
-    if (!area) {
-      return null;
-    }
-    const layer = selectedLayer();
-    return layer || area;
-  }
-  function startDrag(e, type, dir) {
-    const entity = activeEntity();
-    if (!entity) {
-      return;
-    }
-    const area = selectedArea();
-    const layer = selectedLayer();
-    if (layer ? layer.locked : area && area.locked) {
-      return;
-    }
-    const unitScale = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
-    const entityScale = layer ? 1 : unitScale;
-    drag = {
-      area,
-      entity,
-      layer,
-      type,
-      dir,
-      startClientX: e.clientX,
-      startClientY: e.clientY,
-      startX: entity.x,
-      startY: entity.y,
-      startW: entity.w,
-      startH: entity.h,
-      startRight: entity.x + entity.w * entityScale,
-      startBottom: entity.y + entity.h * entityScale,
-      unitScale,
-      childGeometry: layer ? [] : (area.layers || []).map(child => ({
-        child,
-        x: child.x,
-        y: child.y,
-        w: child.w,
-        h: child.h
-      }))
-    };
-  }
-  function restoreChildrenFromDrag(area, shouldClamp) {
-    const deltaX = area.x - drag.startX;
-    const deltaY = area.y - drag.startY;
-    drag.childGeometry.forEach(start => {
-      start.child.x = start.x + deltaX;
-      start.child.y = start.y + deltaY;
-      start.child.w = start.w;
-      start.child.h = start.h;
-      if (shouldClamp) {
-        clampLayerToArea(start.child, area);
-      }
-    });
-  }
-  function onDragMove(e) {
-    if (!drag) {
-      return;
-    }
-    const entity = drag.entity;
-    const img = document.getElementById('oc-canvas-mockup-img');
-    const area = drag.area;
-    const layer = drag.layer;
-    if (!entity || !img) {
-      return;
-    }
-    const scale = getScale(img);
-    if (!scale) {
-      return;
-    }
-    if (drag.type === 'rotate') {
-      const rect = img.getBoundingClientRect();
-      const displayArea = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.displayEntity)(area);
-      const cx = rect.left + (displayArea.x + displayArea.w / 2) * scale;
-      const cy = rect.top + (displayArea.y + displayArea.h / 2) * scale;
-      entity.rotation = normaliseRotation(Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI + 90);
-      updateBoundsBox();
-      renderGhosts();
-      updateCoordsReadout(entity);
-      syncRightBounds(entity);
-      renderHiddenFields();
-      return;
-    }
-    const displayDx = (e.clientX - drag.startClientX) / scale;
-    const displayDy = (e.clientY - drag.startClientY) / scale;
-    const unitScale = drag.unitScale;
-    const dx = Math.round(displayDx / (layer ? unitScale : 1));
-    const dy = Math.round(displayDy / (layer ? unitScale : 1));
-    const natW = img.naturalWidth || 2000;
-    const natH = img.naturalHeight || 2000;
-    const d = drag.dir;
-    if (drag.type === 'move') {
-      if (layer) {
-        entity.x = clamp(drag.startX + dx, area.x, area.x + area.w - drag.startW);
-        entity.y = clamp(drag.startY + dy, area.y, area.y + area.h - drag.startH);
-      } else {
-        entity.x = clamp(Math.round(drag.startX + displayDx), 0, Math.max(0, natW - drag.startW * unitScale));
-        entity.y = clamp(Math.round(drag.startY + displayDy), 0, Math.max(0, natH - drag.startH * unitScale));
-        restoreChildrenFromDrag(area, false);
-      }
-    } else if (layer) {
-      let left = drag.startX;
-      let right = drag.startRight;
-      let top = drag.startY;
-      let bottom = drag.startBottom;
-      if (d.includes('e')) {
-        right = clamp(drag.startRight + dx, drag.startX + 1, area.x + area.w);
-      }
-      if (d.includes('s')) {
-        bottom = clamp(drag.startBottom + dy, drag.startY + 1, area.y + area.h);
-      }
-      if (d.includes('w')) {
-        left = clamp(drag.startX + dx, area.x, drag.startRight - 1);
-      }
-      if (d.includes('n')) {
-        top = clamp(drag.startY + dy, area.y, drag.startBottom - 1);
-      }
-      entity.x = left;
-      entity.y = top;
-      entity.w = right - left;
-      entity.h = bottom - top;
-    } else {
-      const maxW = Math.max(1, (d.includes('w') ? drag.startRight : natW - drag.startX) / unitScale);
-      const maxH = Math.max(1, (d.includes('n') ? drag.startBottom : natH - drag.startY) / unitScale);
-      let nw = drag.startW;
-      let nh = drag.startH;
-      if (area.ratioLocked) {
-        const ratio = currentAspectRatio(area);
-        if (d === 'n' || d === 's') {
-          const desiredH = d === 'n' ? drag.startH - displayDy / unitScale : drag.startH + displayDy / unitScale;
-          nh = clamp(Math.round(desiredH), 1, Math.max(1, Math.floor(Math.min(maxH, maxW / ratio))));
-          nw = Math.max(1, Math.round(nh * ratio));
-        } else {
-          const desiredW = d.includes('w') ? drag.startW - displayDx / unitScale : drag.startW + displayDx / unitScale;
-          nw = clamp(Math.round(desiredW), 1, Math.max(1, Math.floor(Math.min(maxW, maxH * ratio))));
-          nh = Math.max(1, Math.round(nw / ratio));
-        }
-      } else {
-        if (d.includes('e')) {
-          nw = clamp(Math.round(drag.startW + displayDx / unitScale), 1, Math.max(1, Math.floor(maxW)));
-        }
-        if (d.includes('w')) {
-          nw = clamp(Math.round(drag.startW - displayDx / unitScale), 1, Math.max(1, Math.floor(maxW)));
-        }
-        if (d.includes('s')) {
-          nh = clamp(Math.round(drag.startH + displayDy / unitScale), 1, Math.max(1, Math.floor(maxH)));
-        }
-        if (d.includes('n')) {
-          nh = clamp(Math.round(drag.startH - displayDy / unitScale), 1, Math.max(1, Math.floor(maxH)));
-        }
-      }
-      entity.x = d.includes('w') ? Math.max(0, Math.round(drag.startRight - nw * unitScale)) : drag.startX;
-      entity.y = d.includes('n') ? Math.max(0, Math.round(drag.startBottom - nh * unitScale)) : drag.startY;
-      entity.w = nw;
-      entity.h = nh;
-      restoreChildrenFromDrag(area, true);
-      if (!area.ratioLocked) {
-        updateAspectRatio(area);
-      }
-    }
-    updateBoundsBox();
-    renderGhosts();
-    updateCoordsReadout(entity);
-    syncRightBounds(entity);
-    renderHiddenFields();
-  }
-  function onDragEnd() {
-    if (drag) {
-      snapshot();
-    } // snapshot after every move/resize
-    drag = null;
-  }
-  function syncBoundsFromInputs(changedId = '') {
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    const layer = changedId.startsWith('oc-layer-') && getSelectedLayerIndex() >= 0 ? area.layers[getSelectedLayerIndex()] : null;
-    const entity = layer || area;
-    const previousAreaX = area.x;
-    const previousAreaY = area.y;
-    const inputPrefix = layer ? 'oc-layer' : 'oc-prop';
-    const readInt = (id, fallback) => {
-      const value = parseInt(document.getElementById(id)?.value || fallback, 10);
-      return Number.isFinite(value) ? value : fallback;
-    };
-    if (changedId === inputPrefix + '-x') {
-      entity.x = Math.max(0, readInt(changedId, entity.x || 0));
-    }
-    if (changedId === inputPrefix + '-y') {
-      entity.y = Math.max(0, readInt(changedId, entity.y || 0));
-    }
-    if (changedId === inputPrefix + '-w') {
-      entity.w = Math.max(1, readInt(changedId, entity.w || 1));
-      if (!layer && area.ratioLocked) {
-        entity.h = Math.max(1, Math.round(entity.w / currentAspectRatio(area)));
-      }
-    }
-    if (changedId === inputPrefix + '-h') {
-      entity.h = Math.max(1, readInt(changedId, entity.h || 1));
-      if (!layer && area.ratioLocked) {
-        entity.w = Math.max(1, Math.round(entity.h * currentAspectRatio(area)));
-      }
-    }
-    if (!layer && !area.ratioLocked && (changedId === 'oc-prop-w' || changedId === 'oc-prop-h')) {
-      updateAspectRatio(area);
-    }
-    if (!layer && changedId === 'oc-prop-dpi') {
-      entity.dpi = normaliseDpi(readInt(changedId, entity.dpi || 300));
-    }
-    if (!layer && changedId === 'oc-prop-rotation') {
-      entity.rotation = normaliseRotation(readInt(changedId, entity.rotation || 0));
-    }
-    if (layer) {
-      clampLayerToArea(layer, area);
-    } else {
-      const deltaX = area.x - previousAreaX;
-      const deltaY = area.y - previousAreaY;
-      if (deltaX || deltaY) {
-        (area.layers || []).forEach(child => {
-          child.x += deltaX;
-          child.y += deltaY;
-        });
-      }
-      if (changedId === 'oc-prop-w' || changedId === 'oc-prop-h') {
-        (area.layers || []).forEach(child => clampLayerToArea(child, area));
-      }
-    }
-    updateBoundsBox();
-    renderGhosts();
-    updateCoordsReadout(entity);
-    renderHiddenFields();
-    markDirty();
-  }
-  function syncRightBounds(entity) {
-    const area = selectedArea();
-    const layer = selectedLayer();
-    const prefix = entity === layer ? 'oc-layer' : 'oc-prop';
-    setVal(prefix + '-x', entity.x);
-    setVal(prefix + '-y', entity.y);
-    setVal(prefix + '-w', entity.w);
-    setVal(prefix + '-h', entity.h);
-    if (entity === area) {
-      setVal('oc-prop-dpi', entity.dpi || 300);
-    }
-    if (entity === area) {
-      renderRatioLockButton(entity);
-    }
-    if (entity === area) {
-      setVal('oc-prop-rotation', normaliseRotation(entity.rotation));
-    }
-  }
-  return {
-    renderCanvas,
-    updateBoundsBox,
-    renderGhosts,
-    initCanvasInteractions,
-    syncBoundsFromInputs,
-    syncRightBounds
-  };
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-compatibility.js"
-/*!**************************************************!*\
-  !*** ./src/admin/products-page-compatibility.js ***!
-  \**************************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   aiImageInstructionIsValid: () => (/* binding */ aiImageInstructionIsValid),
-/* harmony export */   layerTypeSupportsPrintMethod: () => (/* binding */ layerTypeSupportsPrintMethod)
-/* harmony export */ });
-/**
- * Return whether an editor layer can be used with a print method.
- *
- * @param {string} type        Layer type.
- * @param {string} printMethod Print method key.
- */
-function layerTypeSupportsPrintMethod(type, printMethod) {
-  return !(type === 'night_sky' && printMethod === 'embroidery');
-}
-
-/**
- * Return whether an AI Image layer has a usable private instruction.
- *
- * @param {*} value Instruction value.
- */
-function aiImageInstructionIsValid(value) {
-  if (typeof value !== 'string' || value.trim() === '') {
-    return false;
-  }
-  return new TextEncoder().encode(value.trim()).length <= 16384;
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-core.js"
-/*!*****************************************!*\
-  !*** ./src/admin/products-page-core.js ***!
-  \*****************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _products_page_editor__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./products-page-editor */ "./src/admin/products-page-editor.js");
-/**
- * Admin product editor core module.
- *
- * Kept as a small indirection layer so the public products-page entry can stay
- * stable while the editor implementation is split into focused modules.
- */
-
-
-
-/***/ },
-
-/***/ "./src/admin/products-page-data.js"
-/*!*****************************************!*\
-  !*** ./src/admin/products-page-data.js ***!
-  \*****************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   createProductsPageDataNormalisers: () => (/* binding */ createProductsPageDataNormalisers)
-/* harmony export */ });
-function createProductsPageDataNormalisers(deps) {
-  const {
-    nextUid,
-    normaliseAspectRatio,
-    normaliseDpi,
-    normaliseRotation
-  } = deps;
-  function normaliseArea(a, i) {
-    const unit = ['px', 'mm', 'cm', 'in'].includes(a.unit) ? a.unit : 'px';
-    const material = ['glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather'].includes(a.material) ? a.material : 'silver_metal';
-    return {
-      _uid: nextUid(),
-      id: Number(a.id) || 0,
-      label: a.label || '',
-      method: a.method || 'uv',
-      material,
-      unit,
-      mockupId: Number(a.mockupId) || 0,
-      mockupUrl: a.mockupUrl || '',
-      storedMockupId: Number(a.storedMockupId === undefined ? a.mockupId : a.storedMockupId) || 0,
-      x: Number(a.x) || 0,
-      y: Number(a.y) || 0,
-      w: Number(a.w) || 300,
-      h: Number(a.h) || 300,
-      dpi: normaliseDpi(a.dpi),
-      ratioLocked: !!a.ratioLocked,
-      aspectRatio: normaliseAspectRatio(a.aspectRatio, Number(a.w) || 300, Number(a.h) || 300),
-      rotation: normaliseRotation(a.rotation),
-      sortOrder: i,
-      visible: a.visible !== false && a.visible !== 0,
-      locked: !!a.locked
-    };
-  }
-  function normaliseLayer(l) {
-    const type = l.type || 'text';
-    return {
-      _uid: nextUid(),
-      id: Number(l.id) || 0,
-      type,
-      label: l.label || '',
-      x: Number(l.x) || 0,
-      y: Number(l.y) || 0,
-      w: Number(l.w) || 200,
-      h: Number(l.h) || 50,
-      sortOrder: Number(l.sortOrder) || 0,
-      visible: l.visible !== false && l.visible !== 0,
-      locked: !!l.locked,
-      settings: normaliseSettings(type, l.settings)
-    };
-  }
-  function defaultSettings(type) {
-    switch (type) {
-      case 'text':
-        return {
-          default_text: '',
-          char_limit: 0,
-          alignment: 'center',
-          default_font_id: 0,
-          default_font_size: 0,
-          default_color: '#000000',
-          min_font_size: 0,
-          max_font_size: 0,
-          font_groups: [],
-          colour_groups: [],
-          allow_font_change: true,
-          allow_colour_change: true,
-          allow_size_change: false,
-          required: false,
-          link_group: '',
-          colour_link_group: ''
-        };
-      case 'textarea':
-        return {
-          default_text: '',
-          char_limit: 0,
-          alignment: 'center',
-          line_alignment: 'top',
-          default_font_id: 0,
-          default_font_size: 0,
-          default_color: '#000000',
-          min_font_size: 0,
-          max_font_size: 0,
-          font_groups: [],
-          colour_groups: [],
-          allow_font_change: true,
-          allow_colour_change: true,
-          allow_size_change: false,
-          required: false,
-          link_group: '',
-          colour_link_group: ''
-        };
-      case 'image':
-      case 'ai_image':
-        return {
-          formats: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp'],
-          max_size_mb: 10,
-          remove_background: false,
-          image_filter_ids: [],
-          default_image_filter_id: 0,
-          enable_image_colour: false,
-          default_color: '#000000',
-          colour_groups: [],
-          default_attachment_id: 0,
-          default_attachment_url: '',
-          allow_image_change: true,
-          allow_image_filter_change: true,
-          allow_colour_change: true,
-          required: false,
-          link_group: '',
-          colour_link_group: '',
-          ai_prompt_instruction: ''
-        };
-      case 'clipmask':
-        return {
-          formats: ['png', 'jpg', 'jpeg', 'heic', 'heif', 'webp'],
-          max_size_mb: 10,
-          remove_background: false,
-          mask_shape: 'circle',
-          required: false,
-          link_group: ''
-        };
-      case 'mask':
-        return {
-          default_attachment_id: 0,
-          default_attachment_url: '',
-          required: false,
-          link_group: ''
-        };
-      case 'spotify':
-        return {
-          colour_groups: [],
-          required: false,
-          link_group: ''
-        };
-      case 'lineart':
-        return {
-          colour_groups: [],
-          required: false,
-          link_group: '',
-          colour_link_group: ''
-        };
-      case 'clipart':
-        return {
-          clipart_groups: [],
-          default_clipart_id: 0,
-          default_clipart_url: '',
-          default_clipart_recolourable: false,
-          allow_clipart_change: true,
-          required: false,
-          clipart_display: 'grid',
-          link_group: '',
-          colour_link_group: ''
-        };
-      case 'night_sky':
-        return {
-          show_constellations: true,
-          show_planets: true,
-          show_labels: true,
-          show_border: true,
-          default_color: '#000000',
-          colour_groups: [],
-          allow_colour_change: true,
-          required: false,
-          link_group: '',
-          colour_link_group: ''
-        };
-      default:
-        return {
-          required: false,
-          link_group: ''
-        };
-    }
-  }
-  function normaliseSettings(type, existing) {
-    const settings = Object.assign(defaultSettings(type), existing || {});
-    if (type === 'textarea' && !['top', 'center', 'bottom'].includes(settings.line_alignment)) {
-      settings.line_alignment = 'top';
-    }
-    if (type === 'clipart') {
-      settings.clipart_display = settings.clipart_display === 'carousel' ? 'carousel' : 'grid';
-      settings.default_clipart_id = Number(settings.default_clipart_id) || 0;
-      settings.default_clipart_recolourable = !!settings.default_clipart_recolourable;
-      settings.allow_clipart_change = settings.allow_clipart_change !== false;
-    }
-    if (['image', 'mask'].includes(type)) {
-      settings.default_attachment_id = Number(settings.default_attachment_id) || 0;
-      settings.default_attachment_url = settings.default_attachment_url || '';
-    }
-    if (['image', 'ai_image'].includes(type)) {
-      settings.image_filter_ids = Array.isArray(settings.image_filter_ids) ? settings.image_filter_ids.map(Number).filter(Boolean) : [];
-      settings.default_image_filter_id = Number(settings.default_image_filter_id) || 0;
-      if (settings.default_image_filter_id && !settings.image_filter_ids.includes(settings.default_image_filter_id)) {
-        settings.default_image_filter_id = 0;
-      }
-      settings.allow_image_change = settings.allow_image_change !== false;
-      settings.allow_image_filter_change = settings.allow_image_filter_change !== false;
-      settings.enable_image_colour = !!settings.enable_image_colour;
-      settings.allow_colour_change = settings.allow_colour_change !== false;
-      if (type === 'ai_image') {
-        settings.default_attachment_id = 0;
-        settings.default_attachment_url = '';
-        settings.allow_image_change = true;
-        settings.ai_prompt_instruction = String(settings.ai_prompt_instruction || '').slice(0, 16384);
-      }
-    }
-    if (type === 'night_sky') {
-      ['show_constellations', 'show_planets', 'show_labels', 'show_border'].forEach(key => {
-        settings[key] = settings[key] !== false;
-      });
-      settings.allow_colour_change = settings.allow_colour_change !== false;
-    }
-    return settings;
-  }
-  return {
-    normaliseArea,
-    normaliseLayer,
-    defaultSettings,
-    normaliseSettings
-  };
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-editor.js"
-/*!*******************************************!*\
-  !*** ./src/admin/products-page-editor.js ***!
-  \*******************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
-/* harmony import */ var _products_page_settings__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./products-page-settings */ "./src/admin/products-page-settings.js");
-/* harmony import */ var _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./products-page-metadata */ "./src/admin/products-page-metadata.js");
-/* harmony import */ var _products_page_compatibility__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./products-page-compatibility */ "./src/admin/products-page-compatibility.js");
-/* harmony import */ var _products_page_preview__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./products-page-preview */ "./src/admin/products-page-preview.js");
-/* harmony import */ var _products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_5__ = __webpack_require__(/*! ./products-page-hidden-fields */ "./src/admin/products-page-hidden-fields.js");
-/* harmony import */ var _products_page_data__WEBPACK_IMPORTED_MODULE_6__ = __webpack_require__(/*! ./products-page-data */ "./src/admin/products-page-data.js");
-/* harmony import */ var _products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_7__ = __webpack_require__(/*! ./products-page-mockup-picker */ "./src/admin/products-page-mockup-picker.js");
-/* harmony import */ var _products_page_interactions__WEBPACK_IMPORTED_MODULE_8__ = __webpack_require__(/*! ./products-page-interactions */ "./src/admin/products-page-interactions.js");
-/* harmony import */ var _products_page_canvas__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! ./products-page-canvas */ "./src/admin/products-page-canvas.js");
-/* harmony import */ var _products_page_utils__WEBPACK_IMPORTED_MODULE_10__ = __webpack_require__(/*! ./products-page-utils */ "./src/admin/products-page-utils.js");
-/* eslint-disable no-console, no-alert, no-shadow, no-unused-vars, @wordpress/no-unused-vars-before-return */
-
-
-
-
-
-
-
-
-
-
-
-(function () {
-  'use strict';
-
-  let areas = [];
-  let selectedIndex = -1;
-  let selectedLayerIndex = -1;
-  let activeLayerTab = 'general';
-  let uidCounter = 0;
-  let layerDragSrc = -1;
-  const HISTORY_MAX = 25;
-  let history = [];
-  let historyIndex = -1;
-  let isDirty = false;
-  let hasUnsavedChanges = false;
-  let autosaveTimer = null;
-  let lastSavedTime = null;
-  let autosaveError = '';
-  let designId = 0;
-  let dirtyRevision = 0;
-  let autosaveRevision = 0;
-  let autosaveInFlight = false;
-  let autosaveConflict = false;
-  let isHydrated = false;
-  let interactionsInitialised = false;
-  let pendingSubmit = false;
-  let submitRevisionVerified = false;
-  let isSubmitting = false;
-  let maskMediaFrame = null;
-  const autosaveInterval = 30000;
-  function snapshot() {
-    if (historyIndex < history.length - 1) {
-      history = history.slice(0, historyIndex + 1);
-    }
-    history.push(JSON.stringify(areas));
-    if (history.length > HISTORY_MAX) {
-      history.shift();
-    }
-    historyIndex = history.length - 1;
-    updateUndoRedoBtns();
-    markDirty();
-  }
-  function undo() {
-    if (historyIndex <= 0) {
-      return;
-    }
-    historyIndex--;
-    restoreHistory();
-  }
-  function redo() {
-    if (historyIndex >= history.length - 1) {
-      return;
-    }
-    historyIndex++;
-    restoreHistory();
-  }
-  function restoreHistory() {
-    let snapshot;
-    try {
-      snapshot = JSON.parse(history[historyIndex]);
-    } catch (err) {
-      console.warn('[OC] Failed to restore history snapshot:', err);
-      history = [];
-      historyIndex = -1;
-      updateUndoRedoBtns();
-      return;
-    }
-    areas = snapshot;
-    areas.forEach(a => {
-      uidCounter = Math.max(uidCounter, a._uid || 0);
-      (a.layers || []).forEach(l => {
-        uidCounter = Math.max(uidCounter, l._uid || 0);
-      });
-    });
-    if (selectedIndex >= areas.length) {
-      selectedIndex = areas.length - 1;
-    }
-    const area = areas[selectedIndex];
-    if (!area || selectedLayerIndex >= (area.layers || []).length) {
-      selectedLayerIndex = -1;
-    }
-    renderAll();
-    updateUndoRedoBtns();
-    markDirty();
-  }
-  function updateUndoRedoBtns() {
-    const u = document.getElementById('oc-undo-btn');
-    const r = document.getElementById('oc-redo-btn');
-    if (u) {
-      u.disabled = historyIndex <= 0;
-    }
-    if (r) {
-      r.disabled = historyIndex >= history.length - 1;
-    }
-  }
-  function markDirty() {
-    isDirty = true;
-    hasUnsavedChanges = true;
-    submitRevisionVerified = false;
-    dirtyRevision++;
-    updateAutosaveIndicator();
-  }
-  function updateAutosaveIndicator() {
-    const el = document.getElementById('oc-autosave-indicator');
-    if (!el) {
-      return;
-    }
-    if (!isHydrated) {
-      el.textContent = 'Loading saved work\u2026';
-      el.className = 'oc-autosave-indicator';
-    } else if (autosaveError) {
-      el.textContent = autosaveError;
-      el.className = 'oc-autosave-indicator oc-autosave-indicator--error';
-    } else if (isDirty) {
-      el.textContent = 'Unsaved changes';
-      el.className = 'oc-autosave-indicator oc-autosave-indicator--dirty';
-    } else if (lastSavedTime) {
-      const diff = Math.round((Date.now() - lastSavedTime) / 1000);
-      const label = diff < 60 ? diff + 's ago' : Math.floor(diff / 60) + 'm ago';
-      el.textContent = 'Autosaved ' + label;
-      el.className = 'oc-autosave-indicator oc-autosave-indicator--saved';
-    } else {
-      el.textContent = '';
-      el.className = 'oc-autosave-indicator';
-    }
-  }
-  function collectState() {
-    const customType = document.getElementById('oc_custom_type')?.value;
-    const flatRate = Number(document.getElementById('oc_flat_rate')?.value || 0);
-    return {
-      design: {
-        name: document.getElementById('oc_design_name')?.value || '',
-        customType: ['text_only', 'photo_text'].includes(customType) ? customType : 'text_only',
-        flatRate: Number.isFinite(flatRate) ? Math.max(0, flatRate) : 0,
-        active: !!document.getElementById('oc_active')?.checked
-      },
-      areas: areas.map(function (a) {
-        return {
-          id: a.id,
-          label: a.label,
-          method: a.method,
-          material: a.material,
-          unit: a.unit,
-          mockupId: a.mockupId,
-          mockupUrl: a.mockupUrl,
-          storedMockupId: a.storedMockupId,
-          x: a.x,
-          y: a.y,
-          w: a.w,
-          h: a.h,
-          dpi: a.dpi,
-          ratioLocked: a.ratioLocked,
-          aspectRatio: a.aspectRatio,
-          rotation: a.rotation,
-          sortOrder: a.sortOrder,
-          visible: a.visible,
-          locked: a.locked,
-          layers: (a.layers || []).map(function (l) {
-            return {
-              id: l.id,
-              type: l.type,
-              label: l.label,
-              x: l.x,
-              y: l.y,
-              w: l.w,
-              h: l.h,
-              sortOrder: l.sortOrder,
-              visible: l.visible,
-              locked: l.locked,
-              settings: l.settings || {}
-            };
-          })
-        };
-      })
-    };
-  }
-  function applyAutosavedState(savedState) {
-    const savedDesign = savedState.design || {};
-    if (typeof savedDesign.name === 'string') {
-      (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc_design_name', savedDesign.name);
-    }
-    if (['text_only', 'photo_text'].includes(savedDesign.customType)) {
-      (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc_custom_type', savedDesign.customType);
-    }
-    if (Number.isFinite(Number(savedDesign.flatRate))) {
-      (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc_flat_rate', Math.max(0, Number(savedDesign.flatRate)));
-    }
-    const active = document.getElementById('oc_active');
-    if (active && typeof savedDesign.active === 'boolean') {
-      active.checked = savedDesign.active;
-    }
-    areas = (savedState.areas || []).map(function (a, i) {
-      return Object.assign(normaliseArea(a, i), {
-        layers: (a.layers || []).map(normaliseLayer)
-      });
-    });
-    normaliseSharedMockup();
-    normaliseDesignMask();
-    normaliseAreaLayerDefaults();
-    selectedIndex = areas.length > 0 ? 0 : -1;
-    selectedLayerIndex = -1;
-    activeLayerTab = 'general';
-    history = [];
-    historyIndex = -1;
-    snapshot();
-    renderAll();
-  }
-  function doAutosave(force = false) {
-    if (!force && !isDirty || !designId || !isHydrated || autosaveInFlight || autosaveConflict || isSubmitting) {
-      return;
-    }
-    autosaveInFlight = true;
-    const localRevision = dirtyRevision;
-    const expectedRevision = autosaveRevision;
-    const revision = expectedRevision + 1;
-    const state = collectState();
-    let requestStored = false;
-    const body = new URLSearchParams({
-      action: 'oc_autosave_design',
-      nonce: window.ocProductsData?.nonce || '',
-      design_id: designId,
-      revision,
-      expected_revision: expectedRevision,
-      state: JSON.stringify(state)
-    });
-    fetch(window.ocProductsData?.ajaxUrl || '', {
-      method: 'POST',
-      body
-    }).then(function (r) {
-      return r.json().then(function (json) {
-        return {
-          json,
-          ok: r.ok,
-          status: r.status
-        };
-      });
-    }).then(function (response) {
-      const json = response.json;
-      if (!json.success && json.data?.code === 'autosave_conflict') {
-        autosaveConflict = true;
-        autosaveError = json.data.message || 'Newer changes exist in another tab. Reload to continue.';
-        setSubmitEnabled(false);
-        updateAutosaveIndicator();
-        return;
-      }
-      if (!response.ok || !json.success) {
-        throw new Error(json.data?.message || 'HTTP ' + response.status);
-      }
-      if (Number(json.data?.revision) !== revision) {
-        throw new Error('Unexpected autosave revision.');
-      }
-      autosaveRevision = revision;
-      requestStored = true;
-      lastSavedTime = Date.now();
-      autosaveError = '';
-      if (dirtyRevision === localRevision) {
-        isDirty = false;
-      }
-      updateAutosaveIndicator();
-    }).catch(function (err) {
-      console.warn('[OC] Autosave failed:', err);
-      autosaveError = 'Autosave failed';
-      updateAutosaveIndicator();
-    }).finally(function () {
-      autosaveInFlight = false;
-      if (pendingSubmit) {
-        pendingSubmit = false;
-        if (!autosaveConflict && requestStored) {
-          submitRevisionVerified = true;
-          setSubmitEnabled(true);
-          const form = document.getElementById('oc-design-form');
-          form?.requestSubmit();
-          if (!isSubmitting) {
-            submitRevisionVerified = false;
-          }
-        } else if (!autosaveConflict) {
-          setSubmitEnabled(true);
-        }
-      } else if (isDirty && dirtyRevision > localRevision) {
-        doAutosave();
-      }
-    });
-  }
-  function startAutosavePoll() {
-    if (autosaveTimer) {
-      clearInterval(autosaveTimer);
-    }
-    autosaveTimer = setInterval(doAutosave, autosaveInterval);
-  }
-  function stopAutosavePoll() {
-    if (autosaveTimer) {
-      clearInterval(autosaveTimer);
-      autosaveTimer = null;
-    }
-  }
-  function setSubmitEnabled(enabled) {
-    const button = document.getElementById('oc-save-design-btn');
-    if (!button) {
-      return;
-    }
-    button.disabled = !enabled;
-    button.setAttribute('aria-disabled', enabled ? 'false' : 'true');
-  }
-  function setHydrationControlsDisabled(disabled) {
-    ['oc_design_name', 'oc_custom_type', 'oc_flat_rate', 'oc_active'].forEach(id => {
-      const control = document.getElementById(id);
-      if (control) {
-        control.disabled = disabled;
-      }
-    });
-  }
-  function initDesignStateInteractions() {
-    [['oc_design_name', 'input'], ['oc_custom_type', 'change'], ['oc_flat_rate', 'input'], ['oc_active', 'change']].forEach(([id, eventName]) => {
-      document.getElementById(id)?.addEventListener(eventName, markDirty);
-    });
-    document.getElementById('oc-choose-design-mask-btn')?.addEventListener('click', openDesignMaskPicker);
-    document.getElementById('oc-remove-design-mask-btn')?.addEventListener('click', () => {
-      areas.forEach(area => {
-        area.layers = (area.layers || []).filter(layer => layer.type !== 'mask');
-      });
-      selectedLayerIndex = -1;
-      snapshot();
-      renderAll();
-    });
-  }
-  function finishHydration() {
-    isHydrated = true;
-    setHydrationControlsDisabled(false);
-    if (!interactionsInitialised) {
-      initInteractions();
-      initDesignStateInteractions();
-      interactionsInitialised = true;
-    }
-    setSubmitEnabled(!autosaveConflict);
-    if (designId > 0) {
-      startAutosavePoll();
-    }
-    updateAutosaveIndicator();
-  }
-  function handleDesignSubmit(event) {
-    if (!isHydrated) {
-      event.preventDefault();
-      autosaveError = 'Wait for the design to finish loading.';
-      updateAutosaveIndicator();
-      return;
-    }
-    for (let areaIndex = 0; areaIndex < areas.length; areaIndex++) {
-      const layers = areas[areaIndex].layers || [];
-      const layerIndex = layers.findIndex(layer => layer.type === 'ai_image' && !(0,_products_page_compatibility__WEBPACK_IMPORTED_MODULE_3__.aiImageInstructionIsValid)(layer.settings?.ai_prompt_instruction));
-      if (layerIndex >= 0) {
-        event.preventDefault();
-        selectedIndex = areaIndex;
-        selectedLayerIndex = layerIndex;
-        activeLayerTab = 'prompt';
-        renderAll();
-        document.getElementById('oc-set-ai-prompt-instruction')?.focus();
-        window.alert('Add a required admin instruction to the highlighted AI Image layer before saving.');
-        return;
-      }
-    }
-    if (autosaveConflict) {
-      event.preventDefault();
-      window.alert('A newer autosave exists from another tab. Reload this design before saving.');
-      return;
-    }
-    if (designId > 0 && !submitRevisionVerified) {
-      event.preventDefault();
-      pendingSubmit = true;
-      setSubmitEnabled(false);
-      if (!autosaveInFlight) {
-        doAutosave(true);
-      }
-      return;
-    }
-    submitRevisionVerified = false;
-    isSubmitting = true;
-    renderHiddenFields();
-    stopAutosavePoll();
-  }
-  function init() {
-    const data = window.ocProductsData || {};
-    designId = Number(data.designId || 0);
-    setHydrationControlsDisabled(true);
-    setSubmitEnabled(false);
-    updateAutosaveIndicator();
-    document.getElementById('oc-design-form')?.addEventListener('submit', handleDesignSubmit);
-    window.addEventListener('beforeunload', event => {
-      if (hasUnsavedChanges && !isSubmitting) {
-        event.preventDefault();
-        event.returnValue = '';
-      }
-    });
-    if (designId > 0) {
-      const body = new URLSearchParams({
-        action: 'oc_restore_autosave',
-        nonce: data.nonce,
-        design_id: designId
-      });
-      fetch(data.ajaxUrl, {
-        method: 'POST',
-        body
-      }).then(function (r) {
-        return r.json();
-      }).then(function (json) {
-        if (json.success && json.data && json.data.state) {
-          autosaveRevision = Math.max(0, Number(json.data.revision) || 0);
-          const ts = json.data.timestamp || 0;
-          const diff = Math.round((Date.now() - ts * 1000) / 1000);
-          const mins = Math.max(1, Math.floor(diff / 60));
-          const msg = 'You have unsaved changes from ' + mins + ' minute' + (mins > 1 ? 's' : '') + ' ago. Restore?';
-          if (window.confirm(msg)) {
-            applyAutosavedState(json.data.state);
-            finishHydration();
-            return;
-          }
-        }
-        loadDefaultData();
-      }).catch(loadDefaultData);
-    } else {
-      loadDefaultData();
-    }
-  }
-  function loadDefaultData() {
-    const data = window.ocProductsData || {};
-    const layersByAreaId = {};
-    (data.layers || []).forEach(l => {
-      const aid = Number(l.areaId);
-      if (!layersByAreaId[aid]) {
-        layersByAreaId[aid] = [];
-      }
-      layersByAreaId[aid].push(normaliseLayer(l));
-    });
-    areas = (data.areas || []).map((a, i) => ({
-      ...normaliseArea(a, i),
-      layers: layersByAreaId[Number(a.id)] || []
-    }));
-    normaliseSharedMockup();
-    normaliseDesignMask();
-    const defaultsChanged = normaliseAreaLayerDefaults();
-    selectedIndex = areas.length > 0 ? 0 : -1;
-    renderAll();
-    snapshot(); // seed initial history state
-    isDirty = defaultsChanged;
-    hasUnsavedChanges = defaultsChanged;
-    autosaveError = '';
-    finishHydration();
-  }
-  const {
-    normaliseArea,
-    normaliseLayer,
-    defaultSettings,
-    normaliseSettings
-  } = (0,_products_page_data__WEBPACK_IMPORTED_MODULE_6__.createProductsPageDataNormalisers)({
-    nextUid: () => ++uidCounter,
-    normaliseAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.normaliseAspectRatio,
-    normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
-    normaliseRotation: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.normaliseRotation
-  });
-  function selectedArea() {
-    return areas[selectedIndex] || null;
-  }
-  function selectedLayer() {
-    const area = selectedArea();
-    return area && selectedLayerIndex >= 0 ? area.layers[selectedLayerIndex] || null : null;
-  }
-  function designMaskEntry() {
-    let fallback = null;
-    for (const [areaIndex, area] of areas.entries()) {
-      for (const [layerIndex, layer] of (area.layers || []).entries()) {
-        if (layer.type !== 'mask') {
-          continue;
-        }
-        const entry = {
-          area,
-          areaIndex,
-          layer,
-          layerIndex
-        };
-        fallback = fallback || entry;
-        if (layer.settings?.default_attachment_id && layer.settings?.default_attachment_url) {
-          return entry;
-        }
-      }
-    }
-    return fallback;
-  }
-  function normaliseDesignMask() {
-    const selectedMask = designMaskEntry();
-    if (selectedMask) {
-      selectedMask.layer.visible = true;
-    }
-    selectedLayerIndex = -1;
-  }
-  function openDesignMaskPicker() {
-    if (!areas.length) {
-      window.alert('Add a print area before choosing a design mask.');
-      return;
-    }
-    if (!window.wp?.media) {
-      window.alert('Media library is not available.');
-      return;
-    }
-    if (!maskMediaFrame) {
-      maskMediaFrame = window.wp.media({
-        title: 'Select Design Mask',
-        button: {
-          text: 'Use as Design Mask'
-        },
-        library: {
-          type: 'image'
-        },
-        multiple: false
-      });
-      maskMediaFrame.on('select', () => {
-        const attachment = maskMediaFrame.state().get('selection').first()?.toJSON();
-        if (!attachment) {
-          return;
-        }
-        const url = attachment.url || attachment.sizes?.full?.url || attachment.originalImageURL || '';
-        const mime = String(attachment.mime || '').toLowerCase();
-        const isSupportedMask = ['image/png', 'image/x-png', 'image/svg+xml', 'image/webp'].includes(mime) || /\.(?:png|svg|webp)(?:[?#]|$)/i.test(attachment.filename || url);
-        if (!isSupportedMask || !url) {
-          window.alert('Please select a PNG, SVG, or WebP image.');
-          return;
-        }
-        const existingMask = designMaskEntry();
-        let mask = existingMask?.layer;
-        if (mask) {
-          areas.forEach(area => {
-            area.layers = (area.layers || []).filter(layer => layer.type !== 'mask' || layer === mask);
-          });
-        }
-        if (!mask) {
-          const area = areas[0];
-          mask = {
-            _uid: ++uidCounter,
-            id: 0,
-            type: 'mask',
-            label: 'Design Mask',
-            x: area.x,
-            y: area.y,
-            w: area.w,
-            h: area.h,
-            sortOrder: area.layers.length,
-            visible: true,
-            locked: false,
-            settings: defaultSettings('mask')
-          };
-          area.layers.push(mask);
-        }
-        mask.settings.default_attachment_id = Number(attachment.id) || 0;
-        mask.settings.default_attachment_url = url;
-        mask.visible = true;
-        snapshot();
-        renderAll();
-      });
-    }
-    maskMediaFrame.open();
-  }
-  const applyLayerPreview = (0,_products_page_preview__WEBPACK_IMPORTED_MODULE_4__.createLayerPreviewRenderer)({
-    fontLimit: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.fontLimit,
-    layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
-    normaliseHex: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.normaliseHex
-  });
-  const openMockupPicker = (0,_products_page_mockup_picker__WEBPACK_IMPORTED_MODULE_7__.createMockupPicker)({
-    getAreas: () => areas,
-    getSelectedIndex: () => selectedIndex,
-    renderAll,
-    snapshot
-  });
-  const {
-    initInteractions,
-    addLayerWithBounds
-  } = (0,_products_page_interactions__WEBPACK_IMPORTED_MODULE_8__.createProductsPageInteractions)({
-    addArea: area => areas.push(area),
-    clampLayerToArea: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.clampLayerToArea,
-    commitChange,
-    defaultSettings,
-    getAreas: () => areas,
-    getSelectedIndex: () => selectedIndex,
-    getSelectedLayerIndex: () => selectedLayerIndex,
-    initCanvasInteractions: (...args) => initCanvasInteractions(...args),
-    markDirty,
-    normaliseLayerDefaults: (...args) => normaliseLayerDefaults(...args),
-    normaliseArea,
-    normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
-    normaliseUnit: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseUnit,
-    nextUid: () => ++uidCounter,
-    openMockupPicker,
-    redo,
-    renderAll,
-    renderGhosts: (...args) => renderGhosts(...args),
-    renderRatioLockButton,
-    selectedArea,
-    setSelectedIndex: index => {
-      selectedIndex = index;
-    },
-    setSelectedLayerIndex: index => {
-      selectedLayerIndex = index;
-    },
-    snapshot,
-    syncBoundsFromInputs: (...args) => syncBoundsFromInputs(...args),
-    undo,
-    updateAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.updateAspectRatio,
-    updateBoundsBox: (...args) => updateBoundsBox(...args)
-  });
-  const {
-    renderCanvas,
-    updateBoundsBox,
-    renderGhosts,
-    initCanvasInteractions,
-    syncBoundsFromInputs,
-    syncRightBounds
-  } = (0,_products_page_canvas__WEBPACK_IMPORTED_MODULE_9__.createProductsPageCanvas)({
-    addLayerWithBounds,
-    applyLayerPreview,
-    clamp: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.clamp,
-    clampLayerToArea: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.clampLayerToArea,
-    currentAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.currentAspectRatio,
-    getAreas: () => areas,
-    getDesignMaskEntry: designMaskEntry,
-    getScale: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.getScale,
-    getSelectedIndex: () => selectedIndex,
-    getSelectedLayerIndex: () => selectedLayerIndex,
-    hexRgba: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.hexRgba,
-    markDirty,
-    normaliseDpi: _shared_render_math__WEBPACK_IMPORTED_MODULE_0__.normaliseDpi,
-    normaliseRotation: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.normaliseRotation,
-    renderAll,
-    renderHiddenFields,
-    renderRatioLockButton,
-    selectedArea,
-    selectedLayer,
-    setSelectedLayerIndex: index => {
-      selectedLayerIndex = index;
-    },
-    setVal: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal,
-    snapshot,
-    updateAspectRatio: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.updateAspectRatio
-  });
-  const {
-    buildTabContent,
-    bindSettingsHandlers,
-    normaliseLayerDefaults
-  } = (0,_products_page_settings__WEBPACK_IMPORTED_MODULE_1__.createProductsPageSettings)({
-    commitChange,
-    esc: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc,
-    fontLimit: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.fontLimit,
-    getAreas: () => areas,
-    layerLabel: _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel,
-    normaliseHex: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.normaliseHex,
-    normaliseLinkGroup: _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.normaliseLinkGroup,
-    renderLayerList,
-    selectedArea,
-    syncBoundsFromInputs
-  });
-  function normaliseAreaLayerDefaults() {
-    let changed = false;
-    areas.forEach(area => {
-      (area.layers || []).forEach(layer => {
-        changed = normaliseLayerDefaults(layer, area) || changed;
-      });
-    });
-    return changed;
-  }
-  function normaliseSharedMockup() {
-    const shared = areas.find(area => area.mockupId && area.mockupUrl) || areas.find(area => area.mockupId || area.mockupUrl);
-    if (!shared) {
-      return;
-    }
-    areas.forEach(area => {
-      area.mockupId = shared.mockupId;
-      area.mockupUrl = shared.mockupUrl;
-      if (area.storedMockupId === undefined) {
-        area.storedMockupId = area.mockupId;
-      }
-    });
-  }
-  function renderDesignMask() {
-    const mask = designMaskEntry()?.layer || null;
-    const url = mask?.settings?.default_attachment_url || '';
-    const thumb = document.getElementById('oc-design-mask-thumb-img');
-    const empty = document.getElementById('oc-design-mask-empty');
-    const remove = document.getElementById('oc-remove-design-mask-btn');
-    const choose = document.getElementById('oc-choose-design-mask-btn');
-    if (thumb) {
-      thumb.src = url;
-      thumb.style.display = url ? '' : 'none';
-    }
-    if (empty) {
-      empty.style.display = url ? 'none' : '';
-    }
-    if (remove) {
-      remove.style.display = mask ? '' : 'none';
-    }
-    if (choose) {
-      choose.disabled = !areas.length;
-      const label = mask ? 'Change design mask' : 'Choose design mask';
-      choose.setAttribute('aria-label', label);
-      choose.setAttribute('title', label);
-    }
-  }
-  function renderAll() {
-    renderAreasList();
-    renderAreaStrip();
-    renderLeftAreaProps();
-    renderDesignMask();
-    renderCanvas();
-    renderRightColumn();
-    renderHiddenFields();
-  }
-  function commitChange(options = {}) {
-    if (options.all) {
-      renderAll();
-    } else {
-      if (options.areasList) {
-        renderAreasList();
-      }
-      if (options.areaStrip) {
-        renderAreaStrip();
-      }
-      if (options.canvas) {
-        renderCanvas();
-      }
-      if (options.rightColumn) {
-        renderRightColumn();
-      }
-      if (options.hiddenFields !== false) {
-        renderHiddenFields();
-      }
-    }
-    markDirty();
-  }
-  function renderAreaStrip() {
-    const strip = document.getElementById('oc-area-strip');
-    if (!strip) {
-      return;
-    }
-    if (areas.length === 0) {
-      strip.style.display = 'none';
-      return;
-    }
-    strip.style.display = '';
-    strip.innerHTML = '';
-    areas.forEach((area, i) => {
-      const card = document.createElement('div');
-      card.className = 'oc-area-strip-card' + (i === selectedIndex ? ' oc-area-strip-card--active' : '') + (!area.visible ? ' oc-area-strip-card--hidden' : '');
-      const thumb = document.createElement('div');
-      thumb.className = 'oc-area-strip-thumb';
-      if (area.mockupUrl) {
-        const img = new window.Image();
-        img.src = area.mockupUrl;
-        img.draggable = false;
-        thumb.appendChild(img);
-      } else {
-        thumb.style.background = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(i);
-      }
-      const lbl = document.createElement('span');
-      lbl.className = 'oc-area-strip-label';
-      lbl.textContent = area.label || 'Area ' + (i + 1);
-      card.appendChild(thumb);
-      card.appendChild(lbl);
-      card.addEventListener('click', () => {
-        if (area.locked) {
-          return;
-        } // locked areas can't be selected from strip
-        selectedIndex = i;
-        selectedLayerIndex = -1;
-        activeLayerTab = 'general';
-        renderAll();
-      });
-      strip.appendChild(card);
-    });
-  }
-  function renderAreasList() {
-    const list = document.getElementById('oc-areas-list');
-    const empty = document.getElementById('oc-areas-empty');
-    if (!list) {
-      return;
-    }
-    list.innerHTML = '';
-    if (areas.length === 0) {
-      if (empty) {
-        empty.style.display = '';
-      }
-      return;
-    }
-    if (empty) {
-      empty.style.display = 'none';
-    }
-    areas.forEach((area, i) => {
-      const item = document.createElement('div');
-      item.className = 'oc-area-item' + (i === selectedIndex ? ' oc-area-item--active' : '') + (!area.visible ? ' oc-layer--hidden' : '') + (area.locked ? ' oc-layer--locked' : '');
-      item.innerHTML = '<span class="oc-area-dot" style="background:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(i) + ';flex-shrink:0;"></span>' + '<span class="oc-area-item-name">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)(area.label || 'Print Area ' + (i + 1)) + '</span>' + '<span class="oc-area-item-method">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)((0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.methodLabel)(area.method)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!area.visible ? ' is-off' : '') + '" title="' + (area.visible ? 'Hide area' : 'Show area') + '">' + (area.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (area.locked ? ' is-on' : '') + '" title="' + (area.locked ? 'Unlock area' : 'Lock area') + '">' + (area.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete area">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
-      item.addEventListener('click', e => {
-        if (e.target.closest('.oc-layer-actions')) {
-          return;
-        }
-        if (area.locked) {
-          return;
-        } // locked areas can't be selected from list
-        selectedIndex = i;
-        selectedLayerIndex = -1;
-        activeLayerTab = 'general';
-        renderAll();
-      });
-      item.querySelector('.oc-layer-vis-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        area.visible = !area.visible;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-lock-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        area.locked = !area.locked;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        if (!window.confirm('Remove this print area and all its layers?')) {
-          return;
-        }
-        const mask = (area.layers || []).find(layer => layer.type === 'mask');
-        const nextArea = areas.find((candidate, ai) => ai !== i);
-        if (nextArea) {
-          const survivorMasks = areas.flatMap((candidate, ai) => ai === i ? [] : (candidate.layers || []).filter(layer => layer.type === 'mask'));
-          if (mask && survivorMasks.length) {
-            survivorMasks.forEach(survivor => {
-              survivor.settings = {
-                ...mask.settings
-              };
-              survivor.visible = true;
-            });
-          } else if (mask) {
-            mask.id = 0;
-            nextArea.layers.push(mask);
-          }
-          const survivorHasMockup = areas.some((candidate, ai) => ai !== i && Number(candidate.storedMockupId) === Number(area.mockupId));
-          if (area.mockupId && !survivorHasMockup) {
-            nextArea.storedMockupId = area.mockupId;
-          }
-        }
-        areas.splice(i, 1);
-        if (selectedIndex === i) {
-          selectedIndex = areas.length > 0 ? Math.min(i, areas.length - 1) : -1;
-        } else if (selectedIndex > i) {
-          selectedIndex--;
-        }
-        selectedLayerIndex = -1;
-        snapshot();
-        renderAll();
-      });
-      list.appendChild(item);
-    });
-  }
-  function renderLeftAreaProps() {
-    const noSel = document.getElementById('oc-area-no-sel');
-    const inner = document.getElementById('oc-area-props-inner');
-    const area = selectedArea();
-    if (!area) {
-      if (noSel) {
-        noSel.style.display = '';
-      }
-      if (inner) {
-        inner.style.display = 'none';
-      }
-      return;
-    }
-    if (noSel) {
-      noSel.style.display = 'none';
-    }
-    if (inner) {
-      inner.style.display = '';
-    }
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-label', area.label);
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-method', area.method);
-    const methodSelect = document.getElementById('oc-prop-method');
-    methodSelect?.querySelectorAll('option').forEach(option => {
-      const incompatibleLayer = (area.layers || []).find(layer => !(0,_products_page_compatibility__WEBPACK_IMPORTED_MODULE_3__.layerTypeSupportsPrintMethod)(layer.type, option.value));
-      option.disabled = !!incompatibleLayer;
-      option.title = incompatibleLayer ? `${(0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(incompatibleLayer.type)} is not supported for ${(0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.methodLabel)(option.value)}.` : '';
-    });
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-engraving-material', area.material || 'silver_metal');
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-unit', area.unit || 'px');
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-x', area.x);
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-y', area.y);
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-w', area.w);
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-h', area.h);
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-dpi', area.dpi || 300);
-    (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.setVal)('oc-prop-rotation', area.rotation);
-    renderRatioLockButton(area);
-    const thumb = document.getElementById('oc-mockup-thumb-img');
-    const noThumb = document.getElementById('oc-mockup-thumb-empty');
-    const removeBtn = document.getElementById('oc-remove-mockup-btn');
-    const chooseBtn = document.getElementById('oc-choose-mockup-btn');
-    const dot = document.getElementById('oc-right-area-color');
-    if (area.mockupUrl) {
-      if (thumb) {
-        thumb.src = area.mockupUrl;
-        thumb.style.display = '';
-      }
-      if (noThumb) {
-        noThumb.style.display = 'none';
-      }
-    } else {
-      if (thumb) {
-        thumb.style.display = 'none';
-      }
-      if (noThumb) {
-        noThumb.style.display = '';
-      }
-    }
-    if (removeBtn) {
-      removeBtn.style.display = area.mockupUrl ? '' : 'none';
-    }
-    if (chooseBtn) {
-      const chooseLabel = area.mockupUrl ? 'Change Mockup' : 'Choose Mockup';
-      chooseBtn.setAttribute('aria-label', chooseLabel);
-      chooseBtn.setAttribute('title', chooseLabel);
-    }
-    if (dot) {
-      dot.style.background = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.areaColor)(selectedIndex);
-    }
-    const materialWrap = document.getElementById('oc-prop-engraving-material-wrap');
-    if (materialWrap) {
-      materialWrap.style.display = area.method === 'engraving' ? '' : 'none';
-    }
-  }
-  function renderRatioLockButton(area) {
-    const btn = document.getElementById('oc-prop-ratio-lock');
-    if (!btn || !area) {
-      return;
-    }
-    btn.innerHTML = area.ratioLocked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK;
-    btn.classList.toggle('is-on', !!area.ratioLocked);
-    btn.setAttribute('aria-pressed', area.ratioLocked ? 'true' : 'false');
-    btn.setAttribute('aria-label', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio');
-    btn.setAttribute('title', area.ratioLocked ? 'Unlock aspect ratio' : 'Lock aspect ratio');
-  }
-  function renderRightColumn() {
-    const area = selectedArea();
-    const layer = selectedLayer();
-    const hint = document.getElementById('oc-type-picker-hint');
-    if (hint) {
-      hint.style.display = area ? 'none' : '';
-    }
-    document.querySelectorAll('.oc-layer-type-btn').forEach(btn => {
-      const supported = !!area && (0,_products_page_compatibility__WEBPACK_IMPORTED_MODULE_3__.layerTypeSupportsPrintMethod)(btn.dataset.type, area.method);
-      btn.disabled = !supported;
-      btn.style.opacity = supported ? '' : '.4';
-      const unavailableMessage = area ? `${(0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(btn.dataset.type)} is not supported for ${(0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.methodLabel)(area.method)}.` : 'Select a print area first.';
-      btn.title = supported ? '' : unavailableMessage;
-      btn.setAttribute('aria-label', supported ? `Add ${(0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(btn.dataset.type)} layer` : unavailableMessage);
-    });
-    renderLayerList(area);
-    const noSel = document.getElementById('oc-layer-no-sel');
-    const inner = document.getElementById('oc-layer-props-inner');
-    if (!layer) {
-      if (noSel) {
-        noSel.style.display = '';
-      }
-      if (inner) {
-        inner.style.display = 'none';
-      }
-    } else {
-      if (noSel) {
-        noSel.style.display = 'none';
-      }
-      if (inner) {
-        inner.style.display = '';
-      }
-      renderLayerPanel(layer);
-    }
-  }
-  function renderLayerList(area) {
-    const listEl = document.getElementById('oc-layers-list');
-    const noArea = document.getElementById('oc-layers-no-area');
-    const emptyEl = document.getElementById('oc-layers-empty');
-    const countEl = document.getElementById('oc-layers-count');
-    if (!listEl) {
-      return;
-    }
-    listEl.innerHTML = '';
-    if (!area) {
-      if (noArea) {
-        noArea.style.display = '';
-      }
-      if (emptyEl) {
-        emptyEl.style.display = 'none';
-      }
-      if (countEl) {
-        countEl.textContent = '';
-      }
-      return;
-    }
-    if (noArea) {
-      noArea.style.display = 'none';
-    }
-    const layers = (area.layers || []).map((layer, index) => ({
-      layer,
-      index
-    })).filter(entry => entry.layer.type !== 'mask');
-    if (countEl) {
-      countEl.textContent = layers.length + (1 === layers.length ? ' layer' : ' layers');
-    }
-    if (layers.length === 0) {
-      if (emptyEl) {
-        emptyEl.style.display = '';
-      }
-      return;
-    }
-    if (emptyEl) {
-      emptyEl.style.display = 'none';
-    }
-    layers.forEach(entry => {
-      const {
-        layer,
-        index: li
-      } = entry;
-      const item = document.createElement('div');
-      item.className = 'oc-layer-item' + (li === selectedLayerIndex ? ' oc-layer-item--active' : '') + (!layer.visible ? ' oc-layer--hidden' : '') + (layer.locked ? ' oc-layer--locked' : '');
-      item.draggable = true;
-      item.dataset.layerIndex = li;
-      item.innerHTML = '<span class="oc-layer-drag-handle" title="Drag to reorder">\u22ee\u22ee</span>' + '<span class="oc-layer-icon" style="color:' + (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerColor)(layer.type) + ';">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)((0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerIcon)(layer.type)) + '</span>' + '<span class="oc-layer-item-name">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)(layer.label || (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(layer.type)) + '</span>' + '<div class="oc-layer-actions">' + '<button type="button" class="oc-layer-action-btn oc-layer-vis-btn' + (!layer.visible ? ' is-off' : '') + '" title="' + (layer.visible ? 'Hide layer' : 'Show layer') + '">' + (layer.visible ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_EYE_OFF) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-lock-btn' + (layer.locked ? ' is-on' : '') + '" title="' + (layer.locked ? 'Unlock layer' : 'Lock layer') + '">' + (layer.locked ? _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_LOCK : _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_UNLOCK) + '</button>' + '<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete layer">' + _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.ICO_BIN + '</button>' + '</div>';
-      item.addEventListener('click', e => {
-        if (e.target.closest('.oc-layer-actions') || e.target.classList.contains('oc-layer-drag-handle')) {
-          return;
-        }
-        if (layer.locked) {
-          return;
-        } // locked layers can't be selected from list
-        selectedLayerIndex = li;
-        renderAll();
-      });
-      item.querySelector('.oc-layer-vis-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        layer.visible = !layer.visible;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-lock-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        layer.locked = !layer.locked;
-        snapshot();
-        renderAll();
-      });
-      item.querySelector('.oc-layer-delete-btn').addEventListener('click', e => {
-        e.stopPropagation();
-        if (!window.confirm('Remove this layer?')) {
-          return;
-        }
-        area.layers.splice(li, 1);
-        if (selectedLayerIndex === li) {
-          selectedLayerIndex = -1;
-        } else if (selectedLayerIndex > li) {
-          selectedLayerIndex--;
-        }
-        snapshot();
-        renderAll();
-      });
-      item.addEventListener('dragstart', e => {
-        layerDragSrc = li;
-        e.dataTransfer.effectAllowed = 'move';
-        setTimeout(() => item.classList.add('oc-layer-item--dragging'), 0);
-      });
-      item.addEventListener('dragend', () => {
-        layerDragSrc = -1;
-        listEl.querySelectorAll('.oc-layer-item--dragging, .oc-layer-item--drag-over').forEach(el => {
-          el.classList.remove('oc-layer-item--dragging', 'oc-layer-item--drag-over');
-        });
-      });
-      item.addEventListener('dragover', e => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'move';
-        if (Number(item.dataset.layerIndex) !== layerDragSrc) {
-          listEl.querySelectorAll('.oc-layer-item--drag-over').forEach(el => el.classList.remove('oc-layer-item--drag-over'));
-          item.classList.add('oc-layer-item--drag-over');
-        }
-      });
-      item.addEventListener('drop', e => {
-        e.preventDefault();
-        const targetIdx = Number(item.dataset.layerIndex);
-        if (layerDragSrc < 0 || layerDragSrc === targetIdx) {
-          return;
-        }
-        const moved = area.layers.splice(layerDragSrc, 1)[0];
-        area.layers.splice(targetIdx, 0, moved);
-        if (selectedLayerIndex === layerDragSrc) {
-          selectedLayerIndex = targetIdx;
-        } else if (layerDragSrc < targetIdx && selectedLayerIndex > layerDragSrc && selectedLayerIndex <= targetIdx) {
-          selectedLayerIndex--;
-        } else if (layerDragSrc > targetIdx && selectedLayerIndex >= targetIdx && selectedLayerIndex < layerDragSrc) {
-          selectedLayerIndex++;
-        }
-        snapshot();
-        renderAll();
-      });
-      listEl.appendChild(item);
-    });
-  }
-  function renderLayerPanel(layer) {
-    const iconEl = document.getElementById('oc-layer-type-icon');
-    const lblEl = document.getElementById('oc-layer-type-label');
-    const dotEl = document.getElementById('oc-layer-color-dot');
-    if (iconEl) {
-      iconEl.textContent = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerIcon)(layer.type);
-    }
-    if (lblEl) {
-      lblEl.textContent = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerLabel)(layer.type);
-    }
-    if (dotEl) {
-      dotEl.style.background = (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.layerColor)(layer.type);
-    }
-    const tabs = _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.LAYER_TABS[layer.type] || _products_page_metadata__WEBPACK_IMPORTED_MODULE_2__.LAYER_TABS.text;
-    if (!tabs.some(t => t.id === activeLayerTab)) {
-      activeLayerTab = 'general';
-    }
-    const settingsEl = document.getElementById('oc-layer-settings');
-    if (!settingsEl) {
-      return;
-    }
-    let html = '<div class="oc-layer-tabs-bar">';
-    tabs.forEach(t => {
-      html += '<button type="button" class="oc-layer-tab' + (t.id === activeLayerTab ? ' oc-layer-tab--active' : '') + '" data-tab="' + t.id + '" title="' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)(t.label) + '" aria-label="' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)(t.label) + '"><span aria-hidden="true">' + (0,_products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc)(t.icon || t.label.charAt(0)) + '</span></button>';
-    });
-    html += '</div>';
-    tabs.forEach(t => {
-      html += '<div class="oc-layer-tab-panel' + (t.id === activeLayerTab ? ' oc-layer-tab-panel--active' : '') + '" data-panel="' + t.id + '">';
-      html += buildTabContent(t.id, layer);
-      html += '</div>';
-    });
-    settingsEl.innerHTML = html;
-    settingsEl.querySelectorAll('.oc-layer-tab').forEach(btn => {
-      btn.addEventListener('click', () => {
-        activeLayerTab = btn.dataset.tab;
-        settingsEl.querySelectorAll('.oc-layer-tab').forEach(b => b.classList.toggle('oc-layer-tab--active', b.dataset.tab === activeLayerTab));
-        settingsEl.querySelectorAll('.oc-layer-tab-panel').forEach(p => p.classList.toggle('oc-layer-tab-panel--active', p.dataset.panel === activeLayerTab));
-      });
-    });
-    bindSettingsHandlers(layer);
-  }
-  function renderHiddenFields() {
-    (0,_products_page_hidden_fields__WEBPACK_IMPORTED_MODULE_5__.renderProductsPageHiddenFields)(areas, _products_page_utils__WEBPACK_IMPORTED_MODULE_10__.esc);
-  }
-  document.addEventListener('DOMContentLoaded', init);
-})();
-
-/***/ },
-
-/***/ "./src/admin/products-page-hidden-fields.js"
-/*!**************************************************!*\
-  !*** ./src/admin/products-page-hidden-fields.js ***!
-  \**************************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   renderProductsPageHiddenFields: () => (/* binding */ renderProductsPageHiddenFields)
-/* harmony export */ });
-function renderProductsPageHiddenFields(areas, esc) {
-  const c = document.getElementById('oc-hidden-fields');
-  if (!c) {
-    return;
-  }
-  let html = '';
-  areas.forEach((area, i) => {
-    const p = 'oc_design_areas[' + i + ']';
-    html += '<input type="hidden" name="' + p + '[id]"                   value="' + esc(area.id) + '">' + '<input type="hidden" name="' + p + '[label]"                value="' + esc(area.label) + '">' + '<input type="hidden" name="' + p + '[print_method]"         value="' + esc(area.method) + '">' + '<input type="hidden" name="' + p + '[engraving_material]"   value="' + esc(area.material || 'silver_metal') + '">' + '<input type="hidden" name="' + p + '[canvas_unit]"           value="' + esc(area.unit || 'px') + '">' + '<input type="hidden" name="' + p + '[mockup_attachment_id]" value="' + esc(area.storedMockupId === undefined ? area.mockupId : area.storedMockupId) + '">' + '<input type="hidden" name="' + p + '[canvas_x]"             value="' + esc(area.x) + '">' + '<input type="hidden" name="' + p + '[canvas_y]"             value="' + esc(area.y) + '">' + '<input type="hidden" name="' + p + '[canvas_w]"             value="' + esc(area.w) + '">' + '<input type="hidden" name="' + p + '[canvas_h]"             value="' + esc(area.h) + '">' + '<input type="hidden" name="' + p + '[canvas_dpi]"           value="' + esc(area.dpi || 300) + '">' + '<input type="hidden" name="' + p + '[canvas_rotation]"      value="' + esc(area.rotation) + '">' + '<input type="hidden" name="' + p + '[sort_order]"           value="' + esc(i) + '">' + '<input type="hidden" name="' + p + '[visible]"              value="' + esc(area.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"               value="' + esc(area.locked ? '1' : '0') + '">';
-  });
-  let li = 0;
-  areas.forEach((area, areaIdx) => {
-    (area.layers || []).forEach((layer, sort) => {
-      const p = 'oc_layers[' + li + ']';
-      html += '<input type="hidden" name="' + p + '[id]"         value="' + esc(layer.id) + '">' + '<input type="hidden" name="' + p + '[area_index]" value="' + esc(areaIdx) + '">' + '<input type="hidden" name="' + p + '[type]"       value="' + esc(layer.type) + '">' + '<input type="hidden" name="' + p + '[label]"      value="' + esc(layer.label) + '">' + '<input type="hidden" name="' + p + '[x]"          value="' + esc(layer.x) + '">' + '<input type="hidden" name="' + p + '[y]"          value="' + esc(layer.y) + '">' + '<input type="hidden" name="' + p + '[w]"          value="' + esc(layer.w) + '">' + '<input type="hidden" name="' + p + '[h]"          value="' + esc(layer.h) + '">' + '<input type="hidden" name="' + p + '[sort_order]" value="' + esc(sort) + '">' + '<input type="hidden" name="' + p + '[visible]"    value="' + esc(layer.visible ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[locked]"     value="' + esc(layer.locked ? '1' : '0') + '">' + '<input type="hidden" name="' + p + '[settings]"   value="' + esc(JSON.stringify(layer.settings || {})) + '">';
-      li++;
-    });
-  });
-  c.innerHTML = html;
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-interactions.js"
-/*!*************************************************!*\
-  !*** ./src/admin/products-page-interactions.js ***!
-  \*************************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   createProductsPageInteractions: () => (/* binding */ createProductsPageInteractions)
-/* harmony export */ });
-/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ../shared/render-math */ "./src/shared/render-math.js");
-/* harmony import */ var _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ./products-page-metadata */ "./src/admin/products-page-metadata.js");
-/* harmony import */ var _products_page_compatibility__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./products-page-compatibility */ "./src/admin/products-page-compatibility.js");
-/* eslint-disable @wordpress/no-global-active-element, no-alert */
-
-
-
-
-function createProductsPageInteractions(deps) {
-  const {
-    addArea,
-    clampLayerToArea,
-    commitChange,
-    defaultSettings,
-    getAreas,
-    getSelectedIndex,
-    getSelectedLayerIndex,
-    initCanvasInteractions,
-    markDirty,
-    normaliseArea,
-    normaliseDpi,
-    normaliseLayerDefaults,
-    normaliseUnit,
-    nextUid,
-    openMockupPicker,
-    redo,
-    renderAll,
-    renderGhosts,
-    renderRatioLockButton,
-    selectedArea,
-    setSelectedIndex,
-    setSelectedLayerIndex,
-    snapshot,
-    syncBoundsFromInputs,
-    undo,
-    updateAspectRatio,
-    updateBoundsBox
-  } = deps;
-  function initInteractions() {
-    document.getElementById('oc-add-area-btn')?.addEventListener('click', () => {
-      const currentArea = getAreas()[getSelectedIndex()] || getAreas()[0] || {};
-      addArea({
-        ...normaliseArea({
-          id: 0,
-          label: 'Print Area ' + (getAreas().length + 1),
-          method: currentArea.method,
-          material: currentArea.material,
-          unit: currentArea.unit,
-          mockupId: currentArea.mockupId,
-          mockupUrl: currentArea.mockupUrl,
-          storedMockupId: currentArea.mockupId,
-          dpi: currentArea.dpi,
-          visible: true,
-          locked: false
-        }, getAreas().length),
-        layers: []
-      });
-      setSelectedIndex(getAreas().length - 1);
-      setSelectedLayerIndex(-1);
-      snapshot();
-      renderAll();
-    });
-    document.querySelectorAll('.oc-layer-type-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (getSelectedIndex() >= 0 && btn.dataset.type) {
-          addLayer(btn.dataset.type);
-        }
-      });
-    });
-    document.getElementById('oc-prop-label')?.addEventListener('input', () => {
-      const area = selectedArea();
-      if (area) {
-        area.label = document.getElementById('oc-prop-label').value;
-        commitChange({
-          areasList: true,
-          areaStrip: true
-        });
-      }
-    });
-    document.getElementById('oc-prop-method')?.addEventListener('change', () => {
-      const area = selectedArea();
-      if (area) {
-        const methodSelect = document.getElementById('oc-prop-method');
-        const nextMethod = methodSelect.value;
-        const incompatibleLayer = (area.layers || []).find(layer => !(0,_products_page_compatibility__WEBPACK_IMPORTED_MODULE_2__.layerTypeSupportsPrintMethod)(layer.type, nextMethod));
-        if (incompatibleLayer) {
-          methodSelect.value = area.method;
-          window.alert(`${(0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(incompatibleLayer.type)} is not supported for this print method. Remove the layer before changing the print method.`);
-          return;
-        }
-        area.method = nextMethod;
-        if (area.method === 'engraving' && !area.material) {
-          area.material = 'silver_metal';
-        }
-        (area.layers || []).forEach(layer => normaliseLayerDefaults(layer, area));
-        commitChange({
-          all: true
-        });
-      }
-    });
-    document.getElementById('oc-prop-engraving-material')?.addEventListener('change', () => {
-      const area = selectedArea();
-      if (area) {
-        area.material = document.getElementById('oc-prop-engraving-material').value;
-        commitChange();
-      }
-    });
-    document.getElementById('oc-prop-unit')?.addEventListener('change', () => {
-      const area = selectedArea();
-      if (area) {
-        area.unit = normaliseUnit(document.getElementById('oc-prop-unit').value);
-        updateBoundsBox();
-        renderGhosts();
-        commitChange();
-      }
-    });
-    document.getElementById('oc-prop-dpi')?.addEventListener('input', () => {
-      const area = selectedArea();
-      if (area) {
-        area.dpi = normaliseDpi(document.getElementById('oc-prop-dpi').value);
-        updateBoundsBox();
-        renderGhosts();
-        commitChange();
-      }
-    });
-    document.getElementById('oc-prop-ratio-lock')?.addEventListener('click', () => {
-      const area = selectedArea();
-      if (area) {
-        area.ratioLocked = !area.ratioLocked;
-        updateAspectRatio(area);
-        renderRatioLockButton(area);
-        markDirty();
-      }
-    });
-    ['oc-prop-x', 'oc-prop-y', 'oc-prop-w', 'oc-prop-h', 'oc-prop-rotation'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => {
-        syncBoundsFromInputs(id);
-      });
-    });
-    ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
-    });
-    document.getElementById('oc-choose-mockup-btn')?.addEventListener('click', openMockupPicker);
-    document.getElementById('oc-remove-mockup-btn')?.addEventListener('click', () => {
-      if (getAreas().length) {
-        getAreas().forEach(area => {
-          area.mockupId = 0;
-          area.mockupUrl = '';
-          area.storedMockupId = 0;
-        });
-        snapshot();
-        renderAll();
-      }
-    });
-    document.getElementById('oc-undo-btn')?.addEventListener('click', undo);
-    document.getElementById('oc-redo-btn')?.addEventListener('click', redo);
-    document.getElementById('oc-canvas-stage')?.addEventListener('click', e => {
-      if (e.target === document.getElementById('oc-canvas-stage') || e.target === document.getElementById('oc-canvas-mockup-img') || e.target === document.getElementById('oc-canvas-ghosts')) {
-        if (getSelectedLayerIndex() >= 0) {
-          setSelectedLayerIndex(-1);
-          renderAll();
-        }
-      }
-    });
-    document.addEventListener('keydown', e => {
-      const tag = document.activeElement?.tagName?.toLowerCase();
-      if (tag === 'input' || tag === 'textarea' || tag === 'select') {
-        return;
-      }
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'z' && !e.shiftKey) {
-          e.preventDefault();
-          undo();
-        }
-        if (e.key === 'z' && e.shiftKey) {
-          e.preventDefault();
-          redo();
-        }
-        if (e.key === 'y') {
-          e.preventDefault();
-          redo();
-        }
-      }
-    });
-    window.addEventListener('resize', () => {
-      if (getSelectedIndex() >= 0) {
-        updateBoundsBox();
-        renderGhosts();
-      }
-    });
-    document.getElementById('oc-canvas-mockup-img')?.addEventListener('load', () => {
-      updateBoundsBox();
-      renderGhosts();
-    });
-    initCanvasInteractions();
-  }
-  function addLayer(type) {
-    const area = selectedArea();
-    if (!area || !(0,_products_page_compatibility__WEBPACK_IMPORTED_MODULE_2__.layerTypeSupportsPrintMethod)(type, area.method)) {
-      return;
-    }
-    const def = _products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.LAYER_DEFAULTS[type] || {
-      w: 200,
-      h: 100
-    };
-    const px = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_0__.unitPxScale)(area);
-    const lw = Math.max(1, Math.round(def.w / px));
-    const lh = Math.max(1, Math.round(def.h / px));
-    const lx = area.x + Math.max(0, Math.round((area.w - lw) / 2));
-    const ly = area.y + Math.max(0, Math.round((area.h - lh) / 2));
-    addLayerWithBounds(type, lx, ly, lw, lh);
-  }
-  function createLayer(type, area, x, y, w, h) {
-    const layer = {
-      _uid: nextUid(),
-      id: 0,
-      type,
-      label: (0,_products_page_metadata__WEBPACK_IMPORTED_MODULE_1__.layerLabel)(type) + ' ' + (area.layers.length + 1),
-      x,
-      y,
-      w,
-      h,
-      visible: true,
-      locked: false,
-      settings: defaultSettings(type),
-      sortOrder: area.layers.length
-    };
-    clampLayerToArea(layer, area);
-    return layer;
-  }
-  function addLayerWithBounds(type, x, y, w, h) {
-    const area = selectedArea();
-    if (!area) {
-      return;
-    }
-    area.layers.push(createLayer(type, area, x, y, w, h));
-    setSelectedLayerIndex(area.layers.length - 1);
-    snapshot();
-    renderAll();
-  }
-  return {
-    initInteractions,
-    addLayerWithBounds
-  };
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-metadata.js"
-/*!*********************************************!*\
-  !*** ./src/admin/products-page-metadata.js ***!
-  \*********************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   AREA_COLORS: () => (/* binding */ AREA_COLORS),
-/* harmony export */   ICO_BIN: () => (/* binding */ ICO_BIN),
-/* harmony export */   ICO_EYE: () => (/* binding */ ICO_EYE),
-/* harmony export */   ICO_EYE_OFF: () => (/* binding */ ICO_EYE_OFF),
-/* harmony export */   ICO_LOCK: () => (/* binding */ ICO_LOCK),
-/* harmony export */   ICO_UNLOCK: () => (/* binding */ ICO_UNLOCK),
-/* harmony export */   LAYER_DEFAULTS: () => (/* binding */ LAYER_DEFAULTS),
-/* harmony export */   LAYER_TABS: () => (/* binding */ LAYER_TABS),
-/* harmony export */   LAYER_TYPES: () => (/* binding */ LAYER_TYPES),
-/* harmony export */   areaColor: () => (/* binding */ areaColor),
-/* harmony export */   layerColor: () => (/* binding */ layerColor),
-/* harmony export */   layerIcon: () => (/* binding */ layerIcon),
-/* harmony export */   layerLabel: () => (/* binding */ layerLabel)
-/* harmony export */ });
-const LAYER_TYPES = {
-  text: {
-    label: 'Text',
-    icon: 'Aa',
-    color: '#0284c7'
-  },
-  textarea: {
-    label: 'Text Area',
-    icon: '\u00b6',
-    color: '#7c3aed'
-  },
-  image: {
-    label: 'Image',
-    icon: '\ud83d\uddbc',
-    color: '#059669'
-  },
-  ai_image: {
-    label: 'AI Image',
-    icon: 'AI',
-    color: '#db2777'
-  },
-  clipmask: {
-    label: 'Clipping Mask',
-    icon: '◯',
-    color: '#0d9488'
-  },
-  mask: {
-    label: 'Mask',
-    icon: '\u25a0',
-    color: '#64748b'
-  },
-  spotify: {
-    label: 'Spotify Code',
-    icon: '\u266b',
-    color: '#1db954'
-  },
-  lineart: {
-    label: 'Line Art',
-    icon: '\u270f',
-    color: '#d97706'
-  },
-  clipart: {
-    label: 'Clipart',
-    icon: '\u2726',
-    color: '#dc2626'
-  },
-  night_sky: {
-    label: 'Night Sky',
-    icon: '\u2606',
-    color: '#4338ca'
-  }
-};
-const LAYER_DEFAULTS = {
-  text: {
-    w: 300,
-    h: 50
-  },
-  textarea: {
-    w: 300,
-    h: 120
-  },
-  image: {
-    w: 200,
-    h: 200
-  },
-  ai_image: {
-    w: 200,
-    h: 200
-  },
-  clipmask: {
-    w: 200,
-    h: 200
-  },
-  spotify: {
-    w: 150,
-    h: 150
-  },
-  lineart: {
-    w: 200,
-    h: 200
-  },
-  clipart: {
-    w: 150,
-    h: 150
-  },
-  night_sky: {
-    w: 250,
-    h: 250
-  }
-};
-function layerIcon(type) {
-  return (LAYER_TYPES[type] || {}).icon || '?';
-}
-function layerColor(type) {
-  return (LAYER_TYPES[type] || {}).color || '#9ca3af';
-}
-function layerLabel(type) {
-  return (LAYER_TYPES[type] || {}).label || type;
-}
-const ICO_EYE = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8c0 0 2.5-5 7-5s7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/></svg>';
-const ICO_EYE_OFF = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8c0 0 2.5-5 7-5s7 5 7 5-2.5 5-7 5-7-5-7-5z"/><circle cx="8" cy="8" r="2"/><line x1="2" y1="14" x2="14" y2="2"/></svg>';
-const ICO_LOCK = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2"/></svg>';
-const ICO_UNLOCK = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="8" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0"/></svg>';
-const ICO_BIN = '<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1.5" y1="4" x2="14.5" y2="4"/><path d="M6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4"/><path d="M3 4l.8 9.5a.5.5 0 0 0 .5.5h7.4a.5.5 0 0 0 .5-.5L13 4"/></svg>';
-const LAYER_TABS = {
-  text: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'content',
-    label: 'Content',
-    icon: 'T'
-  }, {
-    id: 'style',
-    label: 'Style',
-    icon: 'A'
-  }, {
-    id: 'properties',
-    label: 'Properties',
-    icon: '\u2699'
-  }],
-  textarea: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'content',
-    label: 'Content',
-    icon: 'T'
-  }, {
-    id: 'style',
-    label: 'Style',
-    icon: 'A'
-  }, {
-    id: 'properties',
-    label: 'Properties',
-    icon: '\u2699'
-  }],
-  image: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'file',
-    label: 'File',
-    icon: '\ud83d\uddbc'
-  }, {
-    id: 'colours',
-    label: 'Colours',
-    icon: '\u25cf'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }, {
-    id: 'properties',
-    label: 'Properties',
-    icon: '\u2699'
-  }],
-  ai_image: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'prompt',
-    label: 'AI / Prompt',
-    icon: 'AI'
-  }, {
-    id: 'file',
-    label: 'Image',
-    icon: '\ud83d\uddbc'
-  }, {
-    id: 'colours',
-    label: 'Colours',
-    icon: '\u25cf'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }, {
-    id: 'properties',
-    label: 'Properties',
-    icon: '\u2699'
-  }],
-  clipmask: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'file',
-    label: 'File',
-    icon: '\ud83d\uddbc'
-  }, {
-    id: 'mask',
-    label: 'Mask',
-    icon: '◯'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }],
-  spotify: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'appearance',
-    label: 'Appearance',
-    icon: '\u25d0'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }],
-  lineart: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'colours',
-    label: 'Colours',
-    icon: '\u25cf'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }],
-  clipart: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'library',
-    label: 'Library',
-    icon: '\u2726'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }, {
-    id: 'properties',
-    label: 'Properties',
-    icon: '\u2699'
-  }],
-  night_sky: [{
-    id: 'general',
-    label: 'General',
-    icon: 'G'
-  }, {
-    id: 'sky',
-    label: 'Sky',
-    icon: '\u2606'
-  }, {
-    id: 'colours',
-    label: 'Colours',
-    icon: '\u25cf'
-  }, {
-    id: 'validation',
-    label: 'Validation',
-    icon: '\u2713'
-  }]
-};
-const AREA_COLORS = ['#4f46e5', '#059669', '#d97706', '#dc2626', '#0284c7', '#7c3aed', '#db2777', '#ea580c'];
-function areaColor(index) {
-  return AREA_COLORS[index % AREA_COLORS.length];
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-mockup-picker.js"
-/*!**************************************************!*\
-  !*** ./src/admin/products-page-mockup-picker.js ***!
-  \**************************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   createMockupPicker: () => (/* binding */ createMockupPicker)
-/* harmony export */ });
-/* eslint-disable no-alert */
-
-function createMockupPicker(deps) {
-  const {
-    getAreas,
-    getSelectedIndex,
-    renderAll,
-    snapshot
-  } = deps;
-  let mediaFrame = null;
-  function openMockupPicker() {
-    if (getSelectedIndex() < 0) {
-      return;
-    }
-    if (!window.wp || !window.wp.media) {
-      window.alert('Media library is not available.');
-      return;
-    }
-    if (!mediaFrame) {
-      const data = window.ocProductsData || {};
-      mediaFrame = window.wp.media({
-        title: data.mediaTitle || 'Select Mockup Image',
-        button: {
-          text: data.mediaBtn || 'Use as Mockup'
-        },
-        library: {
-          type: 'image'
-        },
-        multiple: false
-      });
-      mediaFrame.on('select', () => {
-        const att = mediaFrame.state().get('selection').first().toJSON();
-        const mockupUrl = att.sizes && att.sizes.large && att.sizes.large.url || att.url;
-        getAreas().forEach(area => {
-          area.mockupId = Number(att.id) || 0;
-          area.mockupUrl = mockupUrl || '';
-          area.storedMockupId = Number(att.id) || 0;
-        });
-        snapshot();
-        renderAll();
-      });
-    }
-    mediaFrame.open();
-  }
-  return openMockupPicker;
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-preview.js"
-/*!********************************************!*\
-  !*** ./src/admin/products-page-preview.js ***!
-  \********************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   createLayerPreviewRenderer: () => (/* binding */ createLayerPreviewRenderer)
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
 /* harmony import */ var fabric__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! fabric */ "./node_modules/fabric/dist/index.min.mjs");
-/* harmony import */ var _shared_text_layout__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../shared/text-layout */ "./src/shared/text-layout.js");
-/* eslint-disable no-nested-ternary */
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../shared/render-math */ "./src/shared/render-math.js");
+/* harmony import */ var _shared_text_layout__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ../../shared/text-layout */ "./src/shared/text-layout.js");
+/* harmony import */ var _shared_image_layout__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ../../shared/image-layout */ "./src/shared/image-layout.js");
+/* eslint-disable no-console, no-undef, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return */
 
 
 
-function createLayerPreviewRenderer(deps) {
-  const {
-    fontLimit,
-    layerLabel,
-    normaliseHex
-  } = deps;
-  function clampFontSize(size, settings, scale) {
-    const min = fontLimit(settings?.min_font_size) * scale;
-    const max = fontLimit(settings?.max_font_size) * scale;
-    if (max && (!min || min <= max)) {
-      size = Math.min(size, max);
+
+
+const canvasRendererMethods = {
+  // ── Canvas initialisation ──────────────────────────────────────────────────
+
+  startCanvasInitialisation() {
+    const generation = this._designGeneration;
+    this._canvasReadyGeneration = generation;
+    const task = this.initAllCanvases(generation);
+    this._canvasReadyPromise = task;
+    return task;
+  },
+  async awaitCanvasReady(generation = this._designGeneration) {
+    const task = this._canvasReadyPromise;
+    if (!task || this._canvasReadyGeneration !== generation) {
+      throw new Error('The customisation preview is not ready.');
     }
-    if (min) {
-      size = Math.max(size, min);
+    await task;
+    if (generation !== this._designGeneration || this._canvasReadyGeneration !== generation) {
+      throw new Error('The selected design changed while rendering.');
     }
-    return size;
-  }
-  function findFont(fontId) {
-    const fonts = (window.ocProductsData || {}).fonts || [];
-    return fonts.find(f => Number(f.id) === Number(fontId)) || null;
-  }
-  function textFits(text, font, fontSize, width, height, multiline) {
-    const TextClass = multiline ? fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox : fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText;
-    const measured = new TextClass(text, {
-      ...(multiline ? {
-        width
-      } : {}),
-      fontFamily: font?.name || 'sans-serif',
-      fontWeight: font?.weight || 'normal',
-      fontStyle: font?.style || 'normal',
-      fontSize
-    });
-    measured.initDimensions?.();
-    if (multiline) {
-      return (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_1__.multilineTextboxFits)(measured, width, height, fontSize);
+    if (this.areas.some((_, index) => !this.canvases[index])) {
+      throw new Error('The customisation preview is not ready.');
     }
-    return measured.width <= width && measured.height <= height;
-  }
-  function renderTextPreview(el, text, font, fontSize, minFontSize, width, height, settings, color, isSingleLine) {
-    const canvasEl = document.createElement('canvas');
-    canvasEl.className = 'oc-lp oc-lp-text-canvas';
-    el.appendChild(canvasEl);
+  },
+  async initAllCanvases(designGeneration = this._designGeneration) {
+    for (let i = 0; i < this.areas.length; i++) {
+      if (designGeneration !== this._designGeneration) {
+        return;
+      }
+      const el = document.getElementById(`oc-canvas-${i}`);
+      if (el) {
+        await this.initCanvas(el, i, designGeneration);
+        if (designGeneration !== this._designGeneration) {
+          return;
+        }
+        // Full redraw AFTER init picks up any text the user already typed.
+        await this.redraw(i);
+      }
+    }
+  },
+  async initCanvas(canvasEl, areaIndex, designGeneration = this._designGeneration) {
+    const area = this.areas[areaIndex];
+    const bounds = this.areaBounds(area);
+
+    // Use mockup natural width when available (works even when canvas is visually hidden).
+    // Cap at 1200px for performance; fall back to element width or 600px.
+    await new Promise(r => requestAnimationFrame(r));
+    if (designGeneration !== this._designGeneration) {
+      return;
+    }
+    const displayW = area.mockupW ? Math.min(area.mockupW, 1200) : Math.max(canvasEl.parentElement?.offsetWidth || 0, 600);
+    if (!area.mockupUrl) {
+      this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'No mockup set. Add one in the Design Editor.');
+      this.canvases[areaIndex]._ocMissingMockup = true;
+      return;
+    }
+    let mockupImg;
+    try {
+      // Do NOT use crossOrigin:'anonymous' — WordPress uploads are same-origin
+      // and CORS headers aren't sent, which would taint the canvas and break toDataURL.
+      mockupImg = await this.loadFabricImage(area.mockupUrl, {}, 10000);
+    } catch (e) {
+      if (designGeneration !== this._designGeneration) {
+        return;
+      }
+      console.warn('[OC] Mockup failed to load:', area.mockupUrl, e.message);
+      this.canvases[areaIndex] = this.blankCanvas(canvasEl, displayW, 240, 'Mockup image could not load.');
+      this.canvases[areaIndex]._ocMissingMockup = true;
+      return;
+    }
+    const mockupEl = mockupImg.getElement?.();
+    const sourceW = mockupEl?.naturalWidth || mockupImg.width || area.mockupW || 1;
+    const sourceH = mockupEl?.naturalHeight || mockupImg.height || area.mockupH || 1;
+    const coordW = area.mockupW || sourceW;
+    const coordH = area.mockupH || sourceH;
+    const scaleX = displayW / coordW;
+    const displayH = Math.round(coordH * scaleX);
     const canvas = new fabric__WEBPACK_IMPORTED_MODULE_0__.StaticCanvas(canvasEl, {
-      width: Math.max(1, width),
-      height: Math.max(1, height)
+      width: displayW,
+      height: displayH
     });
-    el._ocTextPreviewCanvas = canvas;
-    const maxWidth = Math.max(1, width);
-    const floor = Math.max(1, minFontSize || 4);
-    while (fontSize > floor && !textFits(text, font, fontSize, isSingleLine ? maxWidth : width, height, !isSingleLine)) {
-      fontSize = Math.max(floor, fontSize - 1);
+    if (designGeneration !== this._designGeneration) {
+      canvas.dispose();
+      return;
     }
-    const TextClass = isSingleLine ? fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText : fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox;
-    const textObject = new TextClass(text, {
-      left: width / 2,
-      top: height / 2,
+    mockupImg.set({
+      left: 0,
+      top: 0,
+      originX: 'left',
+      originY: 'top',
+      scaleX: displayW / sourceW,
+      scaleY: displayH / sourceH,
+      selectable: false,
+      evented: false
+    });
+    canvas.add(mockupImg);
+    canvas._ocScaleX = scaleX;
+    canvas._ocArea = area;
+    canvas.renderAll();
+    this.canvases[areaIndex] = canvas;
+  },
+  async loadFabricImage(url, options = {}, timeoutMs = 10000) {
+    const request = this.createStateAbortController(timeoutMs);
+    try {
+      return await fabric__WEBPACK_IMPORTED_MODULE_0__.FabricImage.fromURL(url, {
+        ...options,
+        signal: request.controller.signal
+      });
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('Image load timed out.');
+      }
+      throw error;
+    } finally {
+      request.release();
+    }
+  },
+  areaBounds(area) {
+    return {
+      ...(area?.bounds || {}),
+      unit: area?.bounds?.unit || area?.unit || 'px'
+    };
+  },
+  areaCanvasGroupIndexes(areaIndex) {
+    const area = this.areas[areaIndex];
+    const mockupId = Number(area?.mockupId) || 0;
+    const mockupUrl = area?.mockupUrl || '';
+    if (!mockupId && !mockupUrl) {
+      return [areaIndex];
+    }
+    return this.areas.map((candidate, index) => {
+      const candidateId = Number(candidate?.mockupId) || 0;
+      const matches = mockupId && candidateId ? candidateId === mockupId : (candidate?.mockupUrl || '') === mockupUrl;
+      return matches ? index : -1;
+    }).filter(index => index >= 0);
+  },
+  async rebuildCanvas(areaIndex) {
+    const oldCanvas = this.canvases[areaIndex];
+    if (oldCanvas?.dispose) {
+      oldCanvas.dispose();
+    }
+    delete this.canvases[areaIndex];
+    const oldEl = document.getElementById(`oc-canvas-${areaIndex}`);
+    if (!oldEl) {
+      return;
+    }
+    const canvasEl = document.createElement('canvas');
+    canvasEl.id = oldEl.id;
+    oldEl.replaceWith(canvasEl);
+    await this.initCanvas(canvasEl, areaIndex);
+    await this.redraw(areaIndex);
+  },
+  blankCanvas(el, w, h, msg) {
+    const c = new fabric__WEBPACK_IMPORTED_MODULE_0__.StaticCanvas(el, {
+      width: w,
+      height: h,
+      backgroundColor: '#f0f0f0'
+    });
+    const t = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(msg, {
+      left: w / 2,
+      top: h / 2,
       originX: 'center',
       originY: 'center',
-      ...(isSingleLine ? {} : {
-        width
-      }),
+      fontSize: 12,
+      fill: '#888',
+      fontFamily: 'sans-serif',
+      textAlign: 'center',
+      selectable: false
+    });
+    c.add(t);
+    c.renderAll();
+    c._ocScaleX = 1;
+    return c;
+  },
+  // ── Redraw ──────────────────────────────────────────────────────────────────
+
+  areaIndexForLayer(layerId) {
+    for (let i = 0; i < this.areas.length; i++) {
+      if ((this.areas[i]?.layers || []).some(layer => parseInt(layer.id, 10) === parseInt(layerId, 10))) {
+        return i;
+      }
+    }
+    return this.activeArea;
+  },
+  focusPreviewArea(areaIndex) {
+    const index = Number.isInteger(areaIndex) ? areaIndex : this.activeArea;
+    const previousArea = this.activeArea;
+    this.applyActiveAreaState(index);
+    if (previousArea !== this.activeArea) {
+      const canvas = this.canvases[this.activeArea];
+      if (canvas && !canvas._ocMissingMockup) {
+        this.pushToGallery(canvas);
+      }
+    }
+  },
+  scheduleRedraw(areaIndex = this.activeArea) {
+    clearTimeout(this._redrawTimers[areaIndex]);
+    this._redrawTimers[areaIndex] = setTimeout(() => this.redraw(areaIndex), 120);
+  },
+  async flushRedraw(inputs = this.inputs, options = {}) {
+    Object.values(this._redrawTimers).forEach(clearTimeout);
+    this._redrawTimers = {};
+    Object.keys(this._redrawGenerations).forEach(areaIndex => {
+      this._redrawGenerations[areaIndex] += 1;
+    });
+    await Promise.all(Object.values(this._redrawPromises));
+    await this.awaitCanvasReady();
+    await Promise.all(this.areas.map((_, areaIndex) => this.redraw(areaIndex, {
+      ...options,
+      inputs,
+      pushGallery: options.pushGallery !== false && this.areaCanvasGroupIndexes(areaIndex).includes(this.activeArea)
+    })));
+  },
+  redraw(areaIndex, options = {}) {
+    const canvas = this.canvases[areaIndex];
+    if (!canvas) {
+      return Promise.resolve();
+    } // canvas not ready yet — will redraw after initCanvas
+    const generation = (this._redrawGenerations[areaIndex] || 0) + 1;
+    this._redrawGenerations[areaIndex] = generation;
+    const isCurrent = () => this._redrawGenerations[areaIndex] === generation && this.canvases[areaIndex] === canvas && this._customisationActive;
+    const task = (async () => {
+      canvas._ocRenderErrors = [];
+      [...canvas.getObjects()].filter(o => o._ocContent === true).forEach(object => {
+        canvas.remove(object);
+        object.dispose?.();
+      });
+      const groupIndexes = options.renderGroup === false ? [areaIndex] : this.areaCanvasGroupIndexes(areaIndex);
+      const renderLayers = groupIndexes.flatMap(groupIndex => {
+        const area = this.areas[groupIndex];
+        return (area?.layers ?? []).map(layer => ({
+          area,
+          layer
+        }));
+      });
+      // Product masks are visual overlays, so they must paint after every
+      // customer-editable layer, including layers from grouped print areas.
+      renderLayers.sort((a, b) => Number(a.layer.type === 'mask') - Number(b.layer.type === 'mask'));
+      for (const {
+        area,
+        layer
+      } of renderLayers) {
+        if (!isCurrent()) {
+          return;
+        }
+        try {
+          await this.renderLayer(canvas, layer, options.inputs?.[layer.id] || this.inputs[layer.id] || {}, area, isCurrent);
+        } catch (err) {
+          canvas._ocRenderErrors.push({
+            layerId: layer?.id,
+            message: err?.message || 'Layer render failed.'
+          });
+          console.warn('[OC] Layer render failed:', layer?.id, err);
+        }
+      }
+      if (!isCurrent()) {
+        return;
+      }
+      canvas.renderAll();
+      canvas._ocCartPreviewRevision = '';
+      canvas._ocCartPreviewDataUrl = '';
+      if (options.pushGallery !== false && this.areaCanvasGroupIndexes(areaIndex).includes(this.activeArea) && !canvas._ocMissingMockup) {
+        this.pushToGallery(canvas);
+      }
+    })();
+    this._redrawPromises[areaIndex] = task;
+    return task.finally(() => {
+      if (this._redrawPromises[areaIndex] === task) {
+        delete this._redrawPromises[areaIndex];
+      }
+    });
+  },
+  async renderLayer(canvas, layer, input, area, isCurrent = () => true, renderContext = {}) {
+    if (!isCurrent()) {
+      return;
+    }
+    const scale = canvas._ocScaleX ?? 1;
+    const areaBounds = this.areaBounds(area);
+    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayBounds)(areaBounds);
+    const layerBox = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayLayer)(layer, areaBounds);
+    const rotation = Number(bounds.rotation) || 0;
+    const contentClip = () => this.printAreaClipPath(bounds, scale, layerBox);
+    const center = this.rotatedLayerCenter(layerBox, bounds, rotation);
+    const lx = (center.x - layerBox.w / 2) * scale;
+    const ly = (center.y - layerBox.h / 2) * scale;
+    const lw = Math.max(layerBox.w * scale, 10);
+    const lh = Math.max(layerBox.h * scale, 10);
+    const textClip = (pad = 0) => this.rectClipPath(lx - pad, ly - pad, lw + pad * 2, lh + pad * 2, rotation);
+    const lcX = center.x * scale;
+    const lcY = center.y * scale;
+    const isEngraving = area?.printMethod === 'engraving';
+    const isEmbroidery = area?.printMethod === 'embroidery';
+    const engravingPalette = this.engravingPalette(area?.engravingMaterial);
+    const fontLimit = value => this.fontLimit(value);
+    const clampFontSize = (size, settings) => {
+      const minLimit = fontLimit(settings?.min_font_size);
+      const maxLimit = fontLimit(settings?.max_font_size);
+      const min = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayFontSize)(minLimit, areaBounds, scale) : 0;
+      const max = maxLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayFontSize)(maxLimit, areaBounds, scale) : 0;
+      if (max && (!min || min <= max)) {
+        size = Math.min(size, max);
+      }
+      if (min) {
+        size = Math.max(size, min);
+      }
+      return size;
+    };
+    switch (layer.type) {
+      case 'text':
+      case 'textarea':
+        {
+          const isSingleLineText = layer.type === 'text';
+          const capturesTextLayout = canvas._ocArea === area;
+          if (capturesTextLayout) {
+            delete input.renderedLines;
+            delete input.renderedFontSize;
+          }
+          let inputValue = input.value;
+          if (inputValue === undefined) {
+            inputValue = layer.locked ? layer.settings?.default_text || '' : '';
+          }
+          const normalisedText = (isEngraving || isEmbroidery ? this.stripUnsupportedPrintEmoji(inputValue) : inputValue || '').replace(/\r\n?/g, '\n');
+          const raw = isSingleLineText ? normalisedText.trim() : normalisedText;
+          if (!raw.trim()) {
+            break;
+          }
+          const lineAlign = ['top', 'center', 'bottom'].includes(layer.settings?.line_alignment) ? layer.settings.line_alignment : 'top';
+          let font = (renderContext.fonts || this.fonts).find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
+          // Engraving colour follows the substrate rather than the customer's ink colour.
+          const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
+          const align = layer.settings?.alignment || 'center';
+          if (font) {
+            try {
+              await this.loadFont(font);
+            } catch (err) {
+              console.warn('[OC] Font load failed, falling back to sans-serif:', err);
+              font = null;
+            }
+          }
+          if (!isCurrent()) {
+            return;
+          }
+          const minLimit = fontLimit(layer.settings?.min_font_size);
+          const minFontSize = minLimit ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayFontSize)(minLimit, areaBounds, scale) : 0;
+          const configuredFontSize = input.fontSize || layer.settings?.default_font_size;
+          let fontSize = configuredFontSize ? clampFontSize((0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayFontSize)(parseInt(configuredFontSize, 10), areaBounds, scale), layer.settings) : clampFontSize(Math.max(10, Math.round(lh * 0.72)), layer.settings);
+          const textFill = isEmbroidery ? this.embroideryPattern(color, fontSize) : isEngraving && engravingPalette.pattern === 'wood' ? this.woodEngravingPattern(fontSize) : isEngraving && engravingPalette.pattern === 'leather' ? this.leatherEngravingPattern(fontSize) : color;
+          const textClass = isSingleLineText ? fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText : fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox;
+          const textBoxSize = isSingleLineText ? {} : {
+            width: Math.max(1, lw - (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_2__.multilineTextSafetyMargin)(fontSize).x * 2)
+          };
+          const singleLineMaxWidth = Math.max(1, lw);
+          const singleLineMaxHeight = Math.max(1, lh);
+          const obj = new textClass(raw, {
+            left: lcX,
+            top: lcY,
+            originX: 'center',
+            originY: 'center',
+            ...textBoxSize,
+            angle: rotation,
+            fontFamily: font?.name || 'sans-serif',
+            fontWeight: font?.weight || 'normal',
+            fontStyle: font?.style || 'normal',
+            fontSize,
+            fill: textFill,
+            textAlign: align,
+            selectable: false,
+            evented: false,
+            objectCaching: false
+          });
+          obj._ocContent = true; // tag after creation
+          let stitchPad = null;
+          let stitchLift = null;
+          const textareaPosition = (target, extraX = 0, extraY = 0) => {
+            if (isSingleLineText || !target) {
+              return;
+            }
+            target.initDimensions?.();
+            const contentH = Math.min(Math.max(Number(target.getScaledHeight?.() || target.height || 0), 0), lh);
+            const freeY = Math.max(0, (lh - contentH) / 2);
+            const localY = lineAlign === 'bottom' ? freeY : lineAlign === 'center' ? 0 : -freeY;
+            const rad = rotation * Math.PI / 180;
+            target.set({
+              left: lcX - localY * Math.sin(rad) + extraX,
+              top: lcY + localY * Math.cos(rad) + extraY
+            });
+            target.setCoords?.();
+          };
+          if (isEngraving) {
+            // Fake etched depth with a subtle edge shadow on dark substrates.
+            obj.set({
+              opacity: engravingPalette.opacity,
+              globalCompositeOperation: engravingPalette.composite || 'source-over',
+              shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+                color: engravingPalette.shadow || engravingPalette.highlight,
+                offsetX: 0,
+                offsetY: engravingPalette.shadow ? 0 : 1,
+                blur: engravingPalette.shadow ? 1.25 : 1
+              })
+            });
+          } else if (isEmbroidery) {
+            const threadLift = this.embroideryHighlightColor(color);
+            const threadShadow = this.embroideryShadowColor(color);
+            stitchPad = new textClass(raw, {
+              left: lcX + Math.max(0.45, fontSize * 0.015),
+              top: lcY + Math.max(0.65, fontSize * 0.02),
+              originX: 'center',
+              originY: 'center',
+              ...textBoxSize,
+              angle: rotation,
+              fontFamily: font?.name || 'sans-serif',
+              fontWeight: font?.weight || 'normal',
+              fontStyle: font?.style || 'normal',
+              fontSize,
+              fill: threadShadow,
+              opacity: 0.24,
+              shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+                color: 'rgba(0,0,0,0.22)',
+                offsetX: 0.6,
+                offsetY: 0.9,
+                blur: 1.8
+              }),
+              textAlign: align,
+              selectable: false,
+              evented: false,
+              objectCaching: false
+            });
+            stitchPad._ocContent = true;
+            canvas.add(stitchPad);
+            stitchLift = new textClass(raw, {
+              left: lcX - Math.max(0.25, fontSize * 0.006),
+              top: lcY - Math.max(0.25, fontSize * 0.006),
+              originX: 'center',
+              originY: 'center',
+              ...textBoxSize,
+              angle: rotation,
+              fontFamily: font?.name || 'sans-serif',
+              fontWeight: font?.weight || 'normal',
+              fontStyle: font?.style || 'normal',
+              fontSize,
+              fill: 'rgba(255,255,255,0)',
+              stroke: threadLift,
+              strokeWidth: Math.max(0.2, fontSize * 0.006),
+              opacity: 0.22,
+              textAlign: align,
+              selectable: false,
+              evented: false,
+              objectCaching: false
+            });
+            stitchLift._ocContent = true;
+            canvas.add(stitchLift);
+            obj.set({
+              stroke: this.embroiderySoftEdgeColor(color),
+              strokeWidth: Math.max(0.18, fontSize * 0.005),
+              shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+                color: 'rgba(0,0,0,0.22)',
+                offsetX: 0.7,
+                offsetY: 0.95,
+                blur: 1.1
+              })
+            });
+          }
+          const fitsTextLayer = size => {
+            if (isSingleLineText) {
+              return this.textFitsBox(raw, font, size, layer.settings, singleLineMaxWidth, singleLineMaxHeight, false);
+            }
+            return this.textFitsBox(raw, font, size, layer.settings, lw, lh, true);
+          };
+          const fittingFloor = minFontSize || 4;
+          while (!fitsTextLayer(fontSize) && fontSize > fittingFloor) {
+            fontSize = Math.max(fittingFloor, fontSize - 1);
+            obj.set({
+              fontSize
+            });
+            if (stitchPad) {
+              stitchPad.set({
+                fontSize
+              });
+            }
+            if (stitchLift) {
+              stitchLift.set({
+                fontSize
+              });
+            }
+          }
+          if (isSingleLineText) {
+            obj.initDimensions?.();
+          } else {
+            (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_2__.layoutMultilineTextbox)(obj, lw, fontSize);
+            if (stitchPad) {
+              (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_2__.layoutMultilineTextbox)(stitchPad, lw, fontSize);
+            }
+            if (stitchLift) {
+              (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_2__.layoutMultilineTextbox)(stitchLift, lw, fontSize);
+            }
+          }
+          if (capturesTextLayout) {
+            const displayScale = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.unitPxScale)(areaBounds) * scale;
+            if (displayScale > 0) {
+              // Production must start from Fabric's final auto-fitted size,
+              // not the larger size originally selected by the customer.
+              input.renderedFontSize = Number((fontSize / displayScale).toFixed(4));
+            }
+          }
+          if (!isSingleLineText && capturesTextLayout && Array.isArray(obj._textLines)) {
+            input.renderedLines = obj._textLines.map(line => Array.isArray(line) ? line.join('') : String(line));
+          }
+          const textareaScale = isSingleLineText ? 1 : 1;
+          if (!isSingleLineText) {
+            obj.set({
+              scaleX: textareaScale,
+              scaleY: textareaScale
+            });
+          }
+          textareaPosition(obj);
+          obj.setCoords?.();
+          const measuredText = this.measureSingleLineText(raw, font, fontSize, layer.settings);
+          const renderedWidth = Math.max(1, Math.ceil(measuredText.width));
+          const singleLineScaleX = isSingleLineText ? Math.min(1, singleLineMaxWidth / renderedWidth) : 1;
+          if (isSingleLineText) {
+            let alignedLeft = lcX;
+            let alignedTop = lcY;
+            let alignmentOffset = 0;
+            const renderedDisplayWidth = renderedWidth * singleLineScaleX;
+            if (align === 'left') {
+              alignmentOffset = -lw / 2 + renderedDisplayWidth / 2;
+            } else if (align === 'right') {
+              alignmentOffset = lw / 2 - renderedDisplayWidth / 2;
+            }
+            if (alignmentOffset) {
+              const rad = rotation * Math.PI / 180;
+              alignedLeft += alignmentOffset * Math.cos(rad);
+              alignedTop += alignmentOffset * Math.sin(rad);
+            }
+            obj.set({
+              left: alignedLeft,
+              top: alignedTop,
+              scaleX: singleLineScaleX
+            });
+            obj.initDimensions?.();
+            obj.setCoords?.();
+            this.centerObjectBounds(obj, alignedLeft, alignedTop, rotation);
+            this.keepObjectInsidePrintArea(obj, bounds, scale);
+          }
+          if (isEmbroidery) {
+            obj.set({
+              fill: this.embroideryPattern(color, fontSize)
+            });
+          }
+          const textClipPath = textClip(this.textClipPadding(fontSize));
+          if (stitchPad) {
+            const padX = Math.max(0.45, fontSize * 0.015);
+            const padY = Math.max(0.65, fontSize * 0.02);
+            stitchPad.set({
+              left: (isSingleLineText ? obj.left : lcX) + padX,
+              top: (isSingleLineText ? obj.top : lcY) + padY,
+              fontSize
+            });
+            if (isSingleLineText) {
+              stitchPad.set({
+                scaleX: singleLineScaleX
+              });
+            } else {
+              stitchPad.set({
+                scaleX: textareaScale,
+                scaleY: textareaScale
+              });
+              textareaPosition(stitchPad, padX, padY);
+            }
+            this.applyContentClip(stitchPad, textClipPath);
+          }
+          if (stitchLift) {
+            const liftX = Math.max(0.25, fontSize * 0.006);
+            const liftY = Math.max(0.25, fontSize * 0.006);
+            stitchLift.set({
+              left: (isSingleLineText ? obj.left : lcX) - liftX,
+              top: (isSingleLineText ? obj.top : lcY) - liftY,
+              fontSize,
+              strokeWidth: Math.max(0.2, fontSize * 0.006)
+            });
+            if (isSingleLineText) {
+              stitchLift.set({
+                scaleX: singleLineScaleX
+              });
+            } else {
+              stitchLift.set({
+                scaleX: textareaScale,
+                scaleY: textareaScale
+              });
+              textareaPosition(stitchLift, -liftX, -liftY);
+            }
+            this.applyContentClip(stitchLift, textClipPath);
+          }
+          this.applyContentClip(obj, textClipPath);
+          canvas.add(obj);
+          break;
+        }
+      case 'image':
+      case 'ai_image':
+        {
+          if (input.attachmentUrl) {
+            const imageCrop = Math.max(0, Math.min(100, Number(input.imageCrop) || 0));
+            const imageFilter = this.imageFilterForLayer(layer, input.imageFilterId);
+            const imageCropClipPath = this.rectClipPath(lx, ly, lw, lh, rotation);
+            const imageEffects = {
+              layerId: layer.id,
+              imageCropClipPath,
+              ...(imageFilter ? {
+                imageFilter
+              } : {}),
+              ...(imageFilter && layer.settings?.enable_image_colour ? {
+                imageColor: input.colorHex || layer.settings?.default_color || '#000000'
+              } : {}),
+              ...(isEmbroidery ? {
+                embroidery: true
+              } : {}),
+              ...(isEngraving ? {
+                photoEngraving: true
+              } : {})
+            };
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, (0,_shared_image_layout__WEBPACK_IMPORTED_MODULE_3__.imagePlacementClipPath)(imageCrop, imageCropClipPath), imageCrop, '', imageEffects, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Artwork image could not be rendered.');
+            }
+          }
+          break;
+        }
+      case 'clipmask':
+        {
+          if (input.attachmentUrl) {
+            const rendered = await this.renderFabricImg(canvas, input.attachmentUrl, lx, ly, lw, lh, isEngraving, 'anonymous', false, rotation, engravingPalette, this.layerClipPath(lx, ly, lw, lh, rotation, layer.settings), 'cover', '', {
+              photoEngraving: isEngraving
+            }, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Masked artwork could not be rendered.');
+            }
+          }
+          break;
+        }
+      case 'mask':
+        {
+          const maskUrl = layer.settings?.default_attachment_url;
+          if (maskUrl) {
+            const viewport = canvas.viewportTransform || [1, 0, 0, 1, 0, 0];
+            const viewportScaleX = viewport[0] || 1;
+            const viewportScaleY = viewport[3] || 1;
+            const rendered = await this.renderFabricImg(canvas, maskUrl, -viewport[4] / viewportScaleX, -viewport[5] / viewportScaleY, canvas.getWidth() / viewportScaleX, canvas.getHeight() / viewportScaleY, false, 'anonymous', false, 0, null, null, 'contain', '', {}, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Mask overlay could not be rendered.');
+            }
+          }
+          break;
+        }
+      case 'clipart':
+        {
+          if (input.clipartUrl) {
+            const selectedClipartColor = String(input.colorHex || '').trim();
+            const shouldRecolourClipart = Boolean(input.clipartRecolourable && (selectedClipartColor || isEngraving || isEmbroidery));
+            const clipartColor = shouldRecolourClipart ? isEngraving ? engravingPalette.text : selectedClipartColor : '';
+            const clipartUrl = clipartColor ? await this.recolourSvgClipartUrl(input.clipartUrl, clipartColor, isEmbroidery ? 'embroidery' : '') : await this.normaliseSvgClipartUrl(input.clipartUrl);
+            const clipartCrossOrigin = clipartUrl.startsWith('data:') ? '' : 'anonymous';
+            const clipartEffects = isEmbroidery ? {
+              embroideryColor: clipartColor || selectedClipartColor || '#000000'
+            } : shouldRecolourClipart ? {
+              preserveRecolouredPixels: true
+            } : {};
+            const rendered = await this.renderFabricImg(canvas, clipartUrl, lx, ly, lw, lh, isEngraving, clipartCrossOrigin, false, rotation, engravingPalette, contentClip(), 'contain', '', clipartEffects, isCurrent);
+            if (!rendered && isCurrent()) {
+              throw new Error('Clipart could not be rendered.');
+            }
+          }
+          break;
+        }
+      case 'lineart':
+        {
+          const lineartColor = isEngraving ? engravingPalette.text : String(input.colorHex || '').trim();
+          if (!lineartColor) {
+            break;
+          }
+          const r = new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
+            left: lcX,
+            top: lcY,
+            originX: 'center',
+            originY: 'center',
+            angle: rotation,
+            width: lw,
+            height: lh,
+            fill: lineartColor,
+            opacity: 0.6,
+            selectable: false,
+            evented: false
+          });
+          r._ocContent = true;
+          this.applyContentClip(r, contentClip());
+          canvas.add(r);
+          break;
+        }
+      case 'night_sky':
+        {
+          const geometry = input.nightSkyGeometry;
+          if (!geometry || geometry.v !== 1) {
+            break;
+          }
+          const color = isEngraving ? engravingPalette.text : input.colorHex || layer.settings?.default_color || '#000000';
+          const rad = rotation * Math.PI / 180;
+          const point = (x, y) => {
+            const dx = (Number(x) - 0.5) * lw;
+            const dy = (Number(y) - 0.5) * lh;
+            return {
+              x: lcX + dx * Math.cos(rad) - dy * Math.sin(rad),
+              y: lcY + dx * Math.sin(rad) + dy * Math.cos(rad)
+            };
+          };
+          const add = object => {
+            object._ocContent = true;
+            this.applyContentClip(object, contentClip());
+            canvas.add(object);
+          };
+          (geometry.segments || []).forEach(segment => {
+            const a = point(segment.x1, segment.y1);
+            const b = point(segment.x2, segment.y2);
+            add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Line([a.x, a.y, b.x, b.y], {
+              stroke: color,
+              strokeWidth: Math.max(0.45, Number(segment.w) * Math.min(lw, lh)),
+              opacity: 0.48,
+              selectable: false,
+              evented: false
+            }));
+          });
+          (geometry.stars || []).forEach(star => {
+            const p = point(star.x, star.y);
+            add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Circle({
+              left: p.x,
+              top: p.y,
+              originX: 'center',
+              originY: 'center',
+              radius: Math.max(0.55, Number(star.r) * Math.min(lw, lh)),
+              fill: color,
+              selectable: false,
+              evented: false
+            }));
+          });
+          (geometry.labels || []).forEach(label => {
+            const p = point(label.x, label.y);
+            add(new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(String(label.text || ''), {
+              left: p.x,
+              top: p.y,
+              originX: 'center',
+              originY: 'center',
+              angle: rotation,
+              fontFamily: 'sans-serif',
+              fontSize: Math.max(6, Number(label.size) * Math.min(lw, lh)),
+              fill: color,
+              opacity: 0.78,
+              selectable: false,
+              evented: false
+            }));
+          });
+          if (geometry.border) {
+            add(new fabric__WEBPACK_IMPORTED_MODULE_0__.Circle({
+              left: lcX,
+              top: lcY,
+              originX: 'center',
+              originY: 'center',
+              radius: Math.max(1, Math.min(lw, lh) * 0.48),
+              fill: 'transparent',
+              stroke: color,
+              strokeWidth: Math.max(0.6, Math.min(lw, lh) * 0.0025),
+              selectable: false,
+              evented: false
+            }));
+          }
+          break;
+        }
+      case 'spotify':
+        {
+          const val = (input.value || '').trim();
+          if (!val) {
+            break;
+          }
+          if (input.spotifyStatus === 'invalid_format' || input.spotifyStatus === 'playlist_private_or_invalid' || input.spotifyStatus === 'invalid_or_unavailable') {
+            const invalidText = input.spotifyStatus === 'playlist_private_or_invalid' ? 'Private / invalid Spotify playlist' : 'Invalid Spotify link';
+            const invalidObj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(invalidText, {
+              left: lcX,
+              top: lcY,
+              originX: 'center',
+              originY: 'center',
+              angle: rotation,
+              fontFamily: 'monospace',
+              fontSize: Math.max(9, Math.round(lh * 0.17)),
+              fill: '#b32d2e',
+              textAlign: 'center',
+              selectable: false,
+              evented: false
+            });
+            invalidObj._ocContent = true;
+            this.applyContentClip(invalidObj, contentClip());
+            canvas.add(invalidObj);
+            break;
+          }
+          const spotifyCodeUrl = this.buildSpotifyCodeUrl(input.spotifyUri || val, isEngraving, engravingPalette);
+          if (spotifyCodeUrl) {
+            // A non-CORS fallback would taint the canvas and make checkout preview
+            // capture impossible, so only render serializable Spotify images.
+            const rendered = await this.renderFabricImg(canvas, spotifyCodeUrl, lx, ly, lw, lh, isEngraving, 'anonymous', true, rotation, engravingPalette, contentClip(), 'contain', '', {}, isCurrent);
+            if (rendered) {
+              break;
+            }
+          }
+          if (!isCurrent()) {
+            return;
+          }
+          const fallback = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText('\u266b Spotify code unavailable', {
+            left: lcX,
+            top: lcY,
+            originX: 'center',
+            originY: 'center',
+            angle: rotation,
+            fontFamily: 'monospace',
+            fontSize: Math.max(9, Math.round(lh * 0.22)),
+            fill: '#666666',
+            textAlign: 'center',
+            selectable: false,
+            evented: false
+          });
+          fallback._ocContent = true;
+          this.applyContentClip(fallback, contentClip());
+          canvas.add(fallback);
+          break;
+        }
+    }
+  },
+  fontLimit(value) {
+    return Math.max(0, parseInt(value, 10) || 0);
+  },
+  textClipPadding(fontSize) {
+    return Math.max(2, Math.ceil((Number(fontSize) || 0) * 0.18));
+  },
+  textFitsBox(raw, font, fontSize, settings, maxW, maxH, multiline = false) {
+    if (!raw) {
+      return true;
+    }
+    const textClass = multiline ? fabric__WEBPACK_IMPORTED_MODULE_0__.Textbox : fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText;
+    const textBoxSize = multiline ? {
+      width: Math.max(1, maxW)
+    } : {};
+    const obj = new textClass(raw, {
+      left: 0,
+      top: 0,
+      originX: 'center',
+      originY: 'center',
+      ...textBoxSize,
       fontFamily: font?.name || 'sans-serif',
       fontWeight: font?.weight || 'normal',
       fontStyle: font?.style || 'normal',
       fontSize,
-      fill: color,
-      textAlign: settings.alignment || 'center',
+      textAlign: settings?.alignment || 'center',
       selectable: false,
-      evented: false,
-      objectCaching: false
+      evented: false
     });
-    textObject.initDimensions?.();
-    if (!isSingleLine) {
-      (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_1__.layoutMultilineTextbox)(textObject, width, fontSize);
+    obj.initDimensions?.();
+    obj.setCoords?.();
+    if (multiline) {
+      return (0,_shared_text_layout__WEBPACK_IMPORTED_MODULE_2__.multilineTextboxFits)(obj, Math.max(maxW, 10), Math.max(maxH, 10), fontSize);
     }
-    if (isSingleLine) {
-      const renderedWidth = Math.max(1, Math.ceil(textObject.width));
-      const scaleX = Math.min(1, maxWidth / renderedWidth);
-      const scaledWidth = renderedWidth * scaleX;
-      const align = settings.alignment || 'center';
-      textObject.set({
-        left: align === 'left' ? scaledWidth / 2 : align === 'right' ? width - scaledWidth / 2 : width / 2,
-        scaleX
-      });
-    } else {
-      const lineAlign = ['top', 'center', 'bottom'].includes(settings.line_alignment) ? settings.line_alignment : 'top';
-      const freeY = Math.max(0, (height - Math.min(textObject.getScaledHeight(), height)) / 2);
-      textObject.set({
-        top: height / 2 + (lineAlign === 'bottom' ? freeY : lineAlign === 'center' ? 0 : -freeY)
-      });
-    }
-    canvas.add(textObject);
-    canvas.renderAll();
-    Object.assign(canvasEl.style, {
-      display: 'block',
-      left: '50%',
-      top: '50%',
-      width: width + 'px',
-      height: height + 'px',
-      transform: 'translate(-50%, -50%)'
+    const measured = obj.getBoundingRect?.(true, true) || obj;
+    return Number(measured.width || 0) <= Math.max(maxW, 10) && Number(measured.height || 0) <= Math.max(maxH, 10);
+  },
+  measureSingleLineText(raw, font, fontSize, settings = {}) {
+    const obj = new fabric__WEBPACK_IMPORTED_MODULE_0__.FabricText(raw || '', {
+      left: 0,
+      top: 0,
+      originX: 'left',
+      originY: 'top',
+      fontFamily: font?.name || 'sans-serif',
+      fontWeight: font?.weight || 'normal',
+      fontStyle: font?.style || 'normal',
+      fontSize,
+      textAlign: settings?.alignment || 'center',
+      selectable: false,
+      evented: false
     });
-  }
-  function imageFilterCss(filterId) {
-    filterId = Number(filterId) || 0;
-    if (!filterId) {
-      return '';
-    }
-    const data = window.ocProductsData || {};
-    const filter = (data.imageFilters || []).find(item => Number(item.id) === filterId);
-    if (!filter) {
-      return '';
-    }
-    const value = Number.isFinite(Number(filter.value)) ? Number(filter.value) : 1;
-    switch (filter.key) {
-      case 'grayscale':
-        return 'grayscale(1)';
-      case 'sepia':
-        return 'sepia(1)';
-      case 'brightness':
-        return 'brightness(' + Math.max(0, 1 + value) + ')';
-      case 'contrast':
-        return 'contrast(' + Math.max(0, 1 + value) + ')';
-      case 'saturation':
-        return 'saturate(' + Math.max(0, 1 + value) + ')';
-      case 'hue':
-        return 'hue-rotate(' + value * 360 + 'deg)';
-      default:
-        return '';
-    }
-  }
-  function engravingPreview(material) {
-    if (material === 'black_metal') {
-      return {
-        color: '#d8d8d8',
-        filter: 'brightness(0) saturate(100%) invert(86%) opacity(0.95) drop-shadow(0 0 1px rgba(0, 0, 0, 0.42))',
-        shadow: '0 0 1px rgba(0, 0, 0, 0.42)'
-      };
-    }
-    if (material === 'silver_plaque') {
-      return {
-        color: '#17191b',
-        filter: 'brightness(0) saturate(100%) opacity(0.92)',
-        photoFilter: 'grayscale(1) contrast(1.35) brightness(0.72) opacity(0.92)',
-        shadow: '0 1px 1px rgba(255, 255, 255, 0.18)'
-      };
-    }
-    if (material === 'leather') {
-      return {
-        color: '#4a2919',
-        filter: 'brightness(0) saturate(100%) invert(15%) sepia(31%) saturate(1334%) hue-rotate(343deg) brightness(91%) contrast(91%) opacity(0.86)',
-        shadow: '0 1px 1px rgba(225, 174, 121, 0.2)'
-      };
-    }
+    obj.setCoords?.();
+    const measured = obj.getBoundingRect?.(true, true) || obj;
     return {
-      color: '#dadad6',
-      filter: 'brightness(0) saturate(100%) invert(91%) opacity(0.9)',
-      shadow: ''
+      width: Number(measured.width || 0),
+      height: Number(measured.height || 0)
     };
-  }
-  function applyLayerPreview(layer, el, renderedW, renderedH, isGhost, isEngraving, engravingMaterial = 'silver_metal') {
-    // Remove any existing preview children
-    el._ocTextPreviewCanvas?.dispose?.();
-    el._ocTextPreviewCanvas = null;
-    el.querySelectorAll('.oc-lp').forEach(c => c.remove());
-    if (!layer) {
-      return;
+  },
+  textLayerFitsAtSize(layer, raw, font, fontSize) {
+    const area = this.areas[this.areaIndexForLayer(layer?.id)];
+    const bounds = area ? this.areaBounds(area) : null;
+    const layerBox = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayLayer)(layer, bounds) : layer;
+    const displaySize = bounds ? (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayFontSize)(fontSize, bounds) : fontSize;
+    return this.textFitsBox(raw, font, displaySize, layer?.settings || {}, Number(layerBox?.w || 0), Number(layerBox?.h || 0), layer?.type === 'textarea');
+  },
+  async maxFittingFontSize(layerId, upperLimit) {
+    const layer = this.getLayerById(layerId);
+    if (!layer || !['text', 'textarea'].includes(layer.type)) {
+      return upperLimit;
     }
-    const s = layer.settings || {};
-    const engraving = engravingPreview(engravingMaterial);
-    const selectedClipart = layer.type === 'clipart' ? (window.ocProductsData?.clipartItems || []).find(item => Number(item.id) === Number(s.default_clipart_id)) : null;
-    const clipartUrl = s.default_clipart_url || selectedClipart?.url || '';
-    if (layer.type === 'text' || layer.type === 'textarea') {
-      const isSingleLine = layer.type === 'text';
-      const text = s.default_text || layer.label || layerLabel(layer.type);
-      const align = s.alignment || 'center';
-      const scale = renderedH / Math.max(1, layer.h);
-      const defaultFontSize = fontLimit(s.default_font_size);
-      const autoFontSize = Math.max(8, renderedH * 0.72);
-      const fs = clampFontSize(defaultFontSize ? defaultFontSize * scale : autoFontSize, s, scale);
-      const font = findFont(s.default_font_id || 0);
-      const color = isEngraving ? engraving.color : normaliseHex(s.default_color);
-      const minFontSize = fontLimit(s.min_font_size) ? fontLimit(s.min_font_size) * scale : 4;
-      const render = () => renderTextPreview(el, text, font, fs, minFontSize, Math.max(1, renderedW), Math.max(1, renderedH), {
-        ...s,
-        alignment: align
-      }, color, isSingleLine);
-      render();
-      if (font && document.fonts?.load) {
-        const preview = el._ocTextPreviewCanvas;
-        document.fonts.load(`${font.style || 'normal'} ${font.weight || 'normal'} ${Math.max(1, fs)}px "${String(font.name).replace(/"/g, '\\"')}"`).then(() => {
-          if (el._ocTextPreviewCanvas !== preview) {
-            return;
-          }
-          // The first render may have cached fallback-font measurements.
-          fabric__WEBPACK_IMPORTED_MODULE_0__.cache.clearFontCache(font.name);
-          preview.dispose();
-          el.querySelectorAll('.oc-lp').forEach(c => c.remove());
-          render();
-        }).catch(() => {});
+    const maxLimit = this.fontLimit(layer.settings?.max_font_size);
+    if (maxLimit) {
+      upperLimit = Math.min(upperLimit, maxLimit);
+    }
+    const input = this.inputs[layerId] || {};
+    const normalisedText = String(input.value || '').replace(/\r\n?/g, '\n');
+    const raw = layer.type === 'text' ? normalisedText.trim() : normalisedText;
+    if (!raw.trim()) {
+      return upperLimit;
+    }
+    let font = this.fonts.find(f => f.id === (input.fontId || layer.settings?.default_font_id || 0));
+    if (font) {
+      try {
+        await this.loadFont(font);
+      } catch {
+        font = null;
       }
-    } else if (layer.type === 'mask' && s.default_attachment_url) {
-      const img = document.createElement('img');
-      img.className = 'oc-lp oc-lp-media oc-lp-mask';
-      img.src = s.default_attachment_url;
-      img.alt = '';
-      el.appendChild(img);
-    } else if (['image', 'ai_image', 'clipmask'].includes(layer.type)) {
-      if (layer.type === 'image' && s.default_attachment_url) {
-        const img = document.createElement('img');
-        img.className = 'oc-lp oc-lp-media';
-        img.src = s.default_attachment_url;
-        img.alt = '';
-        img.style.filter = isEngraving ? engraving.photoFilter || engraving.filter : imageFilterCss(s.default_image_filter_id);
-        if (isEngraving && ['leather', 'silver_plaque'].includes(engravingMaterial)) {
-          img.style.mixBlendMode = 'multiply';
-        }
-        el.appendChild(img);
-        return;
-      }
-      const fs = Math.max(14, Math.min(renderedH * 0.35, 40));
-      const d = document.createElement('div');
-      d.className = 'oc-lp oc-lp-icon';
-      d.innerHTML = '<svg width="' + Math.round(fs) + '" height="' + Math.round(fs * 0.8) + '" viewBox="0 0 24 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' + '<rect x="1" y="4" width="22" height="15" rx="2"/>' + '<circle cx="12" cy="11.5" r="3.5"/>' + '<path d="M8 4l2-3h4l2 3"/>' + '</svg>' + '<span>' + (layer.type === 'clipmask' ? 'Upload Clipped Photo' : 'Upload Image') + '</span>';
-      if (layer.type === 'clipmask') {
-        d.style.borderRadius = '999px';
-      }
-      el.appendChild(d);
-    } else if (layer.type === 'clipart' && clipartUrl) {
-      const img = document.createElement('img');
-      img.className = 'oc-lp oc-lp-media';
-      img.src = clipartUrl;
-      img.alt = '';
-      if (isEngraving && (s.default_clipart_recolourable || selectedClipart?.fileType === 'svg' && selectedClipart.colourChangeable !== false)) {
-        img.style.filter = engraving.filter;
-        if (engravingMaterial === 'leather') {
-          img.style.mixBlendMode = 'multiply';
-        }
-      }
-      el.appendChild(img);
-    } else {
-      const icons = {
-        mask: '\u25a0',
-        spotify: '\u266b',
-        lineart: '\u270f',
-        clipart: '\u2726',
-        night_sky: '\u2606'
-      };
-      const labels = {
-        mask: 'Mask',
-        spotify: 'Spotify Code',
-        lineart: 'Line Art',
-        clipart: 'Clipart',
-        night_sky: 'Night Sky'
-      };
-      const fs = Math.max(14, Math.min(renderedH * 0.35, 36));
-      const d = document.createElement('div');
-      d.className = 'oc-lp oc-lp-icon';
-      if (isEngraving && layer.type === 'lineart') {
-        d.style.color = engraving.color;
-        d.style.textShadow = engraving.shadow;
-      }
-      d.innerHTML = '<span style="font-size:' + Math.round(fs) + 'px;">' + (icons[layer.type] || '') + '</span><span>' + (labels[layer.type] || layerLabel(layer.type)) + '</span>';
-      el.appendChild(d);
     }
-  }
-  return applyLayerPreview;
-}
-
-/***/ },
-
-/***/ "./src/admin/products-page-settings.js"
-/*!*********************************************!*\
-  !*** ./src/admin/products-page-settings.js ***!
-  \*********************************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
-
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   createProductsPageSettings: () => (/* binding */ createProductsPageSettings)
-/* harmony export */ });
-/* eslint-disable no-unused-vars, no-nested-ternary */
-
-function createProductsPageSettings(deps) {
-  const {
-    commitChange,
-    esc,
-    fontLimit,
-    getAreas,
-    layerLabel,
-    normaliseHex,
-    normaliseLinkGroup,
-    renderLayerList,
-    selectedArea,
-    syncBoundsFromInputs
-  } = deps;
-  function field(label, inputHtml) {
-    return '<div class="oc-editor-field"><label class="oc-settings-label">' + label + '</label>' + inputHtml + '</div>';
-  }
-  function toggleField(label, id, checked) {
-    return '<label class="oc-toggle-label oc-settings-toggle"><span class="oc-toggle"><input type="checkbox" id="' + id + '"' + (checked ? ' checked' : '') + ' /><span class="oc-toggle-slider"></span></span> ' + label + '</label>';
-  }
-  function clipartDisplayField(current) {
-    const value = current === 'carousel' ? 'carousel' : 'grid';
-    return '<select id="oc-set-clipart-display" class="oc-input" style="width:100%;">' + '<option value="grid"' + (value === 'grid' ? ' selected' : '') + '>Grid</option>' + '<option value="carousel"' + (value === 'carousel' ? ' selected' : '') + '>One-row scroll with arrows and dots</option>' + '</select>';
-  }
-  function clipartAllowedForMethod(item, printMethod) {
-    const allowed = Array.isArray(item.allowedPrintMethods) ? item.allowedPrintMethods : [];
-    return !allowed.length || allowed.includes(printMethod);
-  }
-  function clipartForSelectedGroups(items, groupIds, printMethod = '') {
-    const selected = selectedGroupIds(groupIds);
-    const activeItems = (items || []).filter(item => item.active !== false && clipartAllowedForMethod(item, printMethod));
-    if (!selected.length) {
-      return activeItems;
-    }
-    return activeItems.filter(item => (item.groupIds || []).some(id => selected.includes(Number(id))));
-  }
-  function clipartOptions(items, currentId) {
-    return '<option value="0">No default clipart</option>' + (items || []).map(item => '<option value="' + esc(item.id) + '"' + (Number(item.id) === Number(currentId || 0) ? ' selected' : '') + '>' + esc(item.name) + '</option>').join('');
-  }
-  function setDefaultClipart(settings, clipartId, items) {
-    const item = (items || []).find(c => Number(c.id) === Number(clipartId || 0));
-    settings.default_clipart_id = item ? Number(item.id) : 0;
-    settings.default_clipart_url = item ? item.url || '' : '';
-    settings.default_clipart_recolourable = item ? item.fileType === 'svg' && item.colourChangeable !== false : false;
-  }
-  function ensureDefaultClipartInList(settings, items) {
-    if (!settings.default_clipart_id) {
-      return false;
-    }
-    if ((items || []).some(item => Number(item.id) === Number(settings.default_clipart_id))) {
-      return false;
-    }
-    setDefaultClipart(settings, 0, items);
-    return true;
-  }
-  function mediaDefaultField(settings) {
-    const hasDefault = !!settings.default_attachment_url;
-    return '<div class="oc-default-media-field">' + '<input type="hidden" id="oc-set-default-attachment-id" value="' + esc(settings.default_attachment_id || 0) + '" />' + '<input type="hidden" id="oc-set-default-attachment-url" value="' + esc(settings.default_attachment_url || '') + '" />' + '<div class="oc-mockup-thumb" style="margin-bottom:8px;">' + '<img id="oc-default-attachment-preview" src="' + esc(settings.default_attachment_url || '') + '" alt="" style="' + (hasDefault ? '' : 'display:none;') + 'max-width:100%;height:auto;" />' + '<span id="oc-default-attachment-empty" style="font-size:12px;color:var(--oc-gray-400);' + (hasDefault ? 'display:none;' : '') + '">No default image set</span>' + '</div>' + '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + '<button type="button" id="oc-choose-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm">Choose image</button>' + '<button type="button" id="oc-remove-default-attachment" class="oc-btn oc-btn-secondary oc-btn-sm' + (hasDefault ? '' : ' oc-default-media-remove--hidden') + '"' + '>Remove</button>' + '</div>' + '</div>';
-  }
-  function alignBtns(current) {
-    return '<div class="oc-align-btns">' + [['left', '\u2190', 'Left'], ['center', '\u2261', 'Center'], ['right', '\u2192', 'Right']].map(([a, icon, lbl]) => '<button type="button" class="oc-align-btn' + (a === current ? ' oc-align-btn--active' : '') + '" data-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
-  }
-  function lineAlignBtns(current) {
-    const value = ['top', 'center', 'bottom'].includes(current) ? current : 'top';
-    return '<div class="oc-align-btns">' + [['top', '\u2191', 'Top'], ['center', '\u2195', 'Center'], ['bottom', '\u2193', 'Bottom']].map(([a, icon, lbl]) => '<button type="button" class="oc-line-align-btn' + (a === value ? ' oc-align-btn--active' : '') + '" data-line-align="' + a + '">' + icon + ' ' + lbl + '</button>').join('') + '</div>';
-  }
-  function groupChecks(cls, groups, selected) {
-    if (!groups.length) {
-      return '<span class="oc-settings-empty">No groups created yet.</span>';
-    }
-    return '<div class="oc-group-checks">' + groups.map(g => '<label class="oc-group-check-item"><input type="checkbox" class="' + cls + '" value="' + esc(g.id) + '"' + (selected.indexOf(Number(g.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(g.name) + '</span></label>').join('') + '</div>';
-  }
-  function imageFilterChecks(filters, selected) {
-    if (!filters.length) {
-      return '<span class="oc-settings-empty">No image filters created yet.</span>';
-    }
-    return '<div class="oc-group-checks">' + filters.map(filter => '<label class="oc-group-check-item"><input type="checkbox" class="oc-if-check" value="' + esc(filter.id) + '"' + (selected.indexOf(Number(filter.id)) !== -1 ? ' checked' : '') + ' /><span>' + esc(filter.name) + '</span></label>').join('') + '</div>';
-  }
-  function imageFilterOptions(filters, allowedIds, selectedId) {
-    const allowed = Array.isArray(allowedIds) ? allowedIds.map(Number).filter(Boolean) : [];
-    const items = (filters || []).filter(filter => allowed.includes(Number(filter.id)));
-    return '<option value="0">Original</option>' + items.map(filter => '<option value="' + esc(filter.id) + '"' + (Number(filter.id) === Number(selectedId || 0) ? ' selected' : '') + '>' + esc(filter.name) + '</option>').join('');
-  }
-  function linkGroupOptions(current, setting = 'link_group') {
-    const groups = [];
-    getAreas().forEach(area => {
-      (area.layers || []).forEach(layer => {
-        const group = normaliseLinkGroup(layer.settings?.[setting]);
-        if (group && groups.indexOf(group) === -1) {
-          groups.push(group);
-        }
-      });
-    });
-    current = normaliseLinkGroup(current);
-    if (current && groups.indexOf(current) === -1) {
-      groups.push(current);
-    }
-    return groups.sort((a, b) => a.localeCompare(b));
-  }
-  function linkGroupField(current, setting = 'link_group') {
-    const groups = linkGroupOptions(current, setting);
-    current = normaliseLinkGroup(current);
-    const id = setting === 'colour_link_group' ? 'oc-set-colour-link-group' : 'oc-set-link-group';
-    const newId = `${id}-new`;
-    if (!groups.length) {
-      return `<input type="text" id="${id}" class="oc-input" style="width:100%;" placeholder="Create a link group, e.g. name" value="" />`;
-    }
-    return `<select id="${id}" class="oc-input" style="width:100%;">` + '<option value="">No link group</option>' + groups.map(group => '<option value="' + esc(group) + '"' + (group === current ? ' selected' : '') + '>' + esc(group) + '</option>').join('') + '<option value="__new">Create new link group...</option>' + '</select>' + `<input type="text" id="${newId}" class="oc-input" style="width:100%;margin-top:8px;display:none;" placeholder="New link group name" value="" />`;
-  }
-  function fontOptions(fonts, selected) {
-    return '<option value="0">Auto / first available</option>' + fonts.map(f => '<option value="' + esc(f.id) + '"' + (Number(selected) === Number(f.id) ? ' selected' : '') + '>' + esc(f.name) + '</option>').join('');
-  }
-  function selectedGroupIds(value) {
-    return Array.isArray(value) ? value.map(Number).filter(Boolean) : [];
-  }
-  function membersForGroups(groups, selected, memberKey) {
-    if (!selected.length) {
-      return [];
-    }
-    const ids = [];
-    groups.forEach(group => {
-      if (selected.indexOf(Number(group.id)) === -1) {
-        return;
-      }
-      (group[memberKey] || []).forEach(id => {
-        id = Number(id);
-        if (id && ids.indexOf(id) === -1) {
-          ids.push(id);
-        }
-      });
-    });
-    return ids;
-  }
-  function fontsForSelectedGroups(fonts, groups, selected) {
-    if (!selected.length) {
-      return fonts;
-    }
-    const ids = membersForGroups(groups, selected, 'fontIds');
-    return ids.map(id => fonts.find(font => Number(font.id) === id)).filter(Boolean);
-  }
-  function coloursForSelectedGroups(colours, groups, selected) {
-    if (!selected.length) {
-      return colours;
-    }
-    const ids = membersForGroups(groups, selected, 'colourIds');
-    return ids.map(id => colours.find(colour => Number(colour.id) === id)).filter(Boolean);
-  }
-  function colourOptions(colours, selected) {
-    const selectedHex = normaliseHex(selected).toLowerCase();
-    return colours.map(colour => {
-      const hex = normaliseHex(colour.hex);
-      return '<option value="' + esc(hex) + '"' + (hex.toLowerCase() === selectedHex ? ' selected' : '') + '>' + esc(colour.name) + ' (' + esc(hex) + ')</option>';
-    }).join('');
-  }
-  function ensureDefaultFontInList(settings, fonts) {
-    const currentId = Number(settings.default_font_id) || 0;
-    if (!currentId) {
-      return false;
-    }
-    if (fonts.some(font => Number(font.id) === currentId)) {
-      return false;
-    }
-    settings.default_font_id = 0;
-    return true;
-  }
-  function normaliseLayerDefaults(layer, area = selectedArea()) {
-    if (!layer?.settings) {
-      return false;
-    }
-    const settings = layer.settings;
-    const data = window.ocProductsData || {};
-    let changed = false;
-    if (layer.type === 'text' || layer.type === 'textarea') {
-      changed = ensureDefaultFontInList(settings, fontsForSelectedGroups(data.fonts || [], data.fontGroups || [], selectedGroupIds(settings.font_groups)));
-    }
-    if (layer.type === 'clipart') {
-      changed = ensureDefaultClipartInList(settings, clipartForSelectedGroups(data.clipartItems || [], settings.clipart_groups, area?.method || '')) || changed;
-    }
-    return changed;
-  }
-  function ensureDefaultColourInList(settings, colours) {
-    if (!colours.length) {
-      return;
-    }
-    const selectedHex = normaliseHex(settings.default_color).toLowerCase();
-    if (colours.some(colour => normaliseHex(colour.hex).toLowerCase() === selectedHex)) {
-      return;
-    }
-    settings.default_color = normaliseHex(colours[0].hex);
-  }
-  function formatChecks(selected) {
-    return '<div class="oc-group-checks">' + ['png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp', 'pdf', 'eps'].map(fmt => '<label class="oc-group-check-item"><input type="checkbox" class="oc-fmt-check" value="' + fmt + '"' + (selected.indexOf(fmt) !== -1 ? ' checked' : '') + ' /><span>' + fmt.toUpperCase() + '</span></label>').join('') + '</div>';
-  }
-
-  // ── Tab content builders ───────────────────────────────────────────────────
-
-  function buildTabContent(tabId, layer) {
-    const s = layer.settings;
-    const data = window.ocProductsData || {};
-    const fGroups = data.fontGroups || [];
-    const fonts = data.fonts || [];
-    const colours = data.colours || [];
-    const cGroups = data.colourGroups || [];
-    // Engraving has no colour — don't show colour group pickers for layers in engraving areas.
-    const area = selectedArea();
-    const printMethod = area?.method || '';
-    const aGroups = data.clipartGroups || [];
-    const isEngraving = area && area.method === 'engraving';
-    const supportsColourLink = ['text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky'].includes(layer.type);
-    switch (tabId) {
-      case 'general':
-        return field('Label', '<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="' + esc(layer.label) + '" />') + field('Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>', linkGroupField(s.link_group || '')) + (supportsColourLink ? field('Colour link group <span class="oc-hint">(keeps colour identical across text and artwork layers)</span>', linkGroupField(s.colour_link_group || '', 'colour_link_group')) : '') + '<p class="oc-settings-section-hdr">Position</p>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' + layer.x + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' + layer.y + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' + layer.w + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' + layer.h + '" /></div>' + '</div>';
-      case 'content':
-        return field('Default text', '<input type="text" id="oc-set-default-text" class="oc-input" style="width:100%;" placeholder="e.g. Your Name Here" value="' + esc(s.default_text || '') + '" />') + field('Max characters <span class="oc-hint">(0 = unlimited)</span>', '<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' + esc(s.char_limit || 0) + '" />');
-      case 'prompt':
-        return field('Required admin instruction <span class="oc-hint">(never shown to customers, max 16 KiB)</span>', '<textarea id="oc-set-ai-prompt-instruction" class="oc-input" maxlength="16384" rows="10" required style="width:100%;resize:vertical;">' + esc(s.ai_prompt_instruction || '') + '</textarea>');
-      case 'style':
-        {
-          const fontGroupsSelected = selectedGroupIds(s.font_groups);
-          const colourGroupsSelected = selectedGroupIds(s.colour_groups);
-          const availableFonts = fontsForSelectedGroups(fonts, fGroups, fontGroupsSelected);
-          const availableColours = coloursForSelectedGroups(colours, cGroups, colourGroupsSelected);
-          return field('Alignment', alignBtns(s.alignment || 'center')) + (layer.type === 'textarea' ? field('Line alignment', lineAlignBtns(s.line_alignment || 'top')) : '') + (availableFonts.length ? field('Default font', '<select id="oc-set-default-font" class="oc-input" style="width:100%;">' + fontOptions(availableFonts, s.default_font_id || 0) + '</select>') : field('Default font', '<span class="oc-settings-empty">' + (fontGroupsSelected.length ? 'No fonts are available in the selected groups.' : 'No fonts uploaded yet.') + '</span>')) + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.default_font_size || 0) + '" /></div>' + (isEngraving ? '' : colourGroupsSelected.length ? availableColours.length ? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(availableColours, s.default_color) + '</select></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>' : '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" /></div>') + '</div>' + '<div class="oc-bounds-grid">' + '<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.min_font_size || 0) + '" /></div>' + '<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' + esc(s.max_font_size || 0) + '" /></div>' + '</div>' + (fGroups.length ? field('Font groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-fg-check', fGroups, s.font_groups || [])) : field('Font groups', '<span class="oc-settings-empty">No font groups created yet.</span>')) + (isEngraving ? '' : cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
-        }
-      case 'file':
-        return (layer.type === 'image' ? field('Default image', mediaDefaultField(s)) : '') + field('Enabled image filters <span class="oc-hint">(available choices)</span>', imageFilterChecks(data.imageFilters || [], s.image_filter_ids || [])) + field('Default filter', '<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' + imageFilterOptions(data.imageFilters || [], s.image_filter_ids || [], s.default_image_filter_id || 0) + '</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>') + field('Accepted formats', formatChecks(s.formats || ['png', 'jpg', 'jpeg', 'heic', 'heif', 'svg', 'webp'])) + field('Max file size (MB)', '<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' + esc(s.max_size_mb || 10) + '" />') + toggleField('Automatically remove background', 'oc-set-remove-background', !!s.remove_background);
-      case 'sky':
-        return toggleField('Show constellation lines', 'oc-set-show-constellations', s.show_constellations !== false) + toggleField('Show planets', 'oc-set-show-planets', s.show_planets !== false) + toggleField('Show constellation and planet labels', 'oc-set-show-labels', s.show_labels !== false) + toggleField('Show horizon border', 'oc-set-show-border', s.show_border !== false);
-      case 'mask':
-        return field('Mask shape', '<select id="oc-set-mask-shape" class="oc-input" style="width:100%;"><option value="circle"' + ((s.mask_shape || 'circle') === 'circle' ? ' selected' : '') + '>Circle</option></select>');
-      case 'appearance':
-      case 'colours':
-        if (isEngraving) {
-          return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
-        }
-        if (['image', 'ai_image'].includes(layer.type)) {
-          const selected = selectedGroupIds(s.colour_groups);
-          const available = coloursForSelectedGroups(colours, cGroups, selected);
-          return toggleField('Enable colour for filtered image', 'oc-set-enable-image-colour', !!s.enable_image_colour) + field('Default colour', selected.length && available.length ? '<select id="oc-set-default-color" class="oc-input" style="width:100%;">' + colourOptions(available, s.default_color) + '</select>' : '<input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" />') + (cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : field('Colour groups', '<span class="oc-settings-empty">No colour groups created yet.</span>'));
-        }
-        return (layer.type === 'night_sky' ? field('Default colour', '<input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' + esc(normaliseHex(s.default_color)) + '" />') + toggleField('Customer can change colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false) : '') + (cGroups.length ? field('Colour groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-cg-check', cGroups, s.colour_groups || [])) : '<span class="oc-settings-empty">No colour groups created yet.</span>');
-      case 'library':
-        {
-          const availableClipartItems = clipartForSelectedGroups(data.clipartItems || [], selectedGroupIds(s.clipart_groups), printMethod);
-          return (aGroups.length ? field('Clipart groups <span class="oc-hint">(empty = all)</span>', groupChecks('oc-ag-check', aGroups, s.clipart_groups || [])) : '<span class="oc-settings-empty">No clipart groups created yet.</span>') + field('Default clipart', availableClipartItems.length ? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' + clipartOptions(availableClipartItems, s.default_clipart_id || 0) + '</select>' : '<span class="oc-settings-empty">No active clipart is available.</span>');
-        }
-      case 'validation':
-        return toggleField('Required field', 'oc-set-required', s.required) + (layer.type === 'clipart' ? field('Frontend display', clipartDisplayField(s.clipart_display || 'grid')) : '');
-      case 'properties':
-        if (['image', 'ai_image'].includes(layer.type)) {
-          return '<p class="oc-settings-section-hdr">Customer can change</p>' + (layer.type === 'image' ? toggleField('Image', 'oc-set-allow-image-change', s.allow_image_change !== false) : '') + toggleField('Filter', 'oc-set-allow-image-filter-change', s.allow_image_filter_change !== false) + (s.enable_image_colour ? toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false) : '');
-        }
-        if (layer.type === 'clipart') {
-          return '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Clipart', 'oc-set-allow-clipart-change', s.allow_clipart_change !== false);
-        }
-        return toggleField('Required field', 'oc-set-required', s.required) + '<p class="oc-settings-section-hdr">Customer can change</p>' + toggleField('Font', 'oc-set-allow-font-change', s.allow_font_change !== false) + (isEngraving ? '' : toggleField('Colour', 'oc-set-allow-colour-change', s.allow_colour_change !== false)) + toggleField('Size', 'oc-set-allow-size-change', !!s.allow_size_change);
-      default:
-        return '';
-    }
-  }
-  function bindSettingsHandlers(layer) {
-    const s = layer.settings;
-    const area = selectedArea();
-    const data = window.ocProductsData || {};
-    document.getElementById('oc-layer-label')?.addEventListener('input', e => {
-      layer.label = e.target.value;
-      renderLayerList(area);
-      commitChange({
-        canvas: true
-      });
-    });
-    ['oc-layer-x', 'oc-layer-y', 'oc-layer-w', 'oc-layer-h'].forEach(id => {
-      document.getElementById(id)?.addEventListener('input', () => syncBoundsFromInputs(id));
-    });
-    document.getElementById('oc-set-ai-prompt-instruction')?.addEventListener('input', e => {
-      s.ai_prompt_instruction = e.target.value.slice(0, 16384);
-      commitChange();
-    });
-    document.getElementById('oc-set-default-text')?.addEventListener('input', e => {
-      s.default_text = e.target.value;
-      commitChange({
-        canvas: true
-      });
-    });
-    const linkGroupControl = document.getElementById('oc-set-link-group');
-    const newLinkGroupControl = document.getElementById('oc-set-link-group-new');
-    linkGroupControl?.addEventListener(linkGroupControl.tagName === 'SELECT' ? 'change' : 'input', e => {
-      if (e.target.value === '__new') {
-        if (newLinkGroupControl) {
-          newLinkGroupControl.style.display = '';
-          newLinkGroupControl.focus();
-          s.link_group = normaliseLinkGroup(newLinkGroupControl.value);
-        }
+    const min = this.fontLimit(layer.settings?.min_font_size) || 1;
+    let low = min;
+    let high = Math.max(min, upperLimit);
+    let best = min;
+    while (low <= high) {
+      const mid = Math.floor((low + high) / 2);
+      if (this.textLayerFitsAtSize(layer, raw, font, mid)) {
+        best = mid;
+        low = mid + 1;
       } else {
-        if (newLinkGroupControl) {
-          newLinkGroupControl.style.display = 'none';
-        }
-        s.link_group = normaliseLinkGroup(e.target.value);
+        high = mid - 1;
       }
-      commitChange();
-    });
-    newLinkGroupControl?.addEventListener('input', e => {
-      s.link_group = normaliseLinkGroup(e.target.value);
-      commitChange();
-    });
-    const colourLinkGroupControl = document.getElementById('oc-set-colour-link-group');
-    const newColourLinkGroupControl = document.getElementById('oc-set-colour-link-group-new');
-    colourLinkGroupControl?.addEventListener(colourLinkGroupControl.tagName === 'SELECT' ? 'change' : 'input', e => {
-      if (e.target.value === '__new') {
-        if (newColourLinkGroupControl) {
-          newColourLinkGroupControl.style.display = '';
-          newColourLinkGroupControl.focus();
-          s.colour_link_group = normaliseLinkGroup(newColourLinkGroupControl.value);
-        }
-      } else {
-        if (newColourLinkGroupControl) {
-          newColourLinkGroupControl.style.display = 'none';
-        }
-        s.colour_link_group = normaliseLinkGroup(e.target.value);
+    }
+    return Math.max(min, Math.min(upperLimit, best));
+  },
+  async updateTextSizeSliderCap(layerId, clampValue = true) {
+    const sizeEl = document.querySelector(`[data-oc-layer-font-size="${layerId}"]`);
+    if (!sizeEl) {
+      return;
+    }
+    if (!sizeEl.dataset.ocOriginalMax) {
+      sizeEl.dataset.ocOriginalMax = sizeEl.max || '200';
+    }
+    const originalMax = Math.max(parseInt(sizeEl.dataset.ocOriginalMax, 10) || 200, parseInt(sizeEl.min, 10) || 1);
+    const layer = this.getLayerById(layerId);
+    const configuredMax = this.fontLimit(layer?.settings?.max_font_size);
+    let cappedMax = Math.max(parseInt(sizeEl.min, 10) || 1, configuredMax ? Math.min(originalMax, configuredMax) : originalMax);
+    cappedMax = await this.maxFittingFontSize(layerId, cappedMax);
+    sizeEl.max = String(cappedMax);
+    const hasAdjustableRange = cappedMax > (parseInt(sizeEl.min, 10) || 1);
+    const control = sizeEl.closest('[data-oc-font-size-control]');
+    control?.querySelector('[data-oc-font-size-label]')?.toggleAttribute('hidden', !hasAdjustableRange);
+    sizeEl.toggleAttribute('hidden', !hasAdjustableRange);
+    control?.querySelector('[data-oc-font-size-notice]')?.toggleAttribute('hidden', hasAdjustableRange);
+    if (clampValue && parseInt(sizeEl.value, 10) > cappedMax) {
+      sizeEl.value = String(cappedMax);
+      if (!this.inputs[layerId]) {
+        this.inputs[layerId] = {};
       }
-      commitChange();
-    });
-    newColourLinkGroupControl?.addEventListener('input', e => {
-      s.colour_link_group = normaliseLinkGroup(e.target.value);
-      commitChange();
-    });
-    document.getElementById('oc-set-char-limit')?.addEventListener('input', e => {
-      s.char_limit = parseInt(e.target.value, 10) || 0;
-      commitChange();
-    });
-    document.getElementById('oc-choose-default-attachment')?.addEventListener('click', () => {
-      if (!window.wp || !window.wp.media) {
-        return;
+      this.inputs[layerId].fontSize = cappedMax;
+    }
+    document.querySelector(`.oc-range-value[data-oc-range-value="${layerId}"]`)?.replaceChildren(document.createTextNode(sizeEl.value));
+  },
+  rotatedLayerCenter(layer, bounds, rotation) {
+    let x = layer.x + layer.w / 2;
+    let y = layer.y + layer.h / 2;
+    if (!bounds?.w || !rotation) {
+      return {
+        x,
+        y
+      };
+    }
+    const cx = bounds.x + bounds.w / 2;
+    const cy = bounds.y + bounds.h / 2;
+    const rad = rotation * Math.PI / 180;
+    const dx = x - cx;
+    const dy = y - cy;
+    x = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
+    y = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
+    return {
+      x,
+      y
+    };
+  },
+  engravingPalette(material = 'silver_metal') {
+    const palettes = {
+      glass: {
+        text: '#eef4f4',
+        imageTint: '#eef4f4',
+        bg: 'F7FAFA',
+        highlight: 'rgba(255,255,255,0.7)',
+        brightness: 0.16,
+        contrast: -0.04,
+        opacity: 0.62
+      },
+      gold_metal: {
+        text: '#6f5227',
+        imageTint: '#6f5227',
+        bg: 'D9A72E',
+        highlight: 'rgba(255,238,176,0.34)',
+        brightness: -0.18,
+        contrast: 0.22,
+        opacity: 0.88
+      },
+      silver_metal: {
+        text: '#c9c9c3',
+        imageTint: '#c9c9c3',
+        bg: 'ECEFF1',
+        highlight: 'rgba(255,255,255,0.42)',
+        brightness: -0.28,
+        contrast: 0.18,
+        opacity: 0.9
+      },
+      silver_plaque: {
+        text: '#17191b',
+        imageTint: '#111315',
+        bg: 'ECEFF1',
+        highlight: 'rgba(255,255,255,0.08)',
+        brightness: -0.08,
+        contrast: 0.34,
+        opacity: 0.96,
+        tintAlpha: 0.9,
+        composite: 'multiply',
+        photoDither: true
+      },
+      black_metal: {
+        text: '#d8d8d8',
+        imageTint: '#d8d8d8',
+        bg: '1F2328',
+        highlight: 'rgba(255,255,255,0.24)',
+        shadow: 'rgba(0,0,0,0.42)',
+        brightness: -0.34,
+        contrast: 0.28,
+        opacity: 0.95
+      },
+      wood: {
+        text: 'rgba(78,42,20,0.7)',
+        imageTint: '#5d3922',
+        bg: 'C8A06B',
+        highlight: 'rgba(255,225,180,0.16)',
+        brightness: -0.16,
+        contrast: 0.2,
+        opacity: 0.72,
+        tintAlpha: 0.72,
+        composite: 'multiply',
+        pattern: 'wood'
+      },
+      leather: {
+        text: 'rgba(66,35,21,0.86)',
+        imageTint: '#4a2919',
+        bg: 'A66F45',
+        highlight: 'rgba(235,190,140,0.18)',
+        brightness: -0.2,
+        contrast: 0.24,
+        opacity: 0.84,
+        tintAlpha: 0.82,
+        composite: 'multiply',
+        pattern: 'leather',
+        noise: 5
       }
-      const frame = window.wp.media({
-        title: 'Select Default Image',
-        button: {
-          text: 'Use as Default'
-        },
-        multiple: false,
-        library: {
-          type: 'image'
-        }
+    };
+    return palettes[material] || palettes.silver_metal;
+  },
+  woodEngravingPattern(fontSize = 24) {
+    const source = document.createElement('canvas');
+    const width = Math.max(42, Math.min(96, Math.round(fontSize * 1.9)));
+    const height = Math.max(14, Math.min(30, Math.round(fontSize * 0.48)));
+    source.width = width;
+    source.height = height;
+    const ctx = source.getContext('2d');
+    if (!ctx) {
+      return 'rgba(78,42,20,0.7)';
+    }
+    ctx.fillStyle = 'rgba(78,42,20,0.64)';
+    ctx.fillRect(0, 0, width, height);
+    for (let y = 1; y < height; y += 4) {
+      ctx.strokeStyle = 'rgba(255,220,165,0.16)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + y % 3 * 0.25);
+      ctx.bezierCurveTo(width * 0.28, y - 1.3, width * 0.62, y + 1.2, width, y - 0.4);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(54,26,12,0.18)';
+      ctx.beginPath();
+      ctx.moveTo(0, y + 1.8);
+      ctx.bezierCurveTo(width * 0.32, y + 2.8, width * 0.7, y + 0.8, width, y + 1.6);
+      ctx.stroke();
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Pattern({
+      source,
+      repeat: 'repeat'
+    });
+  },
+  leatherEngravingPattern(fontSize = 24) {
+    const source = document.createElement('canvas');
+    const size = Math.max(18, Math.min(36, Math.round(fontSize * 0.72)));
+    source.width = size;
+    source.height = size;
+    const ctx = source.getContext('2d');
+    if (!ctx) {
+      return 'rgba(66,35,21,0.86)';
+    }
+    ctx.fillStyle = 'rgba(66,35,21,0.82)';
+    ctx.fillRect(0, 0, size, size);
+
+    // Fixed pore positions keep the grain stable between preview redraws.
+    const pores = [[0.12, 0.18, 0.035], [0.43, 0.1, 0.025], [0.76, 0.22, 0.04], [0.26, 0.48, 0.03], [0.61, 0.55, 0.035], [0.9, 0.44, 0.025], [0.08, 0.8, 0.025], [0.48, 0.88, 0.04], [0.8, 0.76, 0.03]];
+    pores.forEach(([x, y, radius], index) => {
+      ctx.beginPath();
+      ctx.fillStyle = index % 2 ? 'rgba(235,190,140,0.12)' : 'rgba(27,13,8,0.18)';
+      ctx.ellipse(x * size, y * size, Math.max(0.55, radius * size), Math.max(0.4, radius * size * 0.58), index * Math.PI / 7, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Pattern({
+      source,
+      repeat: 'repeat'
+    });
+  },
+  silverPlaquePhotoDither(element, displayW, displayH, fit = 0) {
+    try {
+      const sourceW = Number(element?.naturalWidth || element?.width || 0);
+      const sourceH = Number(element?.naturalHeight || element?.height || 0);
+      if (!sourceW || !sourceH) {
+        return null;
+      }
+      const cropAmount = fit === 'cover' ? 1 : Math.max(0, Math.min(1, (Number(fit) || 0) / 100));
+      const containScale = Math.min(displayW / sourceW, displayH / sourceH);
+      const coverScale = Math.max(displayW / sourceW, displayH / sourceH);
+      const displayScale = containScale + (coverScale - containScale) * cropAmount;
+      const scale = Math.min(displayScale, 1200 / Math.max(sourceW, sourceH));
+      const width = Math.max(1, Math.round(sourceW * scale));
+      const height = Math.max(1, Math.round(sourceH * scale));
+      const output = document.createElement('canvas');
+      output.width = width;
+      output.height = height;
+      const ctx = output.getContext('2d', {
+        willReadFrequently: true
       });
-      frame.on('select', () => {
-        const attachment = frame.state().get('selection').first()?.toJSON();
-        if (!attachment) {
+      if (!ctx) {
+        return null;
+      }
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(element, 0, 0, width, height);
+      const image = ctx.getImageData(0, 0, width, height);
+      const pixels = image.data;
+      const luminance = new Float32Array(width * height);
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const index = (y * width + x) * 4;
+          const value = pixels[index] * 0.2126 + pixels[index + 1] * 0.7152 + pixels[index + 2] * 0.0722;
+          luminance[y * width + x] = Math.max(0, Math.min(255, (value - 128) * 1.22 + 142));
+        }
+      }
+      const spreadError = (x, y, error, factor) => {
+        if (x < 0 || y < 0 || x >= width || y >= height) {
           return;
         }
-        const attachmentUrl = attachment.url || attachment.sizes?.full?.url || attachment.originalImageURL || '';
-        s.default_attachment_id = Number(attachment.id) || 0;
-        s.default_attachment_url = attachment.sizes?.medium?.url || attachmentUrl || '';
-        commitChange({
-          canvas: true,
-          rightColumn: true
-        });
-      });
-      frame.open();
-    });
-    document.getElementById('oc-remove-default-attachment')?.addEventListener('click', () => {
-      s.default_attachment_id = 0;
-      s.default_attachment_url = '';
-      commitChange({
-        canvas: true,
-        rightColumn: true
-      });
-    });
-    document.getElementById('oc-set-default-font')?.addEventListener('change', e => {
-      s.default_font_id = parseInt(e.target.value, 10) || 0;
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-default-font-size')?.addEventListener('input', e => {
-      s.default_font_size = fontLimit(e.target.value);
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-default-color')?.addEventListener('change', e => {
-      s.default_color = normaliseHex(e.target.value);
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-default-color')?.addEventListener('input', e => {
-      s.default_color = normaliseHex(e.target.value);
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-min-font-size')?.addEventListener('input', e => {
-      s.min_font_size = fontLimit(e.target.value);
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-max-font-size')?.addEventListener('input', e => {
-      s.max_font_size = fontLimit(e.target.value);
-      commitChange({
-        canvas: true
-      });
-    });
-    document.querySelectorAll('.oc-align-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        s.alignment = btn.dataset.align;
-        document.querySelectorAll('.oc-align-btn').forEach(b => b.classList.toggle('oc-align-btn--active', b.dataset.align === btn.dataset.align));
-        commitChange({
-          canvas: true
-        });
-      });
-    });
-    document.querySelectorAll('.oc-line-align-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        s.line_alignment = btn.dataset.lineAlign || 'top';
-        document.querySelectorAll('.oc-line-align-btn').forEach(b => b.classList.toggle('oc-align-btn--active', b.dataset.lineAlign === btn.dataset.lineAlign));
-        commitChange({
-          canvas: true
-        });
-      });
-    });
-    document.querySelectorAll('.oc-fg-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        s.font_groups = [...document.querySelectorAll('.oc-fg-check:checked')].map(c => Number(c.value));
-        normaliseLayerDefaults(layer, area);
-        commitChange({
-          canvas: true,
-          rightColumn: true
-        });
-      });
-    });
-    document.querySelectorAll('.oc-cg-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        s.colour_groups = [...document.querySelectorAll('.oc-cg-check:checked')].map(c => Number(c.value));
-        const selected = selectedGroupIds(s.colour_groups);
-        if (selected.length) {
-          ensureDefaultColourInList(s, coloursForSelectedGroups(data.colours || [], data.colourGroups || [], selected));
+        const index = y * width + x;
+        luminance[index] = Math.max(0, Math.min(255, luminance[index] + error * factor));
+      };
+
+      // Error diffusion avoids the repeating cells produced by ordered dithering.
+      for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+          const pixelIndex = y * width + x;
+          const dataIndex = pixelIndex * 4;
+          const alpha = pixels[dataIndex + 3];
+          if (alpha === 0) {
+            continue;
+          }
+          const engraved = luminance[pixelIndex] < 128;
+          const outputValue = engraved ? 0 : 255;
+          const error = luminance[pixelIndex] - outputValue;
+          pixels[dataIndex] = 17;
+          pixels[dataIndex + 1] = 19;
+          pixels[dataIndex + 2] = 21;
+          pixels[dataIndex + 3] = engraved ? alpha : 0;
+          spreadError(x + 1, y, error, 7 / 16);
+          spreadError(x - 1, y + 1, error, 3 / 16);
+          spreadError(x, y + 1, error, 5 / 16);
+          spreadError(x + 1, y + 1, error, 1 / 16);
         }
-        commitChange({
-          canvas: true,
-          rightColumn: true
-        });
-      });
+      }
+      ctx.putImageData(image, 0, 0);
+      return output;
+    } catch (error) {
+      console.warn('[OC] Silver plaque photo dithering failed:', error);
+      return null;
+    }
+  },
+  embroideryPattern(color, fontSize = 24) {
+    const source = document.createElement('canvas');
+    const size = Math.max(10, Math.min(20, Math.round(fontSize * 0.18)));
+    source.width = size;
+    source.height = size;
+    const ctx = source.getContext('2d');
+    if (!ctx) {
+      return color;
+    }
+    const rgb = this.hexToRgb(color) || {
+      r: 0,
+      g: 0,
+      b: 0
+    };
+    const hi = {
+      r: Math.min(255, rgb.r + 92),
+      g: Math.min(255, rgb.g + 92),
+      b: Math.min(255, rgb.b + 92)
+    };
+    const lo = {
+      r: Math.max(0, rgb.r - 78),
+      g: Math.max(0, rgb.g - 78),
+      b: Math.max(0, rgb.b - 78)
+    };
+    const base = ctx.createLinearGradient(0, 0, source.width, source.height);
+    base.addColorStop(0, `rgb(${hi.r},${hi.g},${hi.b})`);
+    base.addColorStop(0.42, color);
+    base.addColorStop(1, `rgb(${lo.r},${lo.g},${lo.b})`);
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, source.width, source.height);
+    ctx.lineWidth = Math.max(1.2, size * 0.12);
+    ctx.lineCap = 'round';
+    const stitchGap = Math.max(2.4, size * 0.24);
+    let stitchIndex = 0;
+    for (let i = -source.height; i < source.width * 2; i += stitchGap) {
+      ctx.strokeStyle = stitchIndex % 2 ? `rgba(${hi.r},${hi.g},${hi.b},0.48)` : `rgba(${lo.r},${lo.g},${lo.b},0.24)`;
+      ctx.beginPath();
+      ctx.moveTo(i, source.height + 1.5);
+      ctx.lineTo(i + source.height + 1.5, -1.5);
+      ctx.stroke();
+      stitchIndex += 1;
+    }
+    ctx.lineWidth = Math.max(0.45, size * 0.045);
+    ctx.strokeStyle = `rgba(${lo.r},${lo.g},${lo.b},0.16)`;
+    for (let i = -source.height; i < source.width * 2; i += Math.max(3.2, size * 0.32)) {
+      ctx.beginPath();
+      ctx.moveTo(i, source.height + 1);
+      ctx.lineTo(i + source.height + 1, -1);
+      ctx.stroke();
+    }
+    ctx.lineWidth = 0.5;
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)';
+    for (let y = 1; y < source.height; y += 4) {
+      ctx.beginPath();
+      ctx.moveTo(0, y + 0.5);
+      ctx.lineTo(source.width, y + 0.5);
+      ctx.stroke();
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Pattern({
+      source,
+      repeat: 'repeat'
     });
-    document.querySelectorAll('.oc-ag-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        s.clipart_groups = [...document.querySelectorAll('.oc-ag-check:checked')].map(c => Number(c.value));
-        ensureDefaultClipartInList(s, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups, area?.method || ''));
-        commitChange({
-          rightColumn: true
-        });
-      });
+  },
+  embroiderySoftEdgeColor(color) {
+    const rgb = this.hexToRgb(color);
+    if (!rgb) {
+      return 'rgba(0,0,0,0.16)';
+    }
+    return `rgba(${Math.max(0, rgb.r - 36)},${Math.max(0, rgb.g - 36)},${Math.max(0, rgb.b - 36)},0.24)`;
+  },
+  embroideryHighlightColor(color) {
+    const rgb = this.hexToRgb(color);
+    if (!rgb) {
+      return 'rgba(255,255,255,0.42)';
+    }
+    return `rgba(${Math.min(255, rgb.r + 88)},${Math.min(255, rgb.g + 88)},${Math.min(255, rgb.b + 88)},0.62)`;
+  },
+  embroideryShadowColor(color) {
+    const rgb = this.hexToRgb(color);
+    if (!rgb) {
+      return 'rgba(0,0,0,0.42)';
+    }
+    return `rgba(${Math.max(0, rgb.r - 96)},${Math.max(0, rgb.g - 96)},${Math.max(0, rgb.b - 96)},0.72)`;
+  },
+  hexToRgb(color) {
+    const value = String(color || '').trim();
+    const match = value.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (!match) {
+      return null;
+    }
+    const hex = match[1].length === 3 ? match[1].split('').map(char => char + char).join('') : match[1];
+    return {
+      r: parseInt(hex.slice(0, 2), 16),
+      g: parseInt(hex.slice(2, 4), 16),
+      b: parseInt(hex.slice(4, 6), 16)
+    };
+  },
+  printAreaClipPath(bounds, scale) {
+    if (!bounds || !bounds.w || !bounds.h) {
+      return null;
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
+      left: (Number(bounds.x) + Number(bounds.w) / 2) * scale,
+      top: (Number(bounds.y) + Number(bounds.h) / 2) * scale,
+      originX: 'center',
+      originY: 'center',
+      angle: Number(bounds.rotation) || 0,
+      width: Number(bounds.w) * scale,
+      height: Number(bounds.h) * scale,
+      absolutePositioned: true
     });
-    document.querySelectorAll('.oc-if-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        s.image_filter_ids = [...document.querySelectorAll('.oc-if-check:checked')].map(c => Number(c.value));
-        if (s.default_image_filter_id && !s.image_filter_ids.includes(Number(s.default_image_filter_id))) {
-          s.default_image_filter_id = 0;
+  },
+  rectClipPath(x, y, w, h, angle = 0) {
+    if (!w || !h) {
+      return null;
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
+      left: x + w / 2,
+      top: y + h / 2,
+      originX: 'center',
+      originY: 'center',
+      angle,
+      width: w,
+      height: h,
+      absolutePositioned: true
+    });
+  },
+  layerClipPath(x, y, w, h, angle = 0, settings = {}) {
+    if (!w || !h) {
+      return null;
+    }
+    const shape = String(settings?.mask_shape || 'circle').toLowerCase();
+    const left = x + w / 2;
+    const top = y + h / 2;
+    if (shape === 'circle') {
+      return new fabric__WEBPACK_IMPORTED_MODULE_0__.Circle({
+        left,
+        top,
+        originX: 'center',
+        originY: 'center',
+        radius: Math.min(w, h) / 2,
+        absolutePositioned: true
+      });
+    }
+    return new fabric__WEBPACK_IMPORTED_MODULE_0__.Rect({
+      left,
+      top,
+      originX: 'center',
+      originY: 'center',
+      angle,
+      width: w,
+      height: h,
+      absolutePositioned: true
+    });
+  },
+  applyContentClip(obj, clipPath) {
+    if (clipPath) {
+      obj.set({
+        clipPath
+      });
+    }
+  },
+  centerObjectBounds(obj, targetX, targetY, angle = 0) {
+    if (!obj) {
+      return;
+    }
+    obj.setCoords?.();
+    const points = typeof obj.getCoords === 'function' ? obj.getCoords() : [];
+    if (!points.length) {
+      return;
+    }
+    const rad = (Number(angle) || 0) * Math.PI / 180;
+    const cos = Math.cos(rad);
+    const sin = Math.sin(rad);
+    const local = points.map(point => {
+      const dx = point.x - targetX;
+      const dy = point.y - targetY;
+      return {
+        x: targetX + dx * cos + dy * sin,
+        y: targetY - dx * sin + dy * cos
+      };
+    });
+    const minX = Math.min(...local.map(point => point.x));
+    const maxX = Math.max(...local.map(point => point.x));
+    const minY = Math.min(...local.map(point => point.y));
+    const maxY = Math.max(...local.map(point => point.y));
+    const moveX = targetX - (minX + maxX) / 2;
+    const moveY = targetY - (minY + maxY) / 2;
+    if (Math.abs(moveX) < 0.01 && Math.abs(moveY) < 0.01) {
+      return;
+    }
+    obj.set({
+      left: Number(obj.left || 0) + moveX * cos - moveY * sin,
+      top: Number(obj.top || 0) + moveX * sin + moveY * cos
+    });
+    obj.setCoords?.();
+  },
+  keepObjectInsidePrintArea(obj, bounds, scale) {
+    if (!obj || !bounds || !bounds.w || !bounds.h) {
+      return;
+    }
+    obj.setCoords?.();
+    const points = typeof obj.getCoords === 'function' ? obj.getCoords() : [];
+    if (!points.length) {
+      return;
+    }
+    const cx = (Number(bounds.x) + Number(bounds.w) / 2) * scale;
+    const cy = (Number(bounds.y) + Number(bounds.h) / 2) * scale;
+    const halfW = Number(bounds.w) * scale / 2;
+    const halfH = Number(bounds.h) * scale / 2;
+    const angle = (Number(bounds.rotation) || 0) * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+    const local = points.map(point => {
+      const dx = point.x - cx;
+      const dy = point.y - cy;
+      return {
+        x: cx + dx * cos + dy * sin,
+        y: cy - dx * sin + dy * cos
+      };
+    });
+    const minX = Math.min(...local.map(point => point.x));
+    const maxX = Math.max(...local.map(point => point.x));
+    const minY = Math.min(...local.map(point => point.y));
+    const maxY = Math.max(...local.map(point => point.y));
+    const left = cx - halfW;
+    const right = cx + halfW;
+    const top = cy - halfH;
+    const bottom = cy + halfH;
+    let moveX = 0;
+    let moveY = 0;
+    if (minX < left) {
+      moveX = left - minX;
+    } else if (maxX > right) {
+      moveX = right - maxX;
+    }
+    if (minY < top) {
+      moveY = top - minY;
+    } else if (maxY > bottom) {
+      moveY = bottom - maxY;
+    }
+    if (!moveX && !moveY) {
+      return;
+    }
+    obj.set({
+      left: Number(obj.left || 0) + moveX * cos - moveY * sin,
+      top: Number(obj.top || 0) + moveX * sin + moveY * cos
+    });
+    obj.setCoords?.();
+  },
+  async recolourSvgClipartUrl(url, color, effect = '') {
+    const key = `${url}|${color}|${effect}`;
+    if (this.clipartSvgCache[key]) {
+      return this.clipartSvgCache[key];
+    }
+    const request = this.createStateAbortController(10000);
+    try {
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        cache: 'force-cache',
+        signal: request.controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`Could not load clipart SVG (${response.status}).`);
+      }
+      const raw = await response.text();
+      const doc = new window.DOMParser().parseFromString(raw, 'image/svg+xml');
+      const svg = doc.documentElement;
+      if (!svg || svg.localName.toLowerCase() !== 'svg') {
+        throw new Error('Clipart is not an SVG.');
+      }
+      const paint = effect === 'embroidery' ? 'url(#oc-embroidery-stitch)' : color;
+      svg.setAttribute('color', color);
+      svg.setAttribute('fill', paint);
+      this.forceSvgPreviewColour(svg, paint);
+      if (effect === 'embroidery') {
+        this.addEmbroiderySvgPattern(svg, color);
+      }
+      this.ensureSvgIntrinsicSize(svg);
+      const output = new window.XMLSerializer().serializeToString(svg);
+      this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
+      return this.clipartSvgCache[key];
+    } catch (e) {
+      console.warn('[OC] SVG clipart recolour failed:', e, 'URL:', url);
+      return url;
+    } finally {
+      request.release();
+    }
+  },
+  async normaliseSvgClipartUrl(url) {
+    if (!this.isSvgClipartUrl(url)) {
+      return url;
+    }
+    const key = `${url}|normalise`;
+    if (this.clipartSvgCache[key]) {
+      return this.clipartSvgCache[key];
+    }
+    const request = this.createStateAbortController(10000);
+    try {
+      const response = await fetch(url, {
+        credentials: 'same-origin',
+        cache: 'force-cache',
+        signal: request.controller.signal
+      });
+      if (!response.ok) {
+        throw new Error(`Could not load clipart SVG (${response.status}).`);
+      }
+      const raw = await response.text();
+      const doc = new window.DOMParser().parseFromString(raw, 'image/svg+xml');
+      const svg = doc.documentElement;
+      if (!svg || svg.localName.toLowerCase() !== 'svg') {
+        throw new Error('Clipart is not an SVG.');
+      }
+      if (!this.ensureSvgIntrinsicSize(svg)) {
+        this.clipartSvgCache[key] = url;
+        return url;
+      }
+      const output = new window.XMLSerializer().serializeToString(svg);
+      this.clipartSvgCache[key] = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(output)}`;
+      return this.clipartSvgCache[key];
+    } catch {
+      this.clipartSvgCache[key] = url;
+      return url;
+    } finally {
+      request.release();
+    }
+  },
+  isSvgClipartUrl(url) {
+    const value = String(url || '').trim();
+    return /^data:image\/svg\+xml/i.test(value) || /\.svg(?:[?#]|$)/i.test(value);
+  },
+  addEmbroiderySvgPattern(svg, color) {
+    const rgb = this.hexToRgb(color) || {
+      r: 0,
+      g: 0,
+      b: 0
+    };
+    const hi = `rgb(${Math.min(255, rgb.r + 92)},${Math.min(255, rgb.g + 92)},${Math.min(255, rgb.b + 92)})`;
+    const lo = `rgb(${Math.max(0, rgb.r - 78)},${Math.max(0, rgb.g - 78)},${Math.max(0, rgb.b - 78)})`;
+    const ns = 'http://www.w3.org/2000/svg';
+    const defs = svg.querySelector('defs') || svg.insertBefore(document.createElementNS(ns, 'defs'), svg.firstChild);
+    const pattern = document.createElementNS(ns, 'pattern');
+    pattern.setAttribute('id', 'oc-embroidery-stitch');
+    pattern.setAttribute('patternUnits', 'userSpaceOnUse');
+    pattern.setAttribute('width', '12');
+    pattern.setAttribute('height', '12');
+    const bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('width', '12');
+    bg.setAttribute('height', '12');
+    bg.setAttribute('fill', color);
+    pattern.appendChild(bg);
+    [[lo, '0.34', '-3'], [hi, '0.46', '3'], [lo, '0.2', '9']].forEach(([stroke, opacity, x]) => {
+      const line = document.createElementNS(ns, 'line');
+      line.setAttribute('x1', x);
+      line.setAttribute('y1', '13');
+      line.setAttribute('x2', String(Number(x) + 13));
+      line.setAttribute('y2', '-1');
+      line.setAttribute('stroke', stroke);
+      line.setAttribute('stroke-width', '2');
+      line.setAttribute('stroke-linecap', 'round');
+      line.setAttribute('opacity', opacity);
+      pattern.appendChild(line);
+    });
+    defs.appendChild(pattern);
+    return 'url(#oc-embroidery-stitch)';
+  },
+  forceSvgPreviewColour(element, color) {
+    const tagName = element.localName.toLowerCase();
+    if (tagName === 'style') {
+      element.textContent = this.recolourSvgCss(element.textContent || '', color);
+      return;
+    }
+    if (tagName !== 'svg') {
+      this.recolourSvgAttribute(element, 'fill', color);
+      this.recolourSvgAttribute(element, 'stroke', color);
+      if (element.hasAttribute('style')) {
+        element.setAttribute('style', this.recolourSvgStyle(element.getAttribute('style'), color));
+      }
+      const shapeTags = ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'text'];
+      if (shapeTags.includes(tagName) && !element.hasAttribute('fill') && !element.hasAttribute('stroke') && !element.hasAttribute('style')) {
+        element.setAttribute('fill', color);
+      }
+    }
+    Array.from(element.children).forEach(child => this.forceSvgPreviewColour(child, color));
+  },
+  ensureSvgIntrinsicSize(svg) {
+    const viewBox = this.parseSvgViewBox(svg);
+    if (!viewBox) {
+      return false;
+    }
+    let changed = false;
+    if (!this.hasUsableSvgLength(svg.getAttribute('width'))) {
+      svg.setAttribute('width', String(viewBox.width));
+      changed = true;
+    }
+    if (!this.hasUsableSvgLength(svg.getAttribute('height'))) {
+      svg.setAttribute('height', String(viewBox.height));
+      changed = true;
+    }
+    return changed;
+  },
+  parseSvgViewBox(svg) {
+    const raw = String(svg.getAttribute('viewBox') || '').trim();
+    const values = raw.split(/[\s,]+/).map(Number).filter(value => Number.isFinite(value));
+    if (values.length !== 4 || values[2] <= 0 || values[3] <= 0) {
+      return null;
+    }
+    return {
+      x: values[0],
+      y: values[1],
+      width: values[2],
+      height: values[3]
+    };
+  },
+  hasUsableSvgLength(value) {
+    const raw = String(value || '').trim();
+    if (!raw || raw.endsWith('%')) {
+      return false;
+    }
+    return parseFloat(raw) > 0;
+  },
+  removeInvisibleSvgShapes(element) {
+    Array.from(element.children).forEach(child => {
+      this.removeInvisibleSvgShapes(child);
+      const tagName = child.localName.toLowerCase();
+      const shapeTags = ['path', 'rect', 'circle', 'ellipse', 'polygon', 'polyline', 'line', 'text'];
+      if (!shapeTags.includes(tagName)) {
+        return;
+      }
+      const fill = (child.getAttribute('fill') || '').trim().toLowerCase();
+      const stroke = (child.getAttribute('stroke') || '').trim().toLowerCase();
+      const style = (child.getAttribute('style') || '').replace(/\s+/g, '').toLowerCase();
+      const hasVisibleFill = fill && fill !== 'none' || /fill:(?!none(?:;|$))/.test(style);
+      const hasVisibleStroke = stroke && stroke !== 'none' || /stroke:(?!none(?:;|$))/.test(style);
+      if (!hasVisibleFill && !hasVisibleStroke) {
+        child.remove();
+      }
+    });
+  },
+  recolourSvgAttribute(element, attribute, color) {
+    if (!element.hasAttribute(attribute)) {
+      return;
+    }
+    const value = element.getAttribute(attribute).trim();
+    if (value.toLowerCase() === 'none') {
+      return;
+    }
+    element.setAttribute(attribute, color);
+  },
+  recolourSvgStyle(style, color) {
+    return style.replace(/\b(fill|stroke)\s*:\s*([^;]+)/gi, (match, property, value) => {
+      const trimmed = String(value || '').trim();
+      if (trimmed.toLowerCase() === 'none') {
+        return match;
+      }
+      return `${property}:${color}`;
+    });
+  },
+  recolourSvgCss(css, color) {
+    return css.replace(/\b(fill|stroke)\s*:\s*([^;}]+)/gi, (match, property, value) => {
+      const trimmed = String(value || '').trim();
+      if (trimmed.toLowerCase() === 'none') {
+        return match;
+      }
+      return `${property}:${color}`;
+    });
+  },
+  async renderFabricImg(canvas, url, x, y, w, h, isEngraving = false, crossOrigin = 'anonymous', makeWhiteTransparent = false, angle = 0, engravingPalette = null, clipPath = null, fit = 0, tintColor = '', effects = {}, isCurrent = () => true) {
+    try {
+      const imgLoadOpts = crossOrigin ? {
+        crossOrigin
+      } : {};
+      const img = await this.loadFabricImage(url, imgLoadOpts, 10000);
+      if (!isCurrent()) {
+        return false;
+      }
+      if (!img || !img.width) {
+        console.warn('[OC] Image failed to load or has zero dimensions:', url);
+        return false;
+      }
+      const palette = engravingPalette || this.engravingPalette();
+      let isDitheredEngraving = Boolean(isEngraving && effects.photoEngraving && palette.photoDither);
+      if (isDitheredEngraving) {
+        const dithered = this.silverPlaquePhotoDither(img.getElement(), w, h, fit);
+        if (dithered) {
+          img.setElement(dithered);
+        } else {
+          isDitheredEngraving = false;
         }
-        commitChange({
-          rightColumn: true
+      }
+      const filters = [];
+      if (makeWhiteTransparent || isEngraving && !effects.preserveRecolouredPixels && !isDitheredEngraving) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.RemoveColor({
+          color: '#FFFFFF',
+          distance: isEngraving ? 0.18 : 0.1
+        }));
+      }
+      if (tintColor && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
+          color: tintColor,
+          mode: 'tint',
+          alpha: 1
+        }));
+      }
+      if (effects.imageFilter && !isDitheredEngraving) {
+        this.addConfiguredImageFilter(filters, effects.imageFilter);
+      }
+      if (effects.imageColor && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor && !isDitheredEngraving) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
+          color: effects.imageColor,
+          mode: 'tint',
+          alpha: 1
+        }));
+      }
+      if (isEngraving && !effects.preserveRecolouredPixels && !isDitheredEngraving) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale(), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness({
+          brightness: palette.brightness
+        }), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
+          contrast: palette.contrast
+        }));
+        if (palette.imageTint && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.BlendColor({
+            color: palette.imageTint,
+            mode: 'tint',
+            alpha: palette.tintAlpha ?? 1
+          }));
+        }
+        if (palette.noise && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Noise) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Noise({
+            noise: palette.noise
+          }));
+        }
+      }
+      if ((effects.embroidery || effects.embroideryColor) && fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Noise) {
+        filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
+          contrast: 0.08
+        }), new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Noise({
+          noise: 22
+        }));
+      }
+      if (filters.length) {
+        img.filters = filters;
+        img.applyFilters();
+      }
+      const containScale = Math.min(w / img.width, h / img.height);
+      const coverScale = Math.max(w / img.width, h / img.height);
+      const imageScale = (0,_shared_image_layout__WEBPACK_IMPORTED_MODULE_3__.imagePlacementScale)(containScale, coverScale, fit);
+      img.set({
+        left: x + w / 2,
+        top: y + h / 2,
+        originX: 'center',
+        originY: 'center',
+        scaleX: imageScale,
+        scaleY: imageScale,
+        angle,
+        selectable: false,
+        evented: false,
+        imageSmoothing: !isDitheredEngraving
+      });
+      img._ocLayerId = Number(effects.layerId) || 0;
+      img._ocContainScale = containScale;
+      img._ocCoverScale = coverScale;
+      img._ocCropClipPath = effects.imageCropClipPath || null;
+      // Dither pixels are generated for the current placement size. The crop
+      // slider may scale this object immediately, then a debounced redraw must
+      // regenerate the pattern so its dots remain preview-pixel accurate.
+      img._ocScaleSensitiveFilter = isDitheredEngraving;
+      if (isEngraving && effects.preserveRecolouredPixels) {
+        img.set({
+          opacity: palette.opacity,
+          globalCompositeOperation: palette.composite || 'source-over',
+          ...(palette.shadow ? {
+            shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+              color: palette.shadow,
+              offsetX: 0,
+              offsetY: 0,
+              blur: 1.25
+            })
+          } : {})
         });
-      });
-    });
-    document.getElementById('oc-set-default-image-filter')?.addEventListener('change', e => {
-      s.default_image_filter_id = parseInt(e.target.value, 10) || 0;
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-default-clipart')?.addEventListener('change', e => {
-      setDefaultClipart(s, e.target.value, clipartForSelectedGroups(data.clipartItems || [], s.clipart_groups, area?.method || ''));
-      commitChange({
-        canvas: true
-      });
-    });
-    document.querySelectorAll('.oc-fmt-check').forEach(cb => {
-      cb.addEventListener('change', () => {
-        s.formats = [...document.querySelectorAll('.oc-fmt-check:checked')].map(c => c.value);
-        commitChange();
-      });
-    });
-    document.getElementById('oc-set-max-size')?.addEventListener('input', e => {
-      s.max_size_mb = parseInt(e.target.value, 10) || 10;
-      commitChange();
-    });
-    document.getElementById('oc-set-remove-background')?.addEventListener('change', e => {
-      s.remove_background = e.target.checked;
-      commitChange();
-    });
-    document.getElementById('oc-set-mask-shape')?.addEventListener('change', e => {
-      s.mask_shape = e.target.value || 'circle';
-      commitChange({
-        canvas: true
-      });
-    });
-    document.getElementById('oc-set-required')?.addEventListener('change', e => {
-      s.required = e.target.checked;
-      commitChange();
-    });
-    [['oc-set-show-constellations', 'show_constellations'], ['oc-set-show-planets', 'show_planets'], ['oc-set-show-labels', 'show_labels'], ['oc-set-show-border', 'show_border']].forEach(([id, key]) => {
-      document.getElementById(id)?.addEventListener('change', e => {
-        s[key] = e.target.checked;
-        commitChange({
-          canvas: true
+      } else if (isEngraving) {
+        img.set({
+          opacity: palette.opacity,
+          globalCompositeOperation: palette.composite || 'source-over',
+          shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+            color: palette.shadow || palette.highlight,
+            offsetX: 0,
+            offsetY: palette.shadow ? 0 : 1,
+            blur: palette.shadow ? 1.25 : 1
+          })
         });
+      } else if (effects.embroidery || effects.embroideryColor) {
+        img.set({
+          shadow: new fabric__WEBPACK_IMPORTED_MODULE_0__.Shadow({
+            color: 'rgba(0,0,0,0.24)',
+            offsetX: 0.7,
+            offsetY: 0.95,
+            blur: 1.1
+          })
+        });
+      }
+      img._ocContent = true;
+      img._ocSourceUrl = url;
+      img._ocSnapshotColor = effects.imageColor || effects.embroideryColor || tintColor || '';
+      img._ocSnapshotInlineSvg = filters.length === 0;
+      this.applyContentClip(img, clipPath);
+      if (!isCurrent()) {
+        return false;
+      }
+      canvas.add(img);
+      return true;
+    } catch (e) {
+      console.warn('[OC] renderFabricImg error:', e, 'URL:', url);
+      return false;
+    }
+  },
+  updateRenderedImageCrop(layerIds, amount) {
+    const requestedLayerIds = new Set((Array.isArray(layerIds) ? layerIds : [layerIds]).map(Number));
+    const updatedLayerIds = new Set();
+    Object.entries(this.canvases || {}).forEach(([areaIndex, canvas]) => {
+      const images = (canvas?.getObjects?.() || []).filter(object => requestedLayerIds.has(Number(object._ocLayerId)));
+      if (!images.length) {
+        return;
+      }
+      let requiresFilteredRedraw = false;
+      images.forEach(image => {
+        const containScale = Number(image._ocContainScale) || 0;
+        const coverScale = Number(image._ocCoverScale) || containScale;
+        const scale = (0,_shared_image_layout__WEBPACK_IMPORTED_MODULE_3__.imagePlacementScale)(containScale, coverScale, amount);
+        image.set({
+          scaleX: scale,
+          scaleY: scale,
+          clipPath: (0,_shared_image_layout__WEBPACK_IMPORTED_MODULE_3__.imagePlacementClipPath)(amount, image._ocCropClipPath)
+        });
+        image.setCoords?.();
+        requiresFilteredRedraw = requiresFilteredRedraw || Boolean(image._ocScaleSensitiveFilter);
+        updatedLayerIds.add(Number(image._ocLayerId));
       });
+      canvas.renderAll?.();
+      if (!this._redrawPromises[areaIndex]) {
+        this._redrawGenerations[areaIndex] = (this._redrawGenerations[areaIndex] || 0) + 1;
+      }
+      canvas._ocCartPreviewRevision = '';
+      canvas._ocCartPreviewDataUrl = '';
+      if (canvas._ocArea && !canvas._ocMissingMockup && this.areaCanvasGroupIndexes(Number(areaIndex)).includes(this.activeArea)) {
+        this.scheduleCropGalleryPush(canvas);
+      }
+      if (requiresFilteredRedraw) {
+        this.scheduleRedraw(Number(areaIndex));
+      }
     });
-    document.getElementById('oc-set-clipart-display')?.addEventListener('change', e => {
-      s.clipart_display = e.target.value === 'carousel' ? 'carousel' : 'grid';
-      commitChange();
+    return updatedLayerIds;
+  },
+  scheduleCropGalleryPush(canvas) {
+    this._cropGalleryCanvas = canvas;
+    if (this._cropGalleryTimer !== null) {
+      return;
+    }
+    this._cropGalleryTimer = this.setStateTimeout(() => {
+      this._cropGalleryTimer = null;
+      const pendingCanvas = this._cropGalleryCanvas;
+      this._cropGalleryCanvas = null;
+      if (pendingCanvas && !pendingCanvas._ocMissingMockup) {
+        this.pushToGallery(pendingCanvas);
+      }
+    }, 120);
+  },
+  imageFilterForLayer(layer, filterId) {
+    filterId = parseInt(filterId, 10) || 0;
+    if (!filterId) {
+      return null;
+    }
+    const allowedIds = Array.isArray(layer?.settings?.image_filter_ids) ? layer.settings.image_filter_ids.map(Number) : [];
+    if (!allowedIds.includes(filterId)) {
+      return null;
+    }
+    return (this.data?.imageFilters || []).find(filter => Number(filter.id) === filterId);
+  },
+  addConfiguredImageFilter(filters, config) {
+    const key = String(config?.key || '');
+    const value = Number(config?.value);
+    const amount = Number.isFinite(value) ? value : 1;
+    switch (key) {
+      case 'grayscale':
+        if (fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Grayscale());
+        }
+        break;
+      case 'sepia':
+        if (fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Sepia) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Sepia());
+        }
+        break;
+      case 'brightness':
+        if (fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Brightness({
+            brightness: amount
+          }));
+        }
+        break;
+      case 'contrast':
+        if (fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Contrast({
+            contrast: amount
+          }));
+        }
+        break;
+      case 'saturation':
+        if (fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Saturation) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.Saturation({
+            saturation: amount
+          }));
+        }
+        break;
+      case 'hue':
+        if (fabric__WEBPACK_IMPORTED_MODULE_0__.filters.HueRotation) {
+          filters.push(new fabric__WEBPACK_IMPORTED_MODULE_0__.filters.HueRotation({
+            rotation: amount
+          }));
+        }
+        break;
+    }
+  },
+  fontCacheKey(font) {
+    return [font?.name || '', font?.weight || 'normal', font?.style || 'normal', font?.url || ''].join('|');
+  },
+  async loadFont(font) {
+    if (!font?.name || !font?.url) {
+      return;
+    }
+    const key = this.fontCacheKey(font);
+    if (this.fontCache[key]) {
+      return this.fontCache[key];
+    }
+    const ff = new FontFace(font.name, `url('${font.url}')`, {
+      weight: font.weight || 'normal',
+      style: font.style || 'normal'
     });
-    document.getElementById('oc-set-enable-image-colour')?.addEventListener('change', e => {
-      s.enable_image_colour = e.target.checked;
-      commitChange({
-        canvas: true
-      });
+    this.fontCache[key] = ff.load().then(f => document.fonts.add(f)).catch(err => {
+      delete this.fontCache[key];
+      console.warn('[OC] Font load failed:', err);
+      throw err;
     });
-    document.getElementById('oc-set-allow-font-change')?.addEventListener('change', e => {
-      s.allow_font_change = e.target.checked;
-      commitChange();
-    });
-    document.getElementById('oc-set-allow-colour-change')?.addEventListener('change', e => {
-      s.allow_colour_change = e.target.checked;
-      commitChange();
-    });
-    document.getElementById('oc-set-allow-size-change')?.addEventListener('change', e => {
-      s.allow_size_change = e.target.checked;
-      commitChange();
-    });
-    document.getElementById('oc-set-allow-image-change')?.addEventListener('change', e => {
-      s.allow_image_change = e.target.checked;
-      commitChange();
-    });
-    document.getElementById('oc-set-allow-image-filter-change')?.addEventListener('change', e => {
-      s.allow_image_filter_change = e.target.checked;
-      commitChange();
-    });
-    document.getElementById('oc-set-allow-clipart-change')?.addEventListener('change', e => {
-      s.allow_clipart_change = e.target.checked;
-      commitChange();
-    });
+    return this.fontCache[key];
   }
-  return {
-    buildTabContent,
-    bindSettingsHandlers,
-    normaliseLayerDefaults
-  };
-}
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (canvasRendererMethods);
 
 /***/ },
 
-/***/ "./src/admin/products-page-utils.js"
-/*!******************************************!*\
-  !*** ./src/admin/products-page-utils.js ***!
-  \******************************************/
+/***/ "./src/frontend/customiser/design-variants.js"
+/*!****************************************************!*\
+  !*** ./src/frontend/customiser/design-variants.js ***!
+  \****************************************************/
 (__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   clamp: () => (/* binding */ clamp),
-/* harmony export */   clampLayerToArea: () => (/* binding */ clampLayerToArea),
-/* harmony export */   currentAspectRatio: () => (/* binding */ currentAspectRatio),
-/* harmony export */   esc: () => (/* binding */ esc),
-/* harmony export */   fontLimit: () => (/* binding */ fontLimit),
-/* harmony export */   getScale: () => (/* binding */ getScale),
-/* harmony export */   hexRgba: () => (/* binding */ hexRgba),
-/* harmony export */   methodLabel: () => (/* binding */ methodLabel),
-/* harmony export */   normaliseAspectRatio: () => (/* binding */ normaliseAspectRatio),
-/* harmony export */   normaliseHex: () => (/* binding */ normaliseHex),
-/* harmony export */   normaliseLinkGroup: () => (/* binding */ normaliseLinkGroup),
-/* harmony export */   normaliseRotation: () => (/* binding */ normaliseRotation),
-/* harmony export */   setVal: () => (/* binding */ setVal),
-/* harmony export */   updateAspectRatio: () => (/* binding */ updateAspectRatio)
+/* harmony export */   "default": () => (__WEBPACK_DEFAULT_EXPORT__)
 /* harmony export */ });
-function esc(s) {
-  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-function setVal(id, v) {
-  const el = document.getElementById(id);
-  if (el) {
-    el.value = v;
-  }
-}
-function getScale(img) {
-  return img && img.naturalWidth ? img.clientWidth / img.naturalWidth : 0;
-}
-function clamp(v, lo, hi) {
-  return Math.min(Math.max(v, lo), hi);
-}
-function fontLimit(value) {
-  return Math.max(0, parseInt(value, 10) || 0);
-}
-function normaliseHex(value) {
-  return /^#[0-9a-f]{6}$/i.test(String(value || '')) ? value : '#000000';
-}
-function normaliseLinkGroup(value) {
-  return String(value || '').trim();
-}
-function normaliseRotation(value) {
-  const angle = Number(value) || 0;
-  return Math.round((angle % 360 + 360) % 360);
-}
-function normaliseAspectRatio(value, w, h) {
-  const ratio = Number(value) || (Number(w) && Number(h) ? Number(w) / Number(h) : 1);
-  return ratio > 0 ? ratio : 1;
-}
-function currentAspectRatio(entity) {
-  return normaliseAspectRatio(entity?.aspectRatio, entity?.w, entity?.h);
-}
-function updateAspectRatio(entity) {
-  if (entity?.w && entity?.h) {
-    entity.aspectRatio = normaliseAspectRatio(0, entity.w, entity.h);
-  }
-}
-function clampLayerToArea(layer, area) {
-  if (!layer || !area) {
-    return;
-  }
-  const maxW = Math.max(1, area.w);
-  const maxH = Math.max(1, area.h);
-  layer.w = clamp(Math.round(layer.w), 1, maxW);
-  layer.h = clamp(Math.round(layer.h), 1, maxH);
-  layer.x = clamp(Math.round(layer.x), area.x, area.x + area.w - layer.w);
-  layer.y = clamp(Math.round(layer.y), area.y, area.y + area.h - layer.h);
-}
-function hexRgba(hex, a) {
-  const r = parseInt(hex.slice(1, 3), 16);
-  const g = parseInt(hex.slice(3, 5), 16);
-  const b = parseInt(hex.slice(5, 7), 16);
-  return 'rgba(' + r + ',' + g + ',' + b + ',' + a + ')';
-}
-function methodLabel(m) {
-  return ((window.ocProductsData || {}).methodLabels || {})[m] || m;
-}
+/* harmony import */ var fabric__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! fabric */ "./node_modules/fabric/dist/index.min.mjs");
+/* harmony import */ var _shared_render_math__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! ../../shared/render-math */ "./src/shared/render-math.js");
+/**
+ * Design variant carousel, thumbnails, and state switching.
+ */
 
-/***/ },
+/* eslint-disable no-console */
 
-/***/ "./src/shared/render-math.js"
-/*!***********************************!*\
-  !*** ./src/shared/render-math.js ***!
-  \***********************************/
-(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
 
-__webpack_require__.r(__webpack_exports__);
-/* harmony export */ __webpack_require__.d(__webpack_exports__, {
-/* harmony export */   VALID_UNITS: () => (/* binding */ VALID_UNITS),
-/* harmony export */   displayBounds: () => (/* binding */ displayBounds),
-/* harmony export */   displayEntity: () => (/* binding */ displayEntity),
-/* harmony export */   displayFontSize: () => (/* binding */ displayFontSize),
-/* harmony export */   displayLayer: () => (/* binding */ displayLayer),
-/* harmony export */   normaliseDpi: () => (/* binding */ normaliseDpi),
-/* harmony export */   normaliseUnit: () => (/* binding */ normaliseUnit),
-/* harmony export */   rasterDimensionsForLayer: () => (/* binding */ rasterDimensionsForLayer),
-/* harmony export */   unitPxScale: () => (/* binding */ unitPxScale)
-/* harmony export */ });
-const VALID_UNITS = ['px', 'mm', 'cm', 'in'];
-function normaliseUnit(value) {
-  return VALID_UNITS.includes(value) ? value : 'px';
-}
-function normaliseDpi(value) {
-  return Math.min(1200, Math.max(36, Math.round(Number(value) || 300)));
-}
-function unitPxScale(areaOrBounds) {
-  const dpi = normaliseDpi(areaOrBounds?.dpi);
-  switch (normaliseUnit(areaOrBounds?.unit)) {
-    case 'mm':
-      return dpi / 25.4;
-    case 'cm':
-      return dpi / 2.54;
-    case 'in':
-      return dpi;
-    default:
+
+const designVariantMethods = {
+  setupDesignVariantOptions() {
+    if (!this.designVariants.length) {
+      return;
+    }
+    const stateSignal = this._panelListenerController?.signal;
+    document.querySelectorAll('[data-oc-design-variant]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const variant = this.designVariants.find(item => item.id === btn.dataset.ocDesignVariant);
+        if (!variant) {
+          return;
+        }
+        if (variant.id === this.selectedDesignVariant) {
+          this.cancelPendingDesignVariantRequest();
+          return;
+        }
+        this.switchDesignVariant(variant.id);
+      }, {
+        signal: stateSignal
+      });
+    });
+  },
+  setupDesignVariantCarousel() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    if (!carousel || !track || carousel.dataset.ocCarouselReady === '1') {
+      return;
+    }
+    carousel.dataset.ocCarouselReady = '1';
+    carousel.querySelector('[data-oc-design-variant-prev]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(-1));
+    carousel.querySelector('[data-oc-design-variant-next]')?.addEventListener('click', () => this.scrollDesignVariantCarousel(1));
+    track.addEventListener('scroll', () => this.updateDesignVariantCarouselDots(), {
+      passive: true
+    });
+    this.refreshDesignVariantCarousel();
+  },
+  designVariantCarouselPageCount(track) {
+    if (!track || !track.clientWidth) {
       return 1;
+    }
+    return Math.max(1, Math.ceil(track.scrollWidth / track.clientWidth));
+  },
+  scrollDesignVariantCarousel(direction) {
+    const track = document.querySelector('[data-oc-design-variant-track]');
+    if (!track) {
+      return;
+    }
+    const page = Math.round(track.scrollLeft / Math.max(1, track.clientWidth)) + direction;
+    const maxPage = this.designVariantCarouselPageCount(track) - 1;
+    track.scrollTo({
+      left: Math.max(0, Math.min(maxPage, page)) * track.clientWidth,
+      behavior: 'smooth'
+    });
+  },
+  refreshDesignVariantCarousel() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    const dots = carousel?.querySelector('[data-oc-design-variant-dots]');
+    if (!carousel || !track || !dots) {
+      return;
+    }
+    const pageCount = this.designVariantCarouselPageCount(track);
+    const maxLeft = Math.max(0, (pageCount - 1) * track.clientWidth);
+    if (track.scrollLeft > maxLeft) {
+      track.scrollLeft = maxLeft;
+    }
+    dots.innerHTML = '';
+    for (let i = 0; i < pageCount; i++) {
+      const dot = document.createElement('button');
+      dot.type = 'button';
+      dot.className = 'oc-design-variant-carousel-dot';
+      dot.setAttribute('aria-label', `Go to artwork option page ${i + 1}`);
+      dot.addEventListener('click', () => track.scrollTo({
+        left: i * track.clientWidth,
+        behavior: 'smooth'
+      }));
+      dots.appendChild(dot);
+    }
+    carousel.classList.toggle('oc-design-variant-carousel--single-page', pageCount <= 1);
+    this.updateDesignVariantCarouselDots();
+  },
+  updateDesignVariantCarouselDots() {
+    const carousel = document.querySelector('[data-oc-design-variant-carousel]');
+    const track = carousel?.querySelector('[data-oc-design-variant-track]');
+    if (!carousel || !track) {
+      return;
+    }
+    const pageCount = this.designVariantCarouselPageCount(track);
+    const page = Math.max(0, Math.min(pageCount - 1, Math.round(track.scrollLeft / Math.max(1, track.clientWidth))));
+    carousel.querySelectorAll('.oc-design-variant-carousel-dot').forEach((dot, i) => {
+      dot.classList.toggle('oc-active', i === page);
+      dot.setAttribute('aria-current', i === page ? 'true' : 'false');
+    });
+    carousel.querySelector('[data-oc-design-variant-prev]')?.toggleAttribute('disabled', page <= 0);
+    carousel.querySelector('[data-oc-design-variant-next]')?.toggleAttribute('disabled', page >= pageCount - 1);
+  },
+  async renderDesignVariantThumbnails() {
+    const designGeneration = this._designGeneration;
+    const canvases = Array.from(document.querySelectorAll('[data-oc-design-variant-thumb]'));
+    if (!canvases.length) {
+      return;
+    }
+    for (const canvasEl of canvases) {
+      if (designGeneration !== this._designGeneration) {
+        return;
+      }
+      if (canvasEl.dataset.ocThumbRendered === '1') {
+        continue;
+      }
+      const variantId = canvasEl.dataset.ocDesignVariantThumb;
+      const state = this.data.designVariantStates?.[variantId];
+      if (!state?.areas?.length) {
+        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
+        continue;
+      }
+      try {
+        const rendered = await this.renderDesignVariantThumbnailCanvas(canvasEl, state);
+        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
+        if (rendered) {
+          canvasEl.dataset.ocThumbRendered = '1';
+          canvasEl.closest('.oc-design-variant-option')?.classList.add('oc-thumb-rendered');
+        }
+      } catch (err) {
+        canvasEl.closest('.oc-design-variant-option')?.classList.remove('oc-thumb-pending');
+        console.warn('[OC] Design variant thumbnail failed:', variantId, err);
+      }
+    }
+  },
+  async renderDesignVariantThumbnailCanvas(canvasEl, state) {
+    const area = state.areas?.[0];
+    if (!area) {
+      return;
+    }
+    const sourceBounds = this.areaBounds(area);
+    const bounds = (0,_shared_render_math__WEBPACK_IMPORTED_MODULE_1__.displayBounds)(sourceBounds);
+    const size = 320;
+    canvasEl.width = size;
+    canvasEl.height = size;
+    const canvas = new fabric__WEBPACK_IMPORTED_MODULE_0__.StaticCanvas(canvasEl, {
+      width: size,
+      height: size,
+      backgroundColor: 'rgba(255,255,255,0)'
+    });
+    this._thumbnailCanvases.add(canvas);
+    const scale = Math.min(size / Math.max(1, bounds.w || 1), size / Math.max(1, bounds.h || 1));
+    const offsetX = (size - (bounds.w || 1) * scale) / 2;
+    const offsetY = (size - (bounds.h || 1) * scale) / 2;
+    canvas.setViewportTransform([1, 0, 0, 1, offsetX - Number(bounds.x || 0) * scale, offsetY - Number(bounds.y || 0) * scale]);
+    canvas._ocScaleX = scale;
+    const thumbnailArea = {
+      ...area,
+      printMethod: ''
+    };
+    const thumbnailFonts = state.fonts || this.fonts || [];
+    const thumbnailLayers = [...(area.layers || [])].sort((a, b) => Number(a.type === 'mask') - Number(b.type === 'mask'));
+    for (const layer of thumbnailLayers) {
+      const input = {
+        ...(state.layerInputs?.[layer.id] || {})
+      };
+      if ((layer.type === 'text' || layer.type === 'textarea') && !String(input.value || '').trim()) {
+        input.value = layer.settings?.default_text || layer.label || '';
+      }
+      await this.renderLayer(canvas, layer, input, thumbnailArea, () => true, {
+        fonts: thumbnailFonts
+      });
+    }
+    canvas.renderAll();
+    return canvas.getObjects().some(object => object._ocContent === true) && this.canvasHasVisiblePixels(canvasEl);
+  },
+  canvasHasVisiblePixels(canvasEl) {
+    const context = canvasEl.getContext('2d', {
+      willReadFrequently: true
+    });
+    if (!context) {
+      return false;
+    }
+    const {
+      width,
+      height
+    } = canvasEl;
+    if (!width || !height) {
+      return false;
+    }
+    const data = context.getImageData(0, 0, width, height).data;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] > 8) {
+        return true;
+      }
+    }
+    return false;
+  },
+  async switchDesignVariant(variantId) {
+    const variant = this.designVariants.find(item => item.id === variantId);
+    if (!variant || this._variationSwitchPending) {
+      return;
+    }
+    this.cancelPendingDesignVariantRequest();
+    const requestSeq = ++this._designVariantRequestSeq;
+    this.setDesignVariantCartPending(requestSeq, true);
+    const button = document.querySelector(`[data-oc-design-variant="${CSS.escape(variantId)}"]`);
+    button?.classList.add('oc-loading');
+    button?.setAttribute('aria-busy', 'true');
+    try {
+      let state = this.data.designVariantStates?.[variantId];
+      if (!state?.panelHtml) {
+        state = await this.fetchDesignVariantState(variant, requestSeq);
+      }
+      if (requestSeq !== this._designVariantRequestSeq) {
+        return;
+      }
+      this.data.designVariantStates ||= {};
+      this.data.designVariantStates[variantId] = state;
+      const variationState = this.productVariationStates[this._activeVariationKey];
+      if (variationState) {
+        variationState.designVariantStates ||= {};
+        variationState.designVariantStates[variantId] = state;
+      }
+      const applied = await this.applyDesignState(state, variantId, true);
+      if (!applied || requestSeq !== this._designVariantRequestSeq) {
+        return;
+      }
+      if (variationState) {
+        variationState.selectedDesignVariant = variantId;
+      }
+      this.updateDesignVariantUrl(variantId);
+    } catch (error) {
+      if (requestSeq !== this._designVariantRequestSeq || error?.name === 'AbortError') {
+        return;
+      }
+      console.error('[OC] Design option switch failed:', error);
+      this.renderPreflightMessages(['The selected artwork option could not be loaded. Please try again.'], []);
+    } finally {
+      this.setDesignVariantCartPending(requestSeq, false);
+      button?.classList.remove('oc-loading');
+      button?.removeAttribute('aria-busy');
+    }
+  },
+  cancelPendingDesignVariantRequest() {
+    if (!this._designVariantPendingSeq) {
+      return false;
+    }
+    const pendingSeq = this._designVariantPendingSeq;
+    this._designVariantRequestSeq += 1;
+    this._designVariantAbortController?.abort();
+    this._designVariantAbortController = null;
+    this.setDesignVariantCartPending(pendingSeq, false);
+    document.querySelectorAll('[data-oc-design-variant].oc-loading').forEach(button => {
+      button.classList.remove('oc-loading');
+      button.removeAttribute('aria-busy');
+    });
+    return true;
+  },
+  setDesignVariantCartPending(requestSeq, pending) {
+    const form = this.getCustomiserCartForm?.();
+    const submitControls = form?.querySelectorAll('[type="submit"], .single_add_to_cart_button');
+    if (pending) {
+      this._designVariantPendingSeq = requestSeq;
+      submitControls?.forEach(control => {
+        if (control.dataset.ocDesignLoadDisabled === undefined) {
+          control.dataset.ocDesignLoadDisabled = control.disabled ? '1' : '0';
+        }
+        control.disabled = true;
+        control.setAttribute('aria-disabled', 'true');
+      });
+      return;
+    }
+    if (this._designVariantPendingSeq !== requestSeq) {
+      return;
+    }
+    this._designVariantPendingSeq = 0;
+    submitControls?.forEach(control => {
+      if (control.dataset.ocDesignLoadDisabled === undefined) {
+        return;
+      }
+      control.disabled = control.dataset.ocDesignLoadDisabled === '1';
+      control.setAttribute('aria-disabled', control.disabled ? 'true' : 'false');
+      delete control.dataset.ocDesignLoadDisabled;
+    });
+    this.applyControlLocks();
+  },
+  async fetchDesignVariantState(variant, requestSeq) {
+    const designUrl = this.data.productDesignUrl || `${window.location.origin}/wp-json/overcustomise/v1/product-design/${this.data.productId || 0}`;
+    const url = new URL(designUrl, window.location.origin);
+    url.searchParams.set('variant_id', String(this.currentVariationId()));
+    url.searchParams.set('design_id', String(variant.designId));
+    const request = this.createStateAbortController(10000);
+    this._designVariantAbortController = request.controller;
+    try {
+      const response = await fetch(url.toString(), {
+        credentials: 'same-origin',
+        headers: {
+          Accept: 'application/json'
+        },
+        signal: request.controller.signal
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.message || `Artwork option request failed (${response.status})`);
+      }
+      if (requestSeq !== this._designVariantRequestSeq) {
+        throw new DOMException('Superseded request', 'AbortError');
+      }
+      const state = body?.designVariantStates?.[variant.id];
+      if (!body?.active || !state?.panelHtml || Number(state.designId) !== Number(variant.designId) || body.selectedDesignVariant !== variant.id) {
+        throw new Error('Artwork option response was invalid.');
+      }
+      state.designVariants = body.designVariants || this.designVariants;
+      return state;
+    } catch (error) {
+      if (request.timedOut()) {
+        throw new Error('Artwork option request timed out. Please retry.');
+      }
+      throw error;
+    } finally {
+      request.release();
+      if (this._designVariantAbortController === request.controller) {
+        this._designVariantAbortController = null;
+      }
+    }
+  },
+  updateDesignVariantUrl(variantId) {
+    if (!window.history?.replaceState) {
+      return;
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.set('oc_design_variant', variantId);
+    window.history.replaceState(window.history.state, '', url.toString());
+  },
+  cloneLayerInputs(inputs = this.inputs) {
+    return JSON.parse(JSON.stringify(inputs || {}));
+  },
+  saveCurrentDesignVariantInputs() {
+    this.syncInputsFromDOM();
+    const currentState = this.data.designVariantStates?.[this.selectedDesignVariant];
+    if (currentState) {
+      currentState.layerInputs = this.cloneLayerInputs();
+    }
+  },
+  async applyDesignState(state, variantId, preserveCurrentState = true, initialiseAiFilters = true) {
+    if (!state?.panelHtml) {
+      return;
+    }
+    if (preserveCurrentState) {
+      this.saveCurrentDesignVariantInputs();
+    }
+    const designGeneration = this.invalidateDesignState();
+    this.activeArea = 0;
+    this.selectedDesignVariant = variantId || state.selectedDesignVariant || '';
+    this._customisationActive = true;
+    const currentPanel = document.getElementById('oc-customiser-panel');
+    if (currentPanel) {
+      currentPanel.outerHTML = state.panelHtml;
+    }
+    this.data.designId = state.designId;
+    this.data.designName = state.designName;
+    this.data.flatRate = state.flatRate;
+    this.data.areas = state.areas || [];
+    this.data.layerInputs = state.layerInputs || {};
+    this.data.clipartByLayer = state.clipartByLayer || {};
+    this.data.clipartGroups = state.clipartGroups || [];
+    this.data.designVariants = state.designVariants || this.designVariants;
+    this.data.designVariantStates = state.designVariantStates || this.data.designVariantStates || {};
+    this.data.selectedDesignVariant = this.selectedDesignVariant;
+    this.data.fonts = state.fonts || this.data.fonts || [];
+    this.data.colours = state.colours || this.data.colours || [];
+    this.data.imageFilters = state.imageFilters || this.data.imageFilters || [];
+    this.data.restrictedLayerColours = state.restrictedLayerColours || this.data.restrictedLayerColours || {};
+    this.areas = this.data.areas || [];
+    this.fonts = this.data.fonts || [];
+    this.designVariants = this.data.designVariants || [];
+    this.layersById = {};
+    this.areas.forEach(area => (area.layers || []).forEach(layer => {
+      this.layersById[layer.id] = layer;
+    }));
+    this.inputs = {};
+    Object.entries(this.cloneLayerInputs(state.layerInputs)).forEach(([k, v]) => {
+      const layerId = parseInt(k, 10);
+      this.inputs[layerId] = {
+        ...v
+      };
+      this.clampLayerInputValue(layerId);
+    });
+    this.data.layerInputs = this.cloneLayerInputs(this.inputs);
+    this.preflightRoot = document.getElementById('oc-preflight-messages');
+    this.beginDesignStateListeners();
+    this.seedLockedLayerDefaults();
+    this.seedTemplateImageDefaults();
+    this.seedLayerFontDefaults();
+    await this.hydrateLinkGroupCarry();
+    if (designGeneration !== this._designGeneration) {
+      return false;
+    }
+    this.seedLinkedImageInputs();
+    this.seedLinkedColourInputs();
+    this.applyInputsToDOM({
+      redraw: false
+    });
+    this.setupInputListeners();
+    this.setupDesignVariantOptions();
+    this.setupDesignVariantCarousel();
+    this.renderDesignVariantThumbnails();
+    this.setupClipartCarousels();
+    this._uploadSetupPromise = this.setupUploadZones();
+    if (initialiseAiFilters) {
+      this._initialAiFilterPromise = this.applyInitialAiFilters();
+    }
+    this.applyActiveAreaState(0);
+    if (preserveCurrentState) {
+      this.requestPreviewFocus();
+    }
+    this.applyControlLocks();
+    this.updateHiddenField();
+    await this.startCanvasInitialisation();
+    return designGeneration === this._designGeneration;
   }
-}
-function displayEntity(entity, area = null) {
-  if (!entity) {
-    return entity;
+};
+/* harmony default export */ const __WEBPACK_DEFAULT_EXPORT__ = (designVariantMethods);
+
+/***/ },
+
+/***/ "./src/shared/image-layout.js"
+/*!************************************!*\
+  !*** ./src/shared/image-layout.js ***!
+  \************************************/
+(__unused_webpack_module, __webpack_exports__, __webpack_require__) {
+
+__webpack_require__.r(__webpack_exports__);
+/* harmony export */ __webpack_require__.d(__webpack_exports__, {
+/* harmony export */   imageCropRatio: () => (/* binding */ imageCropRatio),
+/* harmony export */   imagePlacementClipPath: () => (/* binding */ imagePlacementClipPath),
+/* harmony export */   imagePlacementNeedsClip: () => (/* binding */ imagePlacementNeedsClip),
+/* harmony export */   imagePlacementScale: () => (/* binding */ imagePlacementScale)
+/* harmony export */ });
+function imageCropRatio(value) {
+  if (value === 'cover') {
+    return 1;
   }
-  const sourceArea = area || entity;
-  const px = unitPxScale(sourceArea);
-  if (px === 1) {
-    return entity;
-  }
-  const originX = Number(sourceArea.x) || 0;
-  const originY = Number(sourceArea.y) || 0;
-  return {
-    ...entity,
-    x: originX + (Number(entity.x) - originX) * px,
-    y: originY + (Number(entity.y) - originY) * px,
-    w: Number(entity.w || 0) * px,
-    h: Number(entity.h || 0) * px
-  };
+  return Math.max(0, Math.min(1, (Number(value) || 0) / 100));
 }
-function displayBounds(bounds) {
-  return displayEntity(bounds);
+function imagePlacementScale(containScale, coverScale, crop) {
+  const amount = imageCropRatio(crop);
+  return containScale + (coverScale - containScale) * amount;
 }
-function displayLayer(layer, bounds) {
-  return displayEntity(layer, bounds);
+function imagePlacementNeedsClip(crop) {
+  return imageCropRatio(crop) > 0;
 }
-function rasterDimensionsForLayer(layer, areaOrBounds) {
-  const display = displayLayer(layer, areaOrBounds);
-  return {
-    width: Math.max(1, Math.ceil(Math.abs(Number(display?.w) || 0))),
-    height: Math.max(1, Math.ceil(Math.abs(Number(display?.h) || 0)))
-  };
-}
-function displayFontSize(fontSize, areaOrBounds, canvasScale = 1) {
-  return Math.max(1, Number(fontSize) || 0) * unitPxScale(areaOrBounds) * canvasScale;
+function imagePlacementClipPath(crop, clipPath) {
+  return imagePlacementNeedsClip(crop) ? clipPath : null;
 }
 
 /***/ },
@@ -4500,85 +3002,4 @@ void main() {
 
 /***/ }
 
-/******/ 	});
-/************************************************************************/
-/******/ 	// The module cache
-/******/ 	var __webpack_module_cache__ = {};
-/******/ 	
-/******/ 	// The require function
-/******/ 	function __webpack_require__(moduleId) {
-/******/ 		// Check if module is in cache
-/******/ 		var cachedModule = __webpack_module_cache__[moduleId];
-/******/ 		if (cachedModule !== undefined) {
-/******/ 			return cachedModule.exports;
-/******/ 		}
-/******/ 		// Create a new module (and put it into the cache)
-/******/ 		var module = __webpack_module_cache__[moduleId] = {
-/******/ 			// no module.id needed
-/******/ 			// no module.loaded needed
-/******/ 			exports: {}
-/******/ 		};
-/******/ 	
-/******/ 		// Execute the module function
-/******/ 		if (!(moduleId in __webpack_modules__)) {
-/******/ 			delete __webpack_module_cache__[moduleId];
-/******/ 			var e = new Error("Cannot find module '" + moduleId + "'");
-/******/ 			e.code = 'MODULE_NOT_FOUND';
-/******/ 			throw e;
-/******/ 		}
-/******/ 		__webpack_modules__[moduleId](module, module.exports, __webpack_require__);
-/******/ 	
-/******/ 		// Return the exports of the module
-/******/ 		return module.exports;
-/******/ 	}
-/******/ 	
-/************************************************************************/
-/******/ 	/* webpack/runtime/define property getters */
-/******/ 	(() => {
-/******/ 		// define getter functions for harmony exports
-/******/ 		__webpack_require__.d = (exports, definition) => {
-/******/ 			for(var key in definition) {
-/******/ 				if(__webpack_require__.o(definition, key) && !__webpack_require__.o(exports, key)) {
-/******/ 					Object.defineProperty(exports, key, { enumerable: true, get: definition[key] });
-/******/ 				}
-/******/ 			}
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/hasOwnProperty shorthand */
-/******/ 	(() => {
-/******/ 		__webpack_require__.o = (obj, prop) => (Object.prototype.hasOwnProperty.call(obj, prop))
-/******/ 	})();
-/******/ 	
-/******/ 	/* webpack/runtime/make namespace object */
-/******/ 	(() => {
-/******/ 		// define __esModule on exports
-/******/ 		__webpack_require__.r = (exports) => {
-/******/ 			if(typeof Symbol !== 'undefined' && Symbol.toStringTag) {
-/******/ 				Object.defineProperty(exports, Symbol.toStringTag, { value: 'Module' });
-/******/ 			}
-/******/ 			Object.defineProperty(exports, '__esModule', { value: true });
-/******/ 		};
-/******/ 	})();
-/******/ 	
-/************************************************************************/
-var __webpack_exports__ = {};
-// This entry needs to be wrapped in an IIFE because it needs to be isolated against other modules in the chunk.
-(() => {
-/*!************************************!*\
-  !*** ./src/admin/products-page.js ***!
-  \************************************/
-__webpack_require__.r(__webpack_exports__);
-/* harmony import */ var _products_page_core__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! ./products-page-core */ "./src/admin/products-page-core.js");
-/**
- * Admin product editor bundle entry.
- *
- * The implementation lives in products-page-core.js so this entry stays small
- * while preserving the existing webpack entry name and WordPress script handle.
- */
-
-
-})();
-
-/******/ })()
-;
+}]);

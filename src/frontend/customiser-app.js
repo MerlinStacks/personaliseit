@@ -165,6 +165,7 @@ class OCCustomiser {
 		this._galleryPreviewGeneration = 0;
 		this._galleryPreviewNodes = new Set();
 		this._galleryFallbackNodeStates = new Map();
+		this._galleryPreviewObjectUrl = '';
 		this._tvpgLockedSwipers = new Set();
 		this.productVariationStates = {};
 		this.linkGroupCarry = new Map();

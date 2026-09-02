@@ -72,6 +72,46 @@ const galleryPreviewMethods = {
 		}
 	},
 
+	revokeGalleryPreviewUrl() {
+		if ( ! this._galleryPreviewObjectUrl ) {
+			return;
+		}
+		window.URL?.revokeObjectURL?.( this._galleryPreviewObjectUrl );
+		this._galleryPreviewObjectUrl = '';
+	},
+
+	createGalleryPreviewUrl( dataUrl ) {
+		this.revokeGalleryPreviewUrl();
+		if (
+			! window.URL?.createObjectURL ||
+			typeof window.atob !== 'function'
+		) {
+			return dataUrl;
+		}
+
+		const match = /^data:([^;,]+)(?:;charset=[^;,]+)?;base64,(.*)$/s.exec(
+			dataUrl
+		);
+		if ( ! match ) {
+			return dataUrl;
+		}
+
+		try {
+			const binary = window.atob( match[ 2 ] );
+			const bytes = new Uint8Array( binary.length );
+			for ( let i = 0; i < binary.length; i += 1 ) {
+				bytes[ i ] = binary.charCodeAt( i );
+			}
+			this._galleryPreviewObjectUrl = window.URL.createObjectURL(
+				new Blob( [ bytes ], { type: match[ 1 ] } )
+			);
+			return this._galleryPreviewObjectUrl;
+		} catch ( error ) {
+			console.warn( '[OC] Could not create gallery preview URL:', error );
+			return dataUrl;
+		}
+	},
+
 	restoreProductGallery() {
 		this._galleryPreviewGeneration += 1;
 		document
@@ -121,6 +161,7 @@ const galleryPreviewMethods = {
 			);
 		} );
 		this._galleryFallbackNodeStates.clear();
+		this.revokeGalleryPreviewUrl();
 		this.releaseTVPGPreviewLock( true );
 		this.setPanelPreviewHandoff( false );
 		this.findGalleryImage();
@@ -623,14 +664,15 @@ const galleryPreviewMethods = {
 		if ( ! this._hasCustomerPersonalisation ) {
 			return;
 		}
+		const galleryUrl = this.createGalleryPreviewUrl( dataUrl );
 
-		if ( this.applyTVPGOverlayPreview( dataUrl, dimensions ) ) {
+		if ( this.applyTVPGOverlayPreview( galleryUrl, dimensions ) ) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
 			return;
 		}
 
-		if ( this.applyFlatsomeOverlayPreview( dataUrl, dimensions ) ) {
+		if ( this.applyFlatsomeOverlayPreview( galleryUrl, dimensions ) ) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
 			return;
@@ -666,7 +708,7 @@ const galleryPreviewMethods = {
 				return;
 			}
 			targets.forEach( ( img ) =>
-				this.applyPreviewToImage( img, dataUrl, dimensions )
+				this.applyPreviewToImage( img, galleryUrl, dimensions )
 			);
 		};
 		applyTargets();
