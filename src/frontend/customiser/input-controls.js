@@ -4,7 +4,6 @@ import {
 	generateNightSkyGeometry,
 	nightSkyLabel,
 } from '../../shared/night-sky';
-import timezoneAt from 'tz-lookup';
 
 function localUtcOffset( date, time, timezone ) {
 	if ( ! date || ! time || ! timezone ) {
@@ -584,6 +583,16 @@ const inputControlMethods = {
 				const error = root.querySelector( '[data-oc-night-sky-error]' );
 				let searchTimer = null;
 				let searchSequence = 0;
+				let timezoneLookup = null;
+				let update = null;
+				import( /* webpackChunkName: "timezone-lookup" */ 'tz-lookup' )
+					.then( ( module ) => {
+						timezoneLookup = module.default || module;
+						update?.();
+					} )
+					.catch( () => {
+						timezoneLookup = null;
+					} );
 				const resolveTimezone = () => {
 					const latitude = Number( fields.latitude?.value );
 					const longitude = Number( fields.longitude?.value );
@@ -593,8 +602,11 @@ const inputControlMethods = {
 					) {
 						return;
 					}
+					if ( typeof timezoneLookup !== 'function' ) {
+						return;
+					}
 					try {
-						fields.timezone.value = timezoneAt(
+						fields.timezone.value = timezoneLookup(
 							latitude,
 							longitude
 						);
@@ -610,7 +622,7 @@ const inputControlMethods = {
 						fields.utcOffset.value = '0';
 					}
 				};
-				const update = () => {
+				update = () => {
 					resolveTimezone();
 					const input =
 						this.inputs[ lid ] || ( this.inputs[ lid ] = {} );

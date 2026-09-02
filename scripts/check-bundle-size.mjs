@@ -137,18 +137,20 @@ export function budgetFailures( measurements, limits ) {
 async function main() {
 	const buildDirectory = path.resolve( 'assets/build' );
 	const limits = {
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 195_000 ),
+		// Night Sky and AI layers add customer-facing controls to the core entry.
+		// Timezone boundary data remains lazy-loaded and is covered by the total.
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 200_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 525_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 530_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 595_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 600_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
 		),
 		chunk: Number( process.env.BUNDLE_CHUNK_MAX_BYTES || 340_000 ),
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_380_000 ),
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_460_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

@@ -1600,8 +1600,8 @@ class OC_Admin_Products {
 			if ( ! isset( $valid_area_indexes[ $layer_area_index ] ) ) {
 				wp_die( esc_html__( 'A layer references an unknown print area.', 'overcustomise' ) );
 			}
-			$layer_id   = (int) ( $layer_data['id'] ?? 0 );
-			$layer_type = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
+			$layer_id    = (int) ( $layer_data['id'] ?? 0 );
+			$layer_type  = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
 			$area_method = sanitize_key( is_scalar( $posted_areas[ $layer_area_index ]['print_method'] ?? null ) ? (string) $posted_areas[ $layer_area_index ]['print_method'] : '' );
 			if ( 'night_sky' === $layer_type && 'embroidery' === $area_method ) {
 				wp_die( esc_html__( 'Night Sky layers are not supported for embroidery. Remove the layer or choose another print method.', 'overcustomise' ) );

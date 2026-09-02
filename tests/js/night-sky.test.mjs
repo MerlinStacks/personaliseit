@@ -128,6 +128,6 @@ test( 'customer chooses an address or coordinates without seeing UTC controls', 
 	assert.match( templateSource, /data-oc-night-sky-results/ );
 	assert.match( templateSource, /data-oc-night-sky-use-coordinates/ );
 	assert.match( templateSource, /data-oc-night-sky-use-address/ );
-	assert.match( controlsSource, /timezoneAt/ );
+	assert.match( controlsSource, /timezoneLookup/ );
 	assert.match( controlsSource, /localUtcOffset/ );
 } );
