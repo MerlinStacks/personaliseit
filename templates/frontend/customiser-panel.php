@@ -519,72 +519,34 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( 'night_sky' === $layer->type ) : ?>
 								<div class="oc-night-sky-controls" data-oc-night-sky-controls="<?php echo esc_attr( (string) $layer->id ); ?>">
-									<div class="oc-control-group oc-control-group--side-label">
+									<div data-oc-night-sky-address-mode>
+										<div class="oc-control-group">
 										<label for="oc-night-sky-location-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ? $layer->label : __( 'Place', 'overcustomise' ) ); ?>
 										<?php
 										if ( $required ) :
 											?>
 											*<?php endif; ?></label>
-										<div class="oc-input-wrap">
-											<input type="search" id="oc-night-sky-location-<?php echo esc_attr( $layer->id ); ?>" autocomplete="off" placeholder="<?php esc_attr_e( 'Town or city', 'overcustomise' ); ?>" data-oc-night-sky-location="<?php echo esc_attr( (string) $layer->id ); ?>" />
-											<button type="button" class="button" data-oc-night-sky-find="<?php echo esc_attr( (string) $layer->id ); ?>"><?php esc_html_e( 'Find', 'overcustomise' ); ?></button>
+										<div class="oc-night-sky-combobox">
+											<input type="search" id="oc-night-sky-location-<?php echo esc_attr( $layer->id ); ?>" autocomplete="off" placeholder="<?php esc_attr_e( 'Start typing a town, city or address', 'overcustomise' ); ?>" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="oc-night-sky-results-<?php echo esc_attr( $layer->id ); ?>" data-oc-night-sky-location="<?php echo esc_attr( (string) $layer->id ); ?>" />
+											<div id="oc-night-sky-results-<?php echo esc_attr( $layer->id ); ?>" class="oc-night-sky-results" role="listbox" data-oc-night-sky-results hidden></div>
 										</div>
+										</div>
+										<p class="oc-night-sky-switch"><?php esc_html_e( 'Can’t find the address?', 'overcustomise' ); ?> <button type="button" data-oc-night-sky-use-coordinates><?php esc_html_e( 'Click here to enter the coordinates', 'overcustomise' ); ?></button></p>
+									</div>
+									<div data-oc-night-sky-coordinate-mode hidden>
+										<div class="oc-night-sky-grid">
+											<div class="oc-control-group"><label for="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Latitude', 'overcustomise' ); ?></label><input id="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-90" max="90" step="0.0001" placeholder="51.5074" data-oc-night-sky-latitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
+											<div class="oc-control-group"><label for="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Longitude', 'overcustomise' ); ?></label><input id="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-180" max="180" step="0.0001" placeholder="-0.1278" data-oc-night-sky-longitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
+										</div>
+										<p class="oc-night-sky-switch"><?php esc_html_e( 'Don’t know the coordinates?', 'overcustomise' ); ?> <button type="button" data-oc-night-sky-use-address><?php esc_html_e( 'Click here to enter the address', 'overcustomise' ); ?></button></p>
 									</div>
 									<div class="oc-night-sky-grid">
 										<div class="oc-control-group"><label for="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Date', 'overcustomise' ); ?></label><input type="date" id="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>" min="1900-01-01" max="2100-12-31" data-oc-night-sky-date="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 										<div class="oc-control-group"><label for="oc-night-sky-time-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Local time', 'overcustomise' ); ?></label><input type="time" id="oc-night-sky-time-<?php echo esc_attr( $layer->id ); ?>" value="22:00" data-oc-night-sky-time="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 									</div>
-									<?php
-									$utc_offsets = [
-										-720 => 'UTC-12:00',
-										-660 => 'UTC-11:00',
-										-600 => 'UTC-10:00',
-										-570 => 'UTC-09:30',
-										-540 => 'UTC-09:00',
-										-480 => 'UTC-08:00',
-										-420 => 'UTC-07:00',
-										-360 => 'UTC-06:00',
-										-300 => 'UTC-05:00',
-										-240 => 'UTC-04:00',
-										-210 => 'UTC-03:30',
-										-180 => 'UTC-03:00',
-										-120 => 'UTC-02:00',
-										-60  => 'UTC-01:00',
-										0    => 'UTC+00:00',
-										60   => 'UTC+01:00',
-										120  => 'UTC+02:00',
-										180  => 'UTC+03:00',
-										210  => 'UTC+03:30',
-										240  => 'UTC+04:00',
-										270  => 'UTC+04:30',
-										300  => 'UTC+05:00',
-										330  => 'UTC+05:30',
-										345  => 'UTC+05:45',
-										360  => 'UTC+06:00',
-										390  => 'UTC+06:30',
-										420  => 'UTC+07:00',
-										480  => 'UTC+08:00',
-										525  => 'UTC+08:45',
-										540  => 'UTC+09:00',
-										570  => 'UTC+09:30',
-										600  => 'UTC+10:00',
-										630  => 'UTC+10:30',
-										660  => 'UTC+11:00',
-										720  => 'UTC+12:00',
-										765  => 'UTC+12:45',
-										780  => 'UTC+13:00',
-										825  => 'UTC+13:45',
-										840  => 'UTC+14:00',
-									];
-									?>
-									<div class="oc-control-group"><label for="oc-night-sky-offset-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'UTC offset at that date', 'overcustomise' ); ?></label><select id="oc-night-sky-offset-<?php echo esc_attr( $layer->id ); ?>" data-oc-night-sky-offset="<?php echo esc_attr( (string) $layer->id ); ?>">
-										<?php foreach ( $utc_offsets as $offset_minutes => $offset_label ) : ?>
-											<option value="<?php echo esc_attr( (string) $offset_minutes ); ?>" <?php selected( $offset_minutes, 0 ); ?>><?php echo esc_html( $offset_label ); ?></option>
-										<?php endforeach; ?>
-									</select></div>
-									<details class="oc-night-sky-coordinates"><summary><?php esc_html_e( 'Coordinates', 'overcustomise' ); ?></summary><div class="oc-night-sky-grid"><div class="oc-control-group"><label><?php esc_html_e( 'Latitude', 'overcustomise' ); ?></label><input type="number" min="-90" max="90" step="0.0001" data-oc-night-sky-latitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div><div class="oc-control-group"><label><?php esc_html_e( 'Longitude', 'overcustomise' ); ?></label><input type="number" min="-180" max="180" step="0.0001" data-oc-night-sky-longitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div></div></details>
+									<input type="hidden" value="0" data-oc-night-sky-offset="<?php echo esc_attr( (string) $layer->id ); ?>" />
+									<input type="hidden" value="UTC" data-oc-night-sky-timezone="<?php echo esc_attr( (string) $layer->id ); ?>" />
 									<div class="oc-night-sky-error" data-oc-night-sky-error="<?php echo esc_attr( (string) $layer->id ); ?>" role="status" aria-live="polite"></div>
-									<small class="oc-settings-empty"><?php esc_html_e( 'Place search © OpenStreetMap contributors. Coordinates can be entered manually.', 'overcustomise' ); ?></small>
 									<?php if ( ! $is_engraving && $allow_colour_change ) : ?>
 										<div class="oc-control-group"><label><?php esc_html_e( 'Sky colour', 'overcustomise' ); ?></label>
 											<?php if ( ! empty( $layer_colours ) ) : ?>

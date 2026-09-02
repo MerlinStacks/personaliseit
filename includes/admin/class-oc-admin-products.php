@@ -1602,6 +1602,18 @@ class OC_Admin_Products {
 			}
 			$layer_id   = (int) ( $layer_data['id'] ?? 0 );
 			$layer_type = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
+			$area_method = sanitize_key( is_scalar( $posted_areas[ $layer_area_index ]['print_method'] ?? null ) ? (string) $posted_areas[ $layer_area_index ]['print_method'] : '' );
+			if ( 'night_sky' === $layer_type && 'embroidery' === $area_method ) {
+				wp_die( esc_html__( 'Night Sky layers are not supported for embroidery. Remove the layer or choose another print method.', 'overcustomise' ) );
+			}
+			if ( 'ai_image' === $layer_type ) {
+				$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
+				$settings     = json_decode( is_string( $settings_raw ) && strlen( $settings_raw ) <= 262144 ? $settings_raw : '', true );
+				$instruction  = is_array( $settings ) && is_string( $settings['ai_prompt_instruction'] ?? null ) ? trim( wp_check_invalid_utf8( $settings['ai_prompt_instruction'], true ) ) : '';
+				if ( '' === $instruction || strlen( $instruction ) > 16384 ) {
+					wp_die( esc_html__( 'AI Image layers require an admin instruction. Open the AI / Prompt tab for the layer and enter an instruction before saving.', 'overcustomise' ) );
+				}
+			}
 			if ( 'mask' === $layer_type ) {
 				if ( $layer_id > 0 ) {
 					$submitted_mask_ids[] = $layer_id;

@@ -4,6 +4,46 @@ import {
 	generateNightSkyGeometry,
 	nightSkyLabel,
 } from '../../shared/night-sky';
+import timezoneAt from 'tz-lookup';
+
+function localUtcOffset( date, time, timezone ) {
+	if ( ! date || ! time || ! timezone ) {
+		return 0;
+	}
+	const [ year, month, day ] = date.split( '-' ).map( Number );
+	const [ hour, minute ] = time.split( ':' ).map( Number );
+	const localStamp = Date.UTC( year, month - 1, day, hour, minute );
+	const formatter = new Intl.DateTimeFormat( 'en-CA', {
+		timeZone: timezone,
+		hourCycle: 'h23',
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit',
+		hour: '2-digit',
+		minute: '2-digit',
+	} );
+	const offsetAt = ( stamp ) => {
+		const parts = Object.fromEntries(
+			formatter
+				.formatToParts( new Date( stamp ) )
+				.filter( ( part ) => part.type !== 'literal' )
+				.map( ( part ) => [ part.type, Number( part.value ) ] )
+		);
+		return Math.round(
+			( Date.UTC(
+				parts.year,
+				parts.month - 1,
+				parts.day,
+				parts.hour,
+				parts.minute
+			) -
+				stamp ) /
+				60000
+		);
+	};
+	const first = offsetAt( localStamp );
+	return offsetAt( localStamp - first * 60000 );
+}
 
 const LINKED_IMAGE_INPUT_KEYS = [
 	'attachmentId',
@@ -48,6 +88,7 @@ const inputControlMethods = {
 			'date',
 			'time',
 			'utcOffset',
+			'timezone',
 			'locationLabel',
 			'latitude',
 			'longitude',
@@ -503,8 +544,8 @@ const inputControlMethods = {
 				);
 			} );
 
-		// Night sky date, place and coordinates. Astronomy runs locally; the
-		// optional place lookup goes through the same-origin privacy proxy.
+		// Night sky date, place and coordinates. Astronomy and timezone lookup
+		// run locally; address suggestions use the same-origin lookup proxy.
 		document
 			.querySelectorAll( '[data-oc-night-sky-controls]' )
 			.forEach( ( root ) => {
@@ -518,6 +559,9 @@ const inputControlMethods = {
 					utcOffset: root.querySelector(
 						'[data-oc-night-sky-offset]'
 					),
+					timezone: root.querySelector(
+						'[data-oc-night-sky-timezone]'
+					),
 					locationLabel: root.querySelector(
 						'[data-oc-night-sky-location]'
 					),
@@ -528,14 +572,52 @@ const inputControlMethods = {
 						'[data-oc-night-sky-longitude]'
 					),
 				};
+				const addressMode = root.querySelector(
+					'[data-oc-night-sky-address-mode]'
+				);
+				const coordinateMode = root.querySelector(
+					'[data-oc-night-sky-coordinate-mode]'
+				);
+				const resultsEl = root.querySelector(
+					'[data-oc-night-sky-results]'
+				);
+				const error = root.querySelector( '[data-oc-night-sky-error]' );
+				let searchTimer = null;
+				let searchSequence = 0;
+				const resolveTimezone = () => {
+					const latitude = Number( fields.latitude?.value );
+					const longitude = Number( fields.longitude?.value );
+					if (
+						! Number.isFinite( latitude ) ||
+						! Number.isFinite( longitude )
+					) {
+						return;
+					}
+					try {
+						fields.timezone.value = timezoneAt(
+							latitude,
+							longitude
+						);
+						fields.utcOffset.value = String(
+							localUtcOffset(
+								fields.date?.value,
+								fields.time?.value,
+								fields.timezone.value
+							)
+						);
+					} catch {
+						fields.timezone.value = 'UTC';
+						fields.utcOffset.value = '0';
+					}
+				};
 				const update = () => {
+					resolveTimezone();
 					const input =
 						this.inputs[ lid ] || ( this.inputs[ lid ] = {} );
 					input.date = fields.date?.value || '';
 					input.time = fields.time?.value || '';
 					input.utcOffset = Number( fields.utcOffset?.value ) || 0;
-					input.locationLabel =
-						fields.locationLabel?.value.trim() || '';
+					input.timezone = fields.timezone?.value || 'UTC';
 					input.latitude =
 						fields.latitude?.value === ''
 							? null
@@ -544,82 +626,170 @@ const inputControlMethods = {
 						fields.longitude?.value === ''
 							? null
 							: Number( fields.longitude?.value );
+					if ( ! coordinateMode.hidden ) {
+						input.locationLabel = [
+							input.latitude,
+							input.longitude,
+						].every( Number.isFinite )
+							? `${ input.latitude.toFixed(
+									4
+							  ) }, ${ input.longitude.toFixed( 4 ) }`
+							: '';
+					} else {
+						input.locationLabel =
+							fields.locationLabel?.value.trim() || '';
+					}
 					Object.values( fields ).forEach( ( field ) => {
 						field?.setCustomValidity?.( '' );
 						field?.classList.remove( 'oc-preflight-field-error' );
 					} );
 					this.regenerateNightSkyInput( lid );
 				};
-				Object.values( fields ).forEach( ( field ) =>
+				[
+					fields.date,
+					fields.time,
+					fields.latitude,
+					fields.longitude,
+				].forEach( ( field ) =>
 					field?.addEventListener( 'input', update, {
 						signal: stateSignal,
 					} )
 				);
-				root.querySelector(
-					'[data-oc-night-sky-find]'
-				)?.addEventListener(
-					'click',
-					async ( event ) => {
-						const button = event.currentTarget;
-						const error = root.querySelector(
-							'[data-oc-night-sky-error]'
+				const selectResult = ( result ) => {
+					fields.latitude.value = Number( result.latitude ).toFixed(
+						6
+					);
+					fields.longitude.value = Number( result.longitude ).toFixed(
+						6
+					);
+					fields.locationLabel.value = result.displayName || '';
+					resultsEl.hidden = true;
+					fields.locationLabel.setAttribute(
+						'aria-expanded',
+						'false'
+					);
+					if ( error ) {
+						error.textContent = '';
+					}
+					update();
+				};
+				const showResults = ( results ) => {
+					resultsEl.replaceChildren();
+					results.forEach( ( result ) => {
+						const option = document.createElement( 'button' );
+						option.type = 'button';
+						option.className = 'oc-night-sky-result';
+						option.setAttribute( 'role', 'option' );
+						option.textContent = result.displayName;
+						option.addEventListener(
+							'click',
+							() => selectResult( result ),
+							{ signal: stateSignal }
 						);
-						const query = fields.locationLabel?.value.trim() || '';
-						if ( ! query ) {
-							fields.locationLabel?.focus();
+						resultsEl.appendChild( option );
+					} );
+					resultsEl.hidden = ! results.length;
+					fields.locationLabel.setAttribute(
+						'aria-expanded',
+						results.length ? 'true' : 'false'
+					);
+				};
+				fields.locationLabel?.addEventListener(
+					'input',
+					() => {
+						fields.latitude.value = '';
+						fields.longitude.value = '';
+						update();
+						this.clearStateTimeout( searchTimer );
+						const query = fields.locationLabel.value.trim();
+						if ( query.length < 3 ) {
+							showResults( [] );
 							return;
 						}
-						button.disabled = true;
-						if ( error ) {
-							error.textContent = 'Finding place…';
-						}
-						try {
-							if ( ! this.data.locationLookupUrl ) {
-								throw new Error( 'Place lookup unavailable' );
-							}
-							await this.ensureRequestToken();
-							const response = await fetch(
-								this.data.locationLookupUrl,
-								{
-									method: 'POST',
-									credentials: 'same-origin',
-									cache: 'no-store',
-									headers: this.restHeaders( {
-										Accept: 'application/json',
-										'Content-Type': 'application/json',
-									} ),
-									body: JSON.stringify( { query } ),
-									signal: stateSignal,
+						const sequence = ++searchSequence;
+						searchTimer = this.setStateTimeout( async () => {
+							try {
+								await this.ensureRequestToken();
+								const response = await fetch(
+									this.data.locationLookupUrl,
+									{
+										method: 'POST',
+										credentials: 'same-origin',
+										cache: 'no-store',
+										headers: this.restHeaders( {
+											Accept: 'application/json',
+											'Content-Type': 'application/json',
+										} ),
+										body: JSON.stringify( {
+											query,
+											limit: 6,
+										} ),
+										signal: stateSignal,
+									}
+								);
+								const payload = response.ok
+									? await response.json()
+									: null;
+								if ( sequence === searchSequence ) {
+									showResults(
+										payload?.results ||
+											( payload?.result
+												? [ payload.result ]
+												: [] )
+									);
 								}
-							);
-							const payload = await response
-								.json()
-								.catch( () => null );
-							const result = response.ok ? payload?.result : null;
-							if ( ! result ) {
-								throw new Error( 'Place not found' );
+							} catch ( err ) {
+								if (
+									err?.name !== 'AbortError' &&
+									sequence === searchSequence
+								) {
+									showResults( [] );
+								}
 							}
-							fields.latitude.value = Number(
-								result.latitude
-							).toFixed( 4 );
-							fields.longitude.value = Number(
-								result.longitude
-							).toFixed( 4 );
-							fields.locationLabel.value =
-								result.displayName || query;
-							if ( error ) {
-								error.textContent =
-									'Place found. Check the UTC offset for the selected date.';
-							}
-							update();
-						} catch ( err ) {
-							if ( err?.name !== 'AbortError' && error ) {
-								error.textContent =
-									'Place lookup failed. Enter the coordinates manually.';
-							}
-						} finally {
-							button.disabled = false;
+						}, 1000 );
+					},
+					{ signal: stateSignal }
+				);
+				fields.locationLabel?.addEventListener(
+					'keydown',
+					( event ) => {
+						if ( event.key === 'Escape' ) {
+							showResults( [] );
 						}
+					},
+					{ signal: stateSignal }
+				);
+				document.addEventListener(
+					'click',
+					( event ) => {
+						if ( ! root.contains( event.target ) ) {
+							showResults( [] );
+						}
+					},
+					{ signal: stateSignal }
+				);
+				root.querySelector(
+					'[data-oc-night-sky-use-coordinates]'
+				)?.addEventListener(
+					'click',
+					() => {
+						addressMode.hidden = true;
+						coordinateMode.hidden = false;
+						fields.locationLabel.value = '';
+						showResults( [] );
+						update();
+						fields.latitude?.focus();
+					},
+					{ signal: stateSignal }
+				);
+				root.querySelector(
+					'[data-oc-night-sky-use-address]'
+				)?.addEventListener(
+					'click',
+					() => {
+						coordinateMode.hidden = true;
+						addressMode.hidden = false;
+						fields.locationLabel?.focus();
 					},
 					{ signal: stateSignal }
 				);
@@ -2160,6 +2330,9 @@ const inputControlMethods = {
 				utcOffset: document.querySelector(
 					`[data-oc-night-sky-offset="${ layerId }"]`
 				),
+				timezone: document.querySelector(
+					`[data-oc-night-sky-timezone="${ layerId }"]`
+				),
 				locationLabel: document.querySelector(
 					`[data-oc-night-sky-location="${ layerId }"]`
 				),
@@ -2315,6 +2488,10 @@ const inputControlMethods = {
 								'[data-oc-night-sky-offset]'
 							)?.value
 						) || 0;
+					input.timezone =
+						nightSkyRoot.querySelector(
+							'[data-oc-night-sky-timezone]'
+						)?.value || 'UTC';
 					input.locationLabel =
 						nightSkyRoot
 							.querySelector( '[data-oc-night-sky-location]' )

@@ -2845,12 +2845,18 @@ class OC_Rest_API {
 			return $auth;
 		}
 
-		$result = self::find_location( (string) $request->get_param( 'query' ) );
-		if ( is_wp_error( $result ) ) {
-			return $result;
+		$results = self::find_locations( (string) $request->get_param( 'query' ) );
+		if ( is_wp_error( $results ) ) {
+			return $results;
 		}
 
-		$response = new \WP_REST_Response( [ 'result' => $result ], 200 );
+		$response = new \WP_REST_Response(
+			[
+				'results' => $results,
+				'result'  => $results[0] ?? null,
+			],
+			200
+		);
 		$response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
 		$response->header( 'Pragma', 'no-cache' );
 		$response->header( 'Expires', '0' );
@@ -2871,18 +2877,24 @@ class OC_Rest_API {
 			&& 0 === preg_match( '/[\x00-\x1F\x7F]/u', $query );
 	}
 
-	/** Fetch and reduce one Nominatim result. The optional flag is for isolated HTTP tests. */
+	/** Fetch one location for backwards-compatible callers and tests. */
 	public static function find_location( string $query, bool $reserve_rate_limit = true ): array|null|\WP_Error {
+		$results = self::find_locations( $query, $reserve_rate_limit, 1 );
+		return is_wp_error( $results ) ? $results : ( $results[0] ?? null );
+	}
+
+	/** Fetch and reduce bounded location suggestions. */
+	public static function find_locations( string $query, bool $reserve_rate_limit = true, int $limit = 6 ): array|\WP_Error {
 		if ( ! self::validate_location_query( $query ) ) {
 			return new \WP_Error( 'invalid_location_query', __( 'Enter a valid place name.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
 		if ( $reserve_rate_limit ) {
-			$limit = self::filtered_limit( 'oc_location_lookup_ip_hourly_limit', 30, 1, 1000 );
-			if ( null === $limit ) {
+			$hourly_limit = self::filtered_limit( 'oc_location_lookup_ip_hourly_limit', 120, 1, 1000 );
+			if ( null === $hourly_limit ) {
 				return new \WP_Error( 'lookup_unavailable', __( 'Place lookup is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 			}
-			$reservation = self::reserve_request_rate( 'location-lookup', $limit, __( 'Too many place searches. Please try again later.', 'overcustomise' ) );
+			$reservation = self::reserve_request_rate( 'location-lookup', $hourly_limit, __( 'Too many place searches. Please try again later.', 'overcustomise' ) );
 			if ( is_wp_error( $reservation ) ) {
 				return $reservation;
 			}
@@ -2891,7 +2903,7 @@ class OC_Rest_API {
 		$url       = add_query_arg(
 			[
 				'format' => 'jsonv2',
-				'limit'  => 1,
+				'limit'  => max( 1, min( 6, $limit ) ),
 				'q'      => $query,
 			],
 			'https://nominatim.openstreetmap.org/search'
@@ -2923,25 +2935,28 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_lookup_response', __( 'Place lookup returned an invalid response.', 'overcustomise' ), [ 'status' => 502 ] );
 		}
 		if ( empty( $decoded ) ) {
-			return null;
+			return [];
 		}
 
-		$item         = $decoded[0];
-		$latitude     = is_array( $item ) && is_numeric( $item['lat'] ?? null ) ? (float) $item['lat'] : NAN;
-		$longitude    = is_array( $item ) && is_numeric( $item['lon'] ?? null ) ? (float) $item['lon'] : NAN;
-		$display_name = is_array( $item ) && is_string( $item['display_name'] ?? null ) ? trim( $item['display_name'] ) : '';
-		if ( ! is_finite( $latitude ) || ! is_finite( $longitude ) || $latitude < -90 || $latitude > 90
-			|| $longitude < -180 || $longitude > 180 || '' === $display_name || strlen( $display_name ) > 300
-			|| 1 !== preg_match( '//u', $display_name ) || 1 === preg_match( '/[\x00-\x1F\x7F]/u', $display_name )
-		) {
-			return new \WP_Error( 'invalid_lookup_response', __( 'Place lookup returned an invalid response.', 'overcustomise' ), [ 'status' => 502 ] );
+		$results = [];
+		foreach ( array_slice( $decoded, 0, max( 1, min( 6, $limit ) ) ) as $item ) {
+			$latitude     = is_array( $item ) && is_numeric( $item['lat'] ?? null ) ? (float) $item['lat'] : NAN;
+			$longitude    = is_array( $item ) && is_numeric( $item['lon'] ?? null ) ? (float) $item['lon'] : NAN;
+			$display_name = is_array( $item ) && is_string( $item['display_name'] ?? null ) ? trim( $item['display_name'] ) : '';
+			if ( ! is_finite( $latitude ) || ! is_finite( $longitude ) || $latitude < -90 || $latitude > 90
+				|| $longitude < -180 || $longitude > 180 || '' === $display_name || strlen( $display_name ) > 300
+				|| 1 !== preg_match( '//u', $display_name ) || 1 === preg_match( '/[\x00-\x1F\x7F]/u', $display_name )
+			) {
+				continue;
+			}
+			$results[] = [
+				'latitude'    => round( $latitude, 6 ),
+				'longitude'   => round( $longitude, 6 ),
+				'displayName' => $display_name,
+			];
 		}
 
-		return [
-			'latitude'    => round( $latitude, 6 ),
-			'longitude'   => round( $longitude, 6 ),
-			'displayName' => $display_name,
-		];
+		return $results;
 	}
 
 	/** Validate Spotify format and public availability, reusing bounded server-side cache state. */

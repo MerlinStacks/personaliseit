@@ -178,6 +178,77 @@
 		}
 	}
 
+	.oc-night-sky-combobox {
+		position: relative;
+
+		input {
+			width: 100%;
+			padding-right: 38px;
+			background-image: linear-gradient(45deg, transparent 50%, var(--oc-fg-muted) 50%),
+				linear-gradient(135deg, var(--oc-fg-muted) 50%, transparent 50%);
+			background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%;
+			background-size: 5px 5px, 5px 5px;
+			background-repeat: no-repeat;
+		}
+	}
+
+	.oc-night-sky-results {
+		position: absolute;
+		z-index: 30;
+		top: calc(100% + 4px);
+		left: 0;
+		right: 0;
+		max-height: 240px;
+		overflow-y: auto;
+		background: var(--oc-surface);
+		border: 1px solid var(--oc-border);
+		border-radius: var(--oc-radius-sm);
+		box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+	}
+
+	.oc-night-sky-result {
+		display: block;
+		width: 100%;
+		padding: 10px 12px;
+		border: 0;
+		border-bottom: 1px solid var(--oc-border);
+		background: transparent;
+		color: var(--oc-fg);
+		font: inherit;
+		font-size: 0.88em;
+		line-height: 1.35;
+		text-align: left;
+		cursor: pointer;
+
+		&:last-child {
+			border-bottom: 0;
+		}
+
+		&:hover,
+		&:focus-visible {
+			background: var(--oc-surface-2);
+			outline: none;
+		}
+	}
+
+	.oc-night-sky-switch {
+		margin: 2px 0 0;
+		font-size: 0.8em;
+		color: var(--oc-fg-muted);
+
+		button {
+			padding: 0;
+			border: 0;
+			background: transparent;
+			color: var(--oc-accent);
+			font: inherit;
+			font-weight: 600;
+			text-decoration: underline;
+			text-underline-offset: 2px;
+			cursor: pointer;
+		}
+	}
+
 	.oc-night-sky-grid {
 		display: grid;
 		grid-template-columns: repeat(2, minmax(0, 1fr));

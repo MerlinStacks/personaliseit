@@ -33,7 +33,8 @@
     "@uppy/xhr-upload": "^5.2.0",
     "fabric": "^7.4.0",
     "fonteditor-core": "^2.6.3",
-    "imagetracerjs": "^1.2.6"
+    "imagetracerjs": "^1.2.6",
+    "tz-lookup": "^6.1.25"
   },
   "devDependencies": {
     "@playwright/test": "^1.54.2",

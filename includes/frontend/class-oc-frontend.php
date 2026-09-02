@@ -428,6 +428,7 @@ class OC_Frontend {
 					'date'                => '',
 					'time'                => '22:00',
 					'utcOffset'           => 0,
+					'timezone'            => 'UTC',
 					'locationLabel'       => '',
 					'latitude'            => null,
 					'longitude'           => null,

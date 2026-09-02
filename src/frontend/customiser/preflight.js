@@ -33,8 +33,13 @@ const preflightMethods = {
 					`[data-oc-layer-spotify="${ layer.id }"]`
 				);
 			case 'night_sky':
-				return document.querySelector(
-					`[data-oc-night-sky-location="${ layer.id }"]`
+				return (
+					document.querySelector(
+						`[data-oc-night-sky-controls="${ layer.id }"] [data-oc-night-sky-coordinate-mode]:not([hidden]) [data-oc-night-sky-latitude]`
+					) ||
+					document.querySelector(
+						`[data-oc-night-sky-location="${ layer.id }"]`
+					)
 				);
 			case 'image':
 			case 'ai_image':

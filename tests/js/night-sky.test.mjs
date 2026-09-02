@@ -122,8 +122,12 @@ test( 'place lookup uses the same-origin proxy only', () => {
 	assert.match( controlsSource, /method: 'POST'/ );
 } );
 
-test( 'UTC offset options include fractional extremes and standard quarter hours', () => {
-	for ( const offset of [ -720, -570, -210, 0, 330, 345, 525, 765, 840 ] ) {
-		assert.match( templateSource, new RegExp( `${ offset }\\s*=> 'UTC` ) );
-	}
+test( 'customer chooses an address or coordinates without seeing UTC controls', () => {
+	assert.doesNotMatch( templateSource, /UTC offset at that date/ );
+	assert.doesNotMatch( templateSource, /Place search © OpenStreetMap/ );
+	assert.match( templateSource, /data-oc-night-sky-results/ );
+	assert.match( templateSource, /data-oc-night-sky-use-coordinates/ );
+	assert.match( templateSource, /data-oc-night-sky-use-address/ );
+	assert.match( controlsSource, /timezoneAt/ );
+	assert.match( controlsSource, /localUtcOffset/ );
 } );

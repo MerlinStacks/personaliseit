@@ -21,6 +21,10 @@ import {
 	layerIcon,
 	layerLabel,
 } from './products-page-metadata';
+import {
+	aiImageInstructionIsValid,
+	layerTypeSupportsPrintMethod,
+} from './products-page-compatibility';
 import { createLayerPreviewRenderer } from './products-page-preview';
 import { renderProductsPageHiddenFields } from './products-page-hidden-fields';
 import { createProductsPageDataNormalisers } from './products-page-data';
@@ -428,6 +432,30 @@ import {
 			autosaveError = 'Wait for the design to finish loading.';
 			updateAutosaveIndicator();
 			return;
+		}
+		for ( let areaIndex = 0; areaIndex < areas.length; areaIndex++ ) {
+			const layers = areas[ areaIndex ].layers || [];
+			const layerIndex = layers.findIndex(
+				( layer ) =>
+					layer.type === 'ai_image' &&
+					! aiImageInstructionIsValid(
+						layer.settings?.ai_prompt_instruction
+					)
+			);
+			if ( layerIndex >= 0 ) {
+				event.preventDefault();
+				selectedIndex = areaIndex;
+				selectedLayerIndex = layerIndex;
+				activeLayerTab = 'prompt';
+				renderAll();
+				document
+					.getElementById( 'oc-set-ai-prompt-instruction' )
+					?.focus();
+				window.alert(
+					'Add a required admin instruction to the highlighted AI Image layer before saving.'
+				);
+				return;
+			}
 		}
 		if ( autosaveConflict ) {
 			event.preventDefault();
@@ -1049,6 +1077,19 @@ import {
 		}
 		setVal( 'oc-prop-label', area.label );
 		setVal( 'oc-prop-method', area.method );
+		const methodSelect = document.getElementById( 'oc-prop-method' );
+		methodSelect?.querySelectorAll( 'option' ).forEach( ( option ) => {
+			const incompatibleLayer = ( area.layers || [] ).find(
+				( layer ) =>
+					! layerTypeSupportsPrintMethod( layer.type, option.value )
+			);
+			option.disabled = !! incompatibleLayer;
+			option.title = incompatibleLayer
+				? `${ layerLabel(
+						incompatibleLayer.type
+				  ) } is not supported for ${ methodLabel( option.value ) }.`
+				: '';
+		} );
 		setVal( 'oc-prop-engraving-material', area.material || 'silver_metal' );
 		setVal( 'oc-prop-unit', area.unit || 'px' );
 		setVal( 'oc-prop-x', area.x );
@@ -1125,8 +1166,23 @@ import {
 			hint.style.display = area ? 'none' : '';
 		}
 		document.querySelectorAll( '.oc-layer-type-btn' ).forEach( ( btn ) => {
-			btn.disabled = ! area;
-			btn.style.opacity = area ? '' : '.4';
+			const supported =
+				!! area &&
+				layerTypeSupportsPrintMethod( btn.dataset.type, area.method );
+			btn.disabled = ! supported;
+			btn.style.opacity = supported ? '' : '.4';
+			const unavailableMessage = area
+				? `${ layerLabel(
+						btn.dataset.type
+				  ) } is not supported for ${ methodLabel( area.method ) }.`
+				: 'Select a print area first.';
+			btn.title = supported ? '' : unavailableMessage;
+			btn.setAttribute(
+				'aria-label',
+				supported
+					? `Add ${ layerLabel( btn.dataset.type ) } layer`
+					: unavailableMessage
+			);
 		} );
 		renderLayerList( area );
 		const noSel = document.getElementById( 'oc-layer-no-sel' );

@@ -1,7 +1,8 @@
-/* eslint-disable @wordpress/no-global-active-element */
+/* eslint-disable @wordpress/no-global-active-element, no-alert */
 
 import { unitPxScale } from '../shared/render-math';
 import { LAYER_DEFAULTS, layerLabel } from './products-page-metadata';
+import { layerTypeSupportsPrintMethod } from './products-page-compatibility';
 
 export function createProductsPageInteractions( deps ) {
 	const {
@@ -86,8 +87,26 @@ export function createProductsPageInteractions( deps ) {
 			?.addEventListener( 'change', () => {
 				const area = selectedArea();
 				if ( area ) {
-					area.method =
-						document.getElementById( 'oc-prop-method' ).value;
+					const methodSelect =
+						document.getElementById( 'oc-prop-method' );
+					const nextMethod = methodSelect.value;
+					const incompatibleLayer = ( area.layers || [] ).find(
+						( layer ) =>
+							! layerTypeSupportsPrintMethod(
+								layer.type,
+								nextMethod
+							)
+					);
+					if ( incompatibleLayer ) {
+						methodSelect.value = area.method;
+						window.alert(
+							`${ layerLabel(
+								incompatibleLayer.type
+							) } is not supported for this print method. Remove the layer before changing the print method.`
+						);
+						return;
+					}
+					area.method = nextMethod;
 					if ( area.method === 'engraving' && ! area.material ) {
 						area.material = 'silver_metal';
 					}
@@ -239,7 +258,7 @@ export function createProductsPageInteractions( deps ) {
 
 	function addLayer( type ) {
 		const area = selectedArea();
-		if ( ! area ) {
+		if ( ! area || ! layerTypeSupportsPrintMethod( type, area.method ) ) {
 			return;
 		}
 		const def = LAYER_DEFAULTS[ type ] || { w: 200, h: 100 };
