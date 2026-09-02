@@ -760,7 +760,7 @@ class OC_Cart {
 				$filter_id = $default_filter;
 			}
 			$selected_filter = $filter_id ? ( $active_filters[ $filter_id ] ?? null ) : null;
-			$image_crop      = in_array( $type, [ 'image', 'ai_image' ], true ) && $editable && $can_image_change
+			$image_crop      = 'image' === $type && $editable && $can_image_change
 				? max( 0, min( 100, absint( $source['imageCrop'] ?? 0 ) ) )
 				: 0;
 			if ( $filter_id && $selected_filter && 'ai' === (string) $selected_filter->filter_key ) {

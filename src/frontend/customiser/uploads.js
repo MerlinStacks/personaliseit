@@ -336,7 +336,7 @@ const uploadMethods = {
 			),
 			customerUploaded: true,
 			artworkContextLayerId: layerId,
-			imageCrop: Number( input.imageCrop || 0 ),
+			imageCrop: 0,
 			imageFilterResults: {},
 			imageFilterAttemptCount: {},
 		} );

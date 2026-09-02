@@ -11,12 +11,37 @@ defined( 'ABSPATH' ) || exit;
  * Generate deterministic decorative star-map geometry.
  *
  * This is the PHP counterpart of src/shared/night-sky.js. Star positions use
- * J2000 right ascension/declination and planets use low-precision elements.
+ * the bundled J2000 catalogue and planets use low-precision elements.
  */
 class OC_Night_Sky {
 
 	private const DEG = M_PI / 180;
 	private const RAD = 180 / M_PI;
+
+	private const CONSTELLATION_NAMES = [
+		'And' => 'Andromeda',
+		'Aql' => 'Aquila',
+		'Ari' => 'Aries',
+		'Aur' => 'Auriga',
+		'Boo' => 'Boötes',
+		'CMa' => 'Canis Major',
+		'Car' => 'Carina',
+		'Cas' => 'Cassiopeia',
+		'Cen' => 'Centaurus',
+		'Cet' => 'Cetus',
+		'Cyg' => 'Cygnus',
+		'Eri' => 'Eridanus',
+		'Gem' => 'Gemini',
+		'Leo' => 'Leo',
+		'Ori' => 'Orion',
+		'Peg' => 'Pegasus',
+		'Per' => 'Perseus',
+		'Sco' => 'Scorpius',
+		'Sgr' => 'Sagittarius',
+		'Tau' => 'Taurus',
+		'UMa' => 'Ursa Major',
+		'Vir' => 'Virgo',
+	];
 
 	/** @var array<int,array{string,string,float,float,float}> */
 	private const STARS = [
@@ -127,43 +152,44 @@ class OC_Night_Sky {
 		$julian     = $moment / 86400 + 2440587.5;
 		$days_j2000 = $julian - 2451543.5;
 		$lst        = self::mod( 280.46061837 + 360.98564736629 * ( $julian - 2451545 ) + $longitude );
-		$points     = [];
+		$catalog    = self::catalog();
 		$stars      = [];
-		foreach ( self::STARS as [ $id, , $ra, $dec, $magnitude ] ) {
-			$point = self::project( $ra * 15, $dec, $latitude, $lst );
+		foreach ( $catalog['stars'] as [ $ra, $dec, $magnitude ] ) {
+			$point = self::project( (float) $ra, (float) $dec, $latitude, $lst );
 			if ( null === $point ) {
 				continue;
 			}
-			$points[ $id ] = $point;
-			$stars[]       = $point + [ 'r' => self::round( max( 0.0015, min( 0.007, 0.0062 - $magnitude * 0.0011 ) ) ) ];
+			$stars[] = $point + [ 'r' => self::round( max( 0.0015, min( 0.007, 0.0062 - (float) $magnitude * 0.0011 ) ) ) ];
 		}
 
 		$segments = [];
 		$labels   = [];
 		if ( false !== ( $settings['show_constellations'] ?? true ) ) {
-			foreach ( self::CONSTELLATIONS as [ $name, $pairs ] ) {
+			foreach ( $catalog['constellations'] as [ $id, $rank, $paths ] ) {
 				$used = [];
-				foreach ( $pairs as [ $from, $to ] ) {
-					$a = $points[ $from ] ?? null;
-					$b = $points[ $to ] ?? null;
-					if ( null !== $a && null !== $b && hypot( $a['x'] - $b['x'], $a['y'] - $b['y'] ) < 0.45 ) {
-						$segments[] = [
-							'x1' => $a['x'],
-							'y1' => $a['y'],
-							'x2' => $b['x'],
-							'y2' => $b['y'],
-							'w'  => 0.0015,
-						];
-						$used[]     = $a;
-						$used[]     = $b;
+				foreach ( $paths as $path ) {
+					for ( $index = 1, $count = count( $path ); $index < $count; $index++ ) {
+						$a = self::project( (float) $path[ $index - 1 ][0], (float) $path[ $index - 1 ][1], $latitude, $lst );
+						$b = self::project( (float) $path[ $index ][0], (float) $path[ $index ][1], $latitude, $lst );
+						if ( null !== $a && null !== $b && hypot( $a['x'] - $b['x'], $a['y'] - $b['y'] ) < 0.45 ) {
+							$segments[] = [
+								'x1' => $a['x'],
+								'y1' => $a['y'],
+								'x2' => $b['x'],
+								'y2' => $b['y'],
+								'w'  => 0.0012,
+							];
+							$used[]     = $a;
+							$used[]     = $b;
+						}
 					}
 				}
-				if ( false !== ( $settings['show_labels'] ?? true ) && $used ) {
+				if ( false !== ( $settings['show_labels'] ?? true ) && 1 === (int) $rank && $used ) {
 					$labels[] = [
 						'x'    => self::round( array_sum( array_column( $used, 'x' ) ) / count( $used ) ),
 						'y'    => self::round( array_sum( array_column( $used, 'y' ) ) / count( $used ) ),
-						'text' => $name,
-						'size' => 0.018,
+						'text' => self::CONSTELLATION_NAMES[ $id ] ?? $id,
+						'size' => 0.015,
 					];
 				}
 			}
@@ -202,6 +228,21 @@ class OC_Night_Sky {
 			'labels'          => $labels,
 			'border'          => false !== ( $settings['show_border'] ?? true ),
 		];
+	}
+
+	/** Load the generated star and constellation catalogue once per request. */
+	private static function catalog(): array {
+		static $catalog = null;
+		if ( null === $catalog ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads a bundled local catalogue.
+			$decoded = json_decode( (string) file_get_contents( __DIR__ . '/data/night-sky-catalog.json' ), true );
+			$catalog = is_array( $decoded ) ? $decoded : [
+				'stars'          => [],
+				'constellations' => [],
+			];
+		}
+
+		return $catalog;
 	}
 
 	/** Build the concise display label used by the browser implementation. */

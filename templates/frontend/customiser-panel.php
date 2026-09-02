@@ -349,11 +349,6 @@ foreach ( $layers as $layer ) {
 											<div class="oc-image-filter-results__grid" data-oc-ai-image-result-grid></div>
 											<button type="button" class="oc-image-filter-retry" data-oc-ai-image-retry="<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Generate another', 'overcustomise' ); ?></button>
 										</div>
-										<div class="oc-control-group oc-image-crop-control" data-oc-image-crop-control="<?php echo esc_attr( $layer->id ); ?>" hidden>
-											<label for="oc-image-crop-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Image placement', 'overcustomise' ); ?></label>
-											<input type="range" id="oc-image-crop-<?php echo esc_attr( $layer->id ); ?>" min="0" max="100" step="1" value="0" disabled data-oc-layer-image-crop="<?php echo esc_attr( $layer->id ); ?>" aria-valuetext="<?php esc_attr_e( 'Fit image', 'overcustomise' ); ?>" />
-											<div class="oc-image-crop-labels" aria-hidden="true"><span><?php esc_html_e( 'Fit image', 'overcustomise' ); ?></span><span><?php esc_html_e( 'Crop to subject', 'overcustomise' ); ?></span></div>
-										</div>
 									<?php elseif ( $allow_image_change ) : ?>
 										<div class="oc-upload-zone"
 											data-oc-upload-zone="<?php echo esc_attr( $layer->id ); ?>">
@@ -540,8 +535,8 @@ foreach ( $layers as $layer ) {
 										</div>
 										<p class="oc-night-sky-switch"><button type="button" data-oc-night-sky-use-address><?php esc_html_e( 'Search by address instead', 'overcustomise' ); ?></button></p>
 									</div>
-									<div class="oc-night-sky-grid">
-										<div class="oc-control-group"><label for="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Date', 'overcustomise' ); ?></label><input type="date" id="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>" min="1900-01-01" max="2100-12-31" data-oc-night-sky-date="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
+									<div class="oc-night-sky-grid oc-night-sky-grid--datetime">
+										<div class="oc-control-group"><label for="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Date', 'overcustomise' ); ?></label><input type="date" id="oc-night-sky-date-<?php echo esc_attr( $layer->id ); ?>" value="<?php echo esc_attr( wp_date( 'Y-m-d' ) ); ?>" min="1900-01-01" max="2100-12-31" data-oc-night-sky-date="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 										<div class="oc-control-group"><label for="oc-night-sky-time-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Local time', 'overcustomise' ); ?></label><input type="time" id="oc-night-sky-time-<?php echo esc_attr( $layer->id ); ?>" value="22:00" data-oc-night-sky-time="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 									</div>
 									<input type="hidden" value="0" data-oc-night-sky-offset="<?php echo esc_attr( (string) $layer->id ); ?>" />

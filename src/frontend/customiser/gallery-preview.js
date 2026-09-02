@@ -217,6 +217,12 @@ const galleryPreviewMethods = {
 			const linkState = this.captureGalleryNodeState( a );
 			a.href = dataUrl;
 			a.setAttribute( 'data-src', dataUrl );
+			if ( hasDimensions ) {
+				a.setAttribute(
+					'data-size',
+					`${ dimensions.width }x${ dimensions.height }`
+				);
+			}
 			this.recordGalleryNodeState( a, linkState );
 		}
 
@@ -226,6 +232,12 @@ const galleryPreviewMethods = {
 		img.setAttribute( 'data-src', dataUrl );
 		img.setAttribute( 'data-lazy-src', dataUrl );
 		img.setAttribute( 'data-zoom-image', dataUrl );
+		if ( hasDimensions ) {
+			img.setAttribute( 'data-large_image_width', dimensions.width );
+			img.setAttribute( 'data-large_image_height', dimensions.height );
+			img.setAttribute( 'data-large-image-width', dimensions.width );
+			img.setAttribute( 'data-large-image-height', dimensions.height );
+		}
 		img.removeAttribute( 'data-srcset' );
 		img.removeAttribute( 'data-lazy-srcset' );
 		img.removeAttribute( 'data-o_srcset' );
@@ -509,7 +521,9 @@ const galleryPreviewMethods = {
 			mainPreviewSlide.className = 'swiper-slide oc-live-preview-slide';
 			mainPreviewSlide.innerHTML =
 				'<div class="woocommerce-product-gallery__image">' +
+				'<a>' +
 				'<img class="oc-live-preview-image" alt="Custom preview">' +
+				'</a>' +
 				'</div>';
 			mainWrapper.appendChild( mainPreviewSlide );
 		}

@@ -3,6 +3,7 @@
 import {
 	generateNightSkyGeometry,
 	nightSkyLabel,
+	setNightSkyCatalog,
 } from '../../shared/night-sky';
 
 function localUtcOffset( date, time, timezone ) {
@@ -42,6 +43,14 @@ function localUtcOffset( date, time, timezone ) {
 	};
 	const first = offsetAt( localStamp );
 	return offsetAt( localStamp - first * 60000 );
+}
+
+function localToday() {
+	const today = new Date();
+	const pad = ( value ) => String( value ).padStart( 2, '0' );
+	return `${ today.getFullYear() }-${ pad( today.getMonth() + 1 ) }-${ pad(
+		today.getDate()
+	) }`;
 }
 
 const LINKED_IMAGE_INPUT_KEYS = [
@@ -581,10 +590,21 @@ const inputControlMethods = {
 					'[data-oc-night-sky-results]'
 				);
 				const error = root.querySelector( '[data-oc-night-sky-error]' );
+				if ( fields.date && ! fields.date.value ) {
+					fields.date.value = localToday();
+				}
 				let searchTimer = null;
 				let searchSequence = 0;
 				let timezoneLookup = null;
 				let update = null;
+				import(
+					/* webpackChunkName: "night-sky-catalog" */ '../../../includes/data/night-sky-catalog.json'
+				)
+					.then( ( module ) => {
+						setNightSkyCatalog( module.default || module );
+						update?.();
+					} )
+					.catch( () => setNightSkyCatalog( null ) );
 				import( /* webpackChunkName: "timezone-lookup" */ 'tz-lookup' )
 					.then( ( module ) => {
 						timezoneLookup = module.default || module;
@@ -849,6 +869,7 @@ const inputControlMethods = {
 					},
 					{ signal: stateSignal }
 				);
+				update();
 			} );
 
 		// Help tooltips: tap to toggle on touch devices, close on outside tap.

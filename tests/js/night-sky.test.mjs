@@ -8,10 +8,13 @@ import test from 'node:test';
 const source = await readFile( 'src/shared/night-sky.js', 'utf8' );
 const moduleDir = await mkdtemp( join( tmpdir(), 'oc-night-sky-' ) );
 const modulePath = join( moduleDir, 'night-sky.mjs' );
-await writeFile( modulePath, source );
-const { generateNightSkyGeometry, nightSkyLabel } = await import(
-	pathToFileURL( modulePath )
+const catalog = JSON.parse(
+	await readFile( 'includes/data/night-sky-catalog.json', 'utf8' )
 );
+await writeFile( modulePath, source );
+const { generateNightSkyGeometry, nightSkyLabel, setNightSkyCatalog } =
+	await import( pathToFileURL( modulePath ) );
+setNightSkyCatalog( catalog );
 const adminDataSource = await readFile(
 	'src/admin/products-page-data.js',
 	'utf8'
@@ -39,7 +42,8 @@ test( 'generates bounded deterministic vector geometry', () => {
 	const second = generateNightSkyGeometry( london, {} );
 	assert.deepEqual( first, second );
 	assert.equal( first.v, 1 );
-	assert.ok( first.stars.length > 10 );
+	assert.ok( first.stars.length > 250 );
+	assert.ok( first.segments.length > 100 );
 	for ( const star of first.stars ) {
 		assert.ok( star.x >= 0 && star.x <= 1 );
 		assert.ok( star.y >= 0 && star.y <= 1 );
@@ -114,6 +118,11 @@ test( 'new Night Sky layers are optional by default', () => {
 		adminDataSource,
 		/case 'night_sky':[\s\S]*?required: false,/
 	);
+} );
+
+test( 'Night Sky date defaults to today', () => {
+	assert.match( templateSource, /value="<\?php echo esc_attr\( wp_date/ );
+	assert.match( controlsSource, /fields\.date\.value = localToday\(\)/ );
 } );
 
 test( 'place lookup uses the same-origin proxy only', () => {

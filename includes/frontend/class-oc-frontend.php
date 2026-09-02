@@ -425,7 +425,7 @@ class OC_Frontend {
 					'clipartId'           => 0,
 					'clipartUrl'          => '',
 					'clipartRecolourable' => false,
-					'date'                => '',
+					'date'                => 'night_sky' === (string) $layer->type ? wp_date( 'Y-m-d' ) : '',
 					'time'                => '22:00',
 					'utcOffset'           => 0,
 					'timezone'            => 'UTC',

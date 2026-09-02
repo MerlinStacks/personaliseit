@@ -1,13 +1,40 @@
 /*
  * Deterministic, dependency-free night-sky geometry.
  *
- * Star positions use J2000 right ascension/declination for a compact set of
- * bright guide stars. Planet positions use low-precision orbital elements;
- * this is intended for decorative star maps, not navigation.
+ * Star positions use J2000 right ascension/declination. A compact built-in
+ * set provides a fallback while the detailed catalogue loads. Planet
+ * positions use low-precision orbital elements; this is intended for
+ * decorative star maps, not navigation.
  */
 
 const DEG = Math.PI / 180;
 const RAD = 180 / Math.PI;
+let detailedCatalog = null;
+
+const CONSTELLATION_NAMES = {
+	And: 'Andromeda',
+	Aql: 'Aquila',
+	Ari: 'Aries',
+	Aur: 'Auriga',
+	Boo: 'Boötes',
+	CMa: 'Canis Major',
+	Car: 'Carina',
+	Cas: 'Cassiopeia',
+	Cen: 'Centaurus',
+	Cet: 'Cetus',
+	Cyg: 'Cygnus',
+	Eri: 'Eridanus',
+	Gem: 'Gemini',
+	Leo: 'Leo',
+	Ori: 'Orion',
+	Peg: 'Pegasus',
+	Per: 'Perseus',
+	Sco: 'Scorpius',
+	Sgr: 'Sagittarius',
+	Tau: 'Taurus',
+	UMa: 'Ursa Major',
+	Vir: 'Virgo',
+};
 
 // [id, display name, right ascension hours, declination degrees, magnitude]
 const STARS = [
@@ -208,6 +235,14 @@ const PLANET_ELEMENTS = {
 const mod = ( value, base = 360 ) => ( ( value % base ) + base ) % base;
 const round = ( value ) => Number( value.toFixed( 6 ) );
 
+export function setNightSkyCatalog( catalog ) {
+	detailedCatalog =
+		Array.isArray( catalog?.stars ) &&
+		Array.isArray( catalog?.constellations )
+			? catalog
+			: null;
+}
+
 function parseMoment( date, time, utcOffset ) {
 	if (
 		! /^\d{4}-\d{2}-\d{2}$/.test( date || '' ) ||
@@ -353,44 +388,75 @@ export function generateNightSkyGeometry( input = {}, settings = {} ) {
 	const lst = mod(
 		280.46061837 + 360.98564736629 * ( julian - 2451545 ) + longitude
 	);
-	const points = new Map();
 	const stars = [];
-	for ( const [ id, , ra, dec, magnitude ] of STARS ) {
-		const point = project( ra * 15, dec, latitude, lst );
-		if ( ! point ) {
-			continue;
+	const points = new Map();
+	if ( detailedCatalog ) {
+		for ( const [ ra, dec, magnitude ] of detailedCatalog.stars ) {
+			const point = project( ra, dec, latitude, lst );
+			if ( ! point ) {
+				continue;
+			}
+			stars.push( {
+				...point,
+				r: round(
+					Math.max(
+						0.0015,
+						Math.min( 0.007, 0.0062 - magnitude * 0.0011 )
+					)
+				),
+			} );
 		}
-		points.set( id, point );
-		stars.push( {
-			...point,
-			r: round(
-				Math.max(
-					0.0015,
-					Math.min( 0.007, 0.0062 - magnitude * 0.0011 )
-				)
-			),
-		} );
+	} else {
+		for ( const [ id, , ra, dec, magnitude ] of STARS ) {
+			const point = project( ra * 15, dec, latitude, lst );
+			if ( ! point ) {
+				continue;
+			}
+			points.set( id, point );
+			stars.push( {
+				...point,
+				r: round(
+					Math.max(
+						0.0015,
+						Math.min( 0.007, 0.0062 - magnitude * 0.0011 )
+					)
+				),
+			} );
+		}
 	}
 	const segments = [];
 	const labels = [];
 	if ( settings.show_constellations !== false ) {
-		for ( const [ name, pairs ] of CONSTELLATIONS ) {
+		for ( const [ id, rank, paths ] of detailedCatalog?.constellations ||
+			[] ) {
 			const used = [];
-			for ( const [ from, to ] of pairs ) {
-				const a = points.get( from );
-				const b = points.get( to );
-				if ( a && b && Math.hypot( a.x - b.x, a.y - b.y ) < 0.45 ) {
-					segments.push( {
-						x1: a.x,
-						y1: a.y,
-						x2: b.x,
-						y2: b.y,
-						w: 0.0015,
-					} );
-					used.push( a, b );
+			for ( const path of paths ) {
+				for ( let index = 1; index < path.length; index++ ) {
+					const a = project(
+						path[ index - 1 ][ 0 ],
+						path[ index - 1 ][ 1 ],
+						latitude,
+						lst
+					);
+					const b = project(
+						path[ index ][ 0 ],
+						path[ index ][ 1 ],
+						latitude,
+						lst
+					);
+					if ( a && b && Math.hypot( a.x - b.x, a.y - b.y ) < 0.45 ) {
+						segments.push( {
+							x1: a.x,
+							y1: a.y,
+							x2: b.x,
+							y2: b.y,
+							w: 0.0012,
+						} );
+						used.push( a, b );
+					}
 				}
 			}
-			if ( settings.show_labels !== false && used.length ) {
+			if ( settings.show_labels !== false && rank === 1 && used.length ) {
 				labels.push( {
 					x: round(
 						used.reduce( ( sum, p ) => sum + p.x, 0 ) / used.length
@@ -398,9 +464,42 @@ export function generateNightSkyGeometry( input = {}, settings = {} ) {
 					y: round(
 						used.reduce( ( sum, p ) => sum + p.y, 0 ) / used.length
 					),
-					text: name,
-					size: 0.018,
+					text: CONSTELLATION_NAMES[ id ] || id,
+					size: 0.015,
 				} );
+			}
+		}
+		if ( ! detailedCatalog ) {
+			for ( const [ name, pairs ] of CONSTELLATIONS ) {
+				const used = [];
+				for ( const [ from, to ] of pairs ) {
+					const a = points.get( from );
+					const b = points.get( to );
+					if ( a && b && Math.hypot( a.x - b.x, a.y - b.y ) < 0.45 ) {
+						segments.push( {
+							x1: a.x,
+							y1: a.y,
+							x2: b.x,
+							y2: b.y,
+							w: 0.0015,
+						} );
+						used.push( a, b );
+					}
+				}
+				if ( settings.show_labels !== false && used.length ) {
+					labels.push( {
+						x: round(
+							used.reduce( ( sum, p ) => sum + p.x, 0 ) /
+								used.length
+						),
+						y: round(
+							used.reduce( ( sum, p ) => sum + p.y, 0 ) /
+								used.length
+						),
+						text: name,
+						size: 0.018,
+					} );
+				}
 			}
 		}
 	}

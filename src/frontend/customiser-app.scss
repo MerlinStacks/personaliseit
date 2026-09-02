@@ -283,6 +283,65 @@
 		gap: var(--oc-gap-sm);
 	}
 
+	.oc-night-sky-grid--datetime {
+		margin-top: 2px;
+
+		.oc-control-group {
+			gap: 6px;
+		}
+
+		label {
+			font-size: 0.72em;
+			font-weight: 700;
+			letter-spacing: 0.055em;
+			text-transform: uppercase;
+		}
+
+		input {
+			width: 100%;
+			min-width: 0;
+			height: 44px;
+			padding: 8px 10px;
+			border: 1px solid var(--oc-border-strong);
+			border-radius: var(--oc-radius);
+			background: var(--oc-accent-ink, #fff);
+			color: var(--oc-fg);
+			font: inherit;
+			font-size: 0.9em;
+			font-variant-numeric: tabular-nums;
+			box-sizing: border-box;
+			cursor: pointer;
+			transition:
+				border-color 0.15s ease,
+				box-shadow 0.15s ease,
+				background-color 0.15s ease;
+
+			&:hover {
+				border-color: color-mix(
+					in srgb,
+					var(--oc-accent) 45%,
+					var(--oc-border-strong)
+				);
+			}
+
+			&:focus,
+			&:focus-visible {
+				outline: none;
+				border-color: var(--oc-accent);
+				box-shadow: 0 0 0 3px
+					color-mix(in srgb, var(--oc-accent) 22%, transparent);
+			}
+
+			&::-webkit-calendar-picker-indicator {
+				width: 17px;
+				height: 17px;
+				margin: 0;
+				opacity: 0.62;
+				cursor: pointer;
+			}
+		}
+	}
+
 	.oc-night-sky-coordinates summary {
 		cursor: pointer;
 		font-size: 0.85em;

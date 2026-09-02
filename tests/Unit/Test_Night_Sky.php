@@ -84,12 +84,12 @@ class Test_Night_Sky extends TestCase {
 		$this->assertIsArray( $result );
 		$this->assertSame( 51.5074, $result['latitude'] );
 		$this->assertSame( 'London ' . "\xC2\xB7" . ' 2026-09-01 ' . "\xC2\xB7" . ' 22:00', $result['nightSkyLabel'] );
-		$this->assertCount( 32, $result['nightSkyGeometry']['stars'] );
+		$this->assertCount( 276, $result['nightSkyGeometry']['stars'] );
 		$this->assertSame(
 			[
-				'x' => 0.504146,
-				'y' => 0.293898,
-				'r' => 0.004022,
+				'x' => 0.127892,
+				'y' => 0.459604,
+				'r' => 0.006255,
 			],
 			$result['nightSkyGeometry']['stars'][0]
 		);
@@ -117,14 +117,14 @@ class Test_Night_Sky extends TestCase {
 		);
 
 		$this->assertIsArray( $geometry );
-		$this->assertCount( 32, $geometry['stars'] );
-		$this->assertCount( 23, $geometry['segments'] );
-		$this->assertCount( 9, $geometry['labels'] );
+		$this->assertCount( 276, $geometry['stars'] );
+		$this->assertCount( 285, $geometry['segments'] );
+		$this->assertCount( 15, $geometry['labels'] );
 		$this->assertSame(
 			[
-				'x' => 0.504146,
-				'y' => 0.293898,
-				'r' => 0.004022,
+				'x' => 0.127892,
+				'y' => 0.459604,
+				'r' => 0.006255,
 			],
 			$geometry['stars'][0]
 		);
@@ -135,14 +135,14 @@ class Test_Night_Sky extends TestCase {
 				'r'      => 0.0065,
 				'planet' => 'Saturn',
 			],
-			$geometry['stars'][30]
+			$geometry['stars'][274]
 		);
 		$this->assertSame(
 			[
-				'x'    => 0.316937,
-				'y'    => 0.252659,
-				'text' => 'Ursa Major',
-				'size' => 0.018,
+				'x'    => 0.761898,
+				'y'    => 0.431924,
+				'text' => 'Andromeda',
+				'size' => 0.015,
 			],
 			$geometry['labels'][0]
 		);
