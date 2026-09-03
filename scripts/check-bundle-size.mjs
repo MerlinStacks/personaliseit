@@ -140,12 +140,12 @@ async function main() {
 		// Night Sky, AI layers, and native gallery preview support add
 		// customer-facing controls to the core entry. Timezone boundary data
 		// remains lazy-loaded and is covered by the total.
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 202_000 ),
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 204_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 532_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 534_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 600_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 602_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000

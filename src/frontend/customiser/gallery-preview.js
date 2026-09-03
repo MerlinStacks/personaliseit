@@ -80,6 +80,61 @@ const galleryPreviewMethods = {
 		this._galleryPreviewObjectUrl = '';
 	},
 
+	closeGalleryPreviewLightbox() {
+		const dialog = document.getElementById( 'oc-gallery-preview-lightbox' );
+		if ( dialog?.open && typeof dialog.close === 'function' ) {
+			dialog.close();
+		} else if ( dialog ) {
+			dialog.removeAttribute( 'open' );
+			dialog.classList.remove( 'oc-is-open' );
+		}
+		document.body.classList.remove( 'oc-lightbox-open' );
+	},
+
+	openGalleryPreviewLightbox( img ) {
+		let dialog = document.getElementById( 'oc-gallery-preview-lightbox' );
+		if ( ! dialog ) {
+			dialog = document.createElement( 'dialog' );
+			dialog.id = 'oc-gallery-preview-lightbox';
+			dialog.className = 'oc-gallery-preview-lightbox';
+			dialog.setAttribute( 'aria-label', 'Custom preview' );
+			dialog.innerHTML =
+				'<button type="button" class="oc-gallery-preview-lightbox-close" aria-label="Close preview">&times;</button>' +
+				'<img class="oc-gallery-preview-lightbox-image" alt="Custom preview">';
+			dialog
+				.querySelector( '.oc-gallery-preview-lightbox-close' )
+				?.addEventListener( 'click', () =>
+					this.closeGalleryPreviewLightbox()
+				);
+			dialog.addEventListener( 'click', ( event ) => {
+				if ( event.target === dialog ) {
+					this.closeGalleryPreviewLightbox();
+				}
+			} );
+			dialog.addEventListener( 'close', () =>
+				document.body.classList.remove( 'oc-lightbox-open' )
+			);
+			document.body.appendChild( dialog );
+		}
+
+		const lightboxImg = dialog.querySelector(
+			'.oc-gallery-preview-lightbox-image'
+		);
+		lightboxImg.src =
+			img.getAttribute( 'data-large_image' ) || img.currentSrc || img.src;
+		lightboxImg.alt = img.alt || 'Custom preview';
+		document.body.classList.add( 'oc-lightbox-open' );
+		if ( typeof dialog.showModal === 'function' ) {
+			if ( ! dialog.open ) {
+				dialog.showModal();
+			}
+		} else {
+			dialog.setAttribute( 'open', '' );
+			dialog.classList.add( 'oc-is-open' );
+		}
+		dialog.querySelector( '.oc-gallery-preview-lightbox-close' )?.focus();
+	},
+
 	createGalleryPreviewUrl( dataUrl ) {
 		this.revokeGalleryPreviewUrl();
 		if (
@@ -114,6 +169,7 @@ const galleryPreviewMethods = {
 
 	restoreProductGallery() {
 		this._galleryPreviewGeneration += 1;
+		this.closeGalleryPreviewLightbox();
 		document
 			.querySelectorAll(
 				'.oc-live-preview-slide, .oc-live-preview-thumb-slide, .oc-preview-disclaimer'
@@ -301,86 +357,33 @@ const galleryPreviewMethods = {
 			}
 			this.recordGalleryNodeState( galleryItem, galleryItemState );
 		}
+		this.bindGalleryPreviewLightbox( img );
 		this.addPreviewDisclaimer( img );
 	},
 
-	bindPreviewToNativeLightbox( previewSlide ) {
-		const previewAnchor = previewSlide?.querySelector( 'a' );
-		const previewImg = previewAnchor?.querySelector( 'img' );
+	bindGalleryPreviewLightbox( img ) {
+		const anchor = img?.closest( 'a' );
 		if (
-			! previewAnchor ||
-			! previewImg ||
-			previewAnchor._ocLightboxBound
+			! anchor ||
+			anchor._ocPreviewLightboxBound ||
+			img.closest( '.product-thumbnails, .tvpg-thumb-slider' )
 		) {
 			return;
 		}
 
-		previewAnchor._ocLightboxBound = true;
-		previewAnchor.addEventListener( 'click', ( event ) => {
-			const nativeAnchor = Array.from(
-				document.querySelectorAll(
-					'.woocommerce-product-gallery__image:not(.oc-live-preview-slide) > a, ' +
-						'.swiper-slide:not(.oc-live-preview-slide) .woocommerce-product-gallery__image > a, ' +
-						'.product-gallery-slider .slide:not(.oc-live-preview-slide) > a'
-				)
-			).find(
-				( anchor ) => ! anchor.closest( '.oc-live-preview-slide' )
-			);
-			const nativeImg = nativeAnchor?.querySelector( 'img' );
-			if ( ! nativeAnchor || ! nativeImg ) {
-				return;
-			}
-
-			event.preventDefault();
-			event.stopImmediatePropagation();
-
-			const linkAttributes = [ 'href', 'data-src', 'data-size' ];
-			const imageAttributes = [
-				'data-large_image',
-				'data-large-image',
-				'data-large_image_width',
-				'data-large_image_height',
-				'data-large-image-width',
-				'data-large-image-height',
-				'data-zoom-image',
-			];
-			const copyAttributes = ( target, source, names ) =>
-				names.map( ( name ) => {
-					const original = target.hasAttribute( name )
-						? target.getAttribute( name )
-						: null;
-					const preview = source.getAttribute( name );
-					if ( preview !== null ) {
-						target.setAttribute( name, preview );
-					}
-					return [ name, original ];
-				} );
-			const restoreAttributes = ( target, attributes ) => {
-				attributes.forEach( ( [ name, value ] ) => {
-					if ( value === null ) {
-						target.removeAttribute( name );
-					} else {
-						target.setAttribute( name, value );
-					}
-				} );
-			};
-			const originalLinkAttributes = copyAttributes(
-				nativeAnchor,
-				previewAnchor,
-				linkAttributes
-			);
-			const originalImageAttributes = copyAttributes(
-				nativeImg,
-				previewImg,
-				imageAttributes
-			);
-
-			nativeAnchor.click();
-			this.setStateTimeout( () => {
-				restoreAttributes( nativeAnchor, originalLinkAttributes );
-				restoreAttributes( nativeImg, originalImageAttributes );
-			}, 0 );
-		} );
+		anchor._ocPreviewLightboxBound = true;
+		anchor.addEventListener(
+			'click',
+			( event ) => {
+				if ( ! img.classList.contains( 'oc-live-preview-applied' ) ) {
+					return;
+				}
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				this.openGalleryPreviewLightbox( img );
+			},
+			true
+		);
 	},
 
 	refreshFlatsomeGallery() {
@@ -444,7 +447,6 @@ const galleryPreviewMethods = {
 		if ( previewImg ) {
 			this.applyPreviewToImage( previewImg, dataUrl, dimensions );
 		}
-		this.bindPreviewToNativeLightbox( previewSlide );
 
 		previewSlide.setAttribute( 'data-thumb', dataUrl );
 		previewSlide.querySelector( 'a' )?.setAttribute( 'href', dataUrl );
@@ -641,7 +643,6 @@ const galleryPreviewMethods = {
 		if ( mainImg ) {
 			this.applyPreviewToImage( mainImg, dataUrl, dimensions );
 		}
-		this.bindPreviewToNativeLightbox( mainPreviewSlide );
 
 		const thumbSliderEl = document.querySelector( '.tvpg-thumb-slider' );
 		const thumbWrapper = thumbSliderEl?.querySelector( '.swiper-wrapper' );

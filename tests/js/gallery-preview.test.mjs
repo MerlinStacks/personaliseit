@@ -6,6 +6,7 @@ const source = await readFile(
 	'src/frontend/customiser/gallery-preview.js',
 	'utf8'
 );
+const styles = await readFile( 'src/frontend/customiser-app.scss', 'utf8' );
 
 test( 'live preview supplies dimensions required by gallery lightboxes', () => {
 	assert.match(
@@ -56,11 +57,11 @@ test( 'preview frame does not combine aspect ratio with padding compensation', (
 	);
 } );
 
-test( 'synthetic slides proxy clicks through an existing native lightbox link', () => {
-	assert.match( source, /bindPreviewToNativeLightbox\( previewSlide \);/ );
-	assert.match(
-		source,
-		/bindPreviewToNativeLightbox\( mainPreviewSlide \);/
-	);
-	assert.match( source, /nativeAnchor\.click\(\);/ );
+test( 'custom previews open in an accessible modal lightbox', () => {
+	assert.match( source, /dialog = document\.createElement\( 'dialog' \);/ );
+	assert.match( source, /dialog\.showModal\(\);/ );
+	assert.match( source, /aria-label="Close preview"/ );
+	assert.match( source, /this\.openGalleryPreviewLightbox\( img \);/ );
+	assert.match( styles, /\.oc-gallery-preview-lightbox/ );
+	assert.match( styles, /&::backdrop/ );
 } );
