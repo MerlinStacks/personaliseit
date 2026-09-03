@@ -2,6 +2,12 @@
 
 set -euo pipefail
 
+# The release only bundles runtime Composer packages. Install that exact
+# dependency set so neither autoload metadata nor installed.php can reference
+# omitted development packages such as PHPUnit's myclabs/deep-copy dependency.
+composer install --no-dev --prefer-dist --optimize-autoloader \
+	--classmap-authoritative --no-interaction
+
 ./node_modules/.bin/wp-scripts plugin-zip
 
 # wp-scripts honours the explicit package files list, but nested Composer
