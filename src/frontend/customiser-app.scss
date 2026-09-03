@@ -2484,21 +2484,44 @@ body.oc-lightbox-open {
 }
 
 .oc-gallery-preview-lightbox-close {
-	position: absolute;
-	top: 8px;
-	right: 8px;
-	z-index: 2;
+	all: unset;
+	position: fixed !important;
+	top: 16px !important;
+	right: 16px !important;
+	z-index: 100001 !important;
+	box-sizing: border-box;
 	display: grid;
 	place-items: center;
-	width: 44px;
-	height: 44px;
-	padding: 0;
-	border: 1px solid rgb(255 255 255 / 65%);
-	border-radius: 50%;
-	background: rgb(0 0 0 / 70%);
-	color: #fff;
-	font: 32px/1 Arial, sans-serif;
+	width: 40px !important;
+	height: 40px !important;
+	margin: 0 !important;
+	padding: 0 !important;
+	border: 0 !important;
+	border-radius: 0 !important;
+	background: transparent !important;
+	box-shadow: none !important;
+	color: #fff !important;
+	font: 300 40px/1 Arial, sans-serif !important;
+	text-shadow: 0 1px 3px rgb(0 0 0 / 80%);
+	opacity: 0.9;
 	cursor: pointer;
+
+	&::before,
+	&::after {
+		display: none !important;
+		content: none !important;
+	}
+
+	&:hover,
+	&:focus-visible {
+		color: #fff !important;
+		opacity: 1;
+	}
+
+	&:focus-visible {
+		outline: 2px solid #fff;
+		outline-offset: 2px;
+	}
 }
 
 .oc-preview-disclaimer {
