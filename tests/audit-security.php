@@ -13,7 +13,6 @@ $session = null;
 $pending = [];
 $scheduled = [];
 $visited = [];
-$web_protected = false;
 
 class WP_Error { public function get_error_message(): string { return 'Fixture failure'; } }
 class OC_Logger {
@@ -26,7 +25,7 @@ function wp_normalize_path( string $path ): string { return str_replace( '\\', '
 function trailingslashit( string $path ): string { return rtrim( $path, '/' ) . '/'; }
 function wp_upload_dir(): array { global $fixture; return [ 'basedir' => $fixture . '/uploads' ]; }
 function wp_mkdir_p( string $path ): bool { return is_dir( $path ) || mkdir( $path, 0750, true ); }
-function apply_filters( string $hook, mixed $value, mixed ...$args ): mixed { global $web_protected; return 'oc_private_storage_web_protected' === $hook ? $web_protected : $value; }
+function apply_filters( string $hook, mixed $value, mixed ...$args ): mixed { return $value; }
 function get_option( string $key, mixed $default = false ): mixed { global $options; return $options[ $key ] ?? $default; }
 function update_option( string $key, mixed $value, mixed ...$args ): bool { global $options; $options[ $key ] = $value; return true; }
 function add_option( string $key, mixed $value, mixed ...$args ): bool { global $options; if ( isset( $options[ $key ] ) ) { return false; } $options[ $key ] = $value; return true; }
@@ -111,15 +110,19 @@ try {
 	check( null === invoke( OC_Upload_Handler::class, 'prepare_storage_root', $fixture . '/alias/private' ), 'Symlinked public ancestors are rejected before creation.' );
 	check( ! is_dir( ABSPATH . 'private' ), 'Rejected paths are not created.' );
 	unset( $_SERVER['DOCUMENT_ROOT'] );
-	check( null === OC_Upload_Handler::private_storage_root(), 'Unknown document root fails closed.' );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'Unknown CLI document root is not an availability gate.' );
 	$_SERVER['DOCUMENT_ROOT'] = ABSPATH;
-	check( null === invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' ), 'Deny files alone cannot enable public uploads fallback.' );
-	$web_protected = true;
+	$deny_contents = file_get_contents( $root . '/.htaccess' );
+	file_put_contents( $fixture . '/deny-target', $deny_contents );
+	unlink( $root . '/.htaccess' ); symlink( $fixture . '/deny-target', $root . '/.htaccess' );
+	check( null === OC_Upload_Handler::private_storage_root(), 'Explicit constant root protection failure must not select fallback.' );
+	check( $deny_contents === file_get_contents( $fixture . '/deny-target' ), 'Explicit root failure leaves symlink target intact.' );
+	unlink( $root . '/.htaccess' );
+	check( $root === OC_Upload_Handler::private_storage_root( true ), 'Explicit root can repair its deny files without other configuration.' );
 	$fallback = invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' );
-	check( is_string( $fallback ), 'Explicit server protection permits the fallback.' );
+	check( is_string( $fallback ), 'Fallback automatically installs local deny files without claiming HTTP protection.' );
 	unlink( $fallback . '/.htaccess' );
 	check( $fallback === invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' ) && is_file( $fallback . '/.htaccess' ), 'Fallback repairs missing deny rules despite a cached marker.' );
-	$web_protected = false;
 
 	$token = str_repeat( 'b', 64 );
 	$secret = str_repeat( 'a', 64 );

@@ -5,8 +5,9 @@ a guarantee that the plugin has no remaining defects. Changes were confined to
 this plugin, existing worktree edits were preserved, and nothing was deployed.
 
 **NOT universal/unattended upgrade release-ready.** Fail-closed guards can block
-previously working operations until deployment configuration or legacy data is
-reviewed. The requirement that no existing installs break is not yet demonstrated.
+previously working operations when directories are genuinely unavailable or legacy
+data needs recovery. Automatic storage needs no mandatory server configuration or
+public approval. The requirement that no existing installs break is not yet demonstrated.
 See [Upgrade Compatibility](upgrade-compatibility.md) for the supported-install
 matrix and mandatory staging, backup and release checks.
 
@@ -14,8 +15,10 @@ matrix and mandatory staging, backup and release checks.
 
 - Guest ownership uses a signed per-browser identity instead of a shared IP
   fallback. Genuine WooCommerce session ownership remains supported.
-- Private storage validates canonical roots; public storage requires explicit
-  server-protection attestation. New print files use the shared private root.
+- Storage validates canonical roots and automatically selects the default or
+  persisted-token uploads fallback, installing Apache/IIS deny files. New print
+  files use the shared selected root. Filesystem availability is separate from
+  unverified direct HTTP protection; the warning does not pause print.
 - Raster artwork requires bounded decoding, SVG reservations account for the
   sanitized size, and incomplete CSS URL constructs are rejected.
 - Webhook retries distinguish pending Action Scheduler work from the running
@@ -57,17 +60,18 @@ matrix and mandatory staging, backup and release checks.
 
 ## Before deployment
 
-1. **Configure private storage first.** See
-   [`../includes/print/STORAGE.md`](../includes/print/STORAGE.md). Jobs must fail
-   closed if a safe root cannot be established. CLI workers can reuse six-hour,
-   site/config-scoped signed HTTP root evidence; otherwise use verified exact-root
-   operator configuration. Default and filter-configured roots are supported.
-2. **Verify legacy HTTP denial at both origin and CDN.** New private outputs do
-   not secure old static URLs. Legacy/public roots require explicit trusted
-   recursive operator verification. Bounded HTTPS canaries are advisory only:
-   parent denial and rejection of fake-format bytes do not prove real child files
-   are protected. Unknown origins/aliases and old cached copies still need checks.
-   Known document-root contradictions persistently revoke prior CLI root evidence.
+1. **Check storage availability.** See
+   [`../includes/print/STORAGE.md`](../includes/print/STORAGE.md). Default/fallback
+   selection works automatically for HTTP and CLI, without server setup, positive
+   evidence refresh or public approval. Actual unwritable/invalid destinations
+   block affected operations; explicit custom-root failures remain fail-closed.
+2. **Review direct HTTP exposure separately.** Apache/IIS deny rules are installed
+   automatically, not proven effective. Nginx or Apache with overrides disabled
+   may expose public static files. New outputs do not secure old URLs or purge
+   caches. Verify origin/CDN routes, aliases and retained sources as a security
+   review, not an operational setup gate. No runtime HTTP probes run; signed
+   evidence is optional diagnostic context. Known actual document-root contradictions
+   remain root-specific and automatic selection can use the fallback.
 3. **Ship PHP and rebuilt assets together.** Old editor JavaScript cannot produce
    the new final-save completeness marker. Purge stale admin/CDN asset caches.
 4. **Check database engines.** Unsafe or unknown engines now block transactional

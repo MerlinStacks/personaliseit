@@ -16,7 +16,6 @@ function get_option( $name, $default = false ) { return $GLOBALS['options'][ $na
 function update_option( $name, $value, $autoload = false ) { $GLOBALS['options'][ $name ] = $value; return true; }
 function apply_filters( $name, $value, ...$args ) {
 	if ( 'oc_print_historical_storage_roots' === $name ) { return $GLOBALS['history']; }
-	if ( 'oc_private_storage_web_protected' === $name ) { return $GLOBALS['attestations'][ $args[0] ] ?? false; }
 	return $value;
 }
 class OC_Upload_Handler {
@@ -34,7 +33,6 @@ function check( bool $condition, string $message ): void {
 }
 $fixture = __DIR__ . '/print-storage-fixture-' . bin2hex( random_bytes( 6 ) );
 $history = [];
-$attestations = [];
 mkdir( $fixture );
 try {
 	foreach ( [ '/private/print-files', '/old/print-files', '/uploads/overcustomise/print-files', '/private/print-files-sibling' ] as $dir ) {
@@ -49,11 +47,16 @@ try {
 	$resolve = new ReflectionMethod( OC_Print_Generator::class, 'resolve_print_storage_path' );
 	$cleanup = new ReflectionMethod( OC_File_Cleanup::class, 'cleanup_record_path' );
 	$backup = new ReflectionMethod( OC_Print_Generator::class, 'generate_with_backup' );
-	foreach ( [ false, 1, 'true' ] as $attestation ) {
-		$attestations[ dirname( $legacy ) ] = $attestation;
+	check( $legacy === OC_Print_Base::resolve_output_storage_path( $legacy, true ), 'Legacy output should receive deny files without approval' );
+	foreach ( [ '.htaccess', 'web.config', 'index.php' ] as $control ) {
+		$control_path = dirname( $legacy ) . '/' . $control;
+		$contents = file_get_contents( $control_path );
+		$target = $fixture . '/control-target';
+		file_put_contents( $target, $contents );
+		unlink( $control_path ); symlink( $target, $control_path );
 		$history = [ dirname( $legacy ) ];
 		foreach ( [ false, true ] as $forced ) {
-			check( null === $resolve->invoke( null, $legacy, $forced ), 'Unattested legacy download accepted' );
+			check( null === $resolve->invoke( null, $legacy, $forced ), 'Symlinked deny file accepted despite cached marker/history' );
 		}
 		$handled = [];
 		$args = [ (object) [ 'file_path' => $legacy ], 'file_path', null, &$handled, [] ];
@@ -66,15 +69,13 @@ try {
 			throw new LogicException( 'Unprotected regeneration accepted' );
 		} catch ( RuntimeException $expected ) {}
 		check( ! $generated && [] === glob( $legacy . '.oc-backup-*' ), 'Unprotected regeneration wrote a backup' );
+		check( $contents === file_get_contents( $target ), 'Protection changed a symlink target' );
+		unlink( $control_path );
+		check( $legacy === OC_Print_Base::resolve_output_storage_path( $legacy ), 'Missing deny file was not automatically repaired' );
 	}
 	$history = [];
-	$attestations[ dirname( $legacy ) ] = true;
-	check( $legacy === OC_Print_Base::resolve_output_storage_path( $legacy, true ), 'Attested legacy output rejected' );
-	// Revocation must override intact deny files and cached protection markers.
-	$attestations = [];
-	check( null === $resolve->invoke( null, $legacy, true ), 'Deny files bypassed revoked attestation' );
-	check( null === $resolve->invoke( null, $legacy, false ), 'Cached marker bypassed revoked attestation' );
-	$attestations[ dirname( $legacy ) ] = true;
+	check( $legacy === OC_Print_Base::resolve_output_storage_path( $legacy, true ), 'Automatic legacy output rejected' );
+	check( 'Automatic storage is operational; direct HTTP protection has not been verified.' === OC_Storage_Upgrade::reports()[ dirname( $legacy ) ], 'Automatic legacy policy must warn honestly' );
 	check( null === OC_Print_Base::resolve_output_storage_path( $old ), 'Unknown history trusted' );
 	$history = [ dirname( $old ), $fixture ];
 	check( $old === OC_Print_Base::resolve_output_storage_path( $old ), 'Attested history rejected' );

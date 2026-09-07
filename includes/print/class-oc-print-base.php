@@ -145,7 +145,7 @@ abstract class OC_Print_Base {
 		return array_values( array_filter( array_unique( $candidates ), static fn ( string $root ): bool => is_dir( $root ) && realpath( $root ) === $root ) );
 	}
 
-	/** Verified serving roots; historical entries remain an explicit operator policy. */
+	/** Canonical serving roots with deny files; unknown custom history remains opt-in. */
 	public static function output_storage_roots( bool $force_check = false ): array {
 		require_once dirname( __DIR__ ) . '/class-oc-storage-upgrade.php';
 		$roots = [];
@@ -155,11 +155,8 @@ abstract class OC_Print_Base {
 		}
 		$uploads = wp_upload_dir();
 		$upload_real = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
-		$legacy = $upload_real ? $upload_real . '/' . self::PRINT_SUBDIR : '';
-		$legacy_real = '' !== $legacy ? realpath( $legacy ) : false;
-		if ( false !== $legacy_real && wp_normalize_path( $legacy_real ) === wp_normalize_path( $legacy ) && is_dir( $legacy_real ) ) {
-			$roots[] = $legacy_real;
-		}
+		$known = self::output_migration_roots();
+		$roots = array_merge( $roots, $known );
 		// Returning a root attests that it remains dedicated print storage and HTTP-denied.
 		$history = apply_filters( 'oc_print_historical_storage_roots', [] );
 		foreach ( is_array( $history ) ? $history : [] as $root ) {
@@ -172,12 +169,19 @@ abstract class OC_Print_Base {
 				$roots[] = $real;
 			}
 		}
-		// Public uploads roots need effective server policy, even when supplied as history.
-		// Deny files (or a cached marker) alone cannot establish HTTP protection.
-		return array_values( array_filter( array_unique( $roots ), static function ( string $root ) use ( $upload_real, $force_check ): bool {
+		// Automatic policy checks local deny files, not HTTP protection or canaries.
+		return array_values( array_filter( array_unique( $roots ), static function ( string $root ) use ( $upload_real, $known ): bool {
 			if ( false !== $upload_real && self::path_is_within( $root, $upload_real ) ) {
-				return self::protect_output_root( $root, true )
-					&& OC_Storage_Upgrade::public_subtree_verified( $root );
+				if ( ! self::protect_output_root( $root, true ) ) {
+					return false;
+				}
+				OC_Storage_Upgrade::report( $root, 'Automatic storage is operational; direct HTTP protection has not been verified.' );
+			} elseif ( in_array( $root, $known, true ) ) {
+				$parent = dirname( $root );
+				$document_root = ! empty( $_SERVER['DOCUMENT_ROOT'] ) && is_string( $_SERVER['DOCUMENT_ROOT'] ) ? realpath( $_SERVER['DOCUMENT_ROOT'] ) : false;
+				if ( ! OC_Storage_Upgrade::private_root_verified( $parent, $parent, $document_root ) || ! self::protect_output_root( $root, true ) ) {
+					return false;
+				}
 			}
 			return true;
 		} ) );
@@ -221,6 +225,9 @@ abstract class OC_Print_Base {
 			OC_Logger::warning( 'Generated print storage could not be protected.' );
 			return false;
 		}
+		if ( false !== $real ) {
+			OC_Storage_Upgrade::report( $real, 'Automatic storage is operational; direct HTTP protection has not been verified.' );
+		}
 
 		return null !== $private;
 	}
@@ -232,6 +239,11 @@ abstract class OC_Print_Base {
 			return false;
 		}
 		$base       = rtrim( wp_normalize_path( $base ), '/' );
+		foreach ( [ '.htaccess', 'web.config', 'index.php' ] as $filename ) {
+			if ( is_link( $base . '/' . $filename ) ) {
+				return false;
+			}
+		}
 		$path_hash  = hash( 'sha256', $base );
 		$marker_key = 'oc_storage_protection_' . $path_hash;
 		$marker     = get_option( $marker_key, [] );
@@ -253,7 +265,7 @@ abstract class OC_Print_Base {
 			if ( is_link( $path ) ) {
 				return false;
 			}
-			if ( ( ! is_file( $path ) || (string) file_get_contents( $path ) !== $contents ) && false === file_put_contents( $path, $contents ) ) {
+			if ( ( ! is_file( $path ) || (string) file_get_contents( $path ) !== $contents ) && strlen( $contents ) !== file_put_contents( $path, $contents ) ) {
 				return false;
 			}
 		}

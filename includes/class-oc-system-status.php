@@ -8,7 +8,7 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_System_Status {
-	private const READINESS_CACHE = 'oc_compatibility_readiness_v2';
+	private const READINESS_CACHE = 'oc_compatibility_readiness_v4';
 	private const READINESS_TTL = 300;
 
 	/** Read cached diagnostics only. Null means unknown, not a blanket instruction to pause. */
@@ -25,7 +25,7 @@ class OC_System_Status {
 		return $cached;
 	}
 
-	/** Admin diagnostic builder: cache misses may probe HTTP/storage and create directories. */
+	/** Admin diagnostic builder: cache misses check storage and may create directories, without HTTP probes. */
 	public static function readiness_report( bool $refresh = false ): array {
 		if ( ! $refresh ) {
 			$cached = self::cached_readiness_report();
@@ -67,15 +67,20 @@ class OC_System_Status {
 		// Reports are request-local diagnostics, not authorization. Never retain root keys or raw text.
 		foreach ( OC_Storage_Upgrade::reports() as $message ) {
 			$code = match ( $message ) {
+				'Automatic storage is operational; direct HTTP protection has not been verified.' => 'storage_http_protection_unverified',
 				'Private root overlaps the document root.' => 'storage_root_overlap',
+				'Private root overlaps the known document root; prior CLI evidence revoked.',
+				'Private-root evidence revoked by a known document-root contradiction. Correct routing and change the trusted deployment revision before revalidation.' => 'storage_evidence_revoked',
 				'No live HTTP-validated private-root evidence. Visit the site over HTTP or configure a verified operator root.' => 'storage_evidence_missing',
 				'Automatic HTTP verification disabled; exact-root operator verification required.',
 				'Automatic verification requires a reachable HTTPS uploads URL; configure exact-root operator verification.',
+				'Advisory HTTP check failed or was inconclusive. Recursive public storage requires explicit operator verification of all directory/content routing.',
 				'HTTP denial could not be verified; check origin/CDN rules and loopback access, or configure exact-root operator verification.' => 'storage_http_verification_blocked',
 				'HTTP verification deferred by the per-request probe budget.',
 				'Cannot lock HTTP storage verification.',
 				'HTTP storage verification is already running.' => 'storage_http_verification_deferred',
-				'HTTPS uploads-route denial verified (not proof of unknown aliases or external mirrors).' => 'storage_http_verified',
+				'HTTPS uploads-route denial verified (not proof of unknown aliases or external mirrors).',
+				'Advisory canaries were denied, but child routing and content rejection remain unproven. Recursive public storage still requires explicit operator attestation.' => 'storage_operator_verification_required',
 				'Relocation blocked: verified current private storage is unavailable; source retained.',
 				'Preview relocation/read blocked: current verified storage unavailable; metadata and source retained.',
 				'VDP relocation blocked: verified destination unavailable; source and row retained.' => 'relocation_storage_blocked',
@@ -93,7 +98,7 @@ class OC_System_Status {
 				'VDP path relocated without changing template fields/design; source retained pending reference-safe cleanup.' => 'relocation_source_retained',
 				default => 'storage_diagnostic_unknown',
 			};
-			$report['storage_upgrade'][ $code ] = 'storage_http_verified' === $code ? 'ready' : $code;
+			$report['storage_upgrade'][ $code ] = $code;
 		}
 		// Schema is plugin-wide diagnostic evidence; unrelated resource failures do not pause print.
 		$report['print_retry_pause'] = 'ready' !== $report['print_schema'] || 'ready' !== $report['migration'] || ! $report['resources']['print'] || 'ready' !== $report['storage']['print-files'];
@@ -104,17 +109,17 @@ class OC_System_Status {
 	/** Explain stable diagnostic codes without retaining database errors or filesystem paths. */
 	private static function readiness_guidance( string $status ): string {
 		return match ( $status ) {
-			'ready' => __( 'Verified at the last check. Runtime guards still apply.', 'overcustomise' ),
+			'ready' => __( 'Operational at the last check. Storage readiness describes filesystem availability, not verified direct HTTP protection. Runtime guards still apply.', 'overcustomise' ),
 			'unsupported_engine' => __( 'Back up the affected table and ask your DBA to plan an InnoDB migration in a maintenance window. Verified transactional XtraDB is also supported. No automatic conversion is performed.', 'overcustomise' ),
 			'metadata_query_failed' => __( 'Database metadata or lock inspection failed. Ask your host to check database availability and INFORMATION_SCHEMA/advisory-lock access, then recheck. This does not prove the engine is unsupported.', 'overcustomise' ),
 			'table_metadata_missing', 'schema_incomplete' => __( 'Required table metadata, columns or indexes are missing or incompatible. Back up and have your administrator inspect the installed schema and upgrade logs; do not change the version option to bypass checks.', 'overcustomise' ),
 			'migration_required' => __( 'The installed database version is behind this plugin. Allow the normal upgrade to complete and inspect OverCustomise logs if it remains pending. Do not manually advance the version option.', 'overcustomise' ),
 			'migration_running' => __( 'A database migration lock is active. Wait for its owner to finish, then recheck; do not delete an active lock.', 'overcustomise' ),
-			'storage_blocked' => __( 'Private storage validation failed. Check writable directories and a private root outside web roots. CLI needs live HTTP-validated evidence or independently verified operator configuration. Uploads storage needs verified HTTPS denial or exact-root oc_private_storage_web_protected attestation. Never bypass protection.', 'overcustomise' ),
-			'storage_root_overlap' => __( 'A private root overlaps the document root. Configure a separate private location and verify all deployment routes before rechecking.', 'overcustomise' ),
-			'storage_evidence_missing' => __( 'Private-root HTTP evidence is missing or expired. Renew it through a real validated HTTP request, or configure an independently verified exact operator root for CLI.', 'overcustomise' ),
-			'storage_http_verification_blocked' => __( 'HTTPS storage denial could not be established or automatic verification is disabled. Check the uploads HTTPS URL, loopback access and origin/CDN denial, or configure exact-root operator verification. Unknown aliases and mirrors require separate checks.', 'overcustomise' ),
-			'storage_http_verification_deferred' => __( 'Storage HTTP verification was deferred or could not acquire its lock. Let the current check finish, check lock-directory permissions if needed, then recheck; do not bypass verification.', 'overcustomise' ),
+			'storage_blocked' => __( 'Storage is unavailable. Check directory permissions, canonical paths and protection-file writes. Automatic default/fallback selection needs no server setup or public-storage approval. An explicit custom root fails closed if invalid or unwritable. Some validation failures have no detailed helper diagnostic; missing HTTP evidence alone is not a blocker.', 'overcustomise' ),
+			'storage_root_overlap' => __( 'The selected private root overlaps the document root. Automatic selection can use the fallback; an explicit custom root must be corrected. This is root-specific, not a blanket storage block.', 'overcustomise' ),
+			'storage_evidence_revoked' => __( 'A known document-root contradiction remains recorded for the affected root, including CLI. Automatic selection can use the fallback. Correct an explicit custom root rather than bypassing the contradiction; missing or expired positive evidence alone does not block storage.', 'overcustomise' ),
+			'storage_evidence_missing' => __( 'Optional signed private-root evidence is missing or expired. This diagnostic does not block HTTP or CLI storage and requires no evidence-refresh setup.', 'overcustomise' ),
+			'storage_http_protection_unverified', 'storage_http_verification_blocked', 'storage_http_verification_deferred', 'storage_operator_verification_required' => __( 'Automatic storage is operational; direct HTTP protection has not been verified. Apache/IIS deny rules are automatically installed, but their presence is not proof of HTTP protection. Nginx or Apache with overrides disabled may expose public static files; aliases, mirrors and CDN caches also need independent security review. No server configuration or explicit public-storage approval is required for operation. This warning does not pause print; runtime storage checks perform no HTTP probes.', 'overcustomise' ),
 			'relocation_storage_blocked' => __( 'Relocation is blocked by unavailable verified destination storage. Sources and existing metadata are retained. Restore protected writable storage before retrying the affected relocation.', 'overcustomise' ),
 			'relocation_source_review' => __( 'A relocation source or record is missing, unreadable, changed, outside known roots or over its copy limit. Review the affected records and backups; preserve sources and metadata rather than forcing publication.', 'overcustomise' ),
 			'relocation_publication_blocked' => __( 'Relocation could not read its batch, verify a copy or safely publish its pointer. Check database access, filesystem permissions and atomic hard-link support. Retain source and destination copies until references are reconciled.', 'overcustomise' ),

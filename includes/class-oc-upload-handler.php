@@ -232,9 +232,9 @@ class OC_Upload_Handler {
 	/**
 	 * Return the configured private storage root, creating it when safe.
 	 *
-	 * HTTP validates canonical containment and signs short-lived site/config evidence
-	 * for CLI reuse. Public fallback requires explicit recursive operator policy.
-	 * Consumers must handle null; never fall back to a public print/artwork path.
+	 * Prefer storage outside known web roots, then automatically install deny files
+	 * in the uploads fallback. Deny files do not prove effective HTTP protection.
+	 * Explicit custom-root failures never silently select another location.
 	 */
 	public static function private_storage_root( bool $force_protection_check = false ): ?string {
 		$default_root = dirname( rtrim( ABSPATH, '/\\' ) ) . DIRECTORY_SEPARATOR
@@ -242,8 +242,8 @@ class OC_Upload_Handler {
 		$configured   = defined( 'OC_PRIVATE_STORAGE_ROOT' ) ? OC_PRIVATE_STORAGE_ROOT : $default_root;
 		$filtered     = apply_filters( 'oc_private_storage_root', $configured, $default_root );
 		$root         = self::prepare_storage_root( $filtered );
-		if ( null !== $root ) {
-			return self::protect_artwork_directory( $root, $force_protection_check ) ? $root : null;
+		if ( null !== $root && self::protect_artwork_directory( $root, $force_protection_check ) ) {
+			return $root;
 		}
 
 		if ( defined( 'OC_PRIVATE_STORAGE_ROOT' ) || $filtered !== $default_root ) {
@@ -264,7 +264,6 @@ class OC_Upload_Handler {
 			return null;
 		}
 		$document_root = is_string( $_SERVER['DOCUMENT_ROOT'] ?? null ) && '' !== $_SERVER['DOCUMENT_ROOT'] ? realpath( $_SERVER['DOCUMENT_ROOT'] ) : false;
-		$attested = defined( 'OC_PRIVATE_STORAGE_ROOT' ) && defined( 'OC_PRIVATE_STORAGE_OUTSIDE_WEB_ROOT' ) && true === OC_PRIVATE_STORAGE_OUTSIDE_WEB_ROOT;
 		// Resolve existing ancestors before creating directories, including symlinked parents.
 		$ancestor = $candidate;
 		$suffix = '';
@@ -300,12 +299,6 @@ class OC_Upload_Handler {
 		) {
 			return null;
 		}
-		$attested = $attested || true === apply_filters( 'oc_private_storage_outside_web_root', false, $candidate );
-		if ( ! $allow_public_path && false === $document_root && ! $attested
-			&& ! OC_Storage_Upgrade::private_root_verified( $candidate, $configuration, false ) ) {
-			return null;
-		}
-
 		if ( ( ! is_dir( $candidate ) && ! wp_mkdir_p( $candidate ) ) || ! is_writable( $candidate ) ) {
 			return null;
 		}
@@ -325,7 +318,7 @@ class OC_Upload_Handler {
 			return null;
 		}
 
-		if ( ! $allow_public_path && false !== $document_root
+		if ( ! $allow_public_path
 			&& ! OC_Storage_Upgrade::private_root_verified( $real, $configuration, $document_root ) ) {
 			return null;
 		}
@@ -351,14 +344,17 @@ class OC_Upload_Handler {
 		}
 		$directory    = rtrim( wp_normalize_path( $uploads_real ), '/' )
 			. '/.overcustomise-private-' . $token;
+		if ( is_link( $directory ) || ( file_exists( $directory ) && wp_normalize_path( (string) realpath( $directory ) ) !== $directory ) ) {
+			return null;
+		}
 		$root         = self::prepare_storage_root( $directory, true );
 		$uploads_real = rtrim( wp_normalize_path( $uploads_real ), '/' );
 		// Public-path deny files must be intact before any customer bytes are written.
-		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root, true )
-			|| ! OC_Storage_Upgrade::public_subtree_verified( $root ) ) {
+		if ( null === $root || $root !== $directory || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root, true ) ) {
 			return null;
 		}
 
+		OC_Storage_Upgrade::report( $root, 'Automatic storage is operational; direct HTTP protection has not been verified.' );
 		return $root;
 	}
 
@@ -436,10 +432,12 @@ class OC_Upload_Handler {
 		$legacy_real       = is_dir( $legacy_directory ) ? realpath( $legacy_directory ) : false;
 		$migration_pending = $run_migration && self::STORAGE_VERSION !== (int) get_option( 'oc_private_artwork_storage_version', 0 );
 		if ( false !== $legacy_real ) {
-			if ( false === $uploads_real || ! self::path_is_within( $legacy_real, $uploads_real ) ) {
+			if ( false === $uploads_real || wp_normalize_path( $legacy_real ) !== wp_normalize_path( $uploads_real . '/' . self::UPLOAD_SUBDIR ) || ! self::path_is_within( $legacy_real, $uploads_real ) ) {
 				OC_Logger::warning( 'Legacy customer artwork storage resolved outside the uploads root.' );
 			} elseif ( ! self::protect_artwork_directory( $legacy_real, $force_protection_check || $migration_pending ) ) {
 				OC_Logger::warning( 'Legacy customer artwork storage could not be protected.' );
+			} else {
+				OC_Storage_Upgrade::report( $legacy_real, 'Automatic storage is operational; direct HTTP protection has not been verified.' );
 			}
 		}
 
@@ -2248,6 +2246,11 @@ class OC_Upload_Handler {
 	/** Write deny rules for Apache/IIS and a non-listing fallback entry point. */
 	private static function protect_artwork_directory( string $directory, bool $force_check = false ): bool {
 		$directory  = rtrim( wp_normalize_path( $directory ), '/' );
+		foreach ( [ '.htaccess', 'web.config', 'index.php' ] as $filename ) {
+			if ( is_link( $directory . '/' . $filename ) ) {
+				return false;
+			}
+		}
 		$marker_key = self::PROTECTION_MARKER_PREFIX . hash( 'sha256', $directory );
 		$marker     = get_option( $marker_key, [] );
 		if ( ! $force_check && is_array( $marker )
@@ -2265,6 +2268,9 @@ class OC_Upload_Handler {
 		];
 		foreach ( $files as $filename => $contents ) {
 			$path = $directory . '/' . $filename;
+			if ( is_link( $path ) ) {
+				return false;
+			}
 			if ( ( ! is_file( $path ) || (string) file_get_contents( $path ) !== $contents ) && ! self::atomic_write( $path, $contents, 0640 ) ) {
 				return false;
 			}
@@ -2285,9 +2291,9 @@ class OC_Upload_Handler {
 	/** Confirm a resolved attachment stays inside the private artwork root. */
 	private static function is_private_artwork_path( string $path ): bool {
 		$base = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR, true );
-		$real = realpath( $path );
+		$real = OC_Storage_Upgrade::canonical_file( $path );
 
-		return null !== $base && false !== $real && is_file( $real ) && self::path_is_within( wp_normalize_path( $real ), $base );
+		return null !== $base && null !== $real && self::path_is_within( wp_normalize_path( $real ), $base );
 	}
 
 	/** Accept exact legacy paths only while bounded migration is still in progress. */
@@ -2302,30 +2308,21 @@ class OC_Upload_Handler {
 			return false;
 		}
 		$base         = realpath( trailingslashit( (string) $uploads['basedir'] ) . self::UPLOAD_SUBDIR );
-		$real         = realpath( $path );
+		$real         = OC_Storage_Upgrade::canonical_file( $path );
 		$uploads_base = realpath( (string) $uploads['basedir'] );
 
 		return false !== $uploads_base && false !== $base && self::path_is_within( $base, $uploads_base )
-			&& ( ! $require_protection || self::legacy_artwork_storage_is_protected( $base ) ) && false !== $real && is_file( $real )
+			&& wp_normalize_path( $base ) === wp_normalize_path( $uploads_base . '/' . self::UPLOAD_SUBDIR )
+			&& null !== $real && ( ! $require_protection || self::legacy_artwork_storage_is_protected( $base ) )
 			&& self::path_is_within( wp_normalize_path( $real ), wp_normalize_path( $base ) );
 	}
 
 	/** Require intact deny rules before any not-yet-migrated public path is used. */
 	private static function legacy_artwork_storage_is_protected( string $directory ): bool {
-		if ( ! OC_Storage_Upgrade::public_subtree_verified( $directory ) ) {
+		if ( ! self::protect_artwork_directory( $directory, true ) ) {
 			return false;
 		}
-		$files = [
-			'.htaccess'  => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
-			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
-			'index.php'  => "<?php\nhttp_response_code( 404 );\nexit;\n",
-		];
-		foreach ( $files as $filename => $contents ) {
-			$path = $directory . '/' . $filename;
-			if ( ! is_file( $path ) || ! hash_equals( $contents, (string) file_get_contents( $path ) ) ) {
-				return false;
-			}
-		}
+		OC_Storage_Upgrade::report( $directory, 'Automatic storage is operational; direct HTTP protection has not been verified.' );
 		return true;
 	}
 

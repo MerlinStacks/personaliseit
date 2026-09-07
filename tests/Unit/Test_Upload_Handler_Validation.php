@@ -128,7 +128,7 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
-	public function audit_storage_rejects_unknown_web_root_and_public_paths(): void {
+	public function audit_storage_rejects_public_and_traversal_paths_without_http_evidence(): void {
 		$previous = $_SERVER['DOCUMENT_ROOT'] ?? null;
 		$method = new ReflectionMethod( OC_Upload_Handler::class, 'prepare_storage_root' );
 		try {
@@ -225,16 +225,16 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
-	public function uploads_fallback_fails_closed_without_server_protection_attestation(): void {
+	public function uploads_fallback_automatically_installs_deny_files_without_attestation(): void {
 		$uploads = wp_upload_dir();
 		if ( ! is_dir( $uploads['basedir'] ) ) {
 			mkdir( $uploads['basedir'], 0755, true );
 		}
 
-		$this->assertNull( UploadHandlerReflector::protected_uploads_storage_root() );
-		$root = $uploads['basedir'] . '/.overcustomise-private-' . get_option( 'oc_private_storage_token' );
+		$root = UploadHandlerReflector::protected_uploads_storage_root();
+		$this->assertSame( realpath( $uploads['basedir'] ) . '/.overcustomise-private-' . get_option( 'oc_private_storage_token' ), $root );
 		$this->assertMatchesRegularExpression( '/\/\.overcustomise-private-[a-z0-9]{32}$/D', $root );
-		$this->assertNull( UploadHandlerReflector::protected_uploads_storage_root() );
+		$this->assertSame( $root, UploadHandlerReflector::protected_uploads_storage_root() );
 		$this->assertFileExists( $root . '/.htaccess' );
 		$this->assertFileExists( $root . '/web.config' );
 		$this->assertFileExists( $root . '/index.php' );

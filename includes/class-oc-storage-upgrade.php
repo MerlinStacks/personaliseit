@@ -86,9 +86,8 @@ final class OC_Storage_Upgrade {
 		self::report( $root, $reason );
 	}
 
-	/** Called only after filesystem containment checks; never discovers a path from an option. */
+	/** Filesystem policy, not proof of HTTP denial; positive HTTP evidence is never required. */
 	public static function private_root_verified( string $root, string $configuration, string|false $document_root ): bool {
-		$context = self::context( $root, 'private:' . $configuration );
 		if ( false !== $document_root && ( '' === rtrim( wp_normalize_path( $document_root ), '/' ) || self::within( $root, $document_root ) || self::within( $document_root, $root ) ) ) {
 			self::revoke_private_root( $root, $configuration );
 			return false;
@@ -96,22 +95,10 @@ final class OC_Storage_Upgrade {
 		if ( self::private_root_revoked( $root ) ) {
 			return false;
 		}
-		if ( false !== $document_root ) {
-			// CLI cannot mint HTTP evidence merely by setting DOCUMENT_ROOT.
-			if ( ! in_array( PHP_SAPI, [ 'cli', 'phpdbg' ], true ) && ! empty( $_SERVER['REQUEST_METHOD'] ) && ! ( defined( 'WP_CLI' ) && WP_CLI ) ) {
-				$old = self::evidence( $context );
-				if ( null === $old || true !== $old['ok'] || $old['until'] < time() + 3600 ) {
-					self::remember( $context, true, $document_root, self::TTL );
-				}
-			}
-			return true;
+		if ( false === $document_root ) {
+			self::report( $root, 'Automatic storage is operational; direct HTTP protection has not been verified.' );
 		}
-		$evidence = self::evidence( $context );
-		if ( null !== $evidence && true === $evidence['ok'] && is_string( $evidence['detail'] )
-			&& ! self::within( $root, $evidence['detail'] ) && ! self::within( $evidence['detail'], $root ) ) {
-			return true;
-		}
-		return self::report( $root, 'No live HTTP-validated private-root evidence. Visit the site over HTTP or configure a verified operator root.' );
+		return true;
 	}
 
 	public static function within( string $path, string $root ): bool {
@@ -155,7 +142,7 @@ final class OC_Storage_Upgrade {
 		return array_values( array_unique( $paths ) );
 	}
 
-	/** Exact known old private roots are migration sources, never automatic serving grants. */
+	/** Exact known old private roots; consumers still validate protection and containment. */
 	public static function legacy_private_roots(): array {
 		$uploads = wp_upload_dir();
 		$candidates = [ dirname( rtrim( ABSPATH, '/\\' ) ) . '/.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 ) ];
@@ -243,7 +230,7 @@ final class OC_Storage_Upgrade {
 		}
 	}
 
-	/** Only explicit recursive operator policy grants access; HTTP samples are advisory. */
+	/** Optional operator/advisory check, never a runtime storage prerequisite or deny-file proof. */
 	public static function public_subtree_verified( string $root ): bool {
 		$real = realpath( $root );
 		if ( false === $real || ! is_dir( $real ) || wp_normalize_path( $real ) !== rtrim( wp_normalize_path( $root ), '/' ) ) {

@@ -8,7 +8,6 @@ function wp_upload_dir() { return [ 'basedir' => $GLOBALS['fixture'] . '/uploads
 function get_option( $name, $default = false ) { return $default; }
 function update_option( $name, $value, $autoload = false ) { return true; }
 function apply_filters( $name, $value, ...$args ) {
-	if ( 'oc_private_storage_web_protected' === $name ) { return $GLOBALS['protected']; }
 	return $value;
 }
 function current_time( $type, $gmt = false ) { return '2026-09-07 00:00:00'; }
@@ -54,7 +53,6 @@ require dirname( __DIR__ ) . '/includes/class-oc-print-generator.php';
 require dirname( __DIR__ ) . '/includes/class-oc-file-cleanup.php';
 function check( bool $ok, string $message ): void { if ( ! $ok ) { throw new LogicException( $message ); } }
 $fixture = __DIR__ . '/print-alias-fixture-' . bin2hex( random_bytes( 6 ) );
-$protected = true;
 $wpdb = new wpdb();
 mkdir( $fixture );
 try {

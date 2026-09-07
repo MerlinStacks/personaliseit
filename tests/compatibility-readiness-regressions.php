@@ -1,6 +1,8 @@
 <?php
 /** Dependency-free readiness regressions. Run: php tests/compatibility-readiness-regressions.php */
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
+define( 'OC_PATH', ABSPATH );
+$wp_version = '6.8';
 define( 'OC_DB_VERSION', '1.14.0' );
 define( 'HOUR_IN_SECONDS', 3600 );
 $options = [ 'oc_db_version' => OC_DB_VERSION ];
@@ -37,11 +39,12 @@ class OC_Storage_Upgrade {
 	}
 }
 class OC_Upload_Handler {
+	public static function heic_conversion_is_available() { return false; }
 	public static array $blocked = [];
 	public static int $calls = 0;
 	public static function private_storage_path( $directory, $force ) {
 		self::$calls++;
-		expect( true === $force, 'storage protection is verified' );
+		expect( true === $force, 'storage filesystem validation is requested, not HTTP proof' );
 		return in_array( $directory, self::$blocked, true ) ? null : '/secret/private/' . $directory;
 	}
 }
@@ -136,7 +139,11 @@ expect( $calls === $wpdb->calls && $storage_calls === OC_Upload_Handler::$calls,
 $diagnostic_calls = OC_Storage_Upgrade::$calls;
 expect( $report === OC_System_Status::cached_readiness_report(), 'worker reads healthy cached report' );
 expect( $calls === $wpdb->calls && $storage_calls === OC_Upload_Handler::$calls && $diagnostic_calls === OC_Storage_Upgrade::$calls, 'cached-only hit performs no probes or storage calls' );
-$cache_key = 'oc_compatibility_readiness_v2';
+$cache_key = 'oc_compatibility_readiness_v4';
+$transients['oc_compatibility_readiness_v3'] = array_replace( $report, [ 'storage' => [ 'print-files' => 'storage_blocked' ], 'print_retry_pause' => true ] );
+$transients['oc_compatibility_readiness_v2'] = array_replace( $report, [ 'storage_upgrade' => [ 'storage_http_verified' => 'ready' ] ] );
+unset( $transients[ $cache_key ] );
+expect( null === OC_System_Status::cached_readiness_report(), 'old readiness cache is ignored even when unexpired' );
 foreach ( [ false, [], array_replace( $report, [ 'checked_at' => time() - 300 ] ), array_replace( $report, [ 'checked_at' => time() + 60 ] ), array_replace( $report, [ 'checked_at' => (string) time() ] ), array_replace( $report, [ 'recheck_after' => 3600 ] ), array_replace( $report, [ 'target_version' => 'other' ] ), array_replace( $report, [ 'schema_version' => 'other' ] ) ] as $invalid ) {
 	$transients[ $cache_key ] = $invalid;
 	$before = $transients;
@@ -179,7 +186,7 @@ $report = OC_System_Status::readiness_report( true );
 expect( [
 	'relocation_storage_blocked' => 'relocation_storage_blocked',
 	'relocation_source_retained' => 'relocation_source_retained',
-	'storage_http_verified' => 'ready',
+	'storage_operator_verification_required' => 'storage_operator_verification_required',
 	'relocation_source_review' => 'relocation_source_review',
 	'relocation_publication_blocked' => 'relocation_publication_blocked',
 	'storage_diagnostic_unknown' => 'storage_diagnostic_unknown',
@@ -192,6 +199,103 @@ OC_System_Status::readiness_notice();
 $notice = ob_get_clean();
 expect( str_contains( $notice, 'relocation_storage_blocked' ) && str_contains( $notice, 'relocation_source_retained' ), 'admin notice exposes relocation warnings' );
 expect( str_contains( $notice, 'reference-safe source cleanup' ) && ! str_contains( $notice, '/secret/' ) && ! str_contains( $notice, '<script>' ), 'admin guidance is fixed text with no paths or raw messages' );
+$current_messages = [
+	'storage_http_protection_unverified' => [ 'Automatic storage is operational; direct HTTP protection has not been verified.' ],
+	'storage_evidence_revoked' => [
+		'Private root overlaps the known document root; prior CLI evidence revoked.',
+		'Private-root evidence revoked by a known document-root contradiction. Correct routing and change the trusted deployment revision before revalidation.',
+	],
+	'storage_evidence_missing' => [ 'No live HTTP-validated private-root evidence. Visit the site over HTTP or configure a verified operator root.' ],
+	'storage_http_verification_blocked' => [
+		'Automatic HTTP verification disabled; exact-root operator verification required.',
+		'Automatic verification requires a reachable HTTPS uploads URL; configure exact-root operator verification.',
+		'Advisory HTTP check failed or was inconclusive. Recursive public storage requires explicit operator verification of all directory/content routing.',
+	],
+	'storage_http_verification_deferred' => [
+		'HTTP verification deferred by the per-request probe budget.',
+		'Cannot lock HTTP storage verification.',
+		'HTTP storage verification is already running.',
+	],
+	'storage_operator_verification_required' => [ 'Advisory canaries were denied, but child routing and content rejection remain unproven. Recursive public storage still requires explicit operator attestation.' ],
+	'relocation_storage_blocked' => [
+		'Relocation blocked: verified current private storage is unavailable; source retained.',
+		'Preview relocation/read blocked: current verified storage unavailable; metadata and source retained.',
+		'VDP relocation blocked: verified destination unavailable; source and row retained.',
+	],
+	'relocation_source_review' => [
+		'Relocation source is empty, unreadable or exceeds the bounded copy limit.',
+		'Relocation source hash did not match; source retained.',
+		'Preview unavailable or changed during relocation; existing metadata and source retained.',
+		'VDP row is missing or unreadable; no relocation performed.',
+		'VDP source is missing or outside exact known prior private VDP roots; row retained for review.',
+		'Private VDP source exceeds its 5 MiB relocation limit or is unreadable; retained for review.',
+	],
+	'relocation_publication_blocked' => [
+		'Relocation copy verification failed; source retained.',
+		'Atomic no-overwrite relocation publication failed; source retained.',
+		'VDP pointer publication raced or failed; source and copied destination retained for reference-safe reconciliation.',
+		'Private VDP migration could not read its batch; files and rows retained.',
+	],
+	'relocation_source_retained' => [
+		'Private copy published; old source retained pending reference-safe cleanup and any required HTTP denial/purge.',
+		'VDP path relocated without changing template fields/design; source retained pending reference-safe cleanup.',
+	],
+];
+// Check shipped emitters too, so changed/new helper text cannot silently escape fixture coverage.
+$emitted = [];
+foreach ( [ 'class-oc-storage-upgrade.php', 'class-oc-rest-api.php' ] as $file ) {
+	$source = file_get_contents( ABSPATH . 'includes/' . $file );
+	preg_match_all( "/(?:self::report|OC_Storage_Upgrade::report)\( [^,\n]+, '([^']+)' \)|\\$(?:reason|message) = '([^']+)'/", $source, $matches, PREG_SET_ORDER );
+	foreach ( $matches as $match ) {
+		$message = $match[1] ?: ( $match[2] ?? '' );
+		// Only helper assignments are storage reports; REST has other local messages.
+		if ( '' !== $match[1] || 'class-oc-storage-upgrade.php' === $file ) { $emitted[] = $message; }
+	}
+}
+$fixtures = array_merge( ...array_values( $current_messages ) );
+expect( ! array_diff( $emitted, $fixtures ), 'fixtures cover every current literal storage report and helper message assignment, including retained diagnostic mappings' );
+foreach ( $current_messages as $code => $messages ) {
+	foreach ( $messages as $message ) {
+		OC_Storage_Upgrade::$messages = [ '/secret/private/root' => $message ];
+		$report = OC_System_Status::readiness_report( true );
+		expect( [ $code => $code ] === $report['storage_upgrade'], 'current exact message maps to expected warning: ' . $message );
+		expect( ! $report['print_retry_pause'], 'helper warning alone never imposes print pause' );
+		OC_Storage_Upgrade::$messages[] = $message . ' /secret/private/suffix';
+		$report = OC_System_Status::readiness_report( true );
+		expect( isset( $report['storage_upgrade']['storage_diagnostic_unknown'] ) && ! str_contains( json_encode( $report ), '/secret/' ), 'modified known messages stay scrubbed' );
+	}
+}
+OC_Upload_Handler::$blocked = [ 'artwork', 'previews', 'vdp', 'print-files' ];
+foreach ( [ 'storage_http_protection_unverified', 'storage_http_verification_blocked', 'storage_operator_verification_required', 'storage_evidence_revoked' ] as $code ) {
+	OC_Storage_Upgrade::$messages = $current_messages[ $code ];
+	$report = OC_System_Status::readiness_report( true );
+	expect( array_fill_keys( OC_Upload_Handler::$blocked, 'storage_blocked' ) === $report['storage'] && $report['print_retry_pause'], 'all blocked resources remain blocked despite advisory/revocation mapping' );
+	expect( [ $code => $code ] === $report['storage_upgrade'], 'current messages deduplicate without unknown diagnostics' );
+	ob_start();
+	OC_System_Status::readiness_notice();
+	$notice = ob_get_clean();
+	expect( str_contains( $notice, $code ) && str_contains( $notice, 'Storage is unavailable.' ) && str_contains( $notice, 'missing HTTP evidence alone is not a blocker' ), 'actual filesystem failure blocks, not missing HTTP proof' );
+	if ( 'storage_evidence_revoked' === $code ) {
+		expect( str_contains( $notice, 'affected root' ) && str_contains( $notice, 'Automatic selection can use the fallback' ), 'contradiction is root-specific with automatic fallback' );
+	}
+}
+OC_Storage_Upgrade::$messages = [];
+$report = OC_System_Status::readiness_report( true );
+expect( [] === $report['storage_upgrade'] && $report['print_retry_pause'], 'silent validation failure remains blocked without inventing a helper cause' );
+OC_Upload_Handler::$blocked = [];
+$wpdb->engines = [];
+OC_Storage_Upgrade::$messages = $current_messages['storage_http_protection_unverified'];
+$report = OC_System_Status::readiness_report( true );
+expect( ! in_array( false, $report['resources'], true ) && array_fill_keys( [ 'artwork', 'previews', 'vdp', 'print-files' ], 'ready' ) === $report['storage'], 'all actual resource checks remain ready with unverified HTTP protection' );
+expect( ! $report['print_retry_pause'] && [ 'storage_http_protection_unverified' => 'storage_http_protection_unverified' ] === $report['storage_upgrade'], 'operational automatic storage warns without pausing print' );
+$checks = array_column( OC_System_Status::checks(), null, 'key' );
+expect( ! $checks['readiness_storage_http_protection_unverified']['required'] && ! $checks['readiness_storage_http_protection_unverified']['available'], 'HTTP warning is visible and nonblocking in System Status' );
+ob_start();
+OC_System_Status::readiness_notice();
+$notice = ob_get_clean();
+foreach ( [ 'Automatic storage is operational; direct HTTP protection has not been verified.', 'Apache/IIS', 'not proof', 'Nginx', 'overrides disabled', 'public static files', 'does not pause print', 'no HTTP probes' ] as $guidance ) {
+	expect( str_contains( $notice, $guidance ), 'operational warning explains HTTP security separately: ' . $guidance );
+}
 OC_Storage_Upgrade::$messages = [];
 expect( [] === OC_System_Status::readiness_report( true )['storage_upgrade'], 'fresh report does not retain obsolete request-local warnings' );
 $options['oc_db_version'] = '0';

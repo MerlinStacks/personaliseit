@@ -4,7 +4,7 @@ $fixture = __DIR__ . '/.storage-upgrade-' . bin2hex( random_bytes( 6 ) );
 define( 'ABSPATH', $fixture . '/site/' );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'HOUR_IN_SECONDS', 3600 );
-$options = $meta = $metadata = $transients = $requests = $approvals = [];
+$options = $meta = $metadata = $transients = $requests = [];
 $site = 1;
 $salt = 'storage-upgrade-test';
 $configured = $fixture . '/private';
@@ -56,7 +56,6 @@ function esc_html__( $value, ...$args ) { return $value; }
 function apply_filters( $hook, $value, ...$args ) {
 	return match ( $hook ) {
 		'oc_private_storage_root' => $GLOBALS['configured'] ?? $value,
-		'oc_private_storage_web_protected' => $GLOBALS['approvals'][ $args[0] ] ?? false,
 		'oc_storage_automatic_http_verification' => $GLOBALS['automatic'],
 		'oc_storage_verification_context' => $GLOBALS['deployment'],
 		default => $value,
@@ -92,39 +91,48 @@ try {
 	$root = OC_Upload_Handler::private_storage_root();
 	check( $root === $configured, 'Filtered HTTP root accepted' );
 	check( [] === array_filter( array_keys( $options ), static fn ( $key ) => str_starts_with( $key, 'oc_storage_evidence_' ) ), 'CLI cannot mint HTTP evidence from spoofed server variables' );
+	unset( $_SERVER['DOCUMENT_ROOT'], $_SERVER['REQUEST_METHOD'] );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'CLI works without any positive evidence' );
+	check( 'Automatic storage is operational; direct HTTP protection has not been verified.' === OC_Storage_Upgrade::reports()[ $root ], 'Unknown exposure emits the exact non-blocking warning' );
 	// Simulate a prior real HTTP validation without making a network request or changing PHP SAPI.
 	$context = invoke( OC_Storage_Upgrade::class, 'context', $root, 'private:' . $configured );
 	invoke( OC_Storage_Upgrade::class, 'remember', $context, true, rtrim( ABSPATH, '/' ), 21600 );
 	$alias_context = invoke( OC_Storage_Upgrade::class, 'context', $root, 'private:' . $configured . '/' );
 	invoke( OC_Storage_Upgrade::class, 'remember', $alias_context, true, rtrim( ABSPATH, '/' ), 21600 );
 	unset( $_SERVER['DOCUMENT_ROOT'], $_SERVER['REQUEST_METHOD'] );
-	check( $root === OC_Upload_Handler::private_storage_root(), 'CLI reuses HTTP root evidence' );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'Positive evidence is optional for CLI' );
 	$valid_options = $options;
 	$site = 2;
-	check( null === OC_Upload_Handler::private_storage_root(), 'Evidence cannot cross sites' );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'Another site validates its configured filesystem without borrowing evidence' );
 	$site = 1;
 	$salt = 'rotated';
-	check( null === OC_Upload_Handler::private_storage_root(), 'Salt rotation invalidates evidence' );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'Salt rotation does not disable filesystem storage' );
 	$salt = 'storage-upgrade-test';
 	foreach ( $options as &$record ) { if ( is_array( $record ) && isset( $record['mac'] ) ) { $record['data']['until'] += 86400; } } unset( $record );
-	check( null === OC_Upload_Handler::private_storage_root(), 'Tampered evidence rejected' );
+	check( null === invoke( OC_Storage_Upgrade::class, 'evidence', $context ) && $root === OC_Upload_Handler::private_storage_root(), 'Tampered evidence is ignored, not required for storage' );
 	$options = $valid_options;
 	foreach ( $options as &$record ) { if ( is_array( $record ) && isset( $record['mac'] ) ) {
 		$record['data']['at'] = time() - 30000; $record['data']['until'] = time() - 1;
 		$record['mac'] = hash_hmac( 'sha256', serialize( $record['data'] ), wp_salt( 'auth' ) );
 	} } unset( $record );
-	check( null === OC_Upload_Handler::private_storage_root(), 'Expired signed evidence rejected' );
+	check( null === invoke( OC_Storage_Upgrade::class, 'evidence', $context ) && $root === OC_Upload_Handler::private_storage_root(), 'Expired evidence cannot disable healthy storage' );
 	$options = $valid_options;
 	$upload_url = 'https://changed.example/uploads';
-	check( null === OC_Upload_Handler::private_storage_root(), 'Changed uploads configuration invalidates evidence' );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'Changed uploads URL does not disable filesystem storage' );
 	$upload_url = 'https://shop.example/uploads';
 	$configured = $fixture . '/other-private';
-	check( null === OC_Upload_Handler::private_storage_root() && ! is_dir( $configured ), 'CLI cannot create an unverified filtered root' );
+	check( $configured === OC_Upload_Handler::private_storage_root() && is_dir( $configured ), 'CLI creates a valid filtered root without external approval' );
 	$configured = $root;
 	$_SERVER['DOCUMENT_ROOT'] = $fixture;
 	check( null === OC_Upload_Handler::private_storage_root(), 'Live overlapping document root overrides stored evidence' );
 	unset( $_SERVER['DOCUMENT_ROOT'], $_SERVER['REQUEST_METHOD'] );
 	check( null === OC_Upload_Handler::private_storage_root(), 'Rejected HTTP document root persistently revokes subsequent CLI reuse' );
+	$salt = 'rotated';
+	check( null === OC_Upload_Handler::private_storage_root(), 'Salt rotation does not erase a known contradiction' );
+	$salt = 'storage-upgrade-test';
+	$configured = $fixture . '/other-private';
+	check( $configured === OC_Upload_Handler::private_storage_root(), 'Contradiction is root-specific, not a blanket CLI block' );
+	$configured = $root;
 	// Replaying a previously valid evidence record cannot override the separate root denial.
 	foreach ( $valid_options as $name => $value ) { $options[ $name ] = $value; }
 	check( null === OC_Upload_Handler::private_storage_root(), 'Old signed evidence replay cannot override root revocation' );
@@ -136,7 +144,7 @@ try {
 	$deployment = 'routing-corrected';
 	check( $root === OC_Upload_Handler::private_storage_root(), 'Trusted deployment revision permits fresh root validation' );
 	unset( $_SERVER['DOCUMENT_ROOT'], $_SERVER['REQUEST_METHOD'] );
-	check( null === OC_Upload_Handler::private_storage_root(), 'Deployment change cannot grant CLI permission without fresh evidence' );
+	check( $root === OC_Upload_Handler::private_storage_root(), 'Revalidated deployment does not require positive evidence for CLI' );
 	$deployment = ''; $options = $valid_options;
 	check( ! OC_Storage_Upgrade::private_root_verified( $root, $configured, '/' ), 'Filesystem-root document-root contradiction rejected without accessing outside fixtures' );
 	check( null === OC_Upload_Handler::private_storage_root(), 'Filesystem-root contradiction also revokes CLI evidence' );
@@ -146,15 +154,17 @@ try {
 
 	$legacy = $upload_base . '/overcustomise/print-files';
 	wp_mkdir_p( $legacy ); file_put_contents( $legacy . '/old.pdf', 'retained' );
-	check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ), 'Successful root canaries cannot authorize recursive public storage' );
-	check( count( $requests ) === 16, 'Positive control and all supported storage suffix probes' );
+	check( $legacy . '/old.pdf' === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ), 'Known legacy print root automatically receives deny files' );
+	check( [] === $requests, 'Runtime storage never probes HTTP' );
+	check( ! OC_Storage_Upgrade::public_subtree_verified( $legacy ), 'Optional denied canaries do not prove recursive protection' );
+	check( count( $requests ) === 16, 'Optional diagnostic checks positive control and supported suffixes' );
 	check( [] === glob( $upload_base . '/oc-control-*' ) && [] === glob( $legacy . '/oc-denied-*' ), 'Canaries removed' );
-	check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ) && count( $requests ) === 16, 'Cached advisory success cannot grant permission' );
+	check( $legacy . '/old.pdf' === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ) && count( $requests ) === 16, 'Runtime operation remains independent of advisory results' );
 	$old_context = invoke( OC_Storage_Upgrade::class, 'context', $legacy, 'public:' . $upload_url . '/overcustomise/print-files' );
 	invoke( OC_Storage_Upgrade::class, 'remember', $old_context, true, 'Old blanket approval', 21600 );
-	check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ), 'Previously signed blanket probe approval is no longer accepted' );
+	check( ! OC_Storage_Upgrade::public_subtree_verified( $legacy ), 'Previously signed blanket probe approval is not proof' );
 	$automatic = false;
-	check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ), 'Disabling automatic verification overrides cached evidence' );
+	check( $legacy . '/old.pdf' === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ), 'Disabling optional probes does not disable storage' );
 	$automatic = true;
 	wp_mkdir_p( $legacy . '/order' );
 	file_put_contents( $legacy . '/order/actual.pdf', "%PDF-1.4\nFixture production bytes\n" );
@@ -163,32 +173,40 @@ try {
 		check( ! OC_Storage_Upgrade::public_subtree_verified( $legacy ) && count( $requests ) === 16, 'Denied parent/content-rejected canaries remain advisory: ' . $mode );
 		$response = wp_safe_remote_get( $upload_url . '/overcustomise/print-files/order/actual.pdf', [ 'redirection' => 0, 'timeout' => 2, 'limit_response_size' => 1024, 'cookies' => [] ] );
 		check( 200 === $response['status'], 'Fixture confirms production child is exposed despite all denied canaries: ' . $mode );
-		check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/order/actual.pdf', true ), 'No recursive serving permission from misleading probes: ' . $mode );
+		$count = count( $requests );
+		check( $legacy . '/order/actual.pdf' === OC_Print_Base::resolve_output_storage_path( $legacy . '/order/actual.pdf', true ) && $count === count( $requests ), 'Automatic local policy is independent of misleading probes: ' . $mode );
 	}
 	foreach ( [ 'exposed', 'partial', 'error', 'redirect' ] as $mode ) {
 		$options = $valid_options; reset_probe(); $http_mode = $mode; $requests = [];
-		check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ), 'Unsafe HTTP result rejected: ' . $mode );
+		check( ! OC_Storage_Upgrade::public_subtree_verified( $legacy ), 'Optional HTTP diagnostic cannot verify denial: ' . $mode );
 		$count = count( $requests ); reset_probe();
-		check( null === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ) && count( $requests ) === $count, 'Signed failure backoff avoids repeated I/O' );
+		check( ! OC_Storage_Upgrade::public_subtree_verified( $legacy ) && count( $requests ) === $count, 'Optional signed failure backoff avoids repeated I/O' );
+		check( $legacy . '/old.pdf' === OC_Print_Base::resolve_output_storage_path( $legacy . '/old.pdf', true ) && count( $requests ) === $count, 'Failed diagnostic does not become a runtime storage gate' );
 	}
 	$http_mode = 'denied'; $options = $valid_options; reset_probe();
 	$options['oc_private_storage_token'] = str_repeat( 'a', 32 );
 	$fallback = $upload_base . '/.overcustomise-private-' . str_repeat( 'a', 32 );
 	wp_mkdir_p( $fallback );
-	$approvals[ $fallback ] = true;
 	$automatic = false;
-	check( $fallback === invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' ), 'Exact fallback operator policy supported' );
+	$requests = [];
+	check( $fallback === invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' ), 'Fallback operates without approvals or probes' );
 	wp_mkdir_p( $fallback . '/print-files' ); file_put_contents( $fallback . '/print-files/new.pdf', 'new' );
-	check( OC_Storage_Upgrade::public_subtree_verified( $fallback . '/print-files' ), 'Approved parent covers canonical print child' );
+	check( ! OC_Storage_Upgrade::public_subtree_verified( $fallback . '/print-files' ), 'Automatic fallback does not claim HTTP verification' );
+	check( $fallback . '/print-files/new.pdf' === OC_Print_Base::resolve_output_storage_path( $fallback . '/print-files/new.pdf' ), 'Known old fallback print root is accepted without a history filter' );
+	$salt = 'rotated';
+	check( $fallback === invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' ), 'Fallback token and root survive salt rotation' );
+	$salt = 'storage-upgrade-test';
 	$configured = null; $_SERVER['DOCUMENT_ROOT'] = $fixture;
 	$output = invoke( OC_Print_Base::class, 'ensure_output_dir', 42 ) . '/generated.pdf';
 	file_put_contents( $output, 'generated PDF fixture' );
 	$final = OC_Print_Generator::finalise_generated_output( $output, 12 );
 	check( is_file( $final ) && $final === OC_Print_Base::resolve_output_storage_path( $final, true ), 'Fallback print creation, finalization and download share one parent policy' );
+	unset( $_SERVER['DOCUMENT_ROOT'] );
+	check( $fallback === OC_Upload_Handler::private_storage_root(), 'Known default contradiction selects fallback in CLI without configuration' );
+	check( [] === $requests, 'Fallback generation and CLI resolution perform no HTTP probes' );
 	$configured = $root; $_SERVER['DOCUMENT_ROOT'] = ABSPATH;
 	wp_mkdir_p( $fallback . '-sibling' );
 	check( ! OC_Storage_Upgrade::public_subtree_verified( $fallback . '-sibling' ), 'Parent policy cannot approve sibling' );
-	$approvals[ $legacy ] = true;
 	$alias = $fixture . '/uploads-alias'; symlink( $upload_base, $alias );
 	$upload_base = $alias;
 	check( $legacy . '/old.pdf' === OC_Print_Base::resolve_output_storage_path( $alias . '/overcustomise/print-files/old.pdf' ), 'Configured uploads symlink alias accepted' );
@@ -202,6 +220,9 @@ try {
 
 	$destination = OC_Upload_Handler::private_storage_path( 'artwork' );
 	$old_default = dirname( rtrim( ABSPATH, '/' ) ) . '/.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 );
+	// The old default was contradicted above. Keep it migration-only, not a serving bypass.
+	wp_mkdir_p( $old_default . '/print-files' ); file_put_contents( $old_default . '/print-files/old.pdf', 'old' );
+	check( null === OC_Print_Base::resolve_output_storage_path( $old_default . '/print-files/old.pdf' ), 'Known old default cannot bypass its persisted contradiction' );
 	foreach ( [ $old_default, $fallback ] as $index => $old ) {
 		wp_mkdir_p( $old . '/artwork' );
 		$source = $old . '/artwork/art.svg';
@@ -328,8 +349,9 @@ try {
 		$evidence['mac'] = hash_hmac( 'sha256', serialize( $evidence['data'] ), wp_salt( 'auth' ) );
 	} } unset( $evidence );
 	$old_preview_metadata = $options[ $key ]; $old_csv_pointer = $wpdb->rows[26]->csv_file_path;
-	check( '' === OC_Rest_API::validate_private_preview_url( $url ) && $options[ $key ] === $old_preview_metadata, 'Idle CLI evidence expiry blocks preview reads without replacing signing metadata' );
-	check( null === OC_Rest_API::relocate_private_vdp_template( 26 ) && $wpdb->rows[26]->csv_file_path === $old_csv_pointer, 'Idle CLI evidence expiry blocks VDP relocation without changing its row' );
+	$expiry_url = invoke( OC_Rest_API::class, 'private_preview_url', substr( $key, strlen( 'oc_private_preview_' ) ), $record );
+	check( $expiry_url === OC_Rest_API::validate_private_preview_url( $expiry_url ) && $options[ $key ] === $old_preview_metadata, 'Idle CLI evidence expiry preserves preview reads and signing metadata' );
+	check( $old_csv_pointer === OC_Rest_API::relocate_private_vdp_template( 26 ) && $wpdb->rows[26]->csv_file_path === $old_csv_pointer, 'Idle CLI evidence expiry preserves VDP storage and row identity' );
 	$options = $before_expiry; $_SERVER['DOCUMENT_ROOT'] = ABSPATH; $_SERVER['REQUEST_METHOD'] = 'GET';
 
 	$secret = str_repeat( 'b', 64 );

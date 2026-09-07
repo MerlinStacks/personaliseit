@@ -16,9 +16,10 @@ authorization, storage, database and renderer checks. It is not a staging sign-o
 | --- | --- | --- |
 | Intact schema and verified InnoDB tables | Supported transactional operations; mixed InnoDB/XtraDB is supported only with independent transactional XtraDB evidence. | Complete normal schema migration and verify metadata/advisory-lock support. |
 | MyISAM, Aria, MEMORY, unknown engines or unavailable metadata | Affected writes fail closed; unrelated resources are not globally disabled. | Backup and DBA-reviewed repair/conversion; no automatic engine conversion. |
-| Canonical writable private default, constant or filtered root outside known web paths | Supported after boundary validation. | Verify all deployment routes, permissions and worker access. |
-| CLI using the same private root/configuration | Supported with live signed HTTP evidence, maximum six hours, or independently verified exact-root operator configuration. | Plan evidence refresh or trusted configuration before unattended/idle workers run. |
-| Persisted-token uploads fallback or legacy public artwork/print tree | Blocked without explicit recursive operator approval. | Verify real files, nested directories, origin/CDN routes and caches; configure exact-root `oc_private_storage_web_protected`. Probes never approve the tree. |
+| Canonical writable automatic default | Selected automatically after boundary validation, with automatic persisted-token uploads fallback when unavailable or contradicted. | No mandatory server setup or public approval; actual filesystem failures block affected operations. |
+| Explicit constant or filtered custom root | Optional configuration remains supported; invalid or unwritable explicit roots fail closed. | Correct the custom root rather than silently switching it. |
+| CLI using the same storage configuration | Automatic operation continues without positive signed evidence, including after expiry or idle periods. | No evidence refresh requirement; actual known contradictions remain root-specific. |
+| Persisted-token uploads fallback or legacy public artwork/print tree | Automatic operation with installed deny files and a nonblocking unverified-HTTP warning. | No explicit public approval required. Independently review direct-file exposure; deny-file presence does not prove origin/CDN protection. |
 | Marked artwork in the exact prior deterministic default or persisted-token fallback | Bounded verified relocation, including already-versioned attachments; identity/metadata preserved. | Verified destination, readable sources and atomic publication support; retain old source copies. |
 | Private previews in exact known old roots | Signed reads and cleanup integrate guarded relocation; filename, metadata, ID and signing secret are preserved. | Unresolved valid metadata stays retained. Review missing/conflicting files; relocation does not recover salt changes. |
 | Private VDP CSV rows in exact known old roots | Bounded maintenance and template reads integrate guarded relocation; conditional path updates preserve template identity and fields. | Unavailable template storage raises an error, not a silent single-output fallback. Unknown/missing sources remain pending. |
@@ -32,25 +33,20 @@ authorization, storage, database and renderer checks. It is not a staging sign-o
 
 ## Storage Evidence
 
-HTTP private-root evidence is HMAC-signed and bound to the site, URLs, configured
-and canonical paths, root device/inode and trusted deployment context. Tampering,
-expiry, salt rotation or changed configuration invalidates it. CLI cannot mint it
-by setting server variables. After six idle hours, operations relying on expired
-evidence block without deleting retained metadata/rows. Refresh through a real
-validated HTTP request or use independently verified exact-root operator policy.
+Signed evidence is optional diagnostic context, not a prerequisite for HTTP or CLI
+operation. Missing, expired or invalid positive evidence is not a storage blocker.
+No runtime HTTP probes run. A known actual document-root contradiction remains
+root-specific, including for CLI; automatic selection uses the fallback rather than
+blanket-blocking storage. Explicit custom-root failures remain fail-closed.
 
-A known document-root contradiction persists a root-scoped revocation that CLI
-checks before evidence or private-root operator attestation. Expiry, replay, a new
-path alias or a later narrower document root cannot restore permission. Correct all
-relevant routing, change the trusted `oc_storage_verification_context` deployment
-revision, and revalidate. Changing the revision alone does not mint HTTP evidence.
-If revocation cannot be persisted, stop CLI workers until it can be recorded.
-
-Public-subtree HTTPS canaries are advisory only. Successful probes, cached results
-and deny files do not establish recursive origin/CDN policy. Explicit operator
-approval must cover real content, nested order directories and every routed origin;
-never return true globally. Unknown aliases/mirrors and previously cached customer
-files need separate verification and purge. Removing approval removes permission.
+Automatic selection and Apache/IIS deny-file installation preserve the earlier
+automatic functionality without mandatory server setup or public approval. They
+do not prove HTTP security on all hosts. Nginx or Apache with overrides disabled
+may expose public static files; aliases, mirrors and previously cached files need
+independent security review and, where applicable, denial/purge. Readiness reports
+`Automatic storage is operational; direct HTTP protection has not been verified.`
+as nonblocking `storage_http_protection_unverified`, separately from filesystem
+`ready`. Actual unwritable or invalid destinations still block affected operations.
 
 Known-root relocation copies and verifies bytes before guarded publication. Old
 private source copies are retained pending reference-safe cleanup; a new private
@@ -66,15 +62,17 @@ only from trusted exact canonical configuration, never arbitrary stored paths.
    and recovery data. Rehearse restoration; retained source copies are not backups.
 2. Create an isolated staging clone of representative old installs with real schema
    history and sanitized legacy records. Disable outbound production effects and
-   isolate queues. Clone URLs/configuration change evidence context: verify staging
-   routes independently rather than copying production approval.
+   isolate queues. Review staging HTTP exposure independently rather than assuming
+   production routes or deny-file behavior apply.
 3. Cover default, constant, filtered and uploads-fallback roots; symlinked uploads;
    old private/public sources; custom historical roots; missing mounts; unwritable
    destinations; and unsupported atomic hard-link publication. Verify recursive
    denial with real artwork, PDFs and CSVs at origin and CDN, including cached URLs.
 4. Exercise HTTP and actual WP-CLI/cron workers with fresh, expired, tampered and
-   revoked evidence, configuration/salt changes and idle periods beyond six hours.
-   Confirm blocks retain data and recovery restores only intended permissions.
+   revoked evidence, configuration/salt changes and long idle periods. Confirm
+   missing/expired positive evidence does not block automatic operation, actual
+   contradictions remain root-specific with fallback, and filesystem failures
+   retain data. No runtime HTTP probes should occur.
 5. Verify schema migrations, engine metadata and advisory locks with real MySQL/
    WordPress. Test concurrent writes, rollback and WooCommerce metadata round-trips,
    including the deployment's HPOS configuration. Never bypass guards by advancing

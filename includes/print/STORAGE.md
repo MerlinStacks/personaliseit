@@ -1,92 +1,59 @@
 # Private Storage and Upgrades
 
 New output uses `OC_Upload_Handler::private_storage_path('print-files', true)`.
-If validation fails, generation fails closed, without public print/artwork fallback.
+Automatic selection uses the default root or persisted-token uploads fallback.
+If no valid writable destination is available, generation fails closed.
 The shared policy is implemented in `OC_Storage_Upgrade`.
 
 **NOT universal/unattended upgrade release-ready.** Existing operations may be
-blocked pending verified storage or legacy recovery. Use the
+blocked by actual filesystem failures or legacy recovery, not missing HTTP proof.
+No mandatory server setup or public approval is required for automatic storage. Use the
 [upgrade matrix and staging checklist](../../docs/upgrade-compatibility.md) before
 deployment; retaining data is not the same as uninterrupted service.
 
 ## HTTP and CLI
 
-Private roots must remain canonical, writable, outside ABSPATH, uploads and the
-known document root. A real HTTP request validates those boundaries and records
-site-scoped HMAC-protected evidence with a maximum six-hour lifetime. CLI can reuse
-that evidence for the same root and configuration without a document root. CLI
-cannot mint evidence merely by setting server variables. The default root,
-`OC_PRIVATE_STORAGE_ROOT`, and `oc_private_storage_root` filtered paths all work.
+The canonical writable default is selected automatically, outside known web paths.
+When unavailable or subject to a known actual document-root contradiction, automatic
+selection uses the persisted-token uploads fallback. Both HTTP and CLI work without
+positive signed evidence, including after expiry or long idle periods. No runtime
+HTTP probes run. Signed evidence is optional diagnostic context, not an operational
+prerequisite or proof against unknown routes. Known actual contradictions remain
+root-specific, including for CLI; they are not erased by missing/expired positive
+evidence and do not impose a blanket block on the automatic fallback.
 
-Evidence includes blog ID, home/site URLs, configured/canonical WordPress and
-uploads paths, uploads URL, requested root configuration, canonical root and
-filesystem device/inode. Tampered, expired, cross-site or changed-configuration
-evidence is rejected. Salt rotation invalidates it. Options never supply trusted
-root paths: paths are derived independently before evidence is considered.
+`OC_PRIVATE_STORAGE_ROOT` and `oc_private_storage_root` remain optional custom-root
+configuration. Explicit custom roots that are invalid or unwritable fail closed
+rather than silently selecting another root. No arbitrary historical custom root
+is discovered or migrated. Existing exact-root protection filters are optional
+deployment diagnostics, not required public approval for default operation. Never
+infer an exact trusted root from arbitrary request data or database paths.
 
-A known document-root overlap immediately replaces matching positive evidence
-with signed denial and persists a separate root-scoped revocation marker. Early
-root-validation returns also perform revocation, including a document root of `/`.
-CLI checks the marker before using evidence or private-root operator attestation.
-Changing the requested-path alias or replaying older evidence cannot bypass it.
-The marker has no permission TTL: expiry never revives old approval. A later request
-with a narrower document root does not erase a contradictory vhost observation.
-After correcting all relevant routing, change the trusted
-`oc_storage_verification_context` deployment revision and validate afresh. Merely
-changing that revision does not create new HTTP evidence for CLI. If revocation
-cannot be persisted, an error instructs operators to stop CLI workers until it can.
+## HTTP Protection
 
-For sites without HTTP traffic during the evidence lifetime, operators can still
-configure `OC_PRIVATE_STORAGE_ROOT` with `OC_PRIVATE_STORAGE_OUTSIDE_WEB_ROOT=true`
-after checking actual deployment routes. Filter-configured roots support an exact
-canonical-root `oc_private_storage_outside_web_root` callback returning strictly
-true. Neither path overrides a known overlapping document root. Never return true
-globally or infer safety from an arbitrary option.
+Automatic storage installs Apache `.htaccess` and IIS `web.config` deny rules.
+Canonical paths, writable directories and intact protection files establish
+filesystem readiness, not verified direct HTTP security. Deny-file presence does
+not prove the server honors those rules. Nginx or Apache with overrides disabled
+may expose public static files. Aliases, alternate origins, mirrors and CDN caches
+need independent security review; the plugin cannot promise security on every host.
 
-Private-root evidence establishes the known filesystem boundary, not absence of
-unknown vhost aliases or mirrors. Sites with additional routes must verify those
-independently. `oc_storage_verification_context` can supply a trusted deployment
-revision so route/server changes immediately invalidate cached evidence.
+The persisted-token fallback and legacy public artwork/print trees operate without
+mandatory server configuration or explicit `oc_private_storage_web_protected`
+approval. The optional filter is not an automatic-setup requirement. No canary
+probes run in runtime storage checks, and old signed probe results are not proof of
+recursive protection. Order/item authorization remains independently enforced.
 
-## Public Subtree Verification
+The exact diagnostic is:
 
-The persisted-token uploads fallback and legacy artwork/print trees require
-explicit trusted recursive operator attestation through
-`oc_private_storage_web_protected`. HTTP probes are **advisory only** and never
-grant serving, writing, publication or cleanup permission for these public roots.
-Optional bounded HTTPS diagnostics still run after deny files are installed:
+`Automatic storage is operational; direct HTTP protection has not been verified.`
 
-- A random harmless text control in uploads must return HTTP 200 with exact bytes.
-- Random harmless supported-artwork, print, CSV, generic and backup-suffix canaries in the denied tree must each
-  return 403/404 without their secret random marker in the response.
-- Requests use the configured uploads URL, WordPress safe HTTP, TLS verification,
-  no cookies, no redirects, a two-second timeout and a 1 KiB response limit.
-- At most one group (one control plus 15 denied-suffix probes) runs per PHP request,
-  with a five-second between-probe deadline; the last request can add two seconds.
-  A nonblocking filesystem lock
-  prevents concurrent groups for the same root. Signed failure backoff lasts five
-  minutes; advisory results are cached for at most six hours. Neither cache state
-  is an authorization grant; previously signed blanket probe approvals are ignored.
-- Canary files are removed in `finally`. A killed PHP process can leave harmless
-  random canaries; no customer data is used by the probes.
-
-Even successful controls and denied canaries do not establish recursive routing
-policy: a parent can return 403 while an order subdirectory serves production PDFs,
-and a server can reject text pretending to be an image while serving real artwork.
-The root stays blocked without explicit operator policy. Probes also cannot prove
-unknown aliases, alternate origins, mirrors or previously cached customer files are
-protected. Configure/purge and verify those separately. Disable advisory probes with
-`oc_storage_automatic_http_verification` returning false for the exact root.
-
-`oc_private_storage_web_protected` remains the explicit operator path: return
-strictly true for an exact canonical subtree only after verifying denial for the
-entire subtree, nested order directories, real content and every routed origin/CDN,
-not merely the harmless canaries. Never return true globally. An explicitly approved
-persisted-token fallback parent covers canonical children such as `print-files`,
-so write, finalization, serving and cleanup agree. Siblings, traversal and symlinked
-children do not inherit approval. Public serving consumers still require intact
-deny files. Removing the matching operator attestation removes permission even if
-advisory probes previously appeared successful.
+System Status maps it to nonblocking `storage_http_protection_unverified`. Storage
+resources remain `ready` when filesystem checks succeed and print is not paused by
+this warning. Actual unwritable directories, invalid canonical paths or failed
+protection-file writes still block affected operations. Review HTTP exposure as a
+separate security concern, including real nested content and retained source URLs;
+automatic functionality does not secure old cached files or purge a CDN.
 
 `OC_Storage_Upgrade::reports()` returns request-local per-root diagnostic messages.
 These messages are for status/reporting, never authorization. A status UI or CLI
@@ -96,9 +63,9 @@ page or CLI command is registered by this helper.
 ## Existing Files
 
 Legacy print serving, thumbnails, regeneration validation and retention resolution
-remain blocked until the exact existing uploads print tree has trusted recursive
-operator approval. Automatic checks cannot automatically approve existing Apache
-or other server routing. Existing order directories are not reconstructed from current salts.
+use automatic storage checks and deny files without mandatory recursive operator
+approval. This does not verify direct-file HTTP protection. Existing order
+directories are not reconstructed from current salts.
 Order/item authorization remains separate from storage validation.
 
 `canonical_file()` accepts the configured uploads-root symlink alias only, and only
@@ -168,12 +135,10 @@ Bulk proactive preview relocation, reference-safe old-source cleanup, and unknow
 former custom-root migration remain out of scope. The existing public-to-private
 VDP migration remains separate.
 
-Idle CLI evidence expiry is intentional: after six hours without refreshed HTTP
-evidence, storage operations remain blocked and metadata/rows are preserved.
-Renew through a real validated HTTP request or use the independently verified
-exact-root operator configuration. Migration does not mint evidence or extend its
-lifetime just because old files exist. Salt changes retain the existing signature
-and evidence invalidation behavior; relocation is not a salt-recovery mechanism.
+Idle CLI operation does not require refreshed positive HTTP evidence. Missing or
+expired evidence is not a migration gate; actual storage failures retain metadata
+and rows. Salt changes retain the existing signature invalidation behavior;
+relocation is not a salt-recovery mechanism.
 
 ## Print Integration and Limits
 
@@ -187,7 +152,7 @@ The generator/maintenance owner can use these APIs:
   configured-uploads spellings for shared-reference SQL. It grants no root access.
 - `OC_Print_Base::output_storage_roots()` returns serving-authorized roots.
 - `OC_Print_Base::resolve_output_storage_path($path, true)` resolves retained files.
-- `OC_Storage_Upgrade::reports()` explains storage and advisory-probe failures.
+- `OC_Storage_Upgrade::reports()` explains storage failures and unverified HTTP protection.
 
 No print-file migration or DB-path rewrite is implemented here. A future migrator
 must lock output identities, verify copies, atomically update all shared file and
@@ -202,7 +167,7 @@ retains missing aliases and unavailable historical mounts rather than treating
 uncertain identity as deletion evidence. This integration does not authorize
 arbitrary aliases, rewrite stored paths, or implement print relocation.
 
-Unknown historical print roots still require `oc_print_historical_storage_roots`
+Unknown historical print roots can optionally use `oc_print_historical_storage_roots`
 from trusted operator code, with exact canonical `print-files` directories. That
 existing contract also permits destructive uninstall; do not populate it from
 request data or arbitrary DB rows/options. Under-uploads history still requires
@@ -222,7 +187,7 @@ rotation still needs independent user/session ownership or controlled recovery.
 
 `tests/storage-upgrade-regressions.php` uses the real storage consumers with stubbed
 HTTP and plugin-local fixtures. It covers evidence tampering/expiry/configuration,
-CLI reuse, public probes/backoff, fallback publication, configured uploads aliases,
+CLI behavior, automatic fallback publication, configured uploads aliases,
 old private artwork relocation, signed-preview and guarded VDP relocation, and
 durable browser ownership. No test uses network.
 
