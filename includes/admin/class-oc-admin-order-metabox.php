@@ -65,6 +65,18 @@ class OC_Admin_Order_Metabox {
 		echo '<style>@keyframes oc-spin{to{transform:rotate(360deg)}}</style>';
 		$has_missing_print_files = false;
 		$has_queue_work          = false;
+		$print_files_by_item     = [];
+		$print_file_ids          = [];
+		foreach ( $items as $item_id => $item ) {
+			if ( ! $item instanceof \WC_Order_Item_Product ) {
+				continue;
+			}
+			$print_files_by_item[ (int) $item_id ] = OC_DB::get_print_files_for_item( (int) $item_id );
+			foreach ( $print_files_by_item[ (int) $item_id ] as $file ) {
+				$print_file_ids[] = (int) $file->id;
+			}
+		}
+		$queue_statuses = OC_Print_Queue::instance()->get_statuses( $print_file_ids );
 
 		foreach ( $items as $item_id => $item ) {
 			if ( ! $item instanceof \WC_Order_Item_Product ) {
@@ -86,7 +98,7 @@ class OC_Admin_Order_Metabox {
 				}
 			}
 
-			$print_files  = OC_DB::get_print_files_for_item( $item_id );
+			$print_files  = $print_files_by_item[ (int) $item_id ] ?? [];
 			$legacy_areas = $config_id ? OC_DB::get_print_areas( $config_id ) : [];
 			$design_areas = $design_id ? OC_DB::get_design_print_areas( $design_id ) : [];
 
@@ -163,7 +175,7 @@ class OC_Admin_Order_Metabox {
 						$design_id > 0
 					);
 
-					$queue_info = OC_Print_Queue::instance()->get_status( (int) $file->id );
+					$queue_info = $queue_statuses[ (int) $file->id ] ?? [ 'found' => false ];
 					$has_queue_work = $has_queue_work || ! empty( $queue_info['in_queue'] ) || ! empty( $queue_info['has_failed_job'] );
 
 					echo '<div style="margin-bottom:8px;padding:8px;background:#f9f9f9;border-radius:3px;">';

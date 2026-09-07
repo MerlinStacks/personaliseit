@@ -16,7 +16,9 @@ class OC_File_Cleanup {
 	private const PREVIEW_REFERENCE_SCAN_OPTION_PREFIX = 'oc_preview_reference_scan_';
 	private const SECURITY_BUDGET_OPTION_PREFIX = 'oc_budget_';
 	private const SECURITY_BUDGET_CURSOR_OPTION = 'oc_budget_cleanup_cursor';
+	private const ARTWORK_REFERENCE_SCAN_LIMIT   = 1000;
 	private static array $preview_reference_scan_complete = [];
+	private static ?bool $sessions_table_exists           = null;
 
 	/** Called by WP Cron daily. */
 	public static function run(): void {
@@ -482,8 +484,16 @@ class OC_File_Cleanup {
 			return;
 		}
 
-		foreach ( array_map( 'absint', $attachments ) as $attachment_id ) {
-			if ( self::customer_artwork_is_referenced( $attachment_id ) ) {
+		$attachment_ids = array_map( 'absint', $attachments );
+		$references     = self::customer_artwork_batch_references( $attachment_ids );
+		if ( null === $references ) {
+			OC_Logger::warning( 'Customer artwork cleanup retained a batch because its references could not be checked.' );
+			update_option( 'oc_artwork_cleanup_cursor', max( $attachment_ids ), false );
+			return;
+		}
+
+		foreach ( $attachment_ids as $attachment_id ) {
+			if ( isset( $references[ $attachment_id ] ) ) {
 				delete_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since' );
 				continue;
 			}
@@ -506,7 +516,101 @@ class OC_File_Cleanup {
 			}
 		}
 
-		update_option( 'oc_artwork_cleanup_cursor', max( array_map( 'absint', $attachments ) ), false );
+		update_option( 'oc_artwork_cleanup_cursor', max( $attachment_ids ), false );
+	}
+
+	/** Resolve references for a cleanup batch with one wildcard scan per payload store. */
+	private static function customer_artwork_batch_references( array $attachment_ids ): ?array {
+		global $wpdb;
+
+		$attachment_ids         = array_values( array_unique( array_filter( array_map( 'absint', $attachment_ids ) ) ) );
+		$fragments_by_attachment = [];
+		$related_ids             = [];
+		foreach ( $attachment_ids as $attachment_id ) {
+			$ids = self::related_artwork_ids( $attachment_id );
+			foreach ( $ids as $related_id ) {
+				$related_ids[ $related_id ]                = true;
+				$fragments_by_attachment[ $attachment_id ] = array_merge(
+					$fragments_by_attachment[ $attachment_id ] ?? [],
+					self::artwork_reference_fragments( $related_id )
+				);
+			}
+		}
+		if ( empty( $related_ids ) ) {
+			return [];
+		}
+
+		$id_pattern     = '(^|[^0-9])(' . implode( '|', array_keys( $related_ids ) ) . ')([^0-9]|$)';
+		$payloads       = [];
+		$queries        = [
+			$wpdb->prepare(
+				"SELECT meta_value FROM {$wpdb->prefix}woocommerce_order_itemmeta WHERE meta_key = '_oc_customisation' AND meta_value REGEXP %s LIMIT %d",
+				$id_pattern,
+				self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
+			),
+		];
+		$sessions_exist = self::sessions_table_exists();
+		if ( null === $sessions_exist ) {
+			return null;
+		}
+		if ( $sessions_exist ) {
+			$queries[] = $wpdb->prepare(
+				"SELECT session_value FROM {$wpdb->prefix}woocommerce_sessions WHERE session_expiry >= %d AND session_value REGEXP %s LIMIT %d",
+				time(),
+				$id_pattern,
+				self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
+			);
+		}
+		$queries[] = $wpdb->prepare(
+			"SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE %s AND meta_value REGEXP %s LIMIT %d",
+			$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
+			$id_pattern,
+			self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
+		);
+
+		foreach ( $queries as $query ) {
+			$rows = $wpdb->get_col( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Every query is prepared when the bounded list is built above.
+			if ( ! is_array( $rows ) || self::database_has_error( $wpdb ) ) {
+				return null;
+			}
+			if ( count( $rows ) > self::ARTWORK_REFERENCE_SCAN_LIMIT ) {
+				return self::split_customer_artwork_batch_references( $attachment_ids );
+			}
+			$payloads = array_merge( $payloads, array_map( 'strval', $rows ) );
+		}
+
+		$references = [];
+		foreach ( $fragments_by_attachment as $attachment_id => $fragments ) {
+			foreach ( $payloads as $payload ) {
+				foreach ( array_unique( $fragments ) as $fragment ) {
+					if ( str_contains( $payload, $fragment ) ) {
+						$references[ $attachment_id ] = true;
+						break 2;
+					}
+				}
+			}
+		}
+
+		return $references;
+	}
+
+	/** Split an overly broad batch, falling back to exact checks for one attachment. */
+	private static function split_customer_artwork_batch_references( array $attachment_ids ): ?array {
+		if ( 1 === count( $attachment_ids ) ) {
+			$attachment_id = (int) reset( $attachment_ids );
+			return self::customer_artwork_is_referenced( $attachment_id ) ? [ $attachment_id => true ] : [];
+		}
+
+		$references = [];
+		foreach ( array_chunk( $attachment_ids, (int) ceil( count( $attachment_ids ) / 2 ) ) as $chunk ) {
+			$chunk_references = self::customer_artwork_batch_references( $chunk );
+			if ( null === $chunk_references ) {
+				return null;
+			}
+			$references += $chunk_references;
+		}
+
+		return $references;
 	}
 
 	/**
@@ -521,17 +625,7 @@ class OC_File_Cleanup {
 
 		global $wpdb;
 
-		$related_ids = [ $attachment_id ];
-		$parent_id   = absint( get_post_meta( $attachment_id, '_oc_artwork_parent_id', true ) );
-		if ( $parent_id > 0 ) {
-			$related_ids[] = $parent_id;
-		}
-		foreach ( [ '_oc_print_derivative_attachment_id', '_oc_artwork_preview_attachment_id' ] as $meta_key ) {
-			$related_id = absint( get_post_meta( $attachment_id, $meta_key, true ) );
-			if ( $related_id > 0 ) {
-				$related_ids[] = $related_id;
-			}
-		}
+		$related_ids = self::related_artwork_ids( $attachment_id );
 
 		$patterns = [];
 		foreach ( array_unique( array_filter( $related_ids ) ) as $related_id ) {
@@ -551,12 +645,12 @@ class OC_File_Cleanup {
 			return true;
 		}
 
-		$sessions_table = $wpdb->prefix . 'woocommerce_sessions';
-		$sessions_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $sessions_table ) ) );
-		if ( self::database_has_error( $wpdb ) ) {
+		$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
+		$sessions_exists = self::sessions_table_exists();
+		if ( null === $sessions_exists ) {
 			return true;
 		}
-		if ( $sessions_exists === $sessions_table ) {
+		if ( $sessions_exists ) {
 			$session_clauses = implode( ' OR ', array_fill( 0, count( $patterns ), 'session_value LIKE %s' ) );
 			$session_args    = array_merge( [ time() ], $patterns );
 			$found           = $wpdb->get_var( $wpdb->prepare(
@@ -581,6 +675,34 @@ class OC_File_Cleanup {
 			...$patterns
 		) );
 		return self::database_has_error( $wpdb ) || (bool) $found;
+	}
+
+	/** Return attachment IDs whose payload references protect one artwork lifecycle. */
+	private static function related_artwork_ids( int $attachment_id ): array {
+		$related_ids = [ $attachment_id ];
+		foreach ( [ '_oc_artwork_parent_id', '_oc_print_derivative_attachment_id', '_oc_artwork_preview_attachment_id' ] as $meta_key ) {
+			$related_id = absint( get_post_meta( $attachment_id, $meta_key, true ) );
+			if ( $related_id > 0 ) {
+				$related_ids[] = $related_id;
+			}
+		}
+		return array_values( array_unique( $related_ids ) );
+	}
+
+	/** Check the optional WooCommerce sessions table once per request. */
+	private static function sessions_table_exists(): ?bool {
+		if ( null !== self::$sessions_table_exists ) {
+			return self::$sessions_table_exists;
+		}
+
+		global $wpdb;
+		$table  = $wpdb->prefix . 'woocommerce_sessions';
+		$exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->esc_like( $table ) ) );
+		if ( self::database_has_error( $wpdb ) ) {
+			return null;
+		}
+		self::$sessions_table_exists = $exists === $table;
+		return self::$sessions_table_exists;
 	}
 
 	/** Return candidate fragments referenced by order metadata, active sessions, or persistent carts. */
@@ -933,9 +1055,16 @@ class OC_File_Cleanup {
 	/** Build exact common PHP-serialization and JSON reference forms. */
 	private static function artwork_reference_patterns( int $attachment_id ): array {
 		global $wpdb;
+		return array_map(
+			static fn ( string $fragment ): string => '%' . $wpdb->esc_like( $fragment ) . '%',
+			self::artwork_reference_fragments( $attachment_id )
+		);
+	}
 
-		$id       = (string) $attachment_id;
-		$patterns = [];
+	/** Build exact common PHP-serialization and JSON reference fragments. */
+	private static function artwork_reference_fragments( int $attachment_id ): array {
+		$id        = (string) $attachment_id;
+		$fragments = [];
 		foreach ( [ 'attachmentId', 'sourceAttachmentId', 'previewAttachmentId', 'artworkAttachmentId' ] as $key ) {
 			$values = [
 				's:' . strlen( $key ) . ':"' . $key . '";i:' . $id . ';',
@@ -948,10 +1077,10 @@ class OC_File_Cleanup {
 				'"' . $key . '": "' . $id . '"',
 			];
 			foreach ( $values as $value ) {
-				$patterns[] = '%' . $wpdb->esc_like( $value ) . '%';
+				$fragments[] = $value;
 			}
 		}
 
-		return $patterns;
+		return $fragments;
 	}
 }

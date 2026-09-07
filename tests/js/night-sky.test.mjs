@@ -131,6 +131,14 @@ test( 'place lookup uses the same-origin proxy only', () => {
 	assert.match( controlsSource, /method: 'POST'/ );
 } );
 
+test( 'place lookup aborts superseded requests and reuses recent results', () => {
+	assert.match( controlsSource, /locationRequest\?\.controller\.abort\(\)/ );
+	assert.match( controlsSource, /signal: request\.controller\.signal/ );
+	assert.match( controlsSource, /const locationSearchCache = new Map\(\)/ );
+	assert.match( controlsSource, /locationSearchCache\.has\( cacheKey \)/ );
+	assert.match( controlsSource, /locationSearchCache\.size > 20/ );
+} );
+
 test( 'customer chooses an address or coordinates without seeing UTC controls', () => {
 	assert.doesNotMatch( templateSource, /UTC offset at that date/ );
 	assert.doesNotMatch( templateSource, /Place search © OpenStreetMap/ );

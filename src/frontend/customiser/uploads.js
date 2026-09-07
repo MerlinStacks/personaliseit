@@ -336,7 +336,9 @@ const uploadMethods = {
 			),
 			customerUploaded: true,
 			artworkContextLayerId: layerId,
-			imageCrop: 0,
+			// Start generated artwork in cover mode so it fills the layer. Customers
+			// can still move the placement control back toward "Fit image".
+			imageCrop: 100,
 			imageFilterResults: {},
 			imageFilterAttemptCount: {},
 		} );
@@ -771,7 +773,9 @@ const uploadMethods = {
 					),
 					imageMeta: null,
 					sourceImageMeta: null,
-					imageCrop: 0,
+					// Uploaded photos should fill their design area by default rather than
+					// leaving letterboxed space around a centred subject.
+					imageCrop: 100,
 					customerUploaded: true,
 					artworkContextLayerId: lid,
 					baseAttachmentId: attachmentId,

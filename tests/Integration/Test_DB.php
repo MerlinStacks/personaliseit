@@ -195,6 +195,43 @@ class Test_DB extends WP_UnitTestCase {
 	}
 
 	#[Test]
+	public function queue_maintenance_probe_ignores_future_work_but_finds_due_and_stale_rows(): void {
+		global $wpdb;
+		$table = $wpdb->prefix . 'oc_print_queue';
+		$base  = [
+			'order_id'      => 8051,
+			'order_item_id' => 8052,
+			'print_area_id' => 1,
+			'area_source'   => 'legacy',
+			'row_index'     => 0,
+			'area_data'     => '{}',
+			'print_method'  => 'uv',
+		];
+		$wpdb->insert(
+			$table,
+			$base + [
+				'status'       => 'pending',
+				'processed_at' => gmdate( 'Y-m-d H:i:s', time() + HOUR_IN_SECONDS ),
+			]
+		);
+		$id = (int) $wpdb->insert_id;
+		$this->assertFalse( OC_DB::has_queue_maintenance_work( gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS ) ) );
+
+		$wpdb->update( $table, [ 'processed_at' => null ], [ 'id' => $id ] );
+		$this->assertTrue( OC_DB::has_queue_maintenance_work( gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS ) ) );
+
+		$wpdb->update(
+			$table,
+			[
+				'status'       => 'processing',
+				'processed_at' => gmdate( 'Y-m-d H:i:s', time() - 2 * HOUR_IN_SECONDS ),
+			],
+			[ 'id' => $id ]
+		);
+		$this->assertTrue( OC_DB::has_queue_maintenance_work( gmdate( 'Y-m-d H:i:s', time() - HOUR_IN_SECONDS ) ) );
+	}
+
+	#[Test]
 	public function stale_queue_jobs_are_retried_or_failed_based_on_attempt_count(): void {
 		global $wpdb;
 		$ids = [];
@@ -218,6 +255,40 @@ class Test_DB extends WP_UnitTestCase {
 		$this->assertSame( 'pending', OC_DB::get_queue_job( $ids[2] )->status );
 		$this->assertSame( 'failed', OC_DB::get_queue_job( $ids[3] )->status );
 		$this->assertNotEmpty( OC_DB::get_queue_job( $ids[3] )->error_message );
+	}
+
+	#[Test]
+	public function print_queue_has_order_id_index(): void {
+		global $wpdb;
+		$rows = $wpdb->get_results(
+			"SHOW INDEX FROM {$wpdb->prefix}oc_print_queue WHERE Key_name = 'order_id'"
+		);
+
+		$this->assertCount( 1, $rows );
+		$this->assertSame( 'order_id', (string) $rows[0]->Column_name );
+	}
+
+	#[Test]
+	public function assigned_design_ids_are_distinct_and_invalidated_by_assignment_mutations(): void {
+		$product_id       = self::$product_id + 50000;
+		$other_product_id = self::$product_id + 50001;
+		OC_DB::delete_assignment( $product_id, 0 );
+		OC_DB::delete_assignment( $other_product_id, 0 );
+		OC_DB::upsert_assignment( $product_id, 0, 950001 );
+		OC_DB::upsert_assignment( $other_product_id, 0, 950001 );
+
+		$design_ids = OC_DB::get_assigned_design_ids();
+		$this->assertContains( 950001, $design_ids );
+		$this->assertSame( 1, count( array_keys( $design_ids, 950001, true ) ) );
+
+		OC_DB::delete_assignment( $other_product_id, 0 );
+		OC_DB::upsert_assignment( $product_id, 0, 950002 );
+		$design_ids = OC_DB::get_assigned_design_ids();
+		$this->assertNotContains( 950001, $design_ids );
+		$this->assertContains( 950002, $design_ids );
+
+		OC_DB::delete_assignment( $product_id, 0 );
+		$this->assertNotContains( 950002, OC_DB::get_assigned_design_ids() );
 	}
 
 	#[Test]

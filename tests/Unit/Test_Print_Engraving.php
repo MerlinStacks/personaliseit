@@ -228,6 +228,44 @@ class Test_Print_Engraving extends TestCase {
 	}
 
 	#[Test]
+	public function large_engraving_uses_the_configured_dpi_beyond_the_generic_working_limit(): void {
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'engraving_raster_dimensions' );
+		$size   = $method->invoke( null, [ 'dpi' => 600 ], 254.0, 127.0 );
+
+		$this->assertSame( [ 6000, 3000 ], $size );
+	}
+
+	#[Test]
+	public function engraving_keeps_safe_source_pixels_beyond_the_generic_working_limit(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+
+		$temp   = tempnam( sys_get_temp_dir(), 'oc-photo-source-' );
+		$source = $temp . '.png';
+		unlink( $temp ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+		$image = imagecreatetruecolor( 4100, 10 );
+		imagepng( $image, $source );
+		imagedestroy( $image );
+
+		$opened = false;
+		try {
+			$method = new ReflectionMethod( OC_Print_Engraving::class, 'open_image_resource' );
+			$opened = $method->invoke( null, $source );
+			$this->assertNotFalse( $opened );
+			$this->assertSame( 4100, imagesx( $opened ) );
+			$this->assertSame( 10, imagesy( $opened ) );
+		} finally {
+			if ( false !== $opened ) {
+				imagedestroy( $opened );
+			}
+			if ( file_exists( $source ) ) {
+				unlink( $source ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			}
+		}
+	}
+
+	#[Test]
 	public function engraving_layer_text_renders_as_font_independent_svg_path(): void {
 		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {

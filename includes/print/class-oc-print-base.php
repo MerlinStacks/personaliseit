@@ -33,6 +33,8 @@ abstract class OC_Print_Base {
 	private const FABRIC_FONT_SIZE_MULTIPLIER = 1.13;
 	private const FABRIC_FONT_SIZE_FRACTION   = 0.222;
 	private const FABRIC_TEXTBOX_LINE_HEIGHT  = 1.16;
+	private const PROTECTION_MARKER_VERSION   = 1;
+	private const PROTECTION_MARKER_TTL       = DAY_IN_SECONDS;
 
 	/** Subdirectory within wp-content/uploads for generated print files. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
@@ -116,7 +118,7 @@ abstract class OC_Print_Base {
 			throw new \RuntimeException( (string) $upload_dir['error'] );
 		}
 		$base = $upload_dir['basedir'] . '/' . self::PRINT_SUBDIR;
-		if ( ! self::protect_output_root( $base ) ) {
+		if ( ! self::protect_output_root( $base, true ) ) {
 			throw new \RuntimeException( __( 'Could not protect print directory.', 'overcustomise' ) );
 		}
 
@@ -131,22 +133,36 @@ abstract class OC_Print_Base {
 	}
 
 	/** Ensure existing and future print files are denied by Apache and IIS. */
-	public static function ensure_output_storage_protected(): void {
+	public static function ensure_output_storage_protected( bool $force_check = false ): bool {
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
-			return;
+			return false;
 		}
 
 		$base = trailingslashit( (string) $uploads['basedir'] ) . self::PRINT_SUBDIR;
-		if ( ! self::protect_output_root( $base ) ) {
+		if ( ! self::protect_output_root( $base, $force_check ) ) {
 			OC_Logger::warning( 'Generated print storage could not be protected.' );
+			return false;
 		}
+
+		return true;
 	}
 
 	/** Create the print root and write server-specific deny rules. */
-	private static function protect_output_root( string $base ): bool {
+	private static function protect_output_root( string $base, bool $force_check = false ): bool {
 		if ( ( ! is_dir( $base ) && ! wp_mkdir_p( $base ) ) || ! is_writable( $base ) ) {
 			return false;
+		}
+		$base       = rtrim( wp_normalize_path( $base ), '/' );
+		$path_hash  = hash( 'sha256', $base );
+		$marker_key = 'oc_storage_protection_' . $path_hash;
+		$marker     = get_option( $marker_key, [] );
+		if ( ! $force_check && is_array( $marker )
+			&& self::PROTECTION_MARKER_VERSION === (int) ( $marker['version'] ?? 0 )
+			&& hash_equals( $path_hash, (string) ( $marker['path'] ?? '' ) )
+			&& (int) ( $marker['verified_at'] ?? 0 ) > time() - self::PROTECTION_MARKER_TTL
+		) {
+			return true;
 		}
 
 		$files = [
@@ -161,6 +177,15 @@ abstract class OC_Print_Base {
 			}
 		}
 
+		update_option(
+			$marker_key,
+			[
+				'version'     => self::PROTECTION_MARKER_VERSION,
+				'path'        => $path_hash,
+				'verified_at' => time(),
+			],
+			false
+		);
 		return true;
 	}
 

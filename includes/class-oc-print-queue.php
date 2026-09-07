@@ -186,6 +186,10 @@ class OC_Print_Queue {
 		}
 
 		try {
+			$stale_cutoff = gmdate( 'Y-m-d H:i:s', time() - self::lease_seconds() );
+			if ( ! OC_DB::has_queue_maintenance_work( $stale_cutoff ) ) {
+				return;
+			}
 			$this->reset_stale_processing_jobs();
 
 			$jobs = OC_DB::get_pending_queue_jobs( self::BATCH_SIZE, self::MAX_ATTEMPTS );

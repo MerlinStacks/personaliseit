@@ -16,7 +16,7 @@ defined( 'OC_VERSION' ) || define( 'OC_VERSION', '1.16.1-test' );
 defined( 'OC_FILE' ) || define( 'OC_FILE', OC_PATH . 'overcustomise.php' );
 defined( 'OC_URL' ) || define( 'OC_URL', 'http://example.com/wp-content/plugins/overcustomise/' );
 defined( 'OC_ASSETS_URL' ) || define( 'OC_ASSETS_URL', OC_URL . 'assets/build/' );
-defined( 'OC_DB_VERSION' ) || define( 'OC_DB_VERSION', '1.16.1' );
+defined( 'OC_DB_VERSION' ) || define( 'OC_DB_VERSION', '1.16.2' );
 
 require_once OC_PATH . 'includes/class-oc-cache.php';
 require_once OC_PATH . 'includes/class-oc-woff-converter.php';

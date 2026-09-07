@@ -1736,7 +1736,7 @@ class OC_Print_Generator {
 			wp_die( esc_html__( 'File not found on disk.', 'overcustomise' ), 404 );
 		}
 
-		$target_real = self::resolve_print_storage_path( (string) $record->file_path );
+		$target_real = self::resolve_print_storage_path( (string) $record->file_path, true );
 		if ( ! $target_real ) {
 			wp_die( esc_html__( 'Invalid file path.', 'overcustomise' ), 400 );
 		}
@@ -1785,7 +1785,7 @@ class OC_Print_Generator {
 
 		$record = OC_DB::get_print_file( $file_id );
 		$path   = $record && 'files_ready' === (string) $record->file_status
-			? self::resolve_print_storage_path( (string) ( $record->thumbnail_path ?? '' ) )
+			? self::resolve_print_storage_path( (string) ( $record->thumbnail_path ?? '' ), true )
 			: null;
 		$info   = $path ? @getimagesize( $path ) : false;
 		$mime   = is_array( $info ) ? $info['mime'] : '';
@@ -1806,7 +1806,10 @@ class OC_Print_Generator {
 	}
 
 	/** Resolve a DB path only when it is a regular file under the print root. */
-	private static function resolve_print_storage_path( string $path ): ?string {
+	private static function resolve_print_storage_path( string $path, bool $force_protection_check = false ): ?string {
+		if ( $force_protection_check && ! OC_Print_Base::ensure_output_storage_protected( true ) ) {
+			return null;
+		}
 		$uploads = wp_upload_dir();
 		$base    = realpath( trailingslashit( (string) ( $uploads['basedir'] ?? '' ) ) . 'overcustomise/print-files' );
 		$real    = '' !== $path ? realpath( $path ) : false;

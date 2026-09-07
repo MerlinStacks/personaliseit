@@ -96,6 +96,8 @@ class OC_Test_Webhook_WPDB {
 	public array $rows             = [];
 	public int|false $query_result = 1;
 	public mixed $last_prepared    = null;
+	public mixed $first_job        = 1;
+	public int $get_results_calls  = 0;
 
 	public function esc_like( string $value ): string {
 		return addcslashes( $value, '_%\\' );
@@ -107,7 +109,13 @@ class OC_Test_Webhook_WPDB {
 	}
 
 	public function get_results( mixed $query ): array {
+		++$this->get_results_calls;
 		return $this->rows;
+	}
+
+	public function get_var( mixed $query ): mixed {
+		$this->last_prepared = $query;
+		return $this->first_job;
 	}
 
 	public function query( mixed $query ): int|false {
@@ -188,6 +196,23 @@ class Test_Webhooks extends TestCase {
 		} finally {
 			$wpdb = $previous_wpdb;
 			unset( $GLOBALS['oc_test_scheduled_events'], $GLOBALS['oc_test_options']['oc_wh_recovery_cursor'] );
+		}
+	}
+
+	#[Test]
+	public function recovery_uses_an_indexed_idle_check_before_loading_job_values(): void {
+		global $wpdb;
+		$previous_wpdb   = $wpdb ?? null;
+		$wpdb            = new OC_Test_Webhook_WPDB();
+		$wpdb->first_job = null;
+
+		try {
+			$this->assertSame( 0, ( new OC_Webhooks() )->recover_deliveries() );
+			$this->assertSame( 0, $wpdb->get_results_calls );
+			$this->assertStringContainsString( 'SELECT option_id', $wpdb->last_prepared[0] );
+			$this->assertStringContainsString( 'option_name LIKE %s', $wpdb->last_prepared[0] );
+		} finally {
+			$wpdb = $previous_wpdb;
 		}
 	}
 

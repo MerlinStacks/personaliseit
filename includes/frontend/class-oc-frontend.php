@@ -41,7 +41,6 @@ class OC_Frontend {
 
 		$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
 		if ( ! $assignment ) {
-			OC_Logger::info( "OC Frontend: no design assignment for product {$product_id}." );
 			return;
 		}
 
@@ -53,7 +52,6 @@ class OC_Frontend {
 
 		$context = $this->resolve_assignment_design( $assignment, $requested_design_id );
 		if ( ! $context ) {
-			OC_Logger::info( "OC Frontend: assignment for product {$product_id} has no active design with visible customisation content." );
 			return;
 		}
 		$design = $context['design'];

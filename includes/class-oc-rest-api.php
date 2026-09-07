@@ -2576,7 +2576,7 @@ class OC_Rest_API {
 			return self::private_preview_url( $decoded['id'], $existing );
 		}
 
-		$directory = OC_Upload_Handler::private_storage_path( 'previews' );
+		$directory = OC_Upload_Handler::private_storage_path( 'previews', true );
 		if ( null === $directory ) {
 			OC_Logger::error( 'Private preview storage is unavailable.' );
 			return new \WP_Error( 'preview_storage_unavailable', __( 'Preview storage is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
@@ -2713,7 +2713,7 @@ class OC_Rest_API {
 			return null;
 		}
 
-		$directory = OC_Upload_Handler::private_storage_path( 'previews' );
+		$directory = OC_Upload_Handler::private_storage_path( 'previews', true );
 		$path      = null !== $directory ? realpath( $directory . '/' . $record['file'] ) : false;
 		$file_hash = false !== $path && is_file( $path ) ? hash_file( 'sha256', $path ) : false;
 		if ( false === $path || ! is_file( $path ) || ! self::path_is_within( $path, $directory )

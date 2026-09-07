@@ -22,6 +22,7 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 		delete_transient( 'oc_openrouter_image_models_v2' );
 		delete_transient( 'oc_google_image_models_v1' );
 		delete_transient( 'oc_openai_image_models_v1' );
+		delete_option( 'oc_settings' );
 		parent::tearDown();
 	}
 
@@ -77,6 +78,61 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 		$models = OC_Admin_Settings::get_openrouter_image_models( true );
 
 		$this->assertSame( [ 'vendor/image-editor' => 'Image Editor' ], $models );
+	}
+
+	#[Test]
+	public function openrouter_discovery_failures_are_briefly_negative_cached_and_force_refresh_bypasses_them(): void {
+		$requests = 0;
+		$this->http_mock = static function ( $preempt, array $args, string $url ) use ( &$requests ): array|false {
+			if ( 'https://openrouter.ai/api/v1/models' !== $url ) {
+				return false;
+			}
+
+			++$requests;
+			return [
+				'response' => [ 'code' => 503 ],
+				'body'     => '',
+			];
+		};
+		add_filter( 'pre_http_request', $this->http_mock, 10, 3 );
+
+		$first  = OC_Admin_Settings::get_openrouter_image_models();
+		$second = OC_Admin_Settings::get_openrouter_image_models();
+
+		$this->assertSame( $first, $second );
+		$this->assertArrayHasKey( 'google/gemini-3.1-flash-image', $first );
+		$this->assertSame( [], get_transient( 'oc_openrouter_image_models_v2' ) );
+		$this->assertSame( 1, $requests );
+
+		OC_Admin_Settings::get_openrouter_image_models( true );
+		$this->assertSame( 2, $requests );
+	}
+
+	#[Test]
+	public function direct_provider_empty_discovery_is_negative_cached(): void {
+		$encrypt = ( new ReflectionClass( OC_Admin_Settings::class ) )->getMethod( 'encrypt_secret' );
+		update_option( 'oc_settings', [ 'google_api_key_enc' => $encrypt->invoke( null, 'test-key' ) ] );
+		$requests = 0;
+		$this->http_mock = static function ( $preempt, array $args, string $url ) use ( &$requests ): array|false {
+			if ( ! str_starts_with( $url, 'https://generativelanguage.googleapis.com/' ) ) {
+				return false;
+			}
+
+			++$requests;
+			return [
+				'response' => [ 'code' => 200 ],
+				'body'     => wp_json_encode( [ 'models' => [] ] ),
+			];
+		};
+		add_filter( 'pre_http_request', $this->http_mock, 10, 3 );
+
+		$first  = OC_Admin_Settings::get_ai_image_models( 'google' );
+		$second = OC_Admin_Settings::get_ai_image_models( 'google' );
+
+		$this->assertSame( $first, $second );
+		$this->assertArrayHasKey( 'gemini-3.1-flash-image', $first );
+		$this->assertSame( [], get_transient( 'oc_google_image_models_v1' ) );
+		$this->assertSame( 1, $requests );
 	}
 
 	#[Test]

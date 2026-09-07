@@ -368,7 +368,7 @@ foreach ( $layers as $layer ) {
 											<input type="range" id="oc-image-crop-<?php echo esc_attr( $layer->id ); ?>" min="0" max="100" step="1" value="0" disabled data-oc-layer-image-crop="<?php echo esc_attr( $layer->id ); ?>" aria-valuetext="<?php esc_attr_e( 'Fit image', 'overcustomise' ); ?>" />
 											<div class="oc-image-crop-labels" aria-hidden="true">
 												<span><?php esc_html_e( 'Fit image', 'overcustomise' ); ?></span>
-												<span><?php esc_html_e( 'Crop to subject', 'overcustomise' ); ?></span>
+												<span><?php esc_html_e( 'Fill area', 'overcustomise' ); ?></span>
 											</div>
 										</div>
 									<?php endif; ?>

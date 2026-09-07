@@ -13,6 +13,7 @@ class OC_Admin_Settings {
 	private const OPENROUTER_MODELS_TRANSIENT         = 'oc_openrouter_image_models_v2';
 	private const GOOGLE_MODELS_TRANSIENT             = 'oc_google_image_models_v1';
 	private const OPENAI_MODELS_TRANSIENT             = 'oc_openai_image_models_v1';
+	private const MODEL_DISCOVERY_FAILURE_TTL         = 10 * MINUTE_IN_SECONDS;
 	private const DEFAULT_OPENROUTER_IMAGE_MODEL      = 'google/gemini-3.1-flash-image';
 	private const DEFAULT_GOOGLE_IMAGE_MODEL          = 'gemini-3.1-flash-image';
 	private const DEFAULT_OPENAI_IMAGE_MODEL          = 'gpt-image-2';
@@ -162,14 +163,23 @@ class OC_Admin_Settings {
 		};
 	}
 
+	/** Return built-in model choices without making an external request. */
+	private static function get_static_ai_image_models( string $provider ): array {
+		return match ( $provider ) {
+			'google' => self::GOOGLE_IMAGE_MODELS,
+			'openai' => self::OPENAI_IMAGE_MODELS,
+			default  => self::OPENROUTER_IMAGE_MODELS,
+		};
+	}
+
 	/** Return account-available direct-provider models, cached with a verified fallback. */
 	private static function get_direct_provider_image_models( string $provider, bool $force_refresh ): array {
 		$fallback  = 'google' === $provider ? self::GOOGLE_IMAGE_MODELS : self::OPENAI_IMAGE_MODELS;
 		$transient = 'google' === $provider ? self::GOOGLE_MODELS_TRANSIENT : self::OPENAI_MODELS_TRANSIENT;
 		if ( ! $force_refresh ) {
 			$cached = get_transient( $transient );
-			if ( is_array( $cached ) && ! empty( $cached ) ) {
-				return $cached;
+			if ( is_array( $cached ) ) {
+				return ! empty( $cached ) ? $cached : $fallback;
 			}
 		}
 
@@ -182,6 +192,7 @@ class OC_Admin_Settings {
 			? self::fetch_google_image_models( $api_key )
 			: self::fetch_openai_image_models( $api_key );
 		if ( empty( $models ) ) {
+			set_transient( $transient, [], self::MODEL_DISCOVERY_FAILURE_TTL );
 			return $fallback;
 		}
 
@@ -321,13 +332,14 @@ class OC_Admin_Settings {
 	public static function get_openrouter_image_models( bool $force_refresh = false ): array {
 		if ( ! $force_refresh ) {
 			$cached = get_transient( self::OPENROUTER_MODELS_TRANSIENT );
-			if ( is_array( $cached ) && ! empty( $cached ) ) {
-				return $cached;
+			if ( is_array( $cached ) ) {
+				return ! empty( $cached ) ? $cached : self::OPENROUTER_IMAGE_MODELS;
 			}
 		}
 
 		$models = self::fetch_openrouter_image_models();
 		if ( empty( $models ) ) {
+			set_transient( self::OPENROUTER_MODELS_TRANSIENT, [], self::MODEL_DISCOVERY_FAILURE_TTL );
 			return self::OPENROUTER_IMAGE_MODELS;
 		}
 
@@ -388,16 +400,6 @@ class OC_Admin_Settings {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'overcustomise' ) );
 		}
 
-		// Handle save.
-		if ( isset( $_POST['oc_settings_nonce'] ) ) {
-			$this->save();
-		}
-
-		$s                           = self::get();
-		$image_models                = self::get_openrouter_image_models();
-		$providers                   = self::get_ai_image_providers();
-		$s['openrouter_image_model'] = self::get_openrouter_image_model();
-
 		$tabs = [
 			'general'    => __( 'General', 'overcustomise' ),
 			'files'      => __( 'File Management', 'overcustomise' ),
@@ -417,6 +419,29 @@ class OC_Admin_Settings {
 			$query_tab = sanitize_key( wp_unslash( $_GET['tab'] ) );
 			if ( isset( $tabs[ $query_tab ] ) ) {
 				$active_tab = $query_tab;
+			}
+		}
+
+		// Handle save after resolving the tab so only AI saves trigger post-save discovery.
+		if ( isset( $_POST['oc_settings_nonce'] ) ) {
+			$this->save();
+		}
+
+		$s         = self::get();
+		$providers = self::get_ai_image_providers();
+		$models    = [];
+		foreach ( array_keys( $providers ) as $provider_id ) {
+			$models[ $provider_id ] = 'ai' === $active_tab
+				? self::get_ai_image_models( $provider_id )
+				: self::get_static_ai_image_models( $provider_id );
+			$model_setting = $provider_id . '_image_model';
+			if ( ! isset( $models[ $provider_id ][ $s[ $model_setting ] ] ) ) {
+				if ( 'ai' === $active_tab || '' === (string) $s[ $model_setting ] ) {
+					$s[ $model_setting ] = (string) array_key_first( $models[ $provider_id ] );
+				} else {
+					// Preserve a previously discovered selection in hidden, non-AI tab fields.
+					$models[ $provider_id ][ $s[ $model_setting ] ] = $s[ $model_setting ];
+				}
 			}
 		}
 		?>
@@ -633,19 +658,19 @@ class OC_Admin_Settings {
 											'openrouter' => [
 												'label'  => 'OpenRouter',
 												'placeholder' => 'sk-or-v1-...',
-												'models' => $image_models,
+												'models' => $models['openrouter'],
 												'help'   => __( 'Image-capable models are fetched from OpenRouter and cached for 6 hours.', 'overcustomise' ),
 											],
 											'google'     => [
 												'label'  => 'Google Gemini',
 												'placeholder' => 'AIza...',
-												'models' => self::get_ai_image_models( 'google' ),
+												'models' => $models['google'],
 												'help'   => __( 'Fetched from the Gemini API and filtered to image-output models. Cached for 6 hours.', 'overcustomise' ),
 											],
 											'openai'     => [
 												'label'  => 'OpenAI',
 												'placeholder' => 'sk-...',
-												'models' => self::get_ai_image_models( 'openai' ),
+												'models' => $models['openai'],
 												'help'   => __( 'Fetched from your OpenAI account and filtered to stable GPT Image models. Cached for 6 hours.', 'overcustomise' ),
 											],
 										];
@@ -1037,11 +1062,9 @@ class OC_Admin_Settings {
 			$api_keys[ $key_setting ] = $encrypted;
 			$keys_changed             = $keys_changed || $clear_key || '' !== $posted_key;
 
-			$model_choices = self::get_ai_image_models( $provider_id );
-			$model         = sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) );
-			if ( ! isset( $model_choices[ $model ] ) ) {
-				$model = (string) array_key_first( $model_choices );
-			}
+			$current_model = (string) ( $current_settings[ $provider_id . '_image_model' ] ?? '' );
+			$model         = substr( sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) ), 0, 255 );
+			$model         = '' !== $model ? $model : $current_model;
 			$models[ $provider_id . '_image_model' ] = $model;
 		}
 

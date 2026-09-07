@@ -25,6 +25,9 @@ class OC_Upload_Handler {
 	private const ACCESS_URL_TTL                = DAY_IN_SECONDS;
 	private const STORAGE_VERSION               = 2;
 	private const FALLBACK_STORAGE_TOKEN_OPTION = 'oc_private_storage_token';
+	private const PROTECTION_MARKER_VERSION     = 1;
+	private const PROTECTION_MARKER_TTL         = DAY_IN_SECONDS;
+	private const PROTECTION_MARKER_PREFIX      = 'oc_storage_protection_';
 
 	/** Nonce action used to authenticate upload requests. */
 	public const NONCE_ACTION = 'oc_upload_artwork';
@@ -118,7 +121,7 @@ class OC_Upload_Handler {
 
 		$path = get_attached_file( $attachment_id );
 		$real = is_string( $path ) ? realpath( $path ) : false;
-		$base = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR );
+		$base = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR, true );
 		if ( false === $real || null === $base || ! is_file( $real ) || ! self::path_is_within( $real, $base ) ) {
 			return;
 		}
@@ -231,7 +234,7 @@ class OC_Upload_Handler {
 	 * create it, an unguessable, deny-protected uploads directory is used instead.
 	 * Explicitly configured or filtered paths remain fail-closed.
 	 */
-	public static function private_storage_root(): ?string {
+	public static function private_storage_root( bool $force_protection_check = false ): ?string {
 		$default_root = dirname( rtrim( ABSPATH, '/\\' ) ) . DIRECTORY_SEPARATOR
 			. '.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 );
 		$configured   = defined( 'OC_PRIVATE_STORAGE_ROOT' ) ? OC_PRIVATE_STORAGE_ROOT : $default_root;
@@ -245,7 +248,7 @@ class OC_Upload_Handler {
 			return null;
 		}
 
-		return self::protected_uploads_storage_root();
+		return self::protected_uploads_storage_root( $force_protection_check );
 	}
 
 	/** Validate and create a storage root, optionally deferring public-path checks to the caller. */
@@ -293,7 +296,7 @@ class OC_Upload_Handler {
 	}
 
 	/** Create a deny-protected fallback beneath uploads when no private parent is writable. */
-	private static function protected_uploads_storage_root(): ?string {
+	private static function protected_uploads_storage_root( bool $force_protection_check = false ): ?string {
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
 			return null;
@@ -312,7 +315,7 @@ class OC_Upload_Handler {
 			. '/.overcustomise-private-' . $token;
 		$root         = self::prepare_storage_root( $directory, true );
 		$uploads_real = rtrim( wp_normalize_path( $uploads_real ), '/' );
-		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root ) ) {
+		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root, $force_protection_check ) ) {
 			return null;
 		}
 
@@ -350,8 +353,8 @@ class OC_Upload_Handler {
 	}
 
 	/** Return a validated private subdirectory for other plugin components. */
-	public static function private_storage_path( string $subdirectory = '' ): ?string {
-		$root = self::private_storage_root();
+	public static function private_storage_path( string $subdirectory = '', bool $force_protection_check = false ): ?string {
+		$root = self::private_storage_root( $force_protection_check );
 		if ( null === $root ) {
 			return null;
 		}
@@ -372,7 +375,7 @@ class OC_Upload_Handler {
 		if ( false === $real || ! self::path_is_within( wp_normalize_path( $real ), $root ) ) {
 			return null;
 		}
-		if ( self::storage_path_uses_uploads_fallback( $root ) && ! self::protect_artwork_directory( $real ) ) {
+		if ( self::storage_path_uses_uploads_fallback( $root ) && ! self::protect_artwork_directory( $real, $force_protection_check ) ) {
 			return null;
 		}
 
@@ -381,30 +384,31 @@ class OC_Upload_Handler {
 	}
 
 	/** Protect the legacy root and migrate legacy artwork records in bounded batches. */
-	public static function ensure_private_storage(): void {
+	public static function ensure_private_storage( bool $force_protection_check = false, bool $run_migration = true ): void {
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
 			OC_Logger::warning( 'Legacy artwork storage could not be inspected.' );
 			return;
 		}
 
-		$legacy_directory = trailingslashit( (string) $uploads['basedir'] ) . self::UPLOAD_SUBDIR;
-		$uploads_real     = realpath( (string) $uploads['basedir'] );
-		$legacy_real      = is_dir( $legacy_directory ) ? realpath( $legacy_directory ) : false;
+		$legacy_directory  = trailingslashit( (string) $uploads['basedir'] ) . self::UPLOAD_SUBDIR;
+		$uploads_real      = realpath( (string) $uploads['basedir'] );
+		$legacy_real       = is_dir( $legacy_directory ) ? realpath( $legacy_directory ) : false;
+		$migration_pending = $run_migration && self::STORAGE_VERSION !== (int) get_option( 'oc_private_artwork_storage_version', 0 );
 		if ( false !== $legacy_real ) {
 			if ( false === $uploads_real || ! self::path_is_within( $legacy_real, $uploads_real ) ) {
 				OC_Logger::warning( 'Legacy customer artwork storage resolved outside the uploads root.' );
-			} elseif ( ! self::protect_artwork_directory( $legacy_real ) ) {
+			} elseif ( ! self::protect_artwork_directory( $legacy_real, $force_protection_check || $migration_pending ) ) {
 				OC_Logger::warning( 'Legacy customer artwork storage could not be protected.' );
 			}
 		}
 
-		$private_directory = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR );
+		$private_directory = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR, $force_protection_check || $migration_pending );
 		if ( null === $private_directory ) {
 			OC_Logger::warning( 'Private customer storage is unavailable.' );
 			return;
 		}
-		if ( self::STORAGE_VERSION === (int) get_option( 'oc_private_artwork_storage_version', 0 ) ) {
+		if ( ! $migration_pending ) {
 			return;
 		}
 		$limit        = 50;
@@ -2040,7 +2044,7 @@ class OC_Upload_Handler {
 		require_once ABSPATH . 'wp-admin/includes/file.php';
 		require_once ABSPATH . 'wp-admin/includes/media.php';
 
-		$subdir = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR );
+		$subdir = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR, true );
 		if ( null === $subdir ) {
 			OC_Logger::error( 'Private artwork root is unavailable while saving customer artwork.' );
 			return new \WP_Error( 'storage_unavailable', __( 'Private artwork storage is unavailable.', 'overcustomise' ) );
@@ -2112,7 +2116,18 @@ class OC_Upload_Handler {
 	}
 
 	/** Write deny rules for Apache/IIS and a non-listing fallback entry point. */
-	private static function protect_artwork_directory( string $directory ): bool {
+	private static function protect_artwork_directory( string $directory, bool $force_check = false ): bool {
+		$directory  = rtrim( wp_normalize_path( $directory ), '/' );
+		$marker_key = self::PROTECTION_MARKER_PREFIX . hash( 'sha256', $directory );
+		$marker     = get_option( $marker_key, [] );
+		if ( ! $force_check && is_array( $marker )
+			&& self::PROTECTION_MARKER_VERSION === (int) ( $marker['version'] ?? 0 )
+			&& hash_equals( hash( 'sha256', $directory ), (string) ( $marker['path'] ?? '' ) )
+			&& (int) ( $marker['verified_at'] ?? 0 ) > time() - self::PROTECTION_MARKER_TTL
+		) {
+			return true;
+		}
+
 		$files = [
 			'.htaccess'  => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
 			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
@@ -2125,12 +2140,21 @@ class OC_Upload_Handler {
 			}
 		}
 
+		update_option(
+			$marker_key,
+			[
+				'version'     => self::PROTECTION_MARKER_VERSION,
+				'path'        => hash( 'sha256', $directory ),
+				'verified_at' => time(),
+			],
+			false
+		);
 		return true;
 	}
 
 	/** Confirm a resolved attachment stays inside the private artwork root. */
 	private static function is_private_artwork_path( string $path ): bool {
-		$base = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR );
+		$base = self::private_storage_path( self::PRIVATE_ARTWORK_SUBDIR, true );
 		$real = realpath( $path );
 
 		return null !== $base && false !== $real && is_file( $real ) && self::path_is_within( wp_normalize_path( $real ), $base );

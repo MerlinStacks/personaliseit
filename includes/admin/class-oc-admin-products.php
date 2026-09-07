@@ -298,15 +298,7 @@ class OC_Admin_Products {
 		// Load active designs for the assignment dropdown.
 		$designs             = OC_DB::get_designs( true );
 		$design_thumbs       = $this->get_design_thumbnail_map( $designs );
-		$assigned_design_ids = [];
-		foreach ( OC_DB::get_all_assignments() as $product_assignments ) {
-			foreach ( $product_assignments as $assignment ) {
-				$design_id = absint( $assignment['design_id'] ?? 0 );
-				if ( $design_id ) {
-					$assigned_design_ids[ $design_id ] = true;
-				}
-			}
-		}
+		$assigned_design_ids = array_fill_keys( OC_DB::get_assigned_design_ids(), true );
 
 		// Load one page of published WC products.
 		$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );

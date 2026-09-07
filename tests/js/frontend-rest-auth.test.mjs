@@ -21,3 +21,11 @@ test( 'does not expose or send a WordPress REST nonce for guests', async () => {
 		/if \( this\.data\.requestToken \) \{\s*headers\[ 'X-OC-Token' \] = this\.data\.requestToken;/
 	);
 } );
+
+test( 'deduplicates concurrent request-token refreshes', async () => {
+	const jsSource = await readFile( 'src/frontend/customiser-app.js', 'utf8' );
+
+	assert.match( jsSource, /if \( this\._requestTokenPromise \)/ );
+	assert.match( jsSource, /this\._requestTokenPromise = tokenRequest;/ );
+	assert.match( jsSource, /async fetchRequestToken\(\)/ );
+} );

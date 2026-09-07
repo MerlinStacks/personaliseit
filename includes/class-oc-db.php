@@ -386,6 +386,7 @@ class OC_DB {
 			KEY status_id (status, id),
 			KEY status_created (status, created_at),
 			KEY status_due (status, processed_at, created_at, id),
+			KEY order_id (order_id),
 			KEY order_item_id (order_item_id)
 		) $charset;"
 		);
@@ -756,6 +757,7 @@ class OC_DB {
 				'status_id'      => [ false, [ 'status', 'id' ] ],
 				'status_created' => [ false, [ 'status', 'created_at' ] ],
 				'status_due'     => [ false, [ 'status', 'processed_at', 'created_at', 'id' ] ],
+				'order_id'       => [ false, [ 'order_id' ] ],
 				'order_item_id'  => [ false, [ 'order_item_id' ] ],
 			],
 			$wpdb->prefix . 'oc_image_filters'       => [
@@ -2051,6 +2053,25 @@ class OC_DB {
 		);
 	}
 
+	/** Fetch distinct default design IDs referenced by product assignments. */
+	public static function get_assigned_design_ids(): array {
+		return OC_Cache::remember(
+			'assigned_design_ids_v1',
+			static function (): array {
+				global $wpdb;
+				$design_ids = $wpdb->get_col(
+					"SELECT DISTINCT design_id FROM {$wpdb->prefix}oc_product_assignments WHERE design_id > 0"
+				);
+
+				return array_values(
+					array_unique(
+						array_filter( array_map( 'absint', is_array( $design_ids ) ? $design_ids : [] ) )
+					)
+				);
+			}
+		);
+	}
+
 	/** Fetch product design assignments for a specific set of parent product IDs. */
 	public static function get_assignments_for_product_ids( array $product_ids ): array {
 		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', $product_ids ) ) ) );
@@ -2303,6 +2324,25 @@ class OC_DB {
 			 ORDER BY created_at ASC, id ASC LIMIT 1",
 				$max_attempts,
 				current_time( 'mysql', true )
+			)
+		);
+	}
+
+	/** Return whether due pending or stale processing work needs queue maintenance. */
+	public static function has_queue_maintenance_work( string $stale_cutoff ): bool {
+		global $wpdb;
+		$now = current_time( 'mysql', true );
+
+		return (bool) $wpdb->get_var(
+			$wpdb->prepare(
+				"(SELECT id FROM {$wpdb->prefix}oc_print_queue
+				 WHERE status = 'pending' AND (processed_at IS NULL OR processed_at <= %s) LIMIT 1)
+				 UNION ALL
+				 (SELECT id FROM {$wpdb->prefix}oc_print_queue
+				 WHERE status = 'processing' AND (processed_at IS NULL OR processed_at <= %s) LIMIT 1)
+				 LIMIT 1",
+				$now,
+				$stale_cutoff
 			)
 		);
 	}

@@ -256,7 +256,7 @@ class OC_Plugin {
 
 	/** Output font declarations without using administrator labels as CSS identifiers. */
 	public static function output_font_face_css(): void {
-		if ( 'wp_head' === current_filter() && ! is_product() ) {
+		if ( 'wp_head' === current_filter() && ! wp_script_is( 'oc-customiser-app', 'enqueued' ) ) {
 			return;
 		}
 		if ( 'admin_head' === current_filter() ) {
@@ -427,10 +427,16 @@ class OC_Plugin {
 
 	public static function activate(): void {
 		require_once OC_PATH . 'includes/class-oc-db.php';
+		require_once OC_PATH . 'includes/class-oc-logger.php';
+		require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
+		require_once OC_PATH . 'includes/class-oc-upload-handler.php';
+		require_once OC_PATH . 'includes/print/class-oc-print-base.php';
 		require_once OC_PATH . 'includes/admin/class-oc-admin-mockups.php';
 		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
 		OC_DB::create_tables();
 		OC_DB::maybe_upgrade();
+		OC_Upload_Handler::ensure_private_storage( true, false );
+		OC_Print_Base::ensure_output_storage_protected( true );
 
 		// Register mockup taxonomy before flushing rules.
 		OC_Admin_Mockups::register_taxonomy();
@@ -549,6 +555,7 @@ class OC_Plugin {
 		if ( $uninstalling ) {
 			$prefixes[] = 'oc_private_preview_';
 			$prefixes[] = 'oc_budget_';
+			$prefixes[] = 'oc_storage_protection_';
 			self::delete_webhook_jobs();
 		}
 		$clauses = implode( ' OR ', array_fill( 0, count( $prefixes ), 'option_name LIKE %s' ) );

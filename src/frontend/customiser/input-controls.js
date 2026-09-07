@@ -595,6 +595,8 @@ const inputControlMethods = {
 				}
 				let searchTimer = null;
 				let searchSequence = 0;
+				let locationRequest = null;
+				const locationSearchCache = new Map();
 				let timezoneLookup = null;
 				let update = null;
 				import(
@@ -731,7 +733,9 @@ const inputControlMethods = {
 						option.addEventListener(
 							'click',
 							() => selectResult( result ),
-							{ signal: stateSignal }
+							{
+								signal: stateSignal,
+							}
 						);
 						resultsEl.appendChild( option );
 					} );
@@ -761,10 +765,27 @@ const inputControlMethods = {
 						fields.longitude.value = '';
 						update();
 						this.clearStateTimeout( searchTimer );
+						locationRequest?.controller.abort();
+						locationRequest?.release();
+						locationRequest = null;
 						const query = fields.locationLabel.value.trim();
+						const cacheKey = query.toLocaleLowerCase();
 						const sequence = ++searchSequence;
 						if ( query.length < 3 ) {
 							showResults( [] );
+							return;
+						}
+						if ( locationSearchCache.has( cacheKey ) ) {
+							const cachedResults =
+								locationSearchCache.get( cacheKey );
+							if ( cachedResults.length ) {
+								showResults( cachedResults );
+							} else {
+								showResultStatus(
+									resultsEl.dataset.emptyLabel ||
+										'No matching addresses found.'
+								);
+							}
 							return;
 						}
 						showResultStatus(
@@ -772,8 +793,14 @@ const inputControlMethods = {
 							true
 						);
 						searchTimer = this.setStateTimeout( async () => {
+							const request =
+								this.createStateAbortController( 12000 );
+							locationRequest = request;
 							try {
 								await this.ensureRequestToken();
+								if ( request.controller.signal.aborted ) {
+									return;
+								}
 								const response = await fetch(
 									this.data.locationLookupUrl,
 									{
@@ -788,20 +815,26 @@ const inputControlMethods = {
 											query,
 											limit: 6,
 										} ),
-										signal: stateSignal,
+										signal: request.controller.signal,
 									}
 								);
 								if ( ! response.ok ) {
 									throw new Error( 'Location lookup failed' );
 								}
 								const payload = await response.json();
+								let results = [];
+								if ( Array.isArray( payload?.results ) ) {
+									results = payload.results;
+								} else if ( payload?.result ) {
+									results = [ payload.result ];
+								}
+								locationSearchCache.set( cacheKey, results );
+								if ( locationSearchCache.size > 20 ) {
+									locationSearchCache.delete(
+										locationSearchCache.keys().next().value
+									);
+								}
 								if ( sequence === searchSequence ) {
-									let results = [];
-									if ( Array.isArray( payload?.results ) ) {
-										results = payload.results;
-									} else if ( payload?.result ) {
-										results = [ payload.result ];
-									}
 									if ( results.length ) {
 										showResults( results );
 									} else {
@@ -820,6 +853,11 @@ const inputControlMethods = {
 										resultsEl.dataset.errorLabel ||
 											'Address search is unavailable.'
 									);
+								}
+							} finally {
+								request.release();
+								if ( locationRequest === request ) {
+									locationRequest = null;
 								}
 							}
 						}, 350 );
@@ -1257,37 +1295,38 @@ const inputControlMethods = {
 					this.inputs[ lid ] = {};
 				}
 				this.updateImageCropControl( lid );
-				el.addEventListener(
-					'input',
-					() => {
-						const imageCrop = Math.max(
-							0,
-							Math.min( 100, parseInt( el.value, 10 ) || 0 )
-						);
-						this.inputs[ lid ].imageCrop = imageCrop;
-						this.syncLinkedLayerInput( lid, [ 'imageCrop' ], {
-							redraw: false,
-						} );
-						this.updateImageCropControl( lid );
-						this.requestPreviewFocus();
-						const layerIds = this.linkedLayerMembers( lid );
-						const updatedLayerIds = this.updateRenderedImageCrop(
-							layerIds,
-							imageCrop
-						);
-						layerIds
-							.filter(
-								( layerId ) => ! updatedLayerIds.has( layerId )
-							)
-							.forEach( ( layerId ) =>
-								this.scheduleRedraw(
-									this.areaIndexForLayer( layerId )
-								)
-							);
-						this.updateHiddenField();
-					},
-					{ signal: stateSignal }
-				);
+				const updateImagePlacement = () => {
+					const imageCrop = Math.max(
+						0,
+						Math.min( 100, parseInt( el.value, 10 ) || 0 )
+					);
+					this.inputs[ lid ].imageCrop = imageCrop;
+					this.syncLinkedLayerInput( lid, [ 'imageCrop' ], {
+						redraw: false,
+					} );
+					this.updateImageCropControl( lid );
+					this.requestPreviewFocus();
+					const layerIds = this.linkedLayerMembers( lid );
+					this.updateRenderedImageCrop( layerIds, imageCrop );
+					// The direct Fabric update keeps dragging responsive. Always queue an
+					// authoritative redraw too: an in-flight image/filter render can otherwise
+					// replace the updated object with stale placement geometry.
+					new Set(
+						layerIds.map( ( layerId ) =>
+							this.areaIndexForLayer( layerId )
+						)
+					).forEach( ( areaIndex ) =>
+						this.scheduleRedraw( areaIndex )
+					);
+					this.updateHiddenField();
+				};
+				el.addEventListener( 'input', updateImagePlacement, {
+					signal: stateSignal,
+				} );
+				// Some browsers/input methods only commit range changes on `change`.
+				el.addEventListener( 'change', updateImagePlacement, {
+					signal: stateSignal,
+				} );
 			} );
 
 		// Clipart items
@@ -1859,7 +1898,7 @@ const inputControlMethods = {
 		}
 		const payload = {};
 		LINKED_IMAGE_INPUT_KEYS.forEach( ( key ) => {
-			if ( key !== 'imageCrop' && input[ key ] !== undefined ) {
+			if ( input[ key ] !== undefined ) {
 				payload[ key ] = input[ key ];
 			}
 		} );
@@ -1927,7 +1966,6 @@ const inputControlMethods = {
 	carriedImageForLayer( layer, carried ) {
 		const payload = JSON.parse( JSON.stringify( carried || {} ) );
 		delete payload.context;
-		payload.imageCrop = 0;
 		const filterId = Number( payload.imageFilterId || 0 );
 		const allowedFilters = Array.isArray( layer.settings?.image_filter_ids )
 			? layer.settings.image_filter_ids.map( Number )
@@ -2374,7 +2412,7 @@ const inputControlMethods = {
 		if ( amount === 0 ) {
 			valueText = 'Fit image';
 		} else if ( amount === 100 ) {
-			valueText = 'Crop to subject';
+			valueText = 'Fill area';
 		}
 		range.setAttribute( 'aria-valuetext', valueText );
 	},
@@ -2639,6 +2677,16 @@ const inputControlMethods = {
 				if ( imageFilterEl ) {
 					input.imageFilterId =
 						parseInt( imageFilterEl.value, 10 ) || 0;
+				}
+
+				const imageCropEl = document.querySelector(
+					`[data-oc-layer-image-crop="${ layerId }"]`
+				);
+				if ( imageCropEl ) {
+					input.imageCrop = Math.max(
+						0,
+						Math.min( 100, parseInt( imageCropEl.value, 10 ) || 0 )
+					);
 				}
 			} );
 		} );

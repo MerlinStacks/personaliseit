@@ -61,6 +61,12 @@ class UploadHandlerReflector {
 		return $m->invoke( null );
 	}
 
+	public static function protect_artwork_directory( string $directory, bool $force = false ): bool {
+		$m = self::rc()->getMethod( 'protect_artwork_directory' );
+		$m->setAccessible( true );
+		return $m->invoke( null, $directory, $force );
+	}
+
 	public static function jpeg_exif_orientation( string $path ): int {
 		$m = self::rc()->getMethod( 'jpeg_exif_orientation' );
 		$m->setAccessible( true );
@@ -175,6 +181,24 @@ class Test_Upload_Handler_Validation extends TestCase {
 			@unlink( $root . '/' . $filename );
 		}
 		@rmdir( $root );
+	}
+
+	#[Test]
+	public function protection_marker_skips_ordinary_reads_but_forced_checks_repair_rules(): void {
+		$directory = sys_get_temp_dir() . '/oc-protection-' . bin2hex( random_bytes( 6 ) );
+		mkdir( $directory, 0755, true );
+		$this->assertTrue( UploadHandlerReflector::protect_artwork_directory( $directory, true ) );
+		file_put_contents( $directory . '/.htaccess', 'changed' );
+
+		$this->assertTrue( UploadHandlerReflector::protect_artwork_directory( $directory ) );
+		$this->assertSame( 'changed', file_get_contents( $directory . '/.htaccess' ) );
+		$this->assertTrue( UploadHandlerReflector::protect_artwork_directory( $directory, true ) );
+		$this->assertStringContainsString( 'Require all denied', (string) file_get_contents( $directory . '/.htaccess' ) );
+
+		foreach ( [ '.htaccess', 'web.config', 'index.php' ] as $filename ) {
+			@unlink( $directory . '/' . $filename );
+		}
+		@rmdir( $directory );
 	}
 
 	// ── MIME detection — SVG fallback ─────────────────────────────────────

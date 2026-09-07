@@ -115,6 +115,20 @@ if ( ! function_exists( 'add_option' ) ) {
 	}
 }
 
+if ( ! function_exists( 'update_option' ) ) {
+	function update_option( string $option, mixed $value, ?bool $autoload = null ): bool {
+		$GLOBALS['oc_test_options'][ $option ] = $value;
+		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_option' ) ) {
+	function delete_option( string $option ): bool {
+		unset( $GLOBALS['oc_test_options'][ $option ] );
+		return true;
+	}
+}
+
 if ( ! function_exists( 'wp_generate_password' ) ) {
 	function wp_generate_password( int $length = 12, bool $special_chars = true, bool $extra_special_chars = false ): string {
 		return substr( bin2hex( random_bytes( (int) ceil( $length / 2 ) ) ), 0, $length );

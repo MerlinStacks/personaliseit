@@ -2165,9 +2165,12 @@ class OC_Cart {
 
 		echo '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #dcdcde;">';
 		echo '<div style="margin:0 0 6px;font-weight:600;color:#1d2327;">' . esc_html__( 'Print Files', 'overcustomise' ) . '</div>';
+		$queue_statuses = OC_Print_Queue::instance()->get_statuses(
+			array_map( static fn ( object $file ): int => (int) $file->id, $print_files )
+		);
 		foreach ( $print_files as $file ) {
 			$status_label = ucfirst( str_replace( '_', ' ', (string) $file->file_status ) );
-			$queue_info   = OC_Print_Queue::instance()->get_status( (int) $file->id );
+			$queue_info   = $queue_statuses[ (int) $file->id ] ?? [ 'found' => false ];
 			echo '<div style="margin-top:6px;padding:8px;background:#f6f7f7;border:1px solid #dcdcde;border-radius:4px;">';
 			echo '<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">';
 			echo '<div><span style="font-weight:600;color:#1d2327;">' . esc_html( ucfirst( str_replace( '_', ' ', (string) $file->file_type ) ) ) . '</span> '

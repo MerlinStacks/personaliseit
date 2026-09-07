@@ -173,7 +173,22 @@ class OC_Webhooks {
 		$limit  = is_numeric( $limit ) ? max( 1, min( 100, (int) $limit ) ) : self::RECOVERY_BATCH_SIZE;
 		$like   = $wpdb->esc_like( self::JOB_PREFIX ) . '%';
 		$cursor = max( 0, (int) get_option( self::RECOVERY_CURSOR_OPTION, 0 ) );
-		$rows   = $wpdb->get_results(
+		if ( 0 === $cursor ) {
+			$first_job = $wpdb->get_var(
+				$wpdb->prepare(
+					"SELECT option_id FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 1",
+					$like
+				)
+			);
+			if ( '' !== (string) $wpdb->last_error ) {
+				OC_Logger::warning( 'Webhook recovery could not check for durable delivery jobs.' );
+				return 0;
+			}
+			if ( ! $first_job ) {
+				return 0;
+			}
+		}
+		$rows = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT option_id, option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s AND option_id > %d ORDER BY option_id ASC LIMIT %d",
 				$like,

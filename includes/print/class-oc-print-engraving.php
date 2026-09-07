@@ -343,7 +343,9 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$dpi = max( 72, min( 2400, (int) ( $profile['dpi'] ?? 600 ) ) );
 		return self::bounded_work_dimensions(
 			max( 1, (int) ceil( $width_mm / 25.4 * $dpi ) ),
-			max( 1, (int) ceil( $height_mm / 25.4 * $dpi ) )
+			max( 1, (int) ceil( $height_mm / 25.4 * $dpi ) ),
+			self::MAX_RASTER_DIMENSION,
+			self::MAX_RASTER_PIXELS
 		);
 	}
 
@@ -473,7 +475,8 @@ class OC_Print_Engraving extends OC_Print_Base {
 			default => false,
 		};
 
-		return $image ? self::bounded_gd_resource( $image, self::MAX_WORK_RASTER_DIMENSION, self::MAX_WORK_RASTER_PIXELS ) : false;
+		// Keep all safe source pixels until the single final-size engraving resample.
+		return $image ? $image : false;
 	}
 
 	/** Rasterise SVG with a transparent background before material conversion. */

@@ -23,7 +23,7 @@ define( 'OC_FILE', __FILE__ );
 define( 'OC_PATH', plugin_dir_path( __FILE__ ) );
 define( 'OC_URL', plugin_dir_url( __FILE__ ) );
 define( 'OC_ASSETS_URL', OC_URL . 'assets/build/' );
-define( 'OC_DB_VERSION', '1.16.1' );
+define( 'OC_DB_VERSION', '1.16.2' );
 
 /** Return the bundled Composer autoloader path. */
 function oc_composer_autoload_path(): string {

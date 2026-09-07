@@ -237,6 +237,42 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 	}
 
 	#[Test]
+	public function artwork_cleanup_batches_wildcard_reference_scans(): void {
+		global $wpdb;
+		$method        = new ReflectionMethod( OC_File_Cleanup::class, 'customer_artwork_batch_references' );
+		$session_table = $wpdb->prefix . 'woocommerce_sessions';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $session_table ) ) !== $session_table ) {
+			$this->markTestSkipped( 'WooCommerce sessions table is unavailable.' );
+		}
+		$wpdb->insert(
+			$session_table,
+			[
+				'session_key'    => 'oc-cleanup-batch-test',
+				'session_value'  => serialize( [ 'cart' => [ [ 'attachmentId' => 551234 ] ] ] ),
+				'session_expiry' => time() + HOUR_IN_SECONDS,
+			]
+		);
+		$regexp_queries = 0;
+		$show_queries   = 0;
+		$query_filter   = static function ( string $query ) use ( &$regexp_queries, &$show_queries ): string {
+			$regexp_queries += str_contains( $query, ' REGEXP ' ) ? 1 : 0;
+			$show_queries   += str_starts_with( trim( $query ), 'SHOW TABLES' ) ? 1 : 0;
+			return $query;
+		};
+		add_filter( 'query', $query_filter );
+		try {
+			$references = $method->invoke( null, [ 551234, 551235 ] );
+			$this->assertArrayHasKey( 551234, $references );
+			$this->assertArrayNotHasKey( 551235, $references );
+			$this->assertSame( 3, $regexp_queries );
+			$this->assertLessThanOrEqual( 1, $show_queries );
+		} finally {
+			remove_filter( 'query', $query_filter );
+			$wpdb->delete( $session_table, [ 'session_key' => 'oc-cleanup-batch-test' ] );
+		}
+	}
+
+	#[Test]
 	public function preview_reference_query_failure_retains_the_whole_batch(): void {
 		global $wpdb;
 		$filter = static function ( string $query ): string {

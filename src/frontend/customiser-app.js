@@ -156,6 +156,7 @@ class OCCustomiser {
 		this._stateTimers = new Set();
 		this._stateAnimationFrames = new Set();
 		this._panelListenerController = null;
+		this._requestTokenPromise = null;
 		this.fontCache = {}; // font family/weight/style/URL -> load Promise
 		this.clipartSvgCache = {};
 		this.galleryImg = null; // the main <img> in the product gallery
@@ -436,9 +437,24 @@ class OCCustomiser {
 		if ( ! this.data.requestTokenUrl ) {
 			return;
 		}
+		if ( this._requestTokenPromise ) {
+			return this._requestTokenPromise;
+		}
 		this.data.requestToken = '';
 		this.data.requestTokenExpiresAt = 0;
 
+		const tokenRequest = this.fetchRequestToken();
+		this._requestTokenPromise = tokenRequest;
+		try {
+			return await tokenRequest;
+		} finally {
+			if ( this._requestTokenPromise === tokenRequest ) {
+				this._requestTokenPromise = null;
+			}
+		}
+	}
+
+	async fetchRequestToken() {
 		const request = this.createStateAbortController( 12000 );
 		try {
 			const response = await fetch( this.data.requestTokenUrl, {
