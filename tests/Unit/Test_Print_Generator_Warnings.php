@@ -64,7 +64,10 @@ class Test_Print_Generator_Warnings extends TestCase {
 
 	#[Test]
 	public function regeneration_restores_in_place_output_when_commit_fails(): void {
-		$path  = tempnam( sys_get_temp_dir(), 'oc-regeneration-' );
+		$directory = OC_Upload_Handler::private_storage_path( 'print-files', true );
+		$this->assertIsString( $directory );
+		$path = tempnam( $directory, 'oc-regeneration-' );
+		$this->assertIsString( $path );
 		$thumb = $path . '-thumb.png';
 		file_put_contents( $path, 'original output' );
 		file_put_contents( $thumb, 'original thumbnail' );

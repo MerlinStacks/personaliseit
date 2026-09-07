@@ -458,6 +458,8 @@ class Test_Print_Base extends TestCase {
 			throw $e;
 		}
 
+		// TCPDF 7 resolves custom array dimensions when the page is started.
+		$pdf->AddPage();
 		$this->assertGreaterThan( $pdf->getPageHeight(), $pdf->getPageWidth() );
 		$this->assertEqualsWithDelta( 126.0, $pdf->getPageWidth(), 0.001 );
 		$this->assertEqualsWithDelta( 46.0, $pdf->getPageHeight(), 0.001 );
