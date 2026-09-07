@@ -277,8 +277,11 @@ foreach ( [ 'storage_http_protection_unverified', 'storage_http_verification_blo
 	ob_start();
 	OC_System_Status::readiness_notice();
 	$notice = ob_get_clean();
-	$warning_label = 'storage_http_protection_unverified' === $code ? 'Direct file access protection: Not verified' : $code;
-	expect( str_contains( $notice, $warning_label ) && str_contains( $notice, 'Storage is unavailable.' ) && str_contains( $notice, 'missing HTTP evidence alone is not a blocker' ), 'actual filesystem failure blocks, not missing HTTP proof' );
+	if ( 'storage_http_protection_unverified' === $code ) {
+		expect( ! str_contains( $notice, 'Direct file access protection' ) && str_contains( $notice, 'Storage is unavailable.' ) && str_contains( $notice, 'missing HTTP evidence alone is not a blocker' ), 'actual filesystem failure is shown without the persistent HTTP advisory' );
+	} else {
+		expect( str_contains( $notice, $code ) && str_contains( $notice, 'Storage is unavailable.' ) && str_contains( $notice, 'missing HTTP evidence alone is not a blocker' ), 'actual filesystem failure blocks, not missing HTTP proof' );
+	}
 	if ( 'storage_evidence_revoked' === $code ) {
 		expect( str_contains( $notice, 'affected root' ) && str_contains( $notice, 'Automatic selection can use the fallback' ), 'contradiction is root-specific with automatic fallback' );
 	}
@@ -305,9 +308,7 @@ expect( 13 === count( array_filter( array_keys( $checks ), static fn ( string $k
 ob_start();
 OC_System_Status::readiness_notice();
 $notice = ob_get_clean();
-foreach ( [ 'Automatic storage is operational; direct HTTP protection has not been verified.', 'Apache/IIS', 'not proof', 'Nginx', 'overrides disabled', 'public static files', 'does not pause print', 'no HTTP probes' ] as $guidance ) {
-	expect( str_contains( $notice, $guidance ), 'operational warning explains HTTP security separately: ' . $guidance );
-}
+expect( '' === $notice, 'nonblocking HTTP advisory does not create a persistent admin notice' );
 OC_Storage_Upgrade::$messages = [];
 expect( [] === OC_System_Status::readiness_report( true )['storage_upgrade'], 'fresh report does not retain obsolete request-local warnings' );
 $options['oc_db_version'] = '0';

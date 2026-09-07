@@ -189,7 +189,13 @@ class OC_System_Status {
 		}
 		$report = self::readiness_report();
 		$states = self::readiness_display_states( $report );
-		$failed = array_filter( $states, static fn ( array $state ): bool => 'ready' !== $state['status'] );
+		// Keep the informational HTTP advisory in System Status without showing an
+		// admin-wide warning that rechecking cannot resolve.
+		$failed = array_filter(
+			$states,
+			static fn ( array $state, string $key ): bool => 'ready' !== $state['status'] && 'storage_http_protection_unverified' !== $key,
+			ARRAY_FILTER_USE_BOTH
+		);
 		if ( empty( $failed ) ) {
 			return;
 		}

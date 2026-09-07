@@ -102,8 +102,10 @@ suffixes are never copied into the cache or rendered. Unknown messages become
 - `relocation_source_retained`: a private copy was published but the old source
   remains. Arrange reference-safe cleanup and old-location HTTP denial/CDN purge.
 
-These diagnostics appear as warnings in notices and System Status; they do not
-add a blanket print pause or disable unrelated resources. Reports are request-local
+These diagnostics appear as warnings in notices and System Status, except
+`storage_http_protection_unverified`, which remains visible in System Status but
+does not create a persistent global admin notice. They do not add a blanket print
+pause or disable unrelated resources. Reports are request-local
 in the storage helper, so readiness captures only diagnostics available during
 that build, not a durable relocation inventory or proof that all sources moved.
 Readiness itself does not invoke relocation, scan legacy records or delete sources.
