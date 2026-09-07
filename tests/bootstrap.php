@@ -37,6 +37,11 @@ if ( ! defined( 'OC_PATH' ) ) {
 	define( 'OC_PATH', dirname( __DIR__ ) . '/' );
 }
 
+// Test discovery can autoload TCPDF before make_pdf() configures its font root.
+if ( ! defined( 'K_PATH_FONTS' ) ) {
+	define( 'K_PATH_FONTS', OC_PATH . 'vendor/tecnickcom/tc-lib-pdf-font/target/fonts/' );
+}
+
 if ( ! defined( 'OC_VERSION' ) ) {
 	define( 'OC_VERSION', '1.0.0-test' );
 }
@@ -45,6 +50,34 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 }
 if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 	define( 'DAY_IN_SECONDS', 86400 );
+}
+
+// CLI/CI can inherit DOCUMENT_ROOT="/". Model this test site's actual root,
+// rather than accidentally treating every temporary fixture as publicly served.
+$_SERVER['DOCUMENT_ROOT'] = ABSPATH;
+
+if ( ! function_exists( 'get_current_blog_id' ) ) {
+	function get_current_blog_id(): int {
+		return $GLOBALS['oc_test_current_blog_id'] ?? 1;
+	}
+}
+
+if ( ! function_exists( 'home_url' ) ) {
+	function home_url( string $path = '', ?string $scheme = null ): string {
+		return 'http://example.com' . ( '' !== $path ? '/' . ltrim( $path, '/' ) : '' );
+	}
+}
+
+if ( ! function_exists( 'site_url' ) ) {
+	function site_url( string $path = '', ?string $scheme = null ): string {
+		return home_url( $path, $scheme );
+	}
+}
+
+if ( ! function_exists( 'wp_salt' ) ) {
+	function wp_salt( string $scheme = 'auth' ): string {
+		return 'audit-test-salt';
+	}
 }
 
 // Stub commonly used WP functions so unit tests don't need a WP environment.
@@ -305,7 +338,7 @@ if ( ! function_exists( 'get_post_mime_type' ) ) {
 	}
 }
 if ( ! function_exists( 'get_current_user_id' ) ) {
-	function get_current_user_id(): int { return 0; }
+	function get_current_user_id(): int { return $GLOBALS['oc_test_current_user_id'] ?? 0; }
 }
 if ( ! function_exists( 'wp_get_attachment_url' ) ) {
 	function wp_get_attachment_url( int $id ): string { return ''; }

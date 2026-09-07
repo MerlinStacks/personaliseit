@@ -158,6 +158,9 @@ expect( null !== OC_System_Status::cached_readiness_report(), 'unexpired report 
 $wpdb->engines = [ 'oc_print_queue' => 'MyISAM' ];
 $report = OC_System_Status::readiness_report( true );
 expect( 'ready' === $report['schema'] && 'ready' === $report['migration'] && $report['print_retry_pause'], 'current schema is not engine readiness' );
+$checks = array_column( OC_System_Status::checks(), null, 'key' );
+expect( ! $checks['readiness_transactions_print']['available'] && str_contains( $checks['readiness_transactions_print']['version'], 'oc_print_queue' ), 'grouped transaction failure identifies its affected table' );
+expect( ! isset( $checks['readiness_oc_print_queue'] ), 'grouped transaction failure replaces individual table rows' );
 $wpdb->engines = [ 'oc_colours' => 'MyISAM' ];
 $wpdb->missing = 'wp_oc_fonts';
 $report = OC_System_Status::readiness_report( true );
@@ -290,6 +293,9 @@ expect( ! in_array( false, $report['resources'], true ) && array_fill_keys( [ 'a
 expect( ! $report['print_retry_pause'] && [ 'storage_http_protection_unverified' => 'storage_http_protection_unverified' ] === $report['storage_upgrade'], 'operational automatic storage warns without pausing print' );
 $checks = array_column( OC_System_Status::checks(), null, 'key' );
 expect( ! $checks['readiness_storage_http_protection_unverified']['required'] && ! $checks['readiness_storage_http_protection_unverified']['available'], 'HTTP warning is visible and nonblocking in System Status' );
+expect( isset( $checks['readiness_transactions_print'], $checks['readiness_transactions_designs'], $checks['readiness_storage_print-files'] ), 'readiness checks are grouped by resource' );
+expect( ! isset( $checks['readiness_oc_print_files'], $checks['readiness_oc_designs'] ), 'individual transaction tables do not create repetitive System Status rows' );
+expect( 13 === count( array_filter( array_keys( $checks ), static fn ( string $key ): bool => str_starts_with( $key, 'readiness_' ) ) ), 'healthy readiness UI has twelve grouped checks plus the current warning' );
 ob_start();
 OC_System_Status::readiness_notice();
 $notice = ob_get_clean();

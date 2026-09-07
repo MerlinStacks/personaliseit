@@ -18,10 +18,16 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 require_once OC_PATH . 'includes/class-oc-autosave.php';
 
 class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\TestCase {
-	private mixed $previous_wpdb;
+	private array $previous_globals = [];
 
 	protected function setUp(): void {
-		$this->previous_wpdb = $GLOBALS['wpdb'] ?? null;
+		parent::setUp();
+		foreach ( [ 'wpdb', 'oc_test_current_user_id', 'oc_test_options', 'oc_test_transients', 'oc_test_transient_expirations', 'oc_test_transient_on_read' ] as $name ) {
+			$this->previous_globals[ $name ] = [ array_key_exists( $name, $GLOBALS ), $GLOBALS[ $name ] ?? null ];
+		}
+		// Model the logged-in administrator making the autosave request.
+		$GLOBALS['oc_test_current_user_id'] = 1;
+		$GLOBALS['oc_test_options'] = [];
 		$GLOBALS['wpdb'] = new class {
 			public array $locks = [];
 			public int $lock_attempts = 0;
@@ -54,8 +60,14 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 	}
 
 	protected function tearDown(): void {
-		$GLOBALS['wpdb'] = $this->previous_wpdb;
-		$GLOBALS['oc_test_transient_on_read'] = null;
+		foreach ( $this->previous_globals as $name => [ $existed, $value ] ) {
+			if ( $existed ) {
+				$GLOBALS[ $name ] = $value;
+			} else {
+				unset( $GLOBALS[ $name ] );
+			}
+		}
+		$this->previous_globals = [];
 		parent::tearDown();
 	}
 
@@ -142,6 +154,7 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 	}
 
 	public function test_stale_revision_cannot_replace_newer_one_and_ttl_is_one_day(): void {
+		$this->assertSame( 1, get_current_user_id() );
 		$method = new ReflectionMethod( OC_Autosave::class, 'store_for_key' );
 		$key    = 'oc_autosave_test_revision';
 		$first  = $this->complete_state();
@@ -149,6 +162,7 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$newer['design']['name'] = 'Newer name';
 
 		$stored = $method->invoke( null, $key, $first, 1, 0 );
+		$legacy = $GLOBALS['oc_test_transients'][ $key ];
 		$stale  = $method->invoke( null, $key, $newer, 1, 0 );
 
 		$this->assertSame( 'stored', $stored['status'] );
@@ -156,10 +170,38 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$this->assertSame( 'conflict', $stale['status'] );
 		$this->assertSame( 1, $stale['revision'] );
 		$this->assertSame( 'Autosaved design', $GLOBALS['oc_test_transients'][ $key ]['state']['design']['name'] );
+		$this->assertSame( [], $GLOBALS['oc_test_options'] );
+		$this->assertArrayNotHasKey( 'baseRevision', $legacy['state']['design'] );
 
 		$next = $method->invoke( null, $key, $newer, 2, 1 );
 		$this->assertSame( 'stored', $next['status'] );
+		$this->assertSame( 2, $next['revision'] );
 		$this->assertSame( 'Newer name', $GLOBALS['oc_test_transients'][ $key ]['state']['design']['name'] );
+		$this->assertSame( 86400, $GLOBALS['oc_test_transient_expirations'][ $key ] );
+		$token = hash( 'sha256', wp_json_encode( $legacy ) );
+		$this->assertSame( [ 'oc_recovery_1_' . $token => $legacy ], $GLOBALS['oc_test_options'] );
+		$this->assertSame( $legacy, OC_Autosave::recovery( $token ) );
+		$this->assertSame( [], $GLOBALS['wpdb']->locks );
+	}
+
+	public function test_anonymous_replacement_preserves_legacy_autosave_when_recovery_fails(): void {
+		$method = new ReflectionMethod( OC_Autosave::class, 'store_for_key' );
+		$key = 'oc_autosave_test_anonymous';
+		$state = $this->complete_state();
+		$this->assertSame( 'stored', $method->invoke( null, $key, $state, 1, 0 )['status'] );
+		$legacy = $GLOBALS['oc_test_transients'][ $key ];
+		$expirations = $GLOBALS['oc_test_transient_expirations'];
+		$GLOBALS['oc_test_current_user_id'] = 0;
+		$this->assertSame( 0, get_current_user_id() );
+		$state['design']['name'] = 'Anonymous replacement';
+
+		$result = $method->invoke( null, $key, $state, 2, 1 );
+
+		$this->assertSame( [ 'status' => 'failed', 'timestamp' => $legacy['timestamp'], 'revision' => 1 ], $result );
+		$this->assertSame( $legacy, $GLOBALS['oc_test_transients'][ $key ] );
+		$this->assertSame( $expirations, $GLOBALS['oc_test_transient_expirations'] );
+		$this->assertSame( [], $GLOBALS['oc_test_options'] );
+		$this->assertSame( [], $GLOBALS['wpdb']->locks );
 	}
 
 	public function test_concurrent_compare_and_set_cannot_enter_the_same_revision_lock(): void {

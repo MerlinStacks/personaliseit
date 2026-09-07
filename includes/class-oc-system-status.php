@@ -10,6 +10,14 @@ defined( 'ABSPATH' ) || exit;
 class OC_System_Status {
 	private const READINESS_CACHE = 'oc_compatibility_readiness_v4';
 	private const READINESS_TTL = 300;
+	private const TRANSACTION_RESOURCES = [
+		'print'   => [ 'oc_print_files', 'oc_print_queue' ],
+		'designs' => [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers', 'oc_product_assignments', 'oc_vdp_templates', 'oc_vdp_fields' ],
+		'fonts'   => [ 'oc_font_groups', 'oc_font_group_items' ],
+		'colours' => [ 'oc_colours', 'oc_colour_groups', 'oc_colour_group_items' ],
+		'clipart' => [ 'oc_clipart_groups', 'oc_clipart_group_items' ],
+		'tokens'  => [ 'options' ],
+	];
 
 	/** Read cached diagnostics only. Null means unknown, not a blanket instruction to pause. */
 	public static function cached_readiness_report(): ?array {
@@ -35,14 +43,7 @@ class OC_System_Status {
 		}
 		$installed = (string) get_option( 'oc_db_version', '0' );
 
-		$resources = [
-			'print' => [ 'oc_print_files', 'oc_print_queue' ],
-			'designs' => [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers', 'oc_product_assignments', 'oc_vdp_templates', 'oc_vdp_fields' ],
-			'fonts' => [ 'oc_font_groups', 'oc_font_group_items' ],
-			'colours' => [ 'oc_colours', 'oc_colour_groups', 'oc_colour_group_items' ],
-			'clipart' => [ 'oc_clipart_groups', 'oc_clipart_group_items' ],
-			'tokens' => [ 'options' ],
-		];
+		$resources = self::TRANSACTION_RESOURCES;
 		$tables = OC_DB::transaction_readiness( array_merge( ...array_values( $resources ) ) );
 		$report = [
 			'checked_at' => time(),
@@ -129,20 +130,68 @@ class OC_System_Status {
 		};
 	}
 
+	/**
+	 * Collapse table-level evidence into concise, resource-level admin rows.
+	 *
+	 * The complete table results remain in the cached report for operation guards and
+	 * diagnostics. This only reduces repetition in the notice and System Status UI.
+	 */
+	private static function readiness_display_states( array $report ): array {
+		$states = [
+			'schema'    => [ 'label' => __( 'Database schema', 'overcustomise' ), 'status' => $report['schema'], 'version' => $report['schema'], 'required' => true ],
+			'migration' => [ 'label' => __( 'Database migration', 'overcustomise' ), 'status' => $report['migration'], 'version' => $report['migration'], 'required' => true ],
+		];
+		$resource_labels = [
+			'print'   => __( 'Print transaction tables', 'overcustomise' ),
+			'designs' => __( 'Design transaction tables', 'overcustomise' ),
+			'fonts'   => __( 'Font transaction tables', 'overcustomise' ),
+			'colours' => __( 'Colour transaction tables', 'overcustomise' ),
+			'clipart' => __( 'Clipart transaction tables', 'overcustomise' ),
+			'tokens'  => __( 'Token transaction table', 'overcustomise' ),
+		];
+		foreach ( self::TRANSACTION_RESOURCES as $resource => $tables ) {
+			$status        = 'ready';
+			$failed_tables = [];
+			foreach ( $tables as $table ) {
+				$table_status = $report['tables'][ $table ] ?? 'table_metadata_missing';
+				if ( 'ready' !== $table_status ) {
+					$status          = 'ready' === $status ? $table_status : $status;
+					$failed_tables[] = $table;
+				}
+			}
+			$version = empty( $failed_tables ) ? $status : sprintf( '%s (%s)', $status, implode( ', ', $failed_tables ) );
+			$states[ 'transactions_' . $resource ] = [ 'label' => $resource_labels[ $resource ], 'status' => $status, 'version' => $version, 'required' => true ];
+		}
+		foreach ( $report['storage'] as $directory => $status ) {
+			$states[ 'storage_' . $directory ] = [
+				/* translators: %s: storage area name. */
+				'label'    => sprintf( __( '%s storage', 'overcustomise' ), ucfirst( str_replace( '-', ' ', $directory ) ) ),
+				'status'   => $status,
+				'version'  => $status,
+				'required' => true,
+			];
+		}
+		foreach ( $report['storage_upgrade'] as $code => $status ) {
+			$states[ $code ] = [ 'label' => $code, 'status' => $status, 'version' => $status, 'required' => false ];
+		}
+
+		return $states;
+	}
+
 	/** Lightweight on ordinary admin visits: probes are cached for five minutes. */
 	public static function readiness_notice(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) || wp_doing_ajax() ) {
 			return;
 		}
 		$report = self::readiness_report();
-		$states = array_merge( [ 'schema' => $report['schema'], 'migration' => $report['migration'] ], $report['tables'], $report['storage'], $report['storage_upgrade'] );
-		$failed = array_filter( $states, static fn ( string $status ): bool => 'ready' !== $status );
+		$states = self::readiness_display_states( $report );
+		$failed = array_filter( $states, static fn ( array $state ): bool => 'ready' !== $state['status'] );
 		if ( empty( $failed ) ) {
 			return;
 		}
 		echo '<div class="notice notice-warning"><p><strong>' . esc_html__( 'OverCustomise compatibility readiness needs attention', 'overcustomise' ) . '</strong></p><ul>';
-		foreach ( $failed as $resource => $status ) {
-			echo '<li><strong>' . esc_html( $resource . ': ' . $status ) . '</strong> ' . esc_html( self::readiness_guidance( $status ) ) . '</li>';
+		foreach ( $failed as $state ) {
+			echo '<li><strong>' . esc_html( $state['label'] . ': ' . $state['version'] ) . '</strong> ' . esc_html( self::readiness_guidance( $state['status'] ) ) . '</li>';
 		}
 		echo '</ul><p>' . esc_html__( 'Warnings do not disable the plugin; live guards apply to affected operations. This report refreshes within five minutes; rechecking does not migrate tables, move files or clear migration locks.', 'overcustomise' ) . '</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="oc_recheck_readiness">';
@@ -175,9 +224,9 @@ class OC_System_Status {
 		$readiness = [];
 		if ( current_user_can( 'manage_woocommerce' ) ) {
 			$report = self::readiness_report();
-			$states = array_merge( [ 'schema' => $report['schema'], 'migration' => $report['migration'] ], $report['tables'], $report['storage'], $report['storage_upgrade'] );
-			foreach ( $states as $resource => $status ) {
-				$readiness[] = self::check( 'readiness_' . $resource, $resource, 'ready' === $status, $status, ! array_key_exists( $resource, $report['storage_upgrade'] ), self::readiness_guidance( $status ) );
+			$states = self::readiness_display_states( $report );
+			foreach ( $states as $key => $state ) {
+				$readiness[] = self::check( 'readiness_' . $key, $state['label'], 'ready' === $state['status'], $state['version'], $state['required'], self::readiness_guidance( $state['status'] ) );
 			}
 		}
 

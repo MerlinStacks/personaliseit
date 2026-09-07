@@ -15,9 +15,13 @@ does not require server configuration or explicit public-storage approval.
 
 ## Operator Workflow
 
-WooCommerce managers see failures in admin notices and detailed rows under
-OverCustomise > Settings > System Status. Reports are cached in the site-specific
-`oc_compatibility_readiness_v4` transient for five minutes, including failures.
+WooCommerce managers see failures in admin notices and grouped rows under
+OverCustomise > Settings > System Status. Transaction checks are grouped into
+print, design, font, colour, clipart and token resources instead of showing one
+row per table. A failed group lists its affected tables. The underlying report
+retains every per-table result for operation guards and diagnostics. Reports are
+cached in the site-specific `oc_compatibility_readiness_v4` transient for five
+minutes, including failures.
 Older readiness cache keys are ignored so obsolete diagnostic mappings are not reused.
 No readiness hook probes storefront requests. Admin cache hits do no database
 metadata or filesystem probing. Workers must use the cached-only API below.

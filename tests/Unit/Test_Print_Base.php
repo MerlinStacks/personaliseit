@@ -727,7 +727,7 @@ class Test_Print_Base extends TestCase {
 	}
 
 	private function mock_order( int|string $order_number ): \WC_Order {
-		$order = $this->createMock( \WC_Order::class );
+		$order = $this->createStub( \WC_Order::class );
 		$order->method( 'get_id' )->willReturn( 1234 );
 		$order->method( 'get_order_number' )->willReturn( (string) $order_number );
 

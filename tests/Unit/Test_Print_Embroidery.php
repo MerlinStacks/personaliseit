@@ -293,7 +293,7 @@ class Test_Print_Embroidery extends TestCase {
 	#[Test]
 	public function embroidery_eps_filenames_are_versioned_for_regeneration(): void {
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'build_versioned_filename' );
-		$order  = $this->createMock( \WC_Order::class );
+		$order  = $this->createStub( \WC_Order::class );
 		$order->method( 'get_id' )->willReturn( 1001 );
 		$order->method( 'get_order_number' )->willReturn( '1001' );
 
