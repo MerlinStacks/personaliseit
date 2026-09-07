@@ -854,12 +854,12 @@ class OC_Admin_Settings {
 							<div class="oc-system-check-copy">
 								<div class="oc-system-check-title">
 									<strong><?php echo esc_html( $check['label'] ); ?></strong>
-									<span class="oc-system-requirement"><?php echo $check['required'] ? esc_html__( 'Required', 'overcustomise' ) : esc_html__( 'Recommended', 'overcustomise' ); ?></span>
+									<span class="oc-system-requirement"><?php echo esc_html( $check['requirement_label'] ?? ( $check['required'] ? __( 'Required', 'overcustomise' ) : __( 'Recommended', 'overcustomise' ) ) ); ?></span>
 								</div>
 								<p><?php echo esc_html( $check['description'] ); ?></p>
 							</div>
 							<div class="oc-system-check-result">
-								<strong><?php echo $check['available'] ? esc_html__( 'Available', 'overcustomise' ) : esc_html__( 'Missing', 'overcustomise' ); ?></strong>
+								<strong><?php echo esc_html( $check['result_label'] ?? ( $check['available'] ? __( 'Available', 'overcustomise' ) : __( 'Missing', 'overcustomise' ) ) ); ?></strong>
 								<?php if ( '' !== $check['version'] ) : ?>
 									<code><?php echo esc_html( $check['version'] ); ?></code>
 								<?php endif; ?>

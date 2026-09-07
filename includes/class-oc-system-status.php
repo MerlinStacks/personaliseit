@@ -173,6 +173,10 @@ class OC_System_Status {
 		}
 		foreach ( $report['storage_upgrade'] as $code => $status ) {
 			$states[ $code ] = [ 'label' => $code, 'status' => $status, 'version' => $status, 'required' => false ];
+			if ( 'storage_http_protection_unverified' === $code ) {
+				$states[ $code ]['label'] = __( 'Direct file access protection', 'overcustomise' );
+				$states[ $code ]['version'] = __( 'Not verified', 'overcustomise' );
+			}
 		}
 
 		return $states;
@@ -226,7 +230,18 @@ class OC_System_Status {
 			$report = self::readiness_report();
 			$states = self::readiness_display_states( $report );
 			foreach ( $states as $key => $state ) {
-				$readiness[] = self::check( 'readiness_' . $key, $state['label'], 'ready' === $state['status'], $state['version'], $state['required'], self::readiness_guidance( $state['status'] ) );
+				$check = self::check( 'readiness_' . $key, $state['label'], 'ready' === $state['status'], $state['version'], $state['required'], self::readiness_guidance( $state['status'] ) );
+				if ( array_key_exists( $key, $report['storage_upgrade'] ) ) {
+					// Advisory diagnostics are not missing server dependencies. Keep their
+					// underlying availability/required flags unchanged for readiness checks.
+					$check['requirement_label'] = __( 'Advisory', 'overcustomise' );
+					$check['result_label'] = 'storage_http_protection_unverified' === $key
+						? __( 'Not verified', 'overcustomise' ) : __( 'Review', 'overcustomise' );
+					if ( 'storage_http_protection_unverified' === $key ) {
+						$check['version'] = '';
+					}
+				}
+				$readiness[] = $check;
 			}
 		}
 

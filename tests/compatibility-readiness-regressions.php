@@ -277,7 +277,8 @@ foreach ( [ 'storage_http_protection_unverified', 'storage_http_verification_blo
 	ob_start();
 	OC_System_Status::readiness_notice();
 	$notice = ob_get_clean();
-	expect( str_contains( $notice, $code ) && str_contains( $notice, 'Storage is unavailable.' ) && str_contains( $notice, 'missing HTTP evidence alone is not a blocker' ), 'actual filesystem failure blocks, not missing HTTP proof' );
+	$warning_label = 'storage_http_protection_unverified' === $code ? 'Direct file access protection: Not verified' : $code;
+	expect( str_contains( $notice, $warning_label ) && str_contains( $notice, 'Storage is unavailable.' ) && str_contains( $notice, 'missing HTTP evidence alone is not a blocker' ), 'actual filesystem failure blocks, not missing HTTP proof' );
 	if ( 'storage_evidence_revoked' === $code ) {
 		expect( str_contains( $notice, 'affected root' ) && str_contains( $notice, 'Automatic selection can use the fallback' ), 'contradiction is root-specific with automatic fallback' );
 	}
@@ -293,6 +294,11 @@ expect( ! in_array( false, $report['resources'], true ) && array_fill_keys( [ 'a
 expect( ! $report['print_retry_pause'] && [ 'storage_http_protection_unverified' => 'storage_http_protection_unverified' ] === $report['storage_upgrade'], 'operational automatic storage warns without pausing print' );
 $checks = array_column( OC_System_Status::checks(), null, 'key' );
 expect( ! $checks['readiness_storage_http_protection_unverified']['required'] && ! $checks['readiness_storage_http_protection_unverified']['available'], 'HTTP warning is visible and nonblocking in System Status' );
+expect( 'Direct file access protection' === $checks['readiness_storage_http_protection_unverified']['label'], 'HTTP advisory has a human-readable title' );
+expect( 'Advisory' === $checks['readiness_storage_http_protection_unverified']['requirement_label'], 'HTTP advisory is not a recommended dependency' );
+expect( 'Not verified' === $checks['readiness_storage_http_protection_unverified']['result_label'], 'HTTP advisory is not labelled Missing or Available' );
+expect( '' === $checks['readiness_storage_http_protection_unverified']['version'], 'HTTP advisory does not repeat its internal diagnostic code' );
+expect( ! isset( $checks['php']['result_label'] ) && ! isset( $checks['php']['requirement_label'] ), 'Real dependency checks retain their normal display labels' );
 expect( isset( $checks['readiness_transactions_print'], $checks['readiness_transactions_designs'], $checks['readiness_storage_print-files'] ), 'readiness checks are grouped by resource' );
 expect( ! isset( $checks['readiness_oc_print_files'], $checks['readiness_oc_designs'] ), 'individual transaction tables do not create repetitive System Status rows' );
 expect( 13 === count( array_filter( array_keys( $checks ), static fn ( string $key ): bool => str_starts_with( $key, 'readiness_' ) ) ), 'healthy readiness UI has twelve grouped checks plus the current warning' );
