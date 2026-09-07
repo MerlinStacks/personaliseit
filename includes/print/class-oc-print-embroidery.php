@@ -1232,19 +1232,17 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$dx = 0.0;
 			$dy = 0.0;
 			if ( 0 !== ( $flags & 0x0001 ) ) {
-				$arg1 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i16( $data, $pos ) : self::ttf_u16( $data, $pos );
-				$arg2 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i16( $data, $pos + 2 ) : self::ttf_u16( $data, $pos + 2 );
+				$arg1 = self::ttf_i16( $data, $pos );
+				$arg2 = self::ttf_i16( $data, $pos + 2 );
 				$pos += 4;
 			} else {
-				$arg1 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i8( $data, $pos ) : self::ttf_u8( $data, $pos );
-				$arg2 = 0 !== ( $flags & 0x0002 ) ? self::ttf_i8( $data, $pos + 1 ) : self::ttf_u8( $data, $pos + 1 );
+				$arg1 = self::ttf_i8( $data, $pos );
+				$arg2 = self::ttf_i8( $data, $pos + 1 );
 				$pos += 2;
 			}
 
-			if ( 0 !== ( $flags & 0x0002 ) ) {
-				$dx = (float) $arg1;
-				$dy = (float) $arg2;
-			}
+			$dx = (float) $arg1;
+			$dy = (float) $arg2;
 
 			$a = 1.0;
 			$b = 0.0;
@@ -2728,12 +2726,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		return self::svg_number( $value );
-	}
-
-	private static function same_rgb( array $a, array $b ): bool {
-		return abs( (float) $a[0] - (float) $b[0] ) < 0.0001
-			&& abs( (float) $a[1] - (float) $b[1] ) < 0.0001
-			&& abs( (float) $a[2] - (float) $b[2] ) < 0.0001;
 	}
 
 	private static function svg_points( string $points ): array {

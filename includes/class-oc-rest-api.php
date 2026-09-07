@@ -3305,7 +3305,8 @@ class OC_Rest_API {
 		try {
 			// Serialize replacements for this design, including its first template.
 			$locked_design = $wpdb->get_row( $wpdb->prepare( "SELECT id, active FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
-			if ( ! $locked_design || '' !== (string) $wpdb->last_error ) {
+			$design_error = (string) $wpdb->last_error;
+			if ( ! $locked_design || '' !== $design_error ) {
 				throw new \RuntimeException( 'Could not lock the VDP design.' );
 			}
 			if ( ! (bool) $locked_design->active ) {
@@ -3314,7 +3315,8 @@ class OC_Rest_API {
 			}
 			// Bypass cached layers and use current locking reads, including settings and order.
 			$all_layers = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d ORDER BY area_id ASC, sort_order ASC, id ASC FOR UPDATE", $design_id ) );
-			if ( ! is_array( $all_layers ) || '' !== (string) $wpdb->last_error ) {
+			$layers_error = (string) $wpdb->last_error;
+			if ( ! is_array( $all_layers ) || '' !== $layers_error ) {
 				throw new \RuntimeException( 'Could not lock the VDP layers.' );
 			}
 			$all_layers = array_values( array_filter(
@@ -3465,11 +3467,16 @@ class OC_Rest_API {
 		if ( null === $destination ) {
 			return null;
 		}
-		$updated = $wpdb->query( $wpdb->prepare(
-			"UPDATE {$wpdb->prefix}oc_vdp_templates SET csv_file_path = %s WHERE id = %d AND design_id = %d AND csv_file_path = %s",
-			$destination, $template_id, (int) $record->design_id, $original
-		) );
-		if ( 1 !== $updated || '' !== (string) $wpdb->last_error ) {
+		$updated = $wpdb->query(
+			$wpdb->prepare(
+				"UPDATE {$wpdb->prefix}oc_vdp_templates SET csv_file_path = %s WHERE id = %d AND design_id = %d AND csv_file_path = %s",
+				$destination,
+				$template_id,
+				(int) $record->design_id,
+				$original
+			)
+		);
+		if ( 1 !== $updated ) {
 			// An uncertain commit must not result in deleting a possibly published destination.
 			OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'VDP pointer publication raced or failed; source and copied destination retained for reference-safe reconciliation.' );
 			return null;

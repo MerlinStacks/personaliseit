@@ -377,17 +377,6 @@ class OC_Upload_Handler {
 		return is_string( $token ) && preg_match( '/^[a-z0-9]{32}$/D', $token ) ? $token : null;
 	}
 
-	/** Whether a validated storage path uses the protected public-uploads fallback. */
-	private static function storage_path_uses_uploads_fallback( string $path ): bool {
-		$uploads = wp_upload_dir();
-		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
-			return false;
-		}
-
-		$uploads_real = realpath( (string) $uploads['basedir'] );
-		return false !== $uploads_real && self::path_is_within( $path, wp_normalize_path( $uploads_real ) );
-	}
-
 	/** Return a validated private subdirectory for other plugin components. */
 	public static function private_storage_path( string $subdirectory = '', bool $force_protection_check = false ): ?string {
 		$root = self::private_storage_root( $force_protection_check );
@@ -2394,8 +2383,9 @@ class OC_Upload_Handler {
 				}
 				$names[] = $size['file'];
 			}
-			if ( ! empty( $metadata['original_image'] ) ) {
-				$names[] = $metadata['original_image'];
+			$original_image = self::attachment_original_image( $metadata );
+			if ( ! empty( $original_image ) ) {
+				$names[] = $original_image;
 			}
 		}
 		if ( count( $names ) > 25 ) {
@@ -2443,6 +2433,11 @@ class OC_Upload_Handler {
 				@rmdir( $target );
 			}
 		}
+	}
+
+	/** WordPress metadata may contain an original_image key newer than the declared stub shape. */
+	private static function attachment_original_image( array $metadata ): mixed {
+		return $metadata['original_image'] ?? null;
 	}
 
 	private static function migrate_legacy_attachment_locked( int $attachment_id, string $private_directory ): bool {

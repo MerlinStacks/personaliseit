@@ -79,11 +79,16 @@ final class OC_Storage_Upgrade {
 			$data = [ 'root' => $root, 'at' => time(), 'reason' => $reason ];
 			$record = [ 'data' => $data, 'mac' => hash_hmac( 'sha256', serialize( $data ), wp_salt( 'auth' ) ) ];
 			update_option( $key, $record, false );
-			if ( $record !== get_option( $key, null ) ) {
+			if ( $record !== self::stored_option( $key ) ) {
 				OC_Logger::error( 'Private storage contradiction could not be persisted; stop CLI workers until storage evidence is revoked.' );
 			}
 		}
 		self::report( $root, $reason );
+	}
+
+	/** Read mutable option state after a write. */
+	private static function stored_option( string $key ): mixed {
+		return get_option( $key, null );
 	}
 
 	/** Filesystem policy, not proof of HTTP denial; positive HTTP evidence is never required. */

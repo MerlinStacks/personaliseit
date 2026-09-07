@@ -705,18 +705,24 @@ class OC_Print_Generator {
 			return $this->enqueue_vdp_snapshot( $order, $item_id, $snapshot['rows'], $snapshot['render_spec'], $now, $expires_at );
 		}
 		global $wpdb;
-		$existing = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND row_index > 0 LIMIT 1",
-			(int) $order->get_id(), $item_id
-		) );
-		if ( '' !== (string) $wpdb->last_error ) {
+		$existing = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND row_index > 0 LIMIT 1",
+				(int) $order->get_id(),
+				$item_id
+			)
+		);
+		if ( self::database_has_error( $wpdb ) ) {
 			throw new \RuntimeException( 'Cannot inspect retained VDP rows; generation requires operator review.' );
 		}
-		$jobs = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, status FROM {$wpdb->prefix}oc_print_queue WHERE order_id = %d AND order_item_id = %d AND row_index > 0 ORDER BY id",
-			(int) $order->get_id(), $item_id
-		) );
-		if ( ! is_array( $jobs ) || '' !== (string) $wpdb->last_error ) {
+		$jobs = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, status FROM {$wpdb->prefix}oc_print_queue WHERE order_id = %d AND order_item_id = %d AND row_index > 0 ORDER BY id",
+				(int) $order->get_id(),
+				$item_id
+			)
+		);
+		if ( ! is_array( $jobs ) || self::database_has_error( $wpdb ) ) {
 			throw new \RuntimeException( 'Cannot inspect retained VDP jobs; generation requires operator review.' );
 		}
 		if ( $existing || $jobs || $item->get_meta( '_oc_vdp_legacy_expansion', true ) ) {
@@ -856,10 +862,10 @@ class OC_Print_Generator {
 		// Retention may remove every row/job later. Remember legacy provenance so
 		// a future Generate action still cannot start expansion from today's CSV.
 		if ( self::LEGACY_VDP_HOLD === $message && ! $item->get_meta( '_oc_vdp_legacy_expansion', true ) ) {
-			$item->update_meta_data( '_oc_vdp_legacy_expansion', 1 );
+			$item->update_meta_data( '_oc_vdp_legacy_expansion', '1' );
 			$item->save_meta_data();
 			$item->read_meta_data( true );
-			if ( ! $item->get_meta( '_oc_vdp_legacy_expansion', true ) ) {
+			if ( ! self::persisted_item_meta( $item, '_oc_vdp_legacy_expansion' ) ) {
 				throw new \RuntimeException( 'Could not persist legacy VDP provenance.' );
 			}
 		}
@@ -872,6 +878,26 @@ class OC_Print_Generator {
 			}
 			$order->add_order_note( sprintf( 'OverCustomise item #%d retained for review: %s', $item_id, $message ) );
 		}
+	}
+
+	/**
+	 * Database queries mutate this property outside PHP-visible assignments.
+	 *
+	 * @param \wpdb $database
+	 * @phpstan-impure
+	 */
+	private static function database_has_error( object $database ): bool {
+		return '' !== (string) $database->last_error;
+	}
+
+	/**
+	 * Reloaded WooCommerce metadata can differ from the in-memory value.
+	 *
+	 * @param \WC_Data $item
+	 * @phpstan-impure
+	 */
+	private static function persisted_item_meta( object $item, string $key ): mixed {
+		return $item->get_meta( $key, true );
 	}
 
 	/** VDP must never combine original row values with a current design's geometry. */

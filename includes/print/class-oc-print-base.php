@@ -625,7 +625,11 @@ abstract class OC_Print_Base {
 			if ( ! copy( $font_path, $source ) || hash_file( 'sha256', $source ) !== $source_hash || self::tc_lib_pdf_font_name( $font_path ) !== $identity ) {
 				throw new \RuntimeException( 'Print font source changed during registration.' );
 			}
-			$imported = \TCPDF_FONTS::addTTFfont( $source, 'TrueTypeUnicode', '', 96, $stage . '/' );
+			$importer = [ '\TCPDF_FONTS', 'addTTFfont' ];
+			if ( ! is_callable( $importer ) ) {
+				throw new \RuntimeException( 'Legacy TCPDF font importer is unavailable.' );
+			}
+			$imported = $importer( $source, 'TrueTypeUnicode', '', 96, $stage . '/' );
 			if ( $name !== $imported ) {
 				throw new \RuntimeException( 'Unexpected print font cache identity.' );
 			}
@@ -749,8 +753,9 @@ abstract class OC_Print_Base {
 			if ( ! flock( $lock, LOCK_EX ) ) {
 				throw new \RuntimeException( 'Could not lock print font cache.' );
 			}
-			if ( file_exists( $published ) || is_link( $published ) ) {
-				if ( ! is_link( $published ) && self::tcpdf_font_cache_complete( $published . '/', $font_name, $source_hash ) ) {
+			$published_link = self::path_link_state_after_lock( $published );
+			if ( null !== $published_link ) {
+				if ( ! $published_link && self::tcpdf_font_cache_complete( $published . '/', $font_name, $source_hash ) ) {
 					return $font_name;
 				}
 				throw new \RuntimeException( 'Published print font cache is invalid; refusing to replace active reader artifacts.' );
@@ -806,6 +811,15 @@ abstract class OC_Print_Base {
 			flock( $lock, LOCK_UN );
 			fclose( $lock );
 		}
+	}
+
+	/** Recheck a publication path after lock acquisition, allowing for another process. */
+	private static function path_link_state_after_lock( string $path ): ?bool {
+		clearstatcache( true, $path );
+		if ( is_link( $path ) ) {
+			return true;
+		}
+		return file_exists( $path ) ? false : null;
 	}
 
 	/** Use a basename that survives both importers' lossy name normalisation. */

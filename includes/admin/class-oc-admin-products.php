@@ -1542,7 +1542,11 @@ class OC_Admin_Products {
 
 	// ── Save / Delete ─────────────────────────────────────────────────────────
 
-	/** Hash persisted rows, not browser-normalised settings or per-user drafts. */
+	/**
+	 * Hash persisted rows, not browser-normalised settings or per-user drafts.
+	 *
+	 * @param-out array $rows Persisted design rows.
+	 */
 	private static function design_revision( int $id, bool $lock = false, ?array &$rows = null ): string {
 		global $wpdb;
 		$rows = [];

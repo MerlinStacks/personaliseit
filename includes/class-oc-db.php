@@ -15,7 +15,6 @@ class OC_DB {
 	private const UPGRADE_LEASE_SECONDS  = 900;
 
 	private static ?bool $schema_ready = null;
-	private static bool $schema_metadata_failed = false;
 
 	/** Create (or upgrade) all plugin tables. */
 	public static function create_tables(): void {
@@ -627,12 +626,15 @@ class OC_DB {
 		$report = [];
 		$xtradb_status = null;
 		foreach ( array_unique( $table_suffixes ) as $suffix ) {
-			$table = $wpdb->prefix . $suffix;
-			$engine = $wpdb->get_var( $wpdb->prepare(
-				'SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
-				$table
-			) );
-			if ( '' !== (string) $wpdb->last_error || false === $engine ) {
+			$table        = $wpdb->prefix . $suffix;
+			$engine       = $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
+					$table
+				)
+			);
+			$engine_error = (string) $wpdb->last_error;
+			if ( '' !== $engine_error || false === $engine ) {
 				$report[ $suffix ] = 'metadata_query_failed';
 				continue;
 			}
@@ -643,8 +645,9 @@ class OC_DB {
 			$engine = strtolower( $engine );
 			if ( 'xtradb' === $engine && null === $xtradb_status ) {
 				// Historical MariaDB/Percona XtraDB is accepted only with positive server evidence.
-				$evidence = $wpdb->get_var( "SELECT TRANSACTIONS FROM INFORMATION_SCHEMA.ENGINES WHERE UPPER(ENGINE) = 'XTRADB' AND SUPPORT IN ('YES', 'DEFAULT')" );
-				$xtradb_status = '' !== (string) $wpdb->last_error || false === $evidence
+				$evidence       = $wpdb->get_var( "SELECT TRANSACTIONS FROM INFORMATION_SCHEMA.ENGINES WHERE UPPER(ENGINE) = 'XTRADB' AND SUPPORT IN ('YES', 'DEFAULT')" );
+				$evidence_error = (string) $wpdb->last_error;
+				$xtradb_status  = '' !== $evidence_error
 					? 'metadata_query_failed'
 					: ( is_string( $evidence ) && 'YES' === strtoupper( $evidence ) ? 'ready' : 'unsupported_engine' );
 			}
@@ -656,10 +659,10 @@ class OC_DB {
 	/** A fresh diagnostic, not the migration version marker or a global feature gate. */
 	public static function schema_readiness( bool $print_only = false ): string {
 		self::$schema_ready = null;
-		self::$schema_metadata_failed = false;
-		$ready = self::print_pipeline_schema_ready( $print_only );
+		$metadata_failed    = false;
+		$ready              = self::print_pipeline_schema_ready( $print_only, $metadata_failed );
 		self::$schema_ready = null;
-		return self::$schema_metadata_failed ? 'metadata_query_failed' : ( $ready ? 'ready' : 'schema_incomplete' );
+		return $metadata_failed ? 'metadata_query_failed' : ( $ready ? 'ready' : 'schema_incomplete' );
 	}
 
 	/** Report migration state without acquiring, clearing, or bypassing its locks. */
@@ -679,7 +682,8 @@ class OC_DB {
 	}
 
 	/** Confirm every current plugin column and index required at runtime is present. */
-	private static function print_pipeline_schema_ready( bool $print_only = false ): bool {
+	private static function print_pipeline_schema_ready( bool $print_only = false, bool &$metadata_failed = false ): bool {
+		$metadata_failed = false;
 		if ( null !== self::$schema_ready ) {
 			return self::$schema_ready;
 		}
@@ -722,8 +726,9 @@ class OC_DB {
 				...array_keys( $required_columns )
 			)
 		);
-		if ( ! is_array( $column_rows ) || '' !== (string) $wpdb->last_error ) {
-			self::$schema_metadata_failed = true;
+		$column_error       = (string) $wpdb->last_error;
+		if ( ! is_array( $column_rows ) || '' !== $column_error ) {
+			$metadata_failed    = true;
 			self::$schema_ready = false;
 			return false;
 		}
@@ -841,7 +846,7 @@ class OC_DB {
 			],
 		];
 
-		$index_rows = $wpdb->get_results(
+		$index_rows  = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME
 			 FROM INFORMATION_SCHEMA.STATISTICS
@@ -850,8 +855,9 @@ class OC_DB {
 				...array_keys( $required_columns )
 			)
 		);
-		if ( ! is_array( $index_rows ) || '' !== (string) $wpdb->last_error ) {
-			self::$schema_metadata_failed = true;
+		$index_error = (string) $wpdb->last_error;
+		if ( ! is_array( $index_rows ) || '' !== $index_error ) {
+			$metadata_failed    = true;
 			self::$schema_ready = false;
 			return false;
 		}
