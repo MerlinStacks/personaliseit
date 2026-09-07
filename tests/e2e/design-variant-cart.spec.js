@@ -58,15 +58,44 @@ test.describe( 'product customiser', () => {
 			.poll( async () => ( await hiddenField.inputValue() ).length )
 			.toBeGreaterThan( 2 );
 		page.on( 'dialog', ( dialog ) => dialog.accept() );
-		const cartRequest = page.waitForRequest(
-			( request ) => request.method() === 'POST',
+		const cartResponse = page.waitForResponse(
+			( response ) => {
+				const request = response.request();
+				const body = request.postData() || '';
+				return (
+					request.method() === 'POST' &&
+					( /[?&]wc-ajax=add_to_cart(?:&|$)/.test( request.url() ) ||
+						/\/wc\/store\/v\d+\/cart\/add-item/.test(
+							request.url()
+						) ||
+						/(?:^|&)add-to-cart=\d+/.test( body ) ||
+						/name="add-to-cart"/.test( body ) ) &&
+					response.status() >= 200 &&
+					response.status() < 400
+				);
+			},
 			{ timeout: 15_000 }
 		);
 		await page
 			.locator( '.single_add_to_cart_button, form.cart [type="submit"]' )
 			.first()
 			.click();
-		await cartRequest;
+		const response = await cartResponse;
+		if (
+			response.headers()[ 'content-type' ]?.includes( 'application/json' )
+		) {
+			const result = await response.json();
+			expect( result.error ).toBeFalsy();
+			expect( result.fragments || result.items ).toBeTruthy();
+		} else {
+			await expect(
+				page
+					.locator(
+						'.woocommerce-message, .wc-block-components-notice-banner.is-success'
+					)
+					.first()
+			).toBeVisible();
+		}
 
 		await page.goto( cartPath, { waitUntil: 'domcontentloaded' } );
 		const cart = page.locator( '.woocommerce-cart-form, .wc-block-cart' );

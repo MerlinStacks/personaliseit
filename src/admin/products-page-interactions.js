@@ -291,7 +291,7 @@ export function createProductsPageInteractions( deps ) {
 
 	function addLayerWithBounds( type, x, y, w, h ) {
 		const area = selectedArea();
-		if ( ! area ) {
+		if ( ! area || ! layerTypeSupportsPrintMethod( type, area.method ) ) {
 			return;
 		}
 		area.layers.push( createLayer( type, area, x, y, w, h ) );

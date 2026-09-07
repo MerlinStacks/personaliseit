@@ -10,7 +10,34 @@ use PHPUnit\Framework\TestCase;
 
 require_once OC_PATH . 'includes/class-oc-rest-api.php';
 
+if ( ! function_exists( 'wp_salt' ) ) {
+	function wp_salt( string $scheme = 'auth' ): string { return 'audit-test-salt'; }
+}
+
 class Test_REST_API_Parsing extends TestCase {
+	#[Test]
+	public function audit_browser_tokens_do_not_share_ip_ownership(): void {
+		$previous = $_COOKIE;
+		$token = str_repeat( 'b', 64 );
+		$secret = str_repeat( 'a', 64 );
+		$key = 'oc_pubtok_' . hash( 'sha256', $token );
+		try {
+			$_COOKIE['oc_private_browser'] = $secret . '.' . hash_hmac( 'sha256', $secret, wp_salt( 'auth' ) );
+			set_transient( $key, [ 'version' => 2, 'binding_type' => 'browser', 'binding_hash' => hash( 'sha256', $secret ), 'created_at' => time(), 'expires_at' => time() + 3600 ], 3600 );
+			$this->assertTrue( OC_Rest_API::validate_public_token( $token ) );
+			unset( $_COOKIE['oc_private_browser'] );
+			$this->assertFalse( OC_Rest_API::validate_public_token( $token ) );
+			$_COOKIE['oc_private_browser'] = $secret . '.' . str_repeat( '0', 64 );
+			$this->assertFalse( OC_Rest_API::validate_public_token( $token ) );
+			$state = get_transient( $key );
+			$state['binding_type'] = 'ip';
+			set_transient( $key, $state, 3600 );
+			$this->assertFalse( OC_Rest_API::validate_public_token( $token ) );
+		} finally {
+			$_COOKIE = $previous;
+			delete_transient( $key );
+		}
+	}
 
 	#[Test]
 	public function spotify_parser_rejects_identifiers_that_require_character_stripping(): void {

@@ -8,7 +8,29 @@ class OC_Autosave {
 	private const TTL_SECONDS      = DAY_IN_SECONDS;
 	private const MAX_STATE_BYTES  = 1048576;
 	private const MAX_AREAS        = 100;
-	private const MAX_LAYERS       = 500;
+	private const MAX_LAYERS       = 1000;
+
+	/** Separate, user-scoped recovery copies cannot be replaced by another tab. */
+	public static function retain_recovery( array $data ): ?string {
+		$json = wp_json_encode( $data );
+		if ( get_current_user_id() <= 0 || ! is_string( $json ) || strlen( $json ) > self::MAX_STATE_BYTES ) {
+			return null;
+		}
+		$token = hash( 'sha256', $json );
+		$key = 'oc_recovery_' . get_current_user_id() . '_' . $token;
+		if ( get_option( $key, null ) === $data || add_option( $key, $data, '', false ) ) {
+			return $token;
+		}
+		return null;
+	}
+
+	public static function recovery( string $token ): ?array {
+		if ( get_current_user_id() <= 0 || ! preg_match( '/^[a-f0-9]{64}$/D', $token ) ) {
+			return null;
+		}
+		$data = get_option( 'oc_recovery_' . get_current_user_id() . '_' . $token, null );
+		return is_array( $data ) ? $data : null;
+	}
 
 	public static function store( int $design_id, array $state, int $revision = 0, int $expected_revision = 0 ): array {
 		$key = self::key( $design_id );
@@ -39,6 +61,13 @@ class OC_Autosave {
 			$current          = get_transient( $key );
 			$current_revision = is_array( $current ) ? max( 0, (int) ( $current['revision'] ?? 0 ) ) : 0;
 			$current_time     = is_array( $current ) ? (int) ( $current['timestamp'] ?? 0 ) : 0;
+			if ( $revision === $expected_revision + 1 && $revision === $current_revision && ( $current['state'] ?? null ) === $state ) {
+				return [
+					'status'    => 'stored',
+					'timestamp' => $current_time,
+					'revision'  => $current_revision,
+				];
+			}
 
 			if ( $expected_revision !== $current_revision ) {
 				return [
@@ -57,6 +86,9 @@ class OC_Autosave {
 			}
 
 			$timestamp = time();
+			if ( is_array( $current ) && empty( $current['state']['design']['baseRevision'] ) && ! self::retain_recovery( $current ) ) {
+				return [ 'status' => 'failed', 'timestamp' => $current_time, 'revision' => $current_revision ];
+			}
 			$data = [
 				'state'     => $state,
 				'timestamp' => $timestamp,
@@ -96,7 +128,9 @@ class OC_Autosave {
 				return null;
 			}
 			set_transient( $key, $data, self::TTL_SECONDS );
+			$recovery = self::retain_recovery( $data );
 			return [
+				'recoveryToken' => $recovery,
 				'state'     => $data['state'],
 				'timestamp' => (int) ( $data['timestamp'] ?? 0 ),
 				'revision'  => (int) ( $data['revision'] ?? 0 ),
@@ -106,7 +140,7 @@ class OC_Autosave {
 		}
 	}
 
-	public static function clear( int $design_id ): bool {
+	public static function clear( int $design_id, ?int $expected_revision = null ): bool {
 		$key = self::key( $design_id, false );
 		if ( null === $key ) {
 			return false;
@@ -117,6 +151,13 @@ class OC_Autosave {
 		}
 
 		try {
+			$current = get_transient( $key );
+			if ( null !== $expected_revision && ( ! is_array( $current ) || (int) ( $current['revision'] ?? 0 ) !== $expected_revision ) ) {
+				return false;
+			}
+			if ( is_array( $current ) && empty( $current['state']['design']['baseRevision'] ) && ! self::retain_recovery( $current ) ) {
+				return false;
+			}
 			return delete_transient( $key );
 		} finally {
 			self::release_lock( $lock_name );

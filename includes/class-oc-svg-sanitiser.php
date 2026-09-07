@@ -450,6 +450,11 @@ class OC_SVG_Sanitiser {
 
 	/** Normalise url(...) values, rejecting the whole attribute on any external reference. */
 	private static function clean_resource_urls( string $value ): ?string {
+		// CSS parsers recover unclosed url() at EOF; never pass unmatched constructs through.
+		$remainder = preg_replace( '/url\s*\(\s*(["\']?)#[A-Za-z_][A-Za-z0-9_.:-]*\1\s*\)/i', '', $value );
+		if ( ! is_string( $remainder ) || preg_match( '/url\s*\(/i', $remainder ) ) {
+			return null;
+		}
 		$invalid = false;
 		$output  = preg_replace_callback(
 			'/url\s*\(\s*(["\']?)(.*?)\1\s*\)/i',

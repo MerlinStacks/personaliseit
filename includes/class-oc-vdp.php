@@ -17,12 +17,18 @@ class OC_VDP {
 			return null;
 		}
 
+		// Storage resolution is not authorization; existing order/admin callers own access checks.
+		$csv_file_path = OC_Rest_API::relocate_private_vdp_template( (int) $template->id );
+		if ( null === $csv_file_path ) {
+			throw new \RuntimeException( 'The VDP template storage is unavailable; retain generation for review rather than falling back to a single output.' );
+		}
+
 		$fields = OC_DB::get_vdp_fields( (int) $template->id );
 
 		return [
 			'id'            => (int) $template->id,
 			'design_id'     => (int) $template->design_id,
-			'csv_file_path' => (string) ( $template->csv_file_path ?? '' ),
+			'csv_file_path' => $csv_file_path,
 			'active'        => (bool) $template->active,
 			'created_at'    => (string) $template->created_at,
 			'fields'        => array_values(

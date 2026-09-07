@@ -56,6 +56,70 @@ class Test_File_Cleanup extends WP_UnitTestCase {
 	// ── Tests ─────────────────────────────────────────────────────────────────
 
 	#[Test]
+	public function artifact_reference_query_failures_retain_files(): void {
+		global $wpdb;
+		$path = $this->make_tmp_file();
+		$fail = static function ( string $sql ): string {
+			return str_contains( $sql, 'SELECT COUNT(*)' ) && str_contains( $sql, 'oc_print_files WHERE file_path' )
+				? 'SELECT oc_deliberately_missing_reference_column' : $sql;
+		};
+		$previous = $wpdb->suppress_errors( true );
+		add_filter( 'query', $fail );
+		try {
+			OC_Print_Generator::remove_uncommitted_artifacts( [ $path ] );
+			$this->assertFileExists( $path );
+			$method = new ReflectionMethod( OC_Print_Generator::class, 'delete_superseded_artifacts' );
+			$method->invoke( null, [ $path ], [] );
+			$this->assertFileExists( $path );
+		} finally {
+			remove_filter( 'query', $fail );
+			$wpdb->suppress_errors( $previous );
+		}
+	}
+
+	#[Test]
+	public function regeneration_after_selection_retains_the_stable_output(): void {
+		$path = $this->make_tmp_file();
+		$id = $this->insert_print_file( 'files_ready', gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS ), $path );
+		$regenerate = static function ( $wait ) use ( $id, $path ) {
+			file_put_contents( $path, 'regenerated output' );
+			OC_DB::update_print_file( $id, [ 'expires_at' => gmdate( 'Y-m-d H:i:s', time() + DAY_IN_SECONDS ) ] );
+			return $wait;
+		};
+		add_filter( 'oc_print_output_lock_wait_seconds', $regenerate );
+		try {
+			OC_File_Cleanup::run();
+			$this->assertSame( 'regenerated output', file_get_contents( $path ) );
+			$this->assertSame( 'files_ready', OC_DB::get_print_file( $id )->file_status );
+		} finally {
+			remove_filter( 'oc_print_output_lock_wait_seconds', $regenerate );
+		}
+	}
+
+	#[Test]
+	public function locked_first_batch_does_not_starve_later_expired_rows(): void {
+		global $wpdb;
+		$first = $this->insert_print_file( 'files_ready', gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS ) );
+		$second = $this->insert_print_file( 'files_ready', gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS ) );
+		update_option( 'oc_print_cleanup_cursor', $first - 1, false );
+		$limit = static fn () => 1;
+		$locked = static function () { throw new RuntimeException( 'Simulated lock contention' ); };
+		add_filter( 'oc_print_file_cleanup_batch_size', $limit );
+		add_filter( 'oc_print_output_lock_wait_seconds', $locked );
+		try {
+			OC_File_Cleanup::run();
+			remove_filter( 'oc_print_output_lock_wait_seconds', $locked );
+			OC_File_Cleanup::run();
+			$this->assertSame( 'files_ready', OC_DB::get_print_file( $first )->file_status );
+			$this->assertSame( 'expired', OC_DB::get_print_file( $second )->file_status );
+		} finally {
+			remove_filter( 'oc_print_file_cleanup_batch_size', $limit );
+			remove_filter( 'oc_print_output_lock_wait_seconds', $locked );
+			delete_option( 'oc_print_cleanup_cursor' );
+		}
+	}
+
+	#[Test]
 	public function expired_file_record_is_deleted_and_file_removed(): void {
 		$tmp_path = $this->make_tmp_file();
 

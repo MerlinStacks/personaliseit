@@ -228,7 +228,6 @@ function syncColourWriteControls() {
 
 function openColourModal( id ) {
 	colourModalGeneration++;
-	colourWrite = null;
 	editColourId = id || null;
 	const colour = id ? colours.find( ( c ) => c.id === id ) : null;
 
@@ -260,7 +259,6 @@ function openColourModal( id ) {
 
 function closeColourModal() {
 	colourModalGeneration++;
-	colourWrite = null;
 	colourModal().hidden = true;
 	document.body.style.overflow = '';
 	editColourId = null;
@@ -300,18 +298,15 @@ async function saveColour() {
 	syncColourWriteControls();
 	try {
 		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-		if ( ! isColourContextCurrent( request ) ) {
-			return;
-		}
 		if ( ! res.ok ) {
 			throw new Error( `HTTP ${ res.status }` );
 		}
 		const json = await res.json();
-		if ( ! isColourContextCurrent( request ) ) {
-			return;
-		}
 
 		if ( ! json.success ) {
+			if ( ! isColourContextCurrent( request ) ) {
+				return;
+			}
 			err.textContent = json.data?.message || 'Save failed.';
 			err.style.display = '';
 			return;
@@ -328,7 +323,9 @@ async function saveColour() {
 		}
 
 		updateColourGridUI();
-		closeColourModal();
+		if ( isColourContextCurrent( request ) ) {
+			closeColourModal();
+		}
 	} catch ( e ) {
 		if ( isColourContextCurrent( request ) ) {
 			console.warn( '[OC] Colour save failed:', e );
@@ -565,7 +562,6 @@ function syncGroupWriteControls() {
 
 function openGroupModal( id ) {
 	groupModalGeneration++;
-	groupWrite = null;
 	editGroupId = id || null;
 	const group = id ? groups.find( ( g ) => g.id === id ) : null;
 
@@ -586,7 +582,6 @@ function openGroupModal( id ) {
 
 function closeGroupModal() {
 	groupModalGeneration++;
-	groupWrite = null;
 	groupModal().hidden = true;
 	document.body.style.overflow = '';
 	editGroupId = null;
@@ -672,18 +667,15 @@ async function saveGroup() {
 	syncGroupWriteControls();
 	try {
 		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 		if ( ! res.ok ) {
 			throw new Error( `HTTP ${ res.status }` );
 		}
 		const json = await res.json();
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 
 		if ( ! json.success ) {
+			if ( ! isGroupContextCurrent( request ) ) {
+				return;
+			}
 			alert( json.data?.message || 'Save failed.' );
 			return;
 		}
@@ -699,7 +691,9 @@ async function saveGroup() {
 		}
 
 		updateGroupGridUI();
-		closeGroupModal();
+		if ( isGroupContextCurrent( request ) ) {
+			closeGroupModal();
+		}
 	} catch ( e ) {
 		if ( isGroupContextCurrent( request ) ) {
 			console.warn( '[OC] Colour group save failed:', e );
@@ -737,25 +731,24 @@ async function deleteGroup() {
 	syncGroupWriteControls();
 	try {
 		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 		if ( ! res.ok ) {
 			throw new Error( `HTTP ${ res.status }` );
 		}
 		const json = await res.json();
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 
 		if ( ! json.success ) {
+			if ( ! isGroupContextCurrent( request ) ) {
+				return;
+			}
 			alert( json.data?.message || 'Delete failed.' );
 			return;
 		}
 
 		groups = groups.filter( ( g ) => g.id !== request.id );
 		updateGroupGridUI();
-		closeGroupModal();
+		if ( isGroupContextCurrent( request ) ) {
+			closeGroupModal();
+		}
 	} catch ( e ) {
 		if ( isGroupContextCurrent( request ) ) {
 			console.warn( '[OC] Colour group delete failed:', e );

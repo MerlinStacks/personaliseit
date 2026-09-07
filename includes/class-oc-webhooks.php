@@ -141,14 +141,16 @@ class OC_Webhooks {
 
 	/** Prefer Action Scheduler, falling back to WP-Cron when it cannot schedule. */
 	private function schedule_delivery( int $webhook_id, string $job_key, int $timestamp ): bool {
-		$args         = [ $webhook_id, $job_key ];
+		$job          = get_option( $job_key, [] );
+		$args         = [ $webhook_id, $job_key, (int) ( $job['attempt'] ?? 0 ) ];
 		$as_scheduled = false;
 		if ( function_exists( 'as_schedule_single_action' ) ) {
 			try {
-				if ( function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( 'oc_webhook_deliver', $args, self::ACTION_GROUP ) ) {
+				if ( function_exists( 'as_get_scheduled_actions' ) && as_get_scheduled_actions( [ 'hook' => 'oc_webhook_deliver', 'args' => $args, 'group' => self::ACTION_GROUP, 'status' => 'pending', 'per_page' => 1 ], 'ids' ) ) {
 					return true;
 				}
-				$as_scheduled = (bool) as_schedule_single_action( $timestamp, 'oc_webhook_deliver', $args, self::ACTION_GROUP, true );
+				// AS uniqueness includes running actions. The durable claim prevents duplicate delivery.
+				$as_scheduled = (bool) as_schedule_single_action( $timestamp, 'oc_webhook_deliver', $args, self::ACTION_GROUP, false );
 			} catch ( \Throwable $e ) {
 				OC_Logger::warning( 'Action Scheduler could not queue a webhook delivery: ' . self::bounded_message( $e->getMessage() ) );
 			}

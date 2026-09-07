@@ -82,7 +82,7 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 
 	#[Test]
 	public function openrouter_discovery_failures_are_briefly_negative_cached_and_force_refresh_bypasses_them(): void {
-		$requests = 0;
+		$requests        = 0;
 		$this->http_mock = static function ( $preempt, array $args, string $url ) use ( &$requests ): array|false {
 			if ( 'https://openrouter.ai/api/v1/models' !== $url ) {
 				return false;
@@ -112,7 +112,7 @@ class Test_Admin_Settings extends WP_UnitTestCase {
 	public function direct_provider_empty_discovery_is_negative_cached(): void {
 		$encrypt = ( new ReflectionClass( OC_Admin_Settings::class ) )->getMethod( 'encrypt_secret' );
 		update_option( 'oc_settings', [ 'google_api_key_enc' => $encrypt->invoke( null, 'test-key' ) ] );
-		$requests = 0;
+		$requests        = 0;
 		$this->http_mock = static function ( $preempt, array $args, string $url ) use ( &$requests ): array|false {
 			if ( ! str_starts_with( $url, 'https://generativelanguage.googleapis.com/' ) ) {
 				return false;

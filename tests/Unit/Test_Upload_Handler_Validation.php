@@ -12,6 +12,10 @@
 use PHPUnit\Framework\TestCase;
 use PHPUnit\Framework\Attributes\Test;
 
+if ( ! function_exists( 'wp_salt' ) ) {
+	function wp_salt( string $scheme = 'auth' ): string { return 'audit-test-salt'; }
+}
+
 /**
  * Expose OC_Upload_Handler protected helpers via reflection.
  */
@@ -99,9 +103,65 @@ class UploadHandlerReflector {
 }
 
 class Test_Upload_Handler_Validation extends TestCase {
+	#[Test]
+	public function audit_svg_reservation_uses_expanded_sanitised_bytes(): void {
+		$svg = "<svg xmlns='http://www.w3.org/2000/svg'><text title='\"'/></svg>";
+		$clean = OC_SVG_Sanitiser::sanitise( $svg );
+		$this->assertGreaterThan( strlen( $svg ), strlen( $clean ) );
+		$path = tempnam( __DIR__, '.audit-svg-' );
+		try {
+			file_put_contents( $path, $svg );
+			$inspection = ( new ReflectionMethod( OC_Upload_Handler::class, 'inspect_validated_upload' ) )->invoke( null, [ 'tmp_name' => $path, 'name' => 'artwork.svg' ], null );
+			$this->assertSame( strlen( $svg ), $inspection['source_bytes'] );
+			$this->assertSame( strlen( $clean ), $inspection['reservation_bytes'] );
+		} finally {
+			unlink( $path );
+		}
+	}
+	#[Test]
+	public function audit_rejects_header_only_rasters(): void {
+		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$header = substr( $png, 0, 33 );
+		$this->assertIsArray( getimagesizefromstring( $header ) );
+		$this->expectException( RuntimeException::class );
+		OC_Upload_Handler::validate_raster_bytes( $header, 'image/png' );
+	}
+
+	#[Test]
+	public function audit_storage_rejects_unknown_web_root_and_public_paths(): void {
+		$previous = $_SERVER['DOCUMENT_ROOT'] ?? null;
+		$method = new ReflectionMethod( OC_Upload_Handler::class, 'prepare_storage_root' );
+		try {
+			unset( $_SERVER['DOCUMENT_ROOT'] );
+			$this->assertNull( $method->invoke( null, OC_PATH . 'tests/private-audit' ) );
+			$_SERVER['DOCUMENT_ROOT'] = OC_PATH;
+			$this->assertNull( $method->invoke( null, OC_PATH . 'tests/private-audit' ) );
+			$this->assertNull( $method->invoke( null, OC_PATH . 'tests/../private-audit' ) );
+			$this->assertDirectoryDoesNotExist( OC_PATH . 'tests/private-audit' );
+		} finally {
+			if ( null === $previous ) { unset( $_SERVER['DOCUMENT_ROOT'] ); } else { $_SERVER['DOCUMENT_ROOT'] = $previous; }
+		}
+	}
+
 	private array $temporary_files = [];
+	private ?array $previous_cookies = null;
+	private mixed $previous_document_root = null;
+
+	protected function setUp(): void {
+		parent::setUp();
+		$this->previous_document_root = $_SERVER['DOCUMENT_ROOT'] ?? null;
+		$_SERVER['DOCUMENT_ROOT'] = ABSPATH;
+	}
 
 	protected function tearDown(): void {
+		if ( null === $this->previous_document_root ) {
+			unset( $_SERVER['DOCUMENT_ROOT'] );
+		} else {
+			$_SERVER['DOCUMENT_ROOT'] = $this->previous_document_root;
+		}
+		if ( null !== $this->previous_cookies ) {
+			$_COOKIE = $this->previous_cookies;
+		}
 		foreach ( $this->temporary_files as $file ) {
 			@unlink( $file );
 		}
@@ -131,10 +191,13 @@ class Test_Upload_Handler_Validation extends TestCase {
 		];
 		if ( '' !== $token ) {
 			$_SERVER['REMOTE_ADDR'] = '127.0.0.1';
+			$this->previous_cookies ??= $_COOKIE;
+			$secret = str_repeat( 'c', 64 );
+			$_COOKIE['oc_private_browser'] = $secret . '.' . hash_hmac( 'sha256', $secret, wp_salt( 'auth' ) );
 			$GLOBALS['oc_test_transients'][ 'oc_pubtok_' . hash( 'sha256', $token ) ] = [
 				'version'      => 2,
-				'binding_type' => 'ip',
-				'binding_hash' => hash( 'sha256', '127.0.0.1' ),
+				'binding_type' => 'browser',
+				'binding_hash' => hash( 'sha256', $secret ),
 				'created_at'   => time(),
 				'expires_at'   => time() + HOUR_IN_SECONDS,
 			];
@@ -162,16 +225,16 @@ class Test_Upload_Handler_Validation extends TestCase {
 	}
 
 	#[Test]
-	public function uploads_fallback_is_stable_and_deny_protected(): void {
+	public function uploads_fallback_fails_closed_without_server_protection_attestation(): void {
 		$uploads = wp_upload_dir();
 		if ( ! is_dir( $uploads['basedir'] ) ) {
 			mkdir( $uploads['basedir'], 0755, true );
 		}
 
-		$root = UploadHandlerReflector::protected_uploads_storage_root();
-		$this->assertIsString( $root );
+		$this->assertNull( UploadHandlerReflector::protected_uploads_storage_root() );
+		$root = $uploads['basedir'] . '/.overcustomise-private-' . get_option( 'oc_private_storage_token' );
 		$this->assertMatchesRegularExpression( '/\/\.overcustomise-private-[a-z0-9]{32}$/D', $root );
-		$this->assertSame( $root, UploadHandlerReflector::protected_uploads_storage_root() );
+		$this->assertNull( UploadHandlerReflector::protected_uploads_storage_root() );
 		$this->assertFileExists( $root . '/.htaccess' );
 		$this->assertFileExists( $root . '/web.config' );
 		$this->assertFileExists( $root . '/index.php' );
@@ -186,19 +249,19 @@ class Test_Upload_Handler_Validation extends TestCase {
 	#[Test]
 	public function protection_marker_skips_ordinary_reads_but_forced_checks_repair_rules(): void {
 		$directory = sys_get_temp_dir() . '/oc-protection-' . bin2hex( random_bytes( 6 ) );
-		mkdir( $directory, 0755, true );
+		wp_mkdir_p( $directory );
 		$this->assertTrue( UploadHandlerReflector::protect_artwork_directory( $directory, true ) );
-		file_put_contents( $directory . '/.htaccess', 'changed' );
+		file_put_contents( $directory . '/.htaccess', 'changed' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Test fixture mutation.
 
 		$this->assertTrue( UploadHandlerReflector::protect_artwork_directory( $directory ) );
-		$this->assertSame( 'changed', file_get_contents( $directory . '/.htaccess' ) );
+		$this->assertSame( 'changed', file_get_contents( $directory . '/.htaccess' ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
 		$this->assertTrue( UploadHandlerReflector::protect_artwork_directory( $directory, true ) );
-		$this->assertStringContainsString( 'Require all denied', (string) file_get_contents( $directory . '/.htaccess' ) );
+		$this->assertStringContainsString( 'Require all denied', (string) file_get_contents( $directory . '/.htaccess' ) ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Local test fixture.
 
 		foreach ( [ '.htaccess', 'web.config', 'index.php' ] as $filename ) {
-			@unlink( $directory . '/' . $filename );
+			unlink( $directory . '/' . $filename ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Removes local temporary test fixtures.
 		}
-		@rmdir( $directory );
+		rmdir( $directory ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_rmdir -- Removes the empty temporary test fixture directory.
 	}
 
 	// ── MIME detection — SVG fallback ─────────────────────────────────────

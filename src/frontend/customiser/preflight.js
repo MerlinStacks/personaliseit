@@ -411,7 +411,7 @@ const preflightMethods = {
 
 					case 'night_sky': {
 						const valid = Boolean(
-							input.locationLabel &&
+							String( input.locationLabel || '' ).trim() &&
 								input.date &&
 								input.time &&
 								input.latitude !== null &&
@@ -422,12 +422,21 @@ const preflightMethods = {
 								input.longitude !== '' &&
 								Number.isFinite( Number( input.latitude ) ) &&
 								Number.isFinite( Number( input.longitude ) ) &&
+								Number( input.utcOffset || 0 ) >= -840 &&
+								Number( input.utcOffset || 0 ) <= 840 &&
 								input.nightSkyGeometry?.v === 1 &&
 								( input.nightSkyGeometry.stars?.length ||
 									input.nightSkyGeometry.segments?.length )
 						);
 						if (
-							( required || input.locationLabel || input.date ) &&
+							( required ||
+								input.locationLabel ||
+								! [ null, undefined, '' ].includes(
+									input.latitude
+								) ||
+								! [ null, undefined, '' ].includes(
+									input.longitude
+								) ) &&
 							! valid
 						) {
 							errors.push(

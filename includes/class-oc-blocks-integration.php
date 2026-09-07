@@ -4,7 +4,7 @@
  *
  * - Registers a Store API extension so the Cart Block and Checkout Block
  *   receive personalisation data (preview_url + summary) per cart item.
- * - Enqueues the blocks-integration.js frontend script on cart/checkout pages.
+ * - Standard Store API item_data renders the visible summary, without an itemName filter.
  *
  * @package OverCustomise
  */
@@ -15,7 +15,6 @@ class OC_Blocks_Integration {
 
 	public function register(): void {
 		add_action( 'woocommerce_blocks_loaded',  [ $this, 'register_store_api_extension' ] );
-		add_action( 'wp_enqueue_scripts',         [ $this, 'enqueue_blocks_script' ] );
 
 		if ( did_action( 'woocommerce_blocks_loaded' ) ) {
 			$this->register_store_api_extension();
@@ -60,8 +59,8 @@ class OC_Blocks_Integration {
 		$design_id = (int) ( $customisation['designId'] ?? $cart_item['_oc_design_id'] ?? 0 );
 		$layers    = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
 
-		$layer_map = [];
-		if ( $design_id ) {
+		$layer_map = OC_Cart::render_spec_layer_map( $customisation );
+		if ( ! array_key_exists( 'renderSpec', $customisation ) && $design_id ) {
 			foreach ( OC_DB::get_design_layers( $design_id ) as $l ) {
 				$layer_map[ (int) $l->id ] = $l;
 			}
@@ -166,51 +165,4 @@ class OC_Blocks_Integration {
 		];
 	}
 
-	// ── Frontend script ───────────────────────────────────────────────────────
-
-	public function enqueue_blocks_script(): void {
-		if ( ( ! is_cart() && ! is_checkout() ) || ! OC_Cart::cart_has_customisation() ) {
-			return;
-		}
-
-		// Only load when WC Blocks has registered the blocks-checkout package.
-		if ( ! wp_script_is( 'wc-blocks-checkout', 'registered' ) ) {
-			return;
-		}
-
-		$asset_file = OC_PATH . 'assets/build/frontend/blocks-integration.asset.php';
-		if ( ! file_exists( $asset_file ) ) {
-			return;
-		}
-
-		$asset = include $asset_file;
-
-		wp_enqueue_script(
-			'oc-blocks-integration',
-			OC_ASSETS_URL . 'frontend/blocks-integration.js',
-			$asset['dependencies'],
-			$asset['version'],
-			true
-		);
-
-		wp_register_style( 'oc-blocks-integration', false, [], OC_VERSION );
-		wp_enqueue_style( 'oc-blocks-integration' );
-		wp_add_inline_style( 'oc-blocks-integration', $this->get_css() );
-	}
-
-	private function get_css(): string {
-		return '
-		.oc-blocks-personalisation-summary {
-			list-style: none;
-			margin: 6px 0 0;
-			padding: 0;
-			font-size: 12px;
-			line-height: 1.4;
-			color: #555;
-		}
-		.oc-blocks-personalisation-summary li {
-			margin: 2px 0;
-		}
-		';
-	}
 }

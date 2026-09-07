@@ -18,6 +18,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-oc-storage-upgrade.php';
+
 class OC_Upload_Handler {
 	private const MAX_IMAGE_DIMENSION           = 12000;
 	private const MAX_IMAGE_PIXELS              = 40000000;
@@ -230,9 +232,9 @@ class OC_Upload_Handler {
 	/**
 	 * Return the configured private storage root, creating it when safe.
 	 *
-	 * The preferred default is a site-specific sibling of ABSPATH. When PHP cannot
-	 * create it, an unguessable, deny-protected uploads directory is used instead.
-	 * Explicitly configured or filtered paths remain fail-closed.
+	 * HTTP validates canonical containment and signs short-lived site/config evidence
+	 * for CLI reuse. Public fallback requires explicit recursive operator policy.
+	 * Consumers must handle null; never fall back to a public print/artwork path.
 	 */
 	public static function private_storage_root( bool $force_protection_check = false ): ?string {
 		$default_root = dirname( rtrim( ABSPATH, '/\\' ) ) . DIRECTORY_SEPARATOR
@@ -241,7 +243,7 @@ class OC_Upload_Handler {
 		$filtered     = apply_filters( 'oc_private_storage_root', $configured, $default_root );
 		$root         = self::prepare_storage_root( $filtered );
 		if ( null !== $root ) {
-			return $root;
+			return self::protect_artwork_directory( $root, $force_protection_check ) ? $root : null;
 		}
 
 		if ( defined( 'OC_PRIVATE_STORAGE_ROOT' ) || $filtered !== $default_root ) {
@@ -258,7 +260,29 @@ class OC_Upload_Handler {
 		}
 
 		$candidate = rtrim( wp_normalize_path( trim( $path ) ), '/' );
-		if ( ! self::is_absolute_path( $candidate ) || '/' === $candidate || preg_match( '#^[A-Za-z]:$#D', $candidate ) ) {
+		if ( ! self::is_absolute_path( $candidate ) || '/' === $candidate || preg_match( '#^[A-Za-z]:$#D', $candidate ) || preg_match( '#(?:^|/)\.{1,2}(?:/|$)#', $candidate ) ) {
+			return null;
+		}
+		$document_root = is_string( $_SERVER['DOCUMENT_ROOT'] ?? null ) && '' !== $_SERVER['DOCUMENT_ROOT'] ? realpath( $_SERVER['DOCUMENT_ROOT'] ) : false;
+		$attested = defined( 'OC_PRIVATE_STORAGE_ROOT' ) && defined( 'OC_PRIVATE_STORAGE_OUTSIDE_WEB_ROOT' ) && true === OC_PRIVATE_STORAGE_OUTSIDE_WEB_ROOT;
+		// Resolve existing ancestors before creating directories, including symlinked parents.
+		$ancestor = $candidate;
+		$suffix = '';
+		while ( ! file_exists( $ancestor ) && ! is_link( $ancestor ) && dirname( $ancestor ) !== $ancestor ) {
+			$suffix = '/' . basename( $ancestor ) . $suffix;
+			$ancestor = dirname( $ancestor );
+		}
+		$resolved = realpath( $ancestor );
+		if ( false === $resolved ) {
+			return null;
+		}
+		$candidate = rtrim( wp_normalize_path( $resolved ), '/' ) . $suffix;
+		$configuration = wp_normalize_path( trim( $path ) );
+		if ( ! $allow_public_path && false !== $document_root && ( '' === rtrim( wp_normalize_path( $document_root ), '/' ) || self::path_is_within( $candidate, $document_root, true ) || self::path_is_within( $document_root, $candidate, true ) ) ) {
+			OC_Storage_Upgrade::revoke_private_root( $candidate, $configuration );
+			return null;
+		}
+		if ( ! $allow_public_path && OC_Storage_Upgrade::private_root_revoked( $candidate ) ) {
 			return null;
 		}
 
@@ -276,6 +300,11 @@ class OC_Upload_Handler {
 		) {
 			return null;
 		}
+		$attested = $attested || true === apply_filters( 'oc_private_storage_outside_web_root', false, $candidate );
+		if ( ! $allow_public_path && false === $document_root && ! $attested
+			&& ! OC_Storage_Upgrade::private_root_verified( $candidate, $configuration, false ) ) {
+			return null;
+		}
 
 		if ( ( ! is_dir( $candidate ) && ! wp_mkdir_p( $candidate ) ) || ! is_writable( $candidate ) ) {
 			return null;
@@ -285,12 +314,21 @@ class OC_Upload_Handler {
 			return null;
 		}
 		$real = rtrim( wp_normalize_path( $real ), '/' );
+		if ( ! $allow_public_path && false !== $document_root && ( self::path_is_within( $real, $document_root, true ) || self::path_is_within( $document_root, $real, true ) ) ) {
+			OC_Storage_Upgrade::revoke_private_root( $candidate, $configuration );
+			OC_Storage_Upgrade::revoke_private_root( $real, $configuration );
+			return null;
+		}
 		if ( ! $allow_public_path && ( self::path_is_within( $real, $abspath, true ) || self::path_is_within( $abspath, $real, true )
 			|| ( '' !== $uploads_base && ( self::path_is_within( $real, $uploads_base, true ) || self::path_is_within( $uploads_base, $real, true ) ) )
 		) ) {
 			return null;
 		}
 
+		if ( ! $allow_public_path && false !== $document_root
+			&& ! OC_Storage_Upgrade::private_root_verified( $real, $configuration, $document_root ) ) {
+			return null;
+		}
 		@chmod( $real, 0750 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		return $real;
 	}
@@ -315,7 +353,9 @@ class OC_Upload_Handler {
 			. '/.overcustomise-private-' . $token;
 		$root         = self::prepare_storage_root( $directory, true );
 		$uploads_real = rtrim( wp_normalize_path( $uploads_real ), '/' );
-		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root, $force_protection_check ) ) {
+		// Public-path deny files must be intact before any customer bytes are written.
+		if ( null === $root || ! self::path_is_within( $root, $uploads_real ) || ! self::protect_artwork_directory( $root, true )
+			|| ! OC_Storage_Upgrade::public_subtree_verified( $root ) ) {
 			return null;
 		}
 
@@ -372,10 +412,10 @@ class OC_Upload_Handler {
 			return null;
 		}
 		$real = realpath( $directory );
-		if ( false === $real || ! self::path_is_within( wp_normalize_path( $real ), $root ) ) {
+		if ( false === $real || wp_normalize_path( $real ) !== wp_normalize_path( $directory ) || ! self::path_is_within( wp_normalize_path( $real ), $root ) ) {
 			return null;
 		}
-		if ( self::storage_path_uses_uploads_fallback( $root ) && ! self::protect_artwork_directory( $real, $force_protection_check ) ) {
+		if ( ! self::protect_artwork_directory( $real, $force_protection_check ) ) {
 			return null;
 		}
 
@@ -408,48 +448,51 @@ class OC_Upload_Handler {
 			OC_Logger::warning( 'Private customer storage is unavailable.' );
 			return;
 		}
+		$root_identity = hash( 'sha256', $private_directory );
+		$migration_pending = $run_migration && ( $migration_pending || $root_identity !== get_option( 'oc_private_artwork_migration_root', '' ) );
 		if ( ! $migration_pending ) {
 			return;
 		}
 		$limit        = 50;
-		$legacy_ids   = get_posts(
-			[
-				'post_type'      => 'attachment',
-				'post_status'    => [ 'private', 'inherit' ],
-				'posts_per_page' => $limit,
-				'fields'         => 'ids',
-				'orderby'        => 'ID',
-				'order'          => 'ASC',
-				'meta_query'     => [
-					'relation' => 'AND',
-					[
-						'key'   => '_oc_artwork',
-						'value' => '1',
-					],
-					[
-						'relation' => 'OR',
-						[
-							'key'     => '_oc_private_storage_version',
-							'compare' => 'NOT EXISTS',
-						],
-						[
-							'key'     => '_oc_private_storage_version',
-							'value'   => (string) self::STORAGE_VERSION,
-							'compare' => '!=',
-						],
-					],
-				],
-			]
+		$cursor = max( 0, (int) get_option( 'oc_private_artwork_migration_cursor', 0 ) );
+		global $wpdb;
+		$legacy_ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT p.ID FROM {$wpdb->posts} p WHERE p.ID > %d AND p.post_type = 'attachment'
+				AND p.post_status IN ('private', 'inherit')
+				AND EXISTS (SELECT 1 FROM {$wpdb->postmeta} m WHERE m.post_id = p.ID AND m.meta_key = '_oc_artwork' AND m.meta_value = '1')
+				AND (NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} v WHERE v.post_id = p.ID AND v.meta_key = '_oc_private_storage_version' AND v.meta_value = %s)
+				OR NOT EXISTS (SELECT 1 FROM {$wpdb->postmeta} r WHERE r.post_id = p.ID AND r.meta_key = '_oc_private_storage_root' AND r.meta_value = %s))
+				ORDER BY p.ID ASC LIMIT %d",
+				$cursor, (string) self::STORAGE_VERSION, $root_identity, $limit
+			)
 		);
-		$migration_ok = true;
+		if ( ! is_array( $legacy_ids ) || '' !== (string) $wpdb->last_error ) {
+			return;
+		}
+		// Bound work between attachments; one validated attachment bundle is at most 100 MiB.
+		$deadline = microtime( true ) + 2;
+		$processed = 0;
+		$bytes = 0;
 		foreach ( array_map( 'absint', $legacy_ids ) as $attachment_id ) {
-			if ( ! self::migrate_legacy_attachment( $attachment_id, $private_directory ) ) {
-				$migration_ok = false;
+			if ( $processed > 0 && ( microtime( true ) >= $deadline || $bytes >= 100 * 1024 * 1024 ) ) {
+				break;
 			}
+			// Persist progress before processing so a crashing or invalid row cannot starve later IDs.
+			update_option( 'oc_private_artwork_migration_cursor', $attachment_id, false );
+			$source = get_attached_file( $attachment_id );
+			$bytes += is_string( $source ) && is_file( $source ) ? (int) filesize( $source ) : 0;
+			self::migrate_legacy_attachment( $attachment_id, $private_directory );
+			$processed++;
+		}
+		if ( $processed === count( $legacy_ids ) && count( $legacy_ids ) < $limit ) {
+			update_option( 'oc_private_artwork_migration_cursor', 0, false );
 		}
 
-		if ( $migration_ok && count( $legacy_ids ) < $limit ) {
+		// Wrap to retry failures, but only declare completion after an empty scan from zero.
+		if ( 0 === $cursor && empty( $legacy_ids ) ) {
 			update_option( 'oc_private_artwork_storage_version', self::STORAGE_VERSION, false );
+			update_option( 'oc_private_artwork_migration_root', $root_identity, false );
 		}
 	}
 
@@ -465,6 +508,11 @@ class OC_Upload_Handler {
 	 */
 	public static function inspect_upload( array $_file, ?array $overrides = null ): array {
 		self::validate( $_file, $overrides );
+		return self::inspect_validated_upload( $_file, $overrides );
+	}
+
+	/** Inspect content after the PHP upload, size and layer-policy checks have passed. */
+	private static function inspect_validated_upload( array $_file, ?array $overrides ): array {
 		$mime     = self::detect_mime( (string) $_file['tmp_name'], (string) $_file['name'] );
 		$type_key = self::SUPPORTED_TYPES[ $mime ] ?? null;
 		if ( null === $type_key ) {
@@ -478,6 +526,7 @@ class OC_Upload_Handler {
 				throw new \RuntimeException( __( 'File is not a valid image.', 'overcustomise' ) );
 			}
 			self::validate_image_dimensions( (int) $image_info[0], (int) $image_info[1] );
+			self::validate_raster_bytes( (string) file_get_contents( (string) $_file['tmp_name'] ), $mime );
 			if ( 'jpg' === $type_key ) {
 				$jpeg_orientation = self::jpeg_exif_orientation( (string) $_file['tmp_name'] );
 			}
@@ -494,7 +543,7 @@ class OC_Upload_Handler {
 				throw new \RuntimeException( __( 'Uploaded artwork could not be read.', 'overcustomise' ) );
 			}
 			try {
-				OC_SVG_Sanitiser::sanitise( $raw );
+				$sanitised_bytes = strlen( OC_SVG_Sanitiser::sanitise( $raw ) );
 			} catch ( \Throwable $e ) {
 				throw new \RuntimeException( __( 'The SVG file is not safe to process.', 'overcustomise' ) );
 			}
@@ -507,6 +556,9 @@ class OC_Upload_Handler {
 		$source_bytes           = (int) filesize( (string) $_file['tmp_name'] );
 		$count                  = in_array( $type_key, [ 'pdf', 'eps' ], true ) ? 2 : 1;
 		$reservation            = 'heic' === $type_key ? self::MAX_GENERATED_IMAGE_BYTES : $source_bytes;
+		if ( 'svg' === $type_key ) {
+			$reservation = $sanitised_bytes;
+		}
 		$remove_background      = ! empty( $overrides['remove_background'] );
 		$use_builtin_bg_removal = $remove_background
 			&& ! has_filter( 'oc_upload_remove_background' )
@@ -649,7 +701,11 @@ class OC_Upload_Handler {
 		if ( ! is_array( $info ) || $info['mime'] !== $mime ) {
 			return new \WP_Error( 'invalid_generated_image', __( 'The generated image is invalid.', 'overcustomise' ) );
 		}
-		self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+		try {
+			self::validate_raster_bytes( $bytes, $mime );
+		} catch ( \RuntimeException $e ) {
+			return new \WP_Error( 'invalid_generated_image', $e->getMessage() );
+		}
 
 		$tmp = self::temp_path( 'oc-ai-image-' );
 		if ( false === $tmp || strlen( $bytes ) !== file_put_contents( $tmp, $bytes, LOCK_EX ) ) {
@@ -864,6 +920,7 @@ class OC_Upload_Handler {
 			}
 			try {
 				self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+				self::validate_raster_bytes( (string) file_get_contents( $path ), $detected_mime );
 			} catch ( \RuntimeException $e ) {
 				return false;
 			}
@@ -938,9 +995,78 @@ class OC_Upload_Handler {
 		}
 		try {
 			self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+			self::validate_raster_bytes( (string) file_get_contents( $path ), $mime );
 			return true;
 		} catch ( \RuntimeException $e ) {
 			return false;
+		}
+	}
+
+	/** Fully decode bounded raster bytes; header inspection alone does not establish integrity. */
+	public static function validate_raster_bytes( string $bytes, string $mime ): void {
+		if ( '' === $bytes || strlen( $bytes ) > 100 * 1024 * 1024 || ! in_array( $mime, [ 'image/png', 'image/jpeg', 'image/webp' ], true ) ) {
+			throw new \RuntimeException( 'Invalid raster image data.' );
+		}
+		$info = @getimagesizefromstring( $bytes );
+		if ( ! is_array( $info ) || $info['mime'] !== $mime ) {
+			throw new \RuntimeException( 'Invalid raster image data.' );
+		}
+		self::validate_image_dimensions( (int) $info[0], (int) $info[1] );
+		if ( ! self::gd_orientation_memory_is_safe( (int) $info[0], (int) $info[1] ) ) {
+			throw new \RuntimeException( 'Image decoding exceeds the server memory budget.' );
+		}
+		$decoder = match ( $mime ) {
+			'image/png' => 'imagecreatefrompng',
+			'image/jpeg' => 'imagecreatefromjpeg',
+			'image/webp' => 'imagecreatefromwebp',
+		};
+		if ( ! function_exists( 'imagecreatefromstring' ) || ! function_exists( $decoder ) ) {
+			if ( ! class_exists( '\\Imagick' ) ) {
+				throw new \RuntimeException( 'Full raster validation requires PHP GD or ImageMagick with the image format enabled.' );
+			}
+			$image = new \Imagick();
+			$limits = [];
+			try {
+				// Never raise host policy limits or spill untrusted decode buffers to disk.
+				foreach ( [ 'MEMORY' => 128 * 1024 * 1024, 'MAP' => 0, 'DISK' => 0, 'THREAD' => 1, 'TIME' => 15, 'LISTLENGTH' => 1 ] as $name => $maximum ) {
+					$constant = '\\Imagick::RESOURCETYPE_' . $name;
+					if ( defined( $constant ) ) {
+						$type = constant( $constant );
+						$limits[ $type ] = \Imagick::getResourceLimit( $type );
+						if ( ! \Imagick::setResourceLimit( $type, min( $limits[ $type ], $maximum ) ) ) {
+							throw new \RuntimeException( 'Image decoder resource limits are unavailable.' );
+						}
+					}
+				}
+				$image->readImageBlob( $bytes );
+				if ( 1 !== $image->getNumberImages() || $image->getImageWidth() !== (int) $info[0] || $image->getImageHeight() !== (int) $info[1]
+					|| '' === $image->getImageSignature() ) {
+					throw new \RuntimeException( 'The raster image could not be fully decoded.' );
+				}
+			} catch ( \Throwable $e ) {
+				throw new \RuntimeException( 'The raster image is corrupt, unsupported or exceeds decoder resource limits.', 0, $e );
+			} finally {
+				$image->clear();
+				foreach ( $limits as $type => $limit ) {
+					\Imagick::setResourceLimit( $type, $limit );
+				}
+			}
+			return;
+		}
+		$image = false;
+		set_error_handler( static function ( int $severity, string $message ): never {
+			throw new \RuntimeException( 'The raster image is corrupt or its decoder is unavailable.' );
+		} );
+		try {
+			$image = imagecreatefromstring( $bytes );
+			if ( false === $image || imagesx( $image ) !== (int) $info[0] || imagesy( $image ) !== (int) $info[1] ) {
+				throw new \RuntimeException( 'The raster image could not be fully decoded.' );
+			}
+		} finally {
+			restore_error_handler();
+			if ( false !== $image ) {
+				imagedestroy( $image );
+			}
 		}
 	}
 
@@ -997,6 +1123,10 @@ class OC_Upload_Handler {
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_user_id', get_current_user_id() ) && $stored;
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_session', self::session_hash() ) && $stored;
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_token', $token_hash ) && $stored;
+		$browser = class_exists( 'OC_Rest_API' ) ? OC_Rest_API::browser_principal() : '';
+		if ( '' !== $browser ) {
+			$stored = update_post_meta( $attachment_id, '_oc_artwork_browser', $browser ) && $stored;
+		}
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_owner_secret', wp_generate_password( 64, false, false ) ) && $stored;
 		$stored = update_post_meta( $attachment_id, '_oc_artwork_original_name', sanitize_file_name( basename( $original_name ) ) ) && $stored;
 		return $stored;
@@ -2182,6 +2312,9 @@ class OC_Upload_Handler {
 
 	/** Require intact deny rules before any not-yet-migrated public path is used. */
 	private static function legacy_artwork_storage_is_protected( string $directory ): bool {
+		if ( ! OC_Storage_Upgrade::public_subtree_verified( $directory ) ) {
+			return false;
+		}
 		$files = [
 			'.htaccess'  => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
 			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
@@ -2196,12 +2329,126 @@ class OC_Upload_Handler {
 		return true;
 	}
 
-	private static function is_allowed_artwork_path( string $path ): bool {
+	/** Shared storage-only guard for print consumers; does not grant customer ownership. */
+	public static function is_allowed_artwork_path( string $path ): bool {
 		return self::is_private_artwork_path( $path ) || self::is_legacy_artwork_path( $path );
 	}
 
 	/** Move one marked legacy attachment and remove its publicly routed image sizes. */
 	private static function migrate_legacy_attachment( int $attachment_id, string $private_directory ): bool {
+		if ( 1 !== (int) get_post_meta( $attachment_id, '_oc_artwork', true ) ) {
+			return false;
+		}
+		$lock_path = $private_directory . '/.oc-migrate-' . $attachment_id . '.lock';
+		if ( is_link( $lock_path ) ) {
+			return false;
+		}
+		$lock = @fopen( $lock_path, 'c' );
+		if ( false === $lock ) {
+			return false;
+		}
+		try {
+			if ( ! flock( $lock, LOCK_EX | LOCK_NB ) ) {
+				return false;
+			}
+			$source = get_attached_file( $attachment_id );
+			$old_private = is_string( $source ) ? self::known_old_private_artwork( $source ) : null;
+			$ok = null !== $old_private && ! self::is_private_artwork_path( $source )
+				? self::relocate_private_attachment( $attachment_id, $old_private, $private_directory )
+				: self::migrate_legacy_attachment_locked( $attachment_id, $private_directory );
+			if ( ! $ok ) {
+				return false;
+			}
+			update_post_meta( $attachment_id, '_oc_private_storage_root', hash( 'sha256', $private_directory ) );
+			return hash( 'sha256', $private_directory ) === get_post_meta( $attachment_id, '_oc_private_storage_root', true );
+		} finally {
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+	}
+
+	/** Exact old default/fallback artwork only; DB paths cannot introduce roots. */
+	private static function known_old_private_artwork( string $path ): ?string {
+		$real = OC_Storage_Upgrade::canonical_file( $path );
+		if ( null === $real ) {
+			return null;
+		}
+		foreach ( OC_Storage_Upgrade::legacy_private_roots() as $root ) {
+			$artwork = $root . '/artwork';
+			if ( realpath( $artwork ) === $artwork && self::path_is_within( $real, $artwork ) ) {
+				return $real;
+			}
+		}
+		return null;
+	}
+
+	/** Preserve private attachment metadata and IDs; retain source copies for reference-safe cleanup. */
+	private static function relocate_private_attachment( int $id, string $source, string $directory ): bool {
+		if ( ! self::artwork_content_is_valid( $source, (string) get_post_mime_type( $id ) ) ) {
+			return false;
+		}
+		$old_path = get_post_meta( $id, '_wp_attached_file', true );
+		$metadata = wp_get_attachment_metadata( $id );
+		$names = [ basename( $source ) ];
+		if ( is_array( $metadata ) ) {
+			foreach ( (array) ( $metadata['sizes'] ?? [] ) as $size ) {
+				if ( ! is_array( $size ) || ! is_string( $size['file'] ?? null ) ) {
+					return false;
+				}
+				$names[] = $size['file'];
+			}
+			if ( ! empty( $metadata['original_image'] ) ) {
+				$names[] = $metadata['original_image'];
+			}
+		}
+		if ( count( $names ) > 25 ) {
+			return false;
+		}
+		$bytes = 0;
+		foreach ( array_unique( $names ) as $name ) {
+			if ( ! is_string( $name ) || basename( $name ) !== $name || null === self::known_old_private_artwork( dirname( $source ) . '/' . $name ) ) {
+				return false;
+			}
+			$bytes += (int) filesize( dirname( $source ) . '/' . $name );
+		}
+		if ( $bytes > 100 * 1024 * 1024 ) {
+			return false;
+		}
+		$target = $directory . '/relocated-' . $id . '-' . bin2hex( random_bytes( 12 ) );
+		if ( ! mkdir( $target, 0750 ) ) {
+			return false;
+		}
+		$copies = [];
+		$published = false;
+		try {
+			foreach ( array_unique( $names ) as $name ) {
+				$copy = $target . '/' . $name;
+				if ( ! self::atomic_copy( dirname( $source ) . '/' . $name, $copy ) ) {
+					return false;
+				}
+				$copies[] = $copy;
+			}
+			$destination = $target . '/' . basename( $source );
+			// Compare-and-swap the authoritative pointer. Never replace a concurrent update.
+			if ( ! is_string( $old_path ) || '' === $old_path || ! update_post_meta( $id, '_wp_attached_file', $destination, $old_path ) ) {
+				return false;
+			}
+			$published = true;
+			// Metadata is intentionally unchanged: filenames, sizes and related IDs still match.
+			update_post_meta( $id, '_oc_private_storage_version', self::STORAGE_VERSION );
+			OC_Logger::warning( 'Relocated artwork #' . $id . '; old private copies retained pending reference-safe source cleanup.' );
+			return $destination === get_attached_file( $id ) && self::STORAGE_VERSION === (int) get_post_meta( $id, '_oc_private_storage_version', true );
+		} finally {
+			if ( ! $published ) {
+				foreach ( $copies as $copy ) {
+					@unlink( $copy );
+				}
+				@rmdir( $target );
+			}
+		}
+	}
+
+	private static function migrate_legacy_attachment_locked( int $attachment_id, string $private_directory ): bool {
 		$post_update = wp_update_post(
 			[
 				'ID'          => $attachment_id,
@@ -2234,7 +2481,8 @@ class OC_Upload_Handler {
 				OC_Logger::warning( 'Artwork migration rejected invalid private artwork content.' );
 				return false;
 			}
-			return (bool) update_post_meta( $attachment_id, '_oc_private_storage_version', self::STORAGE_VERSION );
+			update_post_meta( $attachment_id, '_oc_private_storage_version', self::STORAGE_VERSION );
+			return self::STORAGE_VERSION === (int) get_post_meta( $attachment_id, '_oc_private_storage_version', true );
 		}
 		if ( ! self::path_is_in_legacy_artwork_root( $source, false ) ) {
 			OC_Logger::warning( 'Artwork migration rejected a file outside the legacy artwork root.' );
@@ -2341,6 +2589,8 @@ class OC_Upload_Handler {
 			$ok          = false !== $source_size && $source_size > 0
 				&& copy( $source, $tmp )
 				&& filesize( $tmp ) === $source_size
+				&& is_string( $source_hash = hash_file( 'sha256', $source ) )
+				&& $source_hash === hash_file( 'sha256', $tmp )
 				&& @chmod( $tmp, 0640 ) // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				&& @rename( $tmp, $destination ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		} finally {

@@ -1,0 +1,14 @@
+{
+  "state": {
+    "design": { "name": "HEAD draft", "customType": "text_only", "flatRate": 12.5, "active": true },
+    "areas": [{
+      "id": 41, "label": "Front", "method": "uv", "material": "silver_metal", "unit": "mm",
+      "mockupId": 0, "mockupUrl": "", "storedMockupId": 0,
+      "x": 12, "y": 18, "w": 300, "h": 200, "dpi": 300,
+      "ratioLocked": true, "aspectRatio": 1.5, "rotation": 90, "sortOrder": 0, "visible": true, "locked": false,
+      "layers": [{ "id": 91, "type": "text", "label": "Name", "x": 12, "y": 18, "w": 100, "h": 40, "sortOrder": 0, "visible": true, "locked": false, "settings": { "default_text": "Alice" } }]
+    }]
+  },
+  "timestamp": 1784000000,
+  "revision": 4
+}

@@ -9,14 +9,14 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_File_Cleanup {
 
-	private const ARTWORK_DELETE_GRACE_SECONDS = DAY_IN_SECONDS;
-	private const PRIVATE_PREVIEW_OPTION_PREFIX = 'oc_private_preview_';
-	private const PRIVATE_PREVIEW_CURSOR_OPTION = 'oc_preview_cleanup_private_cursor';
-	private const LEGACY_PREVIEW_CURSOR_OPTION = 'oc_legacy_preview_cleanup_cursor';
-	private const PREVIEW_REFERENCE_SCAN_OPTION_PREFIX = 'oc_preview_reference_scan_';
-	private const SECURITY_BUDGET_OPTION_PREFIX = 'oc_budget_';
-	private const SECURITY_BUDGET_CURSOR_OPTION = 'oc_budget_cleanup_cursor';
-	private const ARTWORK_REFERENCE_SCAN_LIMIT   = 1000;
+	private const ARTWORK_DELETE_GRACE_SECONDS            = DAY_IN_SECONDS;
+	private const PRIVATE_PREVIEW_OPTION_PREFIX           = 'oc_private_preview_';
+	private const PRIVATE_PREVIEW_CURSOR_OPTION           = 'oc_preview_cleanup_private_cursor';
+	private const LEGACY_PREVIEW_CURSOR_OPTION            = 'oc_legacy_preview_cleanup_cursor';
+	private const PREVIEW_REFERENCE_SCAN_OPTION_PREFIX    = 'oc_preview_reference_scan_';
+	private const SECURITY_BUDGET_OPTION_PREFIX           = 'oc_budget_';
+	private const SECURITY_BUDGET_CURSOR_OPTION           = 'oc_budget_cleanup_cursor';
+	private const ARTWORK_REFERENCE_SCAN_LIMIT            = 1000;
 	private static array $preview_reference_scan_complete = [];
 	private static ?bool $sessions_table_exists           = null;
 
@@ -25,15 +25,20 @@ class OC_File_Cleanup {
 		global $wpdb;
 
 		$batch_size = self::filtered_batch_size( 'oc_print_file_cleanup_batch_size', 100, 500 );
+		$cursor     = max( 0, (int) get_option( 'oc_print_cleanup_cursor', 0 ) );
 		$expired    = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$wpdb->prefix}oc_print_files
 			 WHERE file_status IN ('files_ready','awaiting_dst_upload','brief_ready')
 			   AND expires_at IS NOT NULL
-			   AND expires_at < %s
+			   AND expires_at < %s AND id > %d
 			 ORDER BY id ASC LIMIT %d",
 			current_time( 'mysql', true ),
+			$cursor,
 			$batch_size
 		) );
+		if ( is_array( $expired ) && ! self::database_has_error( $wpdb ) ) {
+			update_option( 'oc_print_cleanup_cursor', count( $expired ) < $batch_size ? 0 : (int) end( $expired )->id, false );
+		}
 
 		if ( empty( $expired ) ) {
 			self::cleanup_preview_images();
@@ -49,31 +54,18 @@ class OC_File_Cleanup {
 			global $wp_filesystem;
 		}
 
-		$uploads_base = wp_upload_dir()['basedir'] ?? '';
-		$base_real     = $uploads_base ? realpath( trailingslashit( (string) $uploads_base ) . 'overcustomise/print-files' ) : false;
-		$handled_paths = [];
 		$expired_count = 0;
-		$shared_paths  = self::get_active_shared_paths( $expired );
-		if ( null === $shared_paths ) {
-			OC_Logger::warning( 'File cleanup retained a print-file batch because its shared references could not be checked.' );
-			self::cleanup_preview_images();
-			self::cleanup_customer_artwork();
-			self::cleanup_security_budgets();
-			return;
-		}
 
 		foreach ( $expired as $record ) {
-			$file_handled  = self::cleanup_record_path( $record, 'file_path', $base_real, $wp_filesystem, $handled_paths, $shared_paths );
-			$thumb_handled = self::cleanup_record_path( $record, 'thumbnail_path', $base_real, $wp_filesystem, $handled_paths, $shared_paths );
-
-			if ( $file_handled && $thumb_handled ) {
-				if ( OC_DB::update_print_file( (int) $record->id, [ 'file_status' => 'expired', 'file_path' => null, 'thumbnail_path' => null ] ) ) {
-					$expired_count++;
-				} else {
-					OC_Logger::warning( 'File cleanup could not update print file #' . (int) $record->id );
-				}
-			} else {
-				OC_Logger::warning( 'File cleanup could not safely expire print file #' . (int) $record->id );
+			try {
+				$result = OC_Print_Generator::with_output_lock(
+					(int) $record->order_id,
+					(int) $record->order_item_id,
+					static fn (): array => [ self::expire_locked_record( $record, $wp_filesystem ) ]
+				);
+				$expired_count += (int) $result[0];
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( 'File cleanup retained print file #' . (int) $record->id . ': ' . $e->getMessage() );
 			}
 		}
 
@@ -83,21 +75,54 @@ class OC_File_Cleanup {
 		self::cleanup_security_budgets();
 	}
 
+	/** Reread uncached state and references while holding the generator's output lock. */
+	private static function expire_locked_record( object $record, mixed $wp_filesystem ): bool {
+		global $wpdb;
+		$current = $wpdb->get_row( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_print_files WHERE id = %d", (int) $record->id ) );
+		if ( self::database_has_error( $wpdb ) ) {
+			throw new \RuntimeException( 'Could not reread print file state.' );
+		}
+		if ( ! $current || (int) $current->order_id !== (int) $record->order_id || (int) $current->order_item_id !== (int) $record->order_item_id
+			|| ! in_array( $current->file_status, [ 'files_ready', 'awaiting_dst_upload', 'brief_ready' ], true )
+			|| empty( $current->expires_at ) || $current->expires_at >= current_time( 'mysql', true ) ) {
+			return false;
+		}
+		$shared_paths = self::get_active_shared_paths( [ $current ] );
+		if ( null === $shared_paths ) {
+			throw new \RuntimeException( 'Could not verify shared print references; files retained.' );
+		}
+		$handled_paths = [];
+		if ( ! self::cleanup_record_path( $current, 'file_path', $wp_filesystem, $handled_paths, $shared_paths )
+			|| ! self::cleanup_record_path( $current, 'thumbnail_path', $wp_filesystem, $handled_paths, $shared_paths )
+			|| ! OC_DB::update_print_file( (int) $current->id, [ 'file_status' => 'expired', 'file_path' => null, 'thumbnail_path' => null ] ) ) {
+			throw new \RuntimeException( 'Could not safely expire print file.' );
+		}
+		return true;
+	}
+
 	/** Delete one path when safe, retaining shared files needed by active records. */
-	private static function cleanup_record_path( object $record, string $column, string|false $base_real, mixed $wp_filesystem, array &$handled_paths, array $shared_paths ): bool {
+	private static function cleanup_record_path( object $record, string $column, mixed $wp_filesystem, array &$handled_paths, array $shared_paths ): bool {
 		$path = (string) ( $record->{$column} ?? '' );
 		if ( '' === $path || isset( $handled_paths[ $path ] ) ) {
 			return true;
 		}
 
-		if ( ! file_exists( $path ) ) {
-			$handled_paths[ $path ] = true;
-			return true;
+		if ( ! file_exists( $path ) && ! is_link( $path ) ) {
+			// Missing aliases cannot use file_reference_paths(): retain them, and unavailable
+			// historical mounts, rather than treating an uncertain identity as deleted.
+			$parent = realpath( dirname( $path ) );
+			foreach ( OC_Print_Base::output_storage_roots() as $root ) {
+				if ( false !== $parent && wp_normalize_path( $parent . '/' . basename( $path ) ) === wp_normalize_path( $path )
+					&& self::path_is_within( $path, $root ) ) {
+					$handled_paths[ $path ] = true;
+					return true;
+				}
+			}
+			return false;
 		}
 
-		$real = realpath( $path );
-		$base = $base_real ? rtrim( $base_real, '/\\' ) . DIRECTORY_SEPARATOR : '';
-		if ( ! $real || '' === $base || ! str_starts_with( $real, $base ) ) {
+		$real = OC_Print_Base::resolve_output_storage_path( $path );
+		if ( null === $real ) {
 			OC_Logger::warning( 'File cleanup skipped suspicious path: ' . $path );
 			return false;
 		}
@@ -121,12 +146,17 @@ class OC_File_Cleanup {
 	/** Resolve all active references for an expiry batch with one bounded query. */
 	private static function get_active_shared_paths( array $records ): ?array {
 		global $wpdb;
+		require_once __DIR__ . '/class-oc-storage-upgrade.php';
 		$paths = [];
+		$equivalents = [];
 		foreach ( $records as $record ) {
 			foreach ( [ 'file_path', 'thumbnail_path' ] as $column ) {
 				$path = (string) ( $record->{$column} ?? '' );
 				if ( '' !== $path ) {
-					$paths[ $path ] = true;
+					$equivalents[ $path ] = OC_Storage_Upgrade::file_reference_paths( $path );
+					foreach ( $equivalents[ $path ] as $reference_path ) {
+						$paths[ $reference_path ] = true;
+					}
 				}
 			}
 		}
@@ -165,6 +195,12 @@ class OC_File_Cleanup {
 		foreach ( $active_paths as $path ) {
 			$path = (string) $path;
 			if ( isset( $path_lookup[ $path ] ) ) {
+				$active[ $path ] = true;
+			}
+		}
+		// A reference through either spelling protects the original candidate too.
+		foreach ( $equivalents as $path => $reference_paths ) {
+			if ( array_intersect_key( $active, array_fill_keys( $reference_paths, true ) ) ) {
 				$active[ $path ] = true;
 			}
 		}
@@ -237,7 +273,13 @@ class OC_File_Cleanup {
 			$candidate = $directory . '/' . $record['file'];
 			$real      = realpath( $candidate );
 			if ( is_link( $candidate ) || false === $real || ! is_file( $real ) || ! self::path_is_within( $real, $directory ) ) {
-				self::delete_option_if_unchanged( $option_name, $raw );
+				// Storage-only relocation preserves the secret and validates exact historical roots.
+				// Its successful read refreshes retention; unresolved history is not deletion evidence.
+				try {
+					OC_Rest_API::relocate_private_preview( $id );
+				} catch ( \Throwable $e ) {
+					OC_Logger::warning( 'Preview cleanup retained unresolved metadata for ' . $id );
+				}
 				continue;
 			}
 
@@ -523,7 +565,7 @@ class OC_File_Cleanup {
 	private static function customer_artwork_batch_references( array $attachment_ids ): ?array {
 		global $wpdb;
 
-		$attachment_ids         = array_values( array_unique( array_filter( array_map( 'absint', $attachment_ids ) ) ) );
+		$attachment_ids          = array_values( array_unique( array_filter( array_map( 'absint', $attachment_ids ) ) ) );
 		$fragments_by_attachment = [];
 		$related_ids             = [];
 		foreach ( $attachment_ids as $attachment_id ) {

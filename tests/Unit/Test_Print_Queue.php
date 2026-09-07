@@ -9,8 +9,47 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 require_once OC_PATH . 'includes/class-oc-print-queue.php';
+require_once OC_PATH . 'includes/class-oc-print-generator.php';
+require_once OC_PATH . 'includes/class-oc-db.php';
 
 class Test_Print_Queue extends TestCase {
+
+	#[Test]
+	public function failed_reconciliation_advances_the_bounded_cleanup_cursor(): void {
+		$previous = $GLOBALS['wpdb'] ?? null;
+		$GLOBALS['wpdb'] = new class {
+			public string $prefix = 'wp_';
+			public string $last_error = '';
+			public array $selection_cursors = [];
+			public function prepare( string $sql, mixed ...$args ): string {
+				if ( str_contains( $sql, 'WHERE id > %d AND attempts' ) ) {
+					$this->selection_cursors[] = $args[0];
+				}
+				return $sql;
+			}
+			public function get_results( string $sql ): array {
+				$cursor = end( $this->selection_cursors );
+				return array_map( static fn ( int $id ): object => (object) [
+					'id' => $id, 'order_id' => 1, 'order_item_id' => 2, 'print_area_id' => 3,
+					'area_data' => '{}', 'status' => 'pending', 'attempts' => 3, 'processed_at' => null,
+				], 0 === $cursor ? range( 1, 100 ) : [ 101 ] );
+			}
+			public function get_row( string $sql ): ?object { return null; }
+			public function get_var( string $sql ): string { return 'MyISAM'; }
+			public function query( string $sql ): int { return 0; }
+		};
+		delete_option( 'oc_print_failure_cleanup_cursor' );
+		try {
+			$this->assertSame( 0, OC_Print_Queue::instance()->reset_stale_processing_jobs() );
+			$this->assertSame( 100, get_option( 'oc_print_failure_cleanup_cursor' ) );
+			$this->assertSame( 0, OC_Print_Queue::instance()->reset_stale_processing_jobs() );
+			$this->assertSame( [ 0, 100 ], $GLOBALS['wpdb']->selection_cursors );
+			$this->assertSame( 0, get_option( 'oc_print_failure_cleanup_cursor' ) );
+		} finally {
+			delete_option( 'oc_print_failure_cleanup_cursor' );
+			$GLOBALS['wpdb'] = $previous;
+		}
+	}
 
 	#[Test]
 	public function exact_print_file_identity_is_accepted(): void {

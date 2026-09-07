@@ -12,6 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_Frontend {
 
 	private ?object $design                 = null;
+	private int $fee_product_id             = 0;
 	private array $areas                    = [];
 	private array $layers                   = [];
 	private array $design_variants          = [];
@@ -37,7 +38,8 @@ class OC_Frontend {
 			return;
 		}
 
-		$product_id = (int) get_queried_object_id();
+		$product_id           = (int) get_queried_object_id();
+		$this->fee_product_id = $product_id;
 
 		$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
 		if ( ! $assignment ) {
@@ -142,8 +144,9 @@ class OC_Frontend {
 			];
 		}
 
-		$self    = new self();
-		$context = $self->resolve_assignment_design( $assignment, $requested_design_id );
+		$self                 = new self();
+		$self->fee_product_id = $variation_id ?: $product_id;
+		$context              = $self->resolve_assignment_design( $assignment, $requested_design_id );
 		if ( ! $context ) {
 			return [
 				'design_id' => (int) $assignment->design_id,
@@ -902,10 +905,29 @@ class OC_Frontend {
 		}
 
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
+		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
 
 		ob_start();
 		include $template;
 		return (string) ob_get_clean();
+	}
+
+	/** Fees are stored exclusive of tax, independently of catalog price entry settings. */
+	public static function surcharge_html( object $design, int $product_id ): string {
+		$amount = is_numeric( $design->flat_rate ?? null ) ? (float) $design->flat_rate : 0.0;
+		if ( ! is_finite( $amount ) || $amount <= 0 ) {
+			return '';
+		}
+		$amount        = min( 1000000.0, $amount );
+		$product       = wc_get_product( $product_id );
+		$including_tax = 'incl' === get_option( 'woocommerce_tax_display_shop' );
+		if ( $including_tax && $product && $product->is_taxable() && ! ( WC()->customer && WC()->customer->get_is_vat_exempt() ) ) {
+			$amount += array_sum( WC_Tax::calc_tax( $amount, WC_Tax::get_rates( $product->get_tax_class() ), false ) );
+		}
+		$suffix = wc_tax_enabled() && $product && $product->is_taxable()
+			? ( $including_tax ? WC()->countries->inc_tax_or_vat() : WC()->countries->ex_tax_or_vat() ) : '';
+		/* translators: 1: formatted surcharge, 2: tax display label. */
+		return sprintf( __( 'Personalisation: +%1$s per item %2$s', 'overcustomise' ), wc_price( $amount ), esc_html( $suffix ) );
 	}
 
 	/** Load clipart items for all clipart layers. */
@@ -1069,6 +1091,7 @@ class OC_Frontend {
 		$layers           = $this->layers;
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		$design_variants  = $this->design_variants;
+		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
 
 		include $template;
 	}

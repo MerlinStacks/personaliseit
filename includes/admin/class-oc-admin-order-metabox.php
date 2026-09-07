@@ -175,7 +175,7 @@ class OC_Admin_Order_Metabox {
 						$design_id > 0
 					);
 
-					$queue_info = $queue_statuses[ (int) $file->id ] ?? [ 'found' => false ];
+					$queue_info     = $queue_statuses[ (int) $file->id ] ?? [ 'found' => false ];
 					$has_queue_work = $has_queue_work || ! empty( $queue_info['in_queue'] ) || ! empty( $queue_info['has_failed_job'] );
 
 					echo '<div style="margin-bottom:8px;padding:8px;background:#f9f9f9;border-radius:3px;">';
@@ -271,8 +271,8 @@ class OC_Admin_Order_Metabox {
 			return;
 		}
 
-		$layer_map = [];
-		if ( $design_id > 0 ) {
+		$layer_map = OC_Cart::render_spec_layer_map( $customisation );
+		if ( ! array_key_exists( 'renderSpec', $customisation ) && $design_id > 0 ) {
 			foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
 				$layer_map[ (int) $layer->id ] = $layer;
 			}
@@ -332,7 +332,7 @@ class OC_Admin_Order_Metabox {
 		}
 
 		if ( in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) && ! empty( $layer_data['attachmentId'] ) ) {
-			$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
+			$attachment_id = absint( $layer_data['previewAttachmentId'] ?? 0 ) ?: absint( $layer_data['attachmentId'] );
 			$url           = OC_Upload_Handler::attachment_access_url( $attachment_id );
 			$thumb         = $url ? sprintf(
 				'<img src="%s" alt="" width="48" height="48" loading="lazy" style="vertical-align:middle;border:1px solid #ddd;border-radius:2px;" />',
@@ -386,6 +386,9 @@ class OC_Admin_Order_Metabox {
 			}
 		}
 
+		if ( array_key_exists( 'renderSpec', $customisation ) ) {
+			return $methods;
+		}
 		$area_methods = [];
 		foreach ( $design_id > 0 ? OC_DB::get_design_print_areas( $design_id ) : [] as $area ) {
 			$area_methods[ (int) $area->id ] = sanitize_key( (string) $area->print_method );

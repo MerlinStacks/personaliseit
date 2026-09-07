@@ -46,6 +46,46 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return [ 'file_path' => $eps_path, 'status' => 'files_ready' ];
 	}
 
+	/** Persist semantics, not a heuristic fallback from empty modern inputs to stale summaries. */
+	public static function normalise_payload( array $data, string $area_source = 'unknown' ): array {
+		$version = $data['_oc_payload_version'] ?? null;
+		if ( null !== $version && ! in_array( $version, [ 1, 2 ], true ) ) {
+			throw new \RuntimeException( 'Unsupported embroidery payload version; operator review required.' );
+		}
+		if ( array_key_exists( 'renderSpecArea', $data ) ) {
+			$spec = $data['renderSpecArea'];
+			if ( 1 === $version || ! is_array( $spec ) || ! is_array( $spec['layers'] ?? null ) || ( $data['layers'] ?? null ) !== $spec['layers'] ) {
+				throw new \RuntimeException( 'Conflicting embroidery render provenance; operator review required.' );
+			}
+			$version = 2;
+		}
+		if ( array_key_exists( 'layers', $data ) && ! is_array( $data['layers'] ) ) {
+			throw new \RuntimeException( 'Invalid embroidery layer payload.' );
+		}
+		if ( 2 === $version ) {
+			if ( ! array_key_exists( 'layers', $data ) ) {
+				throw new \RuntimeException( 'Modern embroidery payload is missing its layers; operator review required.' );
+			}
+		} elseif ( ! array_key_exists( 'layers', $data ) || ( [] === $data['layers'] && ( 1 === $version || 'legacy' === $area_source ) ) ) {
+			unset( $data['layers'] );
+			$version = 1;
+		} else {
+			// Without a retained render spec we cannot tell a fallback value from a
+			// deliberately cleared layer. Do not assign summaries to layers by position.
+			foreach ( [ 'text', 'artworkPath', 'artworkAttachmentId' ] as $key ) {
+				if ( isset( $data[ $key ] ) && ! is_scalar( $data[ $key ] ) ) {
+					throw new \RuntimeException( 'Invalid embroidery summary; operator review required.' );
+				}
+			}
+			if ( 1 === $version || '' !== trim( (string) ( $data['text'] ?? '' ) ) || ! empty( $data['artworkAttachmentId'] ) || '' !== (string) ( $data['artworkPath'] ?? '' ) ) {
+				throw new \RuntimeException( 'Ambiguous mixed embroidery payload; operator review required.' );
+			}
+			$version = 2;
+		}
+		$data['_oc_payload_version'] = $version;
+		return $data;
+	}
+
 	/** Generate a colour EPS containing embroidery artwork and production metadata. */
 	private static function generate_eps(
 		string $output_dir,
@@ -54,6 +94,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		object $area,
 		array $area_data
 	): string {
+		$area_data = self::normalise_payload( $area_data );
 		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
 		$w_pt            = max( 1, (int) ceil( self::mm_to_pt( $w_mm ) ) );
 		$h_pt            = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
@@ -83,7 +124,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$output_path = $output_dir . '/' . self::build_versioned_filename( $order, $item_id, $area, 'eps' );
 		try {
-			if ( self::has_layer_payload( $area_data ) ) {
+			if ( array_key_exists( 'layers', $area_data ) ) {
+				if ( ! is_array( $area_data['layers'] ) ) {
+					throw new \RuntimeException( 'Invalid embroidery layer payload.' );
+				}
 				$lines[] = '%%OCExportMode: layer-payload';
 				self::append_eps_layers( $lines, $area, $area_data );
 			} else {
@@ -197,9 +241,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		$quarter_turn  = (int) ( $area->_oc_print_quarter_turn ?? 0 );
 		$font_px_to_pt = self::mm_to_pt( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
-		$text_fallbacks = array_values( array_filter( array_map( 'trim', preg_split( '/\R/', (string) ( $area_data['text'] ?? '' ) ) ?: [] ) ) );
-		$text_index     = 0;
-		$artwork_used   = false;
 
 		foreach ( self::eps_layer_paint_order( $area_data['layers'] ) as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -252,10 +293,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			switch ( $type ) {
 				case 'text':
 				case 'textarea':
-					if ( '' === trim( (string) ( $input['value'] ?? '' ) ) && isset( $text_fallbacks[ $text_index ] ) ) {
-						$input['value'] = $text_fallbacks[ $text_index ];
-					}
-					$text_index++;
 					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt, 'textarea' === $type ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center', 'textarea' === $type );
 					break;
 
@@ -268,13 +305,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				case 'ai_image':
 				case 'clipmask':
 					$fit = 'clipmask' === $type ? 'cover' : ( in_array( $type, [ 'image', 'ai_image' ], true ) ? max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) ) : 0.0 );
-					if ( ! self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) && ! $artwork_used ) {
-						$fallback_path = self::resolve_artwork_path( $area_data );
-						if ( $fallback_path ) {
-							self::append_eps_image_or_reference( $lines, $fallback_path, $x_pt, $y_pt, $w_pt, $h_pt, 'contain' );
-							$artwork_used = true;
-						}
-					}
+					self::append_eps_artwork( $lines, $layer, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
 					break;
 
 				case 'spotify':
@@ -583,6 +614,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Build EPS path commands for a UTF-8 string using a TrueType font file. */
 	private static function ttf_text_outline( string $font_path, string $text, float $font_size ): ?array {
+		if ( strlen( $text ) > 16384 ) {
+			throw new \RuntimeException( 'TrueType text work limit exceeded.' );
+		}
 		$font = self::load_ttf_outline_font( $font_path );
 		if ( ! $font || empty( $font['units_per_em'] ) ) {
 			return null;
@@ -598,6 +632,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		$previous_gid = null;
+		$work = 0;
 		foreach ( $codepoints as $codepoint ) {
 			$gid = self::ttf_glyph_id( $font, $codepoint );
 			if ( 0 === $gid && 0 !== $codepoint ) {
@@ -606,7 +641,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			if ( null !== $previous_gid ) {
 				$x_offset += self::ttf_glyph_kerning( $font, $previous_gid, $gid ) * $scale;
 			}
-			$contours = self::ttf_glyph_contours( $font, $gid );
+			$contours = self::ttf_glyph_contours( $font, $gid, 0, $work );
 			foreach ( $contours as $contour ) {
 				foreach ( $contour as $point ) {
 					[ $px, $py ] = self::ttf_point_to_eps( $point, $x_offset, $scale );
@@ -714,24 +749,28 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	/** Load the TrueType tables needed to turn text into glyph outlines. */
 	private static function load_ttf_outline_font( string $font_path ): ?array {
 		$real = realpath( $font_path );
-		if ( ! $real || ! file_exists( $real ) ) {
+		if ( ! $real || ! is_readable( $real ) || filesize( $real ) > 16777216 ) {
 			return null;
 		}
 
-		$cache_key = $real . '|' . (string) filemtime( $real ) . '|' . (string) filesize( $real );
+		$data = file_get_contents( $real, false, null, 0, 16777217 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		if ( ! is_string( $data ) || strlen( $data ) < 12 || strlen( $data ) > 16777216 ) {
+			return null;
+		}
+		$cache_key = $real . '|' . hash( 'sha256', $data );
 		if ( array_key_exists( $cache_key, self::$ttf_outline_cache ) ) {
 			return self::$ttf_outline_cache[ $cache_key ];
 		}
-
-		$data = file_get_contents( $real ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
-		if ( ! is_string( $data ) || strlen( $data ) < 12 ) {
-			self::$ttf_outline_cache[ $cache_key ] = null;
-			return null;
+		if ( count( self::$ttf_outline_cache ) >= 8 ) {
+			array_shift( self::$ttf_outline_cache );
 		}
 
 		$base      = 0;
 		$signature = substr( $data, 0, 4 );
 		if ( 'ttcf' === $signature ) {
+			if ( strlen( $data ) < 16 || self::ttf_u32( $data, 8 ) < 1 || self::ttf_u32( $data, 8 ) > intdiv( strlen( $data ) - 12, 4 ) ) {
+				return null;
+			}
 			$base      = self::ttf_u32( $data, 12 );
 			$signature = substr( $data, $base, 4 );
 		}
@@ -741,15 +780,27 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return null;
 		}
 
+		if ( $base < 0 || $base + 12 > strlen( $data ) ) {
+			return null;
+		}
 		$num_tables = self::ttf_u16( $data, $base + 4 );
+		if ( $num_tables < 1 || $num_tables > 256 || $base + 12 + $num_tables * 16 > strlen( $data ) ) {
+			return null;
+		}
 		$tables     = [];
 		for ( $i = 0; $i < $num_tables; $i++ ) {
 			$record_offset = $base + 12 + $i * 16;
 			$tag           = substr( $data, $record_offset, 4 );
+			if ( isset( $tables[ $tag ] ) ) {
+				return null;
+			}
 			$tables[ $tag ] = [
 				'offset' => self::ttf_u32( $data, $record_offset + 8 ),
 				'length' => self::ttf_u32( $data, $record_offset + 12 ),
 			];
+			if ( $tables[ $tag ]['offset'] + $tables[ $tag ]['length'] > strlen( $data ) ) {
+				return null;
+			}
 		}
 
 		foreach ( [ 'head', 'hhea', 'hmtx', 'maxp', 'cmap', 'loca', 'glyf' ] as $required ) {
@@ -759,12 +810,21 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		}
 
+		foreach ( [ 'head' => 54, 'hhea' => 36, 'maxp' => 6, 'cmap' => 4 ] as $tag => $minimum ) {
+			if ( $tables[ $tag ]['length'] < $minimum ) {
+				return null;
+			}
+		}
 		$head_offset        = (int) $tables['head']['offset'];
 		$units_per_em       = self::ttf_u16( $data, $head_offset + 18 );
 		$index_to_loc_format = self::ttf_i16( $data, $head_offset + 50 );
 		$num_glyphs         = self::ttf_u16( $data, (int) $tables['maxp']['offset'] + 4 );
 		$num_h_metrics      = self::ttf_u16( $data, (int) $tables['hhea']['offset'] + 34 );
-		if ( $units_per_em <= 0 || $num_glyphs <= 0 ) {
+		if ( $units_per_em < 16 || $units_per_em > 16384 || $num_glyphs <= 0
+			|| ! in_array( $index_to_loc_format, [ 0, 1 ], true )
+			|| $num_h_metrics < 1 || $num_h_metrics > $num_glyphs
+			|| $tables['hmtx']['length'] < $num_h_metrics * 4 + ( $num_glyphs - $num_h_metrics ) * 2
+			|| $tables['loca']['length'] < ( $num_glyphs + 1 ) * ( 0 === $index_to_loc_format ? 2 : 4 ) ) {
 			self::$ttf_outline_cache[ $cache_key ] = null;
 			return null;
 		}
@@ -775,9 +835,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$glyph_offsets[] = 0 === $index_to_loc_format
 				? self::ttf_u16( $data, $loca_offset + $i * 2 ) * 2
 				: self::ttf_u32( $data, $loca_offset + $i * 4 );
+			if ( $glyph_offsets[ $i ] > $tables['glyf']['length'] || ( $i > 0 && $glyph_offsets[ $i ] < $glyph_offsets[ $i - 1 ] ) ) {
+				return null;
+			}
 		}
 
-		$cmap = self::ttf_parse_cmap( $data, (int) $tables['cmap']['offset'] );
+		$cmap = self::ttf_parse_cmap( $data, (int) $tables['cmap']['offset'], (int) $tables['cmap']['length'] );
 		if ( ! $cmap ) {
 			self::$ttf_outline_cache[ $cache_key ] = null;
 			return null;
@@ -799,8 +862,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Parse the best Unicode cmap available in a TrueType font. */
-	private static function ttf_parse_cmap( string $data, int $cmap_offset ): ?array {
+	private static function ttf_parse_cmap( string $data, int $cmap_offset, ?int $length = null ): ?array {
+		$end = $cmap_offset + ( $length ?? strlen( $data ) - $cmap_offset );
+		if ( $cmap_offset < 0 || $end > strlen( $data ) || $cmap_offset + 4 > $end ) {
+			return null;
+		}
 		$num_tables = self::ttf_u16( $data, $cmap_offset + 2 );
+		if ( $num_tables > 256 || $cmap_offset + 4 + $num_tables * 8 > $end ) {
+			return null;
+		}
 		$format12   = null;
 		$format4    = null;
 
@@ -809,7 +879,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$platform_id    = self::ttf_u16( $data, $record_offset );
 			$encoding_id    = self::ttf_u16( $data, $record_offset + 2 );
 			$subtable_offset = $cmap_offset + self::ttf_u32( $data, $record_offset + 4 );
+			if ( $subtable_offset < $cmap_offset + 4 + $num_tables * 8 || $subtable_offset + 4 > $end ) {
+				return null;
+			}
 			$format         = self::ttf_u16( $data, $subtable_offset );
+			$sub_length = 12 === $format ? ( $subtable_offset + 16 <= $end ? self::ttf_u32( $data, $subtable_offset + 4 ) : 0 ) : self::ttf_u16( $data, $subtable_offset + 2 );
+			if ( in_array( $format, [ 4, 12 ], true ) && ( $sub_length < 16 || $subtable_offset + $sub_length > $end ) ) {
+				return null;
+			}
 
 			if ( 12 === $format && ( 0 === $platform_id || 3 === $platform_id ) ) {
 				$format12 = self::ttf_parse_cmap_format12( $data, $subtable_offset );
@@ -827,8 +904,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Parse a cmap format 12 subtable. */
-	private static function ttf_parse_cmap_format12( string $data, int $offset ): array {
+	private static function ttf_parse_cmap_format12( string $data, int $offset ): ?array {
+		if ( $offset < 0 || $offset + 16 > strlen( $data ) ) {
+			return null;
+		}
+		$length = self::ttf_u32( $data, $offset + 4 );
 		$num_groups = self::ttf_u32( $data, $offset + 12 );
+		if ( $length < 16 || $offset + $length > strlen( $data ) || $num_groups > 65536 || $num_groups > intdiv( $length - 16, 12 ) ) {
+			return null;
+		}
 		$groups     = [];
 		for ( $i = 0; $i < $num_groups; $i++ ) {
 			$group_offset = $offset + 16 + $i * 12;
@@ -837,6 +921,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				'end'   => self::ttf_u32( $data, $group_offset + 4 ),
 				'gid'   => self::ttf_u32( $data, $group_offset + 8 ),
 			];
+			$group = $groups[ $i ];
+			if ( $group['start'] > $group['end'] || $group['end'] > 0x10FFFF || $group['gid'] + $group['end'] - $group['start'] > 65535
+				|| ( $i > 0 && $group['start'] <= $groups[ $i - 1 ]['end'] ) ) {
+				return null;
+			}
 		}
 
 		return [ 'format' => 12, 'groups' => $groups ];
@@ -885,8 +974,12 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Parse a cmap format 4 subtable. */
 	private static function ttf_parse_cmap_format4( string $data, int $offset ): ?array {
+		if ( $offset < 0 || $offset + 16 > strlen( $data ) ) {
+			return null;
+		}
+		$length = self::ttf_u16( $data, $offset + 2 );
 		$seg_count = (int) ( self::ttf_u16( $data, $offset + 6 ) / 2 );
-		if ( $seg_count <= 0 ) {
+		if ( $seg_count <= 0 || self::ttf_u16( $data, $offset + 6 ) % 2 || $length < 16 + $seg_count * 8 || $offset + $length > strlen( $data ) ) {
 			return null;
 		}
 
@@ -910,6 +1003,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$cmap['id_deltas'][]                 = self::ttf_i16( $data, $id_deltas_offset + $i * 2 );
 			$cmap['id_range_offsets'][]          = self::ttf_u16( $data, $id_range_offsets_offset + $i * 2 );
 			$cmap['id_range_offset_positions'][] = $id_range_offsets_offset + $i * 2;
+			$start = $cmap['start_codes'][ $i ];
+			$end = $cmap['end_codes'][ $i ];
+			$range = $cmap['id_range_offsets'][ $i ];
+			$position = $cmap['id_range_offset_positions'][ $i ] + $range;
+			if ( $start > $end || ( $i > 0 && $start <= $cmap['end_codes'][ $i - 1 ] )
+				|| ( 0 !== $range && ( $range % 2 || $position < $id_range_offsets_offset + $seg_count * 2 || $position + ( $end - $start + 1 ) * 2 > $offset + $length ) ) ) {
+				return null;
+			}
 		}
 
 		return $cmap;
@@ -919,8 +1020,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static function ttf_glyph_id( array $font, int $codepoint ): int {
 		$cmap = $font['cmap'] ?? [];
 		if ( 12 === (int) ( $cmap['format'] ?? 0 ) ) {
-			foreach ( $cmap['groups'] ?? [] as $group ) {
-				if ( $codepoint >= (int) $group['start'] && $codepoint <= (int) $group['end'] ) {
+			$low = 0;
+			$high = count( $cmap['groups'] ?? [] ) - 1;
+			while ( $low <= $high ) {
+				$mid = intdiv( $low + $high, 2 );
+				$group = $cmap['groups'][ $mid ];
+				if ( $codepoint < (int) $group['start'] ) {
+					$high = $mid - 1;
+				} elseif ( $codepoint > (int) $group['end'] ) {
+					$low = $mid + 1;
+				} else {
 					$gid = (int) $group['gid'] + $codepoint - (int) $group['start'];
 					return $gid < (int) $font['num_glyphs'] ? $gid : 0;
 				}
@@ -933,8 +1042,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 
 		$data = (string) $font['data'];
-		for ( $i = 0; $i < (int) $cmap['seg_count']; $i++ ) {
-			if ( $codepoint < (int) $cmap['start_codes'][ $i ] || $codepoint > (int) $cmap['end_codes'][ $i ] ) {
+		$low = 0;
+		$high = (int) $cmap['seg_count'] - 1;
+		while ( $low <= $high ) {
+			$i = intdiv( $low + $high, 2 );
+			if ( $codepoint < (int) $cmap['start_codes'][ $i ] ) {
+				$high = $i - 1;
+				continue;
+			}
+			if ( $codepoint > (int) $cmap['end_codes'][ $i ] ) {
+				$low = $i + 1;
 				continue;
 			}
 
@@ -973,27 +1090,41 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Return glyph contours in font units, resolving simple composite glyphs. */
-	private static function ttf_glyph_contours( array $font, int $gid, int $depth = 0 ): array {
-		if ( $depth > 8 || $gid < 0 || $gid >= (int) $font['num_glyphs'] ) {
-			return [];
+	private static function ttf_glyph_contours( array $font, int $gid, int $depth = 0, int &$work = 0 ): array {
+		if ( ++$work > 100000 || $depth > 8 || $gid < 0 || $gid >= (int) $font['num_glyphs'] ) {
+			throw new \RuntimeException( 'Invalid or overly complex TrueType glyph.' );
 		}
 
 		$offsets      = $font['glyph_offsets'];
 		$glyph_start  = (int) $offsets[ $gid ];
 		$glyph_end    = (int) $offsets[ $gid + 1 ];
 		$glyph_length = $glyph_end - $glyph_start;
-		if ( $glyph_length <= 0 ) {
+		if ( 0 === $glyph_length ) {
 			return [];
+		}
+		if ( $glyph_start < 0 || $glyph_length < 10 || $glyph_end > $font['tables']['glyf']['length'] ) {
+			throw new \RuntimeException( 'Invalid TrueType glyph range.' );
 		}
 
 		$data        = (string) $font['data'];
 		$glyph_base  = (int) $font['tables']['glyf']['offset'] + $glyph_start;
 		$num_contours = self::ttf_i16( $data, $glyph_base );
+		$data = substr( $data, $glyph_base, $glyph_length );
 		if ( $num_contours >= 0 ) {
-			return self::ttf_simple_glyph_contours( $data, $glyph_base, $num_contours );
+			$contours = self::ttf_simple_glyph_contours( $data, 0, $num_contours );
+			foreach ( $contours as $contour ) {
+				$work += count( $contour );
+			}
+			if ( $work > 100000 ) {
+				throw new \RuntimeException( 'TrueType outline work limit exceeded.' );
+			}
+			return $contours;
 		}
 
-		return self::ttf_composite_glyph_contours( $font, $glyph_base, $depth );
+		if ( -1 !== $num_contours ) {
+			throw new \RuntimeException( 'Invalid TrueType contour count.' );
+		}
+		return self::ttf_composite_glyph_contours( $font, 0, $depth, $work, $data );
 	}
 
 	/** Decode a simple glyf table outline into contours. */
@@ -1006,6 +1137,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$pos        = $glyph_base + 10;
 		for ( $i = 0; $i < $num_contours; $i++ ) {
 			$end_points[] = self::ttf_u16( $data, $pos );
+			if ( $i > 0 && $end_points[ $i ] <= $end_points[ $i - 1 ] ) {
+				throw new \RuntimeException( 'Invalid TrueType contour endpoints.' );
+			}
 			$pos += 2;
 		}
 
@@ -1016,6 +1150,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 		$instruction_length = self::ttf_u16( $data, $pos );
 		$pos += 2 + $instruction_length;
+		if ( $pos > strlen( $data ) ) {
+			throw new \RuntimeException( 'Truncated TrueType glyph instructions.' );
+		}
 
 		$flags = [];
 		while ( count( $flags ) < $num_points ) {
@@ -1024,6 +1161,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$flags[] = $flag;
 			if ( 0 !== ( $flag & 0x08 ) ) {
 				$repeat = self::ttf_u8( $data, $pos );
+				if ( count( $flags ) + $repeat > $num_points ) {
+					throw new \RuntimeException( 'Invalid TrueType flag repeat.' );
+				}
 				$pos++;
 				for ( $r = 0; $r < $repeat; $r++ ) {
 					$flags[] = $flag;
@@ -1074,8 +1214,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Decode a composite glyf outline by applying component transforms. */
-	private static function ttf_composite_glyph_contours( array $font, int $glyph_base, int $depth ): array {
-		$data     = (string) $font['data'];
+	private static function ttf_composite_glyph_contours( array $font, int $glyph_base, int $depth, int &$work = 0, ?string $data = null ): array {
+		$data     = $data ?? (string) $font['data'];
 		$pos      = $glyph_base + 10;
 		$contours = [];
 
@@ -1084,6 +1224,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$pos += 2;
 			$component_gid = self::ttf_u16( $data, $pos );
 			$pos += 2;
+			// Point-matched and scaled-offset components need additional placement logic.
+			if ( 0 === ( $flags & 0x0002 ) || 0 !== ( $flags & 0x0800 ) ) {
+				throw new \RuntimeException( 'Unsupported TrueType composite placement.' );
+			}
 
 			$dx = 0.0;
 			$dy = 0.0;
@@ -1121,7 +1265,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				$pos += 8;
 			}
 
-			foreach ( self::ttf_glyph_contours( $font, $component_gid, $depth + 1 ) as $component_contour ) {
+			foreach ( self::ttf_glyph_contours( $font, $component_gid, $depth + 1, $work ) as $component_contour ) {
 				$transformed = [];
 				foreach ( $component_contour as $point ) {
 					$x = (float) $point['x'];
@@ -1135,6 +1279,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				$contours[] = $transformed;
 			}
 		} while ( 0 !== ( $flags & 0x0020 ) );
+		if ( 0 !== ( $flags & 0x0100 ) && $pos + 2 + self::ttf_u16( $data, $pos ) > strlen( $data ) ) {
+			throw new \RuntimeException( 'Truncated TrueType composite instructions.' );
+		}
 
 		return $contours;
 	}
@@ -1170,7 +1317,10 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	private static function ttf_u8( string $data, int $offset ): int {
-		return isset( $data[ $offset ] ) ? ord( $data[ $offset ] ) : 0;
+		if ( $offset < 0 || $offset >= strlen( $data ) ) {
+			throw new \RuntimeException( 'Truncated TrueType data.' );
+		}
+		return ord( $data[ $offset ] );
 	}
 
 	private static function ttf_i8( string $data, int $offset ): int {
@@ -1180,7 +1330,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	private static function ttf_u16( string $data, int $offset ): int {
 		if ( $offset < 0 || $offset + 2 > strlen( $data ) ) {
-			return 0;
+			throw new \RuntimeException( 'Truncated TrueType data.' );
 		}
 
 		$value = unpack( 'n', substr( $data, $offset, 2 ) );
@@ -1194,7 +1344,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	private static function ttf_u32( string $data, int $offset ): int {
 		if ( $offset < 0 || $offset + 4 > strlen( $data ) ) {
-			return 0;
+			throw new \RuntimeException( 'Truncated TrueType data.' );
 		}
 
 		$value = unpack( 'N', substr( $data, $offset, 4 ) );
@@ -1823,7 +1973,18 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return true;
 		}
 		foreach ( [ 'fill', 'stroke' ] as $paint_key ) {
-			if ( str_starts_with( strtolower( trim( (string) ( $style[ $paint_key ] ?? '' ) ) ), 'url(' ) ) {
+			$value = strtolower( trim( (string) ( $style[ $paint_key ] ?? '' ) ) );
+			if ( 'currentcolor' === $value ) {
+				$value = (string) ( $style['color'] ?? '#000000' );
+				$style[ $paint_key ] = $value;
+			}
+			if ( '' !== $value && 'none' !== $value && null === self::svg_colour( $value ) ) {
+				return false;
+			}
+		}
+		foreach ( [ 'opacity', 'fill-opacity', 'stroke-opacity' ] as $attribute ) {
+			$opacity = self::svg_opacity( (string) ( $style[ $attribute ] ?? '1' ) );
+			if ( $opacity > 0.0 && $opacity < 1.0 ) {
 				return false;
 			}
 		}
@@ -1992,8 +2153,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	private static function svg_style_for_element( \DOMElement $element, array $parent, array $css = [] ): array {
 		$style = $parent + [ 'fill' => '#000000', 'stroke' => 'none', 'stroke-width' => '1' ];
+		foreach ( [ 'fill', 'stroke', 'color', 'fill-rule', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity' ] as $attr ) {
+			if ( $element->hasAttribute( $attr ) ) {
+				$style[ $attr ] = $element->getAttribute( $attr );
+			}
+		}
 		$tag   = strtolower( $element->localName );
-		foreach ( [ $tag, '*' ] as $selector ) {
+		foreach ( [ '*', $tag ] as $selector ) {
 			if ( isset( $css[ $selector ] ) ) {
 				$style = array_merge( $style, $css[ $selector ] );
 			}
@@ -2022,12 +2188,6 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					[ $key, $value ] = array_map( 'trim', explode( ':', $rule, 2 ) );
 					$style[ strtolower( $key ) ] = $value;
 				}
-			}
-		}
-
-		foreach ( [ 'fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity' ] as $attr ) {
-			if ( $element->hasAttribute( $attr ) ) {
-				$style[ $attr ] = $element->getAttribute( $attr );
 			}
 		}
 
@@ -2474,16 +2634,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( self::svg_opacity( (string) ( $style['stroke-opacity'] ?? '1' ) ) <= 0.0 ) {
 			$stroke = null;
 		}
-		if ( $fill && $stroke && self::same_rgb( $fill, $stroke ) ) {
-			$stroke = null;
-		}
 
 		if ( $fill ) {
 			$lines[] = 'gsave';
 			$lines[] = 'newpath';
 			array_push( $lines, ...$commands );
 			$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $fill[0], $fill[1], $fill[2] );
-			$lines[] = 'fill';
+			$lines[] = 'evenodd' === ( $style['fill-rule'] ?? 'nonzero' ) ? 'eofill' : 'fill';
 			$lines[] = 'grestore';
 		}
 
@@ -2503,16 +2660,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( '' === $value || 'none' === $value || str_starts_with( $value, 'url(' ) ) {
 			return null;
 		}
-		if ( 'currentcolor' === $value || 'currentColor' === $value ) {
-			$value = '#000000';
-		}
+		$named = [ 'black' => '#000000', 'white' => '#ffffff', 'red' => '#ff0000', 'green' => '#008000', 'blue' => '#0000ff', 'yellow' => '#ffff00', 'gray' => '#808080', 'grey' => '#808080', 'silver' => '#c0c0c0', 'maroon' => '#800000', 'purple' => '#800080', 'fuchsia' => '#ff00ff', 'lime' => '#00ff00', 'olive' => '#808000', 'navy' => '#000080', 'teal' => '#008080', 'aqua' => '#00ffff', 'orange' => '#ffa500' ];
+		$value = $named[ $value ] ?? $value;
 		if ( preg_match( '/^#([0-9a-f]{3}|[0-9a-f]{6})$/i', $value ) ) {
 			return self::hex_to_unit_rgb( $value );
 		}
 		if ( preg_match( '/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/', $value, $matches ) ) {
 			return [ min( 255, (int) $matches[1] ) / 255, min( 255, (int) $matches[2] ) / 255, min( 255, (int) $matches[3] ) / 255 ];
 		}
-		return [ 0.0, 0.0, 0.0 ];
+		return null;
 	}
 
 	private static function svg_opacity( string $value ): float {
@@ -2768,6 +2924,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Match the preview by fitting recoloured SVG clipart to visible artwork, not its original canvas. */
 	private static function crop_svg_to_visible_bounds( \DOMElement $svg ): void {
+		// Numeric path tokens are not bounds: relative commands, arcs and transforms
+		// require a geometry-aware calculation. Preserve the source viewport instead.
+		foreach ( array_merge( [ $svg ], iterator_to_array( $svg->getElementsByTagName( '*' ) ) ) as $element ) {
+			if ( in_array( strtolower( $element->localName ), [ 'path', 'use', 'symbol' ], true ) || $element->hasAttribute( 'transform' ) ) {
+				return;
+			}
+		}
 		if ( self::has_complex_svg_paint_references( $svg ) ) {
 			return;
 		}

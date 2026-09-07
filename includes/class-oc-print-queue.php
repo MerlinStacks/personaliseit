@@ -32,6 +32,14 @@ class OC_Print_Queue {
 			return 0;
 		}
 
+		if ( 'embroidery' === $print_method ) {
+			try {
+				$area_data = OC_Print_Embroidery::normalise_payload( $area_data, $area_source );
+			} catch ( \RuntimeException $error ) {
+				$this->handle_enqueue_failure( $order_id, $item_id, $print_area_id, $area_source, $row_index, $print_file_id, $area_data, $error->getMessage() );
+				return 0;
+			}
+		}
 		$encoded = wp_json_encode( $area_data );
 		if ( false === $encoded || JSON_ERROR_NONE !== json_last_error() ) {
 			$this->handle_enqueue_failure(
@@ -215,6 +223,21 @@ class OC_Print_Queue {
 			return;
 		}
 
+		try {
+			OC_Print_Generator::with_output_lock( (int) $job->order_id, (int) $job->order_item_id, function () use ( $job_id, $job ): array {
+				$this->process_claimed_job( $job_id, $job );
+				return [];
+			} );
+		} catch ( \RuntimeException $e ) {
+			if ( OC_Print_Generator::OUTPUT_LOCK_CONTENTION_CODE !== (int) $e->getCode() ) {
+				throw $e;
+			}
+			$this->requeue_output_lock_contention( $job, $e );
+		}
+	}
+
+	/** Keep publication, thumbnails, commit and failure cleanup inside the output lock. */
+	private function process_claimed_job( int $job_id, object $job ): void {
 		$area      = null;
 		$area_data = null;
 		$order     = null;
@@ -256,7 +279,17 @@ class OC_Print_Queue {
 			}
 			$this->assert_print_file_identity( $print_file, $job, (int) $job->print_area_id, $area_source, $row_index );
 
-			$area = $this->area_from_snapshot( $print_file );
+			if ( $row_index > 0 ) {
+				$target_item->read_meta_data( true );
+				$expansion = $target_item->get_meta( '_oc_vdp_generation_snapshot', true );
+				if ( ! is_array( $expansion ) || 1 !== ( $expansion['version'] ?? null )
+					|| ! is_array( $expansion['rows'] ?? null ) || empty( $expansion['rows'] ) || ! is_array( $expansion['render_spec'] ?? null ) ) {
+					OC_Print_Generator::hold_item_generation( $order, (int) $job->order_item_id );
+				}
+				$area = OC_Print_Generator::retained_vdp_area( $print_file, $area_data );
+			} else {
+				$area = $this->area_from_snapshot( $print_file );
+			}
 			if ( ! $area ) {
 				$area = $this->get_print_area_for_job( (int) $job->print_area_id, $area_source );
 			}
@@ -274,20 +307,13 @@ class OC_Print_Queue {
 			$expires_at     = gmdate( 'Y-m-d H:i:s', strtotime( "+{$retention_days} days", strtotime( $now ) ) );
 
 			$this->heartbeat_claim( $job );
-			$result = OC_Print_Generator::with_output_lock(
-				(int) $job->order_id,
-				(int) $job->order_item_id,
-				static function () use ( $order, $job, $area, $area_data, $print_file, &$artifact_paths ): array {
-					if ( ! OC_DB::heartbeat_queue_job( (int) $job->id, (int) $job->attempts ) ) {
-						throw new \RuntimeException( 'The queue claim expired before print generation started.' );
-					}
-					$result = OC_Print_Generator::generate_for_area( $order, (int) $job->order_item_id, $area, $area_data );
-					$artifact_paths[] = (string) ( $result['file_path'] ?? '' );
-					$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_file->id );
-					$artifact_paths[] = $result['file_path'];
-					return $result;
-				}
-			);
+			if ( 'embroidery' === (string) $job->print_method ) {
+				$area_data = OC_Print_Embroidery::normalise_payload( $area_data, $area_source );
+			}
+			$result = OC_Print_Generator::generate_for_area( $order, (int) $job->order_item_id, $area, $area_data );
+			$artifact_paths[] = (string) ( $result['file_path'] ?? '' );
+			$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_file->id );
+			$artifact_paths[] = $result['file_path'];
 			$this->heartbeat_claim( $job );
 			if ( empty( $result['file_path'] ) || ! $this->is_ready_file_status( (string) ( $result['status'] ?? '' ) ) ) {
 				throw new \RuntimeException( 'Print generation returned an invalid completion result.' );
@@ -379,7 +405,7 @@ class OC_Print_Queue {
 			}
 			$this->assert_print_file_identity( $print_file, $job, $area_id, $area_source, $row_index );
 
-			$area        = $this->area_from_snapshot( $print_file );
+			$area        = $row_index > 0 ? OC_Print_Generator::retained_vdp_area( $print_file, $entry['areaData'] ) : $this->area_from_snapshot( $print_file );
 			if ( ! $area ) {
 				$area = $this->get_print_area_for_job( $area_id, $area_source );
 			}
@@ -407,20 +433,10 @@ class OC_Print_Queue {
 		$artifact_paths = [];
 		try {
 			$this->heartbeat_claim( $job );
-			$result = OC_Print_Generator::with_output_lock(
-				(int) $job->order_id,
-				(int) $job->order_item_id,
-				static function () use ( $order, $job, $areas, $print_files, &$artifact_paths ): array {
-					if ( ! OC_DB::heartbeat_queue_job( (int) $job->id, (int) $job->attempts ) ) {
-						throw new \RuntimeException( 'The queue claim expired before combined print generation started.' );
-					}
-					$result = OC_Print_Generator::generate_for_areas( $order, (int) $job->order_item_id, (string) $job->print_method, $areas );
-					$artifact_paths[] = (string) ( $result['file_path'] ?? '' );
-					$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_files[0]->id );
-					$artifact_paths[] = $result['file_path'];
-					return $result;
-				}
-			);
+			$result = OC_Print_Generator::generate_for_areas( $order, (int) $job->order_item_id, (string) $job->print_method, $areas );
+			$artifact_paths[] = (string) ( $result['file_path'] ?? '' );
+			$result['file_path'] = OC_Print_Generator::finalise_generated_output( $result['file_path'], (int) $print_files[0]->id );
+			$artifact_paths[] = $result['file_path'];
 			$this->heartbeat_claim( $job );
 			if ( empty( $result['file_path'] ) || ! $this->is_ready_file_status( (string) ( $result['status'] ?? '' ) ) ) {
 				throw new \RuntimeException( 'Combined print generation returned an invalid completion result.' );
@@ -585,6 +601,12 @@ class OC_Print_Queue {
 
 	/** Emit one durable order-level outcome after all relevant writes have committed. */
 	private function dispatch_order_outcome( \WC_Order $order ): void {
+		foreach ( $order->get_items() as $item ) {
+			$item->read_meta_data( true );
+			if ( '' !== $item->get_meta( '_oc_print_generation_hold', true ) ) {
+				return;
+			}
+		}
 		$order_id = (int) $order->get_id();
 		$state    = OC_DB::get_order_print_pipeline_state( $order_id );
 		if ( 'complete' === $state ) {
@@ -833,17 +855,22 @@ class OC_Print_Queue {
 		$now         = current_time( 'mysql', true );
 		$stale_limit = apply_filters( 'oc_print_queue_stale_batch_size', 100 );
 		$stale_limit = is_numeric( $stale_limit ) ? max( 1, min( 500, (int) $stale_limit ) ) : 100;
+		$cursor      = max( 0, (int) get_option( 'oc_print_failure_cleanup_cursor', 0 ) );
 		$exhausted   = $wpdb->get_results( $wpdb->prepare(
 			"SELECT * FROM {$wpdb->prefix}oc_print_queue
-			 WHERE attempts >= %d AND (
+			 WHERE id > %d AND attempts >= %d AND (
 				(status = 'processing' AND (processed_at IS NULL OR processed_at <= %s))
 				OR (status = 'pending' AND (processed_at IS NULL OR processed_at <= %s))
 			 ) ORDER BY id ASC LIMIT %d",
+			$cursor,
 			self::MAX_ATTEMPTS,
 			$cutoff,
 			$now,
 			$stale_limit
 		) ) ?: [];
+		if ( '' === (string) $wpdb->last_error ) {
+			update_option( 'oc_print_failure_cleanup_cursor', count( $exhausted ) < $stale_limit ? 0 : (int) end( $exhausted )->id, false );
+		}
 		$updated = 0;
 		foreach ( $exhausted as $job ) {
 			$message = 'processing' === (string) $job->status
@@ -1002,22 +1029,4 @@ class OC_Print_Queue {
 		return $statuses;
 	}
 
-	private function queue_job_contains_print_area( object $job, int $print_area_id ): bool {
-		if ( (int) $job->print_area_id === $print_area_id ) {
-			return true;
-		}
-
-		$area_data = json_decode( (string) ( $job->area_data ?? '' ), true );
-		if ( ! is_array( $area_data ) || ! OC_Print_Generator::is_combined_area_data( $area_data ) ) {
-			return false;
-		}
-
-		foreach ( $area_data['__combined_print_areas'] as $entry ) {
-			if ( is_array( $entry ) && (int) ( $entry['areaId'] ?? 0 ) === $print_area_id ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
 }

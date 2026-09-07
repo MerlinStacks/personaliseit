@@ -463,7 +463,7 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
-	public function ip_bound_upload_token_remains_valid_after_wc_session_initialises(): void {
+	public function legacy_ip_bound_upload_token_is_rejected_even_after_wc_session_initialises(): void {
 		$previous_ip = $_SERVER['REMOTE_ADDR'] ?? null;
 		$ip          = '203.0.113.10';
 		$token       = str_repeat( 'a', 64 );
@@ -479,7 +479,7 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 
 		try {
 			$this->assertNotNull( WC()->session );
-			$this->assertTrue( OC_Rest_API::validate_public_token( $token ) );
+			$this->assertFalse( OC_Rest_API::validate_public_token( $token ) );
 		} finally {
 			delete_transient( $key );
 			if ( null === $previous_ip ) {
@@ -487,6 +487,33 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 			} else {
 				$_SERVER['REMOTE_ADDR'] = $previous_ip;
 			}
+		}
+	}
+
+	#[Test]
+	public function private_browser_token_is_reused_when_wc_session_initialises(): void {
+		$previous_cookies = $_COOKIE;
+		$previous_session = WC()->session;
+		$secret = bin2hex( random_bytes( 32 ) );
+		$token = bin2hex( random_bytes( 32 ) );
+		$key = 'oc_pubtok_' . hash( 'sha256', $token );
+		$map = 'oc_pubmap_' . hash( 'sha256', $secret );
+		try {
+			WC()->session = null;
+			$_COOKIE['oc_private_browser'] = $secret . '.' . hash_hmac( 'sha256', $secret, wp_salt( 'auth' ) );
+			set_transient( $key, [ 'version' => 2, 'binding_type' => 'browser', 'binding_hash' => hash( 'sha256', $secret ), 'created_at' => time(), 'expires_at' => time() + HOUR_IN_SECONDS ], HOUR_IN_SECONDS );
+			set_transient( $map, $token, HOUR_IN_SECONDS );
+			$this->assertSame( $token, OC_Rest_API::issue_public_token() );
+			WC()->session = $previous_session;
+			$this->assertSame( $token, OC_Rest_API::current_session_public_token() );
+			$this->assertTrue( OC_Rest_API::validate_public_token( $token ) );
+			unset( $_COOKIE['oc_private_browser'] );
+			$this->assertFalse( OC_Rest_API::validate_public_token( $token ) );
+		} finally {
+			WC()->session = $previous_session;
+			$_COOKIE = $previous_cookies;
+			delete_transient( $key );
+			delete_transient( $map );
 		}
 	}
 

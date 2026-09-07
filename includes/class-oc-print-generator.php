@@ -17,6 +17,8 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Print_Generator {
+
+	private const LEGACY_VDP_HOLD = 'Legacy VDP expansion has no original snapshot. Only retained jobs may run; completeness and missing rows require operator review.';
 	public const OUTPUT_LOCK_CONTENTION_CODE     = 40901;
 	private const ORDER_GENERATION_RETRY_HOOK    = 'oc_retry_order_print_generation';
 	private const ORDER_GENERATION_RECOVERY_HOOK = 'oc_recover_order_print_generation';
@@ -26,7 +28,7 @@ class OC_Print_Generator {
 	private array $deferred_order_ids = [];
 
 	public function register(): void {
-		add_action( 'init', [ OC_Print_Base::class, 'ensure_output_storage_protected' ] );
+		add_action( 'init', [ OC_Print_Base::class, 'maintain_output_storage' ] );
 
 		// Primary: order created at checkout.
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order_safely' ], 20, 1 );
@@ -41,9 +43,6 @@ class OC_Print_Generator {
 
 		// Admin handlers.
 		add_action( 'admin_init', [ $this, 'handle_admin_download' ] );
-		add_action( 'admin_init', [ $this, 'handle_admin_regenerate' ] );
-		add_action( 'admin_init', [ $this, 'handle_admin_generate_missing' ] );
-		add_action( 'admin_init', [ $this, 'handle_admin_process_queue' ] );
 		add_action( 'admin_notices', [ $this, 'render_admin_notices' ] );
 		add_action( 'wp_ajax_oc_serve_print_thumbnail', [ $this, 'handle_admin_thumbnail' ] );
 	}
@@ -90,12 +89,20 @@ class OC_Print_Generator {
 
 		// Prefer immutable file/spec snapshots; current design rows are legacy-only fallback.
 		global $wpdb;
+		$is_vdp = (int) ( $record->row_index ?? 0 ) > 0 || '' !== (string) ( $record->row_key ?? '' );
+		$persisted_area_data = self::persisted_area_data( $record );
+		if ( $is_vdp && ! is_array( $persisted_area_data ) ) {
+			throw new \RuntimeException( 'The original VDP row payload is unavailable; regeneration requires operator review.' );
+		}
 		$area_snapshot   = json_decode( (string) ( $record->area_snapshot ?? '' ), true );
 		$area            = is_array( $area_snapshot ) && ! empty( $area_snapshot ) ? (object) $area_snapshot : null;
+		if ( $is_vdp ) {
+			$area = self::retained_vdp_area( $record, $persisted_area_data );
+		}
 		$area_source     = (string) ( $record->area_source ?? 'unknown' );
 		$is_v2_area      = 'design' === $area_source;
-		$has_render_spec = array_key_exists( 'renderSpec', $customisation );
-		$stored_spec     = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
+		$has_render_spec = ! $is_vdp && array_key_exists( 'renderSpec', $customisation );
+		$stored_spec     = ! $is_vdp && is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
 		if ( $has_render_spec && empty( $stored_spec ) ) {
 			throw new \RuntimeException( 'The order contains an invalid stored render specification.' );
 		}
@@ -123,7 +130,6 @@ class OC_Print_Generator {
 			throw new \RuntimeException( "Print area #{$record->print_area_id} has no unambiguous source or stored snapshot." );
 		}
 
-		$persisted_area_data = self::persisted_area_data( $record );
 		if ( is_array( $persisted_area_data ) ) {
 			$area_data = $persisted_area_data;
 		} elseif ( $is_v2_area && ! empty( $spec_area_data ) ) {
@@ -136,6 +142,9 @@ class OC_Print_Generator {
 
 		if ( ! is_array( $area_data ) ) {
 			throw new \RuntimeException( "No customisation data for area '{$area->area_key}'." );
+		}
+		if ( 'embroidery' === (string) $area->print_method ) {
+			$area_data = OC_Print_Embroidery::normalise_payload( $area_data, $area_source );
 		}
 		if ( $is_v2_area ) {
 			$area = self::area_object_for_generation( $area, $area_data );
@@ -259,6 +268,7 @@ class OC_Print_Generator {
 	 * @return string|null      Absolute path to thumbnail, or null.
 	 */
 	private static function maybe_generate_thumbnail( string $file_path ): ?string {
+		$file_path = self::resolve_print_storage_path( $file_path, true ) ?? '';
 		$ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
 
 		if ( 'pdf' !== $ext || ! file_exists( $file_path ) ) {
@@ -267,6 +277,9 @@ class OC_Print_Generator {
 
 		$thumb_path = pathinfo( $file_path, PATHINFO_DIRNAME ) . '/'
 			. pathinfo( $file_path, PATHINFO_FILENAME ) . '-thumb.png';
+		if ( is_link( $thumb_path ) ) {
+			return null;
+		}
 
 		if ( ! OC_Preview_Generator::from_pdf( $file_path, $thumb_path ) ) {
 			return null;
@@ -278,6 +291,7 @@ class OC_Print_Generator {
 
 	/** Move a completed generator output to a stable identity-specific path. */
 	public static function finalise_generated_output( string $file_path, int $print_file_id ): string {
+		$file_path = self::resolve_print_storage_path( $file_path, true ) ?? '';
 		if ( $print_file_id <= 0 || ! is_file( $file_path ) || filesize( $file_path ) <= 0 ) {
 			throw new \RuntimeException( 'Print generator did not produce a valid output file.' );
 		}
@@ -287,6 +301,9 @@ class OC_Print_Generator {
 		$extension = pathinfo( $file_path, PATHINFO_EXTENSION );
 		$suffix    = '' !== $extension ? '.' . $extension : '';
 		$target    = $directory . '/' . preg_replace( '/-f\d+$/', '', $filename ) . '-f' . $print_file_id . $suffix;
+		if ( is_link( $target ) ) {
+			throw new \RuntimeException( 'Print output target must not be a symlink.' );
+		}
 
 		if ( $target === $file_path ) {
 			@touch( $target ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -321,20 +338,34 @@ class OC_Print_Generator {
 	/** Remove uncommitted worker output only when no print-file row references it. */
 	public static function remove_uncommitted_artifacts( array $paths ): void {
 		global $wpdb;
+		require_once __DIR__ . '/class-oc-storage-upgrade.php';
 		foreach ( array_unique( array_filter( $paths, 'is_string' ) ) as $path ) {
 			$real = self::resolve_print_storage_path( $path );
 			if ( null === $real ) {
 				continue;
 			}
 
-			$references = (int) $wpdb->get_var(
-				$wpdb->prepare(
-					"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files WHERE file_path = %s OR thumbnail_path = %s",
-					$path,
-					$path
-				)
-			);
-			if ( 0 === $references && ! @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			try {
+				$reference_paths = OC_Storage_Upgrade::file_reference_paths( $path );
+				if ( empty( $reference_paths ) ) {
+					continue;
+				}
+				$placeholders = implode( ',', array_fill( 0, count( $reference_paths ), '%s' ) );
+				$references = $wpdb->get_var(
+					$wpdb->prepare(
+						"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files WHERE file_path IN ({$placeholders}) OR thumbnail_path IN ({$placeholders})",
+						...array_merge( $reference_paths, $reference_paths )
+					)
+				);
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( 'Could not verify uncommitted print artifact; retained: ' . $e->getMessage() );
+				continue;
+			}
+			if ( ! is_numeric( $references ) || '' !== (string) $wpdb->last_error ) {
+				OC_Logger::warning( 'Could not verify uncommitted print artifact; retained: ' . basename( $real ) );
+				continue;
+			}
+			if ( 0 === (int) $references && ! @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				OC_Logger::warning( 'Could not remove uncommitted print artifact: ' . basename( $real ) );
 			}
 		}
@@ -351,8 +382,14 @@ class OC_Print_Generator {
 			)
 		);
 		$backups = [];
+		// Validate every existing predecessor before creating backups or replacing DB paths.
 		foreach ( $paths as $path ) {
-			if ( ! is_file( $path ) ) {
+			if ( ( file_exists( $path ) || is_link( $path ) ) && null === self::resolve_print_storage_path( $path, true ) ) {
+				throw new \RuntimeException( 'Existing print output is outside protected storage; regeneration retained for review.' );
+			}
+		}
+		foreach ( $paths as $path ) {
+			if ( null === self::resolve_print_storage_path( $path, true ) ) {
 				continue;
 			}
 
@@ -369,7 +406,7 @@ class OC_Print_Generator {
 		$result = null;
 		try {
 			$result = $generate();
-			if ( ! is_array( $result ) || empty( $result['file_path'] ) || ! is_file( $result['file_path'] ) || filesize( $result['file_path'] ) <= 0 ) {
+			if ( ! is_array( $result ) || empty( $result['file_path'] ) || null === self::resolve_print_storage_path( $result['file_path'], true ) || filesize( $result['file_path'] ) <= 0 ) {
 				throw new \RuntimeException( 'Print generator did not produce a valid replacement file.' );
 			}
 
@@ -388,8 +425,8 @@ class OC_Print_Generator {
 		} catch ( \Throwable $e ) {
 			foreach ( [ 'file_path', 'thumbnail_path' ] as $result_key ) {
 				$result_path = is_array( $result ) ? (string) ( $result[ $result_key ] ?? '' ) : '';
-				if ( '' !== $result_path && ! isset( $backups[ $result_path ] ) && is_file( $result_path ) ) {
-					@unlink( $result_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( '' !== $result_path && ! isset( $backups[ $result_path ] ) && null !== self::resolve_print_storage_path( $result_path ) ) {
+					self::remove_uncommitted_artifacts( [ $result_path ] );
 				}
 			}
 
@@ -432,6 +469,7 @@ class OC_Print_Generator {
 			}
 		}
 
+		require_once __DIR__ . '/class-oc-storage-upgrade.php';
 		global $wpdb;
 		foreach ( $paths as $path ) {
 			$real = self::resolve_print_storage_path( (string) $path );
@@ -440,14 +478,22 @@ class OC_Print_Generator {
 			}
 
 			try {
-				$references = (int) $wpdb->get_var(
+				$reference_paths = OC_Storage_Upgrade::file_reference_paths( (string) $path );
+				if ( empty( $reference_paths ) ) {
+					continue;
+				}
+				$placeholders = implode( ',', array_fill( 0, count( $reference_paths ), '%s' ) );
+				$references = $wpdb->get_var(
 					$wpdb->prepare(
-						"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files WHERE file_path = %s OR thumbnail_path = %s",
-						(string) $path,
-						(string) $path
+						"SELECT COUNT(*) FROM {$wpdb->prefix}oc_print_files WHERE file_path IN ({$placeholders}) OR thumbnail_path IN ({$placeholders})",
+						...array_merge( $reference_paths, $reference_paths )
 					)
 				);
-				if ( 0 === $references && ! @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				if ( ! is_numeric( $references ) || '' !== (string) $wpdb->last_error ) {
+					OC_Logger::warning( 'Could not verify superseded print artifact; retained: ' . basename( $real ) );
+					continue;
+				}
+				if ( 0 === (int) $references && ! @unlink( $real ) ) { // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 					OC_Logger::warning( 'Could not remove superseded print artifact: ' . basename( $real ) );
 				}
 			} catch ( \Throwable $e ) {
@@ -487,7 +533,13 @@ class OC_Print_Generator {
 					continue;
 				}
 
-				$vdp_result = $this->queue_vdp_files( $order, (int) $item_id, $design_id, $customisation, $now, $expires_at );
+				try {
+					$vdp_result = $this->queue_vdp_files( $order, (int) $item_id, $design_id, $customisation, $now, $expires_at );
+				} catch ( \Throwable $error ) {
+					self::hold_item_generation( $order, (int) $item_id, $error->getMessage() );
+					++$failed_count;
+					continue;
+				}
 				if ( is_array( $vdp_result ) ) {
 					$queued_count += $vdp_result['queued'];
 					$failed_count += $vdp_result['failed'];
@@ -538,6 +590,10 @@ class OC_Print_Generator {
 					];
 				}
 				$grouped_result = self::enqueue_print_jobs_grouped( (int) $order->get_id(), (int) $item_id, $print_jobs );
+				if ( 0 === $grouped_result['failed'] ) {
+					$item->delete_meta_data( '_oc_print_generation_hold' );
+					$item->save_meta_data();
+				}
 				$queued_count  += $grouped_result['queued'];
 				$failed_count  += $grouped_result['failed'];
 				$queue_ids      = array_merge( $queue_ids, $grouped_result['queue_ids'] );
@@ -628,6 +684,50 @@ class OC_Print_Generator {
 
 	/** Expand a valid VDP template into row-specific queue jobs, or return null for standard fallback. */
 	private function queue_vdp_files( \WC_Order $order, int $item_id, int $design_id, array $customisation, string $now, string $expires_at ): ?array {
+		return self::with_output_lock( (int) $order->get_id(), $item_id, function () use ( $order, $item_id, $design_id, $customisation, $now, $expires_at ): array {
+			return [ $this->queue_vdp_files_locked( $order, $item_id, $design_id, $customisation, $now, $expires_at ) ];
+		} )[0];
+	}
+
+	/** Persist the complete expansion before inserting any row, so retries never reread a revised CSV. */
+	private function queue_vdp_files_locked( \WC_Order $order, int $item_id, int $design_id, array $customisation, string $now, string $expires_at ): ?array {
+		$item = $order->get_item( $item_id );
+		if ( ! $item ) {
+			throw new \RuntimeException( 'VDP order item is unavailable.' );
+		}
+		$item->read_meta_data( true );
+		$snapshot = $item->get_meta( '_oc_vdp_generation_snapshot', true );
+		if ( '' !== $snapshot ) {
+			if ( ! is_array( $snapshot ) || 1 !== ( $snapshot['version'] ?? null ) || $design_id !== ( $snapshot['design_id'] ?? null )
+				|| ! is_array( $snapshot['rows'] ?? null ) || empty( $snapshot['rows'] ) || ! is_array( $snapshot['render_spec'] ?? null ) ) {
+				throw new \RuntimeException( 'The persisted VDP generation snapshot is invalid; generation retained for review.' );
+			}
+			return $this->enqueue_vdp_snapshot( $order, $item_id, $snapshot['rows'], $snapshot['render_spec'], $now, $expires_at );
+		}
+		global $wpdb;
+		$existing = $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_print_files WHERE order_id = %d AND order_item_id = %d AND row_index > 0 LIMIT 1",
+			(int) $order->get_id(), $item_id
+		) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			throw new \RuntimeException( 'Cannot inspect retained VDP rows; generation requires operator review.' );
+		}
+		$jobs = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id, status FROM {$wpdb->prefix}oc_print_queue WHERE order_id = %d AND order_item_id = %d AND row_index > 0 ORDER BY id",
+			(int) $order->get_id(), $item_id
+		) );
+		if ( ! is_array( $jobs ) || '' !== (string) $wpdb->last_error ) {
+			throw new \RuntimeException( 'Cannot inspect retained VDP jobs; generation requires operator review.' );
+		}
+		if ( $existing || $jobs || $item->get_meta( '_oc_vdp_legacy_expansion', true ) ) {
+			self::hold_item_generation( $order, $item_id );
+			// Do not recreate jobs or reset failures. Workers validate each retained payload;
+			// failed jobs remain available through the existing explicit retry action.
+			return [
+				'queued' => 0, 'failed' => 0, 'held' => true,
+				'queue_ids' => array_map( static fn( $job ) => (int) $job->id, array_values( array_filter( $jobs, static fn( $job ) => 'pending' === $job->status ) ) ),
+			];
+		}
 		$vdp = new OC_VDP();
 		if ( ! $vdp->is_enabled( $design_id ) ) {
 			return null;
@@ -736,6 +836,66 @@ class OC_Print_Generator {
 			];
 		}
 
+		$snapshot = [ 'version' => 1, 'design_id' => $design_id, 'rows' => $normalised_rows, 'render_spec' => $stored_spec ];
+		$item->update_meta_data( '_oc_vdp_generation_snapshot', $snapshot );
+		$item->save_meta_data();
+		$item->read_meta_data( true );
+		if ( $snapshot !== $item->get_meta( '_oc_vdp_generation_snapshot', true ) ) {
+			throw new \RuntimeException( 'Could not persist the VDP generation snapshot; no rows were queued.' );
+		}
+		return $this->enqueue_vdp_snapshot( $order, $item_id, $normalised_rows, $stored_spec, $now, $expires_at );
+	}
+
+	/** A hold is separate from queue status: known rows may finish without proving expansion completeness. */
+	public static function hold_item_generation( \WC_Order $order, int $item_id, string $message = self::LEGACY_VDP_HOLD ): void {
+		$item = $order->get_item( $item_id );
+		if ( ! $item ) {
+			throw new \RuntimeException( 'Cannot retain the print-generation review hold: order item is missing.' );
+		}
+		$item->read_meta_data( true );
+		// Retention may remove every row/job later. Remember legacy provenance so
+		// a future Generate action still cannot start expansion from today's CSV.
+		if ( self::LEGACY_VDP_HOLD === $message && ! $item->get_meta( '_oc_vdp_legacy_expansion', true ) ) {
+			$item->update_meta_data( '_oc_vdp_legacy_expansion', 1 );
+			$item->save_meta_data();
+			$item->read_meta_data( true );
+			if ( ! $item->get_meta( '_oc_vdp_legacy_expansion', true ) ) {
+				throw new \RuntimeException( 'Could not persist legacy VDP provenance.' );
+			}
+		}
+		if ( $message !== $item->get_meta( '_oc_print_generation_hold', true ) ) {
+			$item->update_meta_data( '_oc_print_generation_hold', $message );
+			$item->save_meta_data();
+			$item->read_meta_data( true );
+			if ( $message !== $item->get_meta( '_oc_print_generation_hold', true ) ) {
+				throw new \RuntimeException( 'Could not persist the print-generation review hold.' );
+			}
+			$order->add_order_note( sprintf( 'OverCustomise item #%d retained for review: %s', $item_id, $message ) );
+		}
+	}
+
+	/** VDP must never combine original row values with a current design's geometry. */
+	public static function retained_vdp_area( object $file, array $payload ): object {
+		$snapshot = json_decode( (string) ( $file->area_snapshot ?? '' ), true );
+		if ( array_key_exists( 'renderSpecArea', $payload ) ) {
+			$spec = $payload['renderSpecArea'];
+			if ( ! is_array( $spec ) || (int) ( $spec['id'] ?? 0 ) !== (int) $file->print_area_id || ( $spec['printMethod'] ?? '' ) !== $file->file_type ) {
+				throw new \RuntimeException( 'The retained VDP render specification does not match its print file; operator review required.' );
+			}
+			$snapshot = (array) OC_Render_Spec::area_object( $spec );
+		}
+		if ( ! is_array( $snapshot ) || (int) ( $snapshot['id'] ?? 0 ) !== (int) $file->print_area_id
+			|| ( $snapshot['print_method'] ?? '' ) !== $file->file_type
+			|| ! is_numeric( $snapshot['canvas_w'] ?? null ) || (float) $snapshot['canvas_w'] <= 0
+			|| ! is_numeric( $snapshot['canvas_h'] ?? null ) || (float) $snapshot['canvas_h'] <= 0 ) {
+			throw new \RuntimeException( 'The original VDP area snapshot is unavailable or invalid; operator review required.' );
+		}
+		return (object) $snapshot;
+	}
+
+	/** Expand only persisted, normalised layer mappings and row values. */
+	private function enqueue_vdp_snapshot( \WC_Order $order, int $item_id, array $normalised_rows, array $stored_spec, string $now, string $expires_at ): array {
+		OC_Render_Spec::print_areas( $stored_spec );
 		$queued    = 0;
 		$failed    = 0;
 		$queue_ids = [];
@@ -820,6 +980,12 @@ class OC_Print_Generator {
 			}
 		}
 
+		if ( 0 === $failed ) {
+			$item = $order->get_item( $item_id );
+			$item->delete_meta_data( '_oc_print_generation_hold' );
+			$item->delete_meta_data( '_oc_vdp_legacy_expansion' );
+			$item->save_meta_data();
+		}
 		return [
 			'queued'    => $queued,
 			'failed'    => $failed,
@@ -1565,55 +1731,6 @@ class OC_Print_Generator {
 	// Admin GET handlers
 	// -------------------------------------------------------------------------
 
-	/**
-	 * Handle the "Regenerate" link from the order metabox:
-	 * ?oc_regenerate={id}&_wpnonce={nonce}
-	 */
-	public function handle_admin_regenerate(): void {
-		if ( empty( $_GET['oc_regenerate'] ) ) {
-			return;
-		}
-
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
-		}
-
-		$file_id = (int) $_GET['oc_regenerate'];
-
-		if ( ! wp_verify_nonce( $_GET['_wpnonce'] ?? '', 'oc_regenerate_' . $file_id ) ) {
-			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ), 403 );
-		}
-
-		$record = OC_DB::get_print_file( $file_id );
-		if ( ! $record ) {
-			wp_die( esc_html__( 'Print file record not found.', 'overcustomise' ), 404 );
-		}
-
-		$has_snapshot_warning = false;
-
-		try {
-			$result = $this->regenerate( $file_id );
-			if ( ! empty( $result['warning'] ) ) {
-				$has_snapshot_warning = true;
-				$order                = wc_get_order( (int) $record->order_id );
-				if ( $order instanceof \WC_Order ) {
-					$order->add_order_note( (string) $result['warning'] );
-				}
-			}
-		} catch ( \Throwable $e ) {
-			OC_Logger::error( 'Admin regenerate failed for file #' . $file_id . ': ' . $e->getMessage() );
-		}
-
-		// Redirect back to the order edit screen.
-		$order    = wc_get_order( (int) $record->order_id );
-		$redirect = $order instanceof \WC_Order ? $order->get_edit_order_url() : admin_url( 'admin.php?page=wc-orders' );
-		if ( $has_snapshot_warning ) {
-			$redirect = add_query_arg( 'oc_regenerate_snapshot_warning', '1', $redirect );
-		}
-		wp_safe_redirect( $redirect );
-		exit;
-	}
-
 	public function render_admin_notices(): void {
 		if ( empty( $_GET['oc_regenerate_snapshot_warning'] ) || ! current_user_can( 'manage_woocommerce' ) ) {
 			return;
@@ -1623,87 +1740,6 @@ class OC_Print_Generator {
 			'<div class="notice notice-warning is-dismissible"><p>%s</p></div>',
 			esc_html__( 'OverCustomise regenerated this file without a usable browser-rendered vector snapshot. The file used the older layer renderer and may not exactly match the customer preview, especially SVG placement or text sizing.', 'overcustomise' )
 		);
-	}
-
-	/** Handle the admin "Generate Print Files" link for orders missing file rows. */
-	public function handle_admin_generate_missing(): void {
-		if ( empty( $_GET['oc_generate_print_files'] ) ) {
-			return;
-		}
-
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
-		}
-
-		$order_id = absint( $_GET['oc_generate_print_files'] );
-		if ( ! $order_id || ! wp_verify_nonce( $_GET['_wpnonce'] ?? '', 'oc_generate_print_files_' . $order_id ) ) {
-			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ), 403 );
-		}
-
-		$order = wc_get_order( $order_id );
-		if ( ! $order instanceof \WC_Order ) {
-			wp_die( esc_html__( 'Order not found.', 'overcustomise' ), 404 );
-		}
-
-		try {
-			$this->generate_for_order( $order );
-		} catch ( \Throwable $e ) {
-			OC_Logger::error( 'Admin print-file generation failed for order #' . $order_id . ': ' . $e->getMessage() );
-			$order->add_order_note( sprintf( __( 'OverCustomise print-file generation failed: %s', 'overcustomise' ), $e->getMessage() ) );
-		}
-
-		$redirect = wp_get_referer() ?: $order->get_edit_order_url();
-		wp_safe_redirect( remove_query_arg( [ 'oc_generate_print_files', '_wpnonce' ], $redirect ) );
-		exit;
-	}
-
-	/** Handle the admin "Process Print Queue" link for an order. */
-	public function handle_admin_process_queue(): void {
-		if ( empty( $_GET['oc_process_print_queue_order'] ) ) {
-			return;
-		}
-
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
-			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), 403 );
-		}
-
-		$order_id = absint( $_GET['oc_process_print_queue_order'] );
-		if ( ! $order_id || ! wp_verify_nonce( $_GET['_wpnonce'] ?? '', 'oc_process_print_queue_order_' . $order_id ) ) {
-			wp_die( esc_html__( 'Security check failed.', 'overcustomise' ), 403 );
-		}
-
-		$order = wc_get_order( $order_id );
-		if ( ! $order instanceof \WC_Order ) {
-			wp_die( esc_html__( 'Order not found.', 'overcustomise' ), 404 );
-		}
-
-		global $wpdb;
-		$jobs = $wpdb->get_results(
-			$wpdb->prepare(
-				"SELECT * FROM {$wpdb->prefix}oc_print_queue
-			 WHERE order_id = %d
-			 AND status IN ('pending', 'failed')
-			 ORDER BY created_at ASC",
-				$order_id
-			)
-		) ?: [];
-
-		$processed = 0;
-		foreach ( $jobs as $job ) {
-			if ( 'failed' === $job->status ) {
-				if ( ! OC_Print_Queue::instance()->retry_job( (int) $job->id ) ) {
-					continue;
-				}
-			}
-			OC_Print_Queue::instance()->process_one( (int) $job->id );
-			++$processed;
-		}
-
-		$order->add_order_note( sprintf( __( 'OverCustomise manually processed %d print queue job(s).', 'overcustomise' ), $processed ) );
-
-		$redirect = wp_get_referer() ?: $order->get_edit_order_url();
-		wp_safe_redirect( remove_query_arg( [ 'oc_process_print_queue_order', '_wpnonce' ], $redirect ) );
-		exit;
 	}
 
 	/**
@@ -1807,14 +1843,7 @@ class OC_Print_Generator {
 
 	/** Resolve a DB path only when it is a regular file under the print root. */
 	private static function resolve_print_storage_path( string $path, bool $force_protection_check = false ): ?string {
-		if ( $force_protection_check && ! OC_Print_Base::ensure_output_storage_protected( true ) ) {
-			return null;
-		}
-		$uploads = wp_upload_dir();
-		$base    = realpath( trailingslashit( (string) ( $uploads['basedir'] ?? '' ) ) . 'overcustomise/print-files' );
-		$real    = '' !== $path ? realpath( $path ) : false;
-
-		return $base && $real && is_file( $real ) && str_starts_with( $real, rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR ) ? $real : null;
+		return OC_Print_Base::resolve_output_storage_path( $path, $force_protection_check );
 	}
 
 	/** Map file extension to MIME type for download headers. */

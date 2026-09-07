@@ -15,6 +15,7 @@ class OC_DB {
 	private const UPGRADE_LEASE_SECONDS  = 900;
 
 	private static ?bool $schema_ready = null;
+	private static bool $schema_metadata_failed = false;
 
 	/** Create (or upgrade) all plugin tables. */
 	public static function create_tables(): void {
@@ -22,7 +23,8 @@ class OC_DB {
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 
-		$charset = $wpdb->get_charset_collate();
+		// dbDelta uses this for new tables; existing engines are never auto-converted.
+		$charset = 'ENGINE=InnoDB ' . $wpdb->get_charset_collate();
 
 		// ------------------------------------------------------------------
 		// 1. Product customisation configurations
@@ -604,11 +606,80 @@ class OC_DB {
 		global $wpdb;
 		$is_free = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_FREE_LOCK(%s)', self::upgrade_lock_name() ) );
 
-		return 1 === (int) $is_free;
+		return 1 === (int) $is_free && self::tables_support_transactions( [ 'oc_print_files', 'oc_print_queue' ] );
+	}
+
+	/** Fail closed on unknown/nontransactional engines; conversion requires an operator backup and maintenance window. */
+	public static function tables_support_transactions( array $table_suffixes ): bool {
+		$report = self::transaction_readiness( $table_suffixes );
+		foreach ( $report as $table => $status ) {
+			if ( 'ready' !== $status ) {
+				self::log_schema_error( 'Transactional operation blocked: ' . $table . ' (' . $status . '). Check System Status; no automatic engine conversion was attempted.' );
+				return false;
+			}
+		}
+		return ! empty( $report );
+	}
+
+	/** Inspect each table independently without conflating failed metadata reads with unsafe engines. */
+	public static function transaction_readiness( array $table_suffixes ): array {
+		global $wpdb;
+		$report = [];
+		$xtradb_status = null;
+		foreach ( array_unique( $table_suffixes ) as $suffix ) {
+			$table = $wpdb->prefix . $suffix;
+			$engine = $wpdb->get_var( $wpdb->prepare(
+				'SELECT ENGINE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
+				$table
+			) );
+			if ( '' !== (string) $wpdb->last_error || false === $engine ) {
+				$report[ $suffix ] = 'metadata_query_failed';
+				continue;
+			}
+			if ( ! is_string( $engine ) || '' === $engine ) {
+				$report[ $suffix ] = 'table_metadata_missing';
+				continue;
+			}
+			$engine = strtolower( $engine );
+			if ( 'xtradb' === $engine && null === $xtradb_status ) {
+				// Historical MariaDB/Percona XtraDB is accepted only with positive server evidence.
+				$evidence = $wpdb->get_var( "SELECT TRANSACTIONS FROM INFORMATION_SCHEMA.ENGINES WHERE UPPER(ENGINE) = 'XTRADB' AND SUPPORT IN ('YES', 'DEFAULT')" );
+				$xtradb_status = '' !== (string) $wpdb->last_error || false === $evidence
+					? 'metadata_query_failed'
+					: ( is_string( $evidence ) && 'YES' === strtoupper( $evidence ) ? 'ready' : 'unsupported_engine' );
+			}
+			$report[ $suffix ] = 'innodb' === $engine ? 'ready' : ( 'xtradb' === $engine ? $xtradb_status : 'unsupported_engine' );
+		}
+		return $report;
+	}
+
+	/** A fresh diagnostic, not the migration version marker or a global feature gate. */
+	public static function schema_readiness( bool $print_only = false ): string {
+		self::$schema_ready = null;
+		self::$schema_metadata_failed = false;
+		$ready = self::print_pipeline_schema_ready( $print_only );
+		self::$schema_ready = null;
+		return self::$schema_metadata_failed ? 'metadata_query_failed' : ( $ready ? 'ready' : 'schema_incomplete' );
+	}
+
+	/** Report migration state without acquiring, clearing, or bypassing its locks. */
+	public static function migration_readiness(): string {
+		if ( version_compare( (string) get_option( 'oc_db_version', '0' ), OC_DB_VERSION, '<' ) ) {
+			return 'migration_required';
+		}
+		if ( self::upgrade_lease_is_active() ) {
+			return 'migration_running';
+		}
+		global $wpdb;
+		$is_free = $wpdb->get_var( $wpdb->prepare( 'SELECT IS_FREE_LOCK(%s)', self::upgrade_lock_name() ) );
+		if ( '' !== (string) $wpdb->last_error || ! in_array( (string) $is_free, [ '0', '1' ], true ) ) {
+			return 'metadata_query_failed';
+		}
+		return '1' === (string) $is_free ? 'ready' : 'migration_running';
 	}
 
 	/** Confirm every current plugin column and index required at runtime is present. */
-	private static function print_pipeline_schema_ready(): bool {
+	private static function print_pipeline_schema_ready( bool $print_only = false ): bool {
 		if ( null !== self::$schema_ready ) {
 			return self::$schema_ready;
 		}
@@ -639,6 +710,9 @@ class OC_DB {
 			$wpdb->prefix . 'oc_image_filters'       => [ 'id', 'name', 'filter_key', 'value', 'prompt', 'remove_background', 'active', 'created_at' ],
 		];
 
+		if ( $print_only ) {
+			$required_columns = array_intersect_key( $required_columns, array_flip( [ $wpdb->prefix . 'oc_print_files', $wpdb->prefix . 'oc_print_queue' ] ) );
+		}
 		$table_placeholders = implode( ',', array_fill( 0, count( $required_columns ), '%s' ) );
 		$column_rows        = $wpdb->get_results(
 			$wpdb->prepare(
@@ -648,7 +722,8 @@ class OC_DB {
 				...array_keys( $required_columns )
 			)
 		);
-		if ( ! is_array( $column_rows ) ) {
+		if ( ! is_array( $column_rows ) || '' !== (string) $wpdb->last_error ) {
+			self::$schema_metadata_failed = true;
 			self::$schema_ready = false;
 			return false;
 		}
@@ -775,7 +850,8 @@ class OC_DB {
 				...array_keys( $required_columns )
 			)
 		);
-		if ( ! is_array( $index_rows ) ) {
+		if ( ! is_array( $index_rows ) || '' !== (string) $wpdb->last_error ) {
+			self::$schema_metadata_failed = true;
 			self::$schema_ready = false;
 			return false;
 		}
@@ -788,7 +864,7 @@ class OC_DB {
 			$indexes[ $table ][ $name ]['columns'][ (int) $row->SEQ_IN_INDEX ] = (string) $row->COLUMN_NAME;
 		}
 
-		foreach ( $required_indexes as $table => $definitions ) {
+		foreach ( array_intersect_key( $required_indexes, $required_columns ) as $table => $definitions ) {
 			foreach ( $definitions as $name => [ $unique, $index_columns ] ) {
 				if ( ! isset( $indexes[ $table ][ $name ] ) ) {
 					self::$schema_ready = false;
@@ -1528,7 +1604,7 @@ class OC_DB {
 	public static function update_print_files_atomically( array $ids, array $data ): bool {
 		global $wpdb;
 		$ids = array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) );
-		if ( empty( $ids ) || empty( $data ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+		if ( empty( $ids ) || empty( $data ) || ! self::tables_support_transactions( [ 'oc_print_files' ] ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return false;
 		}
 
@@ -1559,7 +1635,7 @@ class OC_DB {
 	/** Commit generated file rows and their claimed queue job as one success boundary. */
 	public static function complete_queue_job( int $job_id, int $attempts, array $file_updates ): bool {
 		global $wpdb;
-		if ( empty( $file_updates ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+		if ( empty( $file_updates ) || ! self::tables_support_transactions( [ 'oc_print_files', 'oc_print_queue' ] ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return false;
 		}
 
@@ -1631,7 +1707,7 @@ class OC_DB {
 	/** Atomically move a claimed or exhausted queue job and its files to failed. */
 	public static function fail_queue_job( int $job_id, string $expected_status, int $attempts, string $error_message, array $file_ids, ?string $expected_processed_at = null, bool $compare_processed_at = false ): bool {
 		global $wpdb;
-		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+		if ( ! self::tables_support_transactions( [ 'oc_print_files', 'oc_print_queue' ] ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return false;
 		}
 
@@ -1711,7 +1787,7 @@ class OC_DB {
 	/** Reset a failed queue job and all of its failed file rows for an explicit retry. */
 	public static function retry_failed_queue_job( int $job_id, int $attempts, array $file_ids ): bool {
 		global $wpdb;
-		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+		if ( ! self::tables_support_transactions( [ 'oc_print_files', 'oc_print_queue' ] ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return false;
 		}
 
@@ -1784,7 +1860,7 @@ class OC_DB {
 	public static function fail_unqueued_print_files( array $file_ids ): bool {
 		global $wpdb;
 		$file_ids = array_values( array_unique( array_filter( array_map( 'absint', $file_ids ) ) ) );
-		if ( empty( $file_ids ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
+		if ( empty( $file_ids ) || ! self::tables_support_transactions( [ 'oc_print_files' ] ) || false === $wpdb->query( 'START TRANSACTION' ) ) {
 			return false;
 		}
 

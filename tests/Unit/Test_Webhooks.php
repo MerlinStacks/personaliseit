@@ -11,6 +11,22 @@ use PHPUnit\Framework\TestCase;
 require_once OC_PATH . 'includes/class-oc-webhooks.php';
 require_once OC_PATH . 'includes/class-oc-plugin.php';
 
+if ( ! function_exists( 'as_has_scheduled_action' ) ) {
+	function as_has_scheduled_action( string $hook, array $args, string $group ): bool { return true; }
+}
+if ( ! function_exists( 'as_get_scheduled_actions' ) ) {
+	function as_get_scheduled_actions( array $query, string $format ): array {
+		$GLOBALS['oc_test_as_query'] = $query;
+		return $GLOBALS['oc_test_as_pending'] ?? [];
+	}
+}
+if ( ! function_exists( 'as_schedule_single_action' ) ) {
+	function as_schedule_single_action( int $timestamp, string $hook, array $args, string $group, bool $unique ): int {
+		$GLOBALS['oc_test_as_scheduled'] = compact( 'timestamp', 'hook', 'args', 'group', 'unique' );
+		return ! empty( $GLOBALS['oc_test_as_enabled'] ) ? 123 : 0;
+	}
+}
+
 if ( ! function_exists( 'maybe_serialize' ) ) {
 	function maybe_serialize( mixed $value ): string {
 		return serialize( $value );
@@ -126,6 +142,26 @@ class OC_Test_Webhook_WPDB {
 }
 
 class Test_Webhooks extends TestCase {
+	#[Test]
+	public function audit_running_action_does_not_suppress_future_retry(): void {
+		$key = 'oc_wh_job_audit';
+		$GLOBALS['oc_test_options'][ $key ] = [ 'attempt' => 1 ];
+		$GLOBALS['oc_test_as_enabled'] = true;
+		$GLOBALS['oc_test_as_pending'] = [];
+		$method = new ReflectionMethod( OC_Webhooks::class, 'schedule_delivery' );
+		try {
+			$this->assertTrue( $method->invoke( new OC_Webhooks(), 7, $key, time() + 60 ) );
+			$this->assertSame( 'pending', $GLOBALS['oc_test_as_query']['status'] );
+			$this->assertSame( [ 7, $key, 1 ], $GLOBALS['oc_test_as_scheduled']['args'] );
+			$this->assertFalse( $GLOBALS['oc_test_as_scheduled']['unique'] );
+			$GLOBALS['oc_test_as_pending'] = [ 123 ];
+			unset( $GLOBALS['oc_test_as_scheduled'] );
+			$this->assertTrue( $method->invoke( new OC_Webhooks(), 7, $key, time() + 60 ) );
+			$this->assertArrayNotHasKey( 'oc_test_as_scheduled', $GLOBALS );
+		} finally {
+			unset( $GLOBALS['oc_test_options'][ $key ], $GLOBALS['oc_test_as_enabled'], $GLOBALS['oc_test_as_pending'], $GLOBALS['oc_test_as_scheduled'], $GLOBALS['oc_test_as_query'] );
+		}
+	}
 
 	#[Test]
 	public function it_removes_internal_paths_from_nested_customisation_data(): void {
@@ -162,7 +198,7 @@ class Test_Webhooks extends TestCase {
 		$this->assertSame( 17, $GLOBALS['oc_test_options'][ $job_key ]['webhook_id'] );
 		$this->assertSame( 'pending', $GLOBALS['oc_test_options'][ $job_key ]['status'] );
 		$this->assertSame( 'oc_webhook_deliver', $GLOBALS['oc_test_scheduled_events'][0]['hook'] );
-		$this->assertSame( [ 17, $job_key ], $GLOBALS['oc_test_scheduled_events'][0]['args'] );
+		$this->assertSame( [ 17, $job_key, 0 ], $GLOBALS['oc_test_scheduled_events'][0]['args'] );
 		unset( $GLOBALS['oc_test_options'][ $job_key ], $GLOBALS['oc_test_scheduled_events'] );
 	}
 
@@ -191,7 +227,7 @@ class Test_Webhooks extends TestCase {
 		try {
 			$this->assertSame( 1, ( new OC_Webhooks() )->recover_deliveries() );
 			$this->assertSame( 20, $wpdb->last_prepared[1][2] );
-			$this->assertSame( [ 9, $job_key ], $GLOBALS['oc_test_scheduled_events'][0]['args'] );
+			$this->assertSame( [ 9, $job_key, 0 ], $GLOBALS['oc_test_scheduled_events'][0]['args'] );
 			$this->assertSame( 0, $GLOBALS['oc_test_options']['oc_wh_recovery_cursor'] );
 		} finally {
 			$wpdb = $previous_wpdb;

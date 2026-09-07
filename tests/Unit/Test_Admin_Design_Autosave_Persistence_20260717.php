@@ -179,6 +179,19 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$this->assertSame( 1, $GLOBALS['oc_test_transients'][ $key ]['revision'] );
 	}
 
+	public function test_exact_retry_is_idempotent_but_changed_payload_conflicts(): void {
+		$method = new ReflectionMethod( OC_Autosave::class, 'store_for_key' );
+		$key = 'oc_autosave_exact_retry';
+		$state = $this->complete_state();
+		$first = $method->invoke( null, $key, $state, 1, 0 );
+		$stored = $GLOBALS['oc_test_transients'][ $key ];
+		$this->assertSame( $first, $method->invoke( null, $key, $state, 1, 0 ) );
+		$this->assertSame( $stored, $GLOBALS['oc_test_transients'][ $key ] );
+		$state['design']['name'] = 'Different request';
+		$this->assertSame( 'conflict', $method->invoke( null, $key, $state, 1, 0 )['status'] );
+		$this->assertSame( [], $GLOBALS['wpdb']->locks );
+	}
+
 	private function complete_state(): array {
 		return [
 			'design' => [

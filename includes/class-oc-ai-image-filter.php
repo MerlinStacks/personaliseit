@@ -72,6 +72,11 @@ PROMPT;
 		if ( false === $bytes || '' === $bytes ) {
 			return new \WP_Error( 'source_unreadable', __( 'The uploaded image could not be read.', 'overcustomise' ) );
 		}
+		try {
+			OC_Upload_Handler::validate_raster_bytes( $bytes, $mime );
+		} catch ( \RuntimeException $e ) {
+			return new \WP_Error( 'unsupported_source', $e->getMessage() );
+		}
 
 		$model    = (string) ( $config['model'] ?? '' );
 		$provider = (string) ( $config['provider'] ?? 'openrouter' );
@@ -467,6 +472,11 @@ PROMPT;
 			return new \WP_Error( 'invalid_ai_image', __( 'The AI model returned an unsupported image.', 'overcustomise' ) );
 		}
 
+		try {
+			OC_Upload_Handler::validate_raster_bytes( $bytes, (string) $info['mime'] );
+		} catch ( \RuntimeException $e ) {
+			return new \WP_Error( 'invalid_ai_image', $e->getMessage() );
+		}
 		return [ 'bytes' => $bytes, 'mime' => (string) $info['mime'] ];
 	}
 }

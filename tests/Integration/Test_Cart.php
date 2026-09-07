@@ -156,6 +156,197 @@ class Test_Cart extends WC_Unit_Test_Case {
 	// ── add_cart_item_data ────────────────────────────────────────────────────
 
 	#[Test]
+	public function html_order_summary_keeps_saved_labels_after_design_edits(): void {
+		global $wpdb;
+		[ $design_id, $ids ] = $this->create_image_design( 'text' );
+		$customisation = [
+			'v' => 2,
+			'designId' => $design_id,
+			'layers' => [ $ids[0] => [ 'type' => 'text', 'value' => 'Customer name' ] ],
+			'renderSpec' => [ 'areas' => [ [ 'printMethod' => 'uv', 'layers' => [ [ 'id' => $ids[0], 'type' => 'text', 'label' => 'Saved label', 'settings' => [] ] ] ] ] ],
+		];
+		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'label' => 'Changed label' ], [ 'id' => $ids[0] ] );
+		OC_Cache::flush_group();
+		$item = new WC_Order_Item_Product();
+		$item->update_meta_data( '_oc_customisation', $customisation );
+		ob_start();
+		try {
+			( new OC_Cart() )->display_in_order( 0, $item, new WC_Order() );
+			$html = ob_get_contents();
+		} finally {
+			ob_end_clean();
+		}
+		$this->assertStringContainsString( 'Saved label', $html );
+		$this->assertStringNotContainsString( 'Changed label', $html );
+	}
+
+	#[Test]
+	public function auto_font_size_keeps_browser_fit_but_rejects_out_of_bounds_values(): void {
+		[ $design_id, $ids ] = $this->create_image_design( 'text', [ 'default_font_size' => 0 ] );
+		foreach ( [ 24.5, 0, 1001 ] as $size ) {
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'value' => 'Name', 'renderedFontSize' => $size ] ] );
+			$this->assertNotWPError( $result );
+			if ( 24.5 === $size ) {
+				$this->assertSame( 24.5, $result['layers'][ $ids[0] ]['renderedFontSize'] );
+			} else {
+				$this->assertArrayNotHasKey( 'renderedFontSize', $result['layers'][ $ids[0] ] );
+			}
+		}
+	}
+
+	#[Test]
+	public function linked_upload_must_meet_destination_format_policy(): void {
+		global $wpdb;
+		[ $design_id, $ids ] = $this->create_image_design( 'image', [ 'link_group' => 'photo' ] );
+		$user_id = self::factory()->user->create();
+		wp_set_current_user( $user_id );
+		try {
+			$attachment = $this->create_artwork_attachment( [ $this->product->get_id(), 0, $design_id, $ids[0] ] );
+			update_post_meta( $attachment, '_oc_artwork_user_id', $user_id );
+			$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'settings' => wp_json_encode( [ 'link_group' => 'photo', 'formats' => [ 'pdf' ] ] ) ], [ 'id' => $ids[1] ] );
+			OC_Cache::flush_group();
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'attachmentId' => $attachment ] ] );
+			$this->assertWPError( $result );
+			$this->assertSame( 'invalid_attachment', $result->get_error_code() );
+		} finally {
+			wp_set_current_user( 0 );
+		}
+	}
+
+	/** Create an assigned design with two image layers for normalization regressions. */
+	private function create_image_design( string $type = 'image', array $settings = [] ): array {
+		global $wpdb;
+		$wpdb->insert( $wpdb->prefix . 'oc_designs', [ 'name' => 'Image regression', 'active' => 1 ] );
+		$design_id = (int) $wpdb->insert_id;
+		$wpdb->insert( $wpdb->prefix . 'oc_design_print_areas', [ 'design_id' => $design_id, 'area_key' => 'front', 'label' => 'Front', 'print_method' => 'uv' ] );
+		$area_id = (int) $wpdb->insert_id;
+		$ids = [];
+		foreach ( [ 'First', 'Second' ] as $label ) {
+			$wpdb->insert( $wpdb->prefix . 'oc_design_layers', [ 'design_id' => $design_id, 'area_id' => $area_id, 'type' => $type, 'label' => $label, 'visible' => 1, 'settings' => wp_json_encode( $settings ) ] );
+			$ids[] = (int) $wpdb->insert_id;
+		}
+		$wpdb->insert( $wpdb->prefix . 'oc_product_assignments', [ 'product_id' => $this->product->get_id(), 'variant_id' => 0, 'design_id' => $design_id ] );
+		OC_Cache::flush_group();
+		return [ $design_id, $ids ];
+	}
+
+	#[Test]
+	public function forged_source_context_is_rejected_but_server_linked_context_is_accepted(): void {
+		global $wpdb;
+		[ $design_id, $ids ] = $this->create_image_design();
+		$user_id = self::factory()->user->create();
+		wp_set_current_user( $user_id );
+		try {
+			$attachment = $this->create_artwork_attachment( [ $this->product->get_id(), 0, $design_id, $ids[1] ] );
+			update_post_meta( $attachment, '_oc_artwork_user_id', $user_id );
+			$input = [ 'attachmentId' => $attachment, '_oc_link_source_layer_id' => $ids[1], 'artworkContextLayerId' => $ids[1] ];
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => $input ] );
+			$this->assertWPError( $result );
+			$this->assertSame( 'invalid_attachment', $result->get_error_code() );
+			$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'settings' => wp_json_encode( [ 'link_group' => 'photo' ] ) ], [ 'design_id' => $design_id ] );
+			OC_Cache::flush_group();
+			$input['_oc_link_source_layer_id'] = 999999;
+			$input['artworkContextLayerId'] = 999999;
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => $input ] );
+			$this->assertNotWPError( $result );
+			foreach ( $ids as $id ) {
+				$this->assertSame( $attachment, $result['layers'][ $id ]['attachmentId'] );
+			}
+		} finally {
+			wp_set_current_user( 0 );
+		}
+	}
+
+	#[Test]
+	public function generated_image_crop_survives_normalisation_and_render_spec(): void {
+		global $wpdb;
+		[ $design_id, $ids ] = $this->create_image_design( 'ai_image', [ 'ai_prompt_instruction' => 'Draw a portrait.' ] );
+		$user_id = self::factory()->user->create();
+		wp_set_current_user( $user_id );
+		try {
+			$attachment = $this->create_artwork_attachment( [ $this->product->get_id(), 0, $design_id, $ids[0] ] );
+			update_post_meta( $attachment, '_oc_artwork_user_id', $user_id );
+			update_post_meta( $attachment, '_oc_ai_generation', 1 );
+			update_post_meta( $attachment, '_oc_ai_prompt_hash', str_repeat( 'a', 64 ) );
+			update_post_meta( $attachment, '_oc_ai_instruction_hash', hash_hmac( 'sha256', 'Draw a portrait.', wp_salt( 'auth' ) ) );
+			foreach ( [ 0, 50, 100, 150 ] as $crop ) {
+				$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'attachmentId' => $attachment, 'aiPromptHash' => str_repeat( 'a', 64 ), 'imageCrop' => $crop ] ] );
+				$this->assertNotWPError( $result );
+				$this->assertSame( min( 100, $crop ), $result['layers'][ $ids[0] ]['imageCrop'] );
+				$spec = OC_Render_Spec::build( $design_id, $result['layers'] );
+				$area = reset( $spec['areas'] );
+				$this->assertSame( min( 100, $crop ), $area['layers'][0]['input']['imageCrop'] );
+			}
+			$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'locked' => 1 ], [ 'id' => $ids[0] ] );
+			OC_Cache::flush_group();
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'imageCrop' => 100 ] ] );
+			$this->assertNotWPError( $result );
+			$this->assertSame( 0, $result['layers'][ $ids[0] ]['imageCrop'] );
+		} finally {
+			wp_set_current_user( 0 );
+		}
+	}
+
+	#[Test]
+	public function original_filter_is_allowed_only_when_customer_can_change_filter(): void {
+		global $wpdb;
+		$wpdb->insert( $wpdb->prefix . 'oc_image_filters', [ 'name' => 'Effect', 'filter_key' => 'grayscale', 'value' => 1, 'active' => 1 ] );
+		$filter_id = (int) $wpdb->insert_id;
+		OC_DB::clear_image_filter_cache();
+		$settings = [ 'image_filter_ids' => [ $filter_id ], 'default_image_filter_id' => $filter_id ];
+		[ $design_id, $ids ] = $this->create_image_design( 'image', $settings );
+		foreach ( [ [ 0, 0 ], [ $filter_id, $filter_id ], [ 999999, $filter_id ] ] as [ $posted, $expected ] ) {
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'imageFilterId' => $posted ] ] );
+			$this->assertNotWPError( $result );
+			$this->assertSame( $expected, $result['layers'][ $ids[0] ]['imageFilterId'] );
+		}
+		$settings['allow_image_filter_change'] = false;
+		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'settings' => wp_json_encode( $settings ) ], [ 'design_id' => $design_id ] );
+		OC_Cache::flush_group();
+		$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'imageFilterId' => 0 ] ] );
+		$this->assertNotWPError( $result );
+		$this->assertSame( $filter_id, $result['layers'][ $ids[0] ]['imageFilterId'] );
+		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'settings' => '{}' ], [ 'id' => $ids[1] ] );
+		$settings['allow_image_filter_change'] = true;
+		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'settings' => wp_json_encode( $settings ) ], [ 'id' => $ids[0] ] );
+		$wpdb->update( $wpdb->prefix . 'oc_image_filters', [ 'filter_key' => 'ai' ], [ 'id' => $filter_id ] );
+		OC_DB::clear_image_filter_cache();
+		OC_Cache::flush_group();
+		$user_id = self::factory()->user->create();
+		wp_set_current_user( $user_id );
+		try {
+			$attachment = $this->create_artwork_attachment( [ $this->product->get_id(), 0, $design_id, $ids[0] ] );
+			update_post_meta( $attachment, '_oc_artwork_user_id', $user_id );
+			$input = [ 'attachmentId' => $attachment, 'imageFilterId' => 0 ];
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => $input ] );
+			$this->assertNotWPError( $result );
+			$this->assertSame( 0, $result['layers'][ $ids[0] ]['imageFilterId'] );
+			$this->assertSame( $attachment, $result['layers'][ $ids[0] ]['attachmentId'] );
+			$input['imageFilterId'] = $filter_id;
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => $input ] );
+			$this->assertWPError( $result );
+			$this->assertSame( 'ai_filter_required', $result->get_error_code() );
+		} finally {
+			wp_set_current_user( 0 );
+		}
+	}
+
+	#[Test]
+	public function image_detail_displays_fall_back_from_zero_preview_and_prefer_real_preview(): void {
+		require_once OC_PATH . 'includes/admin/class-oc-admin-order-metabox.php';
+		$attachment = $this->create_artwork_attachment( [ $this->product->get_id(), 0, 1, 1 ] );
+		$preview = $this->create_artwork_attachment( [ $this->product->get_id(), 0, 1, 1 ] );
+		foreach ( [ [ new OC_Cart(), 'layer_display_value' ], [ new OC_Admin_Order_Metabox(), 'v2_layer_display_value' ] ] as [ $object, $method ] ) {
+			$display = new ReflectionMethod( $object, $method );
+			foreach ( [ 0, $preview ] as $preview_id ) {
+				$html = $display->invoke( $object, [ 'type' => 'image', 'attachmentId' => $attachment, 'previewAttachmentId' => $preview_id ] );
+				$this->assertStringContainsString( '<img ', $html );
+				$this->assertStringContainsString( 'attachment_id=' . ( $preview_id ?: $attachment ) . '&', html_entity_decode( $html, ENT_QUOTES, 'UTF-8' ) );
+			}
+		}
+	}
+
+	#[Test]
 	public function add_to_cart_validators_accept_string_variation_ids(): void {
 		$this->assertFalse( ( new OC_Frontend() )->validate( false, $this->product->get_id(), 1, '' ) );
 		$this->assertFalse( ( new OC_Cart() )->validate_legacy_artwork( false, $this->product->get_id(), 1, '' ) );
@@ -297,13 +488,15 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function personalisation_fees_with_different_tax_classes_use_distinct_ids(): void {
+		$tax_setting = get_option( 'woocommerce_calc_taxes' );
+		update_option( 'woocommerce_calc_taxes', 'yes' );
 		$first_product = WC_Helper_Product::create_simple_product();
 		$second_product = WC_Helper_Product::create_simple_product();
 		$first_product->set_tax_status( 'taxable' );
 		$first_product->set_tax_class( '' );
 		$first_product->save();
 		$second_product->set_tax_status( 'taxable' );
-		$second_product->set_tax_class( 'reduced-rate' );
+		$second_product->set_tax_class( 'standard-rate' );
 		$second_product->save();
 
 		try {
@@ -317,14 +510,56 @@ class Test_Cart extends WC_Unit_Test_Case {
 			WC()->cart->cart_contents[ $second_key ]['_oc_flat_rate'] = 3.0;
 			WC()->cart->fees_api()->remove_all_fees();
 
-			( new OC_Cart() )->add_flat_rate_fee( WC()->cart );
+			WC()->cart->add_fee( 'Personalisation Fee (standard rate)', 7 );
+			$integration = new OC_Cart();
+			$integration->add_flat_rate_fee( WC()->cart );
 			$fees = WC()->cart->get_fees();
 
-			$this->assertCount( 2, $fees );
-			$this->assertCount( 2, array_unique( array_map( fn( $fee ) => $fee->name, $fees ) ) );
+			$this->assertCount( 3, $fees );
+			$this->assertSame( 12.0, array_sum( array_map( fn( $fee ) => (float) $fee->amount, $fees ) ) );
+			foreach ( $fees as $key => $fee ) {
+				$item = new WC_Order_Item_Fee();
+				$integration->mark_personalisation_fee_item( $item, $key, $fee, new WC_Order() );
+				if ( str_starts_with( $key, 'overcustomise-' ) ) {
+					$this->assertSame( 'yes', $item->get_meta( '_oc_personalisation_fee' ) );
+					$allocations = $item->get_meta( '_oc_personalisation_fee_allocations' );
+					$this->assertSame( (float) $fee->amount, (float) $allocations[0]['total_amount'] );
+				} else {
+					$this->assertSame( '', $item->get_meta( '_oc_personalisation_fee' ) );
+				}
+			}
 		} finally {
+			update_option( 'woocommerce_calc_taxes', $tax_setting );
 			$first_product->delete( true );
 			$second_product->delete( true );
+		}
+	}
+
+	#[Test]
+	public function storefront_surcharge_uses_currency_and_exclusive_fee_tax_basis(): void {
+		$original = [];
+		foreach ( [ 'woocommerce_currency' => 'GBP', 'woocommerce_tax_display_shop' => 'incl', 'woocommerce_calc_taxes' => 'yes', 'woocommerce_prices_include_tax' => 'yes' ] as $key => $value ) {
+			$original[ $key ] = get_option( $key );
+			update_option( $key, $value );
+		}
+		$rates = static fn() => [ 1 => [ 'rate' => '20', 'label' => 'VAT', 'shipping' => 'yes', 'compound' => 'no' ] ];
+		add_filter( 'woocommerce_matched_rates', $rates );
+		$exempt = WC()->customer->get_is_vat_exempt();
+		WC()->customer->set_is_vat_exempt( false );
+		try {
+			$this->product->set_tax_status( 'taxable' );
+			$this->product->save();
+			$design = (object) [ 'flat_rate' => 10 ];
+			$this->assertStringContainsString( wc_price( 12 ), OC_Frontend::surcharge_html( $design, $this->product->get_id() ) );
+			update_option( 'woocommerce_tax_display_shop', 'excl' );
+			$this->assertStringContainsString( wc_price( 10 ), OC_Frontend::surcharge_html( $design, $this->product->get_id() ) );
+			$this->assertSame( '', OC_Frontend::surcharge_html( (object) [ 'flat_rate' => 0 ], $this->product->get_id() ) );
+		} finally {
+			WC()->customer->set_is_vat_exempt( $exempt );
+			remove_filter( 'woocommerce_matched_rates', $rates );
+			foreach ( $original as $key => $value ) {
+				update_option( $key, $value );
+			}
 		}
 	}
 

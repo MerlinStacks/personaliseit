@@ -36,7 +36,7 @@ abstract class OC_Print_Base {
 	private const PROTECTION_MARKER_VERSION   = 1;
 	private const PROTECTION_MARKER_TTL       = DAY_IN_SECONDS;
 
-	/** Subdirectory within wp-content/uploads for generated print files. */
+	/** Legacy subdirectory, retained for existing absolute file paths only. */
 	protected const PRINT_SUBDIR = 'overcustomise/print-files';
 
 	// -------------------------------------------------------------------------
@@ -113,13 +113,9 @@ abstract class OC_Print_Base {
 	 * @return string Absolute path to the directory (no trailing slash).
 	 */
 	protected static function ensure_output_dir( int $order_id ): string {
-		$upload_dir = wp_upload_dir();
-		if ( ! empty( $upload_dir['error'] ) ) {
-			throw new \RuntimeException( (string) $upload_dir['error'] );
-		}
-		$base = $upload_dir['basedir'] . '/' . self::PRINT_SUBDIR;
-		if ( ! self::protect_output_root( $base, true ) ) {
-			throw new \RuntimeException( __( 'Could not protect print directory.', 'overcustomise' ) );
+		$base = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'print-files', true ) : null;
+		if ( null === $base ) {
+			throw new \RuntimeException( esc_html__( 'Could not protect print directory.', 'overcustomise' ) );
 		}
 
 		$order_token = substr( hash_hmac( 'sha256', (string) $order_id, wp_salt( 'auth' ) ), 0, 32 );
@@ -129,27 +125,109 @@ abstract class OC_Print_Base {
 			throw new \RuntimeException( __( 'Could not create print output directory.', 'overcustomise' ) );
 		}
 
-		return $dir;
+		$real = realpath( $dir );
+		if ( false === $real || is_link( $dir ) || ! self::path_is_within( $real, $base ) ) {
+			throw new \RuntimeException( 'Print output directory escaped private storage.' );
+		}
+		return $real;
+	}
+
+	/** Existing print roots only. History is operator code configuration, never DB paths. */
+	public static function output_migration_roots(): array {
+		require_once dirname( __DIR__ ) . '/class-oc-storage-upgrade.php';
+		$uploads = wp_upload_dir();
+		$base = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
+		$candidates = array_map( static fn ( string $root ): string => $root . '/print-files', OC_Storage_Upgrade::legacy_private_roots() );
+		if ( false !== $base ) {
+			$candidates[] = $base . '/' . self::PRINT_SUBDIR;
+		}
+		// Source inventory only. This must never authorize serving or recursive deletion.
+		return array_values( array_filter( array_unique( $candidates ), static fn ( string $root ): bool => is_dir( $root ) && realpath( $root ) === $root ) );
+	}
+
+	/** Verified serving roots; historical entries remain an explicit operator policy. */
+	public static function output_storage_roots( bool $force_check = false ): array {
+		require_once dirname( __DIR__ ) . '/class-oc-storage-upgrade.php';
+		$roots = [];
+		$current = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'print-files', $force_check ) : null;
+		if ( null !== $current ) {
+			$roots[] = $current;
+		}
+		$uploads = wp_upload_dir();
+		$upload_real = ! empty( $uploads['basedir'] ) ? realpath( $uploads['basedir'] ) : false;
+		$legacy = $upload_real ? $upload_real . '/' . self::PRINT_SUBDIR : '';
+		$legacy_real = '' !== $legacy ? realpath( $legacy ) : false;
+		if ( false !== $legacy_real && wp_normalize_path( $legacy_real ) === wp_normalize_path( $legacy ) && is_dir( $legacy_real ) ) {
+			$roots[] = $legacy_real;
+		}
+		// Returning a root attests that it remains dedicated print storage and HTTP-denied.
+		$history = apply_filters( 'oc_print_historical_storage_roots', [] );
+		foreach ( is_array( $history ) ? $history : [] as $root ) {
+			if ( ! is_string( $root ) || str_contains( $root, "\0" ) || ! self::is_absolute_file_path( $root ) ) {
+				continue;
+			}
+			$root = rtrim( wp_normalize_path( $root ), '/' );
+			$real = realpath( $root );
+			if ( false !== $real && is_dir( $real ) && 'print-files' === basename( $real ) && wp_normalize_path( $real ) === $root ) {
+				$roots[] = $real;
+			}
+		}
+		// Public uploads roots need effective server policy, even when supplied as history.
+		// Deny files (or a cached marker) alone cannot establish HTTP protection.
+		return array_values( array_filter( array_unique( $roots ), static function ( string $root ) use ( $upload_real, $force_check ): bool {
+			if ( false !== $upload_real && self::path_is_within( $root, $upload_real ) ) {
+				return self::protect_output_root( $root, true )
+					&& OC_Storage_Upgrade::public_subtree_verified( $root );
+			}
+			return true;
+		} ) );
+	}
+
+	/** Resolve retained absolute paths without basename fallback or symlink aliases. */
+	public static function resolve_output_storage_path( string $path, bool $force_check = false ): ?string {
+		require_once dirname( __DIR__ ) . '/class-oc-storage-upgrade.php';
+		if ( '' === $path || str_contains( $path, "\0" ) || ! self::is_absolute_file_path( $path ) ) {
+			return null;
+		}
+		$real = OC_Storage_Upgrade::canonical_file( $path );
+		if ( null === $real ) {
+			return null;
+		}
+		foreach ( self::output_storage_roots( $force_check ) as $root ) {
+			if ( self::path_is_within( $real, $root ) ) {
+				return $real;
+			}
+		}
+		return null;
+	}
+
+	/** Run storage protection from the WordPress init action. */
+	public static function maintain_output_storage(): void {
+		self::ensure_output_storage_protected();
 	}
 
 	/** Ensure existing and future print files are denied by Apache and IIS. */
 	public static function ensure_output_storage_protected( bool $force_check = false ): bool {
+		$private = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'print-files', $force_check ) : null;
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
 			return false;
 		}
 
 		$base = trailingslashit( (string) $uploads['basedir'] ) . self::PRINT_SUBDIR;
-		if ( ! self::protect_output_root( $base, $force_check ) ) {
+		$real = realpath( $base );
+		$uploads_real = realpath( $uploads['basedir'] );
+		if ( false !== $real && ( false === $uploads_real || wp_normalize_path( $real ) !== wp_normalize_path( $uploads_real . '/' . self::PRINT_SUBDIR ) || ! self::protect_output_root( $real, $force_check ) ) ) {
 			OC_Logger::warning( 'Generated print storage could not be protected.' );
 			return false;
 		}
 
-		return true;
+		return null !== $private;
 	}
 
 	/** Create the print root and write server-specific deny rules. */
 	private static function protect_output_root( string $base, bool $force_check = false ): bool {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable -- Local path validation is required before WP_Filesystem credentials are available.
 		if ( ( ! is_dir( $base ) && ! wp_mkdir_p( $base ) ) || ! is_writable( $base ) ) {
 			return false;
 		}
@@ -172,6 +250,9 @@ abstract class OC_Print_Base {
 		];
 		foreach ( $files as $filename => $contents ) {
 			$path = $base . '/' . $filename;
+			if ( is_link( $path ) ) {
+				return false;
+			}
 			if ( ( ! is_file( $path ) || (string) file_get_contents( $path ) !== $contents ) && false === file_put_contents( $path, $contents ) ) {
 				return false;
 			}
@@ -465,14 +546,14 @@ abstract class OC_Print_Base {
 
 	/**
 	 * Register a TTF/OTF font with TCPDF and return the internal font name.
-	 * Returns empty string on failure (caller should fall back to a core font).
+	 * A configured custom font must never silently fall back to a core font.
 	 *
 	 * @param  string $font_path  Absolute path to the font file.
 	 * @return string             TCPDF font name.
 	 */
 	protected static function register_tcpdf_font( string $font_path ): string {
-		if ( ! file_exists( $font_path ) ) {
-			return '';
+		if ( ! is_readable( $font_path ) ) {
+			throw new \RuntimeException( 'The selected print font source is unavailable; production retained for review.' );
 		}
 
 		try {
@@ -481,34 +562,198 @@ abstract class OC_Print_Base {
 			wp_mkdir_p( $font_dir );
 
 			if ( class_exists( '\TCPDF_FONTS' ) ) {
-				$name = \TCPDF_FONTS::addTTFfont( $font_path, 'TrueTypeUnicode', '', 96, $font_dir );
-				return is_string( $name ) ? $name : '';
+				return self::register_legacy_tcpdf_font( $font_path, $font_dir );
 			}
 
 			if ( class_exists( '\Com\Tecnick\Pdf\Font\Import' ) ) {
 				return self::register_tc_lib_pdf_font( $font_path, $font_dir );
 			}
 
-			OC_Logger::warning( 'TCPDF font registration skipped for ' . basename( $font_path ) . ': no compatible TCPDF font importer is available.' );
-			return '';
+			throw new \RuntimeException( 'No compatible TCPDF font importer is available.' );
 		} catch ( \Throwable $e ) {
-			OC_Logger::warning( 'TCPDF font registration failed for ' . basename( $font_path ) . ': ' . $e->getMessage() );
-			return '';
+			throw new \RuntimeException( 'The selected print font could not be registered. Retain its source and rebuild the verified cache in a writable directory before retrying: ' . $e->getMessage(), 0, $e );
 		}
 	}
 
-	/** Register a font using the TCPDF v7 tc-lib-pdf-font importer. */
+	/** Publish legacy definitions and their binaries as one immutable directory. */
+	protected static function register_legacy_tcpdf_font( string $font_path, string $font_dir ): string {
+		$identity = self::tc_lib_pdf_font_name( $font_path );
+		if ( '' === $identity ) {
+			throw new \RuntimeException( 'Unreadable print font source.' );
+		}
+		$name = 'oclegacy' . substr( $identity, 2 );
+		$font_dir = trailingslashit( $font_dir );
+		$published = $font_dir . $name;
+		$source_hash = hash_file( 'sha256', $font_path );
+		// Published bundles are immutable: verified readers need no writable lock.
+		if ( ! is_link( $published ) && self::legacy_tcpdf_font_cache_complete( $published . '/', $name, $source_hash ) ) {
+			return $name;
+		}
+		$lock = fopen( $font_dir . $name . '.lock', 'c' );
+		if ( false === $lock ) {
+			throw new \RuntimeException( 'Could not lock print font cache.' );
+		}
+		$stage = null;
+		try {
+			if ( ! flock( $lock, LOCK_EX ) ) {
+				throw new \RuntimeException( 'Could not lock print font cache.' );
+			}
+			if ( file_exists( $published ) || is_link( $published ) ) {
+				if ( ! is_link( $published ) && self::legacy_tcpdf_font_cache_complete( $published . '/', $name, $source_hash ) ) {
+					return $name;
+				}
+				// Readers outlive this lock. Never repair or remove a published entry.
+				throw new \RuntimeException( 'Published print font cache is invalid; refusing to replace active reader artifacts.' );
+			}
+			$stage = $font_dir . '.' . $name . '-' . bin2hex( random_bytes( 12 ) );
+			if ( ! mkdir( $stage, 0700 ) ) {
+				throw new \RuntimeException( 'Could not stage print font cache.' );
+			}
+			$source = $stage . '/' . $name . '.ttf';
+			if ( ! copy( $font_path, $source ) || hash_file( 'sha256', $source ) !== $source_hash || self::tc_lib_pdf_font_name( $font_path ) !== $identity ) {
+				throw new \RuntimeException( 'Print font source changed during registration.' );
+			}
+			$imported = \TCPDF_FONTS::addTTFfont( $source, 'TrueTypeUnicode', '', 96, $stage . '/' );
+			if ( $name !== $imported ) {
+				throw new \RuntimeException( 'Unexpected print font cache identity.' );
+			}
+			$manifest = [ 'source' => $source_hash ];
+			foreach ( [ '.php', '.z', '.ctg.z' ] as $suffix ) {
+				$artifact = $stage . '/' . $name . $suffix;
+				if ( ! is_file( $artifact ) || is_link( $artifact ) ) {
+					throw new \RuntimeException( 'Incomplete imported print font.' );
+				}
+				$manifest[ $suffix ] = hash_file( 'sha256', $artifact );
+			}
+			if ( false === file_put_contents( $stage . '/' . $name . '.manifest.json', json_encode( $manifest ) )
+				|| ! self::legacy_tcpdf_font_cache_complete( $stage . '/', $name, $source_hash ) ) {
+				throw new \RuntimeException( 'Invalid imported print font artifacts.' );
+			}
+			if ( ! unlink( $source ) || ! rename( $stage, $published ) ) {
+				throw new \RuntimeException( 'Could not publish print font cache.' );
+			}
+			$stage = null;
+			return $name;
+		} finally {
+			if ( null !== $stage && is_dir( $stage ) ) {
+				foreach ( [ '.ttf', '.php', '.z', '.ctg.z', '.manifest.json' ] as $suffix ) {
+					$artifact = $stage . '/' . $name . $suffix;
+					if ( is_file( $artifact ) || is_link( $artifact ) ) {
+						unlink( $artifact );
+					}
+				}
+				rmdir( $stage );
+			}
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
+		}
+	}
+
+	/** Inspect legacy PHP as literal assignments, never by including or evaluating it. */
+	private static function legacy_tcpdf_font_cache_complete( string $dir, string $name, string $source_hash ): bool {
+		$manifest_path = $dir . $name . '.manifest.json';
+		if ( ! is_file( $manifest_path ) || is_link( $manifest_path ) || filesize( $manifest_path ) > 4096 ) {
+			return false;
+		}
+		$manifest = json_decode( (string) file_get_contents( $manifest_path ), true );
+		if ( ! is_array( $manifest ) || ( $manifest['source'] ?? null ) !== $source_hash ) {
+			return false;
+		}
+		foreach ( [ '.php', '.z', '.ctg.z' ] as $suffix ) {
+			$path = $dir . $name . $suffix;
+			clearstatcache( true, $path );
+			if ( ! is_string( $manifest[ $suffix ] ?? null ) || ! is_file( $path ) || is_link( $path ) || filesize( $path ) < 1 || filesize( $path ) > 16842752
+				|| ! hash_equals( $manifest[ $suffix ], hash_file( 'sha256', $path ) ) ) {
+				return false;
+			}
+		}
+		if ( ! self::tcpdf_font_binary_complete( $dir, $name ) || hash( 'sha256', gzuncompress( (string) file_get_contents( $dir . $name . '.z' ), 16777216 ) ) !== $source_hash ) {
+			return false;
+		}
+		try {
+			$tokens = array_values( array_filter( token_get_all( (string) file_get_contents( $dir . $name . '.php' ), TOKEN_PARSE ), static fn ( $token ): bool => ! is_array( $token ) || ! in_array( $token[0], [ T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ], true ) ) );
+		} catch ( \ParseError $e ) {
+			return false;
+		}
+		$assigned = [];
+		$references = [ '$type' => 'TrueTypeUnicode', '$file' => $name . '.z', '$ctg' => $name . '.ctg.z' ];
+		foreach ( $tokens as $index => $token ) {
+			if ( ! is_array( $token ) ) {
+				if ( ! in_array( $token, [ '=', ';', ',', '(', ')', '[', ']', '-', '+' ], true ) || ( '(' === $token && ( $tokens[ $index - 1 ][0] ?? null ) !== T_ARRAY ) ) {
+					return false;
+				}
+				continue;
+			}
+			if ( T_VARIABLE === $token[0] ) {
+				$variable = $token[1];
+				if ( ! in_array( $variable, [ '$type', '$name', '$desc', '$up', '$ut', '$dw', '$cw', '$enc', '$diff', '$file', '$ctg', '$originalsize', '$fontkey', '$subsetted', '$cbbox' ], true )
+					|| isset( $assigned[ $variable ] ) || '=' !== ( $tokens[ $index + 1 ] ?? null )
+					|| ( ';' !== ( $tokens[ $index - 1 ] ?? null ) && T_OPEN_TAG !== ( $tokens[ $index - 1 ][0] ?? null ) ) ) {
+					return false;
+				}
+				$assigned[ $variable ] = true;
+				if ( isset( $references[ $variable ] ) && ( ';' !== ( $tokens[ $index + 3 ] ?? null ) || ! in_array( $tokens[ $index + 2 ][1] ?? null, [ "'" . $references[ $variable ] . "'", '"' . $references[ $variable ] . '"' ], true ) ) ) {
+					return false;
+				}
+			} elseif ( ! in_array( $token[0], [ T_OPEN_TAG, T_CLOSE_TAG, T_CONSTANT_ENCAPSED_STRING, T_LNUMBER, T_DNUMBER, T_ARRAY, T_DOUBLE_ARROW ], true ) && ! ( T_STRING === $token[0] && in_array( strtolower( $token[1] ), [ 'true', 'false', 'null' ], true ) ) ) {
+				return false;
+			}
+		}
+		return isset( $assigned['$type'], $assigned['$file'], $assigned['$ctg'], $assigned['$name'], $assigned['$desc'], $assigned['$cw'] );
+	}
+
+	/** Retain verified flat caches; publish new v7 fonts as immutable bundles. */
 	protected static function register_tc_lib_pdf_font( string $font_path, string $font_dir ): string {
 		$font_dir  = trailingslashit( $font_dir );
-		$font_name = self::tc_lib_pdf_font_name( $font_path );
-		if ( '' !== $font_name && file_exists( $font_dir . $font_name . '.json' ) ) {
-			return $font_name;
+		$identity = self::tc_lib_pdf_font_name( $font_path );
+		if ( '' === $identity ) {
+			throw new \RuntimeException( 'Unreadable print font source.' );
 		}
-
+		$source_hash = hash_file( 'sha256', $font_path );
+		// Never write or repair historical flat artifacts, including incomplete sets.
+		// Readers may have loaded the definition but not opened its binaries yet.
+		foreach ( [ '.json', '.z', '.ctg.z', '.manifest.json' ] as $suffix ) {
+			if ( file_exists( $font_dir . $identity . $suffix ) || is_link( $font_dir . $identity . $suffix ) ) {
+				if ( self::tcpdf_font_cache_complete( $font_dir, $identity, $source_hash ) ) {
+					return $identity;
+				}
+				throw new \RuntimeException( 'Retained print font cache is invalid; refusing to replace active reader artifacts.' );
+			}
+		}
+		$font_name = 'ocmodern' . substr( $identity, 2 );
+		$published = $font_dir . $font_name;
+		if ( file_exists( $published ) || is_link( $published ) ) {
+			if ( ! is_link( $published ) && self::tcpdf_font_cache_complete( $published . '/', $font_name, $source_hash ) ) {
+				return $font_name;
+			}
+			throw new \RuntimeException( 'Published print font cache is invalid; refusing to replace active reader artifacts.' );
+		}
+		$lock = fopen( $font_dir . $font_name . '.lock', 'c' );
+		if ( false === $lock ) {
+			throw new \RuntimeException( 'Could not lock print font cache.' );
+		}
+		$stage = null;
 		try {
+			if ( ! flock( $lock, LOCK_EX ) ) {
+				throw new \RuntimeException( 'Could not lock print font cache.' );
+			}
+			if ( file_exists( $published ) || is_link( $published ) ) {
+				if ( ! is_link( $published ) && self::tcpdf_font_cache_complete( $published . '/', $font_name, $source_hash ) ) {
+					return $font_name;
+				}
+				throw new \RuntimeException( 'Published print font cache is invalid; refusing to replace active reader artifacts.' );
+			}
+			$stage = $font_dir . '.' . $font_name . '-' . bin2hex( random_bytes( 12 ) );
+			if ( ! mkdir( $stage, 0700 ) ) {
+				throw new \RuntimeException( 'Could not stage print font cache.' );
+			}
+			$source = $stage . '/' . $font_name . '.ttf';
+			if ( ! copy( $font_path, $source ) || hash_file( 'sha256', $source ) !== $source_hash || self::tc_lib_pdf_font_name( $font_path ) !== $identity ) {
+				throw new \RuntimeException( 'Print font source changed during registration.' );
+			}
 			$import = new \Com\Tecnick\Pdf\Font\Import(
-				$font_path,
-				$font_dir,
+				$source,
+				$stage . '/',
 				'TrueTypeUnicode',
 				'',
 				32,
@@ -517,25 +762,82 @@ abstract class OC_Print_Base {
 				false
 			);
 
-			return $import->getFontName();
-		} catch ( \Throwable $e ) {
-			if ( preg_match( '/([a-z0-9_\-]+)\.json$/i', $e->getMessage(), $match ) ) {
-				return strtolower( (string) $match[1] );
+			if ( $font_name !== $import->getFontName() ) {
+				throw new \RuntimeException( 'Unexpected print font cache identity.' );
 			}
-
-			throw $e;
+			$manifest = [ 'source' => $source_hash ];
+			foreach ( [ '.json', '.z', '.ctg.z' ] as $suffix ) {
+				$artifact = $stage . '/' . $font_name . $suffix;
+				if ( ! is_file( $artifact ) || is_link( $artifact ) ) {
+					throw new \RuntimeException( 'Incomplete imported print font.' );
+				}
+				$manifest[ $suffix ] = hash_file( 'sha256', $artifact );
+			}
+			if ( false === file_put_contents( $stage . '/' . $font_name . '.manifest.json', json_encode( $manifest ) ) || ! self::tcpdf_font_cache_complete( $stage . '/', $font_name, $source_hash ) ) {
+				throw new \RuntimeException( 'Invalid imported print font artifacts.' );
+			}
+			if ( ! unlink( $source ) || ! rename( $stage, $published ) ) {
+				throw new \RuntimeException( 'Could not publish print font cache.' );
+			}
+			$stage = null;
+			return $font_name;
+		} finally {
+			if ( null !== $stage && is_dir( $stage ) ) {
+				foreach ( [ '.ttf', '.json', '.z', '.ctg.z', '.manifest.json' ] as $suffix ) {
+					$artifact = $stage . '/' . $font_name . $suffix;
+					if ( is_file( $artifact ) || is_link( $artifact ) ) {
+						unlink( $artifact );
+					}
+				}
+				rmdir( $stage );
+			}
+			flock( $lock, LOCK_UN );
+			fclose( $lock );
 		}
 	}
 
-	/** Match tc-lib-pdf-font's generated family name for cache lookups. */
+	/** Use a basename that survives both importers' lossy name normalisation. */
 	protected static function tc_lib_pdf_font_name( string $font_path ): string {
-		$name = strtolower( (string) pathinfo( $font_path, PATHINFO_FILENAME ) );
-		$name = preg_replace( '/[^a-z0-9_]/', '', $name );
-		if ( ! is_string( $name ) || '' === $name ) {
-			return '';
-		}
+		$real = realpath( $font_path );
+		$hash = $real && is_readable( $real ) ? hash_file( 'sha256', $real ) : false;
+		return false !== $hash ? 'oc' . hash( 'sha256', $real . '|' . $hash ) : '';
+	}
 
-		return str_replace( [ 'bold', 'oblique', 'italic', 'regular' ], [ 'b', 'i', 'i', '' ], $name );
+	private static function tcpdf_font_cache_complete( string $dir, string $name, ?string $source_hash = null ): bool {
+		$manifest_path = $dir . $name . '.manifest.json';
+		if ( ! is_file( $manifest_path ) || is_link( $manifest_path ) || filesize( $manifest_path ) > 4096 ) {
+			return false;
+		}
+		$manifest = json_decode( (string) file_get_contents( $manifest_path ), true );
+		if ( ! is_array( $manifest ) ) {
+			return false;
+		}
+		foreach ( [ '.json', '.z', '.ctg.z' ] as $suffix ) {
+			$path = $dir . $name . $suffix;
+			clearstatcache( true, $path );
+			if ( ! is_string( $manifest[ $suffix ] ?? null ) || ! is_file( $path ) || is_link( $path ) || ! is_readable( $path ) || filesize( $path ) < 1 || filesize( $path ) > 16842752 || ! hash_equals( $manifest[ $suffix ], hash_file( 'sha256', $path ) ) ) {
+				return false;
+			}
+		}
+		$data = json_decode( (string) file_get_contents( $dir . $name . '.json' ), true );
+		return is_array( $data ) && 'TrueTypeUnicode' === ( $data['type'] ?? '' )
+			&& $name . '.z' === ( $data['file'] ?? '' ) && $name . '.ctg.z' === ( $data['ctg'] ?? '' )
+			&& ! empty( $data['cw'] ) && self::tcpdf_font_binary_complete( $dir, $name )
+			&& ( null === $source_hash || hash( 'sha256', gzuncompress( (string) file_get_contents( $dir . $name . '.z' ), 16777216 ) ) === $source_hash );
+	}
+
+	private static function tcpdf_font_binary_complete( string $dir, string $name ): bool {
+		foreach ( [ '.z' => 16777216, '.ctg.z' => 131072 ] as $suffix => $limit ) {
+			$path = $dir . $name . $suffix;
+			if ( ! is_readable( $path ) || filesize( $path ) < 1 || filesize( $path ) > $limit + 65536 ) {
+				return false;
+			}
+			$bytes = @gzuncompress( (string) file_get_contents( $path ), $limit );
+			if ( ! is_string( $bytes ) || '' === $bytes || ( '.ctg.z' === $suffix && strlen( $bytes ) !== 131072 ) ) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	/** Write a TCPDF instance to an exact file path across TCPDF wrapper versions. */
@@ -1539,6 +1841,14 @@ abstract class OC_Print_Base {
 	protected static function tcpdf_font_definition_path( string $font_path, string $font_name ): string {
 		$upload_dir = wp_upload_dir();
 		$font_dir   = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts/';
+		if ( preg_match( '/^oclegacy[a-f0-9]{64}$/D', $font_name ) ) {
+			$font_file = $font_dir . $font_name . '/' . $font_name . '.php';
+			return is_file( $font_file ) ? $font_file : '';
+		}
+		if ( preg_match( '/^ocmodern[a-f0-9]{64}$/D', $font_name ) ) {
+			$font_file = $font_dir . $font_name . '/' . $font_name . '.json';
+			return is_file( $font_file ) ? $font_file : '';
+		}
 		$json_file  = $font_dir . $font_name . '.json';
 		if ( file_exists( $json_file ) ) {
 			return $json_file;
@@ -1838,35 +2148,7 @@ abstract class OC_Print_Base {
 			return true;
 		}
 
-		$real = realpath( $path );
-		if ( false === $real || ! is_file( $real ) ) {
-			return false;
-		}
-		$private = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'artwork' ) : null;
-		if ( is_string( $private ) && self::path_is_within( $real, $private ) ) {
-			return true;
-		}
-
-		$uploads = wp_upload_dir();
-		$legacy  = ! empty( $uploads['basedir'] ) ? realpath( trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/artwork' ) : false;
-		return false !== $legacy && self::path_is_within( $real, $legacy ) && self::legacy_artwork_root_is_protected( $legacy );
-	}
-
-	/** Require intact deny rules before using a legacy public-upload artwork path. */
-	private static function legacy_artwork_root_is_protected( string $directory ): bool {
-		$files = [
-			'.htaccess' => "Options -Indexes\n<IfModule mod_authz_core.c>\nRequire all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\nDeny from all\n</IfModule>\n",
-			'web.config' => "<?xml version=\"1.0\" encoding=\"UTF-8\"?><configuration><system.webServer><security><authorization><remove users=\"*\" roles=\"\" verbs=\"\"/><add accessType=\"Deny\" users=\"*\"/></authorization></security></system.webServer></configuration>\n",
-			'index.php' => "<?php\nhttp_response_code( 404 );\nexit;\n",
-		];
-		foreach ( $files as $filename => $contents ) {
-			$file = $directory . DIRECTORY_SEPARATOR . $filename;
-			if ( ! is_file( $file ) || ! hash_equals( $contents, (string) file_get_contents( $file ) ) ) {
-				return false;
-			}
-		}
-
-		return true;
+		return class_exists( 'OC_Upload_Handler' ) && OC_Upload_Handler::is_allowed_artwork_path( $path );
 	}
 
 	private static function is_absolute_file_path( string $path ): bool {
@@ -2176,12 +2458,15 @@ abstract class OC_Print_Base {
 		if ( 'engraving' === $mode ) {
 			$pdf->SetFillColor( ...self::ENGRAVING_TONE_RGB );
 			$pdf->SetTextColor( ...self::ENGRAVING_TONE_RGB );
+			$pdf->SetDrawColor( ...self::ENGRAVING_TONE_RGB );
 		} elseif ( 'spot' !== $mode ) {
 			[ $c, $m, $y, $k ] = self::hex_to_cmyk( $hex );
 			$pdf->SetFillColorArray( [ $c, $m, $y, $k ] );
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
+			$pdf->SetDrawColorArray( [ $c, $m, $y, $k ] );
 		}
 		$scale = min( $w_mm, $h_mm );
+		$pdf->SetAlpha( 0.48 );
 		foreach ( is_array( $geometry['segments'] ?? null ) ? $geometry['segments'] : [] as $segment ) {
 			$x1     = $x_mm + (float) $segment['x1'] * $w_mm;
 			$y1     = $y_mm + (float) $segment['y1'] * $h_mm;
@@ -2193,24 +2478,24 @@ abstract class OC_Print_Base {
 			$py     = ( $x2 - $x1 ) / $length * $half;
 			$pdf->Polygon( [ $x1 + $px, $y1 + $py, $x2 + $px, $y2 + $py, $x2 - $px, $y2 - $py, $x1 - $px, $y1 - $py ], 'F' );
 		}
+		$pdf->SetAlpha( 1.0 );
 		foreach ( is_array( $geometry['stars'] ?? null ) ? $geometry['stars'] : [] as $star ) {
 			$r = max( 0.04, (float) $star['r'] * $scale );
 			$pdf->Circle( $x_mm + (float) $star['x'] * $w_mm, $y_mm + (float) $star['y'] * $h_mm, $r, 0, 360, 'F' );
 		}
 		if ( ! empty( $geometry['border'] ) ) {
-			for ( $index = 0; $index < 120; $index++ ) {
-				$angle = 2 * M_PI * $index / 120;
-				$pdf->Circle( $x_mm + $w_mm / 2 + cos( $angle ) * $scale * 0.48, $y_mm + $h_mm / 2 + sin( $angle ) * $scale * 0.48, max( 0.025, $scale * 0.00125 ), 0, 360, 'F' );
-			}
+			$pdf->Circle( $x_mm + $w_mm / 2, $y_mm + $h_mm / 2, $scale * 0.48, 0, 360, 'D', [ 'width' => max( 0.05, $scale * 0.0025 ), 'dash' => 0 ] );
 		}
+		$pdf->SetAlpha( 0.78 );
 		foreach ( is_array( $geometry['labels'] ?? null ) ? $geometry['labels'] : [] as $label ) {
 			$text = sanitize_text_field( (string) ( $label['text'] ?? '' ) );
 			if ( '' === $text ) {
 				continue;
 			}
 			$pdf->SetFont( 'helvetica', '', max( 4.0, (float) $label['size'] * $scale * 2.83464567 ) );
-			$pdf->Text( $x_mm + (float) $label['x'] * $w_mm, $y_mm + (float) $label['y'] * $h_mm, $text );
+			$pdf->Text( $x_mm + (float) $label['x'] * $w_mm - $pdf->GetStringWidth( $text ) / 2, $y_mm + (float) $label['y'] * $h_mm, $text, 0, false, true, 0, 0, '', false, '', 0, false, 'C', 'M' );
 		}
+		$pdf->SetAlpha( 1.0 );
 	}
 
 	/** Resolve a layer-local rotation without mixing it with print-area rotation. */

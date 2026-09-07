@@ -21,6 +21,41 @@ if ( ! class_exists( 'WC_Order' ) ) {
 }
 
 class Test_Print_Embroidery extends TestCase {
+	#[Test]
+	public function cmap_rejects_counts_and_ranges_outside_the_subtable(): void {
+		$format12 = new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_parse_cmap_format12' );
+		$this->assertNull( $format12->invoke( null, pack( 'nnNNN', 12, 0, 16, 0, 0xFFFFFFFF ), 0 ) );
+		$format4 = new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_parse_cmap_format4' );
+		$this->assertNull( $format4->invoke( null, pack( 'n8', 4, 16, 0, 65534, 0, 0, 0, 0 ), 0 ) );
+	}
+
+	#[Test]
+	public function truncated_composite_glyph_fails_instead_of_reading_the_next_glyph(): void {
+		$glyph = pack( 'n5', 65535, 0, 0, 0, 0 ) . pack( 'nn', 3, 0 );
+		$font = [ 'data' => $glyph . str_repeat( "\0", 20 ), 'num_glyphs' => 1, 'glyph_offsets' => [ 0, strlen( $glyph ) ], 'tables' => [ 'glyf' => [ 'offset' => 0, 'length' => strlen( $glyph ) ] ] ];
+		$this->expectException( RuntimeException::class );
+		( new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_glyph_contours' ) )->invoke( null, $font, 0 );
+	}
+
+	#[Test]
+	public function svg_evenodd_and_equal_colour_stroke_are_both_painted(): void {
+		$lines = [];
+		( new ReflectionMethod( OC_Print_Embroidery::class, 'append_svg_paint_eps' ) )->invokeArgs( null, [ &$lines, [ '0 0 moveto', '10 10 lineto', 'closepath' ], [ 'fill' => 'red', 'stroke' => 'red', 'fill-rule' => 'evenodd', 'stroke-width' => '4' ] ] );
+		$this->assertContains( 'eofill', $lines );
+		$this->assertContains( 'stroke', $lines );
+		$this->assertContains( '1.0000 0.0000 0.0000 setrgbcolor', $lines );
+	}
+
+	#[Test]
+	public function path_and_transformed_svg_viewports_are_preserved(): void {
+		foreach ( [ '<path d="m10 10 l20 20 a30 20 45 0 1 50 50"/>', '<g transform="translate(50 50)"><rect width="10" height="20"/></g>' ] as $content ) {
+			$dom = new DOMDocument();
+			$dom->loadXML( '<svg viewBox="0 0 200 100" width="200" height="100">' . $content . '</svg>' );
+			( new ReflectionMethod( OC_Print_Embroidery::class, 'crop_svg_to_visible_bounds' ) )->invoke( null, $dom->documentElement );
+			$this->assertSame( '0 0 200 100', $dom->documentElement->getAttribute( 'viewBox' ) );
+		}
+	}
+
 	private function materialise_lines( array $lines ): string {
 		$output = [];
 		foreach ( $lines as $line ) {
@@ -53,7 +88,7 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function layer_export_uses_area_text_when_layer_input_is_empty(): void {
+	public function layer_export_does_not_populate_empty_input_from_summary_text(): void {
 		$lines = [];
 		$area  = (object) [
 			'canvas_unit' => 'px',
@@ -82,7 +117,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method->invokeArgs( null, [ &$lines, $area, $data ] );
 
 		$output = $this->materialise_lines( $lines );
-		$this->assertStringContainsString( 'Customer Name', $output );
+		$this->assertStringNotContainsString( 'Customer Name', $output );
 		$this->assertStringNotContainsString( 'Your Name Here', $output );
 	}
 
@@ -389,7 +424,7 @@ class Test_Print_Embroidery extends TestCase {
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'generate_eps' );
 
 		try {
-			$method->invokeArgs( null, [ $output_dir, new WC_Order(), 25, $area, [] ] );
+			$method->invokeArgs( null, [ $output_dir, new WC_Order(), 25, $area, [ '_oc_payload_version' => 2, 'layers' => [], 'text' => 'Stale summary must not print' ] ] );
 			$this->fail( 'Empty embroidery artwork should not produce a file.' );
 		} catch ( RuntimeException $e ) {
 			$this->assertStringContainsString( 'no printable artwork', $e->getMessage() );

@@ -423,6 +423,7 @@ class OC_Admin_Settings {
 		}
 
 		// Handle save after resolving the tab so only AI saves trigger post-save discovery.
+		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Presence is checked only; save() performs nonce verification before processing data.
 		if ( isset( $_POST['oc_settings_nonce'] ) ) {
 			$this->save();
 		}
@@ -434,7 +435,7 @@ class OC_Admin_Settings {
 			$models[ $provider_id ] = 'ai' === $active_tab
 				? self::get_ai_image_models( $provider_id )
 				: self::get_static_ai_image_models( $provider_id );
-			$model_setting = $provider_id . '_image_model';
+			$model_setting          = $provider_id . '_image_model';
 			if ( ! isset( $models[ $provider_id ][ $s[ $model_setting ] ] ) ) {
 				if ( 'ai' === $active_tab || '' === (string) $s[ $model_setting ] ) {
 					$s[ $model_setting ] = (string) array_key_first( $models[ $provider_id ] );
@@ -1063,8 +1064,10 @@ class OC_Admin_Settings {
 			$keys_changed             = $keys_changed || $clear_key || '' !== $posted_key;
 
 			$current_model = (string) ( $current_settings[ $provider_id . '_image_model' ] ?? '' );
-			$model         = substr( sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) ), 0, 255 );
-			$model         = '' !== $model ? $model : $current_model;
+
+			$model = substr( sanitize_text_field( wp_unslash( $_POST[ 'oc_' . $provider_id . '_image_model' ] ?? '' ) ), 0, 255 );
+			$model = '' !== $model ? $model : $current_model;
+
 			$models[ $provider_id . '_image_model' ] = $model;
 		}
 

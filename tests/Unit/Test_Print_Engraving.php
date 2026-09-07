@@ -39,6 +39,36 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 
 class Test_Print_Engraving extends TestCase {
 	#[Test]
+	public function indexed_png_is_promoted_before_alpha_analysis_without_resizing(): void {
+		if ( ! function_exists( 'imagecreate' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$path = tempnam( __DIR__, 'oc-indexed-' ) . '.png';
+		$base = substr( $path, 0, -4 );
+		$image = imagecreate( 1201, 2 );
+		$transparent = imagecolorallocate( $image, 0, 0, 0 );
+		$white = imagecolorallocate( $image, 255, 255, 255 );
+		imagecolortransparent( $image, $transparent );
+		imagesetpixel( $image, 1200, 1, $white );
+		imagepng( $image, $path );
+		imagedestroy( $image );
+		$source = false;
+		try {
+			$source = ( new ReflectionMethod( OC_Print_Engraving::class, 'open_image_resource' ) )->invoke( null, $path, 20, 20 );
+			$this->assertTrue( imageistruecolor( $source ) );
+			$this->assertSame( 1201, imagesx( $source ) );
+			$this->assertSame( 127, ( imagecolorat( $source, 0, 0 ) >> 24 ) & 127 );
+			$this->assertTrue( ( new ReflectionMethod( OC_Print_Engraving::class, 'is_transparent_logo' ) )->invoke( null, $source ) );
+		} finally {
+			if ( $source ) {
+				imagedestroy( $source );
+			}
+			unlink( $path );
+			unlink( $base );
+		}
+	}
+
+	#[Test]
 	public function isolated_transparent_pixels_do_not_turn_artwork_into_a_logo_silhouette(): void {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
 			$this->markTestSkipped( 'GD is not available.' );

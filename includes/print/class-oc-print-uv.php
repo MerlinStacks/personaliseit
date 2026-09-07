@@ -210,6 +210,7 @@ class OC_Print_UV extends OC_Print_Base {
 		$pdf->AddSpotColor( $spot_name, 0, 0, 0, 0 );
 		$pdf->setFillSpotColor( $spot_name, 100 );
 		$pdf->setTextSpotColor( $spot_name, 100 );
+		$pdf->setDrawSpotColor( $spot_name, 100 );
 	}
 
 	// resolve_font(), auto_font_size(), cell_h() are inherited from OC_Print_Base.

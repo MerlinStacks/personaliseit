@@ -538,7 +538,6 @@ function initUploadModal() {
 
 	function closeModal() {
 		uploadModalGeneration++;
-		uploadWrite = null;
 		modal.hidden = true;
 		document.body.style.overflow = '';
 		currentFile = null;
@@ -547,7 +546,6 @@ function initUploadModal() {
 
 	function resetToStep1() {
 		uploadModalGeneration++;
-		uploadWrite = null;
 		if ( step1 ) {
 			step1.style.display = '';
 		}
@@ -574,7 +572,6 @@ function initUploadModal() {
 
 	function showStep2( file ) {
 		uploadModalGeneration++;
-		uploadWrite = null;
 		currentFile = file;
 
 		if ( previewImg ) {
@@ -717,16 +714,10 @@ function initUploadModal() {
 				method: 'POST',
 				body: fd,
 			} );
-			if ( ! isCurrentUploadContext( request ) ) {
-				return;
-			}
 			if ( ! res.ok ) {
 				throw new Error( `HTTP ${ res.status }` );
 			}
 			const text = await res.text();
-			if ( ! isCurrentUploadContext( request ) ) {
-				return;
-			}
 			let json;
 			try {
 				json = JSON.parse( text );
@@ -735,7 +726,7 @@ function initUploadModal() {
 			}
 
 			if ( ! json.success ) {
-				if ( errDiv ) {
+				if ( errDiv && isCurrentUploadContext( request ) ) {
 					errDiv.textContent =
 						( json.data && json.data.message ) || 'Upload failed.';
 					errDiv.style.display = '';
@@ -748,6 +739,9 @@ function initUploadModal() {
 				clipart.push( uploaded );
 			}
 			updateClipartGridUI();
+			if ( ! isCurrentUploadContext( request ) ) {
+				return;
+			}
 			if ( nameInput ) {
 				nameInput.value = '';
 			}
@@ -803,7 +797,6 @@ function openEditModal( id ) {
 		return;
 	}
 	editModalGeneration++;
-	editWrite = null;
 	editClipartId = id;
 
 	const modal = document.getElementById( 'oc-clipart-modal' );
@@ -862,7 +855,6 @@ function initEditModal() {
 
 	function closeModal() {
 		editModalGeneration++;
-		editWrite = null;
 		modal.hidden = true;
 		document.body.style.overflow = '';
 		editClipartId = null;
@@ -925,19 +917,13 @@ function initEditModal() {
 				method: 'POST',
 				body,
 			} );
-			if ( ! isEditContextCurrent( request ) ) {
-				return;
-			}
 			if ( ! res.ok ) {
 				throw new Error( `HTTP ${ res.status }` );
 			}
 			const json = await res.json();
-			if ( ! isEditContextCurrent( request ) ) {
-				return;
-			}
 
 			if ( ! json.success ) {
-				if ( errDiv ) {
+				if ( errDiv && isEditContextCurrent( request ) ) {
 					errDiv.textContent =
 						( json.data && json.data.message ) || 'Save failed.';
 					errDiv.style.display = '';
@@ -954,7 +940,9 @@ function initEditModal() {
 				} );
 				updateClipartGridUI();
 			}
-			closeModal();
+			if ( isEditContextCurrent( request ) ) {
+				closeModal();
+			}
 		} catch ( e ) {
 			if ( isEditContextCurrent( request ) ) {
 				console.warn( '[OC] Clipart rename failed:', e );
@@ -1148,7 +1136,6 @@ function syncGroupWriteControls() {
 
 function openGroupModal( id ) {
 	groupModalGeneration++;
-	groupWrite = null;
 	editGroupId = id || null;
 	const group = id ? groups.find( ( g ) => g.id === id ) : null;
 
@@ -1169,7 +1156,6 @@ function openGroupModal( id ) {
 
 function closeGroupModal() {
 	groupModalGeneration++;
-	groupWrite = null;
 	groupModal().hidden = true;
 	document.body.style.overflow = '';
 	editGroupId = null;
@@ -1271,18 +1257,15 @@ async function saveGroup() {
 	syncGroupWriteControls();
 	try {
 		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 		if ( ! res.ok ) {
 			throw new Error( `HTTP ${ res.status }` );
 		}
 		const json = await res.json();
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 
 		if ( ! json.success ) {
+			if ( ! isGroupContextCurrent( request ) ) {
+				return;
+			}
 			alert( json.data?.message || 'Save failed.' );
 			return;
 		}
@@ -1298,7 +1281,9 @@ async function saveGroup() {
 		}
 
 		updateGroupGridUI();
-		closeGroupModal();
+		if ( isGroupContextCurrent( request ) ) {
+			closeGroupModal();
+		}
 	} catch ( e ) {
 		if ( isGroupContextCurrent( request ) ) {
 			console.warn( '[OC] Clipart group save failed:', e );
@@ -1336,25 +1321,24 @@ async function deleteGroup() {
 	syncGroupWriteControls();
 	try {
 		const res = await fetch( window.ocAjaxUrl, { method: 'POST', body } );
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 		if ( ! res.ok ) {
 			throw new Error( `HTTP ${ res.status }` );
 		}
 		const json = await res.json();
-		if ( ! isGroupContextCurrent( request ) ) {
-			return;
-		}
 
 		if ( ! json.success ) {
+			if ( ! isGroupContextCurrent( request ) ) {
+				return;
+			}
 			alert( json.data?.message || 'Delete failed.' );
 			return;
 		}
 
 		groups = groups.filter( ( g ) => g.id !== request.id );
 		updateGroupGridUI();
-		closeGroupModal();
+		if ( isGroupContextCurrent( request ) ) {
+			closeGroupModal();
+		}
 	} catch ( e ) {
 		if ( isGroupContextCurrent( request ) ) {
 			console.warn( '[OC] Clipart group delete failed:', e );

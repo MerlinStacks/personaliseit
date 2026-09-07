@@ -20,6 +20,7 @@ class OC_Admin_Products {
 		add_action( 'wp_ajax_oc_save_design_variants', [ self::class, 'ajax_save_design_variants' ] );
 		add_action( 'wp_ajax_oc_autosave_design', [ self::class, 'ajax_autosave_design' ] );
 		add_action( 'wp_ajax_oc_restore_autosave', [ self::class, 'ajax_restore_autosave' ] );
+		add_action( 'wp_ajax_oc_export_recovery', [ self::class, 'ajax_export_recovery' ] );
 	}
 
 	public static function ajax_assign_design(): void {
@@ -198,6 +199,20 @@ class OC_Admin_Products {
 		} else {
 			wp_send_json_error( [ 'message' => __( 'Autosave failed.', 'overcustomise' ) ] );
 		}
+	}
+
+	public static function ajax_export_recovery(): void {
+		check_ajax_referer( 'oc-products-nonce', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ], 403 );
+		}
+		$token = is_string( $_REQUEST['token'] ?? null ) ? $_REQUEST['token'] : '';
+		$data = OC_Autosave::recovery( $token );
+		if ( ! $data ) {
+			wp_send_json_error( [ 'message' => __( 'Recovery copy not found.', 'overcustomise' ) ], 404 );
+		}
+		header( 'Content-Disposition: attachment; filename="design-recovery.json"' );
+		wp_send_json( $data );
 	}
 
 	public static function ajax_restore_autosave(): void {
@@ -611,7 +626,7 @@ class OC_Admin_Products {
 						firstOption.click();
 					}
 				} );
-				list.addEventListener( 'mousedown', function ( e ) {
+				list.addEventListener( 'click', function ( e ) {
 					var option = e.target.closest( '.oc-searchable-design-select-option' );
 					if ( ! option ) return;
 					e.preventDefault();
@@ -621,7 +636,7 @@ class OC_Admin_Products {
 					select.dispatchEvent( new Event( 'change', { bubbles: true } ) );
 				} );
 				document.addEventListener( 'mousedown', function ( e ) {
-					if ( ! wrapper.contains( e.target ) ) closeList();
+					if ( ! wrapper.contains( e.target ) && ! list.contains( e.target ) ) closeList();
 				} );
 			}
 
@@ -660,6 +675,8 @@ class OC_Admin_Products {
 					if ( data[ i ] ) data[ i ].label = row.querySelector( '.oc-design-variant-label' ).value;
 				} );
 				box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
+				if ( box._ocVariantSaving ) { box._ocVariantPending = true; return; }
+				box._ocVariantSaving = true;
 				if ( status ) status.textContent = 'Saving\u2026';
 
 				fetch( ocProductsData.ajaxUrl, { method: 'POST', body: new URLSearchParams( {
@@ -670,8 +687,10 @@ class OC_Admin_Products {
 					variants: JSON.stringify( data ),
 				} ) } ).then( function ( r ) { return r.json(); } ).then( function ( json ) {
 					if ( status ) status.textContent = json.success ? 'Saved' : 'Error';
-					setTimeout( function () { if ( status ) status.textContent = ''; }, 2000 );
-				} ).catch( function () { if ( status ) status.textContent = 'Error'; } );
+				} ).catch( function () { if ( status ) status.textContent = 'Error'; } ).finally( function () {
+					box._ocVariantSaving = false;
+					if ( box._ocVariantPending ) { box._ocVariantPending = false; saveVariants( box ); }
+				} );
 			}
 
 			document.querySelectorAll( '.oc-design-variants-admin' ).forEach( function ( box ) {
@@ -1062,8 +1081,12 @@ class OC_Admin_Products {
 		}
 
 		$id                 = isset( $_GET['id'] ) ? (int) $_GET['id'] : 0;
-		$design             = $id > 0 ? OC_DB::get_design( $id ) : null;
-		$areas              = $id > 0 ? OC_DB::get_design_print_areas( $id ) : [];
+		$design_rows        = [ [], [], [] ];
+		$design_revision    = $id > 0 ? self::design_revision( $id, false, $design_rows ) : '';
+		// Render precisely the rows hashed above, never a separately cached version.
+		$design             = isset( $design_rows[0][0] ) ? (object) $design_rows[0][0] : null;
+		$areas              = array_map( static fn( $row ) => (object) $row, $design_rows[1] );
+		usort( $areas, static fn( $a, $b ) => [ (int) $a->sort_order, (int) $a->id ] <=> [ (int) $b->sort_order, (int) $b->id ] );
 		$design_custom_type = $design && in_array( $design->custom_type, [ 'text_only', 'photo_text' ], true ) ? $design->custom_type : 'text_only';
 		$design_flat_rate   = $design ? (float) $design->flat_rate : max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) );
 
@@ -1119,7 +1142,8 @@ class OC_Admin_Products {
 			true
 		);
 		// Build layers JSON for JS.
-		$all_layers = $id > 0 ? OC_DB::get_design_layers( $id ) : [];
+		$all_layers = array_map( static fn( $row ) => (object) $row, $design_rows[2] );
+		usort( $all_layers, static fn( $a, $b ) => [ (int) $a->area_id, (int) $a->sort_order, (int) $a->id ] <=> [ (int) $b->area_id, (int) $b->sort_order, (int) $b->id ] );
 		$layers_js  = array_map(
 			function ( $l ) {
 				$type            = sanitize_key( (string) $l->type );
@@ -1288,6 +1312,7 @@ class OC_Admin_Products {
 
 			<form method="post" id="oc-design-form">
 				<?php wp_nonce_field( 'oc_save_design', 'oc_design_nonce' ); ?>
+				<input type="hidden" id="oc-design-revision" name="oc_design_revision" value="<?php echo esc_attr( $design_revision ); ?>">
 				<input type="hidden" name="oc_design_id" value="<?php echo esc_attr( (string) $id ); ?>" />
 				<!-- JS serialises areas here before submit -->
 				<div id="oc-hidden-fields"></div>
@@ -1517,6 +1542,20 @@ class OC_Admin_Products {
 
 	// ── Save / Delete ─────────────────────────────────────────────────────────
 
+	/** Hash persisted rows, not browser-normalised settings or per-user drafts. */
+	private static function design_revision( int $id, bool $lock = false, ?array &$rows = null ): string {
+		global $wpdb;
+		$rows = [];
+		foreach ( [ 'oc_designs' => 'id', 'oc_design_print_areas' => 'design_id', 'oc_design_layers' => 'design_id' ] as $table => $column ) {
+			$result = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}{$table} WHERE {$column} = %d ORDER BY id" . ( $lock ? ' FOR UPDATE' : '' ), $id ), ARRAY_A );
+			if ( ! is_array( $result ) ) {
+				throw new RuntimeException( 'Could not read design revision.' );
+			}
+			$rows[] = $result;
+		}
+		return hash( 'sha256', wp_json_encode( $rows ) );
+	}
+
 	private function handle_design_save(): int {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), '', [ 'response' => 403 ] );
@@ -1526,6 +1565,39 @@ class OC_Admin_Products {
 		}
 
 		global $wpdb;
+		$recover_new = '1' === ( $_POST['oc_recover_new'] ?? '' );
+		if ( $recover_new ) {
+			$token = is_string( $_POST['oc_recovery_token'] ?? null ) ? $_POST['oc_recovery_token'] : '';
+			if ( ! OC_Autosave::recovery( $token ) ) {
+				wp_die( esc_html__( 'Recovery copy unavailable. Export your draft before continuing.', 'overcustomise' ) );
+			}
+			// Recovery is always an independent, inactive design, never an update.
+			$_POST['oc_design_id'] = 0;
+			unset( $_POST['oc_active'], $_POST['oc_design_revision'] );
+			foreach ( [ 'oc_design_areas', 'oc_layers' ] as $field ) {
+				if ( is_array( $_POST[ $field ] ?? null ) ) {
+					foreach ( $_POST[ $field ] as &$row ) {
+						if ( is_array( $row ) ) {
+							unset( $row['id'], $row['design_id'], $row['area_id'], $row['area_key'], $row['clone_priority'] );
+						}
+					}
+					unset( $row );
+				}
+			}
+		}
+
+		$manifest_raw = $_POST['oc_final_manifest'] ?? null;
+		$manifest     = is_string( $manifest_raw ) && strlen( $manifest_raw ) <= 1024 ? json_decode( wp_unslash( $manifest_raw ), true ) : null;
+		if ( ! is_array( $manifest ) || 'complete' !== ( $manifest['marker'] ?? '' )
+			|| ! is_array( $_POST['oc_design_areas'] ?? [] ) || ! is_array( $_POST['oc_layers'] ?? [] )
+			|| ( $manifest['areas'] ?? -1 ) !== count( $_POST['oc_design_areas'] ?? [] )
+			|| ( $manifest['layers'] ?? -1 ) !== count( $_POST['oc_layers'] ?? [] )
+			|| ! is_int( $manifest['autosaveRevision'] ?? null ) ) {
+			self::reject_with_recovery();
+		}
+		if ( ! $recover_new && absint( $_POST['oc_design_id'] ?? 0 ) > 0 && ! preg_match( '/^[a-f0-9]{64}$/D', is_string( $_POST['oc_design_revision'] ?? null ) ? $_POST['oc_design_revision'] : '' ) ) {
+			self::reject_with_recovery();
+		}
 
 		$design_id   = absint( $_POST['oc_design_id'] ?? 0 );
 		$name_raw    = is_scalar( $_POST['oc_design_name'] ?? null ) ? (string) $_POST['oc_design_name'] : '';
@@ -1638,6 +1710,9 @@ class OC_Admin_Products {
 			$fmt[]             = '%s';
 		}
 
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers' ] ) ) {
+			wp_die( esc_html__( 'Design saves require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ), '', [ 'response' => 503 ] );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_die( esc_html__( 'Could not start the design save transaction.', 'overcustomise' ) );
 		}
@@ -1651,6 +1726,10 @@ class OC_Admin_Products {
 				$locked_design = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
 				if ( ! $locked_design ) {
 					throw new RuntimeException( 'Design not found.' );
+				}
+				$revision = $_POST['oc_design_revision'] ?? '';
+				if ( ! is_string( $revision ) || ! hash_equals( self::design_revision( $design_id, true ), $revision ) ) {
+					throw new RuntimeException( 'Design changed since it was loaded. Reload before saving.', 409 );
 				}
 				$existing_areas = $wpdb->get_results( $wpdb->prepare( "SELECT id, print_method, mockup_attachment_id FROM {$wpdb->prefix}oc_design_print_areas WHERE design_id = %d FOR UPDATE", $design_id ) ) ?: [];
 				foreach ( $existing_areas as $existing_area ) {
@@ -1902,13 +1981,46 @@ class OC_Admin_Products {
 			}
 		} catch ( Throwable $error ) {
 			$wpdb->query( 'ROLLBACK' );
+			if ( 409 === $error->getCode() ) {
+				wp_die( esc_html__( 'This design has changed since it was loaded. No changes were applied. Reload before saving.', 'overcustomise' ), '', [ 'response' => 409 ] );
+			}
 			wp_die( esc_html__( 'Could not save design. No changes were applied.', 'overcustomise' ) );
 		}
 
-		OC_Autosave::clear( $design_id );
+		if ( ! $recover_new ) {
+			OC_Autosave::clear( $design_id, $manifest['autosaveRevision'] );
+		}
 		$this->clear_design_cache();
 
 		return $design_id;
+	}
+
+	private static function reject_with_recovery(): void {
+		// Keep whole fields only within the byte budget. Never label received data complete.
+		$received = [];
+		$omitted = [];
+		foreach ( [ 'oc_design_id', 'oc_design_name', 'oc_custom_type', 'oc_flat_rate', 'oc_active', 'oc_design_areas', 'oc_layers' ] as $key ) {
+			if ( ! array_key_exists( $key, $_POST ) ) {
+				continue;
+			}
+			$value = wp_unslash( $_POST[ $key ] );
+			if ( strlen( (string) wp_json_encode( $received + [ $key => $value ] ) ) > 1000000 ) {
+				$omitted[] = $key;
+			} else {
+				$received[ $key ] = $value;
+			}
+		}
+		$data = [ 'format' => 'overcustomise-rejected-form', 'complete' => false, 'omittedFields' => $omitted, 'received' => $received ];
+		$token = OC_Autosave::retain_recovery( $data );
+		$message = '<p>' . esc_html__( 'No changes were applied. This editor submission is unverified and may be truncated. Export the received fields below before reloading. Rebuild and review them in a new design; do not treat this export as a complete design.', 'overcustomise' ) . '</p>';
+		if ( $token ) {
+			$url = add_query_arg( [ 'action' => 'oc_export_recovery', 'nonce' => wp_create_nonce( 'oc-products-nonce' ), 'token' => $token ], admin_url( 'admin-ajax.php' ) );
+			$message .= '<p><a href="' . esc_url( $url ) . '">' . esc_html__( 'Download retained recovery JSON', 'overcustomise' ) . '</a></p>';
+		} else {
+			$message .= '<p>' . esc_html__( 'Server retention failed. Copy the JSON below before leaving this page.', 'overcustomise' ) . '</p>';
+		}
+		$message .= '<p>' . esc_html__( 'Completeness unknown. Fields omitted by the recovery size limit are listed in omittedFields. PHP may already have dropped other fields.', 'overcustomise' ) . '</p><textarea readonly rows="15" style="width:100%">' . esc_textarea( (string) wp_json_encode( $data ) ) . '</textarea>';
+		wp_die( $message, esc_html__( 'Design recovery required', 'overcustomise' ), [ 'response' => 409 ] );
 	}
 
 	private function clear_design_cache(): void {
@@ -2052,6 +2164,9 @@ class OC_Admin_Products {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers', 'oc_product_assignments', 'oc_vdp_templates', 'oc_vdp_fields' ] ) ) {
+			wp_die( esc_html__( 'Design deletion requires InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ), '', [ 'response' => 503 ] );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_die( esc_html__( 'Could not start the design deletion transaction.', 'overcustomise' ) );
 		}
@@ -2107,6 +2222,9 @@ class OC_Admin_Products {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers' ] ) ) {
+			wp_die( esc_html__( 'Design duplication requires InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ), '', [ 'response' => 503 ] );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_die( esc_html__( 'Could not start the design duplication transaction.', 'overcustomise' ) );
 		}

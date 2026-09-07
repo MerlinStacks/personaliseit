@@ -53,6 +53,47 @@ function localToday() {
 	) }`;
 }
 
+function nightSkyFields( root ) {
+	return Object.fromEntries(
+		Object.entries( {
+			date: 'date',
+			time: 'time',
+			utcOffset: 'offset',
+			timezone: 'timezone',
+			locationLabel: 'location',
+			latitude: 'latitude',
+			longitude: 'longitude',
+		} ).map( ( [ key, suffix ] ) => [
+			key,
+			root?.querySelector( `[data-oc-night-sky-${ suffix }]` ),
+		] )
+	);
+}
+
+function readNightSkyFields( fields, coordinateMode ) {
+	const latitude =
+		fields.latitude?.value === '' ? null : Number( fields.latitude?.value );
+	const longitude =
+		fields.longitude?.value === ''
+			? null
+			: Number( fields.longitude?.value );
+	let locationLabel = fields.locationLabel?.value.trim() || '';
+	if ( coordinateMode && ! coordinateMode.hidden ) {
+		locationLabel = [ latitude, longitude ].every( Number.isFinite )
+			? `${ latitude.toFixed( 4 ) }, ${ longitude.toFixed( 4 ) }`
+			: '';
+	}
+	return {
+		date: fields.date?.value || '',
+		time: fields.time?.value || '',
+		utcOffset: Number( fields.utcOffset?.value ) || 0,
+		timezone: fields.timezone?.value || 'UTC',
+		latitude,
+		longitude,
+		locationLabel,
+	};
+}
+
 const LINKED_IMAGE_INPUT_KEYS = [
 	'attachmentId',
 	'attachmentUrl',
@@ -561,25 +602,7 @@ const inputControlMethods = {
 				if ( ! lid ) {
 					return;
 				}
-				const fields = {
-					date: root.querySelector( '[data-oc-night-sky-date]' ),
-					time: root.querySelector( '[data-oc-night-sky-time]' ),
-					utcOffset: root.querySelector(
-						'[data-oc-night-sky-offset]'
-					),
-					timezone: root.querySelector(
-						'[data-oc-night-sky-timezone]'
-					),
-					locationLabel: root.querySelector(
-						'[data-oc-night-sky-location]'
-					),
-					latitude: root.querySelector(
-						'[data-oc-night-sky-latitude]'
-					),
-					longitude: root.querySelector(
-						'[data-oc-night-sky-longitude]'
-					),
-				};
+				const fields = nightSkyFields( root );
 				const addressMode = root.querySelector(
 					'[data-oc-night-sky-address-mode]'
 				);
@@ -648,30 +671,12 @@ const inputControlMethods = {
 					resolveTimezone();
 					const input =
 						this.inputs[ lid ] || ( this.inputs[ lid ] = {} );
-					input.date = fields.date?.value || '';
-					input.time = fields.time?.value || '';
-					input.utcOffset = Number( fields.utcOffset?.value ) || 0;
-					input.timezone = fields.timezone?.value || 'UTC';
-					input.latitude =
-						fields.latitude?.value === ''
-							? null
-							: Number( fields.latitude?.value );
-					input.longitude =
-						fields.longitude?.value === ''
-							? null
-							: Number( fields.longitude?.value );
-					if ( ! coordinateMode.hidden ) {
-						input.locationLabel = [
-							input.latitude,
-							input.longitude,
-						].every( Number.isFinite )
-							? `${ input.latitude.toFixed(
-									4
-							  ) }, ${ input.longitude.toFixed( 4 ) }`
-							: '';
-					} else {
-						input.locationLabel =
-							fields.locationLabel?.value.trim() || '';
+					Object.assign(
+						input,
+						readNightSkyFields( fields, coordinateMode )
+					);
+					if ( fields.locationLabel ) {
+						fields.locationLabel.value = input.locationLabel;
 					}
 					Object.values( fields ).forEach( ( field ) => {
 						field?.setCustomValidity?.( '' );
@@ -2435,30 +2440,12 @@ const inputControlMethods = {
 				textEl.value = inp.value;
 			}
 
-			const nightSkyFields = {
-				date: document.querySelector(
-					`[data-oc-night-sky-date="${ layerId }"]`
-				),
-				time: document.querySelector(
-					`[data-oc-night-sky-time="${ layerId }"]`
-				),
-				utcOffset: document.querySelector(
-					`[data-oc-night-sky-offset="${ layerId }"]`
-				),
-				timezone: document.querySelector(
-					`[data-oc-night-sky-timezone="${ layerId }"]`
-				),
-				locationLabel: document.querySelector(
-					`[data-oc-night-sky-location="${ layerId }"]`
-				),
-				latitude: document.querySelector(
-					`[data-oc-night-sky-latitude="${ layerId }"]`
-				),
-				longitude: document.querySelector(
-					`[data-oc-night-sky-longitude="${ layerId }"]`
-				),
-			};
-			Object.entries( nightSkyFields ).forEach( ( [ key, field ] ) => {
+			const fields = nightSkyFields(
+				document.querySelector(
+					`[data-oc-night-sky-controls="${ layerId }"]`
+				)
+			);
+			Object.entries( fields ).forEach( ( [ key, field ] ) => {
 				if (
 					field &&
 					inp[ key ] !== undefined &&
@@ -2591,36 +2578,15 @@ const inputControlMethods = {
 					`[data-oc-night-sky-controls="${ layerId }"]`
 				);
 				if ( nightSkyRoot ) {
-					input.date =
-						nightSkyRoot.querySelector( '[data-oc-night-sky-date]' )
-							?.value || '';
-					input.time =
-						nightSkyRoot.querySelector( '[data-oc-night-sky-time]' )
-							?.value || '';
-					input.utcOffset =
-						Number(
+					Object.assign(
+						input,
+						readNightSkyFields(
+							nightSkyFields( nightSkyRoot ),
 							nightSkyRoot.querySelector(
-								'[data-oc-night-sky-offset]'
-							)?.value
-						) || 0;
-					input.timezone =
-						nightSkyRoot.querySelector(
-							'[data-oc-night-sky-timezone]'
-						)?.value || 'UTC';
-					input.locationLabel =
-						nightSkyRoot
-							.querySelector( '[data-oc-night-sky-location]' )
-							?.value.trim() || '';
-					const latValue = nightSkyRoot.querySelector(
-						'[data-oc-night-sky-latitude]'
-					)?.value;
-					const lonValue = nightSkyRoot.querySelector(
-						'[data-oc-night-sky-longitude]'
-					)?.value;
-					input.latitude =
-						latValue === '' ? null : Number( latValue );
-					input.longitude =
-						lonValue === '' ? null : Number( lonValue );
+								'[data-oc-night-sky-coordinate-mode]'
+							)
+						)
+					);
 					input.nightSkyGeometry = generateNightSkyGeometry(
 						input,
 						layer.settings || {}

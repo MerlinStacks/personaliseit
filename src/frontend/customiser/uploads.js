@@ -977,6 +977,9 @@ const uploadMethods = {
 		}
 		this.rememberBaseArtwork( input );
 		if ( ! attachmentId ) {
+			this.cancelAiFilterForLayer( layerId );
+			input.imageFilterId = 0;
+			this.updateLinkedLayerControls( layerId, [ 'imageFilterId' ] );
 			this.restoreSourceArtwork(
 				input,
 				Number( input.baseAttachmentId || 0 ),
@@ -1144,10 +1147,16 @@ const uploadMethods = {
 			( item ) => Number( item.id ) === Number( filterId )
 		);
 		if ( ! filter?.isAi ) {
-			await this.selectAiFilterResult( layerId, 0 );
+			this.restoreSourceArtwork(
+				input,
+				Number( input.baseAttachmentId || 0 ),
+				input.baseAttachmentUrl || ''
+			);
 			delete this.aiFilterErrors[ layerId ];
 			this.syncLinkedImageInput( layerId );
 			this.recordImageLinkGroupCarry( layerId );
+			this.renderAiFilterResults( layerId );
+			this.requestPreviewFocus();
 			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
 			this.updateHiddenField();
 			return true;

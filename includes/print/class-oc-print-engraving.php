@@ -476,6 +476,10 @@ class OC_Print_Engraving extends OC_Print_Base {
 		};
 
 		// Keep all safe source pixels until the single final-size engraving resample.
+		if ( $image && ! imageistruecolor( $image ) && ! imagepalettetotruecolor( $image ) ) {
+			imagedestroy( $image );
+			return false;
+		}
 		return $image ? $image : false;
 	}
 

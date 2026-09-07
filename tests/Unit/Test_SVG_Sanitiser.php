@@ -10,6 +10,15 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
 class Test_SVG_Sanitiser extends TestCase {
+	#[Test]
+	public function audit_rejects_unclosed_css_urls_in_every_presentation_context(): void {
+		foreach ( [ 'url(//evil.example/image', "url('//evil.example/image", 'url(#safe) url(//evil.example/image', 'url(#unclosed' ] as $value ) {
+			$escaped = htmlspecialchars( $value, ENT_QUOTES | ENT_XML1, 'UTF-8' );
+			$svg = '<svg xmlns="http://www.w3.org/2000/svg"><style>.a{fill:' . $escaped . '}</style><rect fill="' . $escaped . '" style="stroke:' . $escaped . '"/></svg>';
+			$this->assertStringNotContainsString( 'url(', OC_SVG_Sanitiser::sanitise( $svg ) );
+		}
+		$this->assertStringContainsString( 'url(#safe)', OC_SVG_Sanitiser::sanitise( '<svg xmlns="http://www.w3.org/2000/svg"><rect fill="url(#safe)"/></svg>' ) );
+	}
 
 	// ── Valid SVG passthrough ──────────────────────────────────────────────
 

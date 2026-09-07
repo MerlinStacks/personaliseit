@@ -157,6 +157,57 @@ class Test_Print_Generator extends WC_Unit_Test_Case {
 		$this->assertNotFalse( has_action( 'added_order_item_meta', [ $generator, 'defer_for_customisation_meta' ] ) );
 		$this->assertFalse( has_action( 'updated_order_item_meta', [ $generator, 'defer_for_customisation_meta' ] ) );
 		$this->assertFalse( has_action( 'deleted_order_item_meta', [ $generator, 'defer_for_customisation_meta' ] ) );
+		foreach ( [ 'handle_admin_regenerate', 'handle_admin_generate_missing', 'handle_admin_process_queue' ] as $handler ) {
+			$this->assertFalse( method_exists( $generator, $handler ) );
+			$this->assertFalse( has_action( 'admin_init', [ $generator, $handler ] ) );
+		}
+	}
+
+	#[Test]
+	public function browser_font_consumers_share_the_safe_serializer(): void {
+		global $wpdb;
+		$wpdb->insert( $wpdb->prefix . 'oc_fonts', [
+			'name' => 'Unsafe font', 'file_path' => '../private/font.ttf', 'active' => 1,
+		] );
+		$font_id = (int) $wpdb->insert_id;
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
+		OC_Plugin::reset_browser_fonts();
+		try {
+			$fonts = OC_Font_Registry::get_fonts_for_js();
+			$this->assertSame( OC_Plugin::browser_fonts(), $fonts );
+			$this->assertNotContains( $font_id, array_column( $fonts, 'id' ) );
+		} finally {
+			$wpdb->delete( $wpdb->prefix . 'oc_fonts', [ 'id' => $font_id ] );
+			OC_Cache::invalidate_group( OC_Cache::GROUP );
+			OC_Plugin::reset_browser_fonts();
+		}
+	}
+
+	#[Test]
+	public function vdp_retry_uses_persisted_expansion_without_a_live_template(): void {
+		global $wpdb;
+		$item = current( $this->order->get_items() );
+		$item->update_meta_data( '_oc_vdp_generation_snapshot', [
+			'version' => 1, 'design_id' => 9876,
+			'rows' => [
+				[ 'row' => [ 'name' => 'Original first' ], 'values' => [ 77 => 'Original first' ] ],
+				[ 'row' => [ 'name' => 'Original second' ], 'values' => [ 77 => 'Original second' ] ],
+			],
+			'render_spec' => [ 'designId' => 9876, 'areas' => [ [
+				'id' => 88, 'areaKey' => 'front', 'printMethod' => 'uv', 'bounds' => [ 'w' => 100, 'h' => 100 ],
+				'layers' => [ [ 'id' => 77, 'type' => 'text', 'input' => [ 'value' => 'Customer input' ], 'settings' => [] ] ],
+			] ] ],
+		] );
+		$item->save_meta_data();
+		$method = new ReflectionMethod( OC_Print_Generator::class, 'queue_vdp_files' );
+		$result = $method->invoke( new OC_Print_Generator(), $this->order, (int) $item->get_id(), 9876, [], current_time( 'mysql', true ), '2099-01-01 00:00:00' );
+		$this->assertSame( 2, $result['queued'] );
+		$wpdb->delete( $wpdb->prefix . 'oc_print_queue', [ 'id' => $result['queue_ids'][1] ] );
+		$retry = $method->invoke( new OC_Print_Generator(), $this->order, (int) $item->get_id(), 9876, [ 'renderSpec' => [] ], current_time( 'mysql', true ), '2099-01-01 00:00:00' );
+		$this->assertSame( 1, $retry['queued'] );
+		$payload = $wpdb->get_var( $wpdb->prepare( "SELECT area_data FROM {$wpdb->prefix}oc_print_queue WHERE id = %d", $retry['queue_ids'][0] ) );
+		$this->assertStringContainsString( 'Original second', $payload );
+		$this->assertStringNotContainsString( 'Customer input', $payload );
 	}
 
 	#[Test]

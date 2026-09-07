@@ -411,6 +411,9 @@ class OC_Admin_Colours {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_colour_groups', 'oc_colour_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Colour group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not create colour group.', 'overcustomise' ) ], 500 );
 		}
@@ -469,6 +472,9 @@ class OC_Admin_Colours {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_colour_groups', 'oc_colour_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Colour group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not update colour group.', 'overcustomise' ) ], 500 );
 		}
@@ -521,6 +527,9 @@ class OC_Admin_Colours {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_colour_groups', 'oc_colour_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Colour group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not delete colour group.', 'overcustomise' ) ], 500 );
 		}
@@ -603,6 +612,9 @@ class OC_Admin_Colours {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_colours', 'oc_colour_group_items' ] ) ) {
+			wp_die( esc_html__( 'Colour deletion requires InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ), '', [ 'response' => 503 ] );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_die( esc_html__( 'Could not delete colour.', 'overcustomise' ) );
 		}

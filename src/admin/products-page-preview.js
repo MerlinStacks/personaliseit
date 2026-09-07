@@ -292,7 +292,10 @@ export function createLayerPreviewRenderer( deps ) {
 						).replace( /"/g, '\\"' ) }"`
 					)
 					.then( () => {
-						if ( el._ocTextPreviewCanvas !== preview ) {
+						if (
+							! el.isConnected ||
+							el._ocTextPreviewCanvas !== preview
+						) {
 							return;
 						}
 						// The first render may have cached fallback-font measurements.

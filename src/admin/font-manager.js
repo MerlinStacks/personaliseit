@@ -741,7 +741,10 @@
 	// ── AJAX rename ────────────────────────────────────────────────────────────
 
 	async function saveRename() {
-		const newName = detailNameInput.value.trim();
+		if ( detailSaveBtn.disabled ) {
+			return;
+		}
+		let newName = detailNameInput.value.trim();
 		if ( ! newName || newName === detailFontName ) {
 			return;
 		}
@@ -774,6 +777,7 @@
 			}
 
 			// Update local state.
+			newName = json.data.newName;
 			const oldName = json.data.oldName;
 			fonts.forEach( ( f ) => {
 				if ( f.name === oldName ) {
@@ -795,7 +799,10 @@
 					}
 				} );
 
-			detailFontName = newName;
+			if ( detailFontName === oldName ) {
+				detailFontName = json.data.newName;
+				detailNameInput.value = json.data.newName;
+			}
 		} catch ( err ) {
 			alert( err?.message || 'Network error — please try again.' );
 		} finally {
@@ -970,6 +977,8 @@
 
 	let groups = window.ocGroupsData || [];
 	let editingGroup = null; // null = new group, object = existing group
+	let groupGeneration = 0;
+	let groupWrite = false;
 
 	const groupModal = document.getElementById( 'oc-group-modal' );
 	const groupNameInput = document.getElementById( 'oc-group-name-input' );
@@ -988,6 +997,7 @@
 	// ── Group modal open / close ───────────────────────────────────────────────
 
 	function openGroupModal( group ) {
+		groupGeneration++;
 		editingGroup = group || null;
 		groupNameInput.value = group ? group.name : '';
 
@@ -1003,6 +1013,7 @@
 	}
 
 	function closeGroupModal() {
+		groupGeneration++;
 		groupModal.hidden = true;
 		document.body.style.overflow = '';
 		editingGroup = null;
@@ -1018,17 +1029,8 @@
 			return;
 		}
 
-		// Deduplicate by family name — show one row per family, pick the first variant for preview.
-		const families = [];
-		const seen = new Set();
-		fonts.forEach( ( f ) => {
-			if ( ! seen.has( f.name ) ) {
-				seen.add( f.name );
-				families.push( f );
-			}
-		} );
-
-		groupFontPicker.innerHTML = families
+		// Membership is per font ID; show every weight/style without losing variants.
+		groupFontPicker.innerHTML = fonts
 			.map( ( f ) => {
 				injectFontFace( f );
 				const checked = selectedIds.includes( f.id ) ? 'checked' : '';
@@ -1092,6 +1094,11 @@
 	// ── AJAX: save group (create or update) ────────────────────────────────────
 
 	async function saveGroup() {
+		if ( groupWrite ) {
+			return;
+		}
+		const target = editingGroup;
+		const generation = groupGeneration;
 		const name = groupNameInput.value.trim();
 		const fontIds = getCheckedFontIds();
 
@@ -1101,6 +1108,7 @@
 		}
 
 		const label = groupSaveBtn.textContent;
+		groupWrite = true;
 		groupSaveBtn.disabled = true;
 		groupSaveBtn.textContent = 'Saving…';
 
@@ -1109,9 +1117,9 @@
 			fd.append( 'nonce', nonce );
 			fontIds.forEach( ( id ) => fd.append( 'font_ids[]', id ) );
 
-			if ( editingGroup ) {
+			if ( target ) {
 				fd.append( 'action', 'oc_group_update' );
-				fd.append( 'id', editingGroup.id );
+				fd.append( 'id', target.id );
 				fd.append( 'name', name );
 			} else {
 				fd.append( 'action', 'oc_group_create' );
@@ -1131,7 +1139,7 @@
 
 			const saved = json.data;
 
-			if ( editingGroup ) {
+			if ( target ) {
 				// Update in state.
 				const idx = groups.findIndex( ( g ) => g.id === saved.id );
 				if ( idx !== -1 ) {
@@ -1151,10 +1159,13 @@
 				updateGroupsCount();
 			}
 
-			closeGroupModal();
+			if ( generation === groupGeneration ) {
+				closeGroupModal();
+			}
 		} catch ( err ) {
 			alert( err?.message || 'Network error — please try again.' );
 		} finally {
+			groupWrite = false;
 			groupSaveBtn.disabled = false;
 			groupSaveBtn.textContent = label;
 		}
@@ -1163,7 +1174,7 @@
 	// ── AJAX: delete group ─────────────────────────────────────────────────────
 
 	async function deleteGroup() {
-		if ( ! editingGroup ) {
+		if ( ! editingGroup || groupWrite ) {
 			return;
 		}
 		if ( ! confirm( `Delete the group "${ editingGroup.name }"?` ) ) {
@@ -1173,7 +1184,10 @@
 		const fd = new FormData();
 		fd.append( 'action', 'oc_group_delete' );
 		fd.append( 'nonce', nonce );
-		fd.append( 'id', editingGroup.id );
+		const target = editingGroup;
+		const generation = groupGeneration;
+		fd.append( 'id', target.id );
+		groupWrite = true;
 
 		try {
 			const res = await fetch( ajaxUrl, { method: 'POST', body: fd } );
@@ -1187,20 +1201,24 @@
 			}
 
 			// Remove from state.
-			groups = groups.filter( ( g ) => g.id !== editingGroup.id );
+			groups = groups.filter( ( g ) => g.id !== target.id );
 
 			// Remove card from DOM.
 			const card = groupGrid.querySelector(
-				`.oc-group-card[data-group-id="${ editingGroup.id }"]`
+				`.oc-group-card[data-group-id="${ target.id }"]`
 			);
 			if ( card ) {
 				card.remove();
 			}
 
 			updateGroupsCount();
-			closeGroupModal();
+			if ( generation === groupGeneration ) {
+				closeGroupModal();
+			}
 		} catch ( err ) {
 			alert( err?.message || 'Network error — please try again.' );
+		} finally {
+			groupWrite = false;
 		}
 	}
 

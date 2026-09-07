@@ -736,6 +736,20 @@ class OC_Cart {
 				$source_attachment_id = $default_attachment;
 			}
 			$attachment_context_layer_id = absint( $source['_oc_link_source_layer_id'] ?? $layer_id );
+			if ( $attachment_context_layer_id !== $layer_id && in_array( $type, [ 'image', 'clipmask' ], true ) ) {
+				$raw_settings   = is_string( $layer->settings ?? null ) ? json_decode( $layer->settings, true ) : (array) $layer->settings;
+				$global_formats = (array) OC_Admin_Settings::get( 'allowed_upload_formats' );
+				$policy         = [
+					'formats'     => array_values( array_intersect( $global_formats, (array) ( $raw_settings['formats'] ?? $global_formats ) ) ),
+					'max_size_mb' => max( 0, min( (int) OC_Admin_Settings::get( 'max_upload_size_mb' ), (int) ( $raw_settings['max_size_mb'] ?? 100 ) ) ),
+				];
+				foreach ( array_unique( [ $attachment_id, $source_attachment_id ] ) as $linked_attachment_id ) {
+					if ( $linked_attachment_id && $linked_attachment_id !== $default_attachment
+						&& ! OC_Upload_Handler::attachment_matches_upload_policy( $linked_attachment_id, $policy ) ) {
+						return new \WP_Error( 'invalid_attachment', __( 'The linked artwork does not meet this layer\'s upload requirements.', 'overcustomise' ) );
+					}
+				}
+			}
 			if ( $attachment_id && $attachment_id !== $default_attachment
 				&& ! self::attachment_is_accepted_for_submission( $attachment_id, $product_id, $variation_id, $design_id, $attachment_context_layer_id, $upload_token )
 			) {
@@ -756,11 +770,11 @@ class OC_Cart {
 			if ( ! in_array( $default_filter, $filter_ids, true ) ) {
 				$default_filter = 0;
 			}
-			if ( ! $editable || ! $can_filter_change || ! in_array( $filter_id, $filter_ids, true ) ) {
+			if ( ! $editable || ! $can_filter_change || ( 0 !== $filter_id && ! in_array( $filter_id, $filter_ids, true ) ) ) {
 				$filter_id = $default_filter;
 			}
 			$selected_filter = $filter_id ? ( $active_filters[ $filter_id ] ?? null ) : null;
-			$image_crop      = 'image' === $type && $editable && $can_image_change
+			$image_crop      = in_array( $type, [ 'image', 'ai_image' ], true ) && $editable && $can_image_change
 				? max( 0, min( 100, absint( $source['imageCrop'] ?? 0 ) ) )
 				: 0;
 			if ( $filter_id && $selected_filter && 'ai' === (string) $selected_filter->filter_key ) {
@@ -867,8 +881,8 @@ class OC_Cart {
 			if ( in_array( $type, [ 'text', 'textarea' ], true ) && is_numeric( $source['renderedFontSize'] ?? null ) ) {
 				$rendered_font_size = round( (float) $source['renderedFontSize'], 4 );
 				$rendered_floor     = $min_font_size > 0 ? $min_font_size : min( 4, $font_size );
-				$rendered_ceiling   = $font_size > 0 ? $font_size : max( 4, $max_font_size );
-				if ( $rendered_font_size >= $rendered_floor && $rendered_font_size <= $rendered_ceiling ) {
+				$rendered_ceiling   = $font_size > 0 ? $font_size : ( $max_font_size > 0 ? $max_font_size : 1000 );
+				if ( $rendered_font_size > 0 && $rendered_font_size >= $rendered_floor && $rendered_font_size <= $rendered_ceiling ) {
 					$normalised[ $layer_id ]['renderedFontSize'] = $rendered_font_size;
 				}
 			}
@@ -941,6 +955,11 @@ class OC_Cart {
 
 	/** Copy the one rendered linked control to every server-confirmed group member. */
 	private static function synchronise_linked_layer_inputs( array $layers, array $raw_layers ): array {
+		// Only this server-side group resolver may supply an attachment source context.
+		foreach ( $raw_layers as &$input ) {
+			unset( $input['_oc_link_source_layer_id'] );
+		}
+		unset( $input );
 		$groups = [];
 		foreach ( $layers as $layer ) {
 			$settings = self::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
@@ -950,7 +969,7 @@ class OC_Cart {
 			}
 		}
 
-		foreach ( $groups as $layer_ids ) {
+		foreach ( $groups as $group_key => $layer_ids ) {
 			if ( count( $layer_ids ) < 2 ) {
 				continue;
 			}
@@ -975,6 +994,10 @@ class OC_Cart {
 				? $context_layer_id
 				: ( in_array( $primary_layer_id, $layer_ids, true ) ? $primary_layer_id : $source_id );
 			foreach ( $layer_ids as $layer_id ) {
+				if ( str_starts_with( $group_key, 'text:' ) || str_starts_with( $group_key, 'textarea:' ) ) {
+					$raw_layers[ $layer_id ]['value'] = $source_data['value'] ?? '';
+					continue;
+				}
 				$rendered_lines          = $raw_layers[ $layer_id ]['renderedLines'] ?? null;
 				$raw_layers[ $layer_id ] = $source_data;
 				if ( is_array( $rendered_lines ) ) {
@@ -1108,7 +1131,10 @@ class OC_Cart {
 		$latitude       = is_numeric( $source['latitude'] ?? null ) ? round( (float) $source['latitude'], 6 ) : null;
 		$longitude      = is_numeric( $source['longitude'] ?? null ) ? round( (float) $source['longitude'], 6 ) : null;
 		$utc_offset     = is_numeric( $source['utcOffset'] ?? null ) ? (int) $source['utcOffset'] : 0;
-		if ( '' === $date && '' === $location_label && null === $latitude && null === $longitude ) {
+		// Date/time are prepopulated controls, not evidence that an optional sky was selected.
+		if ( '' === $location_label && null === $latitude && null === $longitude
+			&& in_array( $source['latitude'] ?? null, [ null, '' ], true )
+			&& in_array( $source['longitude'] ?? null, [ null, '' ], true ) ) {
 			return [
 				'date'             => '',
 				'time'             => '',
@@ -1553,7 +1579,7 @@ class OC_Cart {
 		}
 
 		$multiple_fee_groups = count( $fees ) > 1;
-		foreach ( $fees as $fee ) {
+		foreach ( $fees as $group_key => $fee ) {
 			if ( $fee['amount'] <= 0 ) {
 				continue;
 			}
@@ -1568,13 +1594,17 @@ class OC_Cart {
 					$rate_label
 				);
 			}
-			$this->fee_allocations[ $fee_name ] = $fee['allocations'];
-			$cart->add_fee(
-				$fee_name,
-				$fee['amount'],
-				$fee['taxable'],
-				$fee['tax_class']
-			);
+			$fee_id = 'overcustomise-' . hash( 'sha256', $group_key );
+			$added  = $cart->fees_api()->add_fee( [
+				'id'        => $fee_id,
+				'name'      => $fee_name,
+				'amount'    => $fee['amount'],
+				'taxable'   => $fee['taxable'],
+				'tax_class' => $fee['tax_class'],
+			] );
+			if ( ! is_wp_error( $added ) ) {
+				$this->fee_allocations[ $fee_id ] = $fee['allocations'];
+			}
 		}
 	}
 
@@ -1614,14 +1644,13 @@ class OC_Cart {
 
 	/** Mark plugin-created fee rows and retain their line-level allocation map. */
 	public function mark_personalisation_fee_item( WC_Order_Item_Fee $item, string $fee_key, object $fee, WC_Order $order ): void {
-		$name = is_scalar( $fee->name ?? null ) ? (string) $fee->name : '';
-		if ( '' === $name || ! isset( $this->fee_allocations[ $name ] ) ) {
+		if ( ( $fee->id ?? '' ) !== $fee_key || ! isset( $this->fee_allocations[ $fee_key ] ) ) {
 			return;
 		}
 
 		$item->update_meta_data( '_oc_personalisation_fee', 'yes' );
 		$item->update_meta_data( '_oc_personalisation_fee_key', sanitize_key( $fee_key ) );
-		$item->update_meta_data( '_oc_personalisation_fee_allocations', $this->fee_allocations[ $name ] );
+		$item->update_meta_data( '_oc_personalisation_fee_allocations', $this->fee_allocations[ $fee_key ] );
 	}
 
 	/** Hide machine-readable metadata while leaving it available to print generation. */
@@ -1702,8 +1731,8 @@ class OC_Cart {
 			$design_id = (int) ( $customisation['designId'] ?? $item->get_meta( '_oc_design_id', true ) ?? 0 );
 			$layers    = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
 
-			$layer_map = [];
-			if ( $design_id ) {
+			$layer_map = self::render_spec_layer_map( $customisation );
+			if ( ! array_key_exists( 'renderSpec', $customisation ) && $design_id ) {
 				foreach ( OC_DB::get_design_layers( $design_id ) as $l ) {
 					$layer_map[ (int) $l->id ] = $l;
 				}
@@ -1832,7 +1861,7 @@ class OC_Cart {
 			case 'ai_image':
 			case 'clipmask':
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
-					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? $layer_data['attachmentId'] );
+					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? 0 ) ?: absint( $layer_data['attachmentId'] );
 					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' );
 					$html          = '' !== $thumb ? $thumb : esc_html__( '[Image uploaded]', 'overcustomise' );
 					$colour_html   = $show_colour && $this->image_layer_has_order_colour( $layer_data, $layer )
@@ -1899,7 +1928,7 @@ class OC_Cart {
 	}
 
 	/** Materialise immutable layer metadata from the order-time render specification. */
-	private function render_spec_layer_map( array $customisation ): array {
+	public static function render_spec_layer_map( array $customisation ): array {
 		$render_spec = is_array( $customisation['renderSpec'] ?? null ) ? $customisation['renderSpec'] : [];
 		$layers      = [];
 		foreach ( is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : [] as $area ) {

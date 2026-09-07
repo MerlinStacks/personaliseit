@@ -443,9 +443,9 @@ class OC_Admin_Fonts {
 		$updated = $wpdb->update(
 			"{$wpdb->prefix}oc_fonts",
 			[ 'name' => $new_name ],
-			[ 'id' => $id ],
+			[ 'name' => $old_name ],
 			[ '%s' ],
-			[ '%d' ]
+			[ '%s' ]
 		);
 		if ( false === $updated ) {
 			wp_send_json_error( [ 'message' => __( 'Could not rename font.', 'overcustomise' ) ], 500 );
@@ -512,6 +512,9 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_font_groups', 'oc_font_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Font group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not create font group.', 'overcustomise' ) ] );
 		}
@@ -571,6 +574,9 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_font_groups', 'oc_font_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Font group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not update font group.', 'overcustomise' ) ] );
 		}
@@ -641,6 +647,9 @@ class OC_Admin_Fonts {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_font_groups', 'oc_font_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Font group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not delete font group.', 'overcustomise' ) ], 500 );
 		}

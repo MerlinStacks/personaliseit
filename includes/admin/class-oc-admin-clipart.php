@@ -597,6 +597,9 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_clipart_groups', 'oc_clipart_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Clipart group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not create clipart group.', 'overcustomise' ) ] );
 		}
@@ -655,6 +658,9 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_clipart_groups', 'oc_clipart_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Clipart group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not update clipart group.', 'overcustomise' ) ] );
 		}
@@ -716,6 +722,9 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_clipart_groups', 'oc_clipart_group_items' ] ) ) {
+			wp_send_json_error( [ 'message' => __( 'Clipart group changes require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) ], 503 );
+		}
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			wp_send_json_error( [ 'message' => __( 'Could not delete clipart group.', 'overcustomise' ) ], 500 );
 		}

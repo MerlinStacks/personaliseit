@@ -280,6 +280,8 @@ import {
 		const expectedRevision = autosaveRevision;
 		const revision = expectedRevision + 1;
 		const state = collectState();
+		state.design.baseRevision =
+			document.getElementById( 'oc-design-revision' )?.value || '';
 		let requestStored = false;
 		const body = new URLSearchParams( {
 			action: 'oc_autosave_design',
@@ -460,7 +462,8 @@ import {
 		if ( autosaveConflict ) {
 			event.preventDefault();
 			window.alert(
-				'A newer autosave exists from another tab. Reload this design before saving.'
+				autosaveError ||
+					'A newer autosave exists from another tab. Reload this design before saving.'
 			);
 			return;
 		}
@@ -477,6 +480,22 @@ import {
 		submitRevisionVerified = false;
 		isSubmitting = true;
 		renderHiddenFields();
+		const form = document.getElementById( 'oc-design-form' );
+		form.querySelector( '[name="oc_final_manifest"]' )?.remove();
+		const manifest = document.createElement( 'input' );
+		manifest.type = 'hidden';
+		manifest.name = 'oc_final_manifest';
+		manifest.value = JSON.stringify( {
+			marker: 'complete',
+			areas: areas.length,
+			layers: areas.reduce(
+				( count, area ) => count + area.layers.length,
+				0
+			),
+			autosaveRevision,
+		} );
+		// Last successful control: PHP truncation must drop this before any save.
+		form.appendChild( manifest );
 		stopAutosavePoll();
 	}
 	function init() {
@@ -522,6 +541,20 @@ import {
 							( mins > 1 ? 's' : '' ) +
 							' ago. Restore?';
 						if ( window.confirm( msg ) ) {
+							const revisionField =
+								document.getElementById( 'oc-design-revision' );
+							const baseRevision =
+								json.data.state.design.baseRevision || '';
+							if (
+								! baseRevision ||
+								baseRevision !== revisionField.value
+							) {
+								autosaveConflict = true;
+								autosaveError =
+									'This draft cannot overwrite the current design. Use Recover as new design below.';
+								showDraftRecovery( json.data );
+							}
+							revisionField.value = baseRevision;
 							applyAutosavedState( json.data.state );
 							finishHydration();
 							return;
@@ -533,6 +566,52 @@ import {
 		} else {
 			loadDefaultData();
 		}
+	}
+	function showDraftRecovery( draft ) {
+		const form = document.getElementById( 'oc-design-form' );
+		const panel = document.createElement( 'div' );
+		const button = document.createElement( 'button' );
+		button.type = 'button';
+		button.textContent = 'Recover as new design';
+		button.disabled = ! draft.recoveryToken;
+		button.addEventListener( 'click', () => {
+			if (
+				! window.confirm(
+					'Recover this draft as a separate inactive design? The original design and recovery copy will be kept. Review the recovered design before activating it.'
+				)
+			) {
+				return;
+			}
+			for ( const [ name, value ] of Object.entries( {
+				oc_recover_new: '1',
+				oc_recovery_token: draft.recoveryToken,
+			} ) ) {
+				const field = document.createElement( 'input' );
+				field.type = 'hidden';
+				field.name = name;
+				field.value = value;
+				form.appendChild( field );
+			}
+			// Disable autosaves to the source even while reviewing the recovered copy.
+			designId = 0;
+			stopAutosavePoll();
+			autosaveConflict = false;
+			autosaveError =
+				'Recovery copy ready. Save Design creates a separate inactive design.';
+			hasUnsavedChanges = true;
+			setSubmitEnabled( true );
+			updateAutosaveIndicator();
+			button.disabled = true;
+		} );
+		panel.appendChild( button );
+		const download = document.createElement( 'a' );
+		download.textContent = 'Export original draft JSON';
+		download.download = 'design-recovery.json';
+		download.href =
+			'data:application/json;charset=utf-8,' +
+			encodeURIComponent( JSON.stringify( draft ) );
+		panel.appendChild( download );
+		form.prepend( panel );
 	}
 	function loadDefaultData() {
 		const data = window.ocProductsData || {};

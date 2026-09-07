@@ -1,12 +1,6 @@
 parameters:
 	ignoreErrors:
 		-
-			message: '#^Method OC_Print_Queue\:\:queue_job_contains_print_area\(\) is unused\.$#'
-			identifier: method.unused
-			count: 1
-			path: includes/class-oc-print-queue.php
-
-		-
 			message: '#^If condition is always true\.$#'
 			identifier: if.alwaysTrue
 			count: 1

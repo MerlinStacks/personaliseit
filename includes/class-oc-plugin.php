@@ -106,7 +106,7 @@ class OC_Plugin {
 		$print_generator->register();
 		remove_action( 'init', [ OC_Rest_API::class, 'ensure_vdp_storage' ] );
 		remove_action( 'init', [ OC_Upload_Handler::class, 'ensure_private_storage' ] );
-		remove_action( 'init', [ OC_Print_Base::class, 'ensure_output_storage_protected' ] );
+		remove_action( 'init', [ OC_Print_Base::class, 'maintain_output_storage' ] );
 		add_action( 'init', [ self::class, 'maintain_storage' ] );
 		OC_Print_Queue::instance()->register();
 		( new OC_Webhooks() )->register();
@@ -120,9 +120,8 @@ class OC_Plugin {
 		}
 
 		// Mutating admin actions are POST-only; downloads remain nonce-protected GETs.
-		remove_action( 'admin_init', [ $print_generator, 'handle_admin_regenerate' ] );
-		remove_action( 'admin_init', [ $print_generator, 'handle_admin_generate_missing' ] );
-		remove_action( 'admin_init', [ $print_generator, 'handle_admin_process_queue' ] );
+		add_action( 'admin_notices', [ OC_System_Status::class, 'readiness_notice' ] );
+		add_action( 'admin_post_oc_recheck_readiness', [ OC_System_Status::class, 'recheck_readiness' ] );
 		add_action( 'admin_post_oc_regenerate_print_file', [ self::class, 'handle_regenerate_print_file' ] );
 		add_action( 'admin_post_oc_generate_print_files', [ self::class, 'handle_generate_print_files' ] );
 		add_action( 'admin_post_oc_process_print_queue_order', [ self::class, 'handle_process_print_queue_order' ] );
@@ -475,6 +474,8 @@ class OC_Plugin {
 		delete_option( 'oc_preview_cleanup_private_cursor' );
 		delete_option( 'oc_legacy_preview_cleanup_cursor' );
 		delete_option( 'oc_budget_cleanup_cursor' );
+		delete_option( 'oc_print_cleanup_cursor' );
+		delete_option( 'oc_print_failure_cleanup_cursor' );
 
 		self::clear_scheduled_events();
 
@@ -504,6 +505,10 @@ class OC_Plugin {
 			wp_delete_attachment( $attachment_id, true );
 		}
 
+		// Include explicitly attested historical print roots; never infer roots from DB rows.
+		foreach ( OC_Print_Base::output_storage_roots( true ) as $print_root ) {
+			self::delete_directory( $print_root );
+		}
 		$upload_dir = wp_upload_dir();
 		$upload_path = $upload_dir['basedir'] . '/overcustomise/';
 		if ( is_dir( $upload_path ) ) {
@@ -520,7 +525,7 @@ class OC_Plugin {
 			if ( $is_fallback ) {
 				self::delete_directory( $private_real );
 			} else {
-				foreach ( [ 'artwork', 'previews', 'vdp' ] as $subdirectory ) {
+				foreach ( [ 'artwork', 'previews', 'vdp', 'print-files' ] as $subdirectory ) {
 					$path = $private_root . DIRECTORY_SEPARATOR . $subdirectory;
 					if ( is_dir( $path ) || is_link( $path ) ) {
 						self::delete_directory( $path );

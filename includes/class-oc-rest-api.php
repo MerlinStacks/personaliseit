@@ -29,6 +29,7 @@ class OC_Rest_API {
 	private const SPOTIFY_VALID_CACHE_TTL   = 43200;
 	private const SPOTIFY_INVALID_CACHE_TTL = 3600;
 	private const PUBLIC_TOKEN_SESSION_KEY  = 'oc_public_request_token';
+	private const BROWSER_COOKIE            = 'oc_private_browser';
 	private const PREVIEW_OPTION_PREFIX     = 'oc_private_preview_';
 
 	public function register(): void {
@@ -52,6 +53,7 @@ class OC_Rest_API {
 		}
 
 		self::migrate_legacy_vdp_files( $directory );
+		self::migrate_private_vdp_files( $directory );
 	}
 
 	public function register_routes(): void {
@@ -225,11 +227,23 @@ class OC_Rest_API {
 		);
 	}
 
-	/** Issue or reuse a fixed-lifetime token bound to this WC session or client IP. */
+	/** Issue or reuse a fixed-lifetime token bound to a private browser or WC session. */
 	public static function issue_public_token(): string {
 		$binding = self::current_request_binding();
+		if ( null === $binding && ! headers_sent() ) {
+			try {
+				$secret = bin2hex( random_bytes( 32 ) );
+				$cookie = $secret . '.' . hash_hmac( 'sha256', $secret, wp_salt( 'auth' ) );
+				if ( setcookie( self::BROWSER_COOKIE, $cookie, [ 'expires' => time() + 30 * DAY_IN_SECONDS, 'path' => '/', 'secure' => is_ssl(), 'httponly' => true, 'samesite' => 'Lax' ] ) ) {
+					$_COOKIE[ self::BROWSER_COOKIE ] = $cookie;
+					$binding = self::current_request_binding();
+				}
+			} catch ( \Throwable $e ) {
+				return '';
+			}
+		}
 		if ( null === $binding ) {
-			OC_Logger::warning( 'A public request token could not be issued because no valid session or client IP was available.' );
+			OC_Logger::warning( 'A public request token requires a private browser cookie or WC session.' );
 			return '';
 		}
 
@@ -399,11 +413,13 @@ class OC_Rest_API {
 		$expected_context = array_values( array_map( 'intval', $context ) );
 		$primary_context  = array_values( array_map( 'intval', (array) get_post_meta( $attachment_id, '_oc_artwork_context', true ) ) );
 		$stored_hash      = (string) get_post_meta( $attachment_id, '_oc_artwork_token', true );
+		$stored_browser   = (string) get_post_meta( $attachment_id, '_oc_artwork_browser', true );
+		$browser          = self::browser_principal();
 
 		return 4 === count( $expected_context )
 			&& ( $expected_context === $primary_context || OC_Upload_Handler::attachment_context_is_authorised( $attachment_id, $expected_context ) )
-			&& 64 === strlen( $stored_hash )
-			&& hash_equals( $stored_hash, hash( 'sha256', $token ) );
+			&& ( ( 64 === strlen( $stored_hash ) && hash_equals( $stored_hash, hash( 'sha256', $token ) ) )
+				|| ( '' !== $browser && 64 === strlen( $stored_browser ) && hash_equals( $stored_browser, $browser ) ) );
 	}
 
 	/** Validate a fixed-lifetime token against its original binding. */
@@ -427,7 +443,7 @@ class OC_Rest_API {
 		$state = get_transient( self::public_token_key( $token ) );
 		if ( ! is_array( $state )
 			|| ! is_int( $state['version'] ?? null ) || 2 !== $state['version']
-			|| ! in_array( $state['binding_type'] ?? '', [ 'session', 'ip' ], true )
+			|| ! in_array( $state['binding_type'] ?? '', [ 'session', 'browser' ], true )
 			|| ! is_string( $state['binding_hash'] ?? null )
 			|| 64 !== strlen( $state['binding_hash'] )
 			|| ! is_int( $state['created_at'] ?? null ) || $state['created_at'] <= 0
@@ -445,11 +461,7 @@ class OC_Rest_API {
 					'hash' => $session_hash,
 				] : null;
 			} else {
-				$ip      = self::client_ip();
-				$binding = '' !== $ip ? [
-					'type' => 'ip',
-					'hash' => hash( 'sha256', $ip ),
-				] : null;
+				$binding = self::current_request_binding();
 			}
 		}
 		if ( null === $binding
@@ -467,8 +479,22 @@ class OC_Rest_API {
 		return 'oc_pubtok_' . hash( 'sha256', $token );
 	}
 
-	/** Return the strongest available request binding, preferring WC sessions. */
+	/** Durable site-scoped principal, derived only from a correctly signed cookie. */
+	public static function browser_principal(): string {
+		$cookie = $_COOKIE[ self::BROWSER_COOKIE ] ?? '';
+		if ( is_string( $cookie ) && preg_match( '/^([a-f0-9]{64})\.([a-f0-9]{64})$/D', $cookie, $parts )
+			&& hash_equals( hash_hmac( 'sha256', $parts[1], wp_salt( 'auth' ) ), $parts[2] )
+		) {
+			return hash_hmac( 'sha256', 'oc-browser-owner|' . get_current_blog_id() . '|' . home_url( '/' ) . '|' . $parts[1], wp_salt( 'auth' ) );
+		}
+		return '';
+	}
+
+	/** Keep existing browser-token bindings stable; ownership uses the scoped principal. */
 	private static function current_request_binding(): ?array {
+		if ( '' !== self::browser_principal() ) {
+			return [ 'type' => 'browser', 'hash' => hash( 'sha256', explode( '.', $_COOKIE[ self::BROWSER_COOKIE ] )[0] ) ];
+		}
 		$session_hash = self::wc_session_hash();
 		if ( '' !== $session_hash ) {
 			return [
@@ -477,11 +503,8 @@ class OC_Rest_API {
 			];
 		}
 
-		$ip = self::client_ip();
-		return '' !== $ip ? [
-			'type' => 'ip',
-			'hash' => hash( 'sha256', $ip ),
-		] : null;
+		// Legacy IP tokens cannot be upgraded: another guest may hold the same token.
+		return null;
 	}
 
 	/** Hash the current WC customer/session identifier without exposing it. */
@@ -495,7 +518,7 @@ class OC_Rest_API {
 		return hash_hmac( 'sha256', $id, wp_salt( 'auth' ) );
 	}
 
-	/** Read the token associated with a WC session or IP fallback. */
+	/** Read the token associated with a WC session or private browser. */
 	private static function token_for_binding( array $binding ): string {
 		if ( 'session' === $binding['type'] ) {
 			$session = function_exists( 'WC' ) && WC() ? WC()->session ?? null : null;
@@ -650,20 +673,7 @@ class OC_Rest_API {
 
 	/** Confirm wp_options can provide transactional row locks for budget updates. */
 	private static function options_support_transactions(): bool {
-		static $supported = null;
-		if ( null !== $supported ) {
-			return $supported;
-		}
-
-		global $wpdb;
-		$engine    = $wpdb->get_var(
-			$wpdb->prepare(
-				'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s LIMIT 1',
-				$wpdb->options
-			)
-		);
-		$supported = is_string( $engine ) && in_array( strtoupper( $engine ), [ 'INNODB', 'XTRADB' ], true );
-		return $supported;
+		return OC_DB::tables_support_transactions( [ 'options' ] );
 	}
 
 	/** Map a logical security budget to a non-sensitive option key. */
@@ -2597,8 +2607,8 @@ class OC_Rest_API {
 				return self::private_preview_url( $decoded['id'], $existing );
 			}
 			$preview_option = self::PREVIEW_OPTION_PREFIX . $decoded['id'];
-			if ( false !== get_option( $preview_option, false ) && ! delete_option( $preview_option ) ) {
-				OC_Logger::error( 'Invalid private preview metadata could not be replaced safely.' );
+			if ( false !== get_option( $preview_option, false ) ) {
+				OC_Logger::error( 'Existing private preview metadata retained: unavailable storage must not rotate its signing secret.' );
 				return new \WP_Error( 'preview_save_failed', __( 'The preview could not be saved safely.', 'overcustomise' ), [ 'status' => 503 ] );
 			}
 
@@ -2692,8 +2702,14 @@ class OC_Rest_API {
 		];
 	}
 
+	/** Maintenance API only: migrate/resolve storage, never grant signed/order authorization. */
+	public static function relocate_private_preview( string $id ): ?string {
+		$record = self::private_preview_record( $id );
+		return is_array( $record ) ? $record['path'] : null;
+	}
+
 	/** Return a validated private preview record and resolved path. */
-	private static function private_preview_record( string $id ): ?array {
+	private static function private_preview_record( string $id, ?string $signature = null ): ?array {
 		if ( ! preg_match( '/^[a-f0-9]{40}$/D', $id ) ) {
 			return null;
 		}
@@ -2712,13 +2728,39 @@ class OC_Rest_API {
 		if ( ! hash_equals( $expected_id, $id ) ) {
 			return null;
 		}
+		if ( null !== $signature && ! hash_equals( hash_hmac( 'sha256', $id, $record['secret'] ), $signature ) ) {
+			return null;
+		}
 
 		$directory = OC_Upload_Handler::private_storage_path( 'previews', true );
-		$path      = null !== $directory ? realpath( $directory . '/' . $record['file'] ) : false;
-		$file_hash = false !== $path && is_file( $path ) ? hash_file( 'sha256', $path ) : false;
-		if ( false === $path || ! is_file( $path ) || ! self::path_is_within( $path, $directory )
+		if ( null === $directory ) {
+			OC_Storage_Upgrade::report( 'previews', 'Preview relocation/read blocked: current verified storage unavailable; metadata and source retained.' );
+			return null;
+		}
+		$target = $directory . '/' . $record['file'];
+		$path = OC_Storage_Upgrade::canonical_file( $target );
+		if ( null === $path && ! file_exists( $target ) && ! is_link( $target ) ) {
+			foreach ( OC_Storage_Upgrade::legacy_private_roots() as $old_root ) {
+				$source = OC_Storage_Upgrade::known_private_file( $old_root . '/previews/' . $record['file'], 'previews' );
+				if ( null === $source || filesize( $source ) !== $record['bytes'] ) {
+					continue;
+				}
+				$info = @getimagesize( $source );
+				if ( ! is_array( $info ) || $info['mime'] !== $record['mime'] ) {
+					continue;
+				}
+				$path = OC_Storage_Upgrade::copy_known_private_file( $source, 'previews', $record['file'], self::MAX_PREVIEW_BYTES, $record['content_hash'] );
+				if ( null !== $path ) {
+					break;
+				}
+			}
+		}
+		$file_hash = null !== $path && is_file( $path ) && filesize( $path ) === $record['bytes'] ? hash_file( 'sha256', $path ) : false;
+		if ( null === $path || ! is_file( $path ) || ! self::path_is_within( $path, $directory )
 			|| filesize( $path ) !== (int) $record['bytes'] || ! is_string( $file_hash ) || ! hash_equals( $record['content_hash'], $file_hash )
+			|| $raw !== get_option( self::PREVIEW_OPTION_PREFIX . $id, '' )
 		) {
+			OC_Storage_Upgrade::report( $directory, 'Preview unavailable or changed during relocation; existing metadata and source retained.' );
 			return null;
 		}
 		@touch( $path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -2768,7 +2810,7 @@ class OC_Rest_API {
 			return '';
 		}
 
-		$record   = self::private_preview_record( $id );
+		$record   = self::private_preview_record( $id, $signature );
 		$expected = is_array( $record ) ? hash_hmac( 'sha256', $id, (string) $record['secret'] ) : '';
 		return is_array( $record ) && hash_equals( $expected, $signature )
 			? self::private_preview_url( $id, $record )
@@ -2779,7 +2821,7 @@ class OC_Rest_API {
 	public static function serve_private_preview(): void {
 		$id        = sanitize_text_field( wp_unslash( $_GET['preview_id'] ?? '' ) );
 		$signature = sanitize_text_field( wp_unslash( $_GET['signature'] ?? '' ) );
-		$record    = self::private_preview_record( $id );
+		$record    = self::private_preview_record( $id, $signature );
 		$expected  = is_array( $record ) ? hash_hmac( 'sha256', $id, (string) $record['secret'] ) : '';
 		if ( ! is_array( $record ) || 64 !== strlen( $signature ) || ! hash_equals( $expected, $signature ) ) {
 			wp_die( esc_html__( 'Preview is not available.', 'overcustomise' ), '', [ 'response' => 404 ] );
@@ -3198,6 +3240,11 @@ class OC_Rest_API {
 			return new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ), [ 'status' => 400 ] );
 		}
 
+		// Check before private storage creation or staging the uploaded file.
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_designs', 'oc_design_layers', 'oc_vdp_templates', 'oc_vdp_fields' ] ) ) {
+			return new \WP_Error( 'transaction_unavailable', __( 'VDP updates require InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ), [ 'status' => 503 ] );
+		}
+
 		$files = $request->get_file_params();
 		if ( empty( $files['csv'] ) || ! is_uploaded_file( $files['csv']['tmp_name'] ) ) {
 			return new \WP_Error( 'no_file', __( 'No CSV file received.', 'overcustomise' ), [ 'status' => 400 ] );
@@ -3248,35 +3295,46 @@ class OC_Rest_API {
 			@unlink( $filepath );
 			return new \WP_Error( 'invalid_csv', (string) ( $csv_data['error'] ?? __( 'CSV must contain at least one data row.', 'overcustomise' ) ), [ 'status' => 422 ] );
 		}
-		$all_layers = array_values(
-			array_filter(
-				OC_DB::get_design_layers( $design_id ),
-				static fn( object $layer ): bool => ( ! isset( $layer->visible ) || (bool) $layer->visible ) && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true )
-			)
-		);
-		if ( count( $csv_data['headers'] ) > count( $all_layers ) ) {
-			self::delete_vdp_file( $filepath );
-			return new \WP_Error( 'invalid_csv_fields', __( 'The CSV contains more fields than the design has editable variable layers.', 'overcustomise' ), [ 'status' => 422 ] );
-		}
-		foreach ( $csv_data['headers'] as $index => $header ) {
-			foreach ( $csv_data['rows'] as $row ) {
-				$value = $vdp->normalise_layer_value( $all_layers[ $index ], (string) ( $row[ $header ] ?? '' ) );
-				if ( is_wp_error( $value ) ) {
-					self::delete_vdp_file( $filepath );
-					return new \WP_Error( 'invalid_csv_value', $value->get_error_message(), [ 'status' => 422 ] );
-				}
-			}
-		}
-		$layer_ids = array_values( array_map( static fn( object $layer ): int => (int) $layer->id, $all_layers ) );
 
 		global $wpdb;
 		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
 			self::delete_vdp_file( $filepath );
 			return new \WP_Error( 'db_error', __( 'Could not start the VDP update.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
+		$validation_error = null;
 		try {
 			// Serialize replacements for this design, including its first template.
-			$wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
+			$locked_design = $wpdb->get_row( $wpdb->prepare( "SELECT id, active FROM {$wpdb->prefix}oc_designs WHERE id = %d FOR UPDATE", $design_id ) );
+			if ( ! $locked_design || '' !== (string) $wpdb->last_error ) {
+				throw new \RuntimeException( 'Could not lock the VDP design.' );
+			}
+			if ( ! (bool) $locked_design->active ) {
+				$validation_error = new \WP_Error( 'invalid_design', __( 'Design not found or inactive.', 'overcustomise' ), [ 'status' => 400 ] );
+				throw new \RuntimeException( 'The VDP design is inactive.' );
+			}
+			// Bypass cached layers and use current locking reads, including settings and order.
+			$all_layers = $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$wpdb->prefix}oc_design_layers WHERE design_id = %d ORDER BY area_id ASC, sort_order ASC, id ASC FOR UPDATE", $design_id ) );
+			if ( ! is_array( $all_layers ) || '' !== (string) $wpdb->last_error ) {
+				throw new \RuntimeException( 'Could not lock the VDP layers.' );
+			}
+			$all_layers = array_values( array_filter(
+				$all_layers,
+				static fn( object $layer ): bool => (bool) $layer->visible && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true )
+			) );
+			if ( count( $csv_data['headers'] ) > count( $all_layers ) ) {
+				$validation_error = new \WP_Error( 'invalid_csv_fields', __( 'The CSV contains more fields than the design has editable variable layers.', 'overcustomise' ), [ 'status' => 422 ] );
+				throw new \RuntimeException( 'The VDP design has insufficient editable layers.' );
+			}
+			foreach ( $csv_data['headers'] as $index => $header ) {
+				foreach ( $csv_data['rows'] as $row ) {
+					$value = $vdp->normalise_layer_value( $all_layers[ $index ], (string) ( $row[ $header ] ?? '' ) );
+					if ( is_wp_error( $value ) ) {
+						$validation_error = new \WP_Error( 'invalid_csv_value', $value->get_error_message(), [ 'status' => 422 ] );
+						throw new \RuntimeException( 'The CSV values do not match the current VDP layers.' );
+					}
+				}
+			}
+			$layer_ids = array_values( array_map( static fn( object $layer ): int => (int) $layer->id, $all_layers ) );
 			$old_template = OC_DB::get_vdp_template( $design_id );
 			$old_filepath = $old_template ? (string) $old_template->csv_file_path : '';
 			if ( ! OC_DB::delete_vdp_template( $design_id ) ) {
@@ -3318,7 +3376,7 @@ class OC_Rest_API {
 			$wpdb->query( 'ROLLBACK' );
 			self::delete_vdp_file( $filepath );
 			OC_Logger::error( 'VDP replacement failed: ' . $e->getMessage() );
-			return new \WP_Error( 'db_error', __( 'Could not save the VDP template.', 'overcustomise' ), [ 'status' => 500 ] );
+			return $validation_error ?? new \WP_Error( 'db_error', __( 'Could not save the VDP template.', 'overcustomise' ), [ 'status' => 500 ] );
 		}
 
 		if ( '' !== $old_filepath && $old_filepath !== $filepath ) {
@@ -3341,6 +3399,85 @@ class OC_Rest_API {
 		return OC_Upload_Handler::private_storage_path( 'vdp' );
 	}
 
+	/** Advance through private-root candidates without allowing a bad row to starve later IDs. */
+	private static function migrate_private_vdp_files( string $directory ): void {
+		global $wpdb;
+		$cursor = max( 0, (int) get_option( 'oc_private_vdp_migration_cursor', 0 ) );
+		$rows = $wpdb->get_results( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_vdp_templates WHERE id > %d AND csv_file_path NOT LIKE %s ORDER BY id ASC LIMIT 25",
+			$cursor, $wpdb->esc_like( $directory . '/' ) . '%'
+		) );
+		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
+			OC_Storage_Upgrade::report( 'vdp', 'Private VDP migration could not read its batch; files and rows retained.' );
+			return;
+		}
+		$deadline = microtime( true ) + 2;
+		$processed = 0;
+		foreach ( $rows as $row ) {
+			if ( $processed > 0 && microtime( true ) >= $deadline ) {
+				break;
+			}
+			update_option( 'oc_private_vdp_migration_cursor', (int) $row->id, false );
+			self::relocate_private_vdp_template( (int) $row->id );
+			$processed++;
+		}
+		if ( $processed === count( $rows ) && count( $rows ) < 25 ) {
+			update_option( 'oc_private_vdp_migration_cursor', 0, false );
+		}
+	}
+
+	/** Storage-only migration API: never grants design, order or public CSV access. */
+	public static function relocate_private_vdp_template( int $template_id ): ?string {
+		if ( $template_id <= 0 ) {
+			return null;
+		}
+		global $wpdb;
+		$record = $wpdb->get_row( $wpdb->prepare( "SELECT id, design_id, csv_file_path FROM {$wpdb->prefix}oc_vdp_templates WHERE id = %d", $template_id ) );
+		if ( ! $record || '' !== (string) $wpdb->last_error ) {
+			OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'VDP row is missing or unreadable; no relocation performed.' );
+			return null;
+		}
+		$directory = self::protected_vdp_directory();
+		if ( null === $directory ) {
+			OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'VDP relocation blocked: verified destination unavailable; source and row retained.' );
+			return null;
+		}
+		$original = (string) $record->csv_file_path;
+		$source = OC_Storage_Upgrade::canonical_file( $original );
+		if ( null !== $source && self::path_is_within( $source, $directory ) ) {
+			return $source;
+		}
+		$source = OC_Storage_Upgrade::known_private_file( $original, 'vdp' );
+		if ( null === $source || 'csv' !== strtolower( pathinfo( $source, PATHINFO_EXTENSION ) ) ) {
+			OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'VDP source is missing or outside exact known prior private VDP roots; row retained for review.' );
+			return null;
+		}
+		$bytes = file_get_contents( $source, false, null, 0, 5 * 1024 * 1024 + 1 );
+		if ( ! is_string( $bytes ) || '' === $bytes || strlen( $bytes ) > 5 * 1024 * 1024 ) {
+			OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'Private VDP source exceeds its 5 MiB relocation limit or is unreadable; retained for review.' );
+			return null;
+		}
+		$hash = hash( 'sha256', $bytes );
+		unset( $bytes );
+		// Retry the same immutable copy after an uncertain commit, rather than leaking one copy per request.
+		$name = 'vdp-relocated-' . substr( hash( 'sha256', get_current_blog_id() . '|' . $template_id . '|' . (int) $record->design_id . '|' . $source . '|' . $hash ), 0, 40 ) . '.csv';
+		$destination = OC_Storage_Upgrade::copy_known_private_file( $source, 'vdp', $name, 5 * 1024 * 1024, $hash );
+		if ( null === $destination ) {
+			return null;
+		}
+		$updated = $wpdb->query( $wpdb->prepare(
+			"UPDATE {$wpdb->prefix}oc_vdp_templates SET csv_file_path = %s WHERE id = %d AND design_id = %d AND csv_file_path = %s",
+			$destination, $template_id, (int) $record->design_id, $original
+		) );
+		if ( 1 !== $updated || '' !== (string) $wpdb->last_error ) {
+			// An uncertain commit must not result in deleting a possibly published destination.
+			OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'VDP pointer publication raced or failed; source and copied destination retained for reference-safe reconciliation.' );
+			return null;
+		}
+		OC_Storage_Upgrade::report( 'vdp:' . $template_id, 'VDP path relocated without changing template fields/design; source retained pending reference-safe cleanup.' );
+		return $destination;
+	}
+
 	/** Migrate at most 25 legacy public-upload VDP files per request. */
 	private static function migrate_legacy_vdp_files( string $private_directory ): void {
 		$uploads = wp_upload_dir();
@@ -3355,12 +3492,19 @@ class OC_Rest_API {
 		self::protect_legacy_vdp_directory( $legacy_real );
 
 		global $wpdb;
+		$cursor = max( 0, (int) get_option( 'oc_vdp_migration_cursor', 0 ) );
 		$rows = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT id, csv_file_path FROM {$wpdb->prefix}oc_vdp_templates WHERE csv_file_path LIKE %s ORDER BY id ASC LIMIT 25",
-				$wpdb->esc_like( rtrim( wp_normalize_path( $legacy_directory ), '/' ) ) . '/%'
+				"SELECT id, csv_file_path FROM {$wpdb->prefix}oc_vdp_templates WHERE csv_file_path LIKE %s AND id > %d ORDER BY id ASC LIMIT 25",
+				$wpdb->esc_like( rtrim( wp_normalize_path( $legacy_directory ), '/' ) ) . '/%',
+				$cursor
 			)
-		) ?: [];
+		);
+		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
+			return;
+		}
+		$last = $rows ? end( $rows ) : null;
+		update_option( 'oc_vdp_migration_cursor', count( $rows ) < 25 ? 0 : (int) $last->id, false );
 		foreach ( $rows as $row ) {
 			$source = realpath( (string) $row->csv_file_path );
 			if ( false === $source || ! is_file( $source ) || ! self::path_is_within( $source, $legacy_real ) ) {

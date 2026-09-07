@@ -168,10 +168,17 @@ export function createProductsPageCanvas( deps ) {
 	function renderGhosts() {
 		const ghosts = document.getElementById( 'oc-canvas-ghosts' );
 		const img = document.getElementById( 'oc-canvas-mockup-img' );
-		if ( ! ghosts || ! img ) {
+		if ( ! ghosts ) {
 			return;
 		}
+		ghosts.querySelectorAll( '.oc-canvas-ghost' ).forEach( ( ghostEl ) => {
+			ghostEl._ocTextPreviewCanvas?.dispose?.();
+			ghostEl._ocTextPreviewCanvas = null;
+		} );
 		ghosts.innerHTML = '';
+		if ( ! img ) {
+			return;
+		}
 		const scale = getScale( img );
 		if ( ! scale ) {
 			return;

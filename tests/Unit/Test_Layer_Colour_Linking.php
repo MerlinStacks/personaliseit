@@ -39,6 +39,69 @@ if ( ! function_exists( 'esc_html__' ) ) {
 
 class Test_Layer_Colour_Linking extends TestCase {
 	#[Test]
+	public function linked_text_copies_only_value_and_keeps_target_layout(): void {
+		$method = new ReflectionMethod( OC_Cart::class, 'synchronise_linked_layer_inputs' );
+		foreach ( [ 'text', 'textarea' ] as $type ) {
+			$layers = [
+				(object) [ 'id' => 10, 'type' => $type, 'settings' => [ 'link_group' => 'name' ] ],
+				(object) [ 'id' => 20, 'type' => $type, 'settings' => [ 'link_group' => 'name' ] ],
+			];
+			$target = [ 'value' => 'Old', 'fontId' => 2, 'fontSize' => 30, 'colorHex' => '#ff0000', 'renderedFontSize' => 22.5, 'renderedLines' => [ 'New' ] ];
+			$result = $method->invoke( null, $layers, [ 10 => [ 'value' => 'New', 'fontId' => 1, 'fontSize' => 10, 'renderedFontSize' => 9 ], 20 => $target ] );
+			$target['value'] = 'New';
+			$this->assertSame( $target, $result[20] );
+			$result = $method->invoke( null, $layers, [ 10 => [ 'value' => 'New' ] ] );
+			$this->assertSame( [ 'value' => 'New' ], $result[20] );
+		}
+	}
+
+	#[Test]
+	public function optional_sky_ignores_prepopulated_date_but_rejects_partial_location(): void {
+		$method = new ReflectionMethod( OC_Cart::class, 'normalise_night_sky_input' );
+		$source = [ 'date' => '2026-09-07', 'time' => '22:00', 'latitude' => null, 'longitude' => '' ];
+		$result = $method->invoke( null, $source, [] );
+		$this->assertSame( [], $result['nightSkyGeometry']['stars'] );
+		foreach ( [ [ 'latitude' => 0 ], [ 'longitude' => 0 ], [ 'latitude' => 'invalid' ], [ 'locationLabel' => 'London' ] ] as $partial ) {
+			$this->assertInstanceOf( WP_Error::class, $method->invoke( null, array_replace( $source, $partial ), [] ) );
+		}
+	}
+
+	#[Test]
+	public function blocks_and_admin_summaries_use_snapshot_without_live_design_lookup(): void {
+		require_once OC_PATH . 'includes/class-oc-blocks-integration.php';
+		$customisation = [ 'v' => 2, 'designId' => 99999, 'layers' => [ 10 => [ 'type' => 'text', 'value' => 'Customer name' ] ], 'renderSpec' => [ 'areas' => [ [ 'printMethod' => 'uv', 'layers' => [ [ 'id' => 10, 'type' => 'text', 'label' => 'Historical label', 'settings' => [] ] ] ] ] ] ];
+		$data = ( new OC_Blocks_Integration() )->cart_item_data( [ '_oc_customisation' => $customisation ] );
+		$this->assertSame( 'Historical label', $data['summary'][0]['key'] );
+		$method = new ReflectionMethod( OC_Admin_Order_Metabox::class, 'render_v2_customisation_summary' );
+		ob_start();
+		try {
+			$method->invoke( new OC_Admin_Order_Metabox(), $customisation, 99999 );
+			$html = ob_get_contents();
+		} finally {
+			ob_end_clean();
+		}
+		$this->assertStringContainsString( 'Historical label', $html );
+	}
+
+	#[Test]
+	public function internal_source_context_is_stripped_and_only_recreated_for_linked_members(): void {
+		$method = new ReflectionMethod( OC_Cart::class, 'synchronise_linked_layer_inputs' );
+		$layers = [
+			(object) [ 'id' => 10, 'type' => 'image', 'settings' => [] ],
+			(object) [ 'id' => 20, 'type' => 'image', 'settings' => [] ],
+		];
+		$input = [ 10 => [ 'value' => 'test', '_oc_link_source_layer_id' => 20 ] ];
+		$result = $method->invoke( null, $layers, $input );
+		$this->assertArrayNotHasKey( '_oc_link_source_layer_id', $result[10] );
+		foreach ( $layers as $layer ) {
+			$layer->settings = [ 'link_group' => 'photo' ];
+		}
+		$result = $method->invoke( null, $layers, $input );
+		$this->assertSame( 10, $result[10]['_oc_link_source_layer_id'] );
+		$this->assertSame( 10, $result[20]['_oc_link_source_layer_id'] );
+	}
+
+	#[Test]
 	public function rendered_lines_reject_relocated_customer_spaces(): void {
 		$method = new ReflectionMethod( OC_Cart::class, 'normalise_rendered_text_lines' );
 

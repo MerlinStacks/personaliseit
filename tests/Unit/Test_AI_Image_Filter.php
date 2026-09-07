@@ -9,6 +9,14 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 class Test_AI_Image_Filter extends TestCase {
+	#[Test]
+	public function audit_rejects_provider_image_with_valid_header_but_no_pixels(): void {
+		$png = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', true );
+		$method = new ReflectionMethod( OC_AI_Image_Filter::class, 'decode_image_url' );
+		$result = $method->invoke( null, 'data:image/png;base64,' . base64_encode( substr( $png, 0, 33 ) ) );
+		$this->assertInstanceOf( WP_Error::class, $result );
+		$this->assertSame( 'invalid_ai_image', $result->get_error_code() );
+	}
 	private function build_messages( string $prompt, string $mime, string $bytes, int $width, int $height ): array {
 		$method = ( new ReflectionClass( OC_AI_Image_Filter::class ) )->getMethod( 'build_messages' );
 		$method->setAccessible( true );

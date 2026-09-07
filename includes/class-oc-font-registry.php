@@ -78,28 +78,7 @@ class OC_Font_Registry {
 	 * Used by the Fabric.js font selector and the admin font picker.
 	 */
 	public static function get_fonts_for_js(): array {
-		$fonts  = OC_DB::get_fonts( true );
-		$upload = wp_upload_dir();
-		if ( ! empty( $upload['error'] ) ) {
-			return [];
-		}
-		$result = [];
-
-		foreach ( $fonts as $font ) {
-			if ( empty( $font->file_path ) ) {
-				continue;
-			}
-			$result[] = [
-				'id'                => (int) $font->id,
-				'name'              => $font->name,
-				'url'               => $upload['baseurl'] . '/' . ltrim( $font->file_path, '/' ),
-				'weight'            => $font->weight,
-				'style'             => $font->style,
-				'embroidery'        => (bool) $font->embroidery_suitable,
-			];
-		}
-
-		return $result;
+		return OC_Plugin::browser_fonts();
 	}
 
 	/** Return fonts flagged as suitable for embroidery artwork. */
