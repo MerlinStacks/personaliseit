@@ -6,6 +6,12 @@ import {
 	setNightSkyCatalog,
 } from '../../shared/night-sky';
 
+function layerControl( name, layerId, all = false ) {
+	return document[ all ? 'querySelectorAll' : 'querySelector' ](
+		`[data-oc-${ name }="${ layerId }"]`
+	);
+}
+
 function localUtcOffset( date, time, timezone ) {
 	if ( ! date || ! time || ! timezone ) {
 		return 0;
@@ -158,8 +164,9 @@ const inputControlMethods = {
 				input?.setAttribute( 'aria-expanded', 'false' );
 
 				if ( resetSearch ) {
-					const select = document.querySelector(
-						`[data-oc-layer-font="${ combo.dataset.ocFontCombobox }"]`
+					const select = layerControl(
+						'layer-font',
+						combo.dataset.ocFontCombobox
 					);
 					if ( select ) {
 						this.updateFontCombobox( select );
@@ -1507,9 +1514,7 @@ const inputControlMethods = {
 				);
 				const label = layer.label || 'Personalisation option';
 				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
-					const input = document.querySelector(
-						`[data-oc-layer-text="${ layer.id }"]`
-					);
+					const input = layerControl( 'layer-text', layer.id );
 					if ( input ) {
 						input.required = required;
 						input.setAttribute(
@@ -1523,15 +1528,12 @@ const inputControlMethods = {
 				if (
 					[ 'image', 'ai_image', 'clipmask' ].includes( layer.type )
 				) {
-					const zone = document.querySelector(
-						`[data-oc-upload-zone="${ layer.id }"]`
+					const zone = layerControl( 'upload-zone', layer.id );
+					const aiDescription = layerControl(
+						'ai-image-description',
+						layer.id
 					);
-					const aiDescription = document.querySelector(
-						`[data-oc-ai-image-description="${ layer.id }"]`
-					);
-					const fallback = document.querySelector(
-						`[data-oc-default-image="${ layer.id }"]`
-					);
+					const fallback = layerControl( 'default-image', layer.id );
 					this.ensureLayerControlHeader(
 						layer,
 						zone || aiDescription || fallback,
@@ -1556,9 +1558,7 @@ const inputControlMethods = {
 				}
 
 				if ( layer.type === 'clipart' ) {
-					const grid = document.querySelector(
-						`[data-oc-clipart-grid="${ layer.id }"]`
-					);
+					const grid = layerControl( 'clipart-grid', layer.id );
 					this.ensureLayerControlHeader( layer, grid, required );
 					grid?.setAttribute( 'role', 'radiogroup' );
 					grid?.setAttribute( 'aria-label', label );
@@ -1566,11 +1566,8 @@ const inputControlMethods = {
 						'aria-required',
 						required ? 'true' : 'false'
 					);
-					document
-						.querySelectorAll(
-							`[data-oc-layer-clipart="${ layer.id }"]`
-						)
-						.forEach( ( option ) => {
+					layerControl( 'layer-clipart', layer.id, true ).forEach(
+						( option ) => {
 							option.setAttribute( 'role', 'radio' );
 							option.setAttribute(
 								'aria-checked',
@@ -1578,12 +1575,12 @@ const inputControlMethods = {
 									? 'true'
 									: 'false'
 							);
-						} );
-					const search = document.querySelector(
-						`[data-oc-clipart-search="${ layer.id }"]`
+						}
 					);
-					const category = document.querySelector(
-						`[data-oc-clipart-category="${ layer.id }"]`
+					const search = layerControl( 'clipart-search', layer.id );
+					const category = layerControl(
+						'clipart-category',
+						layer.id
 					);
 					search?.setAttribute( 'aria-label', `Search ${ label }` );
 					category?.setAttribute(
@@ -1594,9 +1591,7 @@ const inputControlMethods = {
 				}
 
 				if ( layer.type === 'spotify' ) {
-					const input = document.querySelector(
-						`[data-oc-layer-spotify="${ layer.id }"]`
-					);
+					const input = layerControl( 'layer-spotify', layer.id );
 					if ( input ) {
 						input.required = required;
 						input.setAttribute(
@@ -1633,9 +1628,7 @@ const inputControlMethods = {
 				if ( ! this.inputs[ layer.id ] ) {
 					this.inputs[ layer.id ] = {};
 				}
-				const select = document.querySelector(
-					`[data-oc-layer-font="${ layer.id }"]`
-				);
+				const select = layerControl( 'layer-font', layer.id );
 				if ( select ) {
 					const allowedIds = Array.from( select.options )
 						.map( ( option ) => parseInt( option.value, 10 ) || 0 )
@@ -2309,9 +2302,7 @@ const inputControlMethods = {
 	updateLinkedLayerControls( layerId, keys ) {
 		const input = this.inputs[ layerId ] || {};
 		if ( keys.includes( 'fontId' ) ) {
-			const fontEl = document.querySelector(
-				`[data-oc-layer-font="${ layerId }"]`
-			);
+			const fontEl = layerControl( 'layer-font', layerId );
 			const fontId = String( input.fontId || '' );
 			if (
 				fontEl &&
@@ -2338,9 +2329,7 @@ const inputControlMethods = {
 		}
 		if ( keys.includes( 'fontSize' ) ) {
 			const layer = this.getLayerById( layerId );
-			const sizeEl = document.querySelector(
-				`[data-oc-layer-font-size="${ layerId }"]`
-			);
+			const sizeEl = layerControl( 'layer-font-size', layerId );
 			const configuredMin = Math.max(
 				1,
 				parseInt( layer?.settings?.min_font_size, 10 ) || 1
@@ -2398,27 +2387,24 @@ const inputControlMethods = {
 			}
 		}
 		if ( keys.includes( 'colorHex' ) ) {
-			document
-				.querySelectorAll( `[data-oc-layer-swatch="${ layerId }"]` )
-				.forEach( ( swatch ) => {
+			layerControl( 'layer-swatch', layerId, true ).forEach(
+				( swatch ) => {
 					const isSelected = swatch.dataset.hex === input.colorHex;
 					swatch.classList.toggle( 'oc-selected', isSelected );
 					swatch.setAttribute(
 						'aria-pressed',
 						isSelected ? 'true' : 'false'
 					);
-				} );
-			const colorEl = document.querySelector(
-				`[data-oc-layer-color="${ layerId }"]`
+				}
 			);
+			const colorEl = layerControl( 'layer-color', layerId );
 			if ( colorEl && input.colorHex ) {
 				colorEl.value = input.colorHex;
 			}
 		}
 		if ( keys.includes( 'clipartId' ) ) {
-			document
-				.querySelectorAll( `[data-oc-layer-clipart="${ layerId }"]` )
-				.forEach( ( item ) => {
+			layerControl( 'layer-clipart', layerId, true ).forEach(
+				( item ) => {
 					const isSelected =
 						Number( item.dataset.ocClipart ) ===
 						Number( input.clipartId );
@@ -2431,29 +2417,26 @@ const inputControlMethods = {
 						'aria-checked',
 						isSelected ? 'true' : 'false'
 					);
-				} );
+				}
+			);
 		}
 		if (
 			keys.includes( 'attachmentId' ) ||
 			keys.includes( 'attachmentUrl' )
 		) {
-			document
-				.querySelectorAll( `[data-oc-upload-zone="${ layerId }"]` )
-				.forEach( ( zone ) => {
-					this.setUploadZoneState(
-						zone,
-						this.isProductionImageInput( input ) ? 'uploaded' : ''
-					);
-				} );
+			layerControl( 'upload-zone', layerId, true ).forEach( ( zone ) => {
+				this.setUploadZoneState(
+					zone,
+					this.isProductionImageInput( input ) ? 'uploaded' : ''
+				);
+			} );
 		}
 		if ( keys.includes( 'imageFilterId' ) ) {
-			document
-				.querySelectorAll(
-					`[data-oc-layer-image-filter="${ layerId }"]`
-				)
-				.forEach( ( select ) => {
+			layerControl( 'layer-image-filter', layerId, true ).forEach(
+				( select ) => {
 					select.value = String( input.imageFilterId || 0 );
-				} );
+				}
+			);
 		}
 		if (
 			keys.includes( 'imageCrop' ) ||
@@ -2465,9 +2448,7 @@ const inputControlMethods = {
 
 	updateImageCropControl( layerId ) {
 		const input = this.inputs[ layerId ] || {};
-		const control = document.querySelector(
-			`[data-oc-image-crop-control="${ layerId }"]`
-		);
+		const control = layerControl( 'image-crop-control', layerId );
 		const range = control?.querySelector( '[data-oc-layer-image-crop]' );
 		if ( ! control || ! range ) {
 			return;
@@ -2501,18 +2482,14 @@ const inputControlMethods = {
 				continue;
 			}
 
-			const textEl = document.querySelector(
-				`[data-oc-layer-text="${ layerId }"]`
-			);
+			const textEl = layerControl( 'layer-text', layerId );
 			if ( textEl && inp.value !== undefined ) {
 				this.clampLayerInputValue( layerId );
 				textEl.value = inp.value;
 			}
 
 			const fields = nightSkyFields(
-				document.querySelector(
-					`[data-oc-night-sky-controls="${ layerId }"]`
-				)
+				layerControl( 'night-sky-controls', layerId )
 			);
 			Object.entries( fields ).forEach( ( [ key, field ] ) => {
 				if (
@@ -2524,9 +2501,7 @@ const inputControlMethods = {
 				}
 			} );
 
-			const fontEl = document.querySelector(
-				`[data-oc-layer-font="${ layerId }"]`
-			);
+			const fontEl = layerControl( 'layer-font', layerId );
 			if ( fontEl && inp.fontId ) {
 				fontEl.value = inp.fontId;
 				this.updateFontCombobox( fontEl );
@@ -2550,16 +2525,12 @@ const inputControlMethods = {
 				this.updateColourPickerTrigger( swatch );
 			}
 
-			const colorEl = document.querySelector(
-				`[data-oc-layer-color="${ layerId }"]`
-			);
+			const colorEl = layerControl( 'layer-color', layerId );
 			if ( colorEl && inp.colorHex ) {
 				colorEl.value = inp.colorHex;
 			}
 
-			const sizeEl = document.querySelector(
-				`[data-oc-layer-font-size="${ layerId }"]`
-			);
+			const sizeEl = layerControl( 'layer-font-size', layerId );
 			if ( sizeEl && inp.fontSize ) {
 				sizeEl.value = inp.fontSize;
 				document
@@ -2592,22 +2563,18 @@ const inputControlMethods = {
 					} );
 			}
 
-			const imageFilterEl = document.querySelector(
-				`[data-oc-layer-image-filter="${ layerId }"]`
-			);
+			const imageFilterEl = layerControl( 'layer-image-filter', layerId );
 			if ( imageFilterEl ) {
 				imageFilterEl.value = String( inp.imageFilterId || 0 );
 			}
 			this.updateImageCropControl( layerId );
 
-			document
-				.querySelectorAll( `[data-oc-upload-zone="${ layerId }"]` )
-				.forEach( ( zone ) => {
-					this.setUploadZoneState(
-						zone,
-						this.isProductionImageInput( inp ) ? 'uploaded' : ''
-					);
-				} );
+			layerControl( 'upload-zone', layerId, true ).forEach( ( zone ) => {
+				this.setUploadZoneState(
+					zone,
+					this.isProductionImageInput( inp ) ? 'uploaded' : ''
+				);
+			} );
 		}
 
 		this.updateHiddenField();
@@ -2625,9 +2592,7 @@ const inputControlMethods = {
 				}
 				const input = this.inputs[ layerId ];
 
-				const textEl = document.querySelector(
-					`[data-oc-layer-text="${ layerId }"]`
-				);
+				const textEl = layerControl( 'layer-text', layerId );
 				if ( textEl ) {
 					const limit = this.charLimitForLayer( layerId );
 					input.value =
@@ -2636,15 +2601,14 @@ const inputControlMethods = {
 							: textEl.value;
 				}
 
-				const spotifyEl = document.querySelector(
-					`[data-oc-layer-spotify="${ layerId }"]`
-				);
+				const spotifyEl = layerControl( 'layer-spotify', layerId );
 				if ( spotifyEl ) {
 					input.value = spotifyEl.value;
 				}
 
-				const nightSkyRoot = document.querySelector(
-					`[data-oc-night-sky-controls="${ layerId }"]`
+				const nightSkyRoot = layerControl(
+					'night-sky-controls',
+					layerId
 				);
 				if ( nightSkyRoot ) {
 					Object.assign(
@@ -2663,16 +2627,12 @@ const inputControlMethods = {
 					input.nightSkyLabel = nightSkyLabel( input );
 				}
 
-				const fontEl = document.querySelector(
-					`[data-oc-layer-font="${ layerId }"]`
-				);
+				const fontEl = layerControl( 'layer-font', layerId );
 				if ( fontEl ) {
 					input.fontId = parseInt( fontEl.value, 10 ) || 0;
 				}
 
-				const sizeEl = document.querySelector(
-					`[data-oc-layer-font-size="${ layerId }"]`
-				);
+				const sizeEl = layerControl( 'layer-font-size', layerId );
 				if ( sizeEl ) {
 					input.fontSize = Math.max(
 						1,
@@ -2680,9 +2640,7 @@ const inputControlMethods = {
 					);
 				}
 
-				const colorEl = document.querySelector(
-					`[data-oc-layer-color="${ layerId }"]`
-				);
+				const colorEl = layerControl( 'layer-color', layerId );
 				if ( colorEl ) {
 					input.colorHex = colorEl.value;
 				} else {
@@ -2706,17 +2664,16 @@ const inputControlMethods = {
 						selectedClipart.dataset.ocClipartRecolourable === '1';
 				}
 
-				const imageFilterEl = document.querySelector(
-					`[data-oc-layer-image-filter="${ layerId }"]`
+				const imageFilterEl = layerControl(
+					'layer-image-filter',
+					layerId
 				);
 				if ( imageFilterEl ) {
 					input.imageFilterId =
 						parseInt( imageFilterEl.value, 10 ) || 0;
 				}
 
-				const imageCropEl = document.querySelector(
-					`[data-oc-layer-image-crop="${ layerId }"]`
-				);
+				const imageCropEl = layerControl( 'layer-image-crop', layerId );
 				if ( imageCropEl ) {
 					input.imageCrop = Math.max(
 						0,

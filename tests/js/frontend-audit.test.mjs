@@ -34,6 +34,92 @@ const preflight = new Function(
 	).replace( 'export default preflightMethods;', 'return preflightMethods;' )
 )();
 
+test( 'layer control lookup preserves selectors, document receiver and native results', () => {
+	const lookup = new Function(
+		'document',
+		controlsSource.match( /function layerControl\([\s\S]*?\n\}/ )[ 0 ] +
+			'; return layerControl;'
+	);
+	const first = {};
+	const all = [ first, {} ];
+	const queries = [];
+	const document = {
+		querySelector( selector ) {
+			assert.equal( this, document );
+			queries.push( selector );
+			return selector.includes( 'missing' ) ? null : first;
+		},
+		querySelectorAll( selector ) {
+			assert.equal( this, document );
+			queries.push( selector );
+			return all;
+		},
+	};
+	const layerControl = lookup( document );
+	assert.equal( layerControl( 'layer-font', 2 ), first );
+	assert.equal( layerControl( 'layer-font', '02' ), first );
+	assert.equal( layerControl( 'upload-zone', 2, true ), all );
+	assert.equal( layerControl( 'missing', 2 ), null );
+	assert.deepEqual( queries, [
+		'[data-oc-layer-font="2"]',
+		'[data-oc-layer-font="02"]',
+		'[data-oc-upload-zone="2"]',
+		'[data-oc-missing="2"]',
+	] );
+} );
+
+test( 'restored filters update the first control while linked filters update all controls', () => {
+	const previous = globalThis.document;
+	const filters = [ { value: 'old' }, { value: 'old' } ];
+	const zones = [ {}, {} ];
+	const uploads = [];
+	globalThis.document = {
+		querySelector( selector ) {
+			return selector === '[data-oc-layer-image-filter="2"]'
+				? filters[ 0 ]
+				: null;
+		},
+		querySelectorAll( selector ) {
+			if ( selector === '[data-oc-layer-image-filter="2"]' ) {
+				return filters;
+			}
+			return selector === '[data-oc-upload-zone="2"]' ? zones : [];
+		},
+	};
+	try {
+		const app = {
+			...controls,
+			inputs: { 2: { imageFilterId: 7, attachmentId: 10 } },
+			updateHiddenField() {},
+			setUploadZoneState( zone, state ) {
+				uploads.push( [ zone, state ] );
+			},
+		};
+		app.applyInputsToDOM( { redraw: false } );
+		assert.deepEqual(
+			filters.map( ( filter ) => filter.value ),
+			[ '7', 'old' ]
+		);
+		assert.deepEqual(
+			uploads,
+			zones.map( ( zone ) => [ zone, 'uploaded' ] )
+		);
+		uploads.length = 0;
+		app.inputs[ 2 ] = { imageFilterId: 0, attachmentId: 0 };
+		app.updateLinkedLayerControls( 2, [ 'imageFilterId', 'attachmentId' ] );
+		assert.deepEqual(
+			filters.map( ( filter ) => filter.value ),
+			[ '0', '0' ]
+		);
+		assert.deepEqual(
+			uploads,
+			zones.map( ( zone ) => [ zone, '' ] )
+		);
+	} finally {
+		globalThis.document = previous;
+	}
+} );
+
 test( 'font and size changes propagate to linked text layers within their limits', () => {
 	const options = [
 		{ value: '4', style: { fontFamily: 'Sans' } },
