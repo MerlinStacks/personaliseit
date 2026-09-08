@@ -630,7 +630,7 @@ foreach ( $layers as $layer ) {
 										value="<?php echo esc_attr( (string) $font_size_value ); ?>"
 										id="oc-font-size-<?php echo esc_attr( $layer->id ); ?>"
 										data-oc-layer-font-size="<?php echo esc_attr( $layer->id ); ?>" />
-									<p class="oc-font-size-notice" data-oc-font-size-notice hidden><?php esc_html_e( 'This font is already at the largest size that fits your text.', 'overcustomise' ); ?></p>
+									<p class="oc-font-size-notice" data-oc-font-size-notice hidden><?php esc_html_e( 'The font size cannot be increased or decreased for your current text and font.', 'overcustomise' ); ?></p>
 								</div>
 							<?php endif; ?>
 							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>

@@ -34,6 +34,108 @@ const preflight = new Function(
 	).replace( 'export default preflightMethods;', 'return preflightMethods;' )
 )();
 
+test( 'font and size changes propagate to linked text layers within their limits', () => {
+	const options = [
+		{ value: '4', style: { fontFamily: 'Sans' } },
+		{ value: '9', style: { fontFamily: 'Script' } },
+	];
+	const targetSelect = {
+		options,
+		style: {},
+		selectedIndex: 0,
+		get value() {
+			return this.options[ this.selectedIndex ]?.value || '';
+		},
+		set value( value ) {
+			this.selectedIndex = this.options.findIndex(
+				( option ) => option.value === String( value )
+			);
+		},
+	};
+	const targetPreview = { style: {} };
+	const targetSize = { min: '8', max: '30', value: '18' };
+	const targetSizeValue = { textContent: '18' };
+	const previous = globalThis.document;
+	globalThis.document = {
+		querySelector( selector ) {
+			if ( selector === '[data-oc-layer-font="2"]' ) {
+				return targetSelect;
+			}
+			if ( selector === '.oc-font-preview[data-oc-font-preview="2"]' ) {
+				return targetPreview;
+			}
+			if ( selector === '[data-oc-layer-font-size="2"]' ) {
+				return targetSize;
+			}
+			if ( selector === '.oc-range-value[data-oc-range-value="2"]' ) {
+				return targetSizeValue;
+			}
+			return null;
+		},
+	};
+	try {
+		const layers = [
+			{ id: 1, type: 'text', settings: { link_group: 'name' } },
+			{
+				id: 2,
+				type: 'text',
+				settings: { link_group: 'name', max_font_size: 36 },
+			},
+		];
+		const app = {
+			...controls,
+			areas: [ { layers } ],
+			inputs: {
+				1: { fontId: 9, fontSize: 44 },
+				2: { fontId: 4, fontSize: 18 },
+			},
+			fonts: [
+				{ id: 4, name: 'Sans' },
+				{ id: 9, name: 'Script' },
+			],
+			getLayerById( id ) {
+				return layers.find( ( layer ) => layer.id === Number( id ) );
+			},
+			areaIndexForLayer() {
+				return 0;
+			},
+			scheduleRedraw( areaIndex ) {
+				this.redrawnArea = areaIndex;
+			},
+			updateFontCombobox( select ) {
+				this.updatedFontSelect = select;
+			},
+			updateTextSizeSliderCap( layerId ) {
+				this.updatedFontSizeLayer = layerId;
+			},
+		};
+
+		app.syncLinkedLayerInput( 1, [ 'fontId' ] );
+		app.syncLinkedLayerInput( 1, [ 'fontSize' ] );
+
+		assert.equal( app.inputs[ 2 ].fontId, 9 );
+		assert.equal( app.inputs[ 2 ].fontSize, 30 );
+		assert.equal( targetSelect.value, '9' );
+		assert.equal( targetSelect.style.fontFamily, 'Script' );
+		assert.equal( targetPreview.style.fontFamily, 'Script' );
+		assert.equal( targetSize.value, '30' );
+		assert.equal( targetSizeValue.textContent, '30' );
+		assert.equal( app.updatedFontSelect, targetSelect );
+		assert.equal( app.updatedFontSizeLayer, 2 );
+		assert.equal( app.redrawnArea, 0 );
+		assert.match(
+			controlsSource,
+			/this\.syncLinkedLayerInput\( lid, \[ 'fontId' \] \);/
+		);
+		assert.match(
+			controlsSource,
+			/this\.syncLinkedLayerInput\( lid, \[ 'fontSize' \] \);/
+		);
+	} finally {
+		globalThis.document = previous;
+	}
+} );
+
 test( 'Original clears the effect while ordinary filters retain their selection', async () => {
 	const source = await readFile(
 		'src/frontend/customiser/uploads.js',

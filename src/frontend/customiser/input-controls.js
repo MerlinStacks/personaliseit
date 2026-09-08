@@ -992,10 +992,9 @@ const inputControlMethods = {
 					if ( ! this.inputs[ lid ] ) {
 						this.inputs[ lid ] = {};
 					}
-					this.inputs[ lid ].fontId = parseInt( el.value, 10 );
-					const font = this.fonts.find(
-						( f ) => f.id === this.inputs[ lid ].fontId
-					);
+					const fontId = parseInt( el.value, 10 );
+					this.inputs[ lid ].fontId = fontId;
+					const font = this.fonts.find( ( f ) => f.id === fontId );
 					if ( font ) {
 						try {
 							await this.loadFont( font );
@@ -1004,11 +1003,13 @@ const inputControlMethods = {
 						}
 						if (
 							designGeneration !== this._designGeneration ||
-							stateSignal?.aborted
+							stateSignal?.aborted ||
+							this.inputs[ lid ].fontId !== fontId
 						) {
 							return;
 						}
 					}
+					this.syncLinkedLayerInput( lid, [ 'fontId' ] );
 					reflectFontOnSelect( el );
 					this.updateFontCombobox( el );
 					const preview = document.querySelector(
@@ -1060,6 +1061,7 @@ const inputControlMethods = {
 							1,
 							parseInt( el.value, 10 ) || 1
 						);
+						this.syncLinkedLayerInput( lid, [ 'fontSize' ] );
 						updateValue();
 						this.requestPreviewFocus();
 						this.scheduleRedraw( this.areaIndexForLayer( lid ) );
@@ -2306,6 +2308,73 @@ const inputControlMethods = {
 
 	updateLinkedLayerControls( layerId, keys ) {
 		const input = this.inputs[ layerId ] || {};
+		if ( keys.includes( 'fontId' ) ) {
+			const fontEl = document.querySelector(
+				`[data-oc-layer-font="${ layerId }"]`
+			);
+			const fontId = String( input.fontId || '' );
+			if (
+				fontEl &&
+				Array.from( fontEl.options ).some(
+					( option ) => option.value === fontId
+				)
+			) {
+				fontEl.value = fontId;
+				const selected = fontEl.options[ fontEl.selectedIndex ];
+				fontEl.style.fontFamily = selected?.style?.fontFamily || '';
+				this.updateFontCombobox( fontEl );
+			}
+			const font = this.fonts.find(
+				( candidate ) =>
+					Number( candidate.id ) === Number( input.fontId )
+			);
+			const preview = document.querySelector(
+				`.oc-font-preview[data-oc-font-preview="${ layerId }"]`
+			);
+			if ( preview && font ) {
+				preview.style.fontFamily = font.name;
+			}
+			this.updateTextSizeSliderCap( layerId );
+		}
+		if ( keys.includes( 'fontSize' ) ) {
+			const layer = this.getLayerById( layerId );
+			const sizeEl = document.querySelector(
+				`[data-oc-layer-font-size="${ layerId }"]`
+			);
+			const configuredMin = Math.max(
+				1,
+				parseInt( layer?.settings?.min_font_size, 10 ) || 1
+			);
+			const configuredMax = Math.max(
+				configuredMin,
+				parseInt( layer?.settings?.max_font_size, 10 ) ||
+					Number.MAX_SAFE_INTEGER
+			);
+			const minimum = Math.max(
+				configuredMin,
+				parseInt( sizeEl?.min, 10 ) || configuredMin
+			);
+			const maximum = Math.max(
+				minimum,
+				Math.min(
+					configuredMax,
+					parseInt( sizeEl?.max, 10 ) || configuredMax
+				)
+			);
+			input.fontSize = Math.min(
+				maximum,
+				Math.max( minimum, parseInt( input.fontSize, 10 ) || minimum )
+			);
+			if ( sizeEl ) {
+				sizeEl.value = String( input.fontSize );
+			}
+			const valueEl = document.querySelector(
+				`.oc-range-value[data-oc-range-value="${ layerId }"]`
+			);
+			if ( valueEl ) {
+				valueEl.textContent = String( input.fontSize );
+			}
+		}
 		if ( keys.includes( 'value' ) ) {
 			document
 				.querySelectorAll(

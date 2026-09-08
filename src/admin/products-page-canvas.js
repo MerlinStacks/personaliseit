@@ -780,8 +780,18 @@ export function createProductsPageCanvas( deps ) {
 		const displayDx = ( e.clientX - drag.startClientX ) / scale;
 		const displayDy = ( e.clientY - drag.startClientY ) / scale;
 		const unitScale = drag.unitScale;
-		const dx = Math.round( displayDx / ( layer ? unitScale : 1 ) );
-		const dy = Math.round( displayDy / ( layer ? unitScale : 1 ) );
+		// Layer geometry uses the area's unrotated axes, not screen axes.
+		const radians = layer
+			? ( normaliseRotation( area.rotation ) * Math.PI ) / 180
+			: 0;
+		const cos = Math.cos( radians );
+		const sin = Math.sin( radians );
+		const dx = Math.round(
+			( displayDx * cos + displayDy * sin ) / ( layer ? unitScale : 1 )
+		);
+		const dy = Math.round(
+			( -displayDx * sin + displayDy * cos ) / ( layer ? unitScale : 1 )
+		);
 		const natW = img.naturalWidth || 2000;
 		const natH = img.naturalHeight || 2000;
 		const d = drag.dir;

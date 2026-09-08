@@ -46,6 +46,57 @@ const deferred = () => {
 };
 const tick = () => new Promise( ( resolve ) => setImmediate( resolve ) );
 
+test( 'rotated area layer handles and movement follow local axes at every image and unit scale', async () => {
+	const globals = {
+		drag: null,
+		document: { getElementById: () => ( {} ) },
+		getScale: () => globals.imageScale,
+		unitPxScale: () => globals.unitScale,
+		activeEntity: () => globals.layer,
+		selectedLayer: () => globals.layer,
+		selectedArea: () => globals.area,
+		clamp: ( value, min, max ) => Math.max( min, Math.min( max, value ) ),
+		normaliseRotation: ( value ) => Number( value ) || 0,
+		updateBoundsBox() {},
+		renderGhosts() {},
+		updateCoordsReadout() {},
+		syncRightBounds() {},
+		renderHiddenFields() {},
+	};
+	const { startDrag, onDragMove } = await loadFunctions(
+		'src/admin/products-page-canvas.js',
+		[ 'startDrag', 'onDragMove' ],
+		globals
+	);
+	for ( const rotation of [ 0, 45, 90, 180, 270, -30 ] ) {
+		for ( const imageScale of [ 1, 0.4 ] ) {
+			for ( const unitScale of [ 1, 300 / 25.4 ] ) {
+				for ( const dir of [ 'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'move' ] ) {
+					globals.area = { x: 100, y: 200, w: 300, h: 300, rotation };
+					globals.layer = { x: 150, y: 250, w: 80, h: 60 };
+					globals.imageScale = imageScale;
+					globals.unitScale = unitScale;
+					const moving = dir === 'move';
+					const dx = moving || dir.includes( 'e' ) ? 12 : dir.includes( 'w' ) ? -12 : 0;
+					const dy = moving || dir.includes( 's' ) ? 8 : dir.includes( 'n' ) ? -8 : 0;
+					const radians = rotation * Math.PI / 180;
+					startDrag( { clientX: 400, clientY: 300 }, moving ? 'move' : 'resize', dir );
+					onDragMove( {
+						clientX: 400 + ( dx * Math.cos( radians ) - dy * Math.sin( radians ) ) * unitScale * imageScale,
+						clientY: 300 + ( dx * Math.sin( radians ) + dy * Math.cos( radians ) ) * unitScale * imageScale,
+					} );
+					assert.deepEqual( globals.layer, {
+						x: 150 + ( moving || dir.includes( 'w' ) ? dx : 0 ),
+						y: 250 + ( moving || dir.includes( 'n' ) ? dy : 0 ),
+						w: 80 + ( moving ? 0 : Math.abs( dx ) ),
+						h: 60 + ( moving ? 0 : Math.abs( dy ) ),
+					}, `rotation=${ rotation }, scale=${ imageScale }, units=${ unitScale }, handle=${ dir }` );
+				}
+			}
+		}
+	}
+} );
+
 test( 'HEAD recovery requires confirmation and stops source autosaves without changing the original draft', async () => {
 	const draft = JSON.parse(
 		await readFile( 'tests/fixtures/admin-head-autosave.json', 'utf8' )
