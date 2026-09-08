@@ -2959,7 +2959,7 @@ class OC_Rest_API {
 		// Fetch a full bounded global page so overlapping preferred results do not consume fill slots.
 		$global = self::fetch_locations( $query, $limit );
 		if ( is_wp_error( $global ) ) {
-			return $results ?: $global;
+			return $results ? $results : $global;
 		}
 		foreach ( $global as $result ) {
 			if ( ! in_array( $result, $results, true ) ) {
@@ -2974,7 +2974,11 @@ class OC_Rest_API {
 
 	/** Fetch one bounded country or worldwide page without reserving another request budget. */
 	private static function fetch_locations( string $query, int $limit, string $country = '' ): array|\WP_Error {
-		$args = [ 'format' => 'jsonv2', 'limit' => $limit, 'q' => $query ];
+		$args = [
+			'format' => 'jsonv2',
+			'limit'  => $limit,
+			'q'      => $query,
+		];
 		if ( '' !== $country ) {
 			$args['countrycodes'] = $country;
 		}

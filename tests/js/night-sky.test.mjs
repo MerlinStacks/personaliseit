@@ -136,7 +136,9 @@ test( 'address updates preserve typed spaces while normalizing saved labels', ()
 		controlsSource.indexOf( 'function readNightSkyFields(' ),
 		controlsSource.indexOf( 'const LINKED_IMAGE_INPUT_KEYS' )
 	);
-	const updateBody = controlsSource.match( /update = \(\) => \{([\s\S]*?)this\.regenerateNightSkyInput\( lid \);\s*\};/ )[ 1 ];
+	const updateBody = controlsSource.match(
+		/update = \(\) => \{([\s\S]*?)this\.regenerateNightSkyInput\( lid \);\s*\};/
+	)[ 1 ];
 	const fields = {
 		locationLabel: { value: '', classList: { remove() {} } },
 		latitude: { value: '', classList: { remove() {} } },
@@ -144,7 +146,13 @@ test( 'address updates preserve typed spaces while normalizing saved labels', ()
 	};
 	const coordinateMode = { hidden: true };
 	const app = { inputs: {} };
-	const update = new Function( 'fields', 'coordinateMode', 'resolveTimezone', 'lid', `${ reader }\n${ updateBody }` );
+	const update = new Function(
+		'fields',
+		'coordinateMode',
+		'resolveTimezone',
+		'lid',
+		`${ reader }\n${ updateBody }`
+	);
 	for ( const character of 'New South Wales ' ) {
 		fields.locationLabel.value += character;
 		update.call( app, fields, coordinateMode, () => {}, 1 );

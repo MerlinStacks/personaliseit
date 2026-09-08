@@ -95,16 +95,19 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 
 	#[Test]
 	public function country_and_global_search_share_one_rate_reservation(): void {
-		$previous_ip = $_SERVER['REMOTE_ADDR'] ?? null;
+		$previous_ip            = $_SERVER['REMOTE_ADDR'] ?? null;
 		$_SERVER['REMOTE_ADDR'] = '192.0.2.184';
 		update_option( 'woocommerce_default_country', 'AU:NSW' );
 		$budget_key = 'oc_budget_' . hash( 'sha256', 'request:location-lookup:' . hash( 'sha256', $_SERVER['REMOTE_ADDR'] ) );
 		delete_option( $budget_key );
 		$requests = [];
-		$limit = static fn () => 1;
-		$mock = static function ( $preempt, $args, $url ) use ( &$requests ) {
+		$limit    = static fn () => 1;
+		$mock     = static function ( $preempt, $args, $url ) use ( &$requests ) {
 			$requests[] = $url;
-			return [ 'response' => [ 'code' => 200 ], 'body' => '[]' ];
+			return [
+				'response' => [ 'code' => 200 ],
+				'body'     => '[]',
+			];
 		};
 		add_filter( 'oc_location_lookup_ip_hourly_limit', $limit );
 		add_filter( 'pre_http_request', $mock, 10, 3 );

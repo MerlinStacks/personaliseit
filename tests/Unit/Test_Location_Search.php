@@ -9,8 +9,8 @@ class Test_Location_Search extends TestCase {
 	protected function setUp(): void {
 		$this->options = $GLOBALS['oc_test_options'] ?? [];
 		$GLOBALS['oc_test_options']['woocommerce_default_country'] = 'AU:NSW';
-		$GLOBALS['oc_test_http_requests'] = [];
-		$GLOBALS['oc_test_http_responses'] = [];
+		$GLOBALS['oc_test_http_requests']                          = [];
+		$GLOBALS['oc_test_http_responses']                         = [];
 	}
 
 	protected function tearDown(): void {
@@ -19,11 +19,18 @@ class Test_Location_Search extends TestCase {
 	}
 
 	private function place( string $name, string $lat = '-33.8688', string $lon = '151.2093' ): array {
-		return [ 'lat' => $lat, 'lon' => $lon, 'display_name' => $name ];
+		return [
+			'lat'          => $lat,
+			'lon'          => $lon,
+			'display_name' => $name,
+		];
 	}
 
 	private function respond( array $places ): void {
-		$GLOBALS['oc_test_http_responses'][] = [ 'response' => [ 'code' => 200 ], 'body' => json_encode( $places ) ];
+		$GLOBALS['oc_test_http_responses'][] = [
+			'response' => [ 'code' => 200 ],
+			'body'     => wp_json_encode( $places ),
+		];
 	}
 
 	public function test_country_matches_precede_global_matches_and_duplicates_do_not_consume_slots(): void {
@@ -37,7 +44,7 @@ class Test_Location_Search extends TestCase {
 		$this->assertSame( -33.8688, $result[0]['latitude'] );
 		$this->assertCount( 2, $GLOBALS['oc_test_http_requests'] );
 		foreach ( $GLOBALS['oc_test_http_requests'] as $index => [ $url, $args ] ) {
-			parse_str( parse_url( $url, PHP_URL_QUERY ), $query );
+			parse_str( wp_parse_url( $url, PHP_URL_QUERY ), $query );
 			$this->assertSame( 'Richmond', $query['q'] );
 			$this->assertSame( '3', $query['limit'] );
 			$this->assertSame( 0 === $index ? 'au' : null, $query['countrycodes'] ?? null );
@@ -50,11 +57,26 @@ class Test_Location_Search extends TestCase {
 	public function test_preferred_failures_and_empty_matches_fall_back_worldwide(): void {
 		foreach ( [
 			new WP_Error( 'timeout' ),
-			[ 'response' => [ 'code' => 503 ], 'body' => '' ],
-			[ 'response' => [ 'code' => 200 ], 'body' => '{broken' ],
-			[ 'response' => [ 'code' => 200 ], 'body' => '{}' ],
-			[ 'response' => [ 'code' => 200 ], 'body' => str_repeat( 'x', 65537 ) ],
-			[ 'response' => [ 'code' => 200 ], 'body' => '[]' ],
+			[
+				'response' => [ 'code' => 503 ],
+				'body'     => '',
+			],
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => '{broken',
+			],
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => '{}',
+			],
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => str_repeat( 'x', 65537 ),
+			],
+			[
+				'response' => [ 'code' => 200 ],
+				'body'     => '[]',
+			],
 		] as $failure ) {
 			$GLOBALS['oc_test_http_responses'] = [ $failure ];
 			$this->respond( [ $this->place( 'Paris, France' ) ] );
@@ -66,7 +88,7 @@ class Test_Location_Search extends TestCase {
 	public function test_missing_or_malformed_country_uses_only_worldwide_search(): void {
 		foreach ( [ '', 'Australia', 'AU,US', [], 'A1:NSW' ] as $country ) {
 			$GLOBALS['oc_test_options']['woocommerce_default_country'] = $country;
-			$GLOBALS['oc_test_http_requests'] = [];
+			$GLOBALS['oc_test_http_requests']                          = [];
 			$this->respond( [] );
 			$this->assertSame( [], OC_Rest_API::find_locations( 'Paris', false ) );
 			$this->assertCount( 1, $GLOBALS['oc_test_http_requests'] );
@@ -75,7 +97,10 @@ class Test_Location_Search extends TestCase {
 	}
 
 	public function test_full_preferred_page_skips_global_and_clamps_limit(): void {
-		foreach ( [ 0 => 1, 99 => 6 ] as $limit => $expected ) {
+		foreach ( [
+			0  => 1,
+			99 => 6,
+		] as $limit => $expected ) {
 			$GLOBALS['oc_test_http_requests'] = [];
 			$this->respond( array_map( fn ( $i ) => $this->place( 'Australian place ' . $i ), range( 1, 8 ) ) );
 			$this->assertCount( $expected, OC_Rest_API::find_locations( 'Place', false, $limit ) );

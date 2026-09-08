@@ -223,7 +223,7 @@ if ( ! function_exists( 'wp_parse_args' ) ) {
 
 if ( ! function_exists( 'wp_parse_url' ) ) {
 	function wp_parse_url( string $url, int $component = -1 ): array|string|int|null|false {
-		return parse_url( $url, $component );
+		return parse_url( $url, $component ); // phpcs:ignore WordPress.WP.AlternativeFunctions.parse_url_parse_url -- Native parser implements this stub; wp_parse_url() would recurse.
 	}
 }
 
