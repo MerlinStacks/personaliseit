@@ -131,6 +131,33 @@ test( 'place lookup uses the same-origin proxy only', () => {
 	assert.match( controlsSource, /method: 'POST'/ );
 } );
 
+test( 'address updates preserve typed spaces while normalizing saved labels', () => {
+	const reader = controlsSource.slice(
+		controlsSource.indexOf( 'function readNightSkyFields(' ),
+		controlsSource.indexOf( 'const LINKED_IMAGE_INPUT_KEYS' )
+	);
+	const updateBody = controlsSource.match( /update = \(\) => \{([\s\S]*?)this\.regenerateNightSkyInput\( lid \);\s*\};/ )[ 1 ];
+	const fields = {
+		locationLabel: { value: '', classList: { remove() {} } },
+		latitude: { value: '', classList: { remove() {} } },
+		longitude: { value: '', classList: { remove() {} } },
+	};
+	const coordinateMode = { hidden: true };
+	const app = { inputs: {} };
+	const update = new Function( 'fields', 'coordinateMode', 'resolveTimezone', 'lid', `${ reader }\n${ updateBody }` );
+	for ( const character of 'New South Wales ' ) {
+		fields.locationLabel.value += character;
+		update.call( app, fields, coordinateMode, () => {}, 1 );
+	}
+	assert.equal( fields.locationLabel.value, 'New South Wales ' );
+	assert.equal( app.inputs[ 1 ].locationLabel, 'New South Wales' );
+	coordinateMode.hidden = false;
+	fields.latitude.value = '-33.8688';
+	fields.longitude.value = '151.2093';
+	update.call( app, fields, coordinateMode, () => {}, 1 );
+	assert.equal( fields.locationLabel.value, '-33.8688, 151.2093' );
+} );
+
 test( 'place lookup aborts superseded requests and reuses recent results', () => {
 	assert.match( controlsSource, /locationRequest\?\.controller\.abort\(\)/ );
 	assert.match( controlsSource, /signal: request\.controller\.signal/ );

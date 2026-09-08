@@ -2942,12 +2942,44 @@ class OC_Rest_API {
 			}
 		}
 
+		$limit        = max( 1, min( 6, $limit ) );
+		$base_country = get_option( 'woocommerce_default_country', '' );
+		$country      = is_string( $base_country ) ? strtolower( explode( ':', $base_country, 2 )[0] ) : '';
+		$results      = [];
+		if ( 1 === preg_match( '/^[a-z]{2}$/D', $country ) ) {
+			$preferred = self::fetch_locations( $query, $limit, $country );
+			if ( ! is_wp_error( $preferred ) ) {
+				$results = $preferred;
+			}
+		}
+		if ( count( $results ) >= $limit ) {
+			return $results;
+		}
+
+		// Fetch a full bounded global page so overlapping preferred results do not consume fill slots.
+		$global = self::fetch_locations( $query, $limit );
+		if ( is_wp_error( $global ) ) {
+			return $results ?: $global;
+		}
+		foreach ( $global as $result ) {
+			if ( ! in_array( $result, $results, true ) ) {
+				$results[] = $result;
+			}
+			if ( count( $results ) >= $limit ) {
+				break;
+			}
+		}
+		return $results;
+	}
+
+	/** Fetch one bounded country or worldwide page without reserving another request budget. */
+	private static function fetch_locations( string $query, int $limit, string $country = '' ): array|\WP_Error {
+		$args = [ 'format' => 'jsonv2', 'limit' => $limit, 'q' => $query ];
+		if ( '' !== $country ) {
+			$args['countrycodes'] = $country;
+		}
 		$url       = add_query_arg(
-			[
-				'format' => 'jsonv2',
-				'limit'  => max( 1, min( 6, $limit ) ),
-				'q'      => $query,
-			],
+			$args,
 			'https://nominatim.openstreetmap.org/search'
 		);
 		$site_host = (string) wp_parse_url( home_url( '/' ), PHP_URL_HOST );
@@ -2991,11 +3023,14 @@ class OC_Rest_API {
 			) {
 				continue;
 			}
-			$results[] = [
+			$result = [
 				'latitude'    => round( $latitude, 6 ),
 				'longitude'   => round( $longitude, 6 ),
 				'displayName' => $display_name,
 			];
+			if ( ! in_array( $result, $results, true ) ) {
+				$results[] = $result;
+			}
 		}
 
 		return $results;

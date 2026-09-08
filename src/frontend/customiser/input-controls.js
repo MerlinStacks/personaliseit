@@ -682,7 +682,12 @@ const inputControlMethods = {
 						input,
 						readNightSkyFields( fields, coordinateMode )
 					);
-					if ( fields.locationLabel ) {
+					// Only write generated coordinates back, never trim an address while typing.
+					if (
+						fields.locationLabel &&
+						coordinateMode &&
+						! coordinateMode.hidden
+					) {
 						fields.locationLabel.value = input.locationLabel;
 					}
 					Object.values( fields ).forEach( ( field ) => {

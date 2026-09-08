@@ -94,6 +94,39 @@ class Test_REST_API extends WP_Test_REST_TestCase {
 	}
 
 	#[Test]
+	public function country_and_global_search_share_one_rate_reservation(): void {
+		$previous_ip = $_SERVER['REMOTE_ADDR'] ?? null;
+		$_SERVER['REMOTE_ADDR'] = '192.0.2.184';
+		update_option( 'woocommerce_default_country', 'AU:NSW' );
+		$budget_key = 'oc_budget_' . hash( 'sha256', 'request:location-lookup:' . hash( 'sha256', $_SERVER['REMOTE_ADDR'] ) );
+		delete_option( $budget_key );
+		$requests = [];
+		$limit = static fn () => 1;
+		$mock = static function ( $preempt, $args, $url ) use ( &$requests ) {
+			$requests[] = $url;
+			return [ 'response' => [ 'code' => 200 ], 'body' => '[]' ];
+		};
+		add_filter( 'oc_location_lookup_ip_hourly_limit', $limit );
+		add_filter( 'pre_http_request', $mock, 10, 3 );
+		try {
+			$this->assertSame( [], OC_Rest_API::find_locations( 'Richmond' ) );
+			$this->assertCount( 2, $requests );
+			$this->assertSame( 1, json_decode( get_option( $budget_key ), true )['count'] );
+			$this->assertSame( 'rate_limited', OC_Rest_API::find_locations( 'Richmond' )->get_error_code() );
+			$this->assertCount( 2, $requests );
+		} finally {
+			remove_filter( 'oc_location_lookup_ip_hourly_limit', $limit );
+			remove_filter( 'pre_http_request', $mock, 10 );
+			delete_option( $budget_key );
+			if ( null === $previous_ip ) {
+				unset( $_SERVER['REMOTE_ADDR'] );
+			} else {
+				$_SERVER['REMOTE_ADDR'] = $previous_ip;
+			}
+		}
+	}
+
+	#[Test]
 	public function authorise_artwork_context_route_is_registered(): void {
 		$routes = rest_get_server()->get_routes();
 		$this->assertArrayHasKey( '/overcustomise/v1/authorise-artwork-context', $routes );

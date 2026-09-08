@@ -81,6 +81,27 @@ if ( ! function_exists( 'wp_salt' ) ) {
 }
 
 // Stub commonly used WP functions so unit tests don't need a WP environment.
+if ( ! function_exists( 'add_query_arg' ) ) {
+	function add_query_arg( array $args, string $url ): string {
+		return $url . '?' . http_build_query( $args );
+	}
+}
+if ( ! function_exists( 'wp_safe_remote_get' ) ) {
+	function wp_safe_remote_get( string $url, array $args ): array|WP_Error {
+		$GLOBALS['oc_test_http_requests'][] = [ $url, $args ];
+		return array_shift( $GLOBALS['oc_test_http_responses'] ) ?? new WP_Error( 'unexpected_http_request' );
+	}
+}
+if ( ! function_exists( 'wp_remote_retrieve_response_code' ) ) {
+	function wp_remote_retrieve_response_code( array $response ): int {
+		return $response['response']['code'] ?? 0;
+	}
+}
+if ( ! function_exists( 'wp_remote_retrieve_body' ) ) {
+	function wp_remote_retrieve_body( array $response ): string {
+		return $response['body'] ?? '';
+	}
+}
 if ( ! function_exists( 'wp_upload_dir' ) ) {
 	function wp_upload_dir(): array {
 		return [
@@ -201,8 +222,8 @@ if ( ! function_exists( 'wp_parse_args' ) ) {
 }
 
 if ( ! function_exists( 'wp_parse_url' ) ) {
-	function wp_parse_url( string $url ): array|false {
-		return parse_url( $url );
+	function wp_parse_url( string $url, int $component = -1 ): array|string|int|null|false {
+		return parse_url( $url, $component );
 	}
 }
 
