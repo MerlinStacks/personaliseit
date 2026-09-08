@@ -71,26 +71,64 @@ test( 'rotated area layer handles and movement follow local axes at every image 
 	for ( const rotation of [ 0, 45, 90, 180, 270, -30 ] ) {
 		for ( const imageScale of [ 1, 0.4 ] ) {
 			for ( const unitScale of [ 1, 300 / 25.4 ] ) {
-				for ( const dir of [ 'nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w', 'move' ] ) {
+				for ( const dir of [
+					'nw',
+					'n',
+					'ne',
+					'e',
+					'se',
+					's',
+					'sw',
+					'w',
+					'move',
+				] ) {
 					globals.area = { x: 100, y: 200, w: 300, h: 300, rotation };
 					globals.layer = { x: 150, y: 250, w: 80, h: 60 };
 					globals.imageScale = imageScale;
 					globals.unitScale = unitScale;
 					const moving = dir === 'move';
-					const dx = moving || dir.includes( 'e' ) ? 12 : dir.includes( 'w' ) ? -12 : 0;
-					const dy = moving || dir.includes( 's' ) ? 8 : dir.includes( 'n' ) ? -8 : 0;
-					const radians = rotation * Math.PI / 180;
-					startDrag( { clientX: 400, clientY: 300 }, moving ? 'move' : 'resize', dir );
+					let dx = 0;
+					if ( moving || dir.includes( 'e' ) ) {
+						dx = 12;
+					} else if ( dir.includes( 'w' ) ) {
+						dx = -12;
+					}
+					let dy = 0;
+					if ( moving || dir.includes( 's' ) ) {
+						dy = 8;
+					} else if ( dir.includes( 'n' ) ) {
+						dy = -8;
+					}
+					const radians = ( rotation * Math.PI ) / 180;
+					startDrag(
+						{ clientX: 400, clientY: 300 },
+						moving ? 'move' : 'resize',
+						dir
+					);
 					onDragMove( {
-						clientX: 400 + ( dx * Math.cos( radians ) - dy * Math.sin( radians ) ) * unitScale * imageScale,
-						clientY: 300 + ( dx * Math.sin( radians ) + dy * Math.cos( radians ) ) * unitScale * imageScale,
+						clientX:
+							400 +
+							( dx * Math.cos( radians ) -
+								dy * Math.sin( radians ) ) *
+								unitScale *
+								imageScale,
+						clientY:
+							300 +
+							( dx * Math.sin( radians ) +
+								dy * Math.cos( radians ) ) *
+								unitScale *
+								imageScale,
 					} );
-					assert.deepEqual( globals.layer, {
-						x: 150 + ( moving || dir.includes( 'w' ) ? dx : 0 ),
-						y: 250 + ( moving || dir.includes( 'n' ) ? dy : 0 ),
-						w: 80 + ( moving ? 0 : Math.abs( dx ) ),
-						h: 60 + ( moving ? 0 : Math.abs( dy ) ),
-					}, `rotation=${ rotation }, scale=${ imageScale }, units=${ unitScale }, handle=${ dir }` );
+					assert.deepEqual(
+						globals.layer,
+						{
+							x: 150 + ( moving || dir.includes( 'w' ) ? dx : 0 ),
+							y: 250 + ( moving || dir.includes( 'n' ) ? dy : 0 ),
+							w: 80 + ( moving ? 0 : Math.abs( dx ) ),
+							h: 60 + ( moving ? 0 : Math.abs( dy ) ),
+						},
+						`rotation=${ rotation }, scale=${ imageScale }, units=${ unitScale }, handle=${ dir }`
+					);
 				}
 			}
 		}
