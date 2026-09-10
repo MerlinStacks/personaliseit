@@ -21,8 +21,12 @@ test( 'address suggestions remain reachable inside a clipped mobile form', async
 							<div class="oc-night-sky-combobox">
 								<input id="place" type="search" />
 								<div class="oc-night-sky-results" hidden>
-									${ Array.from( { length: 6 }, ( _, i ) =>
-										`<button type="button" class="oc-night-sky-result">Address ${ i + 1 }</button>`
+									${ Array.from(
+										{ length: 6 },
+										( _, i ) =>
+											`<button type="button" class="oc-night-sky-result">Address ${
+												i + 1
+											}</button>`
 									).join( '' ) }
 								</div>
 							</div>
@@ -44,14 +48,25 @@ test( 'address suggestions remain reachable inside a clipped mobile form', async
 		isMobile ? 'static' : 'absolute'
 	);
 	if ( isMobile ) {
-		await expect( page.locator( '#place' ) ).toHaveCSS( 'font-size', '16px' );
+		await expect( page.locator( '#place' ) ).toHaveCSS(
+			'font-size',
+			'16px'
+		);
 		const bounds = await results.boundingBox();
-		const following = await page.locator( '.oc-night-sky-switch' ).boundingBox();
-		expect( following.y ).toBeGreaterThanOrEqual( bounds.y + bounds.height );
+		const following = await page
+			.locator( '.oc-night-sky-switch' )
+			.boundingBox();
+		expect( following.y ).toBeGreaterThanOrEqual(
+			bounds.y + bounds.height
+		);
 		// Tap actionability checks ensure both ends of the scrollable list are
 		// hit-testable, not merely present behind the clipped wrapper.
-		await page.getByRole( 'button', { name: 'Address 1', exact: true } ).tap();
-		await page.getByRole( 'button', { name: 'Address 6', exact: true } ).tap();
+		await page
+			.getByRole( 'button', { name: 'Address 1', exact: true } )
+			.tap();
+		await page
+			.getByRole( 'button', { name: 'Address 6', exact: true } )
+			.tap();
 	}
 	await results.evaluate( ( element ) => {
 		element.hidden = true;
