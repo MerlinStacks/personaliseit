@@ -33,6 +33,14 @@ rebuilds the report. It does not clear migration locks, convert engines, move
 files, or advance schema versions. Healthy reports remain visible on System
 Status and refresh automatically after five minutes.
 
+**Dismiss for 24 hours** acknowledges the displayed diagnostics for the current
+user and site only. It requires a manager capability, POST and a nonce bound to
+the displayed report fingerprint. Changed diagnostics reappear on the next report;
+routine five-minute refreshes do not undo dismissal. The full report remains in
+System Status. Dismissal writes only a site-scoped user preference, performs no
+storage probes and does not alter readiness, runtime guards, existing files,
+storage selection/tokens, revocations or migration locks. It is not a storage fix.
+
 - `schema_incomplete`: inspect missing/incompatible columns and indexes against
   the shipped schema and review upgrade logs. Back up before repairing schema.
 - `migration_required`: the recorded version is behind; allow the existing

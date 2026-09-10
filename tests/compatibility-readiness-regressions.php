@@ -5,6 +5,15 @@ define( 'OC_PATH', ABSPATH );
 $wp_version = '6.8';
 define( 'OC_DB_VERSION', '1.14.0' );
 define( 'HOUR_IN_SECONDS', 3600 );
+define( 'DAY_IN_SECONDS', 86400 );
+$user_options = [];
+$user_id = 1;
+$site_id = 1;
+function get_current_user_id() { return $GLOBALS['user_id']; }
+function get_user_option( $key ) { return $GLOBALS['user_options'][ $GLOBALS['site_id'] ][ get_current_user_id() ][ $key ] ?? false; }
+function update_user_option( $user, $key, $value, $global ) { expect( false === $global, 'site-scoped preference' ); $GLOBALS['user_options'][ $GLOBALS['site_id'] ][ $user ][ $key ] = $value; }
+function wp_json_encode( $value ) { return json_encode( $value ); }
+function esc_attr( $value ) { return esc_html( $value ); }
 $options = [ 'oc_db_version' => OC_DB_VERSION ];
 $transients = [];
 $can_manage = true;
@@ -19,9 +28,9 @@ function esc_html__( $text, $domain ) { return $text; }
 function __( $text, $domain ) { return $text; }
 function esc_html( $text ) { return htmlspecialchars( $text, ENT_QUOTES, 'UTF-8' ); }
 function esc_url( $text ) { return esc_html( $text ); }
-function wp_nonce_field( $action ) { expect( 'oc_recheck_readiness' === $action, 'notice nonce action' ); print '<input name="_wpnonce" value="test">'; }
+function wp_nonce_field( $action ) { expect( 'oc_recheck_readiness' === $action || preg_match( '/^oc_dismiss_readiness_[a-f0-9]{64}$/', $action ), 'notice nonce action' ); print '<input name="_wpnonce" value="test">'; }
 function wp_die( $text, $title, $args ) { throw new RuntimeException( (string) $args['response'] ); }
-function check_admin_referer( $action ) { expect( 'oc_recheck_readiness' === $action, 'nonce action' ); if ( ! $GLOBALS['valid_nonce'] ) { throw new RuntimeException( 'nonce' ); } }
+function check_admin_referer( $action ) { expect( 'oc_recheck_readiness' === $action || $action === 'oc_dismiss_readiness_' . ( $_POST['fingerprint'] ?? '' ), 'nonce action bound to fingerprint' ); if ( ! $GLOBALS['valid_nonce'] ) { throw new RuntimeException( 'nonce' ); } }
 function admin_url( $path ) { return 'https://example.test/wp-admin/' . $path; }
 function wp_safe_redirect( $url ) {
 	expect( 'https://example.test/wp-admin/admin.php?page=overcustomise-settings&tab=system' === $url, 'fixed status-page redirect' );
@@ -336,6 +345,55 @@ $calls = $wpdb->calls;
 try { OC_System_Status::recheck_readiness(); }
 catch ( RuntimeException $error ) { expect( 'redirect' === $error->getMessage(), 'authorized recheck redirects' ); }
 expect( $wpdb->calls > $calls && ! OC_System_Status::readiness_report()['print_retry_pause'], 'authorized recheck refreshes repaired state' );
+// Dismissal is presentation-only, scoped to user/site, and bound to the shown report.
+OC_Storage_Upgrade::$messages = $current_messages['storage_evidence_revoked'];
+$report = OC_System_Status::readiness_report( true );
+ob_start();
+OC_System_Status::readiness_notice();
+$notice = ob_get_clean();
+expect( str_contains( $notice, 'Dismiss for 24 hours' ), 'persistent dismissal control rendered' );
+preg_match( '/name="fingerprint" value="([a-f0-9]{64})"/', $notice, $match );
+$_POST['fingerprint'] = $match[1];
+$before = [ $options, $transients, $wpdb->calls, OC_Upload_Handler::$calls ];
+foreach ( [ [ false, 'POST', true, '403' ], [ true, 'GET', true, '405' ], [ true, 'POST', false, 'nonce' ] ] as [ $can_manage, $method, $valid_nonce, $expected ] ) {
+	$_SERVER['REQUEST_METHOD'] = $method;
+	try { OC_System_Status::dismiss_readiness(); throw new RuntimeException( 'accepted invalid dismissal' ); }
+	catch ( RuntimeException $error ) { expect( $expected === $error->getMessage(), 'dismissal authorization' ); }
+	expect( [] === $user_options, 'rejected dismissal writes no preference' );
+}
+$can_manage = $valid_nonce = true;
+$_SERVER['REQUEST_METHOD'] = 'POST';
+foreach ( [ [], 'bad', str_repeat( 'a', 65 ) ] as $invalid ) {
+	$_POST['fingerprint'] = $invalid;
+	try { OC_System_Status::dismiss_readiness(); throw new RuntimeException( 'accepted malformed fingerprint' ); }
+	catch ( RuntimeException $error ) { expect( '400' === $error->getMessage(), 'malformed dismissal rejected' ); }
+}
+$_POST['fingerprint'] = $match[1];
+try { OC_System_Status::dismiss_readiness(); }
+catch ( RuntimeException $error ) { expect( 'redirect' === $error->getMessage(), 'dismissal redirects to full status' ); }
+expect( $before === [ $options, $transients, $wpdb->calls, OC_Upload_Handler::$calls ], 'dismissal does not change operational state or perform probes' );
+ob_start(); OC_System_Status::readiness_notice();
+expect( '' === ob_get_clean(), 'acknowledged notice hidden' );
+$checks = array_column( OC_System_Status::checks(), null, 'key' );
+expect( isset( $checks['readiness_storage_evidence_revoked'] ), 'dismissed diagnostic remains in System Status' );
+$transients[ $cache_key ]['checked_at'] = time() - 10;
+$transients[ $cache_key ]['tables'] = array_reverse( $report['tables'], true );
+ob_start(); OC_System_Status::readiness_notice();
+expect( '' === ob_get_clean(), 'timestamp and ordering do not undo acknowledgement' );
+foreach ( [ [ 2, 1 ], [ 1, 2 ] ] as [ $user_id, $site_id ] ) {
+	ob_start(); OC_System_Status::readiness_notice();
+	expect( str_contains( ob_get_clean(), 'Dismiss for 24 hours' ), 'other user/site still sees warning' );
+}
+$user_id = $site_id = 1;
+OC_Upload_Handler::$blocked = [ 'print-files' ];
+expect( OC_System_Status::readiness_report( true )['print_retry_pause'], 'active failure still pauses print after dismissal' );
+ob_start(); OC_System_Status::readiness_notice();
+expect( str_contains( ob_get_clean(), 'Storage is unavailable.' ), 'new failure is not hidden by old dismissal' );
+OC_Upload_Handler::$blocked = [];
+OC_System_Status::readiness_report( true );
+$user_options[1][1]['oc_readiness_notice_dismissal']['expires'] = time();
+ob_start(); OC_System_Status::readiness_notice();
+expect( str_contains( ob_get_clean(), 'Dismiss for 24 hours' ), 'expired dismissal shows notice again' );
 $can_manage = false;
 $calls = $wpdb->calls;
 ob_start();

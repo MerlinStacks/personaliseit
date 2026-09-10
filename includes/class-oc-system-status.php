@@ -10,6 +10,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_System_Status {
 	private const READINESS_CACHE = 'oc_compatibility_readiness_v4';
 	private const READINESS_TTL = 300;
+	private const NOTICE_DISMISSAL = 'oc_readiness_notice_dismissal';
 	private const TRANSACTION_RESOURCES = [
 		'print'   => [ 'oc_print_files', 'oc_print_queue' ],
 		'designs' => [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers', 'oc_product_assignments', 'oc_vdp_templates', 'oc_vdp_fields' ],
@@ -182,6 +183,19 @@ class OC_System_Status {
 		return $states;
 	}
 
+	/** Stable diagnostic identity, independent of refresh time and diagnostic ordering. */
+	private static function notice_fingerprint( array $report ): string {
+		unset( $report['checked_at'], $report['recheck_after'] );
+		foreach ( $report as &$value ) {
+			if ( is_array( $value ) ) {
+				ksort( $value );
+			}
+		}
+		unset( $value );
+		ksort( $report );
+		return hash( 'sha256', wp_json_encode( $report ) );
+	}
+
 	/** Lightweight on ordinary admin visits: probes are cached for five minutes. */
 	public static function readiness_notice(): void {
 		if ( ! current_user_can( 'manage_woocommerce' ) || wp_doing_ajax() ) {
@@ -199,6 +213,12 @@ class OC_System_Status {
 		if ( empty( $failed ) ) {
 			return;
 		}
+		$fingerprint = self::notice_fingerprint( $report );
+		$dismissal = get_user_option( self::NOTICE_DISMISSAL );
+		if ( is_array( $dismissal ) && ( $dismissal['fingerprint'] ?? '' ) === $fingerprint
+			&& ( $dismissal['expires'] ?? 0 ) > time() ) {
+			return;
+		}
 		echo '<div class="notice notice-warning"><p><strong>' . esc_html__( 'OverCustomise compatibility readiness needs attention', 'overcustomise' ) . '</strong></p><ul>';
 		foreach ( $failed as $state ) {
 			echo '<li><strong>' . esc_html( $state['label'] . ': ' . $state['version'] ) . '</strong> ' . esc_html( self::readiness_guidance( $state['status'] ) ) . '</li>';
@@ -206,7 +226,32 @@ class OC_System_Status {
 		echo '</ul><p>' . esc_html__( 'Warnings do not disable the plugin; live guards apply to affected operations. This report refreshes within five minutes; rechecking does not migrate tables, move files or clear migration locks.', 'overcustomise' ) . '</p>';
 		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="oc_recheck_readiness">';
 		wp_nonce_field( 'oc_recheck_readiness' );
-		echo '<p><button class="button" type="submit">' . esc_html__( 'Recheck Readiness', 'overcustomise' ) . '</button></p></form></div>';
+		echo '<p><button class="button" type="submit">' . esc_html__( 'Recheck Readiness', 'overcustomise' ) . '</button></p></form>';
+		echo '<form method="post" action="' . esc_url( admin_url( 'admin-post.php' ) ) . '"><input type="hidden" name="action" value="oc_dismiss_readiness"><input type="hidden" name="fingerprint" value="' . esc_attr( $fingerprint ) . '">';
+		wp_nonce_field( 'oc_dismiss_readiness_' . $fingerprint );
+		echo '<p><button class="button" type="submit">' . esc_html__( 'Dismiss for 24 hours', 'overcustomise' ) . '</button> ' . esc_html__( 'For your account only. Changed diagnostics show again; all checks remain visible in System Status. Dismissal does not fix storage or disable safety checks.', 'overcustomise' ) . '</p></form></div>';
+	}
+
+	/** Acknowledge only the displayed report; never refresh or modify storage/readiness. */
+	public static function dismiss_readiness(): void {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), '', [ 'response' => 403 ] );
+		}
+		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
+			wp_die( esc_html__( 'This action requires a POST request.', 'overcustomise' ), '', [ 'response' => 405 ] );
+		}
+		$fingerprint = $_POST['fingerprint'] ?? '';
+		if ( ! is_string( $fingerprint ) || ! preg_match( '/\A[a-f0-9]{64}\z/', $fingerprint ) ) {
+			wp_die( esc_html__( 'Invalid readiness acknowledgement.', 'overcustomise' ), '', [ 'response' => 400 ] );
+		}
+		check_admin_referer( 'oc_dismiss_readiness_' . $fingerprint );
+		// Non-global user option is scoped to this site, including on multisite.
+		update_user_option( get_current_user_id(), self::NOTICE_DISMISSAL, [
+			'fingerprint' => $fingerprint,
+			'expires' => time() + DAY_IN_SECONDS,
+		], false );
+		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-settings&tab=system' ) );
+		exit;
 	}
 
 	/** Clear only the diagnostic cache after a capability- and nonce-protected POST. */

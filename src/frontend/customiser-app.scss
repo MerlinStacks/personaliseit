@@ -2201,6 +2201,13 @@
 			border-radius: var(--oc-radius);
 		}
 
+		// Keep address suggestions in the scrollable form instead of an overlay
+		// that can be clipped by a theme wrapper or covered by later controls.
+		.oc-night-sky-results {
+			position: static;
+			margin-top: 6px;
+		}
+
 		.oc-layer-section {
 			padding: var(--oc-gap-sm) var(--oc-gap-sm);
 		}
@@ -2231,6 +2238,7 @@
 
 			input[type="text"],
 			input[type="url"],
+			input[type="search"],
 			textarea,
 			select {
 				font-size: 16px;

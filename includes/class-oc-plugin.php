@@ -122,6 +122,7 @@ class OC_Plugin {
 		// Mutating admin actions are POST-only; downloads remain nonce-protected GETs.
 		add_action( 'admin_notices', [ OC_System_Status::class, 'readiness_notice' ] );
 		add_action( 'admin_post_oc_recheck_readiness', [ OC_System_Status::class, 'recheck_readiness' ] );
+		add_action( 'admin_post_oc_dismiss_readiness', [ OC_System_Status::class, 'dismiss_readiness' ] );
 		add_action( 'admin_post_oc_regenerate_print_file', [ self::class, 'handle_regenerate_print_file' ] );
 		add_action( 'admin_post_oc_generate_print_files', [ self::class, 'handle_generate_print_files' ] );
 		add_action( 'admin_post_oc_process_print_queue_order', [ self::class, 'handle_process_print_queue_order' ] );
