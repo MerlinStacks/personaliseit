@@ -59,8 +59,8 @@ jobs:
       - run: npm run test:js
       - run: npm run build
       - run: npm run test:performance
+      # Standalone layout tests need Chromium even without a live E2E site.
       - run: npx playwright install --with-deps chromium
-        if: env.E2E_BASE_URL != ''
       - run: npm run test:e2e
 
   distribution:
