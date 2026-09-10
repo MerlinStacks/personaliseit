@@ -10,8 +10,11 @@ const { css } = sass.compile(
 test( 'address suggestions remain reachable inside a clipped mobile form', async ( {
 	page,
 	isMobile,
+	viewport,
 } ) => {
 	await page.setContent( `
+		<!doctype html>
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<div class="oc-customiser-panel">
 			<div style="overflow: hidden">
 				<div class="oc-night-sky-controls">
@@ -37,6 +40,10 @@ test( 'address suggestions remain reachable inside a clipped mobile form', async
 			</div>
 		</div>
 	` );
+	// Without viewport metadata, mobile Chromium uses a desktop-width layout.
+	expect( await page.evaluate( () => window.innerWidth ) ).toBe(
+		viewport.width
+	);
 	await page.addStyleTag( { content: css } );
 	const results = page.locator( '.oc-night-sky-results' );
 	await expect( results ).toBeHidden();
