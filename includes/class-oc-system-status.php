@@ -8,9 +8,9 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_System_Status {
-	private const READINESS_CACHE = 'oc_compatibility_readiness_v4';
-	private const READINESS_TTL = 300;
-	private const NOTICE_DISMISSAL = 'oc_readiness_notice_dismissal';
+	private const READINESS_CACHE       = 'oc_compatibility_readiness_v4';
+	private const READINESS_TTL         = 300;
+	private const NOTICE_DISMISSAL      = 'oc_readiness_notice_dismissal';
 	private const TRANSACTION_RESOURCES = [
 		'print'   => [ 'oc_print_files', 'oc_print_queue' ],
 		'designs' => [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers', 'oc_product_assignments', 'oc_vdp_templates', 'oc_vdp_fields' ],
@@ -214,7 +214,7 @@ class OC_System_Status {
 			return;
 		}
 		$fingerprint = self::notice_fingerprint( $report );
-		$dismissal = get_user_option( self::NOTICE_DISMISSAL );
+		$dismissal   = get_user_option( self::NOTICE_DISMISSAL );
 		if ( is_array( $dismissal ) && ( $dismissal['fingerprint'] ?? '' ) === $fingerprint
 			&& ( $dismissal['expires'] ?? 0 ) > time() ) {
 			return;
@@ -234,7 +234,7 @@ class OC_System_Status {
 
 	/** Acknowledge only the displayed report; never refresh or modify storage/readiness. */
 	public static function dismiss_readiness(): void {
-		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) { // phpcs:ignore WordPress.WP.Capabilities.Unknown -- Capability registered by WooCommerce.
 			wp_die( esc_html__( 'Permission denied.', 'overcustomise' ), '', [ 'response' => 403 ] );
 		}
 		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) ) {
@@ -246,10 +246,15 @@ class OC_System_Status {
 		}
 		check_admin_referer( 'oc_dismiss_readiness_' . $fingerprint );
 		// Non-global user option is scoped to this site, including on multisite.
-		update_user_option( get_current_user_id(), self::NOTICE_DISMISSAL, [
-			'fingerprint' => $fingerprint,
-			'expires' => time() + DAY_IN_SECONDS,
-		], false );
+		update_user_option(
+			get_current_user_id(),
+			self::NOTICE_DISMISSAL,
+			[
+				'fingerprint' => $fingerprint,
+				'expires'     => time() + DAY_IN_SECONDS,
+			],
+			false
+		);
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-settings&tab=system' ) );
 		exit;
 	}
