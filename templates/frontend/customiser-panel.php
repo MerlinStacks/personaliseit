@@ -533,8 +533,8 @@ foreach ( $layers as $layer ) {
 									</div>
 									<div data-oc-night-sky-coordinate-mode hidden>
 										<div class="oc-night-sky-grid">
-											<div class="oc-control-group"><label for="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Latitude', 'overcustomise' ); ?></label><input id="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-90" max="90" step="0.0001" placeholder="51.5074" data-oc-night-sky-latitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
-											<div class="oc-control-group"><label for="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Longitude', 'overcustomise' ); ?></label><input id="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-180" max="180" step="0.0001" placeholder="-0.1278" data-oc-night-sky-longitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
+										<div class="oc-control-group"><label for="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Latitude', 'overcustomise' ); ?></label><input id="oc-night-sky-latitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-90" max="90" step="any" placeholder="51.5074" data-oc-night-sky-latitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
+										<div class="oc-control-group"><label for="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Longitude', 'overcustomise' ); ?></label><input id="oc-night-sky-longitude-<?php echo esc_attr( $layer->id ); ?>" type="number" min="-180" max="180" step="any" placeholder="-0.1278" data-oc-night-sky-longitude="<?php echo esc_attr( (string) $layer->id ); ?>" /></div>
 										</div>
 										<p class="oc-night-sky-switch"><button type="button" data-oc-night-sky-use-address><?php esc_html_e( 'Search by address instead', 'overcustomise' ); ?></button></p>
 									</div>

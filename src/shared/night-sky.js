@@ -360,6 +360,9 @@ function planetRaDec( name, days ) {
 	};
 }
 
+// One reusable, read-only geometry per live input. Weak keys release old designs.
+const geometryCache = new WeakMap();
+
 export function generateNightSkyGeometry( input = {}, settings = {} ) {
 	const moment = parseMoment( input.date, input.time, input.utcOffset );
 	const hasLatitude =
@@ -382,6 +385,19 @@ export function generateNightSkyGeometry( input = {}, settings = {} ) {
 		longitude > 180
 	) {
 		return null;
+	}
+	const cacheKey = JSON.stringify( [
+		moment.getTime(),
+		latitude,
+		longitude,
+		settings.show_constellations !== false,
+		settings.show_labels !== false,
+		settings.show_planets !== false,
+		settings.show_border !== false,
+	] );
+	const cached = geometryCache.get( input );
+	if ( cached?.key === cacheKey && cached.catalog === detailedCatalog ) {
+		return cached.geometry;
 	}
 	const julian = moment.getTime() / 86400000 + 2440587.5;
 	const daysJ2000 = julian - 2451543.5;
@@ -527,7 +543,7 @@ export function generateNightSkyGeometry( input = {}, settings = {} ) {
 			}
 		}
 	}
-	return {
+	const geometry = {
 		v: 1,
 		coordinateSpace: 'unit-box-v1',
 		stars,
@@ -535,6 +551,12 @@ export function generateNightSkyGeometry( input = {}, settings = {} ) {
 		labels,
 		border: settings.show_border !== false,
 	};
+	geometryCache.set( input, {
+		key: cacheKey,
+		catalog: detailedCatalog,
+		geometry,
+	} );
+	return geometry;
 }
 
 export function nightSkyLabel( input = {} ) {

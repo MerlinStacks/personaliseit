@@ -134,6 +134,7 @@ const inputControlMethods = {
 	regenerateNightSkyInput( layerId ) {
 		const layer = this.getLayerById( layerId );
 		const input = this.inputs[ layerId ] || ( this.inputs[ layerId ] = {} );
+		const previousGeometry = input.nightSkyGeometry;
 		input.nightSkyGeometry = generateNightSkyGeometry(
 			input,
 			layer?.settings || {}
@@ -150,8 +151,12 @@ const inputControlMethods = {
 			'nightSkyGeometry',
 			'nightSkyLabel',
 		] );
-		this.requestPreviewFocus();
-		this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		// Address keystrokes and dependency callbacks need not rebuild hundreds
+		// of canvas objects when the actual sky has not changed.
+		if ( input.nightSkyGeometry !== previousGeometry ) {
+			this.requestPreviewFocus();
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+		}
 		this.updateHiddenField();
 	},
 
@@ -646,6 +651,9 @@ const inputControlMethods = {
 						timezoneLookup = null;
 					} );
 				const resolveTimezone = () => {
+					if ( ! fields.latitude?.value || ! fields.longitude?.value ) {
+						return;
+					}
 					const latitude = Number( fields.latitude?.value );
 					const longitude = Number( fields.longitude?.value );
 					if (
