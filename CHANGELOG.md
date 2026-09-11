@@ -7,6 +7,7 @@
 - Accept full-precision address coordinates without hidden number fields blocking Add to cart.
 - Reuse unchanged Night Sky geometry and avoid redundant preview redraws and empty-coordinate timezone lookups.
 - Fix JavaScript lint formatting and declare the Night Sky regression tests' jsdom dependency explicitly.
+- Remove unused fallback star names from the startup bundle to stay within existing performance budgets without changing sky geometry.
 
 ## 1.17.0 - 2026-09-02
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -115,6 +116,40 @@ test( 'reuses unchanged sky geometry but invalidates observation, settings and c
 	}
 	input.latitude = null;
 	assert.equal( generateNightSkyGeometry( input ), null );
+} );
+
+test( 'compact fallback catalogue preserves northern and southern sky geometry', () => {
+	// Baselines captured before removing the unused star display-name column.
+	const observations = [
+		[
+			51.5074,
+			-0.1278,
+			'de42607498c8f540531a2597a5f36ff4d20cc591b3888d4c9e9d202c4b280186',
+		],
+		[
+			-33.8688,
+			151.2093,
+			'4ce03aea1ae53d60e5b962f2e45c811bfe0fe8368d8350e9bfb9b92ca12d7eea',
+		],
+	];
+	try {
+		setNightSkyCatalog( null );
+		for ( const [ latitude, longitude, expected ] of observations ) {
+			const geometry = generateNightSkyGeometry( {
+				...london,
+				latitude,
+				longitude,
+			} );
+			assert.equal(
+				createHash( 'sha256' )
+					.update( JSON.stringify( geometry ) )
+					.digest( 'hex' ),
+				expected
+			);
+		}
+	} finally {
+		setNightSkyCatalog( catalog );
+	}
 } );
 
 test( 'generates bounded deterministic vector geometry', () => {
