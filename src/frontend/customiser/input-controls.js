@@ -651,7 +651,10 @@ const inputControlMethods = {
 						timezoneLookup = null;
 					} );
 				const resolveTimezone = () => {
-					if ( ! fields.latitude?.value || ! fields.longitude?.value ) {
+					if (
+						! fields.latitude?.value ||
+						! fields.longitude?.value
+					) {
 						return;
 					}
 					const latitude = Number( fields.latitude?.value );

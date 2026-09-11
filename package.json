@@ -1,6 +1,6 @@
 {
   "name": "overcustomise",
-  "version": "1.17.0",
+  "version": "1.17.1",
   "description": "WooCommerce product customiser for Custom Kings",
   "private": true,
   "files": [
@@ -40,6 +40,7 @@
   "devDependencies": {
     "@playwright/test": "^1.54.2",
     "@wordpress/scripts": "^32.6.0",
+    "jsdom": "^26.1.0",
     "sass": "^1.98.0"
   },
   "wp-scripts": {

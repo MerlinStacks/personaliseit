@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.17.1 - 2026-09-11
+
+### Fixed
+- Keep Night Sky address suggestions within the mobile form so customers can reach and select results.
+- Accept full-precision address coordinates without hidden number fields blocking Add to cart.
+- Reuse unchanged Night Sky geometry and avoid redundant preview redraws and empty-coordinate timezone lookups.
+- Fix JavaScript lint formatting and declare the Night Sky regression tests' jsdom dependency explicitly.
+
 ## 1.17.0 - 2026-09-02
 
 ### Added

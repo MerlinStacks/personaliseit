@@ -44,7 +44,9 @@ test( 'six-decimal address coordinates do not silently block native cart validat
 	);
 	assert.equal( coordinateInputs.length, 2 );
 	const dom = new JSDOM(
-		`<form><div hidden>${ coordinateInputs.join( '' ).replace( /<\?php[\s\S]*?\?>/g, '' ) }</div></form>`
+		`<form><div hidden>${ coordinateInputs
+			.join( '' )
+			.replace( /<\?php[\s\S]*?\?>/g, '' ) }</div></form>`
 	);
 	const form = dom.window.document.querySelector( 'form' );
 	const [ latitude, longitude ] = form.querySelectorAll( 'input' );
@@ -52,13 +54,25 @@ test( 'six-decimal address coordinates do not silently block native cart validat
 	longitude.value = '-0.127758';
 	assert.equal( form.checkValidity(), true );
 	latitude.step = '0.0001';
-	assert.equal( latitude.validity.stepMismatch, true, 'reproduces the old hidden-field failure' );
+	assert.equal(
+		latitude.validity.stepMismatch,
+		true,
+		'reproduces the old hidden-field failure'
+	);
 	latitude.step = 'any';
 	latitude.value = '91';
-	assert.equal( form.checkValidity(), false, 'latitude limits remain enforced' );
+	assert.equal(
+		form.checkValidity(),
+		false,
+		'latitude limits remain enforced'
+	);
 	latitude.value = '0';
 	longitude.value = '-181';
-	assert.equal( form.checkValidity(), false, 'longitude limits remain enforced' );
+	assert.equal(
+		form.checkValidity(),
+		false,
+		'longitude limits remain enforced'
+	);
 	dom.window.close();
 } );
 
@@ -69,16 +83,28 @@ test( 'reuses unchanged sky geometry but invalidates observation, settings and c
 	input.locationLabel = 'Updated address label';
 	assert.equal( generateNightSkyGeometry( input ), first );
 	for ( const [ key, value ] of Object.entries( {
-		date: '2026-09-02', time: '21:00', utcOffset: 0,
-		latitude: -33.8688, longitude: 151.2093,
+		date: '2026-09-02',
+		time: '21:00',
+		utcOffset: 0,
+		latitude: -33.8688,
+		longitude: 151.2093,
 	} ) ) {
 		const before = generateNightSkyGeometry( input );
 		input[ key ] = value;
 		assert.notEqual( generateNightSkyGeometry( input ), before, key );
 	}
-	for ( const key of [ 'show_constellations', 'show_labels', 'show_planets', 'show_border' ] ) {
+	for ( const key of [
+		'show_constellations',
+		'show_labels',
+		'show_planets',
+		'show_border',
+	] ) {
 		const before = generateNightSkyGeometry( input );
-		assert.notEqual( generateNightSkyGeometry( input, { [ key ]: false } ), before, key );
+		assert.notEqual(
+			generateNightSkyGeometry( input, { [ key ]: false } ),
+			before,
+			key
+		);
 	}
 	const before = generateNightSkyGeometry( input );
 	try {
