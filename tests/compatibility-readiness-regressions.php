@@ -194,8 +194,8 @@ expect( $calls === $wpdb->calls && $storage_calls === OC_Upload_Handler::$calls,
 $diagnostic_calls = OC_Storage_Upgrade::$calls;
 expect( $report === OC_System_Status::cached_readiness_report(), 'worker reads healthy cached report' );
 expect( $calls === $wpdb->calls && $storage_calls === OC_Upload_Handler::$calls && $diagnostic_calls === OC_Storage_Upgrade::$calls, 'cached-only hit performs no probes or storage calls' );
-$cache_key = 'oc_compatibility_readiness_v4';
-$transients['oc_compatibility_readiness_v3'] = array_replace( $report, [ 'storage' => [ 'print-files' => 'storage_blocked' ], 'print_retry_pause' => true ] );
+$cache_key = 'oc_compatibility_readiness_v5';
+$transients['oc_compatibility_readiness_v4'] = array_replace( $report, [ 'storage_upgrade' => [ 'storage_evidence_revoked' => 'storage_evidence_revoked' ], 'storage' => [ 'print-files' => 'storage_blocked' ], 'print_retry_pause' => true ] );
 $transients['oc_compatibility_readiness_v2'] = array_replace( $report, [ 'storage_upgrade' => [ 'storage_http_verified' => 'ready' ] ] );
 unset( $transients[ $cache_key ] );
 expect( null === OC_System_Status::cached_readiness_report(), 'old readiness cache is ignored even when unexpired' );
@@ -258,6 +258,7 @@ $notice = ob_get_clean();
 expect( str_contains( $notice, 'relocation_storage_blocked' ) && str_contains( $notice, 'relocation_source_retained' ), 'admin notice exposes relocation warnings' );
 expect( str_contains( $notice, 'reference-safe source cleanup' ) && ! str_contains( $notice, '/secret/' ) && ! str_contains( $notice, '<script>' ), 'admin guidance is fixed text with no paths or raw messages' );
 $current_messages = [
+	'storage_automatic_fallback' => [ 'Default storage candidate skipped; automatic fallback is operational. Persistent root denial is unchanged.' ],
 	'storage_http_protection_unverified' => [ 'Automatic storage is operational; direct HTTP protection has not been verified.' ],
 	'storage_evidence_revoked' => [
 		'Private root overlaps the known document root; prior CLI evidence revoked.',
@@ -364,6 +365,29 @@ ob_start();
 OC_System_Status::readiness_notice();
 $notice = ob_get_clean();
 expect( '' === $notice, 'nonblocking HTTP advisory does not create a persistent admin notice' );
+OC_Storage_Upgrade::$messages = array_merge( $current_messages['storage_automatic_fallback'], $current_messages['storage_http_protection_unverified'] );
+$report = OC_System_Status::readiness_report( true );
+expect( isset( $report['storage_upgrade']['storage_automatic_fallback'], $report['storage_upgrade']['storage_http_protection_unverified'] ) && ! isset( $report['storage_upgrade']['storage_evidence_revoked'] ) && ! $report['print_retry_pause'], 'handled fallback coexists with honest HTTP advisory without revoked warning or print pause' );
+$checks = array_column( OC_System_Status::checks(), null, 'key' );
+$fallback_check = $checks['readiness_storage_automatic_fallback'];
+expect( 'Automatic storage fallback' === $fallback_check['label'] && 'Default candidate skipped' === $fallback_check['version'] && 'Operational' === $fallback_check['result_label'] && 'Advisory' === $fallback_check['requirement_label'] && ! $fallback_check['required'], 'handled fallback has human-readable label, version and operational advisory result, not Review' );
+expect( 'Not verified' === $checks['readiness_storage_http_protection_unverified']['result_label'], 'fallback does not imply HTTP verification' );
+$guidance = ( new ReflectionMethod( OC_System_Status::class, 'readiness_guidance' ) )->invoke( null, 'storage_automatic_fallback' );
+expect( str_contains( $guidance, 'Persistent denial' ) && str_contains( $guidance, 'fallback is operational' ) && str_contains( $guidance, 'Direct HTTP protection has not been verified' ), 'fallback guidance preserves denial and HTTP caveat' );
+ob_start(); OC_System_Status::readiness_notice(); $notice = ob_get_clean();
+expect( '' === $notice, 'handled fallback and HTTP advisory do not create an admin notice' );
+OC_Storage_Upgrade::$messages = array_merge( OC_Storage_Upgrade::$messages, $current_messages['storage_evidence_revoked'] );
+OC_System_Status::readiness_report( true );
+$checks = array_column( OC_System_Status::checks(), null, 'key' );
+expect( 'Review' === $checks['readiness_storage_evidence_revoked']['result_label'], 'actionable retained-root revocation still needs review alongside handled fallback' );
+ob_start(); OC_System_Status::readiness_notice(); $notice = ob_get_clean();
+expect( str_contains( $notice, 'storage_evidence_revoked' ) && ! str_contains( $notice, 'Automatic storage fallback' ), 'handled fallback never suppresses actionable admin warnings' );
+OC_Upload_Handler::$blocked = [ 'print-files' ];
+OC_Storage_Upgrade::$messages = $current_messages['storage_automatic_fallback'];
+expect( OC_System_Status::readiness_report( true )['print_retry_pause'], 'handled fallback cannot override a later resource failure' );
+ob_start(); OC_System_Status::readiness_notice(); $notice = ob_get_clean();
+expect( str_contains( $notice, 'Storage is unavailable.' ), 'resource failure notice remains visible alongside handled fallback' );
+OC_Upload_Handler::$blocked = [];
 OC_Storage_Upgrade::$messages = [];
 expect( [] === OC_System_Status::readiness_report( true )['storage_upgrade'], 'fresh report does not retain obsolete request-local warnings' );
 $options['oc_db_version'] = '0';

@@ -18,6 +18,19 @@ final class OC_Storage_Upgrade {
 		return false;
 	}
 
+	/** Supersede only this successful automatic attempt's rejected-candidate diagnostics. */
+	public static function report_automatic_fallback( array $rejected_roots, array $reports_before ): void {
+		foreach ( array_unique( $rejected_roots ) as $root ) {
+			// A retained-root check may already have reported this exact root. Keep it actionable.
+			if ( array_key_exists( $root, $reports_before ) ) {
+				self::$reports[ $root ] = $reports_before[ $root ];
+			} else {
+				unset( self::$reports[ $root ] );
+			}
+			self::report( 'automatic-fallback:' . $root, 'Default storage candidate skipped; automatic fallback is operational. Persistent root denial is unchanged.' );
+		}
+	}
+
 	/** Site and deployment configuration, excluding request-dependent DOCUMENT_ROOT. */
 	private static function context( string $root, string $configuration ): array {
 		$uploads = wp_upload_dir();

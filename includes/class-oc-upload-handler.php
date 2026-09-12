@@ -237,11 +237,13 @@ class OC_Upload_Handler {
 	 * Explicit custom-root failures never silently select another location.
 	 */
 	public static function private_storage_root( bool $force_protection_check = false ): ?string {
-		$default_root = dirname( rtrim( ABSPATH, '/\\' ) ) . DIRECTORY_SEPARATOR
+		$default_root   = dirname( rtrim( ABSPATH, '/\\' ) ) . DIRECTORY_SEPARATOR
 			. '.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 );
-		$configured   = defined( 'OC_PRIVATE_STORAGE_ROOT' ) ? OC_PRIVATE_STORAGE_ROOT : $default_root;
-		$filtered     = apply_filters( 'oc_private_storage_root', $configured, $default_root );
-		$root         = self::prepare_storage_root( $filtered );
+		$configured     = defined( 'OC_PRIVATE_STORAGE_ROOT' ) ? OC_PRIVATE_STORAGE_ROOT : $default_root;
+		$filtered       = apply_filters( 'oc_private_storage_root', $configured, $default_root );
+		$reports_before = OC_Storage_Upgrade::reports();
+		$rejected_roots = [];
+		$root           = self::prepare_storage_root( $filtered, false, $rejected_roots );
 		if ( null !== $root && self::protect_artwork_directory( $root, $force_protection_check ) ) {
 			return $root;
 		}
@@ -250,11 +252,15 @@ class OC_Upload_Handler {
 			return null;
 		}
 
-		return self::protected_uploads_storage_root( $force_protection_check );
+		$fallback = self::protected_uploads_storage_root( $force_protection_check );
+		if ( null !== $fallback ) {
+			OC_Storage_Upgrade::report_automatic_fallback( $rejected_roots, $reports_before );
+		}
+		return $fallback;
 	}
 
 	/** Validate and create a storage root, optionally deferring public-path checks to the caller. */
-	private static function prepare_storage_root( mixed $path, bool $allow_public_path = false ): ?string {
+	private static function prepare_storage_root( mixed $path, bool $allow_public_path = false, array &$rejected_roots = [] ): ?string {
 		if ( ! is_string( $path ) || '' === trim( $path ) || str_contains( $path, "\0" ) ) {
 			return null;
 		}
@@ -279,9 +285,11 @@ class OC_Upload_Handler {
 		$configuration = wp_normalize_path( trim( $path ) );
 		if ( ! $allow_public_path && false !== $document_root && ( '' === rtrim( wp_normalize_path( $document_root ), '/' ) || self::path_is_within( $candidate, $document_root, true ) || self::path_is_within( $document_root, $candidate, true ) ) ) {
 			OC_Storage_Upgrade::revoke_private_root( $candidate, $configuration );
+			$rejected_roots[] = $candidate;
 			return null;
 		}
 		if ( ! $allow_public_path && OC_Storage_Upgrade::private_root_revoked( $candidate ) ) {
+			$rejected_roots[] = $candidate;
 			return null;
 		}
 
@@ -310,6 +318,8 @@ class OC_Upload_Handler {
 		if ( ! $allow_public_path && false !== $document_root && ( self::path_is_within( $real, $document_root, true ) || self::path_is_within( $document_root, $real, true ) ) ) {
 			OC_Storage_Upgrade::revoke_private_root( $candidate, $configuration );
 			OC_Storage_Upgrade::revoke_private_root( $real, $configuration );
+			$rejected_roots[] = $candidate;
+			$rejected_roots[] = $real;
 			return null;
 		}
 		if ( ! $allow_public_path && ( self::path_is_within( $real, $abspath, true ) || self::path_is_within( $abspath, $real, true )
@@ -320,6 +330,7 @@ class OC_Upload_Handler {
 
 		if ( ! $allow_public_path
 			&& ! OC_Storage_Upgrade::private_root_verified( $real, $configuration, $document_root ) ) {
+			$rejected_roots[] = $real;
 			return null;
 		}
 		@chmod( $real, 0750 ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged

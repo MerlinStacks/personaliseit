@@ -8,7 +8,7 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_System_Status {
-	private const READINESS_CACHE       = 'oc_compatibility_readiness_v4';
+	private const READINESS_CACHE       = 'oc_compatibility_readiness_v5';
 	private const READINESS_TTL         = 300;
 	private const NOTICE_DISMISSAL      = 'oc_readiness_notice_dismissal';
 	private const TRANSACTION_RESOURCES = [
@@ -69,6 +69,7 @@ class OC_System_Status {
 		// Reports are request-local diagnostics, not authorization. Never retain root keys or raw text.
 		foreach ( OC_Storage_Upgrade::reports() as $message ) {
 			$code = match ( $message ) {
+				'Default storage candidate skipped; automatic fallback is operational. Persistent root denial is unchanged.' => 'storage_automatic_fallback',
 				'Automatic storage is operational; direct HTTP protection has not been verified.' => 'storage_http_protection_unverified',
 				'Private root overlaps the document root.' => 'storage_root_overlap',
 				'Private root overlaps the known document root; prior CLI evidence revoked.',
@@ -121,6 +122,7 @@ class OC_System_Status {
 			'storage_root_overlap' => __( 'The selected private root overlaps the document root. Automatic selection can use the fallback; an explicit custom root must be corrected. This is root-specific, not a blanket storage block.', 'overcustomise' ),
 			'storage_evidence_revoked' => __( 'A known document-root contradiction remains recorded for the affected root, including CLI. Automatic selection can use the fallback. Correct an explicit custom root rather than bypassing the contradiction; missing or expired positive evidence alone does not block storage.', 'overcustomise' ),
 			'storage_evidence_missing' => __( 'Optional signed private-root evidence is missing or expired. This diagnostic does not block HTTP or CLI storage and requires no evidence-refresh setup.', 'overcustomise' ),
+			'storage_automatic_fallback' => __( 'The default storage candidate was skipped and automatic fallback is operational. Persistent denial for the rejected root is unchanged; retained-root checks still apply. Direct HTTP protection has not been verified.', 'overcustomise' ),
 			'storage_http_protection_unverified', 'storage_http_verification_blocked', 'storage_http_verification_deferred', 'storage_operator_verification_required' => __( 'Automatic storage is operational; direct HTTP protection has not been verified. Apache/IIS deny rules are automatically installed, but their presence is not proof of HTTP protection. Nginx or Apache with overrides disabled may expose public static files; aliases, mirrors and CDN caches also need independent security review. No server configuration or explicit public-storage approval is required for operation. This warning does not pause print; runtime storage checks perform no HTTP probes.', 'overcustomise' ),
 			'relocation_storage_blocked' => __( 'Relocation is blocked by unavailable verified destination storage. Sources and existing metadata are retained. Restore protected writable storage before retrying the affected relocation.', 'overcustomise' ),
 			'relocation_source_review' => __( 'A relocation source or record is missing, unreadable, changed, outside known roots or over its copy limit. Review the affected records and backups; preserve sources and metadata rather than forcing publication.', 'overcustomise' ),
@@ -177,6 +179,9 @@ class OC_System_Status {
 			if ( 'storage_http_protection_unverified' === $code ) {
 				$states[ $code ]['label'] = __( 'Direct file access protection', 'overcustomise' );
 				$states[ $code ]['version'] = __( 'Not verified', 'overcustomise' );
+			} elseif ( 'storage_automatic_fallback' === $code ) {
+				$states[ $code ]['label'] = __( 'Automatic storage fallback', 'overcustomise' );
+				$states[ $code ]['version'] = __( 'Default candidate skipped', 'overcustomise' );
 			}
 		}
 
@@ -203,11 +208,11 @@ class OC_System_Status {
 		}
 		$report = self::readiness_report();
 		$states = self::readiness_display_states( $report );
-		// Keep the informational HTTP advisory in System Status without showing an
+		// Keep informational HTTP and handled fallback diagnostics in System Status without an
 		// admin-wide warning that rechecking cannot resolve.
 		$failed = array_filter(
 			$states,
-			static fn ( array $state, string $key ): bool => 'ready' !== $state['status'] && 'storage_http_protection_unverified' !== $key,
+			static fn ( array $state, string $key ): bool => 'ready' !== $state['status'] && ! in_array( $key, [ 'storage_http_protection_unverified', 'storage_automatic_fallback' ], true ),
 			ARRAY_FILTER_USE_BOTH
 		);
 		if ( empty( $failed ) ) {
@@ -295,6 +300,8 @@ class OC_System_Status {
 						? __( 'Not verified', 'overcustomise' ) : __( 'Review', 'overcustomise' );
 					if ( 'storage_http_protection_unverified' === $key ) {
 						$check['version'] = '';
+					} elseif ( 'storage_automatic_fallback' === $key ) {
+						$check['result_label'] = __( 'Operational', 'overcustomise' );
 					}
 				}
 				$readiness[] = $check;

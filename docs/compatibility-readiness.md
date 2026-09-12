@@ -94,6 +94,10 @@ suffixes are never copied into the cache or rendered. Unknown messages become
 - `storage_root_overlap`, `storage_evidence_revoked`: the actual contradiction
   applies to that root. Automatic selection can use the fallback; correct an
   invalid explicit custom root rather than bypassing the contradiction.
+- `storage_automatic_fallback`: the default candidate was safely skipped and the
+  automatic fallback is operational. Only rejection reports from that successful
+  attempt are handled; earlier retained-root diagnostics and persistent denial
+  remain unchanged. Failed fallback and explicit-root failures still need review.
 - `storage_evidence_missing`: optional positive evidence is missing or expired;
   no evidence-refresh workflow is required for HTTP or CLI operation.
 - `storage_http_verification_blocked`, `storage_http_verification_deferred`,
@@ -111,8 +115,9 @@ suffixes are never copied into the cache or rendered. Unknown messages become
   remains. Arrange reference-safe cleanup and old-location HTTP denial/CDN purge.
 
 These diagnostics appear as warnings in notices and System Status, except
-`storage_http_protection_unverified`, which remains visible in System Status but
-does not create a persistent global admin notice. They do not add a blanket print
+`storage_http_protection_unverified` and `storage_automatic_fallback`, which remain
+visible in System Status but do not create a persistent global admin notice.
+Fallback availability does not imply verified HTTP protection. They do not add a blanket print
 pause or disable unrelated resources. Reports are request-local
 in the storage helper, so readiness captures only diagnostics available during
 that build, not a durable relocation inventory or proof that all sources moved.

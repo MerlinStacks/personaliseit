@@ -104,6 +104,10 @@ try {
 	$before_contradiction = $options;
 	$_SERVER['DOCUMENT_ROOT'] = $fixture;
 	check( null === OC_Upload_Handler::private_storage_root(), 'A sibling of ABSPATH inside the document root is rejected.' );
+	check( 'Private root overlaps the known document root; prior CLI evidence revoked.' === OC_Storage_Upgrade::reports()[ $root ], 'Explicit constant root keeps fresh contradiction actionable.' );
+	unset( $_SERVER['DOCUMENT_ROOT'] );
+	check( null === OC_Upload_Handler::private_storage_root() && str_starts_with( OC_Storage_Upgrade::reports()[ $root ], 'Private-root evidence revoked' ), 'Explicit constant root keeps persisted CLI revocation actionable.' );
+	check( ! isset( OC_Storage_Upgrade::reports()[ 'automatic-fallback:' . $root ] ), 'Explicit constant never reports a handled automatic fallback.' );
 	$options = $before_contradiction; // Independent subsequent storage scenarios, not recovery by a narrower document root.
 	$_SERVER['DOCUMENT_ROOT'] = ABSPATH;
 	symlink( ABSPATH, $fixture . '/alias' );
