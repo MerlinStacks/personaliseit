@@ -108,7 +108,7 @@ try {
 	unset( $_SERVER['DOCUMENT_ROOT'] );
 	check( null === OC_Upload_Handler::private_storage_root() && str_starts_with( OC_Storage_Upgrade::reports()[ $root ], 'Private-root evidence revoked' ), 'Explicit constant root keeps persisted CLI revocation actionable.' );
 	check( ! isset( OC_Storage_Upgrade::reports()[ 'automatic-fallback:' . $root ] ), 'Explicit constant never reports a handled automatic fallback.' );
-	$options = $before_contradiction; // Independent subsequent storage scenarios, not recovery by a narrower document root.
+	$options                  = $before_contradiction; // Independent subsequent storage scenarios, not recovery by a narrower document root.
 	$_SERVER['DOCUMENT_ROOT'] = ABSPATH;
 	symlink( ABSPATH, $fixture . '/alias' );
 	check( null === invoke( OC_Upload_Handler::class, 'prepare_storage_root', $fixture . '/alias/private' ), 'Symlinked public ancestors are rejected before creation.' );

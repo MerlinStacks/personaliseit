@@ -198,33 +198,49 @@ try {
 	$salt = 'rotated';
 	check( $fallback === invoke( OC_Upload_Handler::class, 'protected_uploads_storage_root' ), 'Fallback token and root survive salt rotation' );
 	$salt = 'storage-upgrade-test';
-	$configured = null; $_SERVER['DOCUMENT_ROOT'] = $fixture;
-	$default = dirname( rtrim( ABSPATH, '/' ) ) . '/.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 );
-	$reports_property = new ReflectionProperty( OC_Storage_Upgrade::class, 'reports' );
+
+	$configured               = null;
+	$_SERVER['DOCUMENT_ROOT'] = $fixture;
+	$default                  = dirname( rtrim( ABSPATH, '/' ) ) . '/.overcustomise-private-' . substr( hash( 'sha256', wp_normalize_path( ABSPATH ) ), 0, 12 );
+	$reports_property         = new ReflectionProperty( OC_Storage_Upgrade::class, 'reports' );
 	$reports_property->setValue( null, [] );
-	$handled = 'Default storage candidate skipped; automatic fallback is operational. Persistent root denial is unchanged.';
+	$handled       = 'Default storage candidate skipped; automatic fallback is operational. Persistent root denial is unchanged.';
 	$http_advisory = 'Automatic storage is operational; direct HTTP protection has not been verified.';
-	check( $fallback === OC_Upload_Handler::private_storage_root(), 'Fresh default contradiction automatically falls back' );
-	check( [ $fallback => $http_advisory, 'automatic-fallback:' . $default => $handled ] === OC_Storage_Upgrade::reports(), 'Fresh contradiction is handled without claiming HTTP protection' );
+	check( OC_Upload_Handler::private_storage_root() === $fallback, 'Fresh default contradiction automatically falls back' );
+	check(
+		OC_Storage_Upgrade::reports() === [
+			$fallback                        => $http_advisory,
+			'automatic-fallback:' . $default => $handled,
+		],
+		'Fresh contradiction is handled without claiming HTTP protection'
+	);
 	$denial_key = invoke( OC_Storage_Upgrade::class, 'revocation_key', $default );
-	$denial = $options[ $denial_key ];
+	$denial     = $options[ $denial_key ];
 	unset( $_SERVER['DOCUMENT_ROOT'] );
 	$reports_property->setValue( null, [] );
-	check( $fallback === OC_Upload_Handler::private_storage_root(), 'Persisted default contradiction automatically falls back in CLI' );
-	check( [ $fallback => $http_advisory, 'automatic-fallback:' . $default => $handled ] === OC_Storage_Upgrade::reports(), 'Persisted CLI contradiction is handled, HTTP remains unverified' );
-	check( $fallback === OC_Upload_Handler::private_storage_root() && ! isset( OC_Storage_Upgrade::reports()[ $default ] ), 'Repeated successful selection does not resurrect candidate warning' );
+	check( OC_Upload_Handler::private_storage_root() === $fallback, 'Persisted default contradiction automatically falls back in CLI' );
+	check(
+		OC_Storage_Upgrade::reports() === [
+			$fallback                        => $http_advisory,
+			'automatic-fallback:' . $default => $handled,
+		],
+		'Persisted CLI contradiction is handled, HTTP remains unverified'
+	);
+	check( OC_Upload_Handler::private_storage_root() === $fallback && ! isset( OC_Storage_Upgrade::reports()[ $default ] ), 'Repeated successful selection does not resurrect candidate warning' );
 	check( $denial === $options[ $denial_key ], 'Successful fallback never changes persistent denial' );
 	check( OC_Storage_Upgrade::private_root_revoked( $default ), 'Retained-root check still denies skipped default' );
 	$actionable = OC_Storage_Upgrade::reports()[ $default ];
 	OC_Storage_Upgrade::report( $root, 'Unrelated retained-root diagnostic' );
-	check( $fallback === OC_Upload_Handler::private_storage_root(), 'Fallback still operational with retained-root diagnostics' );
-	check( $actionable === OC_Storage_Upgrade::reports()[ $default ] && 'Unrelated retained-root diagnostic' === OC_Storage_Upgrade::reports()[ $root ], 'Earlier same-root and unrelated actionable reports survive fallback' );
+	check( OC_Upload_Handler::private_storage_root() === $fallback, 'Fallback still operational with retained-root diagnostics' );
+	check( OC_Storage_Upgrade::reports()[ $default ] === $actionable && 'Unrelated retained-root diagnostic' === OC_Storage_Upgrade::reports()[ $root ], 'Earlier same-root and unrelated actionable reports survive fallback' );
 	OC_Storage_Upgrade::report( $default, 'Relocation source hash did not match; source retained.' );
-	check( $fallback === OC_Upload_Handler::private_storage_root() && 'Relocation source hash did not match; source retained.' === OC_Storage_Upgrade::reports()[ $default ], 'Earlier different diagnostic for default root is restored exactly' );
+	check( OC_Upload_Handler::private_storage_root() === $fallback && 'Relocation source hash did not match; source retained.' === OC_Storage_Upgrade::reports()[ $default ], 'Earlier different diagnostic for default root is restored exactly' );
 	foreach ( [ true, false ] as $fresh ) {
 		$reports_property->setValue( null, [] );
 		$upload_base = $fixture . '/missing-uploads';
-		if ( $fresh ) { $_SERVER['DOCUMENT_ROOT'] = $fixture; }
+		if ( $fresh ) {
+			$_SERVER['DOCUMENT_ROOT'] = $fixture;
+		}
 		check( null === OC_Upload_Handler::private_storage_root(), 'Failed fallback remains unavailable' );
 		check( isset( OC_Storage_Upgrade::reports()[ $default ] ) && ! isset( OC_Storage_Upgrade::reports()[ 'automatic-fallback:' . $default ] ), 'Fresh and persisted failed fallback keep actionable candidate report' );
 		unset( $_SERVER['DOCUMENT_ROOT'] );
@@ -232,6 +248,7 @@ try {
 	$upload_base = $fixture . '/uploads';
 	$reports_property->setValue( null, [] );
 	$_SERVER['DOCUMENT_ROOT'] = $fixture;
+
 	$output = invoke( OC_Print_Base::class, 'ensure_output_dir', 42 ) . '/generated.pdf';
 	file_put_contents( $output, 'generated PDF fixture' );
 	$final = OC_Print_Generator::finalise_generated_output( $output, 12 );
@@ -259,8 +276,8 @@ try {
 	wp_mkdir_p( $old_default . '/print-files' ); file_put_contents( $old_default . '/print-files/old.pdf', 'old' );
 	check( null === OC_Print_Base::resolve_output_storage_path( $old_default . '/print-files/old.pdf' ), 'Known old default cannot bypass its persisted contradiction' );
 	$retained_report = OC_Storage_Upgrade::reports()[ $old_default ];
-	$configured = null;
-	check( $fallback === OC_Upload_Handler::private_storage_root() && $retained_report === OC_Storage_Upgrade::reports()[ $old_default ], 'Automatic fallback preserves actionable retained-print consumer report' );
+	$configured      = null;
+	check( OC_Upload_Handler::private_storage_root() === $fallback && OC_Storage_Upgrade::reports()[ $old_default ] === $retained_report, 'Automatic fallback preserves actionable retained-print consumer report' );
 	$configured = $root;
 	foreach ( [ $old_default, $fallback ] as $index => $old ) {
 		wp_mkdir_p( $old . '/artwork' );

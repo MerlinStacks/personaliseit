@@ -180,7 +180,7 @@ class OC_System_Status {
 				$states[ $code ]['label'] = __( 'Direct file access protection', 'overcustomise' );
 				$states[ $code ]['version'] = __( 'Not verified', 'overcustomise' );
 			} elseif ( 'storage_automatic_fallback' === $code ) {
-				$states[ $code ]['label'] = __( 'Automatic storage fallback', 'overcustomise' );
+				$states[ $code ]['label']   = __( 'Automatic storage fallback', 'overcustomise' );
 				$states[ $code ]['version'] = __( 'Default candidate skipped', 'overcustomise' );
 			}
 		}
