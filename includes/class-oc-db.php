@@ -1354,14 +1354,34 @@ class OC_DB {
 		$colours = self::get_colours( false );
 
 		global $wpdb;
-		$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
-		$allowed_ids  = $wpdb->get_col(
-			$wpdb->prepare(
-				"SELECT colour_id FROM {$wpdb->prefix}oc_colour_group_items WHERE group_id IN ($placeholders) GROUP BY colour_id ORDER BY MIN(sort_order) ASC",
-				...$group_ids
-			)
-		) ?: [];
-		$allowed_ids  = array_values( array_unique( array_map( 'absint', $allowed_ids ) ) );
+		// Cache membership only: retain get_colours() ordering and object semantics.
+		// Existing colour/group mutation handlers advance this generation on success.
+		static $membership_cache = [];
+		static $cache_context    = null;
+		$context = [ get_current_blog_id(), $wpdb->prefix, OC_Cache::generation() ];
+		if ( $cache_context !== $context ) {
+			$membership_cache = [];
+			$cache_context    = $context;
+		}
+		$cache_ids = array_unique( $group_ids );
+		sort( $cache_ids, SORT_NUMERIC );
+		$cache_key = implode( ',', $cache_ids );
+		if ( isset( $membership_cache[ $cache_key ] ) ) {
+			$allowed_ids = $membership_cache[ $cache_key ];
+		} else {
+			$placeholders = implode( ',', array_fill( 0, count( $group_ids ), '%d' ) );
+			$allowed_ids  = $wpdb->get_col(
+				$wpdb->prepare(
+					"SELECT colour_id FROM {$wpdb->prefix}oc_colour_group_items WHERE group_id IN ($placeholders) GROUP BY colour_id ORDER BY MIN(sort_order) ASC",
+					...$group_ids
+				)
+			) ?: [];
+			$allowed_ids  = array_values( array_unique( array_map( 'absint', $allowed_ids ) ) );
+			// A failed read must remain retryable later in this request.
+			if ( empty( $wpdb->last_error ) ) {
+				$membership_cache[ $cache_key ] = $allowed_ids;
+			}
+		}
 		if ( empty( $allowed_ids ) ) {
 			return [];
 		}

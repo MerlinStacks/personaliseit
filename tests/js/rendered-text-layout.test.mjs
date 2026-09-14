@@ -80,6 +80,41 @@ function fixture( type = 'text', settings = {}, unit = 'px', scale = 1 ) {
 	};
 }
 
+test( 'non-engraving rendering does not request the engraving chunk', async () => {
+	const f = fixture();
+	f.app.engravingPalette = () => {
+		assert.fail( 'non-engraving must not load engraving preview code' );
+	};
+	await f.render();
+	assert.ok( f.canvas.object );
+} );
+
+test( 'variation switching during the engraving import cannot paint stale content', async () => {
+	const f = fixture();
+	f.area.printMethod = 'engraving';
+	let resolvePalette;
+	f.app.engravingPalette = () =>
+		new Promise( ( resolve ) => {
+			resolvePalette = resolve;
+		} );
+	f.app.loadFont = () => assert.fail( 'stale render must stop before fonts' );
+	let current = true;
+	const render = f.app.renderLayer(
+		f.canvas,
+		f.layer,
+		f.input,
+		f.area,
+		() => current
+	);
+	assert.equal( typeof resolvePalette, 'function' );
+	assert.equal( f.canvas.object, undefined );
+	current = false;
+	resolvePalette( { text: '#747873' } );
+	await render;
+	assert.equal( f.canvas.object, undefined );
+	assert.equal( f.input.renderedLayoutVersion, undefined );
+} );
+
 test( 'captures final single-line compression and auto-size in canonical units', async () => {
 	const f = fixture( 'text', { default_font_size: 0 }, 'mm', 0.2 );
 	await f.render();

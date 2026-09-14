@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Available on the existing ubuntu-latest CI runner; fail before installing.
+command -v python3 >/dev/null
+
 # The release only bundles runtime Composer packages. Install that exact
 # dependency set so neither autoload metadata nor installed.php can reference
 # omitted development packages such as PHPUnit's myclabs/deep-copy dependency.
@@ -28,3 +31,6 @@ zip -d overcustomise.zip \
 	'overcustomise/vendor/tecnickcom/*/phpunit.xml.dist' \
 	'overcustomise/vendor/tecnickcom/*/resources/phpmd/*' \
 	>/dev/null
+
+# Validate the final artifact after the existing vendor fixture cleanup.
+python3 -B scripts/check-plugin-zip.py overcustomise.zip

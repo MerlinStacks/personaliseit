@@ -37,7 +37,10 @@
     "phpcs":     "phpcs",
     "phpcs:baseline": "phpcs-baseline --no-exit-code",
     "phpstan":   "phpstan analyse --no-progress --memory-limit=2G",
-    "test":      "phpunit --testsuite Unit",
+    "test": [
+      "phpunit --testsuite Unit",
+      "@php tests/colour-group-cache-regressions.php"
+    ],
     "test:unit": "phpunit --testsuite Unit",
     "test:all":  "phpunit",
     "quality": [
