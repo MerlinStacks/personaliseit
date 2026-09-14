@@ -86,6 +86,8 @@ test( 'address selection saves coordinates with the search field focused', async
 	page,
 	isMobile,
 } ) => {
+	const pageErrors = [];
+	page.on( 'pageerror', ( error ) => pageErrors.push( error.message ) );
 	const source = readFileSync(
 		path.resolve(
 			__dirname,
@@ -112,8 +114,10 @@ test( 'address selection saves coordinates with the search field focused', async
 			longitude: document.getElementById( 'longitude' ),
 		};
 		const app = {
-			clearStateTimeout: clearTimeout,
-			setStateTimeout: setTimeout,
+			// Native timers require the Window receiver, not this mock app.
+			clearStateTimeout: ( timer ) => window.clearTimeout( timer ),
+			setStateTimeout: ( callback, delay ) =>
+				window.setTimeout( callback, delay ),
 			createStateAbortController: () => ( {
 				controller: new AbortController(),
 				release() {},
@@ -158,6 +162,7 @@ test( 'address selection saves coordinates with the search field focused', async
 	}, handlers );
 	const input = page.locator( '#place' );
 	await input.fill( 'Sydney' );
+	expect( pageErrors ).toEqual( [] );
 	const option = page.getByRole( 'option' ).last();
 	await expect( option ).toBeVisible();
 	if ( isMobile ) {
@@ -172,4 +177,5 @@ test( 'address selection saves coordinates with the search field focused', async
 		latitude: '-33.868800',
 		longitude: '151.209300',
 	} );
+	expect( pageErrors ).toEqual( [] );
 } );
