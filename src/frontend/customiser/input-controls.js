@@ -717,7 +717,21 @@ const inputControlMethods = {
 						signal: stateSignal,
 					} )
 				);
+				const cancelSearch = () => {
+					++searchSequence;
+					this.clearStateTimeout( searchTimer );
+					searchTimer = null;
+					locationRequest?.controller.abort();
+					locationRequest?.release();
+					locationRequest = null;
+				};
+				const listenerOptions = { signal: stateSignal };
+				const dismissResults = () => {
+					cancelSearch();
+					showResults( [] );
+				};
 				const selectResult = ( result ) => {
+					dismissResults();
 					fields.latitude.value = Number( result.latitude ).toFixed(
 						6
 					);
@@ -725,11 +739,6 @@ const inputControlMethods = {
 						6
 					);
 					fields.locationLabel.value = result.displayName || '';
-					resultsEl.hidden = true;
-					fields.locationLabel.setAttribute(
-						'aria-expanded',
-						'false'
-					);
 					if ( error ) {
 						error.textContent = '';
 					}
@@ -759,11 +768,21 @@ const inputControlMethods = {
 							option.appendChild( detail );
 						}
 						option.addEventListener(
+							'pointerdown',
+							( event ) => {
+								// Keep focus on the search field: keyboard blur can commit
+								// an input change and remove this option before click.
+								// Select on click, not touch-down, so swipes still scroll.
+								if ( event.button === 0 ) {
+									event.preventDefault();
+								}
+							},
+							listenerOptions
+						);
+						option.addEventListener(
 							'click',
 							() => selectResult( result ),
-							{
-								signal: stateSignal,
-							}
+							listenerOptions
 						);
 						resultsEl.appendChild( option );
 					} );
@@ -786,129 +805,142 @@ const inputControlMethods = {
 						'true'
 					);
 				};
+				const displaySearchResults = ( results ) => {
+					if ( results.length ) {
+						showResults( results );
+					} else {
+						showResultStatus(
+							resultsEl.dataset.emptyLabel ||
+								'No matching addresses found.'
+						);
+					}
+				};
+				const searchAddresses = () => {
+					cancelSearch();
+					const query = fields.locationLabel.value.trim();
+					const cacheKey = query.toLocaleLowerCase();
+					const sequence = searchSequence;
+					if ( query.length < 3 ) {
+						showResults( [] );
+						return;
+					}
+					if ( locationSearchCache.has( cacheKey ) ) {
+						displaySearchResults(
+							locationSearchCache.get( cacheKey )
+						);
+						return;
+					}
+					showResultStatus(
+						resultsEl.dataset.searchingLabel || 'Searching…',
+						true
+					);
+					searchTimer = this.setStateTimeout( async () => {
+						const request =
+							this.createStateAbortController( 12000 );
+						locationRequest = request;
+						try {
+							await this.ensureRequestToken();
+							if ( request.controller.signal.aborted ) {
+								throw new DOMException(
+									'Search aborted',
+									'AbortError'
+								);
+							}
+							const response = await fetch(
+								this.data.locationLookupUrl,
+								{
+									method: 'POST',
+									credentials: 'same-origin',
+									cache: 'no-store',
+									headers: this.restHeaders( {
+										Accept: 'application/json',
+										'Content-Type': 'application/json',
+									} ),
+									body: JSON.stringify( {
+										query,
+										limit: 6,
+									} ),
+									signal: request.controller.signal,
+								}
+							);
+							if ( ! response.ok ) {
+								throw new Error( 'Location lookup failed' );
+							}
+							const payload = await response.json();
+							let results = [];
+							if ( Array.isArray( payload?.results ) ) {
+								results = payload.results;
+							} else if ( payload?.result ) {
+								results = [ payload.result ];
+							}
+							locationSearchCache.set( cacheKey, results );
+							if ( locationSearchCache.size > 20 ) {
+								locationSearchCache.delete(
+									locationSearchCache.keys().next().value
+								);
+							}
+							if ( sequence === searchSequence ) {
+								displaySearchResults( results );
+							}
+						} catch ( err ) {
+							if (
+								( err?.name !== 'AbortError' ||
+									request.timedOut() ) &&
+								sequence === searchSequence
+							) {
+								showResultStatus(
+									resultsEl.dataset.errorLabel ||
+										'Address search is unavailable.'
+								);
+							}
+						} finally {
+							request.release();
+							if ( locationRequest === request ) {
+								locationRequest = null;
+							}
+						}
+					}, 350 );
+				};
 				fields.locationLabel?.addEventListener(
 					'input',
 					() => {
 						fields.latitude.value = '';
 						fields.longitude.value = '';
 						update();
-						this.clearStateTimeout( searchTimer );
-						locationRequest?.controller.abort();
-						locationRequest?.release();
-						locationRequest = null;
-						const query = fields.locationLabel.value.trim();
-						const cacheKey = query.toLocaleLowerCase();
-						const sequence = ++searchSequence;
-						if ( query.length < 3 ) {
-							showResults( [] );
-							return;
-						}
-						if ( locationSearchCache.has( cacheKey ) ) {
-							const cachedResults =
-								locationSearchCache.get( cacheKey );
-							if ( cachedResults.length ) {
-								showResults( cachedResults );
-							} else {
-								showResultStatus(
-									resultsEl.dataset.emptyLabel ||
-										'No matching addresses found.'
-								);
-							}
-							return;
-						}
-						showResultStatus(
-							resultsEl.dataset.searchingLabel || 'Searching…',
-							true
-						);
-						searchTimer = this.setStateTimeout( async () => {
-							const request =
-								this.createStateAbortController( 12000 );
-							locationRequest = request;
-							try {
-								await this.ensureRequestToken();
-								if ( request.controller.signal.aborted ) {
-									return;
-								}
-								const response = await fetch(
-									this.data.locationLookupUrl,
-									{
-										method: 'POST',
-										credentials: 'same-origin',
-										cache: 'no-store',
-										headers: this.restHeaders( {
-											Accept: 'application/json',
-											'Content-Type': 'application/json',
-										} ),
-										body: JSON.stringify( {
-											query,
-											limit: 6,
-										} ),
-										signal: request.controller.signal,
-									}
-								);
-								if ( ! response.ok ) {
-									throw new Error( 'Location lookup failed' );
-								}
-								const payload = await response.json();
-								let results = [];
-								if ( Array.isArray( payload?.results ) ) {
-									results = payload.results;
-								} else if ( payload?.result ) {
-									results = [ payload.result ];
-								}
-								locationSearchCache.set( cacheKey, results );
-								if ( locationSearchCache.size > 20 ) {
-									locationSearchCache.delete(
-										locationSearchCache.keys().next().value
-									);
-								}
-								if ( sequence === searchSequence ) {
-									if ( results.length ) {
-										showResults( results );
-									} else {
-										showResultStatus(
-											resultsEl.dataset.emptyLabel ||
-												'No matching addresses found.'
-										);
-									}
-								}
-							} catch ( err ) {
-								if (
-									err?.name !== 'AbortError' &&
-									sequence === searchSequence
-								) {
-									showResultStatus(
-										resultsEl.dataset.errorLabel ||
-											'Address search is unavailable.'
-									);
-								}
-							} finally {
-								request.release();
-								if ( locationRequest === request ) {
-									locationRequest = null;
-								}
-							}
-						}, 350 );
+						searchAddresses();
 					},
-					{ signal: stateSignal }
+					listenerOptions
+				);
+				fields.locationLabel?.addEventListener(
+					'focus',
+					() => {
+						if (
+							! addressMode.hidden &&
+							! fields.latitude.value &&
+							! fields.longitude.value
+						) {
+							searchAddresses();
+						}
+					},
+					listenerOptions
 				);
 				fields.locationLabel?.addEventListener(
 					'keydown',
 					( event ) => {
 						if ( event.key === 'Escape' ) {
-							showResults( [] );
+							dismissResults();
 						}
 					},
-					{ signal: stateSignal }
+					listenerOptions
 				);
 				document.addEventListener(
 					'click',
 					( event ) => {
-						if ( ! root.contains( event.target ) ) {
-							showResults( [] );
+						if ( ! addressMode.contains( event.target ) ) {
+							dismissResults();
 						}
 					},
-					{ signal: stateSignal }
+					listenerOptions
 				);
 				root.querySelector(
 					'[data-oc-night-sky-use-coordinates]'
@@ -918,11 +950,11 @@ const inputControlMethods = {
 						addressMode.hidden = true;
 						coordinateMode.hidden = false;
 						fields.locationLabel.value = '';
-						showResults( [] );
+						dismissResults();
 						update();
 						fields.latitude?.focus();
 					},
-					{ signal: stateSignal }
+					listenerOptions
 				);
 				root.querySelector(
 					'[data-oc-night-sky-use-address]'
@@ -933,7 +965,7 @@ const inputControlMethods = {
 						addressMode.hidden = false;
 						fields.locationLabel?.focus();
 					},
-					{ signal: stateSignal }
+					listenerOptions
 				);
 				update();
 			} );
