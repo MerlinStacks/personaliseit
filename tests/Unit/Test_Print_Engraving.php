@@ -6,7 +6,20 @@
  */
 
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+
+if ( ! class_exists( 'WC_Order' ) ) {
+	class WC_Order {
+		public function get_id(): int {
+			return 1234;
+		}
+
+		public function get_order_number(): string {
+			return '1234';
+		}
+	}
+}
 
 if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 	class OC_Test_Engraving_PDF extends TCPDF {
@@ -37,7 +50,466 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 	}
 }
 
+if ( class_exists( 'OC_Test_Engraving_PDF' ) ) {
+	class OC_Test_Retry_Engraving_PDF extends OC_Test_Engraving_PDF {
+		public static int $attempts = 0;
+		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
+			if ( 2 === ++self::$attempts ) {
+				throw new RuntimeException( 'Simulated second-line renderer failure' );
+			}
+			parent::ImageSVG( $file, $x, $y, $w, $h );
+		}
+	}
+	class OC_Test_Verified_Engraving_PDF extends OC_Test_Engraving_PDF {
+		public function AddFont( $family, $style = '', $fontfile = '', $subset = 'default' ) {
+			throw new RuntimeException( 'PDF registration must not run' );
+		}
+	}
+}
+
 class Test_Print_Engraving extends TestCase {
+	public static function verified_font_formats(): array {
+		return [
+			'TrueType'          => [ false, 9876123 ],
+			'same-source WOFF1' => [ true, 9876124 ],
+		];
+	}
+
+	#[Test]
+	public function verified_partial_outlines_are_rolled_back_before_legacy_retry(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
+			$this->markTestSkipped( 'Actual TrueType font and TCPDF required.' );
+		}
+		$uploads = wp_upload_dir()['basedir'];
+		wp_mkdir_p( $uploads );
+		$path = tempnam( $uploads, 'oc-retry-font-' );
+		copy( $font, $path );
+		global $wpdb;
+		$previous = $wpdb;
+		$wpdb     = new class( basename( $path ) ) {
+			public string $prefix = 'wp_';
+			public function __construct( private string $path ) {}
+			public function prepare( $query, ...$args ) {
+				return $query;
+			}
+			public function get_row( $query ) {
+				return (object) [
+					'id'        => 9876126,
+					'file_path' => $this->path,
+				];
+			}
+		};
+		try {
+			OC_Test_Retry_Engraving_PDF::$attempts = 0;
+			$pdf                                   = new OC_Test_Retry_Engraving_PDF();
+			$pdf->AddPage();
+			$input = [
+				'value'                 => "Alex\nBob",
+				'fontId'                => 9876126,
+				'fontSize'              => 12,
+				'renderedLayoutVersion' => 1,
+				'renderedFontSize'      => 10,
+				'renderedScaleX'        => 1,
+				'renderedInsetX'        => 0,
+				'renderedLines'         => [ 'Alex', 'Bob' ],
+			];
+			( new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' ) )->invoke(
+				null,
+				$pdf,
+				[
+					'type' => 'textarea',
+					'h'    => 40,
+				],
+				$input,
+				[],
+				0.0,
+				0.0,
+				40.0,
+				40.0,
+				'engraving',
+				1.0
+			);
+			$this->assertSame( 4, OC_Test_Retry_Engraving_PDF::$attempts );
+			$this->assertCount( 2, $pdf->image_svg_calls, 'Only the complete legacy retry should remain in the PDF.' );
+		} finally {
+			$wpdb = $previous;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	public static function legacy_verified_font_sources(): array {
+		return [
+			'CFF companion'   => [ 'otf', 9876125 ],
+			'WOFF2 companion' => [ 'woff2', 9876127 ],
+			'absent source'   => [ 'missing', 9876128 ],
+		];
+	}
+
+	#[Test]
+	#[DataProvider( 'legacy_verified_font_sources' )]
+	public function verified_source_uses_existing_companion_or_pdf_fallback( string $format, int $font_id ): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! is_file( $font ) ) {
+			$this->markTestSkipped( 'Actual TrueType font required.' );
+		}
+		$uploads = wp_upload_dir()['basedir'];
+		wp_mkdir_p( $uploads );
+		$source = tempnam( $uploads, 'oc-cff-source-' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+		unlink( $source );
+		$companion = $source . '-print.ttf';
+		$source   .= '.' . $format;
+		$temporary = null;
+		global $wpdb;
+		$previous = $wpdb;
+		$wpdb     = new class( basename( $source ) ) {
+			public string $prefix = 'wp_';
+			public function __construct( private string $path ) {}
+			public function prepare( $query, ...$args ) {
+				return $query;
+			}
+			public function get_row( $query ) {
+				return (object) [
+					'id'        => 9876125,
+					'file_path' => $this->path,
+				];
+			}
+		};
+		try {
+			if ( 'missing' !== $format ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+				file_put_contents( $source, ( 'woff2' === $format ? 'wOF2' : 'OTTO' ) . str_repeat( "\0", 64 ) );
+				copy( $font, $companion );
+				$this->assertSame( $companion, ( new ReflectionMethod( OC_Print_Base::class, 'get_print_companion_font_path' ) )->invoke( null, $source ) );
+			}
+			$pdf = new OC_Test_Engraving_PDF();
+			$pdf->AddPage();
+			$input = [
+				'value'                 => 'Alex',
+				'fontId'                => $font_id,
+				'fontSize'              => 12,
+				'renderedLayoutVersion' => 1,
+				'renderedFontSize'      => 10,
+				'renderedScaleX'        => 1,
+				'renderedInsetX'        => 0,
+			];
+			( new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' ) )->invoke(
+				null,
+				$pdf,
+				[
+					'type' => 'text',
+					'h'    => 20,
+				],
+				$input,
+				[],
+				0.0,
+				0.0,
+				40.0,
+				20.0,
+				'engraving',
+				1.0
+			);
+			if ( 'missing' === $format ) {
+				$this->assertSame( 0, $pdf->image_svg_call_count );
+				$this->assertStringStartsWith( '%PDF-', $pdf->Output( '', 'S' ) );
+			} else {
+				$this->assertSame( 1, $pdf->image_svg_call_count );
+				$this->assertStringContainsString( '<path', $pdf->image_svg );
+			}
+		} finally {
+			$wpdb = $previous;
+			if ( is_file( $source ) ) {
+				unlink( $source ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			}
+			if ( is_file( $companion ) ) {
+				unlink( $companion ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			}
+		}
+	}
+
+	#[Test]
+	#[DataProvider( 'verified_font_formats' )]
+	public function verified_layer_uses_raw_font_without_pdf_registration_and_applies_outer_inset( bool $woff, int $font_id ): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
+			$this->markTestSkipped( 'Actual TrueType font and TCPDF required.' );
+		}
+		$uploads = wp_upload_dir()['basedir'];
+		wp_mkdir_p( $uploads );
+		$path = tempnam( $uploads, 'oc-verified-font-' );
+		if ( $woff ) {
+			$this->assertTrue( OC_WOFF_Converter::convert( $font, $path ) );
+		} else {
+			copy( $font, $path );
+		}
+		global $wpdb;
+		$previous = $wpdb;
+		$wpdb     = new class( basename( $path ) ) {
+			public string $prefix = 'wp_';
+			public function __construct( private string $path ) {}
+			public function prepare( $query, ...$args ) {
+				return $query;
+			}
+			public function get_row( $query ) {
+				return (object) [
+					'id'        => 9876123,
+					'file_path' => $this->path,
+				];
+			}
+		};
+		try {
+			$pdf    = new OC_Test_Verified_Engraving_PDF();
+			$method = new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' );
+			$input  = [
+				'value'                 => 'Alex',
+				'fontId'                => $font_id,
+				'fontSize'              => 0,
+				'renderedLayoutVersion' => 1,
+				'renderedFontSize'      => 2.5,
+				'renderedScaleX'        => 1,
+				'renderedInsetX'        => 0.1,
+				'renderedLines'         => [ 'Alex' ],
+			];
+			$method->invoke(
+				null,
+				$pdf,
+				[
+					'type' => 'textarea',
+					'h'    => 20,
+				],
+				$input,
+				[ 'alignment' => 'left' ],
+				10.0,
+				0.0,
+				40.0,
+				20.0,
+				'engraving',
+				1.0
+			);
+			$inset_call              = $pdf->image_svg_calls[0];
+			$input['renderedInsetX'] = 0;
+			$method->invoke(
+				null,
+				$pdf,
+				[
+					'type' => 'textarea',
+					'h'    => 20,
+				],
+				$input,
+				[ 'alignment' => 'left' ],
+				10.0,
+				0.0,
+				40.0,
+				20.0,
+				'engraving',
+				1.0
+			);
+			$this->assertEqualsWithDelta( 4.0, $inset_call['x'] - $pdf->image_svg_calls[1]['x'], 0.00001 );
+			$this->assertSame( $inset_call['h'], $pdf->image_svg_calls[1]['h'] );
+			$this->assertStringContainsString( 'scale(1.00000000 1.00000000)', $inset_call['svg'] );
+			// The decoded WOFF must emit exactly the same glyph paths and placement
+			// as the original fixture, not a same-family or adjacent print companion.
+			$reference = new OC_Test_Engraving_PDF();
+			( new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' ) )->invoke( null, $reference, 'Alex', $font, 2.5, 10.0, 0.0, 40.0, 20.0, 'L', 'T', [ 'Alex' ], true );
+			$this->assertSame( $reference->image_svg_calls[0], $pdf->image_svg_calls[1] );
+		} finally {
+			$wpdb = $previous;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function verified_outline_compresses_only_x_and_keeps_small_type_and_blank_lines(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
+			$this->markTestSkipped( 'Actual TrueType font and TCPDF required.' );
+		}
+		$pdf    = new OC_Test_Engraving_PDF();
+		$single = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_text_outline' );
+		$this->assertTrue( $single->invoke( null, $pdf, 'Alex', $font, 2.5, 0.0, 0.0, 0.1, 0.1, 'C', 0.4 ) );
+		$this->assertStringContainsString( 'scale(0.40000000 1.00000000)', $pdf->image_svg );
+		$multi = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' );
+		$this->assertTrue( $multi->invoke( null, $pdf, "Alex\n\nBob", $font, 2.5, 0.0, 0.0, 0.1, 0.1, 'L', 'T', [ 'Alex', '', 'Bob' ], true ) );
+		$this->assertCount( 3, $pdf->image_svg_calls );
+		$this->assertStringContainsString( 'scale(1.00000000 1.00000000)', $pdf->image_svg );
+		// Different glyph bounds cancel when reconstructing each typographic baseline.
+		$baselines = [];
+		foreach ( array_slice( $pdf->image_svg_calls, 1 ) as $call ) {
+			preg_match( '/translate\([\d.-]+ ([\d.-]+)\)/', $call['svg'], $match );
+			$baselines[] = $call['y'] + (float) $match[1] * 25.4 / 72;
+		}
+		$this->assertEqualsWithDelta( 2 * 2.5 * 1.13 * 1.16 * 25.4 / 72, $baselines[1] - $baselines[0], 0.0001 );
+	}
+
+	#[Test]
+	public function multiline_outline_failure_after_emission_is_explicit(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
+			$this->markTestSkipped( 'Actual TrueType font and TCPDF required.' );
+		}
+		$pdf = new class() extends OC_Test_Engraving_PDF {
+			public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
+				if ( $this->image_svg_called ) {
+					throw new RuntimeException( 'Second line failed' );
+				}
+				parent::ImageSVG( $file, $x, $y, $w, $h );
+			}
+		};
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'nonblank text line' );
+		( new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' ) )->invoke( null, $pdf, "Alex\nBob", $font, 2.5, 0.0, 0.0, 40.0, 40.0, 'L', 'T', [ 'Alex', 'Bob' ] );
+	}
+
+	#[Test]
+	public function legacy_generators_embed_artwork_at_each_areas_physical_dimensions(): void {
+		if ( ! class_exists( 'TCPDF' ) || ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'TCPDF and GD are required.' );
+		}
+		$upload_dir = wp_upload_dir()['basedir'];
+		if ( ! is_dir( $upload_dir ) ) {
+			mkdir( $upload_dir, 0755, true );
+		}
+		$source = tempnam( $upload_dir, 'oc-legacy-' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+		unlink( $source );
+		$source .= '.png';
+		$image   = imagecreatetruecolor( 40, 20 );
+		imagepng( $image, $source );
+		imagedestroy( $image );
+		$order = $this->createStub( WC_Order::class );
+		$order->method( 'get_id' )->willReturn( 987654 );
+		$order->method( 'get_order_number' )->willReturn( 'engraving-regression' );
+		$area   = (object) [
+			'label'       => 'Front',
+			'canvas_unit' => 'mm',
+			'canvas_w'    => 25.4,
+			'canvas_h'    => 12.7,
+		];
+		$data   = [ 'artworkPath' => $source ];
+		$output = '';
+		try {
+			$output = OC_Print_Engraving::generate( $order, 1, $area, $data );
+			$raw    = file_get_contents( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read the local generated PDF fixture.
+			$this->assertMatchesRegularExpression( '/\/Width\s+600\b/', $raw );
+			$this->assertMatchesRegularExpression( '/\/Height\s+300\b/', $raw );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $output );
+			$output           = '';
+			$second           = clone $area;
+			$second->canvas_w = 12.7;
+			$second->canvas_h = 6.35;
+			$output           = OC_Print_Engraving::generate_combined(
+				$order,
+				1,
+				[
+					[
+						'area'      => $area,
+						'area_data' => $data,
+					],
+					[
+						'area'      => $second,
+						'area_data' => $data,
+					],
+				]
+			);
+			$raw              = file_get_contents( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read the local generated PDF fixture.
+			$this->assertMatchesRegularExpression( '/\/Width\s+600\b/', $raw );
+			$this->assertMatchesRegularExpression( '/\/Height\s+300\b/', $raw );
+			$this->assertMatchesRegularExpression( '/\/Width\s+300\b/', $raw );
+			$this->assertMatchesRegularExpression( '/\/Height\s+150\b/', $raw );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $source );
+			if ( '' !== $output && file_exists( $output ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+				unlink( $output );
+			}
+		}
+	}
+
+	public static function svg_viewports(): array {
+		return [
+			'large intrinsic canvas'   => [ 'width="1000000" height="500000"', 600, 300, '0 0 1000000 500000', 600, 300 ],
+			'viewBox origin preserved' => [ 'viewBox="10 20 100 50"', 6000, 3000, '10 20 100 50', 6000, 3000 ],
+			'dimension budget'         => [ 'viewBox="0 0 100 1"', 24000, 240, '0 0 100 1', 12000, 120 ],
+			'pixel budget'             => [ 'viewBox="0 0 1 1"', 12000, 12000, '0 0 1 1', 6324, 6324 ],
+			'intrinsic fallback'       => [ 'width="6000" height="30"', 0, 0, '0 0 6000 30', 6000, 30 ],
+			'pixels'                   => [ 'width="96px" height="48px"', 600, 300, '0 0 96 48', 600, 300 ],
+			'millimetres'              => [ 'width="25.4mm" height="12.7mm"', 600, 300, '0 0 96 48', 600, 300 ],
+			'centimetres'              => [ 'width="2.54cm" height="1.27cm"', 600, 300, '0 0 96 48', 600, 300 ],
+			'inches'                   => [ 'width="1in" height="0.5in"', 600, 300, '0 0 96 48', 600, 300 ],
+			'points'                   => [ 'width="72pt" height="36pt"', 600, 300, '0 0 96 48', 600, 300 ],
+			'picas'                    => [ 'width="6pc" height="3pc"', 600, 300, '0 0 96 48', 600, 300 ],
+		];
+	}
+
+	#[Test]
+	#[DataProvider( 'svg_viewports' )]
+	public function svg_viewport_is_bounded_before_decoding( string $attributes, int $width, int $height, string $view_box, int $expected_width, int $expected_height ): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-svg-viewport-' );
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" ' . $attributes . '><path d="M0 0L1 1"/></svg>' );
+			$dom = ( new ReflectionMethod( OC_Print_Engraving::class, 'engraving_svg_viewport' ) )->invoke( null, $path, $width, $height );
+			$svg = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$this->assertSame( (string) $expected_width, $svg->getAttribute( 'width' ) );
+			$this->assertSame( (string) $expected_height, $svg->getAttribute( 'height' ) );
+			$this->assertSame( $view_box, $svg->getAttribute( 'viewBox' ) );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function direct_svg_path_uses_the_base_validation_gate_even_without_imagick(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-unsafe-svg-' );
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><image href="https://example.com/image.png"/></svg>' );
+			$this->expectException( RuntimeException::class );
+			$this->expectExceptionMessage( 'External SVG resources' );
+			( new ReflectionMethod( OC_Print_Engraving::class, 'open_svg_image_resource' ) )->invoke( null, $path, 600, 300 );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function svg_decoder_renders_the_requested_viewport_without_the_4096_working_cap(): void {
+		if ( ! class_exists( 'Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || ! Imagick::queryFormats( 'SVG' ) ) {
+			$this->markTestSkipped( 'Imagick with SVG support and GD are required.' );
+		}
+		$path  = tempnam( sys_get_temp_dir(), 'oc-svg-decode-' );
+		$image = false;
+		try {
+			// A huge intrinsic viewport must never be allocated by the SVG decoder.
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="1000000" height="10000" viewBox="0 0 100 1"><rect x="25" width="50" height="1" fill="black"/></svg>' );
+			$image = ( new ReflectionMethod( OC_Print_Engraving::class, 'open_svg_image_resource' ) )->invoke( null, $path, 6000, 60 );
+			$this->assertNotFalse( $image );
+			$this->assertSame( 6000, imagesx( $image ) );
+			$this->assertSame( 60, imagesy( $image ) );
+			$this->assertSame( 127, ( imagecolorat( $image, 0, 30 ) >> 24 ) & 127 );
+			$this->assertSame( 0, ( imagecolorat( $image, 3000, 30 ) >> 24 ) & 127 );
+		} finally {
+			if ( $image ) {
+				imagedestroy( $image );
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
 	#[Test]
 	public function indexed_png_is_promoted_before_alpha_analysis_without_resizing(): void {
 		if ( ! function_exists( 'imagecreate' ) ) {
@@ -297,7 +769,8 @@ class Test_Print_Engraving extends TestCase {
 
 	#[Test]
 	public function engraving_layer_text_renders_as_font_independent_svg_path(): void {
-		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		$font_path = getenv( 'OC_TEST_FONT_PATH' );
+		$font_path = $font_path ? $font_path : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
 			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
 		}
@@ -317,7 +790,8 @@ class Test_Print_Engraving extends TestCase {
 
 	#[Test]
 	public function engraving_outline_uses_fabric_baseline_independent_of_glyph_bounds(): void {
-		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		$font_path = getenv( 'OC_TEST_FONT_PATH' );
+		$font_path = $font_path ? $font_path : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
 			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
 		}
@@ -342,7 +816,8 @@ class Test_Print_Engraving extends TestCase {
 
 	#[Test]
 	public function constrained_engraving_textarea_keeps_its_bottom_line(): void {
-		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		$font_path = getenv( 'OC_TEST_FONT_PATH' );
+		$font_path = $font_path ? $font_path : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
 			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
 		}
@@ -372,7 +847,8 @@ class Test_Print_Engraving extends TestCase {
 
 	#[Test]
 	public function single_line_engraving_textarea_honours_vertical_alignment(): void {
-		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		$font_path = getenv( 'OC_TEST_FONT_PATH' );
+		$font_path = $font_path ? $font_path : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! file_exists( $font_path ) ) {
 			$this->markTestSkipped( 'TCPDF or DejaVuSans.ttf is not available.' );
 		}

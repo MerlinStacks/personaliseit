@@ -408,6 +408,21 @@ const canvasRendererMethods = {
 		if ( ! isCurrent() ) {
 			return;
 		}
+		const capturesTextLayout = canvas._ocArea === area;
+		if (
+			capturesTextLayout &&
+			[ 'text', 'textarea' ].includes( layer.type )
+		) {
+			for ( const key of [
+				'Lines',
+				'FontSize',
+				'ScaleX',
+				'InsetX',
+				'LayoutVersion',
+			] ) {
+				delete input[ `rendered${ key }` ];
+			}
+		}
 		const scale = canvas._ocScaleX ?? 1;
 		const areaBounds = this.areaBounds( area );
 		const bounds = displayBounds( areaBounds );
@@ -437,8 +452,11 @@ const canvasRendererMethods = {
 		);
 		const fontLimit = ( value ) => this.fontLimit( value );
 		const clampFontSize = ( size, settings ) => {
-			const minLimit = fontLimit( settings?.min_font_size );
+			let minLimit = fontLimit( settings?.min_font_size );
 			const maxLimit = fontLimit( settings?.max_font_size );
+			if ( maxLimit && minLimit > maxLimit ) {
+				minLimit = maxLimit;
+			}
 			const min = minLimit
 				? displayFontSize( minLimit, areaBounds, scale )
 				: 0;
@@ -458,11 +476,6 @@ const canvasRendererMethods = {
 			case 'text':
 			case 'textarea': {
 				const isSingleLineText = layer.type === 'text';
-				const capturesTextLayout = canvas._ocArea === area;
-				if ( capturesTextLayout ) {
-					delete input.renderedLines;
-					delete input.renderedFontSize;
-				}
 				let inputValue = input.value;
 				if ( inputValue === undefined ) {
 					inputValue = layer.locked
@@ -498,40 +511,43 @@ const canvasRendererMethods = {
 					  layer.settings?.default_color ||
 					  '#000000';
 				const align = layer.settings?.alignment || 'center';
+				let fontLoaded = false;
 				if ( font ) {
 					try {
-						await this.loadFont( font );
+						fontLoaded = ( await this.loadFont( font ) ) === true;
 					} catch ( err ) {
-						console.warn(
-							'[OC] Font load failed, falling back to sans-serif:',
-							err
-						);
-						font = null;
+						console.warn( '[OC] Using sans-serif:', err );
 					}
+				}
+				if ( ! fontLoaded ) {
+					font = null;
 				}
 				if ( ! isCurrent() ) {
 					return;
 				}
 
-				const minLimit = fontLimit( layer.settings?.min_font_size );
+				const maxLimit = fontLimit( layer.settings?.max_font_size );
+				const minLimit = Math.min(
+					fontLimit( layer.settings?.min_font_size ),
+					maxLimit || Infinity
+				);
 				const minFontSize = minLimit
 					? displayFontSize( minLimit, areaBounds, scale )
 					: 0;
-				const configuredFontSize =
-					input.fontSize || layer.settings?.default_font_size;
-				let fontSize = configuredFontSize
-					? clampFontSize(
-							displayFontSize(
-								parseInt( configuredFontSize, 10 ),
+				const configuredFontSize = Number(
+					input.fontSize ?? layer.settings?.default_font_size
+				);
+				let fontSize = clampFontSize(
+					Number.isFinite( configuredFontSize ) &&
+						configuredFontSize > 0
+						? displayFontSize(
+								configuredFontSize,
 								areaBounds,
 								scale
-							),
-							layer.settings
-					  )
-					: clampFontSize(
-							Math.max( 10, Math.round( lh * 0.72 ) ),
-							layer.settings
-					  );
+						  )
+						: layerBox.h * scale * 0.72,
+					layer.settings
+				);
 				const textFill = isEmbroidery
 					? this.embroideryPattern( color, fontSize )
 					: isEngraving && engravingPalette.pattern === 'wood'
@@ -730,25 +746,6 @@ const canvasRendererMethods = {
 						layoutMultilineTextbox( stitchLift, lw, fontSize );
 					}
 				}
-				if ( capturesTextLayout ) {
-					const displayScale = unitPxScale( areaBounds ) * scale;
-					if ( displayScale > 0 ) {
-						// Production must start from Fabric's final auto-fitted size,
-						// not the larger size originally selected by the customer.
-						input.renderedFontSize = Number(
-							( fontSize / displayScale ).toFixed( 4 )
-						);
-					}
-				}
-				if (
-					! isSingleLineText &&
-					capturesTextLayout &&
-					Array.isArray( obj._textLines )
-				) {
-					input.renderedLines = obj._textLines.map( ( line ) =>
-						Array.isArray( line ) ? line.join( '' ) : String( line )
-					);
-				}
 				const textareaScale = isSingleLineText ? 1 : 1;
 				if ( ! isSingleLineText ) {
 					obj.set( { scaleX: textareaScale, scaleY: textareaScale } );
@@ -852,6 +849,56 @@ const canvasRendererMethods = {
 				}
 				this.applyContentClip( obj, textClipPath );
 				canvas.add( obj );
+				// Capture only the completed, correctly loaded-font preview.
+				const displayScale = unitPxScale( areaBounds ) * scale;
+				const renderedFontSize = obj.fontSize / displayScale;
+				const renderedScaleX = isSingleLineText ? obj.scaleX : 1;
+				const renderedInsetX = isSingleLineText
+					? 0
+					: Math.max( 0, ( lw - obj.width ) / ( 2 * lw ) );
+				const renderedLines = Array.isArray( obj._textLines )
+					? obj._textLines.map( ( line ) =>
+							Array.isArray( line )
+								? line.join( '' )
+								: String( line )
+					  )
+					: [];
+				const normaliseLines = ( text ) =>
+					text.trim().replace( /\s+/gu, ' ' );
+				const validLines =
+					renderedLines.length > 0 &&
+					renderedLines.length <= 200 &&
+					( normaliseLines( renderedLines.join( '\n' ) ) ===
+						normaliseLines( raw ) ||
+						renderedLines.join( '' ) === raw.replace( /\n/g, '' ) );
+				if (
+					capturesTextLayout &&
+					fontLoaded &&
+					( isSingleLineText || validLines ) &&
+					isCurrent() &&
+					[
+						displayScale,
+						renderedFontSize,
+						renderedScaleX,
+						renderedInsetX,
+					].every( Number.isFinite ) &&
+					displayScale > 0 &&
+					renderedFontSize > 0 &&
+					renderedScaleX > 0 &&
+					renderedScaleX <= 1 &&
+					renderedInsetX >= 0 &&
+					renderedInsetX < 0.5
+				) {
+					Object.assign( input, {
+						renderedFontSize,
+						renderedScaleX,
+						renderedInsetX,
+						renderedLayoutVersion: 1,
+					} );
+					if ( ! isSingleLineText ) {
+						input.renderedLines = renderedLines;
+					}
+				}
 				break;
 			}
 
@@ -2795,7 +2842,7 @@ const canvasRendererMethods = {
 
 	async loadFont( font ) {
 		if ( ! font?.name || ! font?.url ) {
-			return;
+			return false;
 		}
 		const key = this.fontCacheKey( font );
 		if ( this.fontCache[ key ] ) {
@@ -2807,7 +2854,13 @@ const canvasRendererMethods = {
 		} );
 		this.fontCache[ key ] = ff
 			.load()
-			.then( ( f ) => document.fonts.add( f ) )
+			.then( ( f ) => {
+				if ( f.status !== 'loaded' ) {
+					throw new Error( 'Font not loaded' );
+				}
+				document.fonts.add( f );
+				return true;
+			} )
 			.catch( ( err ) => {
 				delete this.fontCache[ key ];
 				console.warn( '[OC] Font load failed:', err );

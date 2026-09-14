@@ -18,13 +18,14 @@ abstract class OC_Print_Base {
 	protected const CANVAS_DPI = 300;
 
 	/** Resource limits for customer-supplied render sources. */
-	protected const MAX_RASTER_DIMENSION = 12000;
-	protected const MAX_RASTER_PIXELS = 40000000;
-	protected const MAX_WORK_RASTER_DIMENSION = 4096;
-	protected const MAX_WORK_RASTER_PIXELS = 16000000;
-	protected const MAX_SVG_BYTES = 5242880;
-	protected const MAX_SPOT_MASK_DIMENSION = 900;
-	protected const MAX_SPOT_MASK_RUNS = 150000;
+	protected const MAX_RASTER_DIMENSION       = 12000;
+	protected const MAX_RASTER_PIXELS          = 40000000;
+	protected const MAX_WORK_RASTER_DIMENSION  = 4096;
+	protected const MAX_WORK_RASTER_PIXELS     = 16000000;
+	protected const MAX_SVG_BYTES              = 5242880;
+	protected const MAX_EMBEDDED_RASTER_BYTES  = 2097152;
+	protected const MAX_SPOT_MASK_DIMENSION    = 900;
+	protected const MAX_SPOT_MASK_RUNS         = 150000;
 	protected const MAX_SPOTIFY_RESPONSE_BYTES = 524288;
 
 	/** Engraving print files must output customer text and clipart as black. */
@@ -1008,8 +1009,42 @@ abstract class OC_Print_Base {
 
 	/** Embed SVG artwork as vector first, with a print-resolution raster fallback for unsupported SVGs. */
 	private static function draw_pdf_svg( \TCPDF $pdf, string $path, float $x_mm, float $y_mm, float $w_mm, float $h_mm ): void {
-		$vector_path = self::normalise_svg_intrinsic_size_for_tcpdf( $path );
-		$svg_path    = is_string( $vector_path ) && '' !== $vector_path ? $vector_path : $path;
+		$dom = self::load_print_svg( $path );
+		// Legacy exporter DTDs are accepted only after removal, never handed to a decoder.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read local artwork bytes, not a remote URL.
+		if ( preg_match( '/<!DOCTYPE/i', file_get_contents( $path ) ) ) {
+			$temp = self::temp_path_with_extension( 'oc-safe-svg-' . wp_generate_uuid4(), 'svg' );
+			try {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Stage local renderer input and check write failure. Native DOM property.
+				if ( ! $temp || false === file_put_contents( $temp, $dom->saveXML( $dom->documentElement ) ) ) {
+					throw new \RuntimeException( 'Could not stage safe SVG artwork.' );
+				}
+				self::draw_pdf_svg( $pdf, $temp, $x_mm, $y_mm, $w_mm, $h_mm );
+			} finally {
+				if ( $temp ) {
+					@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
+				}
+			}
+			return;
+		}
+		$embedded = self::embedded_svg_raster( $dom );
+		if ( null !== $embedded ) {
+			$temp = self::temp_path_with_extension( 'oc-embedded-' . wp_generate_uuid4() . '.' . $embedded[1], $embedded[1] );
+			try {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Stage local renderer input and check write failure.
+				if ( ! $temp || false === file_put_contents( $temp, $embedded[0] ) ) {
+					throw new \RuntimeException( 'Could not extract embedded raster artwork.' );
+				}
+				self::draw_pdf_image( $pdf, $temp, $x_mm, $y_mm, $w_mm, $h_mm );
+			} finally {
+				if ( $temp ) {
+					@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
+				}
+			}
+			return;
+		}
+		$vector_path   = self::normalise_svg_intrinsic_size_for_tcpdf( $path );
+		$svg_path      = is_string( $vector_path ) && '' !== $vector_path ? $vector_path : $path;
 		$fallback_path = null;
 
 		try {
@@ -1029,6 +1064,182 @@ abstract class OC_Print_Base {
 		} finally {
 			if ( is_string( $vector_path ) && '' !== $vector_path && file_exists( $vector_path ) ) {
 				@unlink( $vector_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+			}
+		}
+	}
+
+	/** Validate resources, not renderer feature support. Never expand XML entities. */
+	protected static function load_print_svg( string $path ): \DOMDocument {
+		if ( ! class_exists( '\DOMDocument' ) || ! is_file( $path ) || ! is_readable( $path ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
+			throw new \RuntimeException( 'SVG artwork is unavailable or exceeds the safe production size limit.' );
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read bounded local artwork bytes, not a remote URL.
+		$raw = file_get_contents( $path, false, null, 0, self::MAX_SVG_BYTES + 1 );
+		if ( ! is_string( $raw ) || strlen( $raw ) > self::MAX_SVG_BYTES || preg_match( '/<!ENTITY|<\?(?!xml\s)/i', $raw ) ) {
+			throw new \RuntimeException( 'Unsafe SVG declarations are not supported for production.' );
+		}
+		// Same external-only declaration stripping as OC_SVG_Sanitiser. Do not
+		// run its presentation allowlist here: it removes existing SVG effects.
+		$raw = preg_replace( '/<!DOCTYPE\s+svg(?:\s+(?:SYSTEM\s+(?:"[^"]*"|\'[^\']*\')|PUBLIC\s+(?:"[^"]*"|\'[^\']*\')\s+(?:"[^"]*"|\'[^\']*\')))?\s*>/i', '', $raw );
+		if ( preg_match( '/<!DOCTYPE/i', $raw ) ) {
+			throw new \RuntimeException( 'Unsafe SVG declarations are not supported for production.' );
+		}
+		$dom      = new \DOMDocument();
+		$previous = libxml_use_internal_errors( true );
+		try {
+			$loaded = $dom->loadXML( $raw, LIBXML_NONET );
+		} finally {
+			libxml_clear_errors();
+			libxml_use_internal_errors( $previous );
+		}
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM properties.
+		if ( ! $loaded || ! $dom->documentElement || 'svg' !== $dom->documentElement->localName ) {
+			throw new \RuntimeException( 'Invalid production SVG artwork.' );
+		}
+		foreach ( $dom->getElementsByTagName( '*' ) as $node ) {
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			if ( in_array( strtolower( $node->localName ), [ 'script', 'foreignobject', 'animate', 'animatetransform', 'animatemotion', 'set' ], true ) ) {
+				throw new \RuntimeException( 'Active SVG content is not supported for production.' );
+			}
+			foreach ( $node->attributes as $attribute ) {
+				// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+				$name = strtolower( $attribute->localName );
+				if ( 'base' === $name || str_starts_with( $name, 'on' ) ) {
+					throw new \RuntimeException( 'SVG resource references and active content are not supported for production.' );
+				}
+				if ( in_array( $name, [ 'href', 'src' ], true ) ) {
+					$value = trim( $attribute->value );
+					// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+					if ( str_starts_with( $value, 'data:' ) && in_array( $node->localName, [ 'image', 'feImage' ], true ) ) {
+						self::decode_embedded_svg_raster( $value );
+					} elseif ( ! preg_match( '/\A#[^\s]+\z/u', $value ) ) {
+						throw new \RuntimeException( 'External SVG resources are not supported for production.' );
+					}
+				}
+				if ( ! in_array( $name, [ 'href', 'src' ], true ) ) {
+					self::assert_print_svg_style_safe( $attribute->value );
+				}
+			}
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			if ( 'style' === $node->localName ) {
+				// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+				self::assert_print_svg_style_safe( $node->textContent );
+			}
+		}
+		return $dom;
+	}
+
+	/** Accept only the flat raster wrapper emitted by the clipart converter. */
+	protected static function embedded_svg_raster( \DOMDocument $dom ): ?array {
+		$images = $dom->getElementsByTagNameNS( '*', 'image' );
+		if ( 0 === $images->length ) {
+			return null;
+		}
+		$svg   = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+		$image = $images->item( 0 );
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+		if ( 1 !== $images->length || 2 !== $dom->getElementsByTagName( '*' )->length || $image->parentNode !== $svg ) {
+			return null;
+		}
+		foreach ( [ $svg, $image ] as $node ) {
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			foreach ( $node->childNodes as $child ) {
+				// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+				if ( ! $child instanceof \DOMElement && ! $child instanceof \DOMComment && ! ( $child instanceof \DOMText && '' === trim( $child->textContent ) ) ) {
+					return null;
+				}
+			}
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			if ( 'http://www.w3.org/2000/svg' !== $node->namespaceURI ) {
+				return null;
+			}
+			$allowed = $node === $svg ? [ 'width', 'height', 'viewBox', 'data-oc-converted' ] : [ 'width', 'height', 'href' ];
+			foreach ( $node->attributes as $attribute ) {
+				// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM properties.
+				if ( ! in_array( $attribute->localName, $allowed, true ) || ( $attribute->namespaceURI && ! ( $node === $image && 'href' === $attribute->localName && 'http://www.w3.org/1999/xlink' === $attribute->namespaceURI ) ) ) {
+					return null;
+				}
+			}
+		}
+		$uri   = $image->getAttribute( 'href' );
+		$uri   = $uri ? $uri : $image->getAttributeNS( 'http://www.w3.org/1999/xlink', 'href' );
+		$xlink = $image->getAttributeNS( 'http://www.w3.org/1999/xlink', 'href' );
+		if ( '' !== $xlink && $xlink !== $uri ) {
+			return null;
+		}
+		if ( ! str_starts_with( $uri, 'data:' ) ) {
+			return null;
+		}
+		[ $bytes, $format ] = self::decode_embedded_svg_raster( $uri );
+		$info               = getimagesizefromstring( $bytes );
+		foreach ( [ $svg, $image ] as $node ) {
+			if ( $node->getAttribute( 'width' ) !== (string) $info[0] || $node->getAttribute( 'height' ) !== (string) $info[1] ) {
+				return null;
+			}
+		}
+		if ( $svg->getAttribute( 'viewBox' ) !== '0 0 ' . $info[0] . ' ' . $info[1] ) {
+			return null;
+		}
+		return [ $bytes, $format ];
+	}
+
+	/** Validate embedded pixels even when their surrounding SVG cannot be extracted. */
+	private static function decode_embedded_svg_raster( string $uri ): array {
+		// Bound the unnormalised input too, so whitespace cannot bypass the SVG budget.
+		if ( strlen( $uri ) > self::MAX_SVG_BYTES || ! preg_match( '~\Adata:image/(png|jpeg);base64,(.*)\z~sD', $uri, $match ) ) {
+			throw new \RuntimeException( 'Only bounded embedded PNG/JPEG data is supported for production.' );
+		}
+		$match[2] = str_replace( [ ' ', "\t", "\r", "\n", "\f", "\v" ], '', $match[2] );
+		if ( strlen( $match[2] ) > 4 * (int) ceil( self::MAX_EMBEDDED_RASTER_BYTES / 3 ) || ! preg_match( '~\A[A-Za-z0-9+/]*={0,2}\z~D', $match[2] ) ) {
+			throw new \RuntimeException( 'Only bounded embedded PNG/JPEG data is supported for production.' );
+		}
+		$bytes = base64_decode( $match[2], true ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decode embedded image bytes for validation.
+		$info  = false !== $bytes && '' !== $bytes && strlen( $bytes ) <= self::MAX_EMBEDDED_RASTER_BYTES ? @getimagesizefromstring( $bytes ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Invalid image bytes are rejected below.
+		if ( false === $bytes || base64_encode( $bytes ) !== $match[2] || ! $info || 'image/' . $match[1] !== $info['mime'] // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Verify canonical image encoding.
+			|| $info[0] <= 0 || $info[1] <= 0 || $info[0] > self::MAX_RASTER_DIMENSION || $info[1] > self::MAX_RASTER_DIMENSION || $info[0] * $info[1] > self::MAX_RASTER_PIXELS ) {
+			throw new \RuntimeException( 'Invalid or oversized embedded raster artwork.' );
+		}
+		return [ $bytes, $match[1] ];
+	}
+
+	/** Resolve positive absolute SVG lengths to CSS pixels at 96 DPI. */
+	protected static function svg_absolute_length_px( string $value ): float {
+		if ( ! preg_match( '/\A([+]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(px|mm|cm|in|pt|pc)?\z/', trim( $value ), $match ) ) {
+			throw new \RuntimeException( 'SVG requires a viewBox or absolute intrinsic dimensions.' );
+		}
+		$scales = [
+			''   => 1,
+			'px' => 1,
+			'mm' => 96 / 25.4,
+			'cm' => 96 / 2.54,
+			'in' => 96,
+			'pt' => 96 / 72,
+			'pc' => 16,
+		];
+		$pixels = (float) $match[1] * $scales[ $match[2] ?? '' ];
+		if ( ! is_finite( $pixels ) || $pixels <= 0 ) {
+			throw new \RuntimeException( 'SVG intrinsic dimensions must be positive and finite.' );
+		}
+		return $pixels;
+	}
+
+	/** Decode CSS escapes/comments before denying external URLs and imports. */
+	private static function assert_print_svg_style_safe( string $value ): void {
+		$value = preg_replace( '~/\*.*?\*/~s', '', $value );
+		$value = preg_replace_callback(
+			'/\\\\([0-9a-f]{1,6})\s?|\\\\(.)/is',
+			static function ( array $matches ): string {
+				return ! empty( $matches[1] ) ? html_entity_decode( '&#' . hexdec( $matches[1] ) . ';', ENT_QUOTES, 'UTF-8' ) : ( $matches[2] ?? '' );
+			},
+			$value
+		);
+		if ( preg_match( '/@import|@font-face|expression\s*\(/i', $value ) ) {
+			throw new \RuntimeException( 'External SVG styles are not supported for production.' );
+		}
+		preg_match_all( '/url\s*\((.*?)\)/is', $value, $urls );
+		foreach ( $urls[1] as $url ) {
+			if ( ! preg_match( '/\A#[^\s]+\z/u', trim( $url, " \t\r\n\"'" ) ) ) {
+				throw new \RuntimeException( 'External SVG resources are not supported for production.' );
 			}
 		}
 	}
@@ -1451,6 +1662,7 @@ abstract class OC_Print_Base {
 
 	/** Convert SVG artwork to a transparent PNG at the final print size. */
 	private static function normalise_svg_for_tcpdf( string $path, float $w_mm = 0.0, float $h_mm = 0.0 ): ?string {
+		self::load_print_svg( $path );
 		if ( ! class_exists( '\Imagick' ) ) {
 			return null;
 		}
@@ -1460,12 +1672,15 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		if ( self::convert_svg_with_imagick( $path, $temp, $w_mm, $h_mm ) ) {
-			return $temp;
+		$converted = false;
+		try {
+			$converted = self::convert_svg_with_imagick( $path, $temp, $w_mm, $h_mm );
+			return $converted ? $temp : null;
+		} finally {
+			if ( ! $converted ) {
+				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
+			}
 		}
-
-		@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-		return null;
 	}
 
 	/** Rasterise an SVG with enough pixels for the placed PDF dimensions. */
@@ -1474,29 +1689,49 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		$dpi = 600;
-		[ $width_px, $height_px ] = self::bounded_work_dimensions(
-			max( 1, (int) ceil( max( 0.1, $w_mm ) / 25.4 * $dpi ) ),
-			max( 1, (int) ceil( max( 0.1, $h_mm ) / 25.4 * $dpi ) )
-		);
+		$dom     = self::load_print_svg( $path );
+		$imagick = null;
 
 		try {
+			[ $width_px, $height_px ] = self::print_raster_dimensions( $w_mm, $h_mm );
+			$svg                      = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			if ( ! $svg->hasAttribute( 'viewBox' ) ) {
+				$width  = self::svg_absolute_length_px( $svg->getAttribute( 'width' ) );
+				$height = self::svg_absolute_length_px( $svg->getAttribute( 'height' ) );
+				$svg->setAttribute( 'viewBox', '0 0 ' . $width . ' ' . $height );
+			}
+			// Set the viewport BEFORE decoding, rather than enlarging an intrinsic-size raster.
+			$svg->setAttribute( 'width', (string) $width_px );
+			$svg->setAttribute( 'height', (string) $height_px );
 			$imagick = new \Imagick();
 			self::configure_imagick_limits( $imagick );
-			$imagick->setResolution( $dpi, $dpi );
+			$imagick->setResolution( 96, 96 );
 			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
-			$imagick->readImage( $path );
+			$imagick->readImageBlob( $dom->saveXML( $svg ) );
 			$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$imagick->setImageFormat( 'png32' );
 			$imagick->resizeImage( $width_px, $height_px, \Imagick::FILTER_LANCZOS, 1, false );
 			$result = $imagick->writeImage( $output_path );
-			$imagick->clear();
-			$imagick->destroy();
 			return (bool) $result;
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'SVG to print-resolution PNG conversion failed for print artwork: ' . $e->getMessage() );
 			return false;
+		} finally {
+			if ( $imagick instanceof \Imagick ) {
+				$imagick->clear();
+				$imagick->destroy();
+			}
 		}
+	}
+
+	/** Physical-size working budget, bounded before integer conversion or allocation. */
+	protected static function print_raster_dimensions( float $w_mm, float $h_mm, int $dpi = 600, int $max_dimension = self::MAX_WORK_RASTER_DIMENSION, int $max_pixels = self::MAX_WORK_RASTER_PIXELS ): array {
+		if ( ! is_finite( $w_mm ) || ! is_finite( $h_mm ) || $w_mm <= 0 || $h_mm <= 0 ) {
+			throw new \RuntimeException( 'Valid final artwork dimensions are required for raster processing.' );
+		}
+		$dpi   = max( 72, min( 2400, $dpi ) );
+		$scale = min( $dpi / 25.4, $max_dimension / max( $w_mm, $h_mm ), sqrt( $max_pixels / $w_mm / $h_mm ) );
+		return self::bounded_work_dimensions( max( 1, (int) ceil( $w_mm * $scale ) ), max( 1, (int) ceil( $h_mm * $scale ) ), $max_dimension, $max_pixels );
 	}
 
 	/** TCPDF does not reliably import WEBP, so create a temporary PNG copy first. */
@@ -2536,26 +2771,96 @@ abstract class OC_Print_Base {
 	}
 
 	private static function render_layer_text( \TCPDF $pdf, array $layer, array $input, array $settings, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode, ?float $font_px_to_pt = null ): void {
+		foreach ( [ $x_mm, $y_mm, $w_mm, $h_mm, $font_px_to_pt ?? self::px_to_pt( 1.0 ), $layer['h'] ?? 1, $input['fontSize'] ?? $settings['default_font_size'] ?? 0, $settings['min_font_size'] ?? 0, $settings['max_font_size'] ?? 0 ] as $geometry ) {
+			if ( ! is_numeric( $geometry ) || ! is_finite( (float) $geometry ) || ! is_finite( (float) $geometry * 72 ) ) {
+				throw new \RuntimeException( 'Non-finite text geometry.' );
+			}
+		}
+		$verified = self::browser_rendered_text_layout( $input, $layer, $settings );
+		if ( null === $verified && array_key_exists( 'renderedLayoutVersion', $input ) ) {
+			// A versioned textarea's lines and geometry are one indivisible bundle.
+			unset( $input['renderedFontSize'], $input['renderedScaleX'], $input['renderedInsetX'], $input['renderedLines'] );
+		}
 		$is_textarea = 'textarea' === (string) ( $layer['type'] ?? '' );
-		$text        = trim( str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) ) );
-		if ( '' === $text ) {
+		$text        = str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) );
+		$text        = null !== $verified && 'engraving' === $mode ? $text : trim( $text );
+		if ( '' === trim( $text ) ) {
 			return;
 		}
-		if ( 'engraving' === $mode ) {
+		if ( 'engraving' === $mode && null === $verified ) {
 			$text = self::normalise_engraving_text( $text );
 		}
-		$rendered_lines = $is_textarea ? self::browser_rendered_text_lines( $input, $text ) : null;
+		$rendered_lines = $is_textarea ? ( $verified['renderedLines'] ?? self::browser_rendered_text_lines( $input, $text ) ) : null;
 		$render_text    = null !== $rendered_lines ? implode( "\n", $rendered_lines ) : $text;
 
-		$font_id              = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
-		$font                 = $font_id ? self::get_font( $font_id ) : null;
-		$font_name            = self::resolve_font( $font_id, $pdf );
-		$raw_font_path        = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
-		$engraving_font_path  = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
+		$font_id           = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
+		$font              = $font_id ? self::get_font( $font_id ) : null;
+		$verified_fallback = false;
+		if ( null !== $verified && 'engraving' === $mode ) {
+			$conversion = $font_px_to_pt ?? self::px_to_pt( 1.0 );
+			$size       = $verified['renderedFontSize'] * $conversion;
+			$inset      = $w_mm * $verified['renderedInsetX'];
+			$draw_width = $w_mm - 2 * $inset;
+			if ( $w_mm <= 0 || $h_mm <= 0 || $conversion <= 0 || ! is_finite( $size ) || $size <= 0 || ! is_finite( $draw_width ) || $draw_width <= 0
+				|| ! is_finite( $x_mm + $inset ) || ! is_finite( $x_mm + $w_mm ) || ! is_finite( $y_mm + $h_mm ) ) {
+				throw new \RuntimeException( 'Invalid verified text geometry.' );
+			}
+			$align  = strtoupper( substr( (string) ( $settings['alignment'] ?? 'center' ), 0, 1 ) );
+			$align  = in_array( $align, [ 'L', 'C', 'R' ], true ) ? $align : 'C';
+			$valign = match ( $settings['line_alignment'] ?? 'top' ) {
+				'top' => 'T',
+				'bottom' => 'B',
+				default => 'C'
+			};
+			$temporary_font = null;
+			$transaction    = false;
+			try {
+				$path = self::verified_outline_font_path( $font, $temporary_font );
+				$pdf->startTransaction();
+				$transaction = true;
+				$ok          = $is_textarea
+					? self::render_engraving_multiline_text_outline( $pdf, $render_text, $path, $size, $x_mm + $inset, $y_mm, $draw_width, $h_mm, $align, $valign, $rendered_lines, true )
+					: self::render_engraving_text_outline( $pdf, $render_text, $path, $size, $x_mm, $y_mm, $w_mm, $h_mm, $align, $verified['renderedScaleX'] );
+				if ( ! $ok ) {
+					throw new \RuntimeException( 'Verified text layout could not be faithfully outlined.' );
+				}
+				$pdf->commitTransaction();
+				return;
+			} catch ( \Throwable $e ) {
+				if ( $transaction ) {
+					$pdf->rollbackTransaction( true );
+				}
+				OC_Logger::warning( 'Verified text layout fallback to existing companion/raster/PDF rendering: ' . $e->getMessage() );
+				$verified_fallback = true;
+				$verified          = null;
+				unset( $input['renderedFontSize'], $input['renderedScaleX'], $input['renderedInsetX'], $input['renderedLines'] );
+				$text           = self::normalise_engraving_text( trim( $text ) );
+				$rendered_lines = null;
+				$render_text    = $text;
+			} finally {
+				if ( is_string( $temporary_font ) ) {
+					@unlink( $temporary_font ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
+				}
+			}
+		}
+		try {
+			$font_name = self::resolve_font( $font_id, $pdf );
+		} catch ( \Throwable $e ) {
+			if ( ! $verified_fallback ) {
+				throw $e;
+			}
+			OC_Logger::warning( 'Verified font PDF registration unavailable; attempting companion/source raster, then legacy default PDF font: ' . $e->getMessage() );
+			$font_name = self::resolve_font( 0, $pdf );
+		}
+		$raw_font_path       = is_object( $font ) ? self::get_raw_font_path( $font ) : null;
+		$engraving_font_path = 'engraving' === $mode && is_object( $font ) ? self::get_font_path( $font ) : null;
+		if ( $verified_fallback && $raw_font_path && 'woff2' === strtolower( pathinfo( $raw_font_path, PATHINFO_EXTENSION ) ) ) {
+			$engraving_font_path = self::get_print_companion_font_path( $raw_font_path ) ?? self::get_print_variant_font_path( $font );
+		}
 		$font_px_to_pt        = $font_px_to_pt && $font_px_to_pt > 0 ? $font_px_to_pt : self::px_to_pt( 1.0 );
 		$configured_font_size = (float) ( $input['fontSize'] ?? $settings['default_font_size'] ?? 0 );
-		$rendered_font_size   = self::browser_rendered_font_size( $input, $configured_font_size );
-		$font_size            = $configured_font_size > 0
+		$rendered_font_size   = $verified['renderedFontSize'] ?? self::browser_rendered_font_size( $input, $configured_font_size );
+		$font_size            = $configured_font_size > 0 || null !== $rendered_font_size
 			? max( 4.0, ( $rendered_font_size ?? $configured_font_size ) * $font_px_to_pt )
 			: max( 4.0, max( 1.0, (float) ( $layer['h'] ?? 1 ) ) * 0.72 * $font_px_to_pt );
 		$min_size  = ! empty( $settings['min_font_size'] ) ? (float) $settings['min_font_size'] * $font_px_to_pt : 0.0;
@@ -2627,6 +2932,35 @@ abstract class OC_Print_Base {
 		self::draw_clipped_text_cell( $pdf, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $render_text, $cell_h, $align, $valign, $is_textarea );
 	}
 
+	/** Resolve only the selected source, unwrapping WOFF1 without changing its tables. */
+	private static function verified_outline_font_path( ?object $font, ?string &$temporary ): string {
+		$path = $font ? self::get_raw_font_path( $font ) : null;
+		if ( ! $path ) {
+			throw new \RuntimeException( 'Verified text font source is unavailable.' );
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read the local font signature.
+		$signature = file_get_contents( $path, false, null, 0, 4 );
+		if ( 'wOFF' === $signature ) {
+			if ( ! class_exists( 'OC_WOFF_Converter' ) ) {
+				require_once dirname( __DIR__ ) . '/class-oc-woff-converter.php';
+			}
+			$temp = self::temp_path_with_extension( 'oc-verified-font', 'ttf' );
+			if ( ! is_string( $temp ) ) {
+				throw new \RuntimeException( 'Could not stage the verified WOFF font.' );
+			}
+			$temporary = $temp;
+			if ( ! OC_WOFF_Converter::extract_sfnt( $path, $temp ) ) {
+				throw new \RuntimeException( 'Could not losslessly unwrap the selected verified WOFF font.' );
+			}
+			$path = $temp;
+		}
+		if ( ! self::is_truetype_outline_font( $path ) ) {
+			// Companion filenames/family matches do not attest source or metric parity.
+			throw new \RuntimeException( 'Verified text requires the selected TrueType-outline source; CFF/WOFF2 companions have no verified same-source provenance.' );
+		}
+		return $path;
+	}
+
 	/** Use Fabric's submitted lines only when they reproduce the canonical text. */
 	protected static function browser_rendered_text_lines( array $input, string $text ): ?array {
 		$raw_lines = $input['renderedLines'] ?? null;
@@ -2653,6 +2987,52 @@ abstract class OC_Print_Base {
 		$without_line_breaks = static fn( string $value ): string => str_replace( "\n", '', str_replace( [ "\r\n", "\r" ], "\n", $value ) );
 
 		return $without_line_breaks( $rendered_text ) === $without_line_breaks( $text ) ? $lines : null;
+	}
+
+	/** Independently validate the atomic cart contract in canonical units. */
+	protected static function browser_rendered_text_layout( array $input, array $layer, array $settings ): ?array {
+		if ( ! in_array( $input['renderedLayoutVersion'] ?? null, [ 1, 1.0, '1' ], true ) ) {
+			return null;
+		}
+		$layout = [];
+		foreach ( [ 'renderedFontSize', 'renderedScaleX', 'renderedInsetX' ] as $key ) {
+			if ( ! is_numeric( $input[ $key ] ?? null ) || ! is_finite( (float) $input[ $key ] ) ) {
+				return null;
+			}
+			$layout[ $key ] = (float) $input[ $key ];
+		}
+		$values = [ $input['fontSize'] ?? $settings['default_font_size'] ?? 0, $layer['h'] ?? 0, $settings['min_font_size'] ?? 0, $settings['max_font_size'] ?? 0 ];
+		foreach ( $values as $value ) {
+			if ( ! is_numeric( $value ) || ! is_finite( (float) $value ) ) {
+				return null;
+			}
+		}
+		[ $configured, $height, $min, $max ] = array_map( 'floatval', $values );
+		$ceiling                             = $configured > 0 ? $configured : $height * 0.72;
+		if ( $max > 0 ) {
+			$min     = min( $min, $max );
+			$ceiling = min( $ceiling, $max );
+		}
+		$ceiling   = max( $ceiling, $min );
+		$tolerance = max( abs( $ceiling ), abs( $min ) ) * 1e-12;
+		$size      = $layout['renderedFontSize'];
+		$scale     = $layout['renderedScaleX'];
+		$inset     = $layout['renderedInsetX'];
+		$type      = $layer['type'] ?? '';
+		if ( ! in_array( $type, [ 'text', 'textarea' ], true ) || $size <= 0 || $size < $min - $tolerance || $size > $ceiling + $tolerance
+			|| $scale <= 0 || $scale > 1 || $inset < 0 || $inset >= 0.5
+			|| ( 'text' === $type && 0.0 !== $inset ) || ( 'textarea' === $type && 1.0 !== $scale ) ) {
+			return null;
+		}
+		$layout['renderedFontSize'] = min( $ceiling, max( $min, $size ) );
+		if ( 'textarea' === $type ) {
+			$lines = self::browser_rendered_text_lines( $input, (string) ( $input['value'] ?? '' ) );
+			if ( null === $lines ) {
+				return null;
+			}
+			$layout['renderedLines'] = $lines;
+		}
+		return $layout;
 	}
 
 	/** Use Fabric's final auto-fitted size only when it cannot enlarge the configured text. */
@@ -2700,7 +3080,7 @@ abstract class OC_Print_Base {
 
 			$draw = new \ImagickDraw();
 			$draw->setFont( $font_path );
-			$draw->setFontSize( max( 1.0, $font_size * $dpi / 72 ) );
+			$draw->setFontSize( $font_size * $height_px / self::mm_to_pt_value( max( 0.1, $h_mm ) ) );
 			$draw->setFillColor( new \ImagickPixel( 'black' ) );
 			$draw->setTextAntialias( true );
 			$draw->setTextAlignment( match ( $align ) {
@@ -2775,7 +3155,7 @@ abstract class OC_Print_Base {
 		return self::engraving_textbox_height_mm( count( $lines ), $font_size ) <= $h_mm;
 	}
 
-	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align ): bool {
+	private static function render_engraving_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, ?float $verified_scale_x = null ): bool {
 		if ( ! class_exists( 'OC_Print_Embroidery' ) ) {
 			return false;
 		}
@@ -2812,16 +3192,20 @@ abstract class OC_Print_Base {
 		$line_h    = $font_size * self::FABRIC_FONT_SIZE_MULTIPLIER;
 		$fit_scale = min( 1.0, $box_w_pt / $layout_w, $box_h_pt / $line_h );
 		$fit_scale = max( 0.01, $fit_scale );
+		if ( null !== $verified_scale_x ) {
+			$fit_scale = 1.0;
+		}
+		$scale_x   = $verified_scale_x ?? $fit_scale;
 		$pad       = max( 1.0, $font_size * $fit_scale * 0.08 );
-		$advance_w = $width * $fit_scale;
-		$draw_w    = $glyph_w * $fit_scale + $pad * 2;
+		$advance_w = $width * $scale_x;
+		$draw_w    = $glyph_w * $scale_x + $pad * 2;
 		$draw_h    = $glyph_h * $fit_scale + $pad * 2;
 		$origin_x  = match ( $align ) {
-			'R' => $box_w_pt - $advance_w + (float) $bbox[0] * $fit_scale - $pad,
-			'L' => (float) $bbox[0] * $fit_scale - $pad,
-			default => ( $box_w_pt - $advance_w ) / 2 + (float) $bbox[0] * $fit_scale - $pad,
+			'R' => $box_w_pt - $advance_w + (float) $bbox[0] * $scale_x - $pad,
+			'L' => (float) $bbox[0] * $scale_x - $pad,
+			default => ( $box_w_pt - $advance_w ) / 2 + (float) $bbox[0] * $scale_x - $pad,
 		};
-		$path_x     = -1 * (float) $bbox[0] * $fit_scale + $pad;
+		$path_x     = -1 * (float) $bbox[0] * $scale_x + $pad;
 		$path_y     = (float) $bbox[3] * $fit_scale + $pad;
 		$baseline_y = $box_h_pt / 2 + $line_h * $fit_scale * ( 0.5 - self::FABRIC_FONT_SIZE_FRACTION );
 		$origin_y   = $baseline_y - $path_y;
@@ -2834,7 +3218,7 @@ abstract class OC_Print_Base {
 			$draw_h,
 			$path_x,
 			$path_y,
-			$fit_scale,
+			$scale_x,
 			$fit_scale,
 			htmlspecialchars( $d, ENT_QUOTES | ENT_XML1, 'UTF-8' )
 		);
@@ -2860,7 +3244,7 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	private static function render_engraving_multiline_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign, ?array $fixed_lines = null ): bool {
+	private static function render_engraving_multiline_text_outline( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign, ?array $fixed_lines = null, bool $verified = false ): bool {
 		$lines = null !== $fixed_lines ? $fixed_lines : self::wrap_engraving_outline_lines( $text, $font_path, $font_size, self::mm_to_pt_value( $w_mm ) );
 		if ( empty( $lines ) ) {
 			return false;
@@ -2872,7 +3256,7 @@ abstract class OC_Print_Base {
 		// Keep every submitted line when this low-level renderer receives a
 		// constrained box directly. The normal layer path shrinks the font first,
 		// but regenerated legacy payloads and helper callers may bypass that fit.
-		$layout_scale = min( 1.0, $h_mm / max( 0.001, $total_h ) );
+		$layout_scale = $verified ? 1.0 : min( 1.0, $h_mm / max( 0.001, $total_h ) );
 		$line_box_h  *= $layout_scale;
 		$line_step   *= $layout_scale;
 		$total_h     *= $layout_scale;
@@ -2885,11 +3269,20 @@ abstract class OC_Print_Base {
 		$rendered = false;
 		foreach ( $lines as $index => $line ) {
 			$line_y = $y_mm + $offset_y + ( $index * $line_step );
-			if ( $line_y + $line_box_h > $y_mm + $h_mm + 0.001 ) {
+			if ( ! $verified && $line_y + $line_box_h > $y_mm + $h_mm + 0.001 ) {
 				break;
 			}
 
-			$rendered = self::render_engraving_text_outline( $pdf, $line, $font_path, $font_size, $x_mm, $line_y, $w_mm, $line_box_h, $align ) || $rendered;
+			if ( '' === trim( $line ) ) {
+				continue;
+			}
+			if ( ! self::render_engraving_text_outline( $pdf, $line, $font_path, $font_size, $x_mm, $line_y, $w_mm, $line_box_h, $align, $verified ? 1.0 : null ) ) {
+				if ( $verified || $rendered ) {
+					throw new \RuntimeException( 'A nonblank text line could not be outlined; refusing incomplete production text.' );
+				}
+				return false;
+			}
+			$rendered = true;
 		}
 
 		return $rendered;
@@ -3141,6 +3534,9 @@ abstract class OC_Print_Base {
 		}
 
 		$temp_paths = [];
+		if ( 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			self::load_print_svg( $path );
+		}
 		if (
 			'colour' === $mode
 			&& 'clipart' === (string) ( $layer['type'] ?? '' )
@@ -3156,7 +3552,12 @@ abstract class OC_Print_Base {
 			}
 		}
 		if ( in_array( (string) ( $layer['type'] ?? '' ), [ 'image', 'ai_image' ], true ) ) {
-			$filtered_path = self::build_filtered_image( $path, $layer, $input );
+			$filter_h = 0.0;
+			$filter_w = 0.0;
+			if ( 'engraving' === $mode ) {
+				[ , , $filter_w, $filter_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, max( 0.0, min( 1.0, absint( $input['imageCrop'] ?? 0 ) / 100 ) ) );
+			}
+			$filtered_path = self::build_filtered_image( $path, $layer, $input, $filter_w, $filter_h, (int) ( $options['engraving_profile']['dpi'] ?? 600 ) );
 			if ( is_string( $filtered_path ) && '' !== $filtered_path ) {
 				if ( $filtered_path !== $path ) {
 					$temp_paths[] = $filtered_path;
@@ -3225,6 +3626,9 @@ abstract class OC_Print_Base {
 		}
 		$temp_path = null;
 		if ( 'engraving' === $mode ) {
+			if ( 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+				self::load_print_svg( $path );
+			}
 			if ( ! class_exists( 'OC_Print_Engraving' ) ) {
 				throw new \RuntimeException( __( 'The engraving artwork converter is unavailable.', 'overcustomise' ) );
 			}
@@ -3355,6 +3759,13 @@ abstract class OC_Print_Base {
 
 	/** Rasterise SVG alpha only at a bounded white-plate working resolution. */
 	private static function rasterise_svg_spot_mask( string $path, float $w_mm, float $h_mm ) {
+		$dom      = self::load_print_svg( $path );
+		$embedded = self::embedded_svg_raster( $dom );
+		if ( null !== $embedded ) {
+			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Decoder failure is checked below.
+			$image = function_exists( 'imagecreatefromstring' ) ? @imagecreatefromstring( $embedded[0] ) : false;
+			return $image ? self::bounded_gd_resource( $image, self::MAX_SPOT_MASK_DIMENSION, self::MAX_SPOT_MASK_DIMENSION * self::MAX_SPOT_MASK_DIMENSION ) : false;
+		}
 		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
 			return false;
 		}
@@ -3366,7 +3777,8 @@ abstract class OC_Print_Base {
 			$imagick = new \Imagick();
 			self::configure_imagick_limits( $imagick );
 			$imagick->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
-			$imagick->readImage( $path );
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$imagick->readImageBlob( $dom->saveXML( $dom->documentElement ) );
 			$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$imagick->setImageFormat( 'png32' );
 			$imagick->resizeImage( $width, $height, \Imagick::FILTER_LANCZOS, 1, true );
@@ -3381,7 +3793,7 @@ abstract class OC_Print_Base {
 		}
 	}
 
-	private static function build_black_clipart( string $path ): ?string {
+	protected static function build_black_clipart( string $path ): ?string {
 		return self::build_coloured_clipart( $path, '#000000' );
 	}
 
@@ -3395,7 +3807,45 @@ abstract class OC_Print_Base {
 	}
 
 	private static function build_coloured_svg( string $path, string $hex ): ?string {
-		$raw = file_get_contents( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		// Validate before changing root inheritance, styles, shared definitions or mask paints.
+		$validated = self::load_print_svg( $path );
+		$embedded  = self::embedded_svg_raster( $validated );
+		if ( null !== $embedded && '#000000' === $hex ) {
+			$temp = self::temp_path_with_extension( 'oc-embedded-' . wp_generate_uuid4() . '.' . $embedded[1], $embedded[1] );
+			if ( ! $temp ) {
+				return null;
+			}
+			try {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Stage local renderer input and check write failure.
+				return false !== file_put_contents( $temp, $embedded[0] ) ? self::build_black_raster( $temp ) : null;
+			} finally {
+				@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
+			}
+		}
+		$complex = ( new \DOMXPath( $validated ) )->query( '//*[local-name()="mask" or local-name()="filter" or local-name()="linearGradient" or local-name()="radialGradient" or local-name()="pattern" or local-name()="use" or local-name()="image" or local-name()="clipPath"]' )->length > 0;
+		if ( $complex && '#000000' === $hex ) {
+			$raster = null;
+			try {
+				// Rasterise the ORIGINAL paints first: mask luminance and gradient alpha
+				// must survive before the visible pixels become a black silhouette.
+				[ $width, $height ] = self::artwork_intrinsic_dimensions( $path ) ?? [ 1, 1 ];
+				$scale              = 173.4 / max( 1, $width, $height );
+				$raster             = self::normalise_svg_for_tcpdf( $path, $width * $scale, $height * $scale );
+				$black              = $raster ? self::build_black_raster( $raster ) : null;
+				if ( $black ) {
+					return $black;
+				}
+			} catch ( \Throwable $e ) {
+				OC_Logger::warning( 'SVG silhouette raster fallback failed: ' . $e->getMessage() );
+			} finally {
+				if ( $raster ) {
+					@unlink( $raster ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
+				}
+			}
+			OC_Logger::warning( 'SVG silhouette raster backend unavailable or failed; using legacy vector recolouring with mask resources preserved. Complex effect fidelity depends on the PDF renderer.' );
+		}
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+		$raw = $validated->saveXML( $validated->documentElement );
 		if ( ! is_string( $raw ) || '' === $raw ) {
 			return null;
 		}
@@ -3409,9 +3859,12 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$dom->documentElement->setAttribute( 'color', $hex );
-		$dom->documentElement->setAttribute( 'fill', $hex );
-		self::force_svg_node_colour( $dom->documentElement, $hex );
+		$svg = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+		$svg->setAttribute( 'color', $hex );
+		if ( ! $svg->hasAttribute( 'fill' ) ) {
+			$svg->setAttribute( 'fill', $hex );
+		}
+		self::force_svg_node_colour( $svg, $hex );
 
 		$temp = self::temp_path_with_extension( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg', 'svg' );
 		if ( ! is_string( $temp ) || '' === $temp ) {
@@ -3427,8 +3880,48 @@ abstract class OC_Print_Base {
 		return $temp;
 	}
 
-	private static function force_svg_node_colour( \DOMElement $element, string $hex ): void {
+	private static function force_svg_node_colour( \DOMElement $element, string $hex, ?\SplObjectStorage $resources = null ): void {
+		if ( null === $resources ) {
+			$resources = new \SplObjectStorage();
+			$dom       = $element->ownerDocument; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$xpath     = new \DOMXPath( $dom );
+			// Definitions are also used for visible artwork. Protect only paint/mask
+			// resources and their referenced subtrees, rather than the whole <defs>.
+			$pending = iterator_to_array( $xpath->query( '//*[local-name()="mask" or local-name()="clipPath" or local-name()="filter" or local-name()="linearGradient" or local-name()="radialGradient" or local-name()="pattern" or local-name()="metadata"]' ) );
+			while ( $pending ) {
+				$node = array_pop( $pending );
+				if ( $resources->contains( $node ) ) {
+					continue;
+				}
+				$resources->attach( $node );
+				// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+				foreach ( $node->childNodes as $child ) {
+					if ( $child instanceof \DOMElement ) {
+						$pending[] = $child;
+					}
+				}
+				$href = $node->getAttribute( 'href' );
+				$href = $href ? $href : $node->getAttributeNS( 'http://www.w3.org/1999/xlink', 'href' );
+				if ( str_starts_with( $href, '#' ) ) {
+					foreach ( $xpath->query( '//*[@id=' . self::xpath_literal( substr( $href, 1 ) ) . ']' ) as $reference ) {
+						$pending[] = $reference;
+					}
+				}
+			}
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			self::inline_svg_presentation_styles( $dom, $dom->documentElement );
+		}
+		if ( $resources->contains( $element ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
 		if ( 'style' === strtolower( $element->localName ) ) {
+			// Shared CSS must retain the resource paints. Visible nodes receive
+			// inline overrides below, which also win over these original rules.
+			if ( count( $resources ) > 0 ) {
+				return;
+			}
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
 			$element->nodeValue = self::force_svg_css_colour( $element->nodeValue ?? '', $hex );
 			return;
 		}
@@ -3442,10 +3935,17 @@ abstract class OC_Print_Base {
 		if ( $element->hasAttribute( 'style' ) ) {
 			$element->setAttribute( 'style', self::force_svg_style_colour( $element->getAttribute( 'style' ), $hex ) );
 		}
+		if ( count( $resources ) > 0 ) {
+			foreach ( [ 'fill', 'stroke' ] as $paint ) {
+				if ( $element->hasAttribute( $paint ) ) {
+					$element->setAttribute( 'style', rtrim( $element->getAttribute( 'style' ), '; ' ) . ';' . $paint . ':' . $element->getAttribute( $paint ) . ' !important' );
+				}
+			}
+		}
 
 		foreach ( $element->childNodes as $child ) {
 			if ( $child instanceof \DOMElement ) {
-				self::force_svg_node_colour( $child, $hex );
+				self::force_svg_node_colour( $child, $hex, $resources );
 			}
 		}
 	}
@@ -3516,7 +4016,7 @@ abstract class OC_Print_Base {
 		return $temp;
 	}
 
-	private static function open_raster_resource( string $path ) {
+	private static function open_raster_resource( string $path, int $max_dimension = self::MAX_WORK_RASTER_DIMENSION, int $max_pixels = self::MAX_WORK_RASTER_PIXELS ) {
 		self::assert_safe_raster_dimensions( $path );
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		$image = match ( $ext ) {
@@ -3531,7 +4031,7 @@ abstract class OC_Print_Base {
 			return false;
 		}
 
-		return self::bounded_gd_resource( $image );
+		return self::bounded_gd_resource( $image, $max_dimension, $max_pixels );
 	}
 
 	/** Downsample expensive per-pixel work while preserving transparency and aspect ratio. */
@@ -3559,7 +4059,8 @@ abstract class OC_Print_Base {
 		return $resized;
 	}
 
-	protected static function build_filtered_image( string $path, array $layer, array $input ): ?string {
+	protected static function build_filtered_image( string $path, array $layer, array $input, float $w_mm = 0.0, float $h_mm = 0.0, int $dpi = 600 ): ?string {
+		$target    = ( 0.0 !== $w_mm || 0.0 !== $h_mm ) ? self::print_raster_dimensions( $w_mm, $h_mm, $dpi, self::MAX_RASTER_DIMENSION, self::MAX_RASTER_PIXELS ) : null;
 		$filter_id = absint( $input['imageFilterId'] ?? 0 );
 		if ( ! $filter_id ) {
 			return null;
@@ -3597,11 +4098,15 @@ abstract class OC_Print_Base {
 			return null;
 		}
 
-		$src = self::open_raster_resource( $path );
+		if ( null !== $target ) {
+			[ $target_w, $target_h ] = $target;
+			$src                     = self::open_raster_resource( $path, max( $target_w, $target_h ), $target_w * $target_h );
+		} else {
+			$src = self::open_raster_resource( $path, 2048, 4000000 );
+		}
 		if ( ! $src ) {
 			return null;
 		}
-		$src = self::bounded_gd_resource( $src, 2048, 4000000 );
 		imagealphablending( $src, false );
 		imagesavealpha( $src, true );
 

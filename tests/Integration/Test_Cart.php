@@ -182,14 +182,149 @@ class Test_Cart extends WC_Unit_Test_Case {
 
 	#[Test]
 	public function auto_font_size_keeps_browser_fit_but_rejects_out_of_bounds_values(): void {
-		[ $design_id, $ids ] = $this->create_image_design( 'text', [ 'default_font_size' => 0 ] );
-		foreach ( [ 24.5, 0, 1001 ] as $size ) {
-			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'value' => 'Name', 'renderedFontSize' => $size ] ] );
+		global $wpdb;
+		$font_id             = $this->create_layout_font();
+		[ $design_id, $ids ] = $this->create_image_design(
+			'text',
+			[
+				'default_font_size' => 0,
+				'default_font_id'   => $font_id,
+			]
+		);
+		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'h' => 50 ], [ 'id' => $ids[0] ] );
+		OC_Cache::flush_group();
+		foreach ( [ 24.5, 0.1, 36, 36.1, 0, 1001 ] as $size ) {
+			$result = OC_Cart::normalise_v2_layers(
+				$this->product->get_id(),
+				0,
+				$design_id,
+				[
+					$ids[0] => [
+						'value'                 => 'Name',
+						'fontId'                => $font_id,
+						'renderedFontSize'      => $size,
+						'renderedScaleX'        => 0.8,
+						'renderedInsetX'        => 0,
+						'renderedLayoutVersion' => 1,
+					],
+				]
+			);
 			$this->assertNotWPError( $result );
-			if ( 24.5 === $size ) {
-				$this->assertSame( 24.5, $result['layers'][ $ids[0] ]['renderedFontSize'] );
+			if ( $size > 0 && $size <= 36 ) {
+				$this->assertSame( (float) $size, $result['layers'][ $ids[0] ]['renderedFontSize'] );
 			} else {
 				$this->assertArrayNotHasKey( 'renderedFontSize', $result['layers'][ $ids[0] ] );
+			}
+		}
+	}
+
+	private function create_layout_font(): int {
+		global $wpdb;
+		$wpdb->insert(
+			$wpdb->prefix . 'oc_fonts',
+			[
+				'name'      => 'Layout font',
+				'file_path' => 'overcustomise/fonts/layout.ttf',
+				'active'    => 1,
+			]
+		);
+		OC_Cache::flush_group();
+		return (int) $wpdb->insert_id;
+	}
+
+	#[Test]
+	public function cached_clients_keep_legacy_layout_without_font_identity_or_quality_metadata(): void {
+		foreach ( [ 'text', 'textarea' ] as $type ) {
+			[ $design_id, $ids ] = $this->create_image_design( $type, [ 'default_font_size' => 0 ] );
+			$posted              = [
+				'value'            => 'Hello world',
+				'renderedFontSize' => 24.5,
+			];
+			if ( 'textarea' === $type ) {
+				$posted['renderedLines'] = [ 'Hello', 'world' ];
+			}
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => $posted ] );
+			$this->assertNotWPError( $result );
+			$input = $result['layers'][ $ids[0] ];
+			$this->assertSame( 24.5, $input['renderedFontSize'] );
+			if ( 'textarea' === $type ) {
+				$this->assertSame( $posted['renderedLines'], $input['renderedLines'] );
+			}
+			$this->assertArrayNotHasKey( 'renderedLayoutVersion', $input );
+			foreach ( [ [], [ 'renderedLayoutVersion' => 2 ], [ 'renderedScaleX' => 0 ], [ 'renderedInsetX' => 0.5 ] ] as $geometry ) {
+				$payload = [] === $geometry ? [ 'value' => 'Hello world' ] : $posted + $geometry;
+				$result  = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => $payload ] );
+				$this->assertNotWPError( $result );
+				$this->assertSame( 'Hello world', $result['layers'][ $ids[0] ]['value'] );
+				foreach ( [ 'renderedFontSize', 'renderedLines', 'renderedScaleX', 'renderedInsetX', 'renderedLayoutVersion' ] as $key ) {
+					$this->assertArrayNotHasKey( $key, $result['layers'][ $ids[0] ] );
+				}
+			}
+		}
+	}
+
+	#[Test]
+	public function locked_textarea_layout_uses_authoritative_text_font_and_size_atomically(): void {
+		global $wpdb;
+		$font_id             = $this->create_layout_font();
+		[ $design_id, $ids ] = $this->create_image_design(
+			'textarea',
+			[
+				'default_text'      => "Hello <b>world</b>\nAgain",
+				'default_font_id'   => $font_id,
+				'default_font_size' => 10,
+				'default_color'     => '#112233',
+				'min_font_size'     => 2,
+				'max_font_size'     => 12,
+			]
+		);
+		$wpdb->update(
+			$wpdb->prefix . 'oc_design_layers',
+			[
+				'locked' => 1,
+				'h'      => 50,
+			],
+			[ 'id' => $ids[0] ]
+		);
+		OC_Cache::flush_group();
+		$posted = [
+			'value'                 => "Hello world\nAgain",
+			'fontId'                => $font_id,
+			'fontSize'              => 999,
+			'colorHex'              => '#ff0000',
+			'renderedFontSize'      => 8,
+			'renderedScaleX'        => 1,
+			'renderedInsetX'        => 0.025,
+			'renderedLayoutVersion' => 1,
+			'renderedLines'         => [ 'Hello', 'world', 'Again' ],
+		];
+		foreach ( [
+			[],
+			[ 'value' => 'Edited' ],
+			[ 'fontId' => $font_id + 999 ],
+			[ 'renderedFontSize' => 11 ],
+			[ 'renderedFontSize' => 1 ],
+			[ 'renderedLines' => [ 'Edited' ] ],
+			[ 'renderedLines' => null ],
+			[ 'renderedLines' => array_fill( 0, 201, 'Hello' ) ],
+			[ 'renderedLayoutVersion' => null ],
+			[ 'renderedLayoutVersion' => 2 ],
+			[ 'renderedInsetX' => 0.5 ],
+			[ 'renderedScaleX' => 0.5 ],
+		] as $override ) {
+			$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => array_replace( $posted, $override ) ] );
+			$this->assertNotWPError( $result );
+			$input = $result['layers'][ $ids[0] ];
+			$this->assertSame( "Hello world\nAgain", $input['value'] );
+			$this->assertSame( $font_id, $input['fontId'] );
+			$this->assertSame( 10, $input['fontSize'] );
+			$this->assertSame( '#112233', $input['colorHex'] );
+			foreach ( [ 'renderedFontSize', 'renderedScaleX', 'renderedInsetX', 'renderedLayoutVersion', 'renderedLines' ] as $key ) {
+				if ( [] === $override ) {
+					$this->assertEquals( $posted[ $key ], $input[ $key ] );
+				} else {
+					$this->assertArrayNotHasKey( $key, $input );
+				}
 			}
 		}
 	}

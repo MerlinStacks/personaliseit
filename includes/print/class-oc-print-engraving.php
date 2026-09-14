@@ -66,7 +66,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$temp_artwork = null;
 		try {
 			if ( $artwork_path ) {
-				$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile );
+				$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile, $w_mm, $h_mm );
 				self::draw_pdf_image( $pdf, $temp_artwork, 0, 0, $w_mm, $h_mm );
 			}
 
@@ -132,7 +132,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 			$temp_artwork = null;
 			try {
 				if ( $artwork_path ) {
-					$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile );
+					$temp_artwork = self::prepare_artwork_for_layer( $artwork_path, $profile, $w_mm, $h_mm );
 					self::draw_pdf_image( $pdf, $temp_artwork, $origin_x, $origin_y, $w_mm, $h_mm );
 				}
 
@@ -246,8 +246,16 @@ class OC_Print_Engraving extends OC_Print_Base {
 
 	/** Convert one canonical image/SVG layer through the selected material profile. */
 	public static function prepare_artwork_for_layer( string $artwork_path, array $profile, float $width_mm = 0.0, float $height_mm = 0.0 ): string {
+		$is_svg = 'svg' === strtolower( pathinfo( $artwork_path, PATHINFO_EXTENSION ) );
+		if ( $is_svg ) {
+			self::load_print_svg( $artwork_path );
+		}
 		$profile = array_merge( self::DEFAULT_PROFILE, $profile );
 		$path    = self::build_engraving_raster( $artwork_path, $profile, $width_mm, $height_mm );
+		if ( ! $path && $is_svg ) {
+			OC_Logger::warning( 'Engraving SVG raster conversion unavailable or failed; attempting legacy vector recolouring. Material profile and complex effect fidelity are not guaranteed.' );
+			$path = self::build_black_clipart( $artwork_path );
+		}
 		if ( ! $path ) {
 			throw new \RuntimeException(
 				sprintf(
@@ -483,33 +491,81 @@ class OC_Print_Engraving extends OC_Print_Base {
 		return $image ? $image : false;
 	}
 
+	/** Validate SVG and set a bounded pixel viewport before any raster decoder sees it. */
+	protected static function engraving_svg_viewport( string $path, int $target_width = 0, int $target_height = 0 ): \DOMDocument {
+		$dom = self::load_print_svg( $path );
+		$svg = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+		if ( ! $svg->hasAttribute( 'viewBox' ) ) {
+			$width  = self::svg_absolute_length_px( $svg->getAttribute( 'width' ) );
+			$height = self::svg_absolute_length_px( $svg->getAttribute( 'height' ) );
+			$svg->setAttribute( 'viewBox', '0 0 ' . $width . ' ' . $height );
+		}
+		$view_box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
+		if ( count( $view_box ) !== 4 ) {
+			throw new \RuntimeException( 'Invalid engraving SVG viewBox.' );
+		}
+		foreach ( $view_box as $value ) {
+			if ( ! is_numeric( $value ) || ! is_finite( (float) $value ) ) {
+				throw new \RuntimeException( 'Invalid engraving SVG viewBox.' );
+			}
+		}
+		if ( (float) $view_box[2] <= 0 || (float) $view_box[3] <= 0 ) {
+			throw new \RuntimeException( 'Invalid engraving SVG viewBox.' );
+		}
+		if ( $target_width <= 0 || $target_height <= 0 ) {
+			$width         = (float) $view_box[2];
+			$height        = (float) $view_box[3];
+			$scale         = min( 1.0, self::MAX_RASTER_DIMENSION / max( $width, $height ), sqrt( self::MAX_RASTER_PIXELS / $width / $height ) );
+			$target_width  = max( 1, (int) ceil( $width * $scale ) );
+			$target_height = max( 1, (int) ceil( $height * $scale ) );
+		}
+		[ $width, $height ] = self::bounded_work_dimensions( $target_width, $target_height, self::MAX_RASTER_DIMENSION, self::MAX_RASTER_PIXELS );
+		$svg->setAttribute( 'width', (string) $width );
+		$svg->setAttribute( 'height', (string) $height );
+		return $dom;
+	}
+
 	/** Rasterise SVG with a transparent background before material conversion. */
 	private static function open_svg_image_resource( string $path, int $target_width = 0, int $target_height = 0 ) {
-		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) || ! is_readable( $path ) || filesize( $path ) > self::MAX_SVG_BYTES ) {
+		$embedded = self::embedded_svg_raster( self::load_print_svg( $path ) );
+		if ( null !== $embedded ) {
+			// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Decoder failure is checked below.
+			$image = function_exists( 'imagecreatefromstring' ) ? @imagecreatefromstring( $embedded[0] ) : false;
+			return $image ? self::bounded_gd_resource( $image, self::MAX_RASTER_DIMENSION, self::MAX_RASTER_PIXELS ) : false;
+		}
+		if ( ! class_exists( '\Imagick' ) || ! function_exists( 'imagecreatefromstring' ) ) {
 			return false;
 		}
 
+		$image = null;
 		try {
+			$dom   = self::engraving_svg_viewport( $path, $target_width, $target_height );
 			$image = new \Imagick();
 			self::configure_imagick_limits( $image );
 			$image->setBackgroundColor( new \ImagickPixel( 'transparent' ) );
-			$image->setResolution( 600, 600 );
-			$image->readImage( $path );
+			$image->setResolution( 96, 96 );
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$image->readImageBlob( $dom->saveXML( $dom->documentElement ) );
 			$image->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 			$image->setImageFormat( 'png32' );
-			[ $width, $height ] = $target_width > 0 && $target_height > 0
-				? self::bounded_work_dimensions( $target_width, $target_height )
-				: self::bounded_work_dimensions( $image->getImageWidth(), $image->getImageHeight() );
-			$image->resizeImage( $width, $height, \Imagick::FILTER_LANCZOS, 1, true );
+			$svg    = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$width  = (int) $svg->getAttribute( 'width' );
+			$height = (int) $svg->getAttribute( 'height' );
+			if ( $image->getImageWidth() !== $width || $image->getImageHeight() !== $height ) {
+				throw new \RuntimeException( 'SVG decoder did not honour the engraving pixel viewport.' );
+			}
 			$blob = $image->getImageBlob();
-			$image->clear();
-			$image->destroy();
 
 			$resource = is_string( $blob ) && '' !== $blob ? @imagecreatefromstring( $blob ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-			return $resource ? self::bounded_gd_resource( $resource, self::MAX_WORK_RASTER_DIMENSION, self::MAX_WORK_RASTER_PIXELS ) : false;
+			return $resource ? $resource : false;
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'Engraving SVG conversion failed: ' . $e->getMessage() );
 			return false;
+		} finally {
+			if ( $image instanceof \Imagick ) {
+				$image->clear();
+				$image->destroy();
+			}
 		}
 	}
 

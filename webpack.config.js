@@ -76,10 +76,10 @@ module.exports = {
 	output: {
 		...defaultConfig.output,
 		path: path.resolve( __dirname, 'assets/build' ),
-		// Retain the previous core chunk for one release so cached entry scripts
+		// Retain released core chunks through the cache transition so old entry scripts
 		// continue to load during rolling WordPress/CDN deployments.
 		clean: {
-			keep: /chunks\/customiser-core\.3e383e06\.js$/,
+			keep: /chunks\/customiser-core\.(?:3e383e06|8bebe481)\.js$/,
 		},
 		// Entry files live one directory below the build root. Webpack's automatic
 		// public path derives that root from the enqueued WordPress script URL.

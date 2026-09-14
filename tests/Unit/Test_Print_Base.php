@@ -65,6 +65,10 @@ if ( ! class_exists( 'OC_Test_Text_Cell_PDF' ) && class_exists( 'TCPDF' ) ) {
 		public function Cell( $_w, $_h = 0, $_txt = '', $_border = 0, $_ln = 0, $_align = '', $_fill = false, $_link = '', $_stretch = 0, $_ignore_min_height = false, $_calign = 'T', $_valign = 'M' ) {
 			$this->cell_args = func_get_args();
 		}
+		public function MultiCell( ...$args ) {
+			$this->cell_args = $args;
+			return 1;
+		}
 	}
 }
 
@@ -162,6 +166,664 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 }
 
 class Test_Print_Base extends TestCase {
+	#[Test]
+	public function text_rendering_rejects_nonfinite_geometry_before_font_or_pdf_work(): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF required.' );
+		}
+		$pdf = new TCPDF();
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'Non-finite text geometry' );
+		( new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' ) )->invoke(
+			null,
+			$pdf,
+			[
+				'type' => 'text',
+				'h'    => 20,
+			],
+			[ 'value' => 'Alex' ],
+			[],
+			INF,
+			0.0,
+			20.0,
+			20.0,
+			'engraving'
+		);
+	}
+
+	#[Test]
+	public function verified_layout_validation_is_atomic_and_matches_preview_limits(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'browser_rendered_text_layout' );
+		$input  = [
+			'renderedLayoutVersion' => 1,
+			'renderedFontSize'      => 2.5,
+			'renderedScaleX'        => 0.75,
+			'renderedInsetX'        => 0,
+			'fontSize'              => 0,
+		];
+		$layer  = [
+			'type' => 'text',
+			'h'    => 10,
+		];
+		$this->assertSame( 2.5, $method->invoke( null, $input, $layer, [] )['renderedFontSize'] );
+		foreach ( [
+			'renderedLayoutVersion' => [ null, true, 2, '1junk' ],
+			'renderedFontSize'      => [ 0, -1, INF, NAN, 7.3 ],
+			'renderedScaleX'        => [ 0, -1, 1.01, INF, true ],
+			'renderedInsetX'        => [ -0.1, 0.1, 0.5, INF ],
+		] as $key => $values ) {
+			foreach ( $values as $value ) {
+				$this->assertNull( $method->invoke( null, array_replace( $input, [ $key => $value ] ), $layer, [] ), $key );
+			}
+			$partial = $input;
+			unset( $partial[ $key ] );
+			$this->assertNull( $method->invoke( null, $partial, $layer, [] ) );
+		}
+		$input['renderedFontSize'] = 3;
+		$this->assertSame(
+			3.0,
+			$method->invoke(
+				null,
+				$input,
+				$layer,
+				[
+					'min_font_size' => 8,
+					'max_font_size' => 3,
+				]
+			)['renderedFontSize']
+		);
+		$input['renderedScaleX'] = 1;
+		$input['renderedInsetX'] = 0.025;
+		$input['value']          = "Alex\n\nBob";
+		$input['renderedLines']  = [ 'Alex', '', 'Bob' ];
+		$layer['type']           = 'textarea';
+		$this->assertSame( 0.025, $method->invoke( null, $input, $layer, [] )['renderedInsetX'] );
+		$this->assertSame( [ 'Alex', '', 'Bob' ], $method->invoke( null, $input, $layer, [] )['renderedLines'] );
+		foreach ( [ null, [], [ 'Alex' ], [ 'different' ], [ [ 'Alex' ], 'Bob' ], array_fill( 0, 201, 'Alex' ) ] as $lines ) {
+			$this->assertNull( $method->invoke( null, array_replace( $input, [ 'renderedLines' => $lines ] ), $layer, [] ) );
+		}
+		$input['renderedScaleX'] = 0.9;
+		$this->assertNull( $method->invoke( null, $input, $layer, [] ) );
+	}
+
+	public static function nonengraving_text_modes(): array {
+		return [
+			'colour configured' => [ 'colour', 20 ],
+			'spot configured'   => [ 'spot', 20 ],
+			'colour auto'       => [ 'colour', 0 ],
+			'spot auto'         => [ 'spot', 0 ],
+		];
+	}
+
+	#[Test]
+	#[DataProvider( 'nonengraving_text_modes' )]
+	public function new_layout_fields_preserve_nonengraving_pdf_text_and_validated_size( string $mode, int $configured ): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF required.' );
+		}
+		$pdf   = new OC_Test_Text_Cell_PDF();
+		$input = [
+			'value'                 => 'Alex',
+			'fontSize'              => $configured,
+			'renderedLayoutVersion' => 1,
+			'renderedFontSize'      => 8,
+			'renderedScaleX'        => 0.75,
+			'renderedInsetX'        => 0,
+			'colorHex'              => '#ff0000',
+		];
+		( new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' ) )->invoke(
+			null,
+			$pdf,
+			[
+				'type' => 'text',
+				'h'    => 40,
+			],
+			$input,
+			[],
+			0.0,
+			0.0,
+			100.0,
+			40.0,
+			$mode,
+			1.0
+		);
+		$this->assertSame( 'Alex', $pdf->cell_args[2] );
+		$this->assertEqualsWithDelta( 8.0, $pdf->getFontSizePt(), 0.00001 );
+		$input['value']          = "Alex\nBob";
+		$input['renderedLines']  = [ 'Alex', '', 'Bob' ];
+		$input['renderedScaleX'] = 1;
+		$input['renderedInsetX'] = 0.025;
+		$method                  = new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' );
+		$method->invoke(
+			null,
+			$pdf,
+			[
+				'type' => 'textarea',
+				'h'    => 40,
+			],
+			$input,
+			[],
+			0.0,
+			0.0,
+			100.0,
+			40.0,
+			$mode,
+			1.0
+		);
+		$this->assertSame( "Alex\n\nBob", $pdf->cell_args[2] );
+		$this->assertEqualsWithDelta( 8.0, $pdf->getFontSizePt(), 0.00001 );
+		// Invalid geometry discards otherwise-valid lines too; invalid lines also
+		// discard the captured size rather than partially accepting the bundle.
+		$input['renderedScaleX'] = 0.75;
+		$method->invoke(
+			null,
+			$pdf,
+			[
+				'type' => 'textarea',
+				'h'    => 40,
+			],
+			$input,
+			[],
+			0.0,
+			0.0,
+			100.0,
+			40.0,
+			$mode,
+			1.0
+		);
+		$this->assertSame( "Alex\nBob", $pdf->cell_args[2] );
+		$input['renderedScaleX'] = 1;
+		$input['renderedLines']  = [ 'Alex' ];
+		$method->invoke(
+			null,
+			$pdf,
+			[
+				'type' => 'textarea',
+				'h'    => 40,
+			],
+			$input,
+			[],
+			0.0,
+			0.0,
+			100.0,
+			40.0,
+			$mode,
+			1.0
+		);
+		$this->assertSame( "Alex\nBob", $pdf->cell_args[2] );
+		$this->assertGreaterThan( 8.0, $pdf->getFontSizePt() );
+	}
+
+
+	private static function raster_wrapper( string $uri, string $extra = '' ): string {
+		return '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="2" height="1" viewBox="0 0 2 1" data-oc-converted="raster"><image width="2" height="1" href="' . $uri . '" xlink:href="' . $uri . '" ' . $extra . '/></svg>';
+	}
+
+	#[Test]
+	public function embedded_clipart_is_extracted_and_blackened_with_alpha_preserved(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is required.' );
+		}
+		$source = imagecreatetruecolor( 2, 1 );
+		imagealphablending( $source, false );
+		imagesavealpha( $source, true );
+		imagesetpixel( $source, 0, 0, imagecolorallocatealpha( $source, 255, 0, 0, 32 ) );
+		imagesetpixel( $source, 1, 0, imagecolorallocatealpha( $source, 0, 0, 255, 127 ) );
+		$path = tempnam( sys_get_temp_dir(), 'oc-wrapper-' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Give the local test fixture its renderer-required extension.
+		rename( $path, $path . '.svg' );
+		$path  .= '.svg';
+		$output = null;
+		try {
+			foreach ( [ 'png', 'jpeg' ] as $format ) {
+				ob_start();
+				if ( 'png' === $format ) {
+					imagepng( $source );
+				} else {
+					imagejpeg( $source );
+				}
+				$bytes = ob_get_clean();
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents, WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Write the local embedded-image fixture directly.
+				file_put_contents( $path, self::raster_wrapper( 'data:image/' . $format . ';base64,' . base64_encode( $bytes ) ) );
+				$dom = ( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+				$this->assertSame( [ $bytes, $format ], ( new ReflectionMethod( OC_Print_Base::class, 'embedded_svg_raster' ) )->invoke( null, $dom ) );
+				$output = ( new ReflectionMethod( OC_Print_Base::class, 'build_black_clipart' ) )->invoke( null, $path );
+				$this->assertIsString( $output );
+				$black = imagecreatefrompng( $output );
+				$this->assertSame( 0, imagecolorat( $black, 0, 0 ) & 0xFFFFFF );
+				if ( 'png' === $format ) {
+					$this->assertSame( 32, ( imagecolorat( $black, 0, 0 ) >> 24 ) & 127 );
+					$this->assertSame( 127, ( imagecolorat( $black, 1, 0 ) >> 24 ) & 127 );
+				}
+				imagedestroy( $black );
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+				unlink( $output );
+				$output  = null;
+				$decoded = ( new ReflectionMethod( OC_Print_Engraving::class, 'open_svg_image_resource' ) )->invoke( null, $path, 600, 300 );
+				$this->assertSame( 2, imagesx( $decoded ) );
+				imagedestroy( $decoded );
+				if ( class_exists( 'OC_Test_Vector_SVG_PDF' ) ) {
+					$pdf = ( new ReflectionClass( OC_Test_Vector_SVG_PDF::class ) )->newInstanceWithoutConstructor();
+					( new ReflectionMethod( OC_Print_Base::class, 'draw_pdf_svg' ) )->invoke( null, $pdf, $path, 0, 0, 20, 10 );
+					$this->assertTrue( $pdf->image_called );
+					$this->assertFalse( $pdf->image_svg_called );
+				}
+			}
+		} finally {
+			imagedestroy( $source );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+			if ( $output ) {
+				unlink( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			}
+		}
+	}
+
+	#[Test]
+	public function embedded_rasters_reject_unsafe_data_and_budgets(): void {
+		$png     = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVQIHWP4z8DwH4QZABH4A/0mVt8AAAAASUVORK5CYII=' ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decode the PNG fixture.
+		$uri     = 'data:image/png;base64,' . base64_encode( $png ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode the embedded image fixture.
+		$invalid = [
+			self::raster_wrapper( 'https://example.com/a.png' ),
+			self::raster_wrapper( 'file:///etc/passwd' ),
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode embedded image fixture bytes.
+			self::raster_wrapper( 'data:image/svg+xml;base64,' . base64_encode( '<svg/>' ) ),
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode embedded image fixture bytes.
+			self::raster_wrapper( 'data:image/jpeg;base64,' . base64_encode( $png ) ),
+			self::raster_wrapper( 'data:image/png;base64,!!!!' ),
+			self::raster_wrapper( 'data:image/png;base64,' ),
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode embedded image fixture bytes.
+			self::raster_wrapper( 'data:image/png;base64,' . base64_encode( 'not an image' ) ),
+			str_replace( 'xlink:href="' . $uri, 'xlink:href="https://example.com/a.png', self::raster_wrapper( $uri ) ),
+		];
+		foreach ( [ [ 12001, 1 ], [ 7000, 7000 ] ] as [ $w, $h ] ) {
+			$oversized = substr_replace( $png, pack( 'NN', $w, $h ), 16, 8 );
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode embedded image fixture bytes.
+			$invalid[] = self::raster_wrapper( 'data:image/png;base64,' . base64_encode( $oversized ) );
+		}
+		// Single href keeps the SVG below its 5 MiB limit while exceeding the decoded budget.
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode embedded image fixture bytes.
+		$invalid[] = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="1" viewBox="0 0 2 1"><image width="2" height="1" href="data:image/png;base64,' . base64_encode( $png . str_repeat( 'x', 2097153 ) ) . '"/></svg>';
+		$path      = tempnam( sys_get_temp_dir(), 'oc-invalid-wrapper-' );
+		try {
+			foreach ( $invalid as $index => $svg ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+				file_put_contents( $path, $svg );
+				try {
+					( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+					$this->fail( 'Accepted unsafe wrapper ' . $index );
+				} catch ( RuntimeException $e ) {
+					$this->assertNotEmpty( $e->getMessage() );
+				}
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function embedded_raster_accepts_ascii_line_wrapping_without_relaxing_validation(): void {
+		$encoded = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVQIHWP4z8DwH4QZABH4A/0mVt8AAAAASUVORK5CYII=';
+		$decode  = new ReflectionMethod( OC_Print_Base::class, 'decode_embedded_svg_raster' );
+		$wrapped = chunk_split( $encoded, 16, " \t\r\n\f\v" );
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decode embedded image fixture bytes.
+		$this->assertSame( [ base64_decode( $encoded ), 'png' ], $decode->invoke( null, 'data:image/png;base64,' . $wrapped ) );
+		$path = tempnam( sys_get_temp_dir(), 'oc-wrapped-svg-' );
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, self::raster_wrapper( 'data:image/png;base64,' . chunk_split( $encoded, 16, "\r\n\t " ) ) );
+			$dom = ( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Decode embedded image fixture bytes.
+			$this->assertSame( [ base64_decode( $encoded ), 'png' ], ( new ReflectionMethod( OC_Print_Base::class, 'embedded_svg_raster' ) )->invoke( null, $dom ) );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+		foreach ( [
+			'data:image/jpeg;base64,' . $wrapped,
+			'data:image/svg+xml;base64,' . $wrapped,
+			'data:image/png;base64,' . $encoded . "\xc2\xa0",
+			'data:image/png;base64,' . $wrapped . '!',
+			'data:image/png;base64,' . substr( $encoded, 0, -1 ) . 'B=',
+			'data:image/png;base64,' . str_repeat( ' ', 5242880 ) . $encoded,
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode -- Encode embedded image fixture bytes.
+			'data:image/png;base64,' . chunk_split( base64_encode( str_repeat( 'x', 2097153 ) ), 76, "\n" ),
+		] as $uri ) {
+			try {
+				$decode->invoke( null, $uri );
+				$this->fail( 'Whitespace normalisation must retain MIME, canonical base64, and byte-budget checks.' );
+			} catch ( RuntimeException $e ) {
+				$this->assertNotEmpty( $e->getMessage() );
+			}
+		}
+	}
+
+	#[Test]
+	public function stylesheet_and_referenced_definition_artwork_recolour_without_changing_masks(): void {
+		$path   = tempnam( sys_get_temp_dir(), 'oc-css-colour-' );
+		$output = null;
+		try {
+			foreach ( [
+				'<defs/><style>.mark{fill:red}</style><rect class="mark" width="20" height="20"/>',
+				'<defs><rect id="shape" class="mark" width="20" height="20"/></defs><style>.mark{fill:red}</style><use href="#shape"/>',
+				'<defs><rect id="shape" class="mark" width="20" height="20"/><rect id="mask-shape" class="mask-paint" width="20" height="20"/><mask id="m"><use href="#mask-shape"/><circle r="5" fill="black"/></mask></defs><style>.mark{fill:red !important}.mask-paint{fill:white}</style><use href="#shape" mask="url(#m)"/><rect class="mark" width="5" height="5"/>',
+			] as $index => $content ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+				file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">' . $content . '</svg>' );
+				$output = ( new ReflectionMethod( OC_Print_Base::class, 'build_coloured_svg' ) )->invoke( null, $path, '#0000ff' );
+				$dom    = new DOMDocument();
+				$dom->load( $output );
+				$xpath = new DOMXPath( $dom );
+				foreach ( $xpath->query( '//*[@class="mark"]' ) as $mark ) {
+					$this->assertSame( '#0000ff', $mark->getAttribute( 'fill' ) );
+					if ( 2 === $index ) {
+						$this->assertStringContainsString( 'fill:#0000ff !important', $mark->getAttribute( 'style' ) );
+					}
+				}
+				if ( 2 === $index ) {
+					$this->assertSame( 'white', $xpath->query( '//*[@id="mask-shape"]' )->item( 0 )->getAttribute( 'fill' ) );
+					$this->assertSame( 'black', $dom->getElementsByTagName( 'circle' )->item( 0 )->getAttribute( 'fill' ) );
+					$this->assertSame( 'url(#m)', $xpath->query( '//*[@mask]' )->item( 0 )->getAttribute( 'mask' ) );
+					$this->assertStringContainsString( '.mask-paint{fill:white}', $dom->getElementsByTagName( 'style' )->item( 0 )->textContent );
+				} else {
+					$this->assertStringContainsString( '.mark{fill:#0000ff}', $dom->getElementsByTagName( 'style' )->item( 0 )->textContent );
+				}
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+				unlink( $output );
+				$output = null;
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+			if ( $output ) {
+				unlink( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			}
+		}
+	}
+
+	#[Test]
+	public function safe_complex_embedded_artwork_and_coloured_wrappers_keep_vector_handling(): void {
+		$uri  = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVQIHWP4z8DwH4QZABH4A/0mVt8AAAAASUVORK5CYII=';
+		$path = tempnam( sys_get_temp_dir(), 'oc-compatible-svg-' );
+		try {
+			foreach ( [ self::raster_wrapper( $uri ), self::raster_wrapper( $uri, 'transform="rotate(30)"' ), str_replace( '</svg>', '<g><image href="' . $uri . '" width="1" height="1"/></g></svg>', self::raster_wrapper( $uri ) ) ] as $index => $raw ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+				file_put_contents( $path, $raw );
+				$dom = ( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+				if ( $index > 0 ) {
+					$this->assertNull( ( new ReflectionMethod( OC_Print_Base::class, 'embedded_svg_raster' ) )->invoke( null, $dom ) );
+				}
+				$output = ( new ReflectionMethod( OC_Print_Base::class, 'build_coloured_svg' ) )->invoke( null, $path, '#ff0000' );
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read the local generated artwork fixture.
+				$this->assertStringContainsString( $uri, file_get_contents( $output ) );
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+				unlink( $output );
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function safe_svg_features_and_benign_doctype_are_accepted(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-compatible-svg-' );
+		$raw  = '<!DOCTYPE svg><svg xmlns="http://www.w3.org/2000/svg" xmlns:editor="urn:editor" viewBox="0 0 20 20"><metadata><editor:document editor:version="1"/></metadata><defs><linearGradient id="paint"><stop stop-color="red" stop-opacity="0.5"/></linearGradient><filter id="blur"><feGaussianBlur stdDeviation="1"/></filter><path id="shape" d="M0 0L20 20"/></defs><style>/* editor */ .mark { fill: url(#paint); filter: url(#blur); }</style><use href="#shape" class="mark"/><text x="1" y="10">Hello</text></svg>';
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, $raw );
+			$dom = ( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			( new ReflectionMethod( OC_Print_Base::class, 'force_svg_node_colour' ) )->invoke( null, $dom->documentElement, '#000000' );
+			$this->assertSame( 'red', $dom->getElementsByTagName( 'stop' )[0]->getAttribute( 'stop-color' ) );
+			$this->assertSame( '#shape', $dom->getElementsByTagName( 'use' )[0]->getAttribute( 'href' ) );
+			$this->assertStringContainsString( 'fill: url(#paint)', $dom->getElementsByTagName( 'style' )[0]->textContent );
+			$this->assertSame( 1, $dom->getElementsByTagNameNS( 'urn:editor', 'document' )->length );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, str_replace( '<!DOCTYPE svg>', '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "https://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">', $raw ) );
+			$dom = ( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+			$this->assertNull( $dom->doctype, 'Legacy external-only declarations must be stripped before decoding.' );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function absolute_svg_units_work_in_the_print_raster_fallback(): void {
+		if ( ! class_exists( 'Imagick' ) || ! Imagick::queryFormats( 'SVG' ) ) {
+			$this->markTestSkipped( 'Imagick SVG support is required.' );
+		}
+		$path   = tempnam( sys_get_temp_dir(), 'oc-unit-svg-' );
+		$output = tempnam( sys_get_temp_dir(), 'oc-unit-png-' );
+		try {
+			foreach ( [ '96', '96px', '25.4mm', '2.54cm', '1in', '72pt', '6pc' ] as $length ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+				file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="' . $length . '" height="48px"><rect x="48" width="48" height="48" fill="black"/></svg>' );
+				$this->assertTrue( ( new ReflectionMethod( OC_Print_Base::class, 'convert_svg_with_imagick' ) )->invoke( null, $path, $output, 25.4, 12.7 ) );
+				$image = new Imagick( $output );
+				$this->assertSame( 600, $image->getImageWidth() );
+				$this->assertSame( 300, $image->getImageHeight() );
+				$this->assertEqualsWithDelta( 0, $image->getImagePixelColor( 100, 100 )->getColorValue( Imagick::COLOR_ALPHA ), 0.01 );
+				$this->assertEqualsWithDelta( 1, $image->getImagePixelColor( 450, 100 )->getColorValue( Imagick::COLOR_ALPHA ), 0.01 );
+				$image->clear();
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $output );
+		}
+	}
+
+	#[Test]
+	public function absolute_svg_lengths_reject_relative_invalid_and_nonfinite_values(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'svg_absolute_length_px' );
+		foreach ( [ '', '100%', '1em', '1rem', '0px', '-2mm', 'NaN', 'INF', '1e999in', '12garbage' ] as $value ) {
+			try {
+				$method->invoke( null, $value );
+				$this->fail( 'Accepted invalid length: ' . $value );
+			} catch ( RuntimeException $e ) {
+				$this->assertNotEmpty( $e->getMessage() );
+			}
+		}
+	}
+
+	#[Test]
+	public function complex_svg_preserves_mask_resources_and_attempts_rendering(): void {
+		$temp = tempnam( sys_get_temp_dir(), 'oc-mask-' );
+		$path = $temp . '.svg';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Give the local test fixture its renderer-required extension.
+		rename( $temp, $path );
+		$raw = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><defs><mask id="m"><rect width="20" height="20" fill="white"/><circle r="5" fill="black"/></mask></defs><rect width="20" height="20" mask="url(#m)" fill="red"/></svg>';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+		file_put_contents( $path, $raw );
+		try {
+			$dom = ( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			( new ReflectionMethod( OC_Print_Base::class, 'force_svg_node_colour' ) )->invoke( null, $dom->documentElement, '#000000' );
+			$this->assertSame( 'white', $dom->getElementsByTagName( 'rect' )[0]->getAttribute( 'fill' ) );
+			$this->assertSame( 'black', $dom->getElementsByTagName( 'circle' )[0]->getAttribute( 'fill' ) );
+			$this->assertSame( 'url(#m)', $dom->getElementsByTagName( 'rect' )[1]->getAttribute( 'mask' ) );
+			$output = ( new ReflectionMethod( OC_Print_Base::class, 'build_black_clipart' ) )->invoke( null, $path );
+			$this->assertFileExists( $output );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $output );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Read the local artwork fixture.
+			$this->assertSame( $raw, file_get_contents( $path ) );
+			if ( class_exists( 'OC_Test_Vector_SVG_PDF' ) ) {
+				$pdf = ( new ReflectionClass( OC_Test_Vector_SVG_PDF::class ) )->newInstanceWithoutConstructor();
+				( new ReflectionMethod( OC_Print_Base::class, 'draw_pdf_svg' ) )->invoke( null, $pdf, $path, 0, 0, 20, 20 );
+				$this->assertTrue( $pdf->image_svg_called );
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function complex_black_silhouette_keeps_original_renderer_alpha(): void {
+		if ( ! class_exists( 'Imagick' ) || ! Imagick::queryFormats( 'SVG' ) || ! function_exists( 'imagecreatefrompng' ) ) {
+			$this->markTestSkipped( 'Imagick SVG and GD are required.' );
+		}
+		$path     = tempnam( sys_get_temp_dir(), 'oc-alpha-svg-' );
+		$original = null;
+		$output   = null;
+		try {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+			file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10"><defs><linearGradient id="g"><stop stop-color="red" stop-opacity="0.2"/><stop offset="1" stop-color="blue" stop-opacity="0.8"/></linearGradient><mask id="m"><rect width="20" height="10" fill="white"/></mask></defs><rect x="2" y="2" width="16" height="6" fill="url(#g)" mask="url(#m)"/></svg>' );
+			$original = ( new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_for_tcpdf' ) )->invoke( null, $path, 173.4, 86.7 );
+			$output   = ( new ReflectionMethod( OC_Print_Base::class, 'build_coloured_svg' ) )->invoke( null, $path, '#000000' );
+			$before   = imagecreatefrompng( $original );
+			$after    = imagecreatefrompng( $output );
+			$this->assertSame( imagesx( $before ), imagesx( $after ) );
+			$this->assertSame( imagesy( $before ), imagesy( $after ) );
+			foreach ( [ 0.05, 0.25, 0.5, 0.75, 0.95 ] as $fraction ) {
+				$x = (int) ( imagesx( $before ) * $fraction );
+				$y = (int) ( imagesy( $before ) / 2 );
+				$this->assertSame( ( imagecolorat( $before, $x, $y ) >> 24 ) & 127, ( imagecolorat( $after, $x, $y ) >> 24 ) & 127 );
+				$this->assertSame( 0, imagecolorat( $after, $x, $y ) & 0xffffff );
+			}
+			imagedestroy( $before );
+			imagedestroy( $after );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+			foreach ( [ $original, $output ] as $file ) {
+				if ( $file ) {
+					unlink( $file ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+				}
+			}
+		}
+	}
+
+	#[Test]
+	public function svg_preflight_rejects_external_resources(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-unsafe-svg-' );
+		try {
+			foreach ( [ '<image href="https://example.com/a.png"/>', '<use href="other.svg#shape"/>', '<style>@import "https://example.com/a.css";</style>', '<rect style="fill:u\\72l(https://example.com/a)"/>', '<rect xml:base="https://example.com/"/>', '<rect fill="url(file:///etc/passwd)"/>', '<style>rect { fill: u/**/rl(https://example.com/a); }</style>', '<script/>', '<image href="#safe" onload="alert(1)"/>' ] as $content ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+				file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg">' . $content . '</svg>' );
+				try {
+					( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+					$this->fail( 'Unsafe or unsupported SVG was accepted: ' . $content );
+				} catch ( RuntimeException $e ) {
+					$this->assertNotEmpty( $e->getMessage() );
+				}
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function physical_raster_budget_is_bounded_and_size_dependent(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'print_raster_dimensions' );
+		$this->assertSame( [ 600, 300 ], $method->invoke( null, 25.4, 12.7, 600 ) );
+		$this->assertSame( [ 3000, 1500 ], $method->invoke( null, 127, 63.5, 600 ) );
+		$this->assertSame( [ 6000, 3000 ], $method->invoke( null, 254, 127, 600, 12000, 40000000 ) );
+		$this->assertSame( [ 2400, 1200 ], $method->invoke( null, 25.4, 12.7, 2400, 12000, 40000000 ) );
+		[ $w, $h ] = $method->invoke( null, 1000000, 1000000, 1200 );
+		$this->assertLessThanOrEqual( 4096, max( $w, $h ) );
+		$this->assertLessThanOrEqual( 16000000, $w * $h );
+		$this->expectException( RuntimeException::class );
+		$method->invoke( null, INF, 10 );
+	}
+
+	#[Test]
+	public function simple_black_svg_preserves_unpainted_regions_and_opacity(): void {
+		$temp = tempnam( sys_get_temp_dir(), 'oc-simple-black-' );
+		$path = $temp . '.svg';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Give the local test fixture its renderer-required extension.
+		rename( $temp, $path );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none"><path d="M0 0L20 20" stroke="red" opacity="0.5"/><rect width="5" height="5" fill="blue"/></svg>' );
+		$output = null;
+		try {
+			$output = ( new ReflectionMethod( OC_Print_Base::class, 'build_black_clipart' ) )->invoke( null, $path );
+			$dom    = new DOMDocument();
+			$dom->load( $output );
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$this->assertSame( 'none', $dom->documentElement->getAttribute( 'fill' ) );
+			$this->assertSame( '#000000', $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'stroke' ) );
+			$this->assertSame( '0.5', $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'opacity' ) );
+			$this->assertSame( '#000000', $dom->getElementsByTagName( 'rect' )[0]->getAttribute( 'fill' ) );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+			if ( is_string( $output ) ) {
+				unlink( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			}
+		}
+	}
+
+	#[Test]
+	public function svg_preflight_rejects_entity_declarations_before_parsing(): void {
+		$path = tempnam( sys_get_temp_dir(), 'oc-entity-svg-' );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
+		file_put_contents( $path, '<!DOCTYPE svg [<!ENTITY secret SYSTEM "file:///etc/passwd">]><svg xmlns="http://www.w3.org/2000/svg"><desc>&secret;</desc></svg>' );
+		try {
+			$this->expectException( RuntimeException::class );
+			$this->expectExceptionMessage( 'Unsafe SVG declarations' );
+			( new ReflectionMethod( OC_Print_Base::class, 'load_print_svg' ) )->invoke( null, $path );
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
+	public function engraving_filter_retains_final_size_detail_above_2048(): void {
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			$this->markTestSkipped( 'GD is not available.' );
+		}
+		$temp = tempnam( sys_get_temp_dir(), 'oc-filter-budget-' );
+		$path = $temp . '.png';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Give the local test fixture its renderer-required extension.
+		rename( $temp, $path );
+		$image = imagecreatetruecolor( 6000, 300 );
+		$white = imagecolorallocate( $image, 255, 255, 255 );
+		for ( $x = 1; $x < 6000; $x += 2 ) {
+			imageline( $image, $x, 0, $x, 299, $white );
+		}
+		imagepng( $image, $path );
+		imagedestroy( $image );
+		$outputs = [];
+		try {
+			$method    = new ReflectionMethod( OC_Print_Base::class, 'build_filtered_image' );
+			$args      = [
+				null,
+				$path,
+				[ 'settings' => [ 'image_filter_ids' => [ 7 ] ] ],
+				[
+					'imageFilterId'  => 7,
+					'imageFilterKey' => 'grayscale',
+				],
+			];
+			$outputs[] = $method->invoke( ...$args );
+			$outputs[] = $method->invoke( ...array_merge( $args, [ 254.0, 12.7, 600 ] ) );
+			$this->assertSame( 2048, getimagesize( $outputs[0] )[0] );
+			$this->assertSame( [ 6000, 300 ], array_slice( getimagesize( $outputs[1] ), 0, 2 ) );
+			$filtered = imagecreatefrompng( $outputs[1] );
+			try {
+				$this->assertSame( 0, imagecolorat( $filtered, 100, 100 ) & 0xFFFFFF );
+				$this->assertSame( 0xFFFFFF, imagecolorat( $filtered, 101, 100 ) & 0xFFFFFF );
+			} finally {
+				imagedestroy( $filtered );
+			}
+		} finally {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+			unlink( $path );
+			foreach ( $outputs as $output ) {
+				if ( is_string( $output ) ) {
+					unlink( $output ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
+				}
+			}
+		}
+	}
 
 	#[Test]
 	public function browser_rendered_text_lines_preserve_preview_wrapping(): void {

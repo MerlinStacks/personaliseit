@@ -872,19 +872,20 @@ class OC_Cart {
 				'clipartUrl'          => $clipart ? self::clipart_url( (string) $clipart->file_path ) : '',
 				'clipartRecolourable' => $clipart && (bool) $clipart->colour_changeable && 'svg' === strtolower( (string) $clipart->file_type ),
 			];
-			if ( 'textarea' === $type ) {
-				$rendered_lines = self::normalise_rendered_text_lines( $posted['renderedLines'] ?? null, $value );
-				if ( null !== $rendered_lines ) {
-					$normalised[ $layer_id ]['renderedLines'] = $rendered_lines;
-				}
-			}
-			if ( in_array( $type, [ 'text', 'textarea' ], true ) && is_numeric( $source['renderedFontSize'] ?? null ) ) {
-				$rendered_font_size = round( (float) $source['renderedFontSize'], 4 );
-				$rendered_floor     = $min_font_size > 0 ? $min_font_size : min( 4, $font_size );
-				$rendered_ceiling   = $font_size > 0 ? $font_size : ( $max_font_size > 0 ? $max_font_size : 1000 );
-				if ( $rendered_font_size > 0 && $rendered_font_size >= $rendered_floor && $rendered_font_size <= $rendered_ceiling ) {
-					$normalised[ $layer_id ]['renderedFontSize'] = $rendered_font_size;
-				}
+			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
+				// Versioned geometry must match authoritative text/font, including
+				// locked layers. Unversioned clients retain their previous hint rules.
+				$legacy_layout           = ! array_intersect( [ 'renderedLayoutVersion', 'renderedScaleX', 'renderedInsetX' ], array_keys( $posted ) );
+				$layout_source           = $legacy_layout
+					? [
+						'renderedFontSize' => $source['renderedFontSize'] ?? null,
+						'renderedLines'    => $posted['renderedLines'] ?? null,
+					]
+					: self::matching_text_layout_source( $posted, $type, $value, $font_id );
+				$normalised[ $layer_id ] = array_merge(
+					$normalised[ $layer_id ],
+					self::normalise_rendered_text_layout( $layout_source, $type, $font_size, (float) ( $layer->h ?? 0 ), $min_font_size, $max_font_size, $value )
+				);
 			}
 			if ( 'night_sky' === $type && is_array( $night_sky ) ) {
 				$normalised[ $layer_id ] = array_merge( $normalised[ $layer_id ], $night_sky );
@@ -897,6 +898,75 @@ class OC_Cart {
 			'design' => $design,
 			'layers' => $normalised,
 		] : new \WP_Error( 'invalid_design', __( 'Design has no valid layers.', 'overcustomise' ) );
+	}
+
+	/** Require derived layout to describe the server-selected text and font. */
+	private static function matching_text_layout_source( array $posted, string $type, string $value, int $font_id ): array {
+		if ( ! is_string( $posted['value'] ?? null ) || ! is_numeric( $posted['fontId'] ?? null )
+			|| (float) $posted['fontId'] !== (float) $font_id ) {
+			return [];
+		}
+		$posted_value = 'textarea' === $type && function_exists( 'sanitize_textarea_field' )
+			? sanitize_textarea_field( $posted['value'] ) : sanitize_text_field( $posted['value'] );
+		return $posted_value === $value ? $posted : [];
+	}
+
+	/** Preserve legacy hints; validate versioned geometry atomically in canonical units. */
+	private static function normalise_rendered_text_layout( array $source, string $type, float $font_size, float $height, float $min, float $max, string $value ): array {
+		if ( ! array_intersect( [ 'renderedLayoutVersion', 'renderedScaleX', 'renderedInsetX' ], array_keys( $source ) ) ) {
+			// Cached clients sent independent size/wrapping hints without font identity.
+			$layout = [];
+			$lines  = 'textarea' === $type ? self::normalise_rendered_text_lines( $source['renderedLines'] ?? null, $value ) : null;
+			if ( null !== $lines ) {
+				$layout['renderedLines'] = $lines;
+			}
+			if ( is_numeric( $source['renderedFontSize'] ?? null ) ) {
+				$size    = round( (float) $source['renderedFontSize'], 4 );
+				$floor   = $min > 0 ? $min : min( 4, $font_size );
+				$ceiling = $font_size > 0 ? $font_size : ( $max > 0 ? $max : 1000 );
+				if ( is_finite( $size ) && $size > 0 && $size >= $floor && $size <= $ceiling ) {
+					$layout['renderedFontSize'] = $size;
+				}
+			}
+			return $layout;
+		}
+		if ( ! in_array( $source['renderedLayoutVersion'] ?? null, [ 1, 1.0, '1' ], true ) ) {
+			return [];
+		}
+		$layout = [];
+		foreach ( [ 'renderedFontSize', 'renderedScaleX', 'renderedInsetX' ] as $key ) {
+			if ( ! is_numeric( $source[ $key ] ?? null ) || ! is_finite( (float) $source[ $key ] ) ) {
+				return [];
+			}
+			$layout[ $key ] = (float) $source[ $key ];
+		}
+		$ceiling = $font_size > 0 ? $font_size : $height * 0.72;
+		if ( $max > 0 ) {
+			$min     = min( $min, $max );
+			$ceiling = min( $ceiling, $max );
+		}
+		$ceiling = max( $ceiling, $min );
+		$size    = $layout['renderedFontSize'];
+		$scale   = $layout['renderedScaleX'];
+		$inset   = $layout['renderedInsetX'];
+		// A tiny relative tolerance covers the display-to-canonical round trip.
+		$tolerance = max( abs( $ceiling ), abs( $min ) ) * 1e-12;
+		if ( $size <= 0 || $size < $min - $tolerance || $size > $ceiling + $tolerance
+			|| $scale <= 0 || $scale > 1 || $inset < 0 || $inset >= 0.5
+			|| ( 'text' === $type && 0.0 !== $inset )
+			|| ( 'textarea' === $type && 1.0 !== $scale ) ) {
+			return [];
+		}
+		$layout['renderedFontSize']      = min( $ceiling, max( $min, $size ) );
+		$layout['renderedLayoutVersion'] = 1;
+		if ( 'textarea' === $type ) {
+			$lines = self::normalise_rendered_text_lines( $source['renderedLines'] ?? null, $value );
+			if ( null === $lines ) {
+				return [];
+			}
+			$layout['renderedLines'] = $lines;
+		}
+		return $layout;
 	}
 
 	/** Recover artwork uploaded immediately before WooCommerce finalised a variation selection. */
