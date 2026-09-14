@@ -725,6 +725,7 @@ const inputControlMethods = {
 					locationRequest?.release();
 					locationRequest = null;
 				};
+				const addressInput = fields.locationLabel;
 				const listenerOptions = { signal: stateSignal };
 				const dismissResults = () => {
 					cancelSearch();
@@ -738,7 +739,7 @@ const inputControlMethods = {
 					fields.longitude.value = Number( result.longitude ).toFixed(
 						6
 					);
-					fields.locationLabel.value = result.displayName || '';
+					addressInput.value = result.displayName || '';
 					if ( error ) {
 						error.textContent = '';
 					}
@@ -787,7 +788,7 @@ const inputControlMethods = {
 						resultsEl.appendChild( option );
 					} );
 					resultsEl.hidden = ! results.length;
-					fields.locationLabel.setAttribute(
+					addressInput.setAttribute(
 						'aria-expanded',
 						results.length ? 'true' : 'false'
 					);
@@ -800,10 +801,7 @@ const inputControlMethods = {
 					resultsEl.replaceChildren( status );
 					resultsEl.hidden = false;
 					resultsEl.toggleAttribute( 'aria-busy', busy );
-					fields.locationLabel.setAttribute(
-						'aria-expanded',
-						'true'
-					);
+					addressInput.setAttribute( 'aria-expanded', 'true' );
 				};
 				const displaySearchResults = ( results ) => {
 					if ( results.length ) {
@@ -817,7 +815,7 @@ const inputControlMethods = {
 				};
 				const searchAddresses = () => {
 					cancelSearch();
-					const query = fields.locationLabel.value.trim();
+					const query = addressInput.value.trim();
 					const cacheKey = query.toLocaleLowerCase();
 					const sequence = searchSequence;
 					if ( query.length < 3 ) {
@@ -901,7 +899,7 @@ const inputControlMethods = {
 						}
 					}, 350 );
 				};
-				fields.locationLabel?.addEventListener(
+				addressInput?.addEventListener(
 					'input',
 					() => {
 						fields.latitude.value = '';
@@ -911,7 +909,7 @@ const inputControlMethods = {
 					},
 					listenerOptions
 				);
-				fields.locationLabel?.addEventListener(
+				addressInput?.addEventListener(
 					'focus',
 					() => {
 						if (
@@ -924,7 +922,7 @@ const inputControlMethods = {
 					},
 					listenerOptions
 				);
-				fields.locationLabel?.addEventListener(
+				addressInput?.addEventListener(
 					'keydown',
 					( event ) => {
 						if ( event.key === 'Escape' ) {
@@ -949,7 +947,7 @@ const inputControlMethods = {
 					() => {
 						addressMode.hidden = true;
 						coordinateMode.hidden = false;
-						fields.locationLabel.value = '';
+						addressInput.value = '';
 						dismissResults();
 						update();
 						fields.latitude?.focus();
@@ -963,7 +961,7 @@ const inputControlMethods = {
 					() => {
 						coordinateMode.hidden = true;
 						addressMode.hidden = false;
-						fields.locationLabel?.focus();
+						addressInput?.focus();
 					},
 					listenerOptions
 				);
