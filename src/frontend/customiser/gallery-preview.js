@@ -168,6 +168,7 @@ const galleryPreviewMethods = {
 	},
 
 	restoreProductGallery() {
+		this.watchTVPGReady();
 		this._galleryPreviewGeneration += 1;
 		this.closeGalleryPreviewLightbox();
 		document
@@ -608,10 +609,36 @@ const galleryPreviewMethods = {
 		this._tvpgLockedSwipers.add( swiper );
 	},
 
+	watchTVPGReady( mainSliderEl ) {
+		// Replace the pending retry; omitting the slider cancels it on handoff/restore.
+		document.removeEventListener(
+			'tvpg-gallery-ready',
+			this._tvpgReadyRetry
+		);
+		this._tvpgReadyRetry = mainSliderEl
+			? ( event ) => {
+					if ( ! event.target?.contains?.( mainSliderEl ) ) {
+						return;
+					}
+					const canvas = this.canvases[ this.activeArea ];
+					// pushToGallery checks active customisation and customer input.
+					if ( canvas && ! canvas._ocMissingMockup ) {
+						this.pushToGallery( canvas );
+					}
+			  }
+			: null;
+		if ( this._tvpgReadyRetry ) {
+			document.addEventListener(
+				'tvpg-gallery-ready',
+				this._tvpgReadyRetry
+			);
+		}
+	},
+
 	applyTVPGOverlayPreview( dataUrl, dimensions = null ) {
 		const mainSliderEl = document.querySelector( '.tvpg-main-slider' );
 		const mainWrapper = mainSliderEl?.querySelector( '.swiper-wrapper' );
-		if ( ! mainSliderEl || ! mainWrapper ) {
+		if ( ! mainWrapper ) {
 			return false;
 		}
 
@@ -619,6 +646,13 @@ const galleryPreviewMethods = {
 			'.swiper-slide:not(.oc-live-preview-slide)'
 		);
 		if ( realSlides.length <= 1 ) {
+			return false;
+		}
+
+		// Do not hand off to a slide that Swiper cannot display yet.
+		const mainSwiper = mainSliderEl.swiper;
+		if ( ! mainSwiper?.initialized || mainSwiper.destroyed ) {
+			this.watchTVPGReady( mainSliderEl );
 			return false;
 		}
 
@@ -668,12 +702,18 @@ const galleryPreviewMethods = {
 		}
 
 		// Swiper attaches instances to the root element; update so the new last slide is navigable.
-		const mainSwiper = mainSliderEl.swiper;
 		const thumbSwiper = thumbSliderEl?.swiper;
 		this.stopTVPGAutoScroll( mainSwiper, thumbSwiper );
 
-		mainSwiper?.update?.();
+		mainSwiper.update();
 		thumbSwiper?.update?.();
+
+		const previewIndex = mainSwiper.slides.indexOf( mainPreviewSlide );
+		if ( previewIndex < 0 ) {
+			this.watchTVPGReady( mainSliderEl );
+			return false;
+		}
+		this.watchTVPGReady();
 
 		this.lockTVPGPreviewSlide( mainSwiper, mainPreviewSlide );
 		this.lockTVPGPreviewSlide(
@@ -683,14 +723,12 @@ const galleryPreviewMethods = {
 			)
 		);
 
-		if ( this._focusPreviewSlide && mainSwiper?.slides?.length ) {
+		if ( this._focusPreviewSlide ) {
 			this._tvpgPreviewLocked = true;
-			const previewIndex =
-				mainSwiper._ocPreviewSlideIndex ?? mainSwiper.slides.length - 1;
-			const thumbIndex =
-				thumbSwiper?._ocPreviewSlideIndex ?? previewIndex;
 			mainSwiper.slideTo( previewIndex );
-			thumbSwiper?.slideTo?.( thumbIndex );
+			thumbSwiper?.slideTo?.(
+				thumbSwiper._ocPreviewSlideIndex ?? previewIndex
+			);
 		}
 
 		this._focusPreviewSlide = false;
@@ -734,13 +772,10 @@ const galleryPreviewMethods = {
 		}
 		const galleryUrl = this.createGalleryPreviewUrl( dataUrl );
 
-		if ( this.applyTVPGOverlayPreview( galleryUrl, dimensions ) ) {
-			this.setPanelPreviewHandoff( true );
-			this._focusPreviewSlide = false;
-			return;
-		}
-
-		if ( this.applyFlatsomeOverlayPreview( galleryUrl, dimensions ) ) {
+		if (
+			this.applyTVPGOverlayPreview( galleryUrl, dimensions ) ||
+			this.applyFlatsomeOverlayPreview( galleryUrl, dimensions )
+		) {
 			this.setPanelPreviewHandoff( true );
 			this._focusPreviewSlide = false;
 			return;
@@ -795,7 +830,9 @@ const galleryPreviewMethods = {
 			targets.size > 0 || this.mountPreviewInGallery()
 		);
 
-		this._focusPreviewSlide = false;
+		if ( ! this._tvpgReadyRetry ) {
+			this._focusPreviewSlide = false;
+		}
 	},
 
 	requestPreviewFocus() {
