@@ -668,16 +668,29 @@ class Test_Print_Base extends TestCase {
 		if ( ! class_exists( 'Imagick' ) || ! Imagick::queryFormats( 'SVG' ) || ! function_exists( 'imagecreatefrompng' ) ) {
 			$this->markTestSkipped( 'Imagick SVG and GD are required.' );
 		}
-		$path     = tempnam( sys_get_temp_dir(), 'oc-alpha-svg-' );
+		$temp = tempnam( sys_get_temp_dir(), 'oc-alpha-svg-' );
+		$path = $temp . '.svg';
+		// The production dimension reader selects its decoder from the file extension.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Match the extension of real SVG uploads.
+		rename( $temp, $path );
 		$original = null;
 		$output   = null;
+		$before   = false;
+		$after    = false;
 		try {
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write the local test fixture directly.
-			file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10"><defs><linearGradient id="g"><stop stop-color="red" stop-opacity="0.2"/><stop offset="1" stop-color="blue" stop-opacity="0.8"/></linearGradient><mask id="m"><rect width="20" height="10" fill="white"/></mask></defs><rect x="2" y="2" width="16" height="6" fill="url(#g)" mask="url(#m)"/></svg>' );
-			$original = ( new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_for_tcpdf' ) )->invoke( null, $path, 173.4, 86.7 );
+			file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 2"><defs><linearGradient id="g"><stop stop-color="red" stop-opacity="0.2"/><stop offset="1" stop-color="blue" stop-opacity="0.8"/></linearGradient><mask id="m"><rect width="20" height="2" fill="white"/></mask></defs><rect x="2" y="0.2" width="16" height="1.6" fill="url(#g)" mask="url(#m)"/></svg>' );
+			$original = ( new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_for_tcpdf' ) )->invoke( null, $path, 173.4, 17.34 );
 			$output   = ( new ReflectionMethod( OC_Print_Base::class, 'build_coloured_svg' ) )->invoke( null, $path, '#000000' );
-			$before   = imagecreatefrompng( $original );
-			$after    = imagecreatefrompng( $output );
+			$this->assertIsString( $original, 'The original SVG must rasterise for the alpha comparison.' );
+			$this->assertIsString( $output, 'The silhouette conversion must produce an output file.' );
+			$this->assertSame( 'image/png', getimagesize( $original )['mime'] ?? null );
+			$this->assertSame( 'png', pathinfo( $output, PATHINFO_EXTENSION ), 'Expected the raster silhouette, not the legacy SVG fallback.' );
+			$this->assertSame( 'image/png', getimagesize( $output )['mime'] ?? null );
+			$before = imagecreatefrompng( $original );
+			$after  = imagecreatefrompng( $output );
+			$this->assertInstanceOf( GdImage::class, $before );
+			$this->assertInstanceOf( GdImage::class, $after );
 			$this->assertSame( imagesx( $before ), imagesx( $after ) );
 			$this->assertSame( imagesy( $before ), imagesy( $after ) );
 			foreach ( [ 0.05, 0.25, 0.5, 0.75, 0.95 ] as $fraction ) {
@@ -686,9 +699,12 @@ class Test_Print_Base extends TestCase {
 				$this->assertSame( ( imagecolorat( $before, $x, $y ) >> 24 ) & 127, ( imagecolorat( $after, $x, $y ) >> 24 ) & 127 );
 				$this->assertSame( 0, imagecolorat( $after, $x, $y ) & 0xffffff );
 			}
-			imagedestroy( $before );
-			imagedestroy( $after );
 		} finally {
+			foreach ( [ $before, $after ] as $image ) {
+				if ( $image instanceof GdImage ) {
+					imagedestroy( $image );
+				}
+			}
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.
 			unlink( $path );
 			foreach ( [ $original, $output ] as $file ) {
