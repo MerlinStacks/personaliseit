@@ -1,0 +1,634 @@
+/* stylelint-disable no-descending-specificity, no-duplicate-selectors */
+
+/* Layer action buttons (vis / lock / delete) */
+.oc-layer-actions {
+	display: flex;
+	gap: 1px;
+	flex-shrink: 0;
+	margin-left: auto;
+}
+
+.oc-layer-action-btn {
+	width: 22px;
+	height: 22px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border: none;
+	border-radius: 3px;
+	background: none;
+	cursor: pointer;
+	font-size: 11px;
+	padding: 0;
+	color: var(--oc-gray-400);
+	transition:
+		background 0.1s,
+		color 0.1s;
+	line-height: 1;
+}
+
+.oc-layer-action-btn:hover {
+	background: var(--oc-gray-200);
+	color: var(--oc-gray-700);
+}
+
+/* Visibility — dimmed when hidden */
+.oc-layer-vis-btn.is-off {
+	color: var(--oc-gray-300);
+}
+
+.oc-layer-vis-btn.is-off:hover {
+	color: var(--oc-gray-600);
+}
+
+/* Lock — amber when locked */
+.oc-layer-lock-btn.is-on {
+	color: var(--oc-warning);
+}
+
+.oc-layer-lock-btn.is-on:hover {
+	background: var(--oc-warning-bg);
+}
+
+/* Delete — red on hover */
+.oc-layer-delete-btn:hover {
+	background: var(--oc-danger-bg);
+	color: var(--oc-danger);
+}
+
+/* Hidden layer — name dimmed */
+.oc-layer--hidden .oc-layer-item-name {
+	opacity: 0.4;
+	text-decoration: line-through;
+}
+
+.oc-layer--hidden .oc-layer-icon {
+	opacity: 0.35;
+}
+
+/* Locked layer — name gets lock tint */
+.oc-layer--locked .oc-layer-item-name {
+	color: var(--oc-gray-500);
+}
+
+/* Canvas bounds box — locked state */
+.oc-bounds-box--locked {
+	cursor: not-allowed !important;
+	pointer-events: none;
+}
+
+.oc-bounds-box--locked .oc-bounds-handle {
+	cursor: not-allowed !important;
+	pointer-events: none;
+}
+
+.oc-bounds-box--locked .oc-bounds-rotate-handle {
+	cursor: not-allowed !important;
+	pointer-events: none;
+}
+
+/* Drag handle */
+.oc-layer-drag-handle {
+	cursor: grab;
+	color: var(--oc-gray-300);
+	font-size: 12px;
+	flex-shrink: 0;
+	padding: 0 2px;
+	line-height: 1;
+	transition: color 0.1s;
+}
+
+.oc-layer-item:hover .oc-layer-drag-handle {
+	color: var(--oc-gray-500);
+}
+
+.oc-layer-item--dragging {
+	opacity: 0.35;
+}
+
+.oc-layer-item--drag-over {
+	border-top: 2px solid var(--oc-primary);
+	background: var(--oc-primary-light) !important;
+}
+
+/* Layer list items */
+.oc-layer-item {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 5px 10px;
+	border-radius: var(--oc-radius-sm);
+	cursor: pointer;
+	transition: background 0.1s;
+	margin-bottom: 2px;
+	font-size: 12px;
+}
+
+.oc-layer-item:hover {
+	background: var(--oc-gray-100);
+}
+
+.oc-layer-item--active {
+	background: var(--oc-primary-light) !important;
+}
+
+.oc-layer-icon {
+	font-size: 12px;
+	width: 18px;
+	text-align: center;
+	flex-shrink: 0;
+}
+
+.oc-layer-item-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 500;
+	color: var(--oc-gray-800);
+}
+
+.oc-layer-item-type {
+	font-size: 9px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--oc-gray-400);
+	flex-shrink: 0;
+}
+
+/* Add Layer row */
+.oc-add-layer-row {
+	padding: 4px 10px 2px;
+}
+
+.oc-add-layer-row button {
+	font-size: 11px;
+	color: var(--oc-primary);
+	background: none;
+	border: 1.5px dashed var(--oc-primary-border);
+	border-radius: var(--oc-radius-sm);
+	padding: 4px 10px;
+	cursor: pointer;
+	width: 100%;
+	text-align: left;
+	transition: background 0.1s;
+}
+
+.oc-add-layer-row button:hover {
+	background: var(--oc-primary-light);
+}
+
+/* Layer type picker grid */
+.oc-layer-type-picker {
+	padding: 8px 10px;
+	background: var(--oc-gray-50);
+	border-top: 1px solid var(--oc-gray-100);
+	border-radius: 0 0 var(--oc-radius-sm) var(--oc-radius-sm);
+}
+
+.oc-layer-type-grid {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 4px;
+}
+
+.oc-layer-type-btn {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 3px;
+	padding: 8px 4px 6px;
+	background: var(--oc-white);
+	border: 1.5px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius-sm);
+	cursor: pointer;
+	font-size: 10px;
+	color: var(--oc-gray-600);
+	text-align: center;
+	transition:
+		border-color 0.1s,
+		background 0.1s,
+		color 0.1s;
+	line-height: 1.2;
+}
+
+.oc-layer-type-btn:hover {
+	border-color: var(--oc-primary);
+	color: var(--oc-primary);
+	background: var(--oc-primary-light);
+}
+
+.oc-layer-type-btn-icon {
+	font-size: 15px;
+	line-height: 1;
+}
+
+/* Layer ghost boxes on canvas */
+.oc-canvas-layer-ghost {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1.5px solid;
+	transition: opacity 0.1s;
+	pointer-events: auto;
+}
+
+.oc-canvas-layer-ghost:hover {
+	opacity: 0.75;
+}
+
+/* Area boundary outline (shown when a layer is selected) */
+.oc-canvas-area-outline {
+	position: absolute;
+	box-sizing: border-box;
+	border: 1.5px dashed rgba(255, 255, 255, 0.35);
+	pointer-events: none;
+	transform-origin: center center;
+}
+
+/* ── Layer settings UI ─────────────────────────────────────────────────── */
+
+/* Layer tab bar */
+.oc-layer-tabs-bar {
+	display: flex;
+	border-bottom: 2px solid var(--oc-gray-200);
+	margin-bottom: 12px;
+	overflow-x: auto;
+	scrollbar-width: none;
+}
+
+.oc-layer-tabs-bar::-webkit-scrollbar {
+	display: none;
+}
+
+.oc-layer-tab {
+	flex: 0 0 34px;
+	padding: 7px 4px;
+	font-size: 13px;
+	font-weight: 600;
+	line-height: 1;
+	color: var(--oc-gray-500);
+	background: none;
+	border: none;
+	border-bottom: 2px solid transparent;
+	cursor: pointer;
+	margin-bottom: -2px;
+	white-space: nowrap;
+	transition:
+		color 0.1s,
+		border-color 0.1s;
+}
+
+.oc-layer-tab:hover {
+	color: var(--oc-primary);
+}
+
+.oc-layer-tab--active {
+	color: var(--oc-primary);
+	border-bottom-color: var(--oc-primary);
+}
+
+.oc-layer-tab-panel {
+	display: none;
+}
+
+.oc-layer-tab-panel--active {
+	display: block;
+}
+
+#oc-layer-settings {
+	margin-top: 4px;
+}
+
+.oc-settings-section-hdr {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.07em;
+	font-weight: 700;
+	color: var(--oc-gray-400);
+	margin: 14px 0 8px;
+}
+
+.oc-settings-section-hdr:first-child {
+	margin-top: 0;
+}
+
+.oc-settings-label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--oc-gray-600);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	margin-bottom: 5px;
+}
+
+.oc-hint {
+	font-size: 10px;
+	color: var(--oc-gray-400);
+	font-weight: 400;
+	text-transform: none;
+	letter-spacing: 0;
+}
+
+.oc-settings-empty {
+	font-size: 11px;
+	color: var(--oc-gray-400);
+	font-style: italic;
+	display: block;
+	margin: 4px 0;
+}
+
+.oc-settings-toggle {
+	display: flex;
+	align-items: center;
+	width: 100%;
+	font-size: 12px;
+	margin: 0 0 8px;
+}
+
+/* Alignment button group */
+.oc-align-btns {
+	display: flex;
+	gap: 4px;
+}
+
+.oc-align-btn {
+	flex: 1;
+	padding: 5px 0;
+	border: 1.5px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius-sm);
+	cursor: pointer;
+	font-size: 11px;
+	background: var(--oc-white);
+	color: var(--oc-gray-600);
+	transition:
+		border-color 0.1s,
+		background 0.1s,
+		color 0.1s;
+}
+
+.oc-align-btn:hover {
+	border-color: var(--oc-primary);
+	color: var(--oc-primary);
+}
+
+.oc-align-btn--active {
+	border-color: var(--oc-primary);
+	background: var(--oc-primary-light);
+	color: var(--oc-primary);
+	font-weight: 600;
+}
+
+/* Group & format checkboxes */
+.oc-group-checks {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 120px;
+	overflow-y: auto;
+	border: 1px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius-sm);
+	padding: 6px 8px;
+}
+
+.oc-group-check-item {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	font-size: 12px;
+	color: var(--oc-gray-700);
+	cursor: pointer;
+	user-select: none;
+}
+
+.oc-group-check-item:hover {
+	color: var(--oc-gray-900);
+}
+
+.oc-group-check-item input {
+	flex-shrink: 0;
+	margin: 0;
+	cursor: pointer;
+}
+
+/* ── Feature 3: Multi-area navigation strip ────────────────────────────── */
+
+.oc-editor-canvas-wrap {
+	flex-direction: column;
+}
+
+.oc-area-strip {
+	display: flex;
+	gap: 8px;
+	padding: 8px 12px;
+	background: rgba(0, 0, 0, 0.55);
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+	overflow-x: auto;
+	flex-shrink: 0;
+	scrollbar-width: thin;
+	scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.oc-area-strip:empty {
+	display: none;
+}
+
+.oc-area-strip-card {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 5px;
+	cursor: pointer;
+	flex-shrink: 0;
+	padding: 4px;
+	border-radius: 5px;
+	border: 2px solid transparent;
+	opacity: 0.6;
+	transition:
+		opacity 0.15s,
+		border-color 0.15s;
+}
+
+.oc-area-strip-card:hover {
+	opacity: 0.9;
+}
+
+.oc-area-strip-card--active {
+	opacity: 1;
+	border-color: var(--oc-primary);
+}
+
+.oc-area-strip-card--hidden {
+	opacity: 0.35;
+}
+
+.oc-area-strip-thumb {
+	width: 56px;
+	height: 40px;
+	border-radius: 3px;
+	overflow: hidden;
+	background: var(--oc-gray-700);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.oc-area-strip-thumb img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+	display: block;
+}
+
+.oc-area-strip-label {
+	font-size: 9px;
+	color: rgba(255, 255, 255, 0.75);
+	text-align: center;
+	max-width: 60px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oc-area-strip-card--active .oc-area-strip-label {
+	color: #fff;
+}
+
+/* ── Feature 2: Draw-to-create ─────────────────────────────────────────── */
+
+.oc-canvas-draw-preview {
+	position: absolute;
+	box-sizing: border-box;
+	border: 2px dashed rgba(255, 255, 255, 0.8);
+	background: rgba(255, 255, 255, 0.12);
+	pointer-events: none;
+	z-index: 20;
+}
+
+.oc-draw-popup-backdrop {
+	position: fixed;
+	inset: 0;
+	z-index: 99990;
+}
+
+.oc-draw-type-popup {
+	position: fixed;
+	z-index: 99991;
+	background: var(--oc-white);
+	border: 1px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius);
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+	padding: 10px;
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 6px;
+	min-width: 210px;
+}
+
+.oc-draw-type-btn {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 4px;
+	padding: 10px 6px 8px;
+	border: 1.5px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius-sm);
+	background: var(--oc-white);
+	cursor: pointer;
+	font-size: 10px;
+	color: var(--oc-gray-600);
+	transition:
+		border-color 0.1s,
+		background 0.1s;
+}
+
+.oc-draw-type-btn:hover {
+	border-color: var(--oc-primary);
+	background: var(--oc-primary-light);
+	color: var(--oc-primary);
+}
+
+/* ── Feature 4: Layer indicators on canvas ─────────────────────────────── */
+
+/* Shared base for all layer preview content inside bounds/ghosts */
+.oc-lp {
+	position: absolute;
+	inset: 0;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	pointer-events: none;
+}
+
+/* Text preview — selected (bounds box) */
+.oc-bounds-box .oc-lp-text {
+	padding: 4px 8px;
+	font-weight: 600;
+	color: rgba(15, 15, 15, 0.9);
+	text-shadow:
+		0 0 8px rgba(255, 255, 255, 0.95),
+		0 1px 4px rgba(255, 255, 255, 0.8);
+	line-height: 1.25;
+	word-break: break-word;
+	flex-direction: column;
+}
+
+/* Text preview — ghost (non-selected layer) */
+.oc-canvas-ghost .oc-lp-text {
+	padding: 3px 6px;
+	font-weight: 500;
+	color: rgba(20, 20, 20, 0.7);
+	text-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+	line-height: 1.25;
+	word-break: break-word;
+	flex-direction: column;
+}
+
+/* Icon+label stack (image, spotify, lineart, clipart) */
+.oc-lp-icon {
+	flex-direction: column;
+	gap: 4px;
+	opacity: 0.6;
+	color: rgba(30, 30, 30, 0.85);
+	text-shadow: 0 0 6px rgba(255, 255, 255, 0.9);
+}
+
+.oc-lp-icon span:last-child {
+	font-size: 9px;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.oc-lp-icon svg {
+	opacity: 0.75;
+}
+
+.oc-lp-media {
+	width: 100%;
+	height: 100%;
+	object-fit: contain;
+	padding: 3px;
+}
+
+.oc-lp-mask {
+	padding: 0;
+}
+
+/* Type label pill below the bounds box */
+.oc-bounds-box-pill {
+	position: absolute;
+	bottom: -1px;
+	left: 50%;
+	transform: translate(-50%, 100%);
+	white-space: nowrap;
+	font-size: 9px;
+	font-weight: 700;
+	color: #fff;
+	padding: 2px 7px 3px;
+	border-radius: 0 0 5px 5px;
+	pointer-events: none;
+	letter-spacing: 0.03em;
+}

@@ -138,12 +138,40 @@ class OC_Admin_Menu {
 			return;
 		}
 
-		// Shared admin styles (static file, not webpack-built).
+		// Static modules retain the original cascade, including cross-page overrides.
+		// Register dependencies rather than enqueueing each module independently so
+		// oc-admin remains the single entry point for dependents and inline styles.
+		$admin_css_modules = [
+			'base',
+			'operations',
+			'components',
+			'fonts-and-modals',
+			'colours',
+			'design-editor',
+			'layers',
+			'catalog',
+			'settings',
+		];
+		$admin_css_deps    = [];
+		foreach ( $admin_css_modules as $module ) {
+			$handle = 'oc-admin-' . $module;
+			$file   = 'assets/css/admin/' . $module . '.css';
+			$path   = OC_PATH . $file;
+			wp_register_style(
+				$handle,
+				OC_URL . $file,
+				$admin_css_deps,
+				file_exists( $path ) ? (string) filemtime( $path ) : OC_VERSION
+			);
+			$admin_css_deps = [ $handle ];
+		}
+
+		// Keep the existing handle and URL for the final responsive overrides.
 		$admin_css_path = OC_PATH . 'assets/css/admin.css';
 		wp_enqueue_style(
 			'oc-admin',
 			OC_URL . 'assets/css/admin.css',
-			[],
+			$admin_css_deps,
 			file_exists( $admin_css_path ) ? (string) filemtime( $admin_css_path ) : OC_VERSION
 		);
 

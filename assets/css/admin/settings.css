@@ -1,0 +1,250 @@
+/* stylelint-disable no-descending-specificity, no-duplicate-selectors */
+
+/* Settings page tabs */
+.oc-settings-page .oc-page-header {
+	margin-bottom: 18px;
+}
+
+.oc-settings-layout {
+	display: grid;
+	grid-template-columns: 280px minmax(0, 1fr);
+	gap: 18px;
+	align-items: start;
+}
+
+.oc-settings-sidebar {
+	position: sticky;
+	top: 46px;
+}
+
+.oc-settings-tabs {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.oc-settings-tab-btn {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	border: 1px solid var(--oc-gray-200);
+	background: var(--oc-white);
+	border-radius: 7px;
+	padding: 10px 12px;
+	cursor: pointer;
+	font-size: 13px;
+	color: var(--oc-gray-700);
+	text-align: left;
+	transition:
+		border-color 0.15s,
+		background 0.15s,
+		box-shadow 0.15s,
+		transform 0.15s;
+}
+
+.oc-settings-tab-btn:hover {
+	border-color: var(--oc-primary-border);
+	background: var(--oc-primary-light);
+	color: var(--oc-gray-900);
+	transform: translateX(1px);
+}
+
+.oc-settings-tab-btn.is-active {
+	border-color: var(--oc-primary);
+	background: var(--oc-primary-light);
+	color: var(--oc-primary);
+	box-shadow: 0 0 0 1px var(--oc-primary-border) inset;
+}
+
+.oc-settings-tab-title {
+	font-weight: 600;
+}
+
+.oc-settings-help-card .oc-card-body {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+.oc-settings-help-card .oc-form-help {
+	margin: 0;
+}
+
+.oc-settings-content .oc-card {
+	margin-bottom: 14px;
+}
+
+.oc-settings-tab-panel {
+	display: none;
+}
+
+.oc-settings-tab-panel.is-active {
+	display: block;
+}
+
+.oc-settings-savebar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+}
+
+.oc-settings-save-meta {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.oc-settings-dirty-indicator {
+	display: none;
+	padding: 3px 9px;
+	border-radius: 999px;
+	font-size: 11px;
+	font-weight: 600;
+	background: var(--oc-warning-bg);
+	color: var(--oc-warning);
+}
+
+.oc-settings-dirty-indicator.is-visible {
+	display: inline-flex;
+}
+
+.oc-inline-row {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.oc-input-xs {
+	width: 80px;
+}
+
+.oc-input-small {
+	width: 110px;
+}
+
+.oc-input-suffix {
+	font-size: 13px;
+	color: var(--oc-gray-500);
+}
+
+.oc-select-wide {
+	width: 220px;
+}
+
+.oc-icc-grid {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.oc-icc-label {
+	font-size: 12px;
+	color: var(--oc-gray-500);
+	width: 90px;
+	flex-shrink: 0;
+}
+
+.oc-system-status-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+}
+
+.oc-system-status-header p {
+	margin: 4px 0 0;
+	color: var(--oc-gray-500);
+}
+
+.oc-system-summary {
+	display: inline-flex;
+	align-items: center;
+	padding: 6px 10px;
+	border-radius: 999px;
+	font-size: 12px;
+	font-weight: 600;
+	white-space: nowrap;
+}
+
+.oc-system-summary.is-ready {
+	background: var(--oc-success-bg);
+	color: var(--oc-success);
+}
+
+.oc-system-summary.is-error {
+	background: var(--oc-danger-bg);
+	color: var(--oc-danger);
+}
+
+.oc-system-checks {
+	display: flex;
+	flex-direction: column;
+}
+
+.oc-system-check {
+	display: grid;
+	grid-template-columns: 34px minmax(0, 1fr) auto;
+	gap: 12px;
+	align-items: center;
+	padding: 14px 18px;
+	border-bottom: 1px solid var(--oc-gray-100);
+}
+
+.oc-system-check:last-child {
+	border-bottom: 0;
+}
+
+.oc-system-check-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 30px;
+	height: 30px;
+	border-radius: 8px;
+}
+
+.oc-system-check-icon.is-ready {
+	background: var(--oc-success-bg);
+	color: var(--oc-success);
+}
+
+.oc-system-check-icon.is-error {
+	background: var(--oc-danger-bg);
+	color: var(--oc-danger);
+}
+
+.oc-system-check-icon.is-warning {
+	background: var(--oc-warning-bg);
+	color: var(--oc-warning);
+}
+
+.oc-system-check-title {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.oc-system-requirement {
+	color: var(--oc-gray-500);
+	font-size: 11px;
+	font-weight: 500;
+}
+
+.oc-system-check-copy p {
+	margin: 3px 0 0;
+	color: var(--oc-gray-500);
+	font-size: 12px;
+}
+
+.oc-system-check-result {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 3px;
+}
+
+.oc-system-check-result code {
+	font-size: 11px;
+}

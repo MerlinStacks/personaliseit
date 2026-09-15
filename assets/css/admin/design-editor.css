@@ -1,0 +1,582 @@
+/* stylelint-disable no-descending-specificity, no-duplicate-selectors */
+
+/* ── Design editor (3-column app layout) ───────────────────────────────── */
+
+html:has(.oc-design-editor-page),
+body:has(.oc-design-editor-page) {
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+html:has(.oc-design-editor-page)::-webkit-scrollbar,
+body:has(.oc-design-editor-page)::-webkit-scrollbar {
+	display: none;
+}
+
+/* Remove max-width on the editor page so it fills the viewport */
+.oc-design-editor-page {
+	max-width: none !important;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.oc-design-editor-page::-webkit-scrollbar {
+	display: none;
+}
+
+#oc-design-form {
+	overflow-x: hidden;
+}
+
+.oc-design-editor-topbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 16px;
+	padding: 10px 0 12px;
+	border-bottom: 1px solid var(--oc-gray-200);
+	margin-bottom: 0;
+}
+
+/* Editable design name in topbar */
+.oc-design-name-input {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--oc-gray-800);
+	background: transparent;
+	border: none;
+	border-bottom: 2px solid transparent;
+	border-radius: 0;
+	outline: none;
+	padding: 2px 6px;
+	min-width: 180px;
+	max-width: 420px;
+	width: 100%;
+	transition:
+		border-color 0.15s,
+		background 0.15s;
+}
+
+.oc-design-name-input:hover {
+	border-bottom-color: var(--oc-gray-300);
+}
+
+.oc-design-name-input:focus {
+	border-bottom-color: var(--oc-primary);
+	background: var(--oc-primary-light);
+	border-radius: 3px 3px 0 0;
+}
+
+.oc-design-name-input::placeholder {
+	color: var(--oc-gray-400);
+	font-weight: 400;
+}
+
+/* Autosave indicator */
+.oc-autosave-indicator {
+	font-size: 11px;
+	color: var(--oc-gray-400);
+	white-space: nowrap;
+	min-width: 100px;
+	text-align: right;
+	user-select: none;
+}
+
+.oc-autosave-indicator--dirty {
+	color: var(--oc-warning);
+}
+
+.oc-autosave-indicator--saved {
+	color: var(--oc-success);
+}
+
+.oc-design-editor {
+	display: grid;
+	grid-template-columns: 268px 1fr 276px;
+	height: calc(100vh - 130px);
+	border: 1px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius);
+	overflow: hidden;
+	margin-top: 12px;
+}
+
+.oc-design-editor,
+.oc-design-editor * {
+	scrollbar-width: none !important;
+	-ms-overflow-style: none !important;
+}
+
+.oc-design-editor::-webkit-scrollbar,
+.oc-design-editor *::-webkit-scrollbar {
+	width: 0 !important;
+	height: 0 !important;
+	display: none !important;
+}
+
+/* Left and right panels */
+.oc-editor-left,
+.oc-editor-right {
+	background: var(--oc-white);
+	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+	display: flex;
+	flex-direction: column;
+}
+
+.oc-editor-left::-webkit-scrollbar,
+.oc-editor-right::-webkit-scrollbar {
+	display: none;
+}
+
+.oc-editor-left {
+	border-right: 1px solid var(--oc-gray-200);
+}
+
+.oc-editor-right {
+	border-left: 1px solid var(--oc-gray-200);
+}
+
+.oc-editor-section {
+	padding: 14px 16px;
+	border-bottom: 1px solid var(--oc-gray-100);
+	flex-shrink: 0;
+}
+
+.oc-editor-section--grow {
+	flex: 1;
+	overflow-y: auto;
+}
+
+.oc-editor-left .oc-editor-section--grow {
+	flex: 0 0 auto;
+	overflow-y: visible;
+}
+
+.oc-editor-section-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+.oc-editor-section-header h3 {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.07em;
+	font-weight: 700;
+	color: var(--oc-gray-400);
+	margin: 0;
+}
+
+.oc-editor-field {
+	margin-bottom: 10px;
+}
+
+.oc-editor-field:last-child {
+	margin-bottom: 0;
+}
+
+.oc-editor-field label {
+	display: block;
+	font-size: 11px;
+	font-weight: 600;
+	color: var(--oc-gray-600);
+	margin-bottom: 4px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.oc-editor-empty-hint {
+	padding: 16px;
+	font-size: 12px;
+	color: var(--oc-gray-400);
+	text-align: center;
+}
+
+.oc-editor-empty-hint p {
+	margin: 0;
+}
+
+/* Print areas list items (left panel) */
+.oc-area-item {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 7px 10px;
+	border-radius: var(--oc-radius-sm);
+	cursor: pointer;
+	transition: background 0.1s;
+	margin-bottom: 2px;
+	user-select: none;
+}
+
+.oc-area-item:hover {
+	background: var(--oc-gray-100);
+}
+
+.oc-area-item--active {
+	background: var(--oc-primary-light) !important;
+}
+
+.oc-area-item-name {
+	flex: 1;
+	font-size: 13px;
+	font-weight: 500;
+	color: var(--oc-gray-800);
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.oc-area-item-method {
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+	color: var(--oc-gray-400);
+	flex-shrink: 0;
+}
+
+/* Center canvas */
+.oc-editor-canvas-wrap {
+	background: #1e1e1e;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	position: relative;
+}
+
+.oc-canvas-no-mockup {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+}
+
+.oc-canvas-no-mockup-inner {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: 0;
+	opacity: 0.6;
+}
+
+.oc-canvas-stage {
+	position: relative;
+	display: inline-block;
+	line-height: 0;
+	max-width: 90%;
+	max-height: calc(100vh - 200px);
+	box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+}
+
+.oc-canvas-stage img {
+	display: block;
+	max-width: 100%;
+	max-height: calc(100vh - 200px);
+	object-fit: contain;
+	user-select: none;
+	-webkit-user-drag: none;
+}
+
+.oc-canvas-draw-toggle {
+	position: absolute;
+	right: 12px;
+	bottom: 34px;
+	z-index: 30;
+	padding: 7px 11px;
+	border: 1px solid rgba(255, 255, 255, 0.35);
+	border-radius: 6px;
+	background: rgba(17, 24, 39, 0.88);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+	color: #fff;
+	cursor: pointer;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.oc-canvas-draw-toggle:hover,
+.oc-canvas-draw-toggle:focus-visible,
+.oc-canvas-draw-toggle[aria-pressed="true"] {
+	border-color: #fff;
+	background: var(--oc-primary);
+	outline: none;
+}
+
+.oc-canvas-draw-toggle:disabled {
+	cursor: not-allowed;
+	opacity: 0.45;
+}
+
+.oc-canvas-draw-toggle[hidden] {
+	display: none;
+}
+
+.oc-canvas-stage--draw-mode,
+.oc-canvas-stage--draw-mode .oc-bounds-box,
+.oc-canvas-stage--draw-mode .oc-canvas-layer-ghost {
+	cursor: crosshair !important;
+}
+
+.oc-canvas-stage--draw-mode .oc-bounds-handle,
+.oc-canvas-stage--draw-mode .oc-bounds-rotate-handle {
+	opacity: 0.35;
+	pointer-events: none;
+}
+
+/* Interactive bounds box */
+.oc-bounds-box {
+	position: absolute;
+	box-sizing: border-box;
+	border: 2px solid;
+	cursor: move;
+	transform-origin: center center;
+}
+
+.oc-bounds-rotate-handle {
+	position: absolute;
+	top: -34px;
+	left: 50%;
+	width: 16px;
+	height: 16px;
+	margin-left: -8px;
+	background: var(--oc-white);
+	border: 2px solid;
+	border-color: inherit;
+	border-radius: 50%;
+	box-sizing: border-box;
+	cursor: grab;
+	z-index: 2;
+}
+
+.oc-bounds-rotate-handle::after {
+	content: "";
+	position: absolute;
+	left: 50%;
+	top: 100%;
+	width: 2px;
+	height: 16px;
+	background: currentcolor;
+	transform: translateX(-50%);
+}
+
+.oc-bounds-handle {
+	position: absolute;
+	width: 9px;
+	height: 9px;
+	background: var(--oc-white);
+	border: 2px solid;
+	border-color: inherit;
+	border-radius: 2px;
+	box-sizing: border-box;
+}
+
+/* Corner handles */
+.oc-bounds-handle[data-dir="nw"] {
+	top: -5px;
+	left: -5px;
+	cursor: nw-resize;
+}
+
+.oc-bounds-handle[data-dir="ne"] {
+	top: -5px;
+	right: -5px;
+	cursor: ne-resize;
+}
+
+.oc-bounds-handle[data-dir="sw"] {
+	bottom: -5px;
+	left: -5px;
+	cursor: sw-resize;
+}
+
+.oc-bounds-handle[data-dir="se"] {
+	bottom: -5px;
+	right: -5px;
+	cursor: se-resize;
+}
+
+/* Edge handles */
+.oc-bounds-handle[data-dir="n"] {
+	top: -5px;
+	left: 50%;
+	transform: translateX(-50%);
+	cursor: n-resize;
+}
+
+.oc-bounds-handle[data-dir="s"] {
+	bottom: -5px;
+	left: 50%;
+	transform: translateX(-50%);
+	cursor: s-resize;
+}
+
+.oc-bounds-handle[data-dir="e"] {
+	top: 50%;
+	right: -5px;
+	transform: translateY(-50%);
+	cursor: e-resize;
+}
+
+.oc-bounds-handle[data-dir="w"] {
+	top: 50%;
+	left: -5px;
+	transform: translateY(-50%);
+	cursor: w-resize;
+}
+
+/* Ghost overlays for other areas sharing the same mockup */
+.oc-canvas-ghost {
+	position: absolute;
+	box-sizing: border-box;
+	border: 2px dashed;
+	pointer-events: none;
+	transform-origin: center center;
+}
+
+.oc-canvas-ghost-label {
+	position: absolute;
+	top: 2px;
+	left: 4px;
+	font-size: 10px;
+	font-weight: 600;
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+	pointer-events: none;
+}
+
+/* Coordinate readout bar at bottom of canvas */
+.oc-canvas-coords {
+	position: absolute;
+	bottom: 0;
+	left: 0;
+	right: 0;
+	padding: 4px 12px;
+	background: rgba(0, 0, 0, 0.55);
+	font-size: 11px;
+	color: rgba(255, 255, 255, 0.7);
+	font-family: monospace;
+	letter-spacing: 0.04em;
+	pointer-events: none;
+}
+
+/* Right panel — mockup thumbnail */
+.oc-mockup-thumb {
+	width: 100%;
+	aspect-ratio: 4/3;
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		12px 12px;
+	border: 1px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius-sm);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	overflow: hidden;
+	margin-bottom: 0;
+}
+
+.oc-mockup-thumb img {
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+}
+
+/* Right panel — bounds grid */
+.oc-bounds-grid {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 8px;
+}
+
+.oc-bounds-grid--area {
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: 8px 6px;
+}
+
+.oc-bounds-size-row {
+	display: flex;
+	grid-column: 1 / -1;
+	gap: 8px;
+	align-items: flex-end;
+}
+
+.oc-bounds-size-row .oc-editor-field {
+	flex: 1 1 0;
+	margin-bottom: 0;
+}
+
+.oc-bounds-size-row .oc-bounds-unit-field {
+	flex: 0 0 68px;
+}
+
+/* Left panel — area props section (below areas list) */
+.oc-left-area-props {
+	border-top: 2px solid var(--oc-gray-200);
+	padding: 14px 16px;
+	flex-shrink: 0;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.oc-left-area-props::-webkit-scrollbar {
+	display: none;
+}
+
+.oc-left-area-props .oc-mockup-thumb {
+	margin-bottom: 0;
+}
+
+/* Right column — 3-section flex layout */
+.oc-editor-right {
+	display: flex;
+	flex-direction: column;
+}
+
+.oc-right-type-picker {
+	flex-shrink: 0;
+	padding: 12px 14px 10px;
+	border-bottom: 1px solid var(--oc-gray-200);
+}
+
+.oc-right-layers-scroll {
+	flex: 0 0 auto;
+	max-height: 220px;
+	min-height: 80px;
+	display: flex;
+	flex-direction: column;
+	overflow: hidden;
+	border-bottom: 1px solid var(--oc-gray-200);
+}
+
+.oc-right-layers-scroll #oc-layers-list {
+	flex: 1;
+	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+	padding: 4px 0;
+}
+
+.oc-right-layers-scroll #oc-layers-list::-webkit-scrollbar {
+	display: none;
+}
+
+.oc-right-layer-props {
+	flex: 1;
+	min-height: 0;
+	padding: 12px 14px;
+	overflow-y: auto;
+	overflow-x: hidden;
+	scrollbar-width: none;
+	-ms-overflow-style: none;
+}
+
+.oc-right-layer-props::-webkit-scrollbar {
+	display: none;
+}

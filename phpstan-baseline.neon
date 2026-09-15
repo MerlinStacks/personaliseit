@@ -4,13 +4,13 @@ parameters:
 			message: '#^If condition is always true\.$#'
 			identifier: if.alwaysTrue
 			count: 1
-			path: includes/class-oc-rest-api.php
+			path: includes/rest-api/trait-oc-rest-api-budgets.php
 
 		-
 			message: '#^Property WooCommerce\:\:\$session \(WC_Session\) on left side of \?\? is not nullable\.$#'
 			identifier: nullCoalesce.property
 			count: 3
-			path: includes/class-oc-rest-api.php
+			path: includes/rest-api/trait-oc-rest-api-authentication.php
 
 		-
 			message: '#^Static method OC_Rest_API\:\:normalise_clipart_print_methods\(\) is unused\.$#'
@@ -52,7 +52,7 @@ parameters:
 			message: '#^Cannot access property \$prefix on class\-string\|object\.$#'
 			identifier: property.nonObject
 			count: 1
-			path: includes/print/class-oc-print-base.php
+			path: includes/print/trait-oc-print-base-storage.php
 
 		-
 			message: '#^Static method OC_Print_Embroidery\:\:append_eps_artwork_box\(\) is unused\.$#'

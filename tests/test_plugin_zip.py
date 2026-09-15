@@ -32,6 +32,7 @@ class PluginZipTests(unittest.TestCase):
             'assets/build/data/runtime.json',
         )
         self.names = list(CHECKER.REQUIRED) + list(self.build_files)
+        self.names.append('assets/css/admin/base.css')
         self.names.append('vendor/composer/platform_check.php')
         for name in self.names + ['assets/build/frontend/customiser-app.js.map']:
             file = self.root / name
@@ -106,7 +107,8 @@ class PluginZipTests(unittest.TestCase):
 
     def test_static_assets_explicitly_packaged(self):
         package = json.loads((ROOT / 'package.json').read_text())
-        for name in ('assets/css/admin.css', 'assets/js/admin-customer-uploads.js'):
+        for name in ('assets/css/admin.css', 'assets/css/admin',
+                     'assets/js/admin-customer-uploads.js'):
             self.assertIn(name, package['files'])
 
 

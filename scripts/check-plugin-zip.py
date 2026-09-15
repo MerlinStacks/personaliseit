@@ -43,6 +43,10 @@ def check_archive(archive, root, compressed_limit=COMPRESSED_LIMIT,
     if not runtime:
         failures.append('Missing or empty local assets/build runtime inventory.')
     required.update(file.relative_to(root).as_posix() for file in runtime)
+    # Static admin modules are registered directly by WordPress, outside webpack.
+    required.update(file.relative_to(root).as_posix()
+                    for file in (root / 'assets/css/admin').rglob('*.css')
+                    if file.is_file())
     # Include generated platform checks and autoload metadata when present.
     required.update(file.relative_to(root).as_posix()
                     for file in (root / 'vendor/composer').rglob('*.php')

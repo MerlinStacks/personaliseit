@@ -6,6 +6,7 @@
   "files": [
     "assets/build",
     "assets/css/admin.css",
+    "assets/css/admin",
     "assets/js/admin-customer-uploads.js",
     "includes",
     "templates",

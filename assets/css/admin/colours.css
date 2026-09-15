@@ -1,0 +1,163 @@
+/* stylelint-disable no-descending-specificity, no-duplicate-selectors */
+
+/* ── Colour Manager ────────────────────────────────────────────────────── */
+
+/* Colour card grid */
+.oc-colour-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 16px;
+	padding: 20px;
+}
+
+.oc-colour-card {
+	background: var(--oc-white);
+	border: 1.5px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius);
+	overflow: hidden;
+	cursor: pointer;
+	transition:
+		box-shadow 0.15s,
+		border-color 0.15s;
+	display: flex;
+	flex-direction: column;
+}
+
+.oc-colour-card:hover {
+	box-shadow: var(--oc-shadow-md);
+	border-color: var(--oc-primary-border);
+}
+
+.oc-colour-card--inactive {
+	opacity: 0.55;
+}
+
+/* Colour swatch */
+.oc-colour-swatch {
+	width: 100%;
+	aspect-ratio: 4 / 3;
+	flex-shrink: 0;
+}
+
+/* Card body */
+.oc-colour-card-body {
+	padding: 10px 12px 12px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.oc-colour-card-title-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 6px;
+}
+
+.oc-colour-card-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--oc-gray-800);
+	margin: 0;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.oc-colour-hex-label {
+	margin: 0;
+	font-size: 11px;
+	color: var(--oc-gray-500);
+}
+
+.oc-colour-card-actions {
+	display: flex;
+	gap: 6px;
+	margin-top: 6px;
+	flex-wrap: wrap;
+}
+
+/* Colour editor modal */
+.oc-colour-editor-modal {
+	max-width: 400px;
+}
+
+.oc-colour-picker-area {
+	display: flex;
+	justify-content: center;
+	padding: 12px 0 4px;
+}
+
+.oc-colour-swatch-large {
+	width: 120px;
+	height: 120px;
+	border-radius: 50%;
+	border: 3px solid var(--oc-gray-200);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	position: relative;
+	transition: border-color 0.15s;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.oc-colour-swatch-large:hover {
+	border-color: var(--oc-primary);
+}
+
+.oc-colour-swatch-large input[type="color"] {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	width: 100%;
+	height: 100%;
+	cursor: pointer;
+	border: none;
+	padding: 0;
+}
+
+.oc-colour-swatch-hint {
+	font-size: 10px;
+	color: rgba(255, 255, 255, 0.8);
+	text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+	pointer-events: none;
+	font-weight: 600;
+	letter-spacing: 0.02em;
+	text-transform: uppercase;
+}
+
+.oc-colour-hex-input {
+	font-family: monospace;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+/* Colour dots (used in group cards and group picker) */
+.oc-colour-dot {
+	display: inline-block;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	border: 1.5px solid rgba(0, 0, 0, 0.12);
+	flex-shrink: 0;
+}
+
+.oc-colour-group-dots {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 6px;
+	align-items: center;
+}
+
+/* Colour group picker (inside group modal) */
+.oc-colour-group-picker .oc-group-font-item {
+	gap: 10px;
+}
+
+.oc-colour-group-picker .oc-colour-dot {
+	width: 24px;
+	height: 24px;
+}

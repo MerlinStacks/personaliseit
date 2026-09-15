@@ -1,0 +1,217 @@
+/* OverCustomise — Admin UI (Customily-inspired) */
+/* stylelint-disable no-descending-specificity, no-duplicate-selectors */
+
+/* ── Design tokens ─────────────────────────────────────────────────────── */
+:root {
+	--oc-primary: #4f46e5;
+	--oc-primary-hover: #4338ca;
+	--oc-primary-light: #eef2ff;
+	--oc-primary-border: #c7d2fe;
+	--oc-success: #059669;
+	--oc-success-bg: #d1fae5;
+	--oc-warning: #d97706;
+	--oc-warning-bg: #fef3c7;
+	--oc-danger: #dc2626;
+	--oc-danger-bg: #fee2e2;
+	--oc-info: #0284c7;
+	--oc-info-bg: #e0f2fe;
+	--oc-gray-50: #f9fafb;
+	--oc-gray-100: #f3f4f6;
+	--oc-gray-200: #e5e7eb;
+	--oc-gray-300: #d1d5db;
+	--oc-gray-400: #9ca3af;
+	--oc-gray-500: #6b7280;
+	--oc-gray-600: #4b5563;
+	--oc-gray-700: #374151;
+	--oc-gray-800: #1f2937;
+	--oc-gray-900: #111827;
+	--oc-white: #fff;
+	--oc-radius: 8px;
+	--oc-radius-sm: 4px;
+	--oc-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+	--oc-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1),
+		0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+/* ── Page wrapper ──────────────────────────────────────────────────────── */
+.oc-page {
+	max-width: 1200px;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+		sans-serif;
+}
+
+/* ── Page header ───────────────────────────────────────────────────────── */
+.oc-page-header {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	margin: 0 0 24px;
+	padding-bottom: 20px;
+	border-bottom: 1px solid var(--oc-gray-200);
+	gap: 16px;
+}
+
+.oc-page-header-left {
+	flex: 1;
+}
+
+.oc-page-header-right {
+	display: flex;
+	gap: 8px;
+	align-items: center;
+	flex-shrink: 0;
+	padding-top: 4px;
+}
+
+.oc-page-title {
+	margin: 0 !important;
+	font-size: 22px !important;
+	font-weight: 700 !important;
+	color: var(--oc-gray-900) !important;
+	line-height: 1.25 !important;
+}
+
+.oc-page-subtitle {
+	margin: 5px 0 0 !important;
+	color: var(--oc-gray-500) !important;
+	font-size: 13px !important;
+	font-weight: 400 !important;
+}
+
+/* ── Breadcrumb ────────────────────────────────────────────────────────── */
+.oc-breadcrumb {
+	display: flex;
+	align-items: center;
+	gap: 5px;
+	font-size: 12px;
+	color: var(--oc-gray-400);
+	margin-bottom: 6px;
+}
+
+.oc-breadcrumb a {
+	color: var(--oc-gray-500);
+	text-decoration: none;
+}
+
+.oc-breadcrumb a:hover {
+	color: var(--oc-primary);
+}
+
+.oc-breadcrumb-sep {
+	color: var(--oc-gray-300);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────── */
+.oc-btn {
+	display: inline-flex !important;
+	align-items: center !important;
+	gap: 6px !important;
+	padding: 7px 14px !important;
+	border-radius: 6px !important;
+	font-size: 13px !important;
+	font-weight: 500 !important;
+	line-height: 1 !important;
+	cursor: pointer !important;
+	border: 1px solid transparent !important;
+	text-decoration: none !important;
+	transition: all 0.15s ease !important;
+	white-space: nowrap !important;
+	box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+	height: auto !important;
+}
+
+.oc-btn-primary {
+	background: var(--oc-primary) !important;
+	color: #fff !important;
+	border-color: var(--oc-primary) !important;
+}
+
+.oc-btn-primary:hover,
+.oc-btn-primary:focus {
+	background: var(--oc-primary-hover) !important;
+	border-color: var(--oc-primary-hover) !important;
+	color: #fff !important;
+	box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.18) !important;
+}
+
+.oc-btn-secondary {
+	background: var(--oc-white) !important;
+	color: var(--oc-gray-700) !important;
+	border-color: var(--oc-gray-300) !important;
+}
+
+.oc-btn-secondary:hover,
+.oc-btn-secondary:focus {
+	background: var(--oc-gray-50) !important;
+	border-color: var(--oc-gray-400) !important;
+	color: var(--oc-gray-800) !important;
+}
+
+.oc-btn-danger {
+	background: var(--oc-white) !important;
+	color: var(--oc-danger) !important;
+	border-color: var(--oc-gray-300) !important;
+}
+
+.oc-btn-danger:hover,
+.oc-btn-danger:focus {
+	background: var(--oc-danger-bg) !important;
+	border-color: var(--oc-danger) !important;
+	color: var(--oc-danger) !important;
+}
+
+.oc-btn-sm {
+	padding: 5px 10px !important;
+	font-size: 12px !important;
+}
+
+.oc-default-media-remove--hidden {
+	display: none !important;
+}
+
+/* ── Cards ─────────────────────────────────────────────────────────────── */
+.oc-card {
+	background: var(--oc-white);
+	border: 1px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius);
+	box-shadow: var(--oc-shadow);
+	margin-bottom: 20px;
+	overflow: hidden;
+}
+
+.oc-card-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	padding: 14px 20px;
+	border-bottom: 1px solid var(--oc-gray-100);
+	background: var(--oc-gray-50);
+	gap: 12px;
+}
+
+.oc-card-header h2,
+.oc-card-header h3 {
+	margin: 0 !important;
+	font-size: 13px !important;
+	font-weight: 600 !important;
+	color: var(--oc-gray-800) !important;
+	padding: 0 !important;
+	border: none !important;
+}
+
+.oc-card-body {
+	padding: 20px;
+}
+
+.oc-card-footer {
+	padding: 14px 20px;
+	border-top: 1px solid var(--oc-gray-100);
+	background: var(--oc-gray-50);
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.oc-card-body-flush {
+	padding: 0;
+}

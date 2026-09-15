@@ -1,0 +1,379 @@
+/* stylelint-disable no-descending-specificity, no-duplicate-selectors */
+
+/* ── Products tab ──────────────────────────────────────────────────────── */
+
+.oc-products-page {
+	max-width: none;
+	margin-right: 20px;
+}
+
+.oc-products-page .oc-page-header {
+	margin-bottom: 14px;
+	padding-bottom: 12px;
+}
+
+.oc-products-page .oc-card-header {
+	padding: 9px 16px;
+}
+
+.oc-products-page .oc-table thead th {
+	padding: 8px 12px;
+}
+
+.oc-products-page .oc-table tbody td {
+	padding: 8px 12px;
+}
+
+.oc-list-filter,
+.oc-pagination,
+.oc-pagination-form {
+	display: flex;
+	align-items: center;
+	flex-wrap: wrap;
+}
+
+.oc-list-filter {
+	gap: 8px;
+	margin: 0;
+}
+
+.oc-pagination {
+	justify-content: flex-end;
+	gap: 7px;
+	margin: 7px 12px;
+}
+
+.oc-pagination-form {
+	gap: 6px;
+	margin: 0;
+}
+
+.oc-products-filter-tabs {
+	margin: 0 !important;
+	padding: 0 16px;
+	border-bottom: 1px solid var(--oc-gray-200);
+}
+
+#oc-products-app {
+	position: relative;
+}
+
+#oc-products-app.is-loading {
+	opacity: 0.55;
+	pointer-events: none;
+}
+
+#oc-products-app.is-loading::after {
+	content: "";
+	position: fixed;
+	top: 50%;
+	left: calc(50% + 80px);
+	width: 24px;
+	height: 24px;
+	border: 3px solid var(--oc-primary-border);
+	border-top-color: var(--oc-primary);
+	border-radius: 50%;
+	animation: oc-products-loading-spin 0.65s linear infinite;
+	z-index: 10000;
+}
+
+@keyframes oc-products-loading-spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.oc-design-variants-admin {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	flex-wrap: wrap;
+}
+
+.oc-design-variants-list:empty {
+	display: none;
+}
+
+@media (max-width: 782px) {
+	.oc-products-page {
+		margin-right: 10px;
+	}
+
+	#oc-products-app.is-loading::after {
+		left: 50%;
+	}
+}
+
+.oc-products-search {
+	max-width: 320px;
+}
+
+.oc-product-row--parent td {
+	background: var(--oc-gray-50);
+	border-top: 2px solid var(--oc-gray-200);
+	font-weight: 600;
+}
+
+.oc-product-row--parent:first-child td {
+	border-top: none;
+}
+
+.oc-col-variant {
+	padding-left: 32px !important;
+	color: var(--oc-gray-600);
+	font-size: 13px;
+}
+
+.oc-design-assign-select {
+	min-width: 200px;
+	max-width: 300px;
+}
+
+.oc-design-assign-select--hidden {
+	display: none !important;
+}
+
+.oc-searchable-design-select {
+	position: relative;
+	min-width: 220px;
+	max-width: 320px;
+}
+
+.oc-searchable-design-select-input {
+	width: 100%;
+	padding-right: 28px !important;
+}
+
+.oc-searchable-design-select::after {
+	content: "";
+	position: absolute;
+	right: 10px;
+	top: 50%;
+	width: 0;
+	height: 0;
+	border-left: 4px solid transparent;
+	border-right: 4px solid transparent;
+	border-top: 5px solid var(--oc-gray-500);
+	transform: translateY(-50%);
+	pointer-events: none;
+}
+
+.oc-searchable-design-select-list {
+	display: none;
+	position: absolute;
+	z-index: 1000;
+	top: calc(100% + 4px);
+	left: 0;
+	right: 0;
+	max-height: 260px;
+	overflow-y: auto;
+	background: var(--oc-white);
+	border: 1px solid var(--oc-gray-300);
+	border-radius: var(--oc-radius-sm);
+	box-shadow: var(--oc-shadow-md);
+}
+
+.oc-searchable-design-select.is-open .oc-searchable-design-select-list {
+	display: block;
+}
+
+.oc-searchable-design-select-list.is-portaled {
+	display: block;
+	z-index: 100000;
+}
+
+.oc-searchable-design-select-option {
+	display: block;
+	width: 100%;
+	padding: 7px 10px;
+	border: 0;
+	border-bottom: 1px solid var(--oc-gray-100);
+	background: transparent;
+	color: var(--oc-gray-800);
+	font-size: 13px;
+	line-height: 1.3;
+	text-align: left;
+	cursor: pointer;
+}
+
+.oc-searchable-design-select-option:hover,
+.oc-searchable-design-select-option.is-selected {
+	background: var(--oc-primary-light);
+	color: var(--oc-primary);
+}
+
+.oc-searchable-design-select-option.is-assigned:not(.is-selected) {
+	color: var(--oc-gray-400);
+}
+
+.oc-searchable-design-select-empty {
+	padding: 10px;
+	color: var(--oc-gray-500);
+	font-size: 12px;
+}
+
+.oc-assign-status {
+	display: inline-block;
+	font-size: 11px;
+	color: var(--oc-gray-400);
+	transition: color 0.2s;
+}
+
+.oc-assign-status--saving {
+	color: var(--oc-warning);
+}
+
+.oc-assign-status--saved {
+	color: var(--oc-success);
+}
+
+.oc-assign-status--error {
+	color: var(--oc-danger);
+}
+
+/* ── Clipart Manager ───────────────────────────────────────────────────── */
+
+.oc-clipart-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+	gap: 16px;
+	padding: 16px 0;
+}
+
+.oc-clipart-card {
+	background: var(--oc-white);
+	border: 1.5px solid var(--oc-gray-200);
+	border-radius: var(--oc-radius);
+	overflow: hidden;
+	cursor: pointer;
+	transition:
+		border-color 0.15s,
+		box-shadow 0.15s;
+}
+
+.oc-clipart-card:hover {
+	border-color: var(--oc-primary);
+	box-shadow: var(--oc-shadow-md);
+}
+
+.oc-clipart-card--inactive {
+	opacity: 0.55;
+}
+
+/* Checkerboard background shows transparency in images */
+.oc-clipart-preview {
+	aspect-ratio: 1;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		16px 16px;
+	padding: 12px;
+}
+
+.oc-clipart-preview img {
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+}
+
+.oc-clipart-card-body {
+	padding: 10px 12px 12px;
+	border-top: 1px solid var(--oc-gray-100);
+}
+
+.oc-clipart-card-title-row {
+	display: flex;
+	align-items: flex-start;
+	justify-content: space-between;
+	gap: 6px;
+	margin-bottom: 4px;
+}
+
+.oc-clipart-card-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--oc-gray-800);
+	margin: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	flex: 1;
+}
+
+.oc-clipart-type-label {
+	margin: 0 0 8px;
+	font-size: 11px;
+	color: var(--oc-gray-500);
+	text-transform: uppercase;
+	letter-spacing: 0.04em;
+}
+
+.oc-clipart-card-actions {
+	display: flex;
+	gap: 6px;
+}
+
+/* Upload + edit modal preview — checkerboard bg */
+.oc-clipart-upload-preview,
+.oc-clipart-modal-preview {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		16px 16px;
+	border-radius: var(--oc-radius);
+	min-height: 160px;
+	margin-bottom: 20px;
+	overflow: hidden;
+}
+
+.oc-clipart-upload-preview img,
+.oc-clipart-modal-preview img {
+	max-width: 100%;
+	max-height: 200px;
+	object-fit: contain;
+}
+
+.oc-clipart-editor-modal {
+	max-width: 420px;
+}
+
+/* Group card thumbnails */
+.oc-clipart-group-thumbs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	margin-top: 8px;
+	align-items: center;
+}
+
+.oc-clipart-thumb {
+	width: 36px;
+	height: 36px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	border-radius: 4px;
+	background: repeating-conic-gradient(#e5e7eb 0% 25%, #f9fafb 0% 50%) 0 0 /
+		8px 8px;
+	border: 1px solid var(--oc-gray-200);
+	overflow: hidden;
+	flex-shrink: 0;
+}
+
+.oc-clipart-thumb img {
+	max-width: 100%;
+	max-height: 100%;
+	object-fit: contain;
+}
+
+/* Group picker thumbnails (inside group modal) */
+.oc-clipart-picker-thumb {
+	width: 40px;
+	height: 40px;
+}
+
+.oc-clipart-group-picker .oc-group-font-item {
+	gap: 10px;
+}
