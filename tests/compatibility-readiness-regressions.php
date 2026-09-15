@@ -313,12 +313,15 @@ foreach ( array_merge(
 	[ ABSPATH . 'includes/class-oc-storage-upgrade.php', ABSPATH . 'includes/class-oc-rest-api.php' ],
 	glob( ABSPATH . 'includes/rest-api/trait-oc-rest-api-*.php' )
 ) as $file ) {
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Reads local shipped PHP source, not a remote URL.
 	$source = file_get_contents( $file );
 	preg_match_all( "/(?:self::report|OC_Storage_Upgrade::report)\( [^,\n]+, '([^']+)' \)|\\$(?:reason|message) = '([^']+)'/", $source, $matches, PREG_SET_ORDER );
 	foreach ( $matches as $match ) {
 		$message = $match[1] ?: ( $match[2] ?? '' );
 		// Only helper assignments are storage reports; REST has other local messages.
-		if ( '' !== $match[1] || 'class-oc-storage-upgrade.php' === basename( $file ) ) { $emitted[] = $message; }
+		if ( '' !== $match[1] || 'class-oc-storage-upgrade.php' === basename( $file ) ) {
+			$emitted[] = $message;
+		}
 	}
 }
 $fixtures = array_merge( ...array_values( $current_messages ) );

@@ -10,21 +10,23 @@
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
 
 class WP_REST_Server {
-	public const READABLE = 'GET';
+	public const READABLE  = 'GET';
 	public const CREATABLE = 'POST';
 }
 
+// phpcs:ignore WordPress.NamingConventions.ValidFunctionName.FunctionDoubleUnderscore -- Standalone stub must match the WordPress callback name.
 function __return_true(): bool {
 	return true;
 }
 
 function expect( bool $condition, string $message ): void {
 	if ( ! $condition ) {
+		// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- CLI assertion message, not HTML output.
 		throw new RuntimeException( $message );
 	}
 }
 
-$hooks = [];
+$hooks  = [];
 $routes = [];
 
 function add_action( string $hook, array $callback ): void {
@@ -33,9 +35,9 @@ function add_action( string $hook, array $callback ): void {
 	$hooks[ $hook ] = $callback;
 }
 
-function register_rest_route( string $namespace, string $route, array $args ): void {
+function register_rest_route( string $route_namespace, string $route, array $args ): void {
 	global $routes;
-	expect( 'overcustomise/v1' === $namespace, 'REST namespace is preserved.' );
+	expect( 'overcustomise/v1' === $route_namespace, 'REST namespace is preserved.' );
 	expect( is_callable( $args['callback'] ), 'Endpoint callback is callable: ' . $route );
 	expect( is_callable( $args['permission_callback'] ), 'Permission callback is callable: ' . $route );
 	$routes[ $route ] = $args;
