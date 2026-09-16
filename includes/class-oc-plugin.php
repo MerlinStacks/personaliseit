@@ -47,6 +47,7 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/class-oc-blocks-integration.php';
 		require_once OC_PATH . 'includes/class-oc-file-cleanup.php';
 		require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
+		require_once OC_PATH . 'includes/class-oc-cut-line.php';
 		require_once OC_PATH . 'includes/class-oc-upload-handler.php';
 		require_once OC_PATH . 'includes/class-oc-ai-image-filter.php';
 		require_once OC_PATH . 'includes/class-oc-preview-generator.php';

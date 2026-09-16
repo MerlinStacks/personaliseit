@@ -248,7 +248,7 @@ class OC_Frontend {
 			array_filter(
 				OC_DB::get_design_layers( $design_id ),
 				static fn ( $layer ): bool => 'mask' === (string) ( $layer->type ?? '' )
-					|| ( ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $area_ids[ (int) ( $layer->area_id ?? 0 ) ] ) )
+					|| ( 'cut_line' !== (string) ( $layer->type ?? '' ) && ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $area_ids[ (int) ( $layer->area_id ?? 0 ) ] ) )
 			)
 		);
 		if ( ! $layers ) {
@@ -281,7 +281,7 @@ class OC_Frontend {
 		$layers           = array_values(
 			array_filter(
 				$layers,
-				static fn ( $layer ): bool => 'mask' !== (string) ( $layer->type ?? '' )
+				static fn ( $layer ): bool => ! in_array( (string) ( $layer->type ?? '' ), [ 'mask', 'cut_line' ], true )
 				&& ( ! isset( $layer->visible ) || (bool) $layer->visible )
 				&& ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] )
 			)

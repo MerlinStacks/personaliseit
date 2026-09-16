@@ -56,7 +56,7 @@ export function updateAspectRatio( entity ) {
 }
 
 export function clampLayerToArea( layer, area ) {
-	if ( ! layer || ! area ) {
+	if ( ! layer || ! area || layer.type === 'cut_line' ) {
 		return;
 	}
 	const maxW = Math.max( 1, area.w );

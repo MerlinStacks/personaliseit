@@ -1,6 +1,7 @@
 /* eslint-disable no-nested-ternary */
 
 import { cache, FabricText, StaticCanvas, Textbox } from 'fabric';
+import { appendCutLinePreview } from './products-page-cut-line';
 import {
 	layoutMultilineTextbox,
 	multilineTextboxFits,
@@ -68,7 +69,11 @@ export function createLayerPreviewRenderer( deps ) {
 
 		const maxWidth = Math.max( 1, width );
 		const floor = Math.max( 1, minFontSize || 4 );
+		// An explicit textarea default is the preview size, not an auto-fit seed.
+		const autoFit =
+			isSingleLine || ! fontLimit( settings.default_font_size );
 		while (
+			autoFit &&
 			fontSize > floor &&
 			! textFits(
 				text,
@@ -247,7 +252,9 @@ export function createLayerPreviewRenderer( deps ) {
 				: null;
 		const clipartUrl = s.default_clipart_url || selectedClipart?.url || '';
 
-		if ( layer.type === 'text' || layer.type === 'textarea' ) {
+		if ( layer.type === 'cut_line' ) {
+			appendCutLinePreview( el, s.cutLineSvg );
+		} else if ( layer.type === 'text' || layer.type === 'textarea' ) {
 			const isSingleLine = layer.type === 'text';
 			const text =
 				s.default_text || layer.label || layerLabel( layer.type );

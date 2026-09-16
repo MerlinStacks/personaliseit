@@ -1225,7 +1225,8 @@ class OC_Print_Generator {
 			}
 			$type  = (string) ( $layer['type'] ?? '' );
 			$input = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
-			if ( 'lineart' === $type ) {
+			// Cut-line-only areas must reach the renderer, including invalid SVGs so jobs fail closed.
+			if ( in_array( $type, [ 'lineart', 'cut_line' ], true ) ) {
 				return true;
 			}
 			if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) && '' !== trim( (string) ( $input['value'] ?? '' ) ) ) {

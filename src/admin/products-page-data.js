@@ -70,6 +70,8 @@ export function createProductsPageDataNormalisers( deps ) {
 
 	function defaultSettings( type ) {
 		switch ( type ) {
+			case 'cut_line':
+				return { cutLineSvg: '' };
 			case 'text':
 				return {
 					default_text: '',
@@ -194,6 +196,14 @@ export function createProductsPageDataNormalisers( deps ) {
 	}
 
 	function normaliseSettings( type, existing ) {
+		if ( type === 'cut_line' ) {
+			return {
+				cutLineSvg:
+					typeof existing?.cutLineSvg === 'string'
+						? existing.cutLineSvg
+						: '',
+			};
+		}
 		const settings = Object.assign(
 			defaultSettings( type ),
 			existing || {}

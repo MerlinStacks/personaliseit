@@ -123,7 +123,7 @@ trait OC_Print_Base_Layers {
 	 * @param array<int,array{area:object,area_data:array}> $areas
 	 * @return array{entries:array<int,array{area:object,area_data:array,x:float,y:float,w:float,h:float}>,page_w:float,page_h:float}
 	 */
-	protected static function combined_sheet_layout( array $areas, float $inset = 0.0, float $gap = 5.0 ): array {
+	protected static function combined_sheet_layout( array $areas, float $inset = 0.0, float $gap = 5.0, bool $cut_lines = false ): array {
 		$entries = [];
 		$cursor  = 0.0;
 		$page_h  = 0.0;
@@ -136,16 +136,17 @@ trait OC_Print_Base_Layers {
 			}
 
 			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
+			[ $left, $top, $right, $bottom ] = $cut_lines ? self::cut_line_page_bounds( $area, $entry['area_data'] ) : [ 0.0, 0.0, $w_mm, $h_mm ];
 			$entries[] = [
 				'area'      => $area,
 				'area_data' => $entry['area_data'],
-				'x'         => $cursor + $inset,
-				'y'         => $inset,
+				'x'         => $cursor + $inset - $left,
+				'y'         => $inset - $top,
 				'w'         => $w_mm,
 				'h'         => $h_mm,
 			];
-			$cursor += $w_mm + $inset * 2 + $gap;
-			$page_h  = max( $page_h, $h_mm + $inset * 2 );
+			$cursor += $right - $left + $inset * 2 + $gap;
+			$page_h  = max( $page_h, $bottom - $top + $inset * 2 );
 		}
 
 		return [
@@ -169,6 +170,11 @@ trait OC_Print_Base_Layers {
 		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
 		$quarter_turn = (int) ( $area->_oc_print_quarter_turn ?? 0 );
 		$font_px_to_pt = self::mm_to_pt_value( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
+		$clip_ordinary = false;
+		if ( 'engraving' === $mode ) {
+			[ $left, $top, $right, $bottom ] = self::cut_line_page_bounds( $area, $area_data );
+			$clip_ordinary = $left < 0 || $top < 0 || $right > $area_w_mm || $bottom > $area_h_mm;
+		}
 
 		foreach ( self::layer_paint_order( $area_data['layers'] ) as $layer ) {
 			if ( ! is_array( $layer ) ) {
@@ -176,6 +182,12 @@ trait OC_Print_Base_Layers {
 			}
 
 			$type = (string) ( $layer['type'] ?? '' );
+			if ( 'cut_line' === $type ) {
+				if ( 'engraving' === $mode ) {
+					self::render_cut_line( $pdf, $area, $area_data, $layer, $origin_x_mm, $origin_y_mm );
+				}
+				continue;
+			}
 			if ( 'mask' === $type ) {
 				continue;
 			}
@@ -237,6 +249,11 @@ trait OC_Print_Base_Layers {
 			$rotation = $quarter_turn + self::layer_rotation_degrees( $layer, $input, $settings );
 			$rotation = fmod( $rotation, 360.0 );
 			$transformed = abs( $rotation ) >= 0.001;
+			if ( $clip_ordinary ) {
+				// Expanded cutting pages must not reveal engraving previously cropped by the artboard.
+				$pdf->StartTransform();
+				$pdf->Rect( $origin_x_mm, $origin_y_mm, $area_w_mm, $area_h_mm, 'CNZ' );
+			}
 			if ( $transformed ) {
 				$pdf->StartTransform();
 				// Fabric uses clockwise angles in its top-left coordinate system;
@@ -284,7 +301,129 @@ trait OC_Print_Base_Layers {
 				if ( $transformed ) {
 					$pdf->StopTransform();
 				}
+				if ( $clip_ordinary ) {
+					$pdf->StopTransform();
+				}
 			}
+		}
+	}
+
+	/** Physical cut-line box shared by rendering and page sizing; never clamp to the area. */
+	private static function cut_line_box( object $area, array $data, array $layer ): array {
+		$bounds = is_array( $data['bounds'] ?? null ) ? $data['bounds'] : [];
+		[ $aw, $ah ] = self::area_dimensions_mm( $area );
+		$bw = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
+		$bh = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
+		foreach ( [ 'x', 'y', 'w', 'h' ] as $key ) {
+			if ( ! is_numeric( $layer[ $key ] ?? null ) || ! is_finite( (float) $layer[ $key ] ) ) {
+				throw new \RuntimeException( 'Invalid cut-line geometry.' );
+			}
+		}
+		if ( $layer['w'] <= 0 || $layer['h'] <= 0 ) {
+			throw new \RuntimeException( 'Cut-line dimensions must be positive.' );
+		}
+		$cx = ( $layer['x'] - (float) ( $bounds['x'] ?? $area->canvas_x ?? 0 ) + $layer['w'] / 2 ) / $bw;
+		$cy = ( $layer['y'] - (float) ( $bounds['y'] ?? $area->canvas_y ?? 0 ) + $layer['h'] / 2 ) / $bh;
+		$turn = (int) ( $area->_oc_print_quarter_turn ?? 0 );
+		$w = $layer['w'] / $bw * ( $turn ? $ah : $aw );
+		$h = $layer['h'] / $bh * ( $turn ? $aw : $ah );
+		[ $cx, $cy ] = match ( $turn ) {
+			90 => [ ( 1 - $cy ) * $aw, $cx * $ah ],
+			270 => [ $cy * $aw, ( 1 - $cx ) * $ah ],
+			default => [ $cx * $aw, $cy * $ah ],
+		};
+		$rotation = $turn + self::layer_rotation_degrees( $layer, (array) ( $layer['input'] ?? [] ), (array) ( $layer['settings'] ?? [] ) );
+		if ( ! is_finite( $rotation ) ) {
+			throw new \RuntimeException( 'Invalid cut-line rotation.' );
+		}
+		return [ $cx, $cy, $w, $h, fmod( $rotation, 360.0 ) ];
+	}
+
+	/** Include rotated cutting boxes and a stroke guard, retaining the original artboard. */
+	protected static function cut_line_page_bounds( object $area, array $data ): array {
+		[ $right, $bottom ] = self::area_dimensions_mm( $area );
+		$left = $top = 0.0;
+		foreach ( $data['layers'] ?? [] as $layer ) {
+			if ( ! is_array( $layer ) || 'cut_line' !== ( $layer['type'] ?? '' ) ) {
+				continue;
+			}
+			[ $cx, $cy, $w, $h, $rotation ] = self::cut_line_box( $area, $data, $layer );
+			$angle = deg2rad( $rotation );
+			$rx = abs( cos( $angle ) ) * ( $w / 2 + 0.1 ) + abs( sin( $angle ) ) * ( $h / 2 + 0.1 );
+			$ry = abs( sin( $angle ) ) * ( $w / 2 + 0.1 ) + abs( cos( $angle ) ) * ( $h / 2 + 0.1 );
+			$left = min( $left, $cx - $rx );
+			$top = min( $top, $cy - $ry );
+			$right = max( $right, $cx + $rx );
+			$bottom = max( $bottom, $cy + $ry );
+		}
+		return [ $left, $top, $right, $bottom ];
+	}
+
+	/** Sanitize at the production boundary and force unfilled, solid vector cutting strokes. */
+	private static function cut_line_svg( array $layer, float $w, float $h ): string {
+		$clean = OC_Cut_Line::sanitize( $layer['settings']['cutLineSvg'] ?? '' );
+		if ( is_wp_error( $clean ) ) {
+			throw new \RuntimeException( 'Invalid cut-line SVG: ' . $clean->get_error_message() );
+		}
+		$dom = new \DOMDocument();
+		if ( ! $dom->loadXML( $clean, LIBXML_NONET ) ) {
+			throw new \RuntimeException( 'Invalid cut-line SVG.' );
+		}
+		$root = $dom->documentElement;
+		$view = preg_split( '/[\s,]+/', trim( $root->getAttribute( 'viewBox' ) ) );
+		if ( ! $root->hasAttribute( 'viewBox' ) ) {
+			$view = [ 0, 0, self::svg_absolute_length_px( $root->getAttribute( 'width' ) ), self::svg_absolute_length_px( $root->getAttribute( 'height' ) ) ];
+		}
+		if ( count( $view ) !== 4 || count( array_filter( $view, static fn ( $v ) => is_numeric( $v ) && is_finite( (float) $v ) ) ) !== 4 || $view[2] <= 0 || $view[3] <= 0 ) {
+			throw new \RuntimeException( 'Cut-line SVG requires a valid viewport.' );
+		}
+		$colour = class_exists( 'OC_Admin_Print_Methods' ) ? OC_Admin_Print_Methods::get( 'engraving' )['cut_line_colour'] : '#FF0000';
+		// 0.05 mm on the larger scale axis. A narrow, non-zero vector stroke, not a raster mark.
+		$stroke = 0.05 / max( $w / $view[2], $h / $view[3] );
+		foreach ( $dom->getElementsByTagName( '*' ) as $node ) {
+			$node->removeAttribute( 'style' );
+			foreach ( [ 'fill' => 'none', 'stroke' => $colour, 'stroke-width' => (string) $stroke, 'stroke-linejoin' => 'round', 'stroke-linecap' => 'round', 'stroke-dasharray' => 'none', 'stroke-dashoffset' => '0', 'opacity' => '1', 'stroke-opacity' => '1', 'display' => 'inline', 'visibility' => 'visible' ] as $name => $value ) {
+				$node->setAttribute( $name, $value );
+			}
+		}
+		// Pad the SVG viewport as well as the page so boundary strokes are not clipped by ImageSVG.
+		$px = 0.1 * $view[2] / $w;
+		$py = 0.1 * $view[3] / $h;
+		// TCPDF versions differ on nonzero root viewBox origins. Translate explicitly,
+		// keeping all supplied transforms inside the viewport normalization transform.
+		$content = $dom->createElementNS( 'http://www.w3.org/2000/svg', 'g' );
+		while ( $root->firstChild ) {
+			$content->appendChild( $root->firstChild );
+		}
+		if ( $root->hasAttribute( 'transform' ) ) {
+			$content->setAttribute( 'transform', $root->getAttribute( 'transform' ) );
+			$root->removeAttribute( 'transform' );
+		}
+		$offset = $dom->createElementNS( 'http://www.w3.org/2000/svg', 'g' );
+		$offset->setAttribute( 'transform', sprintf( 'translate(%s %s)', $px - $view[0], $py - $view[1] ) );
+		$offset->appendChild( $content );
+		$root->appendChild( $offset );
+		$root->removeAttribute( 'x' );
+		$root->removeAttribute( 'y' );
+		$root->setAttribute( 'viewBox', implode( ' ', [ 0, 0, $view[2] + 2 * $px, $view[3] + 2 * $py ] ) );
+		$root->setAttribute( 'width', (string) ( ( $w + 0.2 ) * 96 / 25.4 ) );
+		$root->setAttribute( 'height', (string) ( ( $h + 0.2 ) * 96 / 25.4 ) );
+		$root->setAttribute( 'preserveAspectRatio', 'none' );
+		return $dom->saveXML( $root );
+	}
+
+	/** Dedicated vector-only route. Errors propagate to the print job; no image fallback. */
+	private static function render_cut_line( \TCPDF $pdf, object $area, array $data, array $layer, float $origin_x, float $origin_y ): void {
+		[ $cx, $cy, $w, $h, $rotation ] = self::cut_line_box( $area, $data, $layer );
+		$svg = self::cut_line_svg( $layer, $w, $h );
+		$cx += $origin_x;
+		$cy += $origin_y;
+		$pdf->StartTransform();
+		try {
+			$pdf->Rotate( -$rotation, $cx, $cy );
+			$pdf->ImageSVG( '@' . $svg, $cx - $w / 2 - 0.1, $cy - $h / 2 - 0.1, $w + 0.2, $h + 0.2, '', '', '', 0, false );
+		} finally {
+			$pdf->StopTransform();
 		}
 	}
 

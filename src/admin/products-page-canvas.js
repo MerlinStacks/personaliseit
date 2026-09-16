@@ -795,8 +795,12 @@ export function createProductsPageCanvas( deps ) {
 		const natW = img.naturalWidth || 2000;
 		const natH = img.naturalHeight || 2000;
 		const d = drag.dir;
+		const isCutLine = layer?.type === 'cut_line';
 		if ( drag.type === 'move' ) {
-			if ( layer ) {
+			if ( isCutLine ) {
+				entity.x = drag.startX + dx;
+				entity.y = drag.startY + dy;
+			} else if ( layer ) {
 				entity.x = clamp(
 					drag.startX + dx,
 					area.x,
@@ -829,21 +833,29 @@ export function createProductsPageCanvas( deps ) {
 				right = clamp(
 					drag.startRight + dx,
 					drag.startX + 1,
-					area.x + area.w
+					isCutLine ? Infinity : area.x + area.w
 				);
 			}
 			if ( d.includes( 's' ) ) {
 				bottom = clamp(
 					drag.startBottom + dy,
 					drag.startY + 1,
-					area.y + area.h
+					isCutLine ? Infinity : area.y + area.h
 				);
 			}
 			if ( d.includes( 'w' ) ) {
-				left = clamp( drag.startX + dx, area.x, drag.startRight - 1 );
+				left = clamp(
+					drag.startX + dx,
+					isCutLine ? -Infinity : area.x,
+					drag.startRight - 1
+				);
 			}
 			if ( d.includes( 'n' ) ) {
-				top = clamp( drag.startY + dy, area.y, drag.startBottom - 1 );
+				top = clamp(
+					drag.startY + dy,
+					isCutLine ? -Infinity : area.y,
+					drag.startBottom - 1
+				);
 			}
 			entity.x = left;
 			entity.y = top;
@@ -968,10 +980,16 @@ export function createProductsPageCanvas( deps ) {
 			return Number.isFinite( value ) ? value : fallback;
 		};
 		if ( changedId === inputPrefix + '-x' ) {
-			entity.x = Math.max( 0, readInt( changedId, entity.x || 0 ) );
+			entity.x = Math.max(
+				layer?.type === 'cut_line' ? -Infinity : 0,
+				readInt( changedId, entity.x || 0 )
+			);
 		}
 		if ( changedId === inputPrefix + '-y' ) {
-			entity.y = Math.max( 0, readInt( changedId, entity.y || 0 ) );
+			entity.y = Math.max(
+				layer?.type === 'cut_line' ? -Infinity : 0,
+				readInt( changedId, entity.y || 0 )
+			);
 		}
 		if ( changedId === inputPrefix + '-w' ) {
 			entity.w = Math.max( 1, readInt( changedId, entity.w || 1 ) );

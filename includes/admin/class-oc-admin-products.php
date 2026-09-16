@@ -16,11 +16,34 @@ class OC_Admin_Products {
 	// ── AJAX ──────────────────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
+		add_action( 'wp_ajax_oc_upload_cut_line', [ self::class, 'ajax_upload_cut_line' ] );
 		add_action( 'wp_ajax_oc_assign_design', [ self::class, 'ajax_assign_design' ] );
 		add_action( 'wp_ajax_oc_save_design_variants', [ self::class, 'ajax_save_design_variants' ] );
 		add_action( 'wp_ajax_oc_autosave_design', [ self::class, 'ajax_autosave_design' ] );
 		add_action( 'wp_ajax_oc_restore_autosave', [ self::class, 'ajax_restore_autosave' ] );
 		add_action( 'wp_ajax_oc_export_recovery', [ self::class, 'ajax_export_recovery' ] );
+	}
+
+	/** Validate an admin upload in memory; no attachment or persistent file is created. */
+	public static function ajax_upload_cut_line(): void {
+		check_ajax_referer( 'oc-products-nonce', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ], 403 );
+		}
+		$file = $_FILES['file'] ?? null;
+		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) || ! is_array( $file )
+			|| UPLOAD_ERR_OK !== ( $file['error'] ?? null )
+			|| ! is_string( $file['name'] ?? null ) || 'svg' !== strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) )
+			|| ! is_string( $file['tmp_name'] ?? null ) || ! is_uploaded_file( $file['tmp_name'] )
+			|| (int) ( $file['size'] ?? 0 ) > OC_Cut_Line::MAX_BYTES
+		) {
+			wp_send_json_error( [ 'message' => __( 'Upload a valid SVG file no larger than 256 KiB.', 'overcustomise' ) ], 400 );
+		}
+		$svg = OC_Cut_Line::sanitize( file_get_contents( $file['tmp_name'], false, null, 0, OC_Cut_Line::MAX_BYTES + 1 ) );
+		if ( is_wp_error( $svg ) ) {
+			wp_send_json_error( [ 'message' => $svg->get_error_message() ], 400 );
+		}
+		wp_send_json_success( [ 'cutLineSvg' => $svg ] );
 	}
 
 	public static function ajax_assign_design(): void {
@@ -174,6 +197,18 @@ class OC_Admin_Products {
 		$state = json_decode( $state_raw, true );
 		if ( ! is_array( $state ) ) {
 			wp_send_json_error( [ 'message' => __( 'Invalid state.', 'overcustomise' ) ] );
+		}
+		foreach ( is_array( $state['areas'] ?? null ) ? $state['areas'] : [] as $area_index => $area ) {
+			foreach ( is_array( $area['layers'] ?? null ) ? $area['layers'] : [] as $layer_index => $layer ) {
+				if ( 'cut_line' !== ( $layer['type'] ?? '' ) ) {
+					continue;
+				}
+				$svg = OC_Cut_Line::sanitize( $layer['settings']['cutLineSvg'] ?? null );
+				if ( is_wp_error( $svg ) ) {
+					wp_send_json_error( [ 'message' => $svg->get_error_message() ], 400 );
+				}
+				$state['areas'][ $area_index ]['layers'][ $layer_index ]['settings'] = [ 'cutLineSvg' => $svg ];
+			}
 		}
 
 		$revision          = max( 0, (int) ( $_POST['revision'] ?? 0 ) );
@@ -1149,6 +1184,10 @@ class OC_Admin_Products {
 				$type            = sanitize_key( (string) $l->type );
 				$settings        = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
 				$stored_settings = is_string( $l->settings ?? null ) ? json_decode( $l->settings, true ) : [];
+				if ( 'cut_line' === $type ) {
+					$svg = OC_Cut_Line::sanitize( $stored_settings['cutLineSvg'] ?? null );
+					$settings = [ 'cutLineSvg' => is_wp_error( $svg ) ? '' : $svg ];
+				}
 				if ( 'ai_image' === $type && is_array( $stored_settings ) ) {
 					$settings['ai_prompt_instruction'] = is_string( $stored_settings['ai_prompt_instruction'] ?? null ) ? $stored_settings['ai_prompt_instruction'] : '';
 				}
@@ -1496,6 +1535,7 @@ class OC_Admin_Products {
 								<button type="button" class="oc-layer-type-btn" data-type="lineart"><span class="oc-layer-type-btn-icon" style="color:#d97706;">&#x270f;</span><span><?php esc_html_e( 'Line Art', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="night_sky"><span class="oc-layer-type-btn-icon" style="color:#4338ca;">&#x2606;</span><span><?php esc_html_e( 'Night Sky', 'overcustomise' ); ?></span></button>
+				<button type="button" class="oc-layer-type-btn" data-type="cut_line"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2702;</span><span><?php esc_html_e( 'Cut Line', 'overcustomise' ); ?></span></button>
 							</div>
 						</div>
 
@@ -1872,7 +1912,7 @@ class OC_Admin_Products {
 				$area_id_map[ (int) $area_index ] = $db_area_id;
 			}
 
-			$valid_types = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky' ];
+			$valid_types = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line' ];
 			foreach ( $posted_layers as $sort => $layer_data ) {
 				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;
@@ -1889,7 +1929,7 @@ class OC_Admin_Products {
 				}
 				// WordPress slashes $_POST, so unslash before decoding settings.
 				$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
-				$decoded      = json_decode( is_string( $settings_raw ) && strlen( $settings_raw ) <= 262144 ? $settings_raw : '', true );
+				$decoded      = json_decode( is_string( $settings_raw ) && strlen( $settings_raw ) <= ( 'cut_line' === $type ? 1048576 : 262144 ) ? $settings_raw : '', true );
 				if ( ! is_array( $decoded ) ) {
 					throw new RuntimeException( 'Invalid design layer settings.' );
 				}
@@ -1930,6 +1970,13 @@ class OC_Admin_Products {
 					'settings'   => $settings ?: '{}',
 				];
 				$layer_fmt = [ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ];
+				if ( 'cut_line' === $type ) {
+					// Independent width/height and signed positioning, including outside the area.
+					$layer_row['x'] = (int) ( $layer_data['x'] ?? 0 );
+					$layer_row['y'] = (int) ( $layer_data['y'] ?? 0 );
+					$layer_row['w'] = max( 1, (int) ( $layer_data['w'] ?? 200 ) );
+					$layer_row['h'] = max( 1, (int) ( $layer_data['h'] ?? 50 ) );
+				}
 
 				if ( $layer_id > 0 ) {
 					if ( ( $existing_layer_area_ids[ $layer_id ] ?? 0 ) !== $area_db_id ) {
@@ -2064,6 +2111,13 @@ class OC_Admin_Products {
 
 	/** Normalize layer settings and retain only live, related resources. */
 	private static function normalise_design_layer_settings( array $raw, string $type, string $print_method, array $existing = [] ): array {
+		if ( 'cut_line' === $type ) {
+			$svg = OC_Cut_Line::sanitize( $raw['cutLineSvg'] ?? null );
+			if ( is_wp_error( $svg ) ) {
+				throw new RuntimeException( $svg->get_error_message() );
+			}
+			return [ 'cutLineSvg' => $svg ];
+		}
 		$settings = OC_Cart::normalise_layer_settings( $raw, $type );
 		if ( 'ai_image' === $type ) {
 			$raw_instruction = is_string( $raw['ai_prompt_instruction'] ?? null ) ? $raw['ai_prompt_instruction'] : '';

@@ -1404,20 +1404,22 @@ const canvasRendererMethods = {
 	},
 
 	textLayerFitsAtSize( layer, raw, font, fontSize ) {
-		const area = this.areas[ this.areaIndexForLayer( layer?.id ) ];
+		const areaIndex = this.areaIndexForLayer( layer?.id );
+		const area = this.areas[ areaIndex ];
+		const scale = this.canvases?.[ areaIndex ]?._ocScaleX ?? 1;
 		const bounds = area ? this.areaBounds( area ) : null;
 		const layerBox = bounds ? displayLayer( layer, bounds ) : layer;
 		const displaySize = bounds
-			? displayFontSize( fontSize, bounds )
-			: fontSize;
+			? displayFontSize( fontSize, bounds, scale )
+			: fontSize * scale;
 
 		return this.textFitsBox(
 			raw,
 			font,
 			displaySize,
 			layer?.settings || {},
-			Number( layerBox?.w || 0 ),
-			Number( layerBox?.h || 0 ),
+			Math.max( Number( layerBox?.w || 0 ) * scale, 10 ),
+			Math.max( Number( layerBox?.h || 0 ) * scale, 10 ),
 			layer?.type === 'textarea'
 		);
 	},
@@ -1450,7 +1452,9 @@ const canvasRendererMethods = {
 		);
 		if ( font ) {
 			try {
-				await this.loadFont( font );
+				if ( ( await this.loadFont( font ) ) !== true ) {
+					font = null;
+				}
 			} catch {
 				font = null;
 			}
@@ -1481,6 +1485,12 @@ const canvasRendererMethods = {
 		if ( ! sizeEl ) {
 			return;
 		}
+		// Font loading can complete out of order while typing or switching fonts.
+		this.textSizeCapRequests ||= new Map();
+		const request = {};
+		const requestKey = String( layerId );
+		this.textSizeCapRequests.set( requestKey, request );
+		const generation = this._designGeneration;
 
 		if ( ! sizeEl.dataset.ocOriginalMax ) {
 			sizeEl.dataset.ocOriginalMax = sizeEl.max || '200';
@@ -1496,7 +1506,22 @@ const canvasRendererMethods = {
 			configuredMax ? Math.min( originalMax, configuredMax ) : originalMax
 		);
 		cappedMax = await this.maxFittingFontSize( layerId, cappedMax );
+		if (
+			this.textSizeCapRequests.get( requestKey ) !== request ||
+			this._designGeneration !== generation ||
+			this.getLayerById( layerId ) !== layer ||
+			document.querySelector(
+				`[data-oc-layer-font-size="${ layerId }"]`
+			) !== sizeEl
+		) {
+			return;
+		}
 
+		// Changing a native range's max sanitizes its value immediately. Capture
+		// the requested size first so the input state is clamped as well.
+		const requestedSize =
+			parseInt( this.inputs[ layerId ]?.fontSize, 10 ) ||
+			parseInt( sizeEl.value, 10 );
 		sizeEl.max = String( cappedMax );
 		const hasAdjustableRange =
 			cappedMax > ( parseInt( sizeEl.min, 10 ) || 1 );
@@ -1508,7 +1533,7 @@ const canvasRendererMethods = {
 		control
 			?.querySelector( '[data-oc-font-size-notice]' )
 			?.toggleAttribute( 'hidden', hasAdjustableRange );
-		if ( clampValue && parseInt( sizeEl.value, 10 ) > cappedMax ) {
+		if ( clampValue && requestedSize > cappedMax ) {
 			sizeEl.value = String( cappedMax );
 			if ( ! this.inputs[ layerId ] ) {
 				this.inputs[ layerId ] = {};

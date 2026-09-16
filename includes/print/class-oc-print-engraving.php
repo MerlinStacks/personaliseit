@@ -42,8 +42,9 @@ class OC_Print_Engraving extends OC_Print_Base {
 		self::require_tcpdf();
 
 		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
+		[ $left, $top, $right, $bottom ] = self::cut_line_page_bounds( $area, $area_data );
 
-		$pdf = self::make_pdf( $w_mm, $h_mm, 0.0 );
+		$pdf = self::make_pdf( $right - $left, $bottom - $top, 0.0 );
 		$pdf->SetTitle( sprintf( 'Engraving — Order #%d — %s', $order->get_id(), $area->label ) );
 		$pdf->AddPage();
 		$profile = self::resolve_profile( $area, $area_data );
@@ -51,7 +52,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		// Leave the page unpainted so the generated file contains only engraving marks.
 
 		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0, 'engraving', [ 'engraving_profile' => $profile ] );
+			self::render_layer_payload( $pdf, $area, $area_data, -$left, -$top, 'engraving', [ 'engraving_profile' => $profile ] );
 
 			$output_dir  = self::ensure_output_dir( $order->get_id() );
 			$output_path = $output_dir . '/' . self::build_filename( $order, $item_id, $area, 'pdf' );
@@ -106,7 +107,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 			throw new \RuntimeException( __( 'No engraving print areas supplied for combined file.', 'overcustomise' ) );
 		}
 
-		$layout = self::combined_sheet_layout( $areas );
+		$layout = self::combined_sheet_layout( $areas, 0.0, 5.0, true );
 		if ( empty( $layout['entries'] ) ) {
 			throw new \RuntimeException( __( 'No valid engraving print areas supplied for combined file.', 'overcustomise' ) );
 		}

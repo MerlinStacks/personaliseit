@@ -2,10 +2,10 @@
 /**
  * Canonical v2 render specification builder.
  *
- * The render spec is the single stored description of what the customer saw:
- * print areas, bounds, layer boxes, settings, and sanitised customer inputs.
- * Frontend/order data and print generation should consume this structure rather
- * than rebuilding layout from partial payloads.
+ * The render spec stores print areas, bounds, layer boxes, settings, and
+ * sanitised customer inputs, plus private production-only cut-line geometry.
+ * Never expose the full specification to customers or browser snapshots.
+ * Customer/order summaries use the filtered OC_Cart::render_spec_layer_map().
  *
  * @package OverCustomise
  */
@@ -215,6 +215,19 @@ class OC_Render_Spec {
 				$settings = [];
 			}
 			unset( $settings['ai_prompt_instruction'] );
+			if ( 'cut_line' === (string) $layer->type ) {
+				if ( 'engraving' !== (string) $area->print_method ) {
+					continue;
+				}
+				$svg = OC_Cut_Line::sanitize( $settings['cutLineSvg'] ?? null );
+				if ( is_wp_error( $svg ) ) {
+					throw new \RuntimeException( $svg->get_error_message() );
+				}
+				$settings = [ 'cutLineSvg' => $svg ];
+				$input = [];
+			} else {
+				unset( $settings['cutLineSvg'] );
+			}
 
 			$spec_layer = [
 				'id'       => $layer_id,
@@ -226,7 +239,7 @@ class OC_Render_Spec {
 				'h'        => (int) $layer->h,
 				'settings' => $settings,
 				'input'    => $input,
-				'locked'   => ! empty( $layer->locked ),
+				'locked'   => 'cut_line' === (string) $layer->type || ! empty( $layer->locked ),
 			];
 			if ( isset( $layer->rotation ) ) {
 				$spec_layer['rotation'] = (float) $layer->rotation;

@@ -584,7 +584,7 @@ class OC_Cart {
 				continue;
 			}
 			$known_layer_ids[ $layer_id ] = true;
-			if ( ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] ) ) {
+			if ( 'cut_line' !== (string) ( $layer->type ?? '' ) && ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] ) ) {
 				$eligible_layer_ids[ $layer_id ] = true;
 			}
 		}
@@ -600,6 +600,10 @@ class OC_Cart {
 			}
 			if ( ! is_array( $raw_layers[ $raw_layer_id ] ) ) {
 				return new \WP_Error( 'invalid_layer', __( 'Invalid personalisation layer data. Please refresh and try again.', 'overcustomise' ) );
+			}
+			$submitted = $raw_layers[ $raw_layer_id ];
+			if ( 'cut_line' === ( $submitted['type'] ?? '' ) || array_key_exists( 'cutLineSvg', $submitted ) || array_key_exists( 'cutLineSvg', is_array( $submitted['settings'] ?? null ) ? $submitted['settings'] : [] ) ) {
+				return new \WP_Error( 'private_layer', __( 'Cut lines cannot be submitted by customers.', 'overcustomise' ) );
 			}
 			$submitted_layer_ids[ $layer_id ]  = true;
 			$canonical_raw_layers[ $layer_id ] = $raw_layers[ $raw_layer_id ];
@@ -2004,7 +2008,7 @@ class OC_Cart {
 		foreach ( is_array( $render_spec['areas'] ?? null ) ? $render_spec['areas'] : [] as $area ) {
 			foreach ( is_array( $area['layers'] ?? null ) ? $area['layers'] : [] as $layer ) {
 				$layer_id = is_array( $layer ) ? absint( $layer['id'] ?? 0 ) : 0;
-				if ( $layer_id <= 0 ) {
+				if ( $layer_id <= 0 || 'cut_line' === ( $layer['type'] ?? '' ) ) {
 					continue;
 				}
 				$layers[ $layer_id ] = (object) [

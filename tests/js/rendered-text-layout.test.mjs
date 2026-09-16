@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 
 async function shared( path ) {
 	return import(
@@ -40,6 +41,117 @@ const methods = new Function(
 			'return canvasRendererMethods;'
 		)
 )( ...Object.values( dependencies ) );
+
+function sizeControlFixture( t ) {
+	const dom = new JSDOM( `<div data-oc-font-size-control>
+		<label data-oc-font-size-label>Size</label>
+		<input type="range" min="1" max="200" value="24" data-oc-layer-font-size="1">
+		<p data-oc-font-size-notice hidden>Cannot resize</p>
+		<span class="oc-range-value" data-oc-range-value="1"></span>
+	</div>` );
+	const previous = globalThis.document;
+	globalThis.document = dom.window.document;
+	t.after( () => {
+		globalThis.document = previous;
+		dom.window.close();
+	} );
+	const layer = { id: 1, type: 'textarea', w: 100, h: 100, settings: {} };
+	const app = {
+		...methods,
+		inputs: { 1: { value: 'sd', fontId: 1, fontSize: 24 } },
+		fonts: [ { id: 1, name: 'Test' } ],
+		areas: [ { bounds: { unit: 'px' }, layers: [ layer ] } ],
+		getLayerById: () => layer,
+		loadFont: async () => true,
+		textFitsBox: ( raw, font, size ) => size <= 40,
+	};
+	return {
+		app,
+		layer,
+		slider: document.querySelector( 'input' ),
+		notice: document.querySelector( 'p' ),
+	};
+}
+
+test( 'short text retains a range allowing both smaller and larger sizes', async ( t ) => {
+	const { app, slider, notice } = sizeControlFixture( t );
+	await app.updateTextSizeSliderCap( 1 );
+	assert.equal( slider.max, '40' );
+	assert.equal( slider.value, '24' );
+	assert.equal( slider.hidden, false );
+	assert.equal( notice.hidden, true );
+} );
+
+test( 'native range sanitization also clamps the stored font size', async ( t ) => {
+	const { app, slider } = sizeControlFixture( t );
+	app.textFitsBox = ( raw, font, size ) => size <= 10;
+	await app.updateTextSizeSliderCap( 1 );
+	assert.equal( slider.value, '10' );
+	assert.equal( app.inputs[ 1 ].fontSize, 10 );
+	assert.equal( document.querySelector( 'span' ).textContent, '10' );
+} );
+
+test( 'an old font calculation cannot restore the cannot-resize warning', async ( t ) => {
+	const { app, slider, notice } = sizeControlFixture( t );
+	let finishOld;
+	app.loadFont = () =>
+		new Promise( ( resolve ) => {
+			finishOld = resolve;
+		} );
+	app.textFitsBox = ( raw, font, size ) => size <= ( raw === 'old' ? 1 : 40 );
+	app.inputs[ 1 ].value = 'old';
+	const oldUpdate = app.updateTextSizeSliderCap( 1 );
+	app.inputs[ 1 ].value = 'sd';
+	app.loadFont = async () => true;
+	await app.updateTextSizeSliderCap( '1' );
+	finishOld( true );
+	await oldUpdate;
+	assert.equal( slider.max, '40' );
+	assert.equal( slider.hidden, false );
+	assert.equal( notice.hidden, true );
+} );
+
+test( 'pending cap updates cannot modify a new design', async ( t ) => {
+	const { app, slider } = sizeControlFixture( t );
+	let finish;
+	app.loadFont = () =>
+		new Promise( ( resolve ) => {
+			finish = resolve;
+		} );
+	app._designGeneration = 1;
+	const pending = app.updateTextSizeSliderCap( 1 );
+	app._designGeneration++;
+	finish( true );
+	await pending;
+	assert.equal( slider.max, '200' );
+} );
+
+test( 'cap measurement uses the preview scale and fallback font', async ( t ) => {
+	const { app, layer } = sizeControlFixture( t );
+	app.areas[ 0 ].bounds = { unit: 'mm', dpi: 254 };
+	app.canvases = [ { _ocScaleX: 0.5 } ];
+	app.loadFont = async () => false;
+	app.textFitsBox = ( raw, font, size, settings, width, height ) => {
+		assert.equal( font, null );
+		assert.equal( width, layer.w * 5 );
+		assert.equal( height, layer.h * 5 );
+		return size <= 100;
+	};
+	assert.equal( await app.maxFittingFontSize( 1, 200 ), 20 );
+} );
+
+test( 'a genuinely fixed fit range shows the warning and can recover', async ( t ) => {
+	const { app, slider, notice } = sizeControlFixture( t );
+	app.textFitsBox = ( raw, font, size ) => size <= 1;
+	await app.updateTextSizeSliderCap( 1 );
+	assert.equal( slider.hidden, true );
+	assert.equal( notice.hidden, false );
+	app.textFitsBox = ( raw, font, size ) => size <= 40;
+	await app.updateTextSizeSliderCap( 1 );
+	assert.equal( slider.max, '40' );
+	assert.equal( slider.hidden, false );
+	assert.equal( notice.hidden, true );
+} );
 
 function fixture( type = 'text', settings = {}, unit = 'px', scale = 1 ) {
 	const area = { x: 0, y: 0, w: 200, h: 100, unit, dpi: 254 };

@@ -25,6 +25,7 @@ class OC_Admin_Print_Methods {
 				'contrast'     => 0,
 				'edge_boost'   => 0,
 				'dithering'    => 'none',
+				'cut_line_colour' => '#FF0000',
 				'enabled'      => true,
 				'notes'        => '',
 			],
@@ -203,6 +204,15 @@ class OC_Admin_Print_Methods {
 					</div>
 
 					<?php if ( 'engraving' === $key ) : ?>
+					<div class="oc-form-row">
+						<div class="oc-form-label">
+							<label for="oc-engraving-cut-line-colour"><?php esc_html_e( 'Cut-line colour', 'overcustomise' ); ?></label>
+						</div>
+						<div class="oc-form-field">
+							<input type="color" id="oc-engraving-cut-line-colour" name="<?php echo esc_attr( "oc_pm[{$key}][cut_line_colour]" ); ?>" value="<?php echo esc_attr( $m['cut_line_colour'] ); ?>">
+							<p class="oc-form-help"><?php esc_html_e( 'Vector cutting strokes in engraving PDFs. Default: red (#FF0000).', 'overcustomise' ); ?></p>
+						</div>
+					</div>
 					<div class="oc-form-row">
 						<div class="oc-form-label">
 							<label for="oc-engraving-material"><?php esc_html_e( 'Default material', 'overcustomise' ); ?></label><?php OC_Tooltips::render( 'engraving-material', __( 'Selects the default engraving profile used by file generation.', 'overcustomise' ) ); ?>
@@ -398,6 +408,7 @@ class OC_Admin_Print_Methods {
 
 		if ( 'engraving' === $key ) {
 			$materials = [ 'default', 'wood', 'glass', 'leather', 'silver_plaque' ];
+			$sanitised['cut_line_colour'] = self::cut_line_colour( $posted['cut_line_colour'] ?? $current['cut_line_colour'] ?? '#FF0000' );
 			$dithers   = [ 'none', 'floyd_steinberg' ];
 
 			$material  = sanitize_key( (string) ( $posted['material'] ?? '' ) );
@@ -425,6 +436,17 @@ class OC_Admin_Print_Methods {
 		return $sanitised;
 	}
 
+	/** Normalise the RGB machine cutting colour, including old settings without it. */
+	public static function cut_line_colour( mixed $value ): string {
+		if ( ! is_string( $value ) || ! preg_match( '/^#(?:[a-f0-9]{3}|[a-f0-9]{6})$/i', $value ) ) {
+			return '#FF0000';
+		}
+		if ( 4 === strlen( $value ) ) {
+			$value = '#' . $value[1] . $value[1] . $value[2] . $value[2] . $value[3] . $value[3];
+		}
+		return strtoupper( $value );
+	}
+
 	/** Apply a strict schema to saved settings before any frontend or cron consumer reads them. */
 	private static function normalise_method_settings( string $key, array $settings, array $defaults ): array {
 		$normalised = $defaults;
@@ -445,6 +467,7 @@ class OC_Admin_Print_Methods {
 			$material = is_scalar( $settings['material'] ?? null ) ? sanitize_key( (string) $settings['material'] ) : 'default';
 			$dithering = is_scalar( $settings['dithering'] ?? null ) ? sanitize_key( (string) $settings['dithering'] ) : 'none';
 			$normalised['material']   = in_array( $material, [ 'default', 'wood', 'glass', 'leather', 'silver_plaque' ], true ) ? $material : 'default';
+			$normalised['cut_line_colour'] = self::cut_line_colour( $settings['cut_line_colour'] ?? '#FF0000' );
 			$normalised['gamma']      = max( 0.2, min( 4.0, is_numeric( $settings['gamma'] ?? null ) ? (float) $settings['gamma'] : (float) $defaults['gamma'] ) );
 			$normalised['contrast']   = max( -100, min( 100, is_numeric( $settings['contrast'] ?? null ) ? (int) $settings['contrast'] : (int) $defaults['contrast'] ) );
 			$normalised['edge_boost'] = max( 0, min( 100, is_numeric( $settings['edge_boost'] ?? null ) ? (int) $settings['edge_boost'] : (int) $defaults['edge_boost'] ) );

@@ -1,4 +1,5 @@
 export const LAYER_TYPES = {
+	cut_line: { label: 'Cut Line', icon: '\u2702', color: '#db2777' },
 	text: { label: 'Text', icon: 'Aa', color: '#0284c7' },
 	textarea: { label: 'Text Area', icon: '\u00b6', color: '#7c3aed' },
 	image: { label: 'Image', icon: '\ud83d\uddbc', color: '#059669' },
@@ -12,6 +13,7 @@ export const LAYER_TYPES = {
 };
 
 export const LAYER_DEFAULTS = {
+	cut_line: { w: 200, h: 200 },
 	text: { w: 300, h: 50 },
 	textarea: { w: 300, h: 120 },
 	image: { w: 200, h: 200 },
@@ -47,6 +49,10 @@ export const ICO_BIN =
 	'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1.5" y1="4" x2="14.5" y2="4"/><path d="M6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4"/><path d="M3 4l.8 9.5a.5.5 0 0 0 .5.5h7.4a.5.5 0 0 0 .5-.5L13 4"/></svg>';
 
 export const LAYER_TABS = {
+	cut_line: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'cut_line', label: 'SVG', icon: '\u2702' },
+	],
 	text: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'content', label: 'Content', icon: 'T' },

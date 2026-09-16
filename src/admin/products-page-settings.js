@@ -1,5 +1,7 @@
 /* eslint-disable no-unused-vars, no-nested-ternary */
 
+import { bindCutLineUpload } from './products-page-cut-line';
+
 export function createProductsPageSettings( deps ) {
 	const {
 		commitChange,
@@ -517,10 +519,12 @@ export function createProductsPageSettings( deps ) {
 							esc( layer.label ) +
 							'" />'
 					) +
-					field(
-						'Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>',
-						linkGroupField( s.link_group || '' )
-					) +
+					( layer.type === 'cut_line'
+						? ''
+						: field(
+								'Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>',
+								linkGroupField( s.link_group || '' )
+						  ) ) +
 					( supportsColourLink
 						? field(
 								'Colour link group <span class="oc-hint">(keeps colour identical across text and artwork layers)</span>',
@@ -532,10 +536,14 @@ export function createProductsPageSettings( deps ) {
 						: '' ) +
 					'<p class="oc-settings-section-hdr">Position</p>' +
 					'<div class="oc-bounds-grid">' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" min="0" style="width:100%;" value="' +
+					'<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" ' +
+					( layer.type === 'cut_line' ? '' : 'min="0" ' ) +
+					'style="width:100%;" value="' +
 					layer.x +
 					'" /></div>' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" min="0" style="width:100%;" value="' +
+					'<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" ' +
+					( layer.type === 'cut_line' ? '' : 'min="0" ' ) +
+					'style="width:100%;" value="' +
 					layer.y +
 					'" /></div>' +
 					'<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' +
@@ -545,6 +553,19 @@ export function createProductsPageSettings( deps ) {
 					layer.h +
 					'" /></div>' +
 					'</div>'
+				);
+			case 'cut_line':
+				return field(
+					s.cutLineSvg
+						? 'Replace cut line SVG'
+						: 'Upload cut line SVG',
+					'<input type="file" id="oc-cut-line-file" accept=".svg,image/svg+xml" aria-label="Upload or replace cut line SVG" />' +
+						'<p class="oc-hint">SVG only, maximum 256 KiB. Width and height can be resized independently. Cut lines may extend outside the print area.</p>' +
+						'<p id="oc-cut-line-status" role="status" aria-live="polite">' +
+						( s.cutLineSvg
+							? 'SVG uploaded.'
+							: 'No SVG uploaded.' ) +
+						'</p>'
 				);
 			case 'content':
 				return (
@@ -932,6 +953,10 @@ export function createProductsPageSettings( deps ) {
 		const s = layer.settings;
 		const area = selectedArea();
 		const data = window.ocProductsData || {};
+
+		if ( layer.type === 'cut_line' ) {
+			bindCutLineUpload( layer, area, commitChange );
+		}
 
 		document
 			.getElementById( 'oc-layer-label' )
