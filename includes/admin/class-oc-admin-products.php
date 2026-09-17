@@ -1123,7 +1123,6 @@ class OC_Admin_Products {
 		$design             = isset( $design_rows[0][0] ) ? (object) $design_rows[0][0] : null;
 		$areas              = array_map( static fn( $row ) => (object) $row, $design_rows[1] );
 		usort( $areas, static fn( $a, $b ) => [ (int) $a->sort_order, (int) $a->id ] <=> [ (int) $b->sort_order, (int) $b->id ] );
-		$design_custom_type = $design && in_array( $design->custom_type, [ 'text_only', 'photo_text' ], true ) ? $design->custom_type : 'text_only';
 		$design_flat_rate   = $design ? (float) $design->flat_rate : max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) );
 
 		// Existing installs store the mockup on each area. Resolve one shared
@@ -1359,48 +1358,8 @@ class OC_Admin_Products {
 
 				<div class="oc-design-editor">
 
-					<!-- LEFT: design settings + areas list -->
+					<!-- LEFT: print areas, area settings, then design settings -->
 					<div class="oc-editor-left">
-						<div class="oc-editor-section">
-							<div class="oc-editor-section-header">
-								<h3><?php esc_html_e( 'Design Settings', 'overcustomise' ); ?></h3>
-							</div>
-							<div class="oc-editor-field">
-								<label for="oc_custom_type"><?php esc_html_e( 'Customisation Type', 'overcustomise' ); ?></label>
-								<select id="oc_custom_type" name="oc_custom_type" class="oc-select" style="width:100%;">
-									<option value="text_only" <?php selected( $design_custom_type, 'text_only' ); ?>><?php esc_html_e( 'Text Only', 'overcustomise' ); ?></option>
-									<option value="photo_text" <?php selected( $design_custom_type, 'photo_text' ); ?>><?php esc_html_e( 'Photo + Text', 'overcustomise' ); ?></option>
-								</select>
-							</div>
-							<div class="oc-editor-field" style="margin-bottom:0;">
-								<label for="oc_flat_rate"><?php esc_html_e( 'Flat Rate (AUD)', 'overcustomise' ); ?></label>
-								<input type="number" id="oc_flat_rate" name="oc_flat_rate" class="oc-input" min="0" step="0.01" inputmode="decimal" value="<?php echo esc_attr( number_format( $design_flat_rate, 2, '.', '' ) ); ?>" style="width:100%;" />
-							</div>
-							<div class="oc-editor-field" style="margin-top:12px;margin-bottom:0;">
-								<label><?php esc_html_e( 'Design Mockup', 'overcustomise' ); ?> <span class="oc-hint"><?php esc_html_e( '(shared by every print area)', 'overcustomise' ); ?></span></label>
-								<div class="oc-mockup-thumb" id="oc-mockup-thumb">
-									<img id="oc-mockup-thumb-img" src="" alt="" style="display:none;" />
-									<span id="oc-mockup-thumb-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mockup set', 'overcustomise' ); ?></span>
-									<div class="oc-mockup-thumb-actions">
-										<button type="button" id="oc-choose-mockup-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>">&#9998;</button>
-										<button type="button" id="oc-remove-mockup-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
-									</div>
-								</div>
-							</div>
-							<div class="oc-editor-field" style="margin-top:12px;margin-bottom:0;">
-								<label><?php esc_html_e( 'Design Mask', 'overcustomise' ); ?> <span class="oc-hint"><?php esc_html_e( '(one preview overlay per design)', 'overcustomise' ); ?></span></label>
-								<div class="oc-mockup-thumb" id="oc-design-mask-thumb">
-									<img id="oc-design-mask-thumb-img" src="" alt="" style="display:none;" />
-									<span id="oc-design-mask-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mask set', 'overcustomise' ); ?></span>
-									<div class="oc-mockup-thumb-actions">
-										<button type="button" id="oc-choose-design-mask-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Choose design mask', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Choose design mask', 'overcustomise' ); ?>">&#9998;</button>
-										<button type="button" id="oc-remove-design-mask-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove design mask', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove design mask', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
-									</div>
-								</div>
-								<span class="oc-hint"><?php esc_html_e( 'Use a transparent PNG. It appears above customer artwork but is excluded from print files.', 'overcustomise' ); ?></span>
-							</div>
-						</div>
-
 						<div class="oc-editor-section oc-editor-section--grow">
 							<div class="oc-editor-section-header">
 								<h3><?php esc_html_e( 'Print Areas', 'overcustomise' ); ?></h3>
@@ -1479,6 +1438,42 @@ class OC_Admin_Products {
 								</div>
 						</div>
 
+						<div class="oc-editor-section">
+							<div class="oc-editor-section-header">
+								<h3><?php esc_html_e( 'Design Settings', 'overcustomise' ); ?></h3>
+							</div>
+							<div class="oc-editor-field" style="margin-bottom:0;">
+								<label for="oc_flat_rate"><?php esc_html_e( 'Flat Rate (AUD)', 'overcustomise' ); ?></label>
+								<input type="number" id="oc_flat_rate" name="oc_flat_rate" class="oc-input" min="0" step="0.01" inputmode="decimal" value="<?php echo esc_attr( number_format( $design_flat_rate, 2, '.', '' ) ); ?>" style="width:100%;" />
+							</div>
+							<div class="oc-design-media-grid">
+								<div class="oc-editor-field">
+									<label><?php esc_html_e( 'Design Mockup', 'overcustomise' ); ?></label>
+									<div class="oc-mockup-thumb" id="oc-mockup-thumb">
+										<img id="oc-mockup-thumb-img" src="" alt="" style="display:none;" />
+										<span id="oc-mockup-thumb-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mockup set', 'overcustomise' ); ?></span>
+										<div class="oc-mockup-thumb-actions">
+											<button type="button" id="oc-choose-mockup-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Change mockup', 'overcustomise' ); ?>">&#9998;</button>
+											<button type="button" id="oc-remove-mockup-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove mockup', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
+										</div>
+									</div>
+									<span class="oc-hint"><?php esc_html_e( 'Shared by every print area.', 'overcustomise' ); ?></span>
+								</div>
+								<div class="oc-editor-field">
+									<label><?php esc_html_e( 'Design Mask', 'overcustomise' ); ?></label>
+									<div class="oc-mockup-thumb" id="oc-design-mask-thumb">
+										<img id="oc-design-mask-thumb-img" src="" alt="" style="display:none;" />
+										<span id="oc-design-mask-empty" style="font-size:12px;color:var(--oc-gray-400);"><?php esc_html_e( 'No mask set', 'overcustomise' ); ?></span>
+										<div class="oc-mockup-thumb-actions">
+											<button type="button" id="oc-choose-design-mask-btn" class="oc-icon-btn" aria-label="<?php esc_attr_e( 'Choose design mask', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Choose design mask', 'overcustomise' ); ?>">&#9998;</button>
+											<button type="button" id="oc-remove-design-mask-btn" class="oc-icon-btn oc-icon-btn--danger" aria-label="<?php esc_attr_e( 'Remove design mask', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Remove design mask', 'overcustomise' ); ?>" style="display:none;">&#128465;</button>
+										</div>
+									</div>
+									<span class="oc-hint"><?php esc_html_e( 'One preview overlay per design.', 'overcustomise' ); ?></span>
+								</div>
+							</div>
+							<span class="oc-hint"><?php esc_html_e( 'Mask: use a transparent PNG. It appears above customer artwork but is excluded from print files.', 'overcustomise' ); ?></span>
+						</div>
 					</div>
 
 					<!-- CENTER: canvas -->

@@ -1043,6 +1043,14 @@ export function createProductsPageCanvas( deps ) {
 				);
 			}
 		}
+		if ( ! layer && area.ratioLocked ) {
+			// Sync only the dependent dimension, in area units, while typing.
+			if ( changedId === 'oc-prop-w' ) {
+				setVal( 'oc-prop-h', area.h );
+			} else if ( changedId === 'oc-prop-h' ) {
+				setVal( 'oc-prop-w', area.w );
+			}
+		}
 		updateBoundsBox();
 		renderGhosts();
 		updateCoordsReadout( entity );

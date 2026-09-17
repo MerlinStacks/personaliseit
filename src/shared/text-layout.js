@@ -10,7 +10,11 @@ export function multilineTextSafetyMargin( fontSize ) {
 export function layoutMultilineTextbox( textbox, maxWidth, fontSize ) {
 	const outerWidth = Math.max( 1, Number( maxWidth ) || 0 );
 	const margin = multilineTextSafetyMargin( fontSize );
-	const contentWidth = Math.max( 1, outerWidth - margin.x * 2 );
+	// Fabric's scaled dimensions include strokeWidth even when stroke is null
+	// (the default is 1px). Reserve it in the wrapping width, otherwise every
+	// textarea exceeds the width budget at every font size.
+	const strokeWidth = Math.max( 0, Number( textbox.strokeWidth ) || 0 );
+	const contentWidth = Math.max( 1, outerWidth - margin.x * 2 - strokeWidth );
 	const setLayout = ( splitByGrapheme ) => {
 		textbox.set?.( { width: contentWidth, splitByGrapheme } );
 		textbox.initDimensions?.();

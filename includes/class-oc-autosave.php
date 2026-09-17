@@ -217,9 +217,10 @@ class OC_Autosave {
 
 		$design = $state['design'];
 		if (
-			! isset( $design['name'], $design['customType'], $design['flatRate'], $design['active'] )
+			! isset( $design['name'], $design['flatRate'], $design['active'] )
 			|| ! is_string( $design['name'] )
-			|| ! in_array( $design['customType'], [ 'text_only', 'photo_text' ], true )
+			// Older editors include this metadata; current editors no longer expose it.
+			|| ( array_key_exists( 'customType', $design ) && ! in_array( $design['customType'], [ 'text_only', 'photo_text' ], true ) )
 			|| ! is_numeric( $design['flatRate'] )
 			|| (float) $design['flatRate'] < 0
 			|| ! is_bool( $design['active'] )

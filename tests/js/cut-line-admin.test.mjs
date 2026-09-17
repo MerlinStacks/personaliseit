@@ -105,7 +105,7 @@ test( 'cut line normalization and form serialization preserve SVG and out-of-are
 
 async function canvasHarness( rotation = 0, unit = 'px', scale = 1 ) {
 	const dom = new JSDOM(
-		'<div id="oc-canvas-stage"><img id="oc-canvas-mockup-img"><div id="oc-canvas-ghosts"></div><div id="oc-bounds-box"><i class="oc-bounds-handle" data-dir="e"></i><i class="oc-bounds-handle" data-dir="n"></i><i class="oc-bounds-handle" data-dir="se"></i></div></div><input id="oc-layer-x"><input id="oc-layer-y"><input id="oc-layer-w"><input id="oc-layer-h"><input id="oc-prop-w">'
+		'<div id="oc-canvas-stage"><img id="oc-canvas-mockup-img"><div id="oc-canvas-ghosts"></div><div id="oc-bounds-box"><i class="oc-bounds-handle" data-dir="e"></i><i class="oc-bounds-handle" data-dir="n"></i><i class="oc-bounds-handle" data-dir="se"></i></div></div><input id="oc-layer-x"><input id="oc-layer-y"><input id="oc-layer-w"><input id="oc-layer-h"><input id="oc-prop-w"><input id="oc-prop-h">'
 	);
 	const { document } = dom.window;
 	const layer = {
@@ -208,6 +208,96 @@ async function canvasHarness( rotation = 0, unit = 'px', scale = 1 ) {
 		},
 	};
 }
+
+for ( const unit of [ 'px', 'mm', 'cm', 'in' ] ) {
+	for ( const selection of [ 'area', 'layer' ] ) {
+		for ( const field of [ 'w', 'h' ] ) {
+			test( `locked area ${ field } syncs its dependent input in ${ unit } with ${ selection } selected`, async () => {
+				const h = await canvasHarness( 0, unit, 0.5 );
+				try {
+					if ( selection === 'area' ) {
+						h.selectArea();
+					}
+					Object.assign( h.area, {
+						w: 100,
+						h: 50,
+						ratioLocked: true,
+						aspectRatio: 2,
+					} );
+					const dependent = field === 'w' ? 'h' : 'w';
+					const input = h.document.getElementById(
+						'oc-prop-' + field
+					);
+					const other = h.document.getElementById(
+						'oc-prop-' + dependent
+					);
+					const layerBefore = JSON.stringify( h.layer );
+					for ( const value of [ '013', '0' ] ) {
+						input.value = value;
+						other.value = '999';
+						input.focus();
+						input.setSelectionRange( 1, 1 );
+						h.canvas.syncBoundsFromInputs( input.id );
+						const size = Math.max( 1, Number( value ) );
+						const expected =
+							field === 'w'
+								? Math.max( 1, Math.round( size / 2 ) )
+								: size * 2;
+						assert.equal( h.area[ field ], size );
+						assert.equal( h.area[ dependent ], expected );
+						assert.equal( other.value, String( expected ) );
+						assert.equal( input.value, value );
+						assert.equal( input.selectionStart, 1 );
+						assert.equal( h.document.activeElement, input );
+						assert.equal( h.area.aspectRatio, 2 );
+					}
+					assert.equal( JSON.stringify( h.layer ), layerBefore );
+					assert.equal(
+						h.document.getElementById( 'oc-layer-w' ).value,
+						''
+					);
+					assert.equal(
+						h.document.getElementById( 'oc-layer-h' ).value,
+						''
+					);
+				} finally {
+					h.dom.window.close();
+				}
+			} );
+		}
+	}
+}
+
+test( 'unlocked area edits leave the other input alone and capture the ratio for subsequent locking', async () => {
+	const h = await canvasHarness();
+	try {
+		h.area.ratioLocked = false;
+		const width = h.document.getElementById( 'oc-prop-w' );
+		const height = h.document.getElementById( 'oc-prop-h' );
+		width.value = '0200';
+		height.value = '0100';
+		h.canvas.syncBoundsFromInputs( width.id );
+		assert.equal( h.area.w, 200 );
+		assert.equal( h.area.h, 100 );
+		assert.equal( height.value, '0100' );
+		assert.equal( h.area.aspectRatio, 2 );
+		height.value = '0050';
+		h.canvas.syncBoundsFromInputs( height.id );
+		assert.equal( h.area.w, 200 );
+		assert.equal( h.area.h, 50 );
+		assert.equal( width.value, '0200' );
+		assert.equal( height.value, '0050' );
+		assert.equal( h.area.aspectRatio, 4 );
+		h.area.ratioLocked = true;
+		width.value = '0100';
+		h.canvas.syncBoundsFromInputs( width.id );
+		assert.equal( h.area.h, 25 );
+		assert.equal( height.value, '25' );
+		assert.equal( h.area.aspectRatio, 4 );
+	} finally {
+		h.dom.window.close();
+	}
+} );
 
 test( 'cut line dragging and independent canvas resizing cross every print boundary at rotated physical-unit scales', async () => {
 	for ( const rotation of [ 0, 45, 90, 270 ] ) {

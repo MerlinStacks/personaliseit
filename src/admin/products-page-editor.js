@@ -173,16 +173,12 @@ import {
 		}
 	}
 	function collectState() {
-		const customType = document.getElementById( 'oc_custom_type' )?.value;
 		const flatRate = Number(
 			document.getElementById( 'oc_flat_rate' )?.value || 0
 		);
 		return {
 			design: {
 				name: document.getElementById( 'oc_design_name' )?.value || '',
-				customType: [ 'text_only', 'photo_text' ].includes( customType )
-					? customType
-					: 'text_only',
 				flatRate: Number.isFinite( flatRate )
 					? Math.max( 0, flatRate )
 					: 0,
@@ -232,11 +228,6 @@ import {
 		const savedDesign = savedState.design || {};
 		if ( typeof savedDesign.name === 'string' ) {
 			setVal( 'oc_design_name', savedDesign.name );
-		}
-		if (
-			[ 'text_only', 'photo_text' ].includes( savedDesign.customType )
-		) {
-			setVal( 'oc_custom_type', savedDesign.customType );
 		}
 		if ( Number.isFinite( Number( savedDesign.flatRate ) ) ) {
 			setVal(
@@ -377,7 +368,6 @@ import {
 	function setHydrationControlsDisabled( disabled ) {
 		[
 			'oc_design_name',
-			'oc_custom_type',
 			'oc_flat_rate',
 			'oc_active',
 		].forEach( ( id ) => {
@@ -390,7 +380,6 @@ import {
 	function initDesignStateInteractions() {
 		[
 			[ 'oc_design_name', 'input' ],
-			[ 'oc_custom_type', 'change' ],
 			[ 'oc_flat_rate', 'input' ],
 			[ 'oc_active', 'change' ],
 		].forEach( ( [ id, eventName ] ) => {

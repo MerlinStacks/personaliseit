@@ -486,6 +486,33 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	object-fit: contain;
 }
 
+/* Compact, shared design assets in the left sidebar. */
+.oc-design-media-grid {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.oc-design-media-grid .oc-editor-field {
+	min-width: 0;
+	margin-bottom: 4px;
+}
+
+.oc-design-media-grid .oc-mockup-thumb {
+	box-sizing: border-box;
+	height: 100px;
+	min-height: 0;
+	aspect-ratio: auto;
+	padding: 4px;
+}
+
+.oc-design-media-grid .oc-mockup-thumb-actions {
+	top: 4px;
+	right: 4px;
+	gap: 4px;
+}
+
 /* Right panel — bounds grid */
 .oc-bounds-grid {
 	display: grid;

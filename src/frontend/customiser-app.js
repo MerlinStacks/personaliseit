@@ -86,11 +86,17 @@ const clearBootFailure = () => {
 	root.hidden = true;
 };
 
+let bootStarted = false;
+
 const bootCustomiser = async ( data ) => {
+	if ( bootStarted ) {
+		return;
+	}
+	bootStarted = true;
 	setBootLoading( true );
-	let modules;
+	let customiser;
 	try {
-		modules = await Promise.all( [
+		const modules = await Promise.all( [
 			import(
 				/* webpackChunkName: "customiser-core" */ './customiser/canvas-renderer'
 			),
@@ -98,27 +104,31 @@ const bootCustomiser = async ( data ) => {
 				/* webpackChunkName: "customiser-core" */ './customiser/design-variants'
 			),
 		] );
+		const [ { default: canvasMethods }, { default: variantMethods } ] =
+			modules;
+		Object.assign( OCCustomiser.prototype, canvasMethods, variantMethods );
+		clearBootFailure();
+		customiser = new OCCustomiser( data );
+		await customiser.init();
 	} catch {
-		setBootLoading( false );
-		setBootSubmitDisabled( true );
-		renderBootFailure( () => bootCustomiser( data ) );
+		try {
+			if ( customiser ) {
+				window.clearTimeout( customiser._requestTokenRefreshTimer );
+				customiser.invalidateDesignState();
+			}
+		} catch {
+			// A partially initialised resource must not prevent the boot retry.
+		} finally {
+			bootStarted = false;
+			setBootLoading( false );
+			setBootSubmitDisabled( true );
+			renderBootFailure( () => bootCustomiser( data ) );
+		}
 		return;
 	}
-	const [ { default: canvasMethods }, { default: variantMethods } ] = modules;
-	Object.assign( OCCustomiser.prototype, canvasMethods, variantMethods );
 	setBootSubmitDisabled( false );
 	setBootLoading( false );
-	clearBootFailure();
-	new OCCustomiser( data ).init();
 };
-
-document.addEventListener( 'DOMContentLoaded', () => {
-	const data = window.ocCustomiserData;
-	if ( ! data || ! data.areas?.length ) {
-		return;
-	}
-	bootCustomiser( data );
-} );
 
 // ── Main class ─────────────────────────────────────────────────────────────────
 
@@ -578,3 +588,18 @@ Object.assign( OCCustomiser.prototype, preflightMethods );
 Object.assign( OCCustomiser.prototype, spotifyMethods );
 Object.assign( OCCustomiser.prototype, uploadMethods );
 Object.assign( OCCustomiser.prototype, checkoutMethods );
+
+const startCustomiser = () => {
+	const data = window.ocCustomiserData;
+	if ( data?.areas?.length ) {
+		bootCustomiser( data );
+	}
+};
+
+if ( document.readyState === 'loading' ) {
+	document.addEventListener( 'DOMContentLoaded', startCustomiser, {
+		once: true,
+	} );
+} else {
+	startCustomiser();
+}

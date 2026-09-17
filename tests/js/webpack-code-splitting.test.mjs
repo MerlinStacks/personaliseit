@@ -20,7 +20,7 @@ test( 'loads Fabric-bound mixins through the required core chunk', async () => {
 	assert.doesNotMatch( source, /^import .*design-variants/m );
 	assert.match( source, /webpackChunkName: "customiser-core"/ );
 	assert.match( source, /clearBootFailure\(\)/ );
-	assert.match( source, /new OCCustomiser\( data \)\.init\(\)/ );
+	assert.match( source, /await customiser\.init\(\)/ );
 } );
 
 test( 'clears stale upload import errors after a successful retry', async () => {

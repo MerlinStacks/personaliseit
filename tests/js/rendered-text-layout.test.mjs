@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
+import { FabricText, Textbox } from 'fabric/node';
 
 async function shared( path ) {
 	return import(
@@ -32,7 +33,7 @@ const source = await readFile(
 	'src/frontend/customiser/canvas-renderer.js',
 	'utf8'
 );
-const methods = new Function(
+const loadMethods = new Function(
 	...Object.keys( dependencies ),
 	source
 		.replace( /import\s*\{[\s\S]*?\}\s*from\s*'[^']+';/g, '' )
@@ -40,7 +41,11 @@ const methods = new Function(
 			'export default canvasRendererMethods;',
 			'return canvasRendererMethods;'
 		)
-)( ...Object.values( dependencies ) );
+);
+const methods = loadMethods( ...Object.values( dependencies ) );
+const fabricMethods = loadMethods(
+	...Object.values( { ...dependencies, FabricText, Textbox } )
+);
 
 function sizeControlFixture( t ) {
 	const dom = new JSDOM( `<div data-oc-font-size-control>
@@ -77,6 +82,25 @@ test( 'short text retains a range allowing both smaller and larger sizes', async
 	const { app, slider, notice } = sizeControlFixture( t );
 	await app.updateTextSizeSliderCap( 1 );
 	assert.equal( slider.max, '40' );
+	assert.equal( slider.value, '24' );
+	assert.equal( slider.hidden, false );
+	assert.equal( notice.hidden, true );
+} );
+
+test( 'real Fabric textarea measurements keep the size slider adjustable', async ( t ) => {
+	const { app, layer, slider, notice } = sizeControlFixture( t );
+	app.textFitsBox = fabricMethods.textFitsBox;
+	app.fonts = [];
+	app.inputs[ 1 ].value = 'asdsadasd';
+	layer.w = 300;
+	for ( const size of [ 12, 24, 36 ] ) {
+		assert.equal(
+			app.textLayerFitsAtSize( layer, 'asdsadasd', null, size ),
+			true
+		);
+	}
+	await app.updateTextSizeSliderCap( 1 );
+	assert.ok( Number( slider.max ) > 24 );
 	assert.equal( slider.value, '24' );
 	assert.equal( slider.hidden, false );
 	assert.equal( notice.hidden, true );
@@ -191,6 +215,18 @@ function fixture( type = 'text', settings = {}, unit = 'px', scale = 1 ) {
 		render: () => app.renderLayer( canvas, layer, input, area ),
 	};
 }
+
+test( 'real Fabric textarea rendering does not shrink fitting text to the floor', async () => {
+	const f = fixture( 'textarea' );
+	f.app.renderLayer = fabricMethods.renderLayer;
+	f.app.textFitsBox = fabricMethods.textFitsBox;
+	f.layer.w = 300;
+	f.layer.h = 100;
+	f.input.value = 'asdsadasd';
+	f.input.fontSize = 24;
+	await f.render();
+	assert.equal( f.canvas.object.fontSize, 24 );
+} );
 
 test( 'non-engraving rendering does not request the engraving chunk', async () => {
 	const f = fixture();
