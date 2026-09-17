@@ -1123,7 +1123,7 @@ class OC_Admin_Products {
 		$design             = isset( $design_rows[0][0] ) ? (object) $design_rows[0][0] : null;
 		$areas              = array_map( static fn( $row ) => (object) $row, $design_rows[1] );
 		usort( $areas, static fn( $a, $b ) => [ (int) $a->sort_order, (int) $a->id ] <=> [ (int) $b->sort_order, (int) $b->id ] );
-		$design_flat_rate   = $design ? (float) $design->flat_rate : max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) );
+		$design_flat_rate = $design ? (float) $design->flat_rate : max( 0, (float) OC_Admin_Settings::get( 'flat_rate_default' ) );
 
 		// Existing installs store the mockup on each area. Resolve one shared
 		// attachment without requiring a destructive data migration.

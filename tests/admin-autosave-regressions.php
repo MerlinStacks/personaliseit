@@ -76,7 +76,14 @@ $wpdb = new class {
 	public function query( $sql ) { $this->queries[] = $sql; return 1; }
 	public function update( $table, $data, ...$args ) { $this->mutations++; $this->name = $data['name']; return 1; }
 };
-$state = [ 'design' => [ 'name' => 'Draft', 'flatRate' => 0, 'active' => true ], 'areas' => [] ];
+$state = [
+	'design' => [
+		'name'     => 'Draft',
+		'flatRate' => 0,
+		'active'   => true,
+	],
+	'areas'  => [],
+];
 $first = OC_Autosave::store( 7, $state, 1, 0 );
 check( 'stored' === $first['status'], 'Initial autosave' );
 check( $first === OC_Autosave::store( 7, $state, 1, 0 ), 'Exact retry must return original acknowledgement' );
@@ -150,14 +157,14 @@ try {
 }
 $validate_state = new ReflectionMethod( OC_Autosave::class, 'is_valid_state' );
 check( $validate_state->invoke( null, $state ), 'Current editor drafts do not require the removed customisation type' );
-foreach ( [ 'text_only', 'photo_text' ] as $type ) {
-	$legacy_state = $state;
-	$legacy_state['design']['customType'] = $type;
+foreach ( [ 'text_only', 'photo_text' ] as $legacy_type ) {
+	$legacy_state                         = $state;
+	$legacy_state['design']['customType'] = $legacy_type;
 	check( 'stored' === OC_Autosave::store( 8, $legacy_state, 1, 0 )['status'], 'Legacy draft remains accepted' );
-	check( $legacy_state === OC_Autosave::restore( 8 )['state'], 'Legacy draft metadata survives storage and restoration' );
+	check( OC_Autosave::restore( 8 )['state'] === $legacy_state, 'Legacy draft metadata survives storage and restoration' );
 	OC_Autosave::clear( 8, 1 );
 }
-$invalid_type_state = $state;
+$invalid_type_state                         = $state;
 $invalid_type_state['design']['customType'] = 'invalid';
 check( ! $validate_state->invoke( null, $invalid_type_state ), 'Invalid legacy customisation type remains rejected' );
 foreach ( [ 501, 1000 ] as $count ) {

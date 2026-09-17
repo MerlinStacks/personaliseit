@@ -366,11 +366,7 @@ import {
 		button.setAttribute( 'aria-disabled', enabled ? 'false' : 'true' );
 	}
 	function setHydrationControlsDisabled( disabled ) {
-		[
-			'oc_design_name',
-			'oc_flat_rate',
-			'oc_active',
-		].forEach( ( id ) => {
+		[ 'oc_design_name', 'oc_flat_rate', 'oc_active' ].forEach( ( id ) => {
 			const control = document.getElementById( id );
 			if ( control ) {
 				control.disabled = disabled;
