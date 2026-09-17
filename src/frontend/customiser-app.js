@@ -19,8 +19,11 @@ import checkoutMethods from './customiser/checkout';
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
 
+const getCustomiserPanel = () =>
+	document.getElementById( 'oc-customiser-panel' );
+
 const setBootLoading = ( loading ) => {
-	const panel = document.getElementById( 'oc-customiser-panel' );
+	const panel = getCustomiserPanel();
 	if ( ! panel ) {
 		return;
 	}
@@ -29,7 +32,7 @@ const setBootLoading = ( loading ) => {
 };
 
 const setBootSubmitDisabled = ( disabled ) => {
-	const panel = document.getElementById( 'oc-customiser-panel' );
+	const panel = getCustomiserPanel();
 	const form = panel?.closest( 'form' );
 	const controls =
 		form?.querySelectorAll(
@@ -376,7 +379,7 @@ class OCCustomiser {
 
 	applyControlLocks() {
 		const locked = this._controlLocks.size > 0;
-		const panel = document.getElementById( 'oc-customiser-panel' );
+		const panel = getCustomiserPanel();
 		const cartForm =
 			panel?.closest( 'form' ) ||
 			document.querySelector(
@@ -510,9 +513,7 @@ class OCCustomiser {
 	}
 
 	currentVariationId() {
-		const panelForm = document
-			.getElementById( 'oc-customiser-panel' )
-			?.closest( 'form' );
+		const panelForm = getCustomiserPanel()?.closest( 'form' );
 		return (
 			parseInt(
 				panelForm?.querySelector( '[name="variation_id"]' )?.value ||
@@ -580,14 +581,17 @@ class OCCustomiser {
 	}
 }
 
-Object.assign( OCCustomiser.prototype, inputControlMethods );
-Object.assign( OCCustomiser.prototype, cartSerializationMethods );
-Object.assign( OCCustomiser.prototype, galleryPreviewMethods );
-Object.assign( OCCustomiser.prototype, clipartMethods );
-Object.assign( OCCustomiser.prototype, preflightMethods );
-Object.assign( OCCustomiser.prototype, spotifyMethods );
-Object.assign( OCCustomiser.prototype, uploadMethods );
-Object.assign( OCCustomiser.prototype, checkoutMethods );
+Object.assign(
+	OCCustomiser.prototype,
+	inputControlMethods,
+	cartSerializationMethods,
+	galleryPreviewMethods,
+	clipartMethods,
+	preflightMethods,
+	spotifyMethods,
+	uploadMethods,
+	checkoutMethods
+);
 
 const startCustomiser = () => {
 	const data = window.ocCustomiserData;
