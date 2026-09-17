@@ -221,10 +221,11 @@ class OC_Render_Spec {
 				}
 				$svg = OC_Cut_Line::sanitize( $settings['cutLineSvg'] ?? null );
 				if ( is_wp_error( $svg ) ) {
+					// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Propagate validation data; escape when displayed, not when thrown.
 					throw new \RuntimeException( $svg->get_error_message() );
 				}
 				$settings = [ 'cutLineSvg' => $svg ];
-				$input = [];
+				$input    = [];
 			} else {
 				unset( $settings['cutLineSvg'] );
 			}

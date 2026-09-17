@@ -39,6 +39,7 @@ class OC_Admin_Products {
 		) {
 			wp_send_json_error( [ 'message' => __( 'Upload a valid SVG file no larger than 256 KiB.', 'overcustomise' ) ], 400 );
 		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local uploaded file, not a remote URL.
 		$svg = OC_Cut_Line::sanitize( file_get_contents( $file['tmp_name'], false, null, 0, OC_Cut_Line::MAX_BYTES + 1 ) );
 		if ( is_wp_error( $svg ) ) {
 			wp_send_json_error( [ 'message' => $svg->get_error_message() ], 400 );
@@ -1185,7 +1186,7 @@ class OC_Admin_Products {
 				$settings        = OC_Cart::normalise_layer_settings( $l->settings ?? [], $type );
 				$stored_settings = is_string( $l->settings ?? null ) ? json_decode( $l->settings, true ) : [];
 				if ( 'cut_line' === $type ) {
-					$svg = OC_Cut_Line::sanitize( $stored_settings['cutLineSvg'] ?? null );
+					$svg      = OC_Cut_Line::sanitize( $stored_settings['cutLineSvg'] ?? null );
 					$settings = [ 'cutLineSvg' => is_wp_error( $svg ) ? '' : $svg ];
 				}
 				if ( 'ai_image' === $type && is_array( $stored_settings ) ) {
@@ -2114,6 +2115,7 @@ class OC_Admin_Products {
 		if ( 'cut_line' === $type ) {
 			$svg = OC_Cut_Line::sanitize( $raw['cutLineSvg'] ?? null );
 			if ( is_wp_error( $svg ) ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Propagate validation data to the JSON error response, not HTML output.
 				throw new RuntimeException( $svg->get_error_message() );
 			}
 			return [ 'cutLineSvg' => $svg ];

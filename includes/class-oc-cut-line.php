@@ -25,9 +25,10 @@ class OC_Cut_Line {
 			$clean = OC_SVG_Sanitiser::sanitise( $svg );
 			$dom   = new DOMDocument();
 			$dom->loadXML( $clean, LIBXML_NONET );
-			$allowed = [ 'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon' ];
+			$allowed    = [ 'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon' ];
 			$attributes = [ 'viewBox', 'width', 'height', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points', 'transform', 'preserveAspectRatio', 'fill', 'fill-rule', 'fill-opacity', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'stroke-miterlimit', 'stroke-dasharray', 'stroke-dashoffset', 'stroke-opacity', 'opacity', 'style', 'vector-effect', 'display', 'visibility' ];
-			$geometry = 0;
+			$geometry   = 0;
+			// phpcs:disable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM properties cannot be renamed.
 			$walk = static function ( DOMElement $node ) use ( &$walk, &$geometry, $allowed, $attributes ): void {
 				foreach ( iterator_to_array( $node->attributes ) as $attribute ) {
 					if ( ! in_array( $attribute->nodeName, $attributes, true ) || preg_match( '/url\s*\(/i', $attribute->value ) ) {
@@ -49,6 +50,7 @@ class OC_Cut_Line {
 			self::normalise_viewport( $dom->documentElement );
 			$dom->documentElement->setAttribute( 'xmlns', 'http://www.w3.org/2000/svg' );
 			$output = $dom->saveXML( $dom->documentElement );
+			// phpcs:enable WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase
 			if ( ! $geometry || ! is_string( $output ) || strlen( $output ) > self::MAX_BYTES ) {
 				throw new InvalidArgumentException( 'The cut-line SVG must contain static vector geometry within the size limit.' );
 			}
@@ -68,6 +70,7 @@ class OC_Cut_Line {
 		if ( $root->hasAttribute( 'viewBox' ) ) {
 			$view = preg_split( '/[\s,]+/', trim( $root->getAttribute( 'viewBox' ) ) );
 			if ( count( $view ) !== 4 || count( array_filter( $view, static fn ( $v ) => is_numeric( $v ) && is_finite( (float) $v ) ) ) !== 4 || $view[2] <= 0 || $view[3] <= 0 ) {
+				// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Validation data, not HTML output; callers escape at the output boundary.
 				throw new InvalidArgumentException( __( 'The cut-line SVG viewBox must contain four finite numbers with positive width and height.', 'overcustomise' ) );
 			}
 			return;
@@ -87,11 +90,21 @@ class OC_Cut_Line {
 	private static function svg_absolute_length_px( string $value ): float {
 		$message = __( 'The cut-line SVG requires a valid viewBox or positive, finite width and height in absolute units (px, mm, cm, in, pt, pc, or unitless).', 'overcustomise' );
 		if ( ! preg_match( '/\A([+]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)(px|mm|cm|in|pt|pc)?\z/', trim( $value ), $match ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Validation data, not HTML output; callers escape at the output boundary.
 			throw new InvalidArgumentException( $message );
 		}
-		$scales = [ '' => 1, 'px' => 1, 'mm' => 96 / 25.4, 'cm' => 96 / 2.54, 'in' => 96, 'pt' => 96 / 72, 'pc' => 16 ];
+		$scales = [
+			''   => 1,
+			'px' => 1,
+			'mm' => 96 / 25.4,
+			'cm' => 96 / 2.54,
+			'in' => 96,
+			'pt' => 96 / 72,
+			'pc' => 16,
+		];
 		$pixels = (float) $match[1] * $scales[ $match[2] ?? '' ];
 		if ( ! is_finite( $pixels ) || $pixels <= 0 ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Validation data, not HTML output; callers escape at the output boundary.
 			throw new InvalidArgumentException( $message );
 		}
 		return $pixels;

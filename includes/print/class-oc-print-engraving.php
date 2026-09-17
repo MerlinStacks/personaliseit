@@ -41,7 +41,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 	): string {
 		self::require_tcpdf();
 
-		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
+		[ $area, $w_mm, $h_mm ]          = self::normalise_rotated_artboard_for_print( $area, $area_data );
 		[ $left, $top, $right, $bottom ] = self::cut_line_page_bounds( $area, $area_data );
 
 		$pdf = self::make_pdf( $right - $left, $bottom - $top, 0.0 );

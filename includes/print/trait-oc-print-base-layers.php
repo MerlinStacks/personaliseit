@@ -135,9 +135,9 @@ trait OC_Print_Base_Layers {
 				continue;
 			}
 
-			[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
+			[ $area, $w_mm, $h_mm ]          = self::normalise_rotated_artboard_for_print( $entry['area'], $entry['area_data'] );
 			[ $left, $top, $right, $bottom ] = $cut_lines ? self::cut_line_page_bounds( $area, $entry['area_data'] ) : [ 0.0, 0.0, $w_mm, $h_mm ];
-			$entries[] = [
+			$entries[]                       = [
 				'area'      => $area,
 				'area_data' => $entry['area_data'],
 				'x'         => $cursor + $inset - $left,
@@ -145,8 +145,8 @@ trait OC_Print_Base_Layers {
 				'w'         => $w_mm,
 				'h'         => $h_mm,
 			];
-			$cursor += $right - $left + $inset * 2 + $gap;
-			$page_h  = max( $page_h, $bottom - $top + $inset * 2 );
+			$cursor                         += $right - $left + $inset * 2 + $gap;
+			$page_h                          = max( $page_h, $bottom - $top + $inset * 2 );
 		}
 
 		return [
@@ -162,18 +162,18 @@ trait OC_Print_Base_Layers {
 	 * print-area space before converting to millimetres.
 	 */
 	protected static function render_layer_payload( \TCPDF $pdf, object $area, array $area_data, float $origin_x_mm, float $origin_y_mm, string $mode = 'colour', array $options = [] ): void {
-		$bounds = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
-		$area_x = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
-		$area_y = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
-		$bounds_w = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
-		$bounds_h = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
+		$bounds                    = is_array( $area_data['bounds'] ?? null ) ? $area_data['bounds'] : [];
+		$area_x                    = isset( $bounds['x'] ) ? (float) $bounds['x'] : (float) ( $area->canvas_x ?? 0 );
+		$area_y                    = isset( $bounds['y'] ) ? (float) $bounds['y'] : (float) ( $area->canvas_y ?? 0 );
+		$bounds_w                  = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
+		$bounds_h                  = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		[ $area_w_mm, $area_h_mm ] = self::area_dimensions_mm( $area );
-		$quarter_turn = (int) ( $area->_oc_print_quarter_turn ?? 0 );
-		$font_px_to_pt = self::mm_to_pt_value( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
-		$clip_ordinary = false;
+		$quarter_turn              = (int) ( $area->_oc_print_quarter_turn ?? 0 );
+		$font_px_to_pt             = self::mm_to_pt_value( in_array( $quarter_turn, [ 90, 270 ], true ) ? $area_w_mm : $area_h_mm ) / $bounds_h;
+		$clip_ordinary             = false;
 		if ( 'engraving' === $mode ) {
 			[ $left, $top, $right, $bottom ] = self::cut_line_page_bounds( $area, $area_data );
-			$clip_ordinary = $left < 0 || $top < 0 || $right > $area_w_mm || $bottom > $area_h_mm;
+			$clip_ordinary                   = $left < 0 || $top < 0 || $right > $area_w_mm || $bottom > $area_h_mm;
 		}
 
 		foreach ( self::layer_paint_order( $area_data['layers'] ) as $layer ) {
@@ -310,10 +310,10 @@ trait OC_Print_Base_Layers {
 
 	/** Physical cut-line box shared by rendering and page sizing; never clamp to the area. */
 	private static function cut_line_box( object $area, array $data, array $layer ): array {
-		$bounds = is_array( $data['bounds'] ?? null ) ? $data['bounds'] : [];
+		$bounds      = is_array( $data['bounds'] ?? null ) ? $data['bounds'] : [];
 		[ $aw, $ah ] = self::area_dimensions_mm( $area );
-		$bw = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
-		$bh = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
+		$bw          = max( 1.0, (float) ( $bounds['w'] ?? $area->canvas_w ?? 1 ) );
+		$bh          = max( 1.0, (float) ( $bounds['h'] ?? $area->canvas_h ?? 1 ) );
 		foreach ( [ 'x', 'y', 'w', 'h' ] as $key ) {
 			if ( ! is_numeric( $layer[ $key ] ?? null ) || ! is_finite( (float) $layer[ $key ] ) ) {
 				throw new \RuntimeException( 'Invalid cut-line geometry.' );
@@ -322,11 +322,11 @@ trait OC_Print_Base_Layers {
 		if ( $layer['w'] <= 0 || $layer['h'] <= 0 ) {
 			throw new \RuntimeException( 'Cut-line dimensions must be positive.' );
 		}
-		$cx = ( $layer['x'] - (float) ( $bounds['x'] ?? $area->canvas_x ?? 0 ) + $layer['w'] / 2 ) / $bw;
-		$cy = ( $layer['y'] - (float) ( $bounds['y'] ?? $area->canvas_y ?? 0 ) + $layer['h'] / 2 ) / $bh;
-		$turn = (int) ( $area->_oc_print_quarter_turn ?? 0 );
-		$w = $layer['w'] / $bw * ( $turn ? $ah : $aw );
-		$h = $layer['h'] / $bh * ( $turn ? $aw : $ah );
+		$cx          = ( $layer['x'] - (float) ( $bounds['x'] ?? $area->canvas_x ?? 0 ) + $layer['w'] / 2 ) / $bw;
+		$cy          = ( $layer['y'] - (float) ( $bounds['y'] ?? $area->canvas_y ?? 0 ) + $layer['h'] / 2 ) / $bh;
+		$turn        = (int) ( $area->_oc_print_quarter_turn ?? 0 );
+		$w           = $layer['w'] / $bw * ( $turn ? $ah : $aw );
+		$h           = $layer['h'] / $bh * ( $turn ? $aw : $ah );
 		[ $cx, $cy ] = match ( $turn ) {
 			90 => [ ( 1 - $cy ) * $aw, $cx * $ah ],
 			270 => [ $cy * $aw, ( 1 - $cx ) * $ah ],
@@ -342,19 +342,20 @@ trait OC_Print_Base_Layers {
 	/** Include rotated cutting boxes and a stroke guard, retaining the original artboard. */
 	protected static function cut_line_page_bounds( object $area, array $data ): array {
 		[ $right, $bottom ] = self::area_dimensions_mm( $area );
-		$left = $top = 0.0;
+		$left               = 0.0;
+		$top                = 0.0;
 		foreach ( $data['layers'] ?? [] as $layer ) {
 			if ( ! is_array( $layer ) || 'cut_line' !== ( $layer['type'] ?? '' ) ) {
 				continue;
 			}
 			[ $cx, $cy, $w, $h, $rotation ] = self::cut_line_box( $area, $data, $layer );
-			$angle = deg2rad( $rotation );
-			$rx = abs( cos( $angle ) ) * ( $w / 2 + 0.1 ) + abs( sin( $angle ) ) * ( $h / 2 + 0.1 );
-			$ry = abs( sin( $angle ) ) * ( $w / 2 + 0.1 ) + abs( cos( $angle ) ) * ( $h / 2 + 0.1 );
-			$left = min( $left, $cx - $rx );
-			$top = min( $top, $cy - $ry );
-			$right = max( $right, $cx + $rx );
-			$bottom = max( $bottom, $cy + $ry );
+			$angle                          = deg2rad( $rotation );
+			$rx                             = abs( cos( $angle ) ) * ( $w / 2 + 0.1 ) + abs( sin( $angle ) ) * ( $h / 2 + 0.1 );
+			$ry                             = abs( sin( $angle ) ) * ( $w / 2 + 0.1 ) + abs( cos( $angle ) ) * ( $h / 2 + 0.1 );
+			$left                           = min( $left, $cx - $rx );
+			$top                            = min( $top, $cy - $ry );
+			$right                          = max( $right, $cx + $rx );
+			$bottom                         = max( $bottom, $cy + $ry );
 		}
 		return [ $left, $top, $right, $bottom ];
 	}
@@ -363,13 +364,14 @@ trait OC_Print_Base_Layers {
 	private static function cut_line_svg( array $layer, float $w, float $h ): string {
 		$clean = OC_Cut_Line::sanitize( $layer['settings']['cutLineSvg'] ?? '' );
 		if ( is_wp_error( $clean ) ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Propagate validation data; escape when displayed, not when thrown.
 			throw new \RuntimeException( 'Invalid cut-line SVG: ' . $clean->get_error_message() );
 		}
 		$dom = new \DOMDocument();
 		if ( ! $dom->loadXML( $clean, LIBXML_NONET ) ) {
 			throw new \RuntimeException( 'Invalid cut-line SVG.' );
 		}
-		$root = $dom->documentElement;
+		$root = $dom->documentElement; // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
 		$view = preg_split( '/[\s,]+/', trim( $root->getAttribute( 'viewBox' ) ) );
 		if ( ! $root->hasAttribute( 'viewBox' ) ) {
 			$view = [ 0, 0, self::svg_absolute_length_px( $root->getAttribute( 'width' ) ), self::svg_absolute_length_px( $root->getAttribute( 'height' ) ) ];
@@ -382,7 +384,19 @@ trait OC_Print_Base_Layers {
 		$stroke = 0.05 / max( $w / $view[2], $h / $view[3] );
 		foreach ( $dom->getElementsByTagName( '*' ) as $node ) {
 			$node->removeAttribute( 'style' );
-			foreach ( [ 'fill' => 'none', 'stroke' => $colour, 'stroke-width' => (string) $stroke, 'stroke-linejoin' => 'round', 'stroke-linecap' => 'round', 'stroke-dasharray' => 'none', 'stroke-dashoffset' => '0', 'opacity' => '1', 'stroke-opacity' => '1', 'display' => 'inline', 'visibility' => 'visible' ] as $name => $value ) {
+			foreach ( [
+				'fill'              => 'none',
+				'stroke'            => $colour,
+				'stroke-width'      => (string) $stroke,
+				'stroke-linejoin'   => 'round',
+				'stroke-linecap'    => 'round',
+				'stroke-dasharray'  => 'none',
+				'stroke-dashoffset' => '0',
+				'opacity'           => '1',
+				'stroke-opacity'    => '1',
+				'display'           => 'inline',
+				'visibility'        => 'visible',
+			] as $name => $value ) {
 				$node->setAttribute( $name, $value );
 			}
 		}
@@ -392,8 +406,8 @@ trait OC_Print_Base_Layers {
 		// TCPDF versions differ on nonzero root viewBox origins. Translate explicitly,
 		// keeping all supplied transforms inside the viewport normalization transform.
 		$content = $dom->createElementNS( 'http://www.w3.org/2000/svg', 'g' );
-		while ( $root->firstChild ) {
-			$content->appendChild( $root->firstChild );
+		while ( $root->firstChild ) { // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
+			$content->appendChild( $root->firstChild ); // phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM property.
 		}
 		if ( $root->hasAttribute( 'transform' ) ) {
 			$content->setAttribute( 'transform', $root->getAttribute( 'transform' ) );
@@ -415,9 +429,9 @@ trait OC_Print_Base_Layers {
 	/** Dedicated vector-only route. Errors propagate to the print job; no image fallback. */
 	private static function render_cut_line( \TCPDF $pdf, object $area, array $data, array $layer, float $origin_x, float $origin_y ): void {
 		[ $cx, $cy, $w, $h, $rotation ] = self::cut_line_box( $area, $data, $layer );
-		$svg = self::cut_line_svg( $layer, $w, $h );
-		$cx += $origin_x;
-		$cy += $origin_y;
+		$svg                            = self::cut_line_svg( $layer, $w, $h );
+		$cx                            += $origin_x;
+		$cy                            += $origin_y;
 		$pdf->StartTransform();
 		try {
 			$pdf->Rotate( -$rotation, $cx, $cy );
