@@ -199,6 +199,9 @@ trait OC_Print_Base_Artwork_Effects {
 			return;
 		}
 		foreach ( $xpath->query( '//*[@style] | //*[local-name()="style"]' ) as $node ) {
+			if ( ! $node instanceof \DOMElement ) {
+				continue;
+			}
 			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM API property.
 			$css = $node->getAttribute( 'style' ) . $node->textContent;
 			if ( str_contains( $css, '\\' ) || str_contains( $css, '/*' )
