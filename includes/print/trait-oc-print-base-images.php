@@ -354,7 +354,7 @@ trait OC_Print_Base_Images {
 	}
 
 	/** Serialize compact path data and make closures explicit for TCPDF. */
-	private static function normalise_svg_paths_for_tcpdf( \DOMElement $svg ): bool {
+	private static function normalise_svg_paths_for_tcpdf( \DOMElement $svg, float $closure_tolerance = 0.0 ): bool {
 		$changed = false;
 		foreach ( $svg->getElementsByTagName( 'path' ) as $path ) {
 			$data = $path->getAttribute( 'd' );
@@ -362,7 +362,7 @@ trait OC_Print_Base_Images {
 				continue;
 			}
 
-			$normalised = self::normalise_svg_path_data_for_tcpdf( $data );
+			$normalised = self::normalise_svg_path_data_for_tcpdf( $data, $closure_tolerance );
 			if ( null === $normalised ) {
 				continue;
 			}
@@ -376,8 +376,11 @@ trait OC_Print_Base_Images {
 		return $changed;
 	}
 
-	/** Convert SVG path geometry to absolute commands that TCPDF handles reliably. */
-	private static function normalise_svg_path_data_for_tcpdf( string $data ): ?string {
+	/**
+	 * Convert SVG geometry to absolute commands that TCPDF handles reliably.
+	 * Closure tolerance is opt-in, in local units, bounded by engraving placement.
+	 */
+	private static function normalise_svg_path_data_for_tcpdf( string $data, float $closure_tolerance = 0.0 ): ?string {
 		$pattern = '/[AaCcHhLlMmQqSsTtVvZz]|[+-]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][+-]?\d+)?/';
 		preg_match_all( $pattern, $data, $matches );
 		$tokens  = $matches[0];
@@ -517,6 +520,16 @@ trait OC_Print_Base_Images {
 					break;
 				case 'Z':
 					if ( ! $explicit ) { return null; }
+					// Corel can discard PDF closure even with h present. Move only the
+					// final cubic endpoint; retain Z for fill and stroke join semantics.
+					$last = count( $out ) - 1;
+					if ( $closure_tolerance > 0 && $last >= 0 && str_starts_with( $out[ $last ], 'C ' )
+						&& hypot( $x - $start_x, $y - $start_y ) <= $closure_tolerance ) {
+						$curve = explode( ' ', $out[ $last ] );
+						$curve[5] = self::normalise_svg_path_number( $start_x );
+						$curve[6] = self::normalise_svg_path_number( $start_y );
+						$out[ $last ] = implode( ' ', $curve );
+					}
 					$out[] = 'Z';
 					$x = $start_x; $y = $start_y; $command = '';
 					$cubic_x = $cubic_y = $quad_x = $quad_y = null;

@@ -351,7 +351,7 @@ class OC_Admin_Products {
 		$design_thumbs       = $this->get_design_thumbnail_map( $designs );
 		$assigned_design_ids = array_fill_keys( OC_DB::get_assigned_design_ids(), true );
 
-		// Load one page of published WC products.
+		// Load one page of published WC products, including private products when permitted.
 		$product_query = $this->get_paginated_products( $current_page, $search, $product_filter );
 		$wc_products   = $product_query->products;
 		$product_total = (int) $product_query->total;
@@ -411,7 +411,7 @@ class OC_Admin_Products {
 				<div class="oc-empty">
 					<span class="oc-empty-icon">🛍️</span>
 					<h3><?php echo $is_unassigned_tab ? esc_html__( 'No products without designs', 'overcustomise' ) : ( '' !== $search ? esc_html__( 'No matching products found', 'overcustomise' ) : esc_html__( 'No products found', 'overcustomise' ) ); ?></h3>
-					<p><?php echo $is_unassigned_tab ? esc_html__( 'Every published simple or variable product currently has a design assignment.', 'overcustomise' ) : ( '' !== $search ? esc_html__( 'Try a different product name, SKU, or variant value.', 'overcustomise' ) : esc_html__( 'Publish some WooCommerce products first.', 'overcustomise' ) ); ?></p>
+					<p><?php echo $is_unassigned_tab ? esc_html__( 'Every available simple or variable product currently has a design assignment.', 'overcustomise' ) : ( '' !== $search ? esc_html__( 'Try a different product name, SKU, or variant value.', 'overcustomise' ) : esc_html__( 'Add published or private WooCommerce products first.', 'overcustomise' ) ); ?></p>
 				</div>
 			<?php elseif ( empty( $designs ) ) : ?>
 				<div class="oc-empty">
@@ -781,7 +781,7 @@ class OC_Admin_Products {
 				'page'     => max( 1, $page ),
 				'paginate' => true,
 				'type'     => [ 'simple', 'variable' ],
-				'status'   => 'publish',
+				'status'   => current_user_can( 'read_private_products' ) ? [ 'publish', 'private' ] : [ 'publish' ],
 				'orderby'  => 'name',
 				'order'    => 'ASC',
 				'return'   => 'objects',
@@ -797,7 +797,6 @@ class OC_Admin_Products {
 		$offset   = ( $page - 1 ) * $per_page;
 		$like     = '%' . $wpdb->esc_like( $search ) . '%';
 		$where    = "p.post_type = 'product'
-			AND p.post_status = 'publish'
 			AND tt.taxonomy = 'product_type'
 			AND t.slug IN ('simple', 'variable')";
 		$join     = "INNER JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
@@ -808,6 +807,10 @@ class OC_Admin_Products {
 			LEFT JOIN {$wpdb->postmeta} variation_sku ON variation_sku.post_id = variation.ID AND variation_sku.meta_key = '_sku'
 			LEFT JOIN {$wpdb->postmeta} variation_meta ON variation_meta.post_id = variation.ID AND variation_meta.meta_key LIKE 'attribute_%'";
 		$args     = [];
+
+		$where .= current_user_can( 'read_private_products' )
+			? " AND p.post_status IN ('publish', 'private')"
+			: " AND p.post_status = 'publish'";
 
 		if ( 'unassigned' === $design_filter ) {
 			$join  .= " LEFT JOIN {$wpdb->prefix}oc_product_assignments assignment ON assignment.product_id = p.ID";

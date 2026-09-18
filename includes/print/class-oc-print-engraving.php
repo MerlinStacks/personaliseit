@@ -255,7 +255,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$path    = self::build_engraving_raster( $artwork_path, $profile, $width_mm, $height_mm );
 		if ( ! $path && $is_svg ) {
 			OC_Logger::warning( 'Engraving SVG raster conversion unavailable or failed; attempting legacy vector recolouring. Material profile and complex effect fidelity are not guaranteed.' );
-			$path = self::build_black_clipart( $artwork_path );
+			$path = self::build_black_clipart( $artwork_path, $width_mm, $height_mm );
 		}
 		if ( ! $path ) {
 			throw new \RuntimeException(

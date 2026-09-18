@@ -68,6 +68,42 @@ if ( class_exists( 'OC_Test_Engraving_PDF' ) ) {
 }
 
 class Test_Print_Engraving extends TestCase {
+	#[Test]
+	public function vector_fallback_forwards_size_but_preserves_resource_coordinate_paths(): void {
+		if ( class_exists( 'Imagick' ) ) {
+			$this->markTestSkipped( 'This fallback regression requires the SVG raster backend to be unavailable.' );
+		}
+		$base = tempnam( sys_get_temp_dir(), 'oc-closure-fallback-' );
+		$path = $base . '.svg';
+		rename( $base, $path );
+		$visible = 'M0 0C10 0 10 10 0 .02Z';
+		$resource = 'M0 0C1 0 1 1 0 .00001Z';
+		try {
+			foreach ( [ [ false, 20 ], [ false, 100 ], [ true, 20 ] ] as [ $complex, $size ] ) {
+				$definitions = $complex ? '<defs><clipPath id="clip" clipPathUnits="objectBoundingBox"><path d="' . $resource . '"/></clipPath></defs>' : '';
+				file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' . $definitions . '<path id="visible" clip-path="' . ( $complex ? 'url(#clip)' : 'none' ) . '" d="' . $visible . '"/></svg>' );
+				$output = OC_Print_Engraving::prepare_artwork_for_layer( $path, [], $size, $size );
+				try {
+					$this->assertSame( 'svg', pathinfo( $output, PATHINFO_EXTENSION ) );
+					$dom = new DOMDocument();
+					$dom->load( $output );
+					$xpath = new DOMXPath( $dom );
+					$actual = $xpath->query( '//*[@id="visible"]' )[0]->getAttribute( 'd' );
+					if ( $complex ) {
+						$this->assertSame( $visible, $actual );
+						$this->assertSame( $resource, $dom->getElementsByTagName( 'clipPath' )[0]->getElementsByTagName( 'path' )[0]->getAttribute( 'd' ) );
+					} else {
+						$this->assertSame( 'M 0 0 C 10 0 10 10 0 ' . ( 20 === $size ? '0' : '0.02' ) . ' Z', $actual );
+					}
+				} finally {
+					@unlink( $output );
+				}
+			}
+		} finally {
+			@unlink( $path );
+		}
+	}
+
 	public static function verified_font_formats(): array {
 		return [
 			'TrueType'          => [ false, 9876123 ],

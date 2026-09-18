@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.17.2 - 2026-09-18
 
 ### Fixed
+- Correct near-closed engraving SVG curve endpoints within a five-micron placement tolerance to preserve vector fills through CorelDRAW and LightBurn workflows.
 - Keep the customiser gallery preview visible while True Video Product Gallery initializes, and select the pending preview when the gallery signals readiness.
 
 ## 1.17.1 - 2026-09-11

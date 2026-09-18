@@ -92,20 +92,20 @@ trait OC_Print_Base_Artwork_Effects {
 		}
 	}
 
-	protected static function build_black_clipart( string $path ): ?string {
-		return self::build_coloured_clipart( $path, '#000000' );
+	protected static function build_black_clipart( string $path, float $width_mm = 0.0, float $height_mm = 0.0 ): ?string {
+		return self::build_coloured_clipart( $path, '#000000', $width_mm, $height_mm );
 	}
 
-	private static function build_coloured_clipart( string $path, string $hex ): ?string {
+	private static function build_coloured_clipart( string $path, string $hex, float $width_mm = 0.0, float $height_mm = 0.0 ): ?string {
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		if ( 'svg' === $ext ) {
-			return self::build_coloured_svg( $path, $hex );
+			return self::build_coloured_svg( $path, $hex, $width_mm, $height_mm );
 		}
 
 		return '#000000' === $hex ? self::build_black_raster( $path ) : null;
 	}
 
-	private static function build_coloured_svg( string $path, string $hex ): ?string {
+	private static function build_coloured_svg( string $path, string $hex, float $width_mm = 0.0, float $height_mm = 0.0 ): ?string {
 		// Validate before changing root inheritance, styles, shared definitions or mask paints.
 		$validated = self::load_print_svg( $path );
 		$embedded  = self::embedded_svg_raster( $validated );
@@ -163,6 +163,9 @@ trait OC_Print_Base_Artwork_Effects {
 		if ( ! $svg->hasAttribute( 'fill' ) ) {
 			$svg->setAttribute( 'fill', $hex );
 		}
+		if ( $width_mm > 0 && $height_mm > 0 ) {
+			self::repair_engraving_svg_closures( $svg, $width_mm, $height_mm );
+		}
 		self::force_svg_node_colour( $svg, $hex );
 
 		$temp = self::temp_path_with_extension( 'oc-colour-clipart-' . wp_generate_uuid4() . '.svg', 'svg' );
@@ -177,6 +180,49 @@ trait OC_Print_Base_Artwork_Effects {
 		}
 
 		return $temp;
+	}
+
+	/**
+	 * Repair near-closed engraving cubics within five microns at final placement.
+	 *
+	 * This is under 1/8 of a 600 DPI pixel. The larger viewport axis scale is
+	 * conservative for meet, slice and nonuniform placement. Do not guess at
+	 * transformed/nested/resource coordinate systems or CSS geometry. Resources
+	 * can scale local units independently even in the legacy vector fallback.
+	 * No size means no fix.
+	 */
+	private static function repair_engraving_svg_closures( \DOMElement $svg, float $width_mm, float $height_mm ): void {
+		$xpath = new \DOMXPath( $svg->ownerDocument );
+		if ( ! is_finite( $width_mm ) || ! is_finite( $height_mm ) || $width_mm <= 0 || $height_mm <= 0
+			|| $xpath->query( '//*[@transform] | /*//*[local-name()="svg"] | //*[local-name()="clipPath" or local-name()="mask" or local-name()="pattern" or local-name()="marker" or local-name()="symbol" or local-name()="use"]' )->length > 0 ) {
+			return;
+		}
+		foreach ( $xpath->query( '//*[@style] | //*[local-name()="style"]' ) as $node ) {
+			$css = $node->getAttribute( 'style' ) . $node->textContent;
+			if ( str_contains( $css, '\\' ) || str_contains( $css, '/*' )
+				|| preg_match( '/(?:^|[;{])\s*(?:transform(?:-origin|-box)?|translate|rotate|scale|offset(?:-path)?|zoom|d)\s*:/i', $css ) ) {
+				return;
+			}
+		}
+		try {
+			if ( $svg->hasAttribute( 'viewBox' ) ) {
+				$box = preg_split( '/[\s,]+/', trim( $svg->getAttribute( 'viewBox' ) ) );
+				if ( count( $box ) !== 4 || count( array_filter( $box, 'is_numeric' ) ) !== 4 ) {
+					return;
+				}
+				$width = (float) $box[2];
+				$height = (float) $box[3];
+			} else {
+				$width = self::svg_absolute_length_px( $svg->getAttribute( 'width' ) );
+				$height = self::svg_absolute_length_px( $svg->getAttribute( 'height' ) );
+			}
+			if ( ! is_finite( $width ) || ! is_finite( $height ) || $width <= 0 || $height <= 0 ) {
+				return;
+			}
+			self::normalise_svg_paths_for_tcpdf( $svg, 0.005 / max( $width_mm / $width, $height_mm / $height ) );
+		} catch ( \RuntimeException $e ) {
+			// Missing absolute dimensions: retain the original geometry.
+		}
 	}
 
 	private static function force_svg_node_colour( \DOMElement $element, string $hex, ?\SplObjectStorage $resources = null ): void {

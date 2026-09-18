@@ -674,7 +674,7 @@ trait OC_Print_Base_Layers {
 				: 0.0;
 			[ , , $engraving_w, $engraving_h ] = self::fit_artwork_box( $path, $x_mm, $y_mm, $w_mm, $h_mm, $crop_amount );
 			if ( 'clipart' === (string) ( $layer['type'] ?? '' ) ) {
-				$engraved_path = self::build_black_clipart( $path );
+				$engraved_path = self::build_black_clipart( $path, $engraving_w, $engraving_h );
 				if ( ! is_string( $engraved_path ) || '' === $engraved_path ) {
 					throw new \RuntimeException( __( 'The selected clipart could not be prepared for engraving.', 'overcustomise' ) );
 				}

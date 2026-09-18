@@ -28,6 +28,7 @@ if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) && class_exists( 'TCPDF' ) ) {
 		public bool $image_called = false;
 		public bool $image_svg_called = false;
 		public array $image_svg_args = [];
+		public string $image_svg_markup = '';
 
 		public function Image( $file, $x = '', $y = '', $w = 0, $h = 0, $type = '', $link = '', $align = '', $resize = false, $dpi = 300, $palign = '', $ismask = false, $imgmask = false, $border = 0, $fitbox = false, $hidden = false, $fitonpage = false, $alt = false, $altimgs = [] ) {
 			$this->image_called = true;
@@ -36,6 +37,7 @@ if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) && class_exists( 'TCPDF' ) ) {
 		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
 			$this->image_svg_called = true;
 			$this->image_svg_args = func_get_args();
+			$this->image_svg_markup = str_starts_with( $file, '@' ) ? substr( $file, 1 ) : file_get_contents( $file );
 		}
 	}
 }
@@ -136,8 +138,8 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 		return self::render_vector_snapshot_payload( $pdf, $area_data, $x_mm, $y_mm, $w_mm, $h_mm );
 	}
 
-	public static function test_render_layer_payload( \TCPDF $pdf, object $area, array $area_data ): void {
-		self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0 );
+	public static function test_render_layer_payload( \TCPDF $pdf, object $area, array $area_data, string $mode = 'colour' ): void {
+		self::render_layer_payload( $pdf, $area, $area_data, 0.0, 0.0, $mode );
 	}
 
 	public static function test_build_filtered_image( string $path, array $layer, array $input ): ?string {
@@ -1254,6 +1256,167 @@ class Test_Print_Base extends TestCase {
 			if ( isset( $normalised ) && is_string( $normalised ) ) {
 				@unlink( $normalised );
 			}
+		}
+	}
+
+	#[Test]
+	public function engraving_repairs_the_customer_pad_only_with_a_final_size(): void {
+		$data = 'M217.67 259.47c6.33,5.91 14.52,4.79 21.57,-2.6 9.4,-9.84 8.11,-9.74 21.35,-14.46 20.39,-7.26 16.12,-28.14 -6.68,-32.06 -7.94,-1.37 -14.11,-5.7 -20.7,-7.02 -22.19,-4.48 -18.06,25.44 -19.87,33.5 -1.28,5.67 -3.13,15.69 4.33,22.65z';
+		$normalise = new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_path_data_for_tcpdf' );
+		$original = $normalise->invoke( null, $data );
+		$this->assertStringEndsWith( '217.67 259.48 Z', $original );
+		$base = tempnam( sys_get_temp_dir(), 'oc-pad-' );
+		$path = $base . '.svg';
+		rename( $base, $path );
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path fill-rule="evenodd" stroke="black" stroke-linejoin="round" d="' . $data . '"/><path d="M0 0L10 10Z"/></svg>' );
+		$outputs = [];
+		try {
+			$build = new ReflectionMethod( OC_Print_Base::class, 'build_black_clipart' );
+			foreach ( [ [ 0, 0 ], [ 100, 100 ], [ 1000, 1000 ] ] as $size ) {
+				$outputs[] = $build->invoke( null, $path, ...$size );
+			}
+			$dom = new DOMDocument();
+			$dom->load( $outputs[1] );
+			$paths = $dom->getElementsByTagName( 'path' );
+			$this->assertSame( 2, $paths->length );
+			$this->assertSame( str_replace( '217.67 259.48 Z', '217.67 259.47 Z', $original ), $paths[0]->getAttribute( 'd' ) );
+			$this->assertSame( 'evenodd', $paths[0]->getAttribute( 'fill-rule' ) );
+			$this->assertSame( 'round', $paths[0]->getAttribute( 'stroke-linejoin' ) );
+			$this->assertSame( '#000000', $paths[0]->getAttribute( 'stroke' ) );
+			$this->assertSame( 'M 0 0 L 10 10 Z', $paths[1]->getAttribute( 'd' ) );
+			$dom->load( $outputs[0] );
+			$this->assertSame( $data, $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'd' ) );
+			$dom->load( $outputs[2] );
+			$this->assertSame( $original, $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'd' ) );
+		} finally {
+			@unlink( $path );
+			foreach ( $outputs as $output ) {
+				@unlink( $output );
+			}
+		}
+	}
+
+	#[Test]
+	public function engraving_closure_keeps_open_paths_edges_and_subpath_origins(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'normalise_svg_path_data_for_tcpdf' );
+		foreach ( [
+			'M0 0C10 0 10 10 0 0Z' => 'M 0 0 C 10 0 10 10 0 0 Z',
+			'M0 0C10 0 10 10 0 2Z' => 'M 0 0 C 10 0 10 10 0 2 Z',
+			'M0 0C10 0 10 10 0 .01' => 'M 0 0 C 10 0 10 10 0 0.01',
+			'M0 0L0 .01Z' => 'M 0 0 L 0 0.01 Z',
+			'M0 0C10 0 10 10 0 .01z m20 30c10 0 10 10 0 .01z l5 6' => 'M 0 0 C 10 0 10 10 0 0 Z M 20 30 C 30 30 30 40 20 30 Z L 25 36',
+		] as $input => $expected ) {
+			$this->assertSame( $expected, $method->invoke( null, $input, 0.02 ), $input );
+		}
+	}
+
+	#[Test]
+	public function engraving_closure_tolerance_tracks_viewbox_scale_and_skips_unknown_transforms(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'repair_engraving_svg_closures' );
+		foreach ( [ 0.001, 1, 1000 ] as $scale ) {
+			foreach ( [ '', 'transform="scale(2)"', 'style="transform:scale(2)"' ] as $attribute ) {
+				$dom = new DOMDocument();
+				$data = 'M0 0C' . ( 10 * $scale ) . ' 0 ' . ( 10 * $scale ) . ' ' . ( 10 * $scale ) . ' 0 ' . ( 0.01 * $scale ) . 'Z';
+				$dom->loadXML( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ' . ( 100 * $scale ) . ' ' . ( 100 * $scale ) . '"><g ' . $attribute . '><path d="' . $data . '"/></g></svg>' );
+				$method->invoke( null, $dom->documentElement, 20.0, 20.0 );
+				$result = $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'd' );
+				if ( '' === $attribute ) {
+					$this->assertStringEndsWith( ' 0 0 Z', $result );
+				} else {
+					$this->assertSame( $data, $result );
+				}
+			}
+		}
+	}
+
+	#[Test]
+	public function engraving_closure_uses_the_larger_axis_scale_and_absolute_intrinsic_units(): void {
+		$method = new ReflectionMethod( OC_Print_Base::class, 'repair_engraving_svg_closures' );
+		foreach ( [
+			[ 'viewBox="0 0 100 100"', 20, 20, true ],
+			[ 'viewBox="0 0 100 100"', 100, 20, false ],
+			[ 'viewBox="0 0 100 100"', 20, 100, false ],
+			[ 'width="1in" height="25.4mm"', 20, 20, true ],
+			[ 'width="100%" height="100%"', 20, 20, false ],
+			[ 'viewBox="0 0 0 100"', 20, 20, false ],
+			[ 'viewBox="0 0 100 100"', 0, 20, false ],
+		] as [ $attributes, $width, $height, $repair ] ) {
+			$dom = new DOMDocument();
+			$data = 'M0 0C10 0 10 10 .01 .01Z';
+			$dom->loadXML( '<svg xmlns="http://www.w3.org/2000/svg" ' . $attributes . '><style>.pad { fill:black; stroke:none; }</style><path class="pad" style="fill-rule:evenodd" d="' . $data . '"/></svg>' );
+			$method->invoke( null, $dom->documentElement, $width, $height );
+			$result = $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'd' );
+			if ( $repair ) {
+				$this->assertSame( 'M 0 0 C 10 0 10 10 0 0 Z', $result );
+			} else {
+				$this->assertStringNotContainsString( '10 10 0 0', $result );
+			}
+		}
+	}
+
+	#[Test]
+	#[DataProvider( 'engraving_closure_exclusion_cases' )]
+	public function engraving_closure_exclusions_leave_the_entire_svg_unchanged( string $attributes, string $content ): void {
+		$dom = new DOMDocument();
+		$dom->loadXML( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" ' . $attributes . '>' . $content . '<path d="M0 0C10 0 10 10 0 .01Z"/></svg>' );
+		$before = $dom->saveXML();
+		( new ReflectionMethod( OC_Print_Base::class, 'repair_engraving_svg_closures' ) )->invoke( null, $dom->documentElement, 20.0, 20.0 );
+		$this->assertSame( $before, $dom->saveXML() );
+	}
+
+	public static function engraving_closure_exclusion_cases(): array {
+		$path = '<path d="M0 0C1 0 1 1 0 .00001Z"/>';
+		return [
+			'object bounding box clip' => [ '', '<defs><clipPath id="clip" clipPathUnits="objectBoundingBox">' . $path . '</clipPath></defs>' ],
+			'object bounding box mask' => [ '', '<defs><mask id="mask" maskContentUnits="objectBoundingBox">' . $path . '</mask></defs>' ],
+			'pattern viewport' => [ '', '<defs><pattern id="pattern" viewBox="0 0 1 1" width="100" height="100">' . $path . '</pattern></defs>' ],
+			'marker viewport' => [ '', '<defs><marker id="marker" viewBox="0 0 1 1">' . $path . '</marker></defs>' ],
+			'symbol viewport' => [ '', '<defs><symbol id="symbol" viewBox="0 0 1 1">' . $path . '</symbol></defs>' ],
+			'use reference' => [ '', '<defs><path id="shape" d="M0 0C1 0 1 1 0 .00001Z"/></defs><use href="#shape" width="100" height="100"/>' ],
+			'nested SVG' => [ '', '<svg viewBox="0 0 1 1" width="100" height="100">' . $path . '</svg>' ],
+			'root transform' => [ 'transform="scale(100)"', $path ],
+			'stylesheet path geometry' => [ '', '<style>path { d: path("M0 0L1 1Z"); }</style>' . $path ],
+			'stylesheet transform' => [ '', '<style>path { transform: scale(100); }</style>' . $path ],
+			'escaped stylesheet' => [ '', '<style>path { tr\\61nsform: scale(100); }</style>' . $path ],
+			'comment stylesheet' => [ '', '<style>path { trans/**/form: scale(100); }</style>' . $path ],
+			'escaped inline CSS' => [ 'style="tr\\61nsform:scale(100)"', $path ],
+			'comment inline CSS' => [ 'style="trans/**/form:scale(100)"', $path ],
+		];
+	}
+
+	#[Test]
+	public function engraving_layer_forwards_fitted_placement_while_colour_keeps_the_endpoint(): void {
+		if ( ! class_exists( 'OC_Test_Vector_SVG_PDF' ) ) {
+			$this->markTestSkipped( 'TCPDF is not available.' );
+		}
+		$directory = trailingslashit( wp_upload_dir()['basedir'] ) . 'overcustomise/artwork';
+		wp_mkdir_p( $directory );
+		$path = $directory . '/closure-placement-' . wp_generate_uuid4() . '.svg';
+		file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><path fill="red" d="M0 0C10 0 10 10 0 .02Z"/></svg>' );
+		$previous_files = $GLOBALS['oc_test_attached_files'] ?? [];
+		$GLOBALS['oc_test_attached_files'][9876140] = $path;
+		$area = (object) [ 'canvas_unit' => 'mm', 'canvas_x' => 0, 'canvas_y' => 0, 'canvas_w' => 100, 'canvas_h' => 100 ];
+		try {
+			foreach ( [ [ 'engraving', 20, '0 0 Z' ], [ 'colour', 20, '0 0.02 Z' ], [ 'engraving', 100, '0 0.02 Z' ] ] as [ $mode, $height, $endpoint ] ) {
+				$pdf = ( new ReflectionClass( OC_Test_Vector_SVG_PDF::class ) )->newInstanceWithoutConstructor();
+				$data = [
+					'bounds' => [ 'x' => 0, 'y' => 0, 'w' => 100, 'h' => 100 ],
+					'layers' => [ [ 'type' => 'clipart', 'x' => 0, 'y' => 0, 'w' => 100, 'h' => $height, 'artworkAttachmentId' => 9876140, 'input' => [ 'clipartRecolourable' => true, 'colorHex' => '#123456' ] ] ],
+				];
+				OC_Print_Base_Testable::test_render_layer_payload( $pdf, $area, $data, $mode );
+				$this->assertTrue( $pdf->image_svg_called );
+				$this->assertFalse( $pdf->image_called );
+				$this->assertSame( ( 100.0 - $height ) / 2, $pdf->image_svg_args[1] );
+				$this->assertSame( (float) $height, $pdf->image_svg_args[3] );
+				$this->assertSame( (float) $height, $pdf->image_svg_args[4] );
+				$dom = new DOMDocument();
+				$dom->loadXML( $pdf->image_svg_markup );
+				$this->assertSame( 'M 0 0 C 10 0 10 10 ' . $endpoint, $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'd' ) );
+				$this->assertSame( 'colour' === $mode ? '#123456' : '#000000', $dom->getElementsByTagName( 'path' )[0]->getAttribute( 'fill' ) );
+			}
+		} finally {
+			@unlink( $path );
+			$GLOBALS['oc_test_attached_files'] = $previous_files;
 		}
 	}
 
