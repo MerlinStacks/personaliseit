@@ -75,19 +75,21 @@ class Test_Print_Engraving extends TestCase {
 		}
 		$base = tempnam( sys_get_temp_dir(), 'oc-closure-fallback-' );
 		$path = $base . '.svg';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.rename_rename -- Give the local temporary fixture its renderer-required extension.
 		rename( $base, $path );
-		$visible = 'M0 0C10 0 10 10 0 .02Z';
+		$visible  = 'M0 0C10 0 10 10 0 .02Z';
 		$resource = 'M0 0C1 0 1 1 0 .00001Z';
 		try {
 			foreach ( [ [ false, 20 ], [ false, 100 ], [ true, 20 ] ] as [ $complex, $size ] ) {
 				$definitions = $complex ? '<defs><clipPath id="clip" clipPathUnits="objectBoundingBox"><path d="' . $resource . '"/></clipPath></defs>' : '';
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Write a local temporary SVG fixture without WordPress filesystem services.
 				file_put_contents( $path, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">' . $definitions . '<path id="visible" clip-path="' . ( $complex ? 'url(#clip)' : 'none' ) . '" d="' . $visible . '"/></svg>' );
 				$output = OC_Print_Engraving::prepare_artwork_for_layer( $path, [], $size, $size );
 				try {
 					$this->assertSame( 'svg', pathinfo( $output, PATHINFO_EXTENSION ) );
 					$dom = new DOMDocument();
 					$dom->load( $output );
-					$xpath = new DOMXPath( $dom );
+					$xpath  = new DOMXPath( $dom );
 					$actual = $xpath->query( '//*[@id="visible"]' )[0]->getAttribute( 'd' );
 					if ( $complex ) {
 						$this->assertSame( $visible, $actual );
@@ -96,11 +98,17 @@ class Test_Print_Engraving extends TestCase {
 						$this->assertSame( 'M 0 0 C 10 0 10 10 0 ' . ( 20 === $size ? '0' : '0.02' ) . ' Z', $actual );
 					}
 				} finally {
-					@unlink( $output );
+					if ( file_exists( $output ) ) {
+						// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Clean up the local temporary renderer output.
+						unlink( $output );
+					}
 				}
 			}
 		} finally {
-			@unlink( $path );
+			if ( file_exists( $path ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Clean up the local temporary SVG fixture.
+				unlink( $path );
+			}
 		}
 	}
 

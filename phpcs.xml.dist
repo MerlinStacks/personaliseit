@@ -20,6 +20,14 @@
 	<config name="minimum_supported_wp_version" value="6.8"/>
 	<rule ref="WordPress-Core"/>
 	<rule ref="WordPress-Extra"/>
+	<!-- WooCommerce registers this capability for reading private products. -->
+	<rule ref="WordPress.WP.Capabilities">
+		<properties>
+			<property name="custom_capabilities" type="array">
+				<element value="read_private_products"/>
+			</property>
+		</properties>
+	</rule>
 	<!-- The established codebase uses PHP short arrays throughout. -->
 	<rule ref="Universal.Arrays.DisallowShortArraySyntax">
 		<severity>0</severity>

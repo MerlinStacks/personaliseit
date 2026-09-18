@@ -192,12 +192,14 @@ trait OC_Print_Base_Artwork_Effects {
 	 * No size means no fix.
 	 */
 	private static function repair_engraving_svg_closures( \DOMElement $svg, float $width_mm, float $height_mm ): void {
+		// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM API property.
 		$xpath = new \DOMXPath( $svg->ownerDocument );
 		if ( ! is_finite( $width_mm ) || ! is_finite( $height_mm ) || $width_mm <= 0 || $height_mm <= 0
 			|| $xpath->query( '//*[@transform] | /*//*[local-name()="svg"] | //*[local-name()="clipPath" or local-name()="mask" or local-name()="pattern" or local-name()="marker" or local-name()="symbol" or local-name()="use"]' )->length > 0 ) {
 			return;
 		}
 		foreach ( $xpath->query( '//*[@style] | //*[local-name()="style"]' ) as $node ) {
+			// phpcs:ignore WordPress.NamingConventions.ValidVariableName.UsedPropertyNotSnakeCase -- Native DOM API property.
 			$css = $node->getAttribute( 'style' ) . $node->textContent;
 			if ( str_contains( $css, '\\' ) || str_contains( $css, '/*' )
 				|| preg_match( '/(?:^|[;{])\s*(?:transform(?:-origin|-box)?|translate|rotate|scale|offset(?:-path)?|zoom|d)\s*:/i', $css ) ) {
@@ -210,10 +212,10 @@ trait OC_Print_Base_Artwork_Effects {
 				if ( count( $box ) !== 4 || count( array_filter( $box, 'is_numeric' ) ) !== 4 ) {
 					return;
 				}
-				$width = (float) $box[2];
+				$width  = (float) $box[2];
 				$height = (float) $box[3];
 			} else {
-				$width = self::svg_absolute_length_px( $svg->getAttribute( 'width' ) );
+				$width  = self::svg_absolute_length_px( $svg->getAttribute( 'width' ) );
 				$height = self::svg_absolute_length_px( $svg->getAttribute( 'height' ) );
 			}
 			if ( ! is_finite( $width ) || ! is_finite( $height ) || $width <= 0 || $height <= 0 ) {
@@ -222,6 +224,7 @@ trait OC_Print_Base_Artwork_Effects {
 			self::normalise_svg_paths_for_tcpdf( $svg, 0.005 / max( $width_mm / $width, $height_mm / $height ) );
 		} catch ( \RuntimeException $e ) {
 			// Missing absolute dimensions: retain the original geometry.
+			return;
 		}
 	}
 

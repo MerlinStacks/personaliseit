@@ -519,15 +519,17 @@ trait OC_Print_Base_Images {
 					}
 					break;
 				case 'Z':
-					if ( ! $explicit ) { return null; }
+					if ( ! $explicit ) {
+						return null;
+					}
 					// Corel can discard PDF closure even with h present. Move only the
 					// final cubic endpoint; retain Z for fill and stroke join semantics.
 					$last = count( $out ) - 1;
 					if ( $closure_tolerance > 0 && $last >= 0 && str_starts_with( $out[ $last ], 'C ' )
 						&& hypot( $x - $start_x, $y - $start_y ) <= $closure_tolerance ) {
-						$curve = explode( ' ', $out[ $last ] );
-						$curve[5] = self::normalise_svg_path_number( $start_x );
-						$curve[6] = self::normalise_svg_path_number( $start_y );
+						$curve        = explode( ' ', $out[ $last ] );
+						$curve[5]     = self::normalise_svg_path_number( $start_x );
+						$curve[6]     = self::normalise_svg_path_number( $start_y );
 						$out[ $last ] = implode( ' ', $curve );
 					}
 					$out[] = 'Z';
