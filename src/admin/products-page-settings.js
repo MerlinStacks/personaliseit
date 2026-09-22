@@ -49,6 +49,30 @@ export function createProductsPageSettings( deps ) {
 			'</select>'
 		);
 	}
+	function additionalCostFields( layer ) {
+		if (
+			! [ 'text', 'textarea', 'image', 'clipmask' ].includes( layer.type )
+		) {
+			return '';
+		}
+		const s = layer.settings;
+		return (
+			toggleField(
+				'Additional cost',
+				'oc-set-additional-cost-enabled',
+				s.additional_cost_enabled
+			) +
+			'<p class="oc-hint">Charged per item only for nonblank custom text that differs from the default, or a customer-uploaded photo. Default content is never charged. The base design fee is separate.</p>' +
+			( s.additional_cost_enabled
+				? field(
+						'Cost amount (per item)',
+						'<input type="number" id="oc-set-additional-cost" class="oc-input" min="0" step="any" aria-label="Cost amount (per item)" style="width:100%;" value="' +
+							esc( s.additional_cost || 0 ) +
+							'" />'
+				  )
+				: '' )
+		);
+	}
 	function clipartAllowedForMethod( item, printMethod ) {
 		const allowed = Array.isArray( item.allowedPrintMethods )
 			? item.allowedPrintMethods
@@ -534,6 +558,7 @@ export function createProductsPageSettings( deps ) {
 								)
 						  )
 						: '' ) +
+					additionalCostFields( layer ) +
 					'<p class="oc-settings-section-hdr">Position</p>' +
 					'<div class="oc-bounds-grid">' +
 					'<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" ' +
@@ -956,6 +981,25 @@ export function createProductsPageSettings( deps ) {
 
 		if ( layer.type === 'cut_line' ) {
 			bindCutLineUpload( layer, area, commitChange );
+		}
+		if (
+			[ 'text', 'textarea', 'image', 'clipmask' ].includes( layer.type )
+		) {
+			document
+				.getElementById( 'oc-set-additional-cost-enabled' )
+				?.addEventListener( 'change', ( e ) => {
+					s.additional_cost_enabled = e.target.checked;
+					commitChange( { rightColumn: true } );
+				} );
+			document
+				.getElementById( 'oc-set-additional-cost' )
+				?.addEventListener( 'input', ( e ) => {
+					const cost = Number( e.target.value );
+					s.additional_cost = Number.isFinite( cost )
+						? Math.max( 0, cost )
+						: 0;
+					commitChange();
+				} );
 		}
 
 		document

@@ -120,6 +120,13 @@ foreach ( $layers as $layer ) {
 	<?php if ( ! empty( $surcharge_html ) ) : ?>
 		<p class="oc-personalisation-surcharge" role="status"><?php echo wp_kses_post( $surcharge_html ); ?></p>
 	<?php endif; ?>
+	<?php if ( ! empty( $layer_costs_html ) ) : ?>
+		<div class="oc-layer-cost-disclosure">
+			<p><strong><?php esc_html_e( 'Optional personalisation costs', 'overcustomise' ); ?></strong></p>
+			<ul><?php echo wp_kses_post( $layer_costs_html ); ?></ul>
+			<p><?php esc_html_e( 'These costs are in addition to any base personalisation fee. Each listed layer is charged per item only when you enter nonblank custom text that differs from its default, or upload your own photo. Blank text and default text or artwork add no extra cost. Linked fields can fill multiple layers; each listed layer is charged separately when customised.', 'overcustomise' ); ?></p>
+		</div>
+	<?php endif; ?>
 
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 

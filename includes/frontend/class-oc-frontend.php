@@ -906,6 +906,7 @@ class OC_Frontend {
 
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
+		$layer_costs_html = self::layer_costs_html( $areas, $layers, $this->fee_product_id );
 
 		ob_start();
 		include $template;
@@ -919,6 +920,13 @@ class OC_Frontend {
 			return '';
 		}
 		$amount        = min( 1000000.0, $amount );
+		[ $price, $suffix ] = self::fee_display( $amount, $product_id );
+		/* translators: 1: formatted surcharge, 2: tax display label. */
+		return sprintf( __( 'Personalisation: +%1$s per item %2$s', 'overcustomise' ), $price, esc_html( $suffix ) );
+	}
+
+	/** Format an exclusive-tax fee using the product's tax class and customer exemption. */
+	private static function fee_display( float $amount, int $product_id ): array {
 		$product       = wc_get_product( $product_id );
 		$including_tax = 'incl' === get_option( 'woocommerce_tax_display_shop' );
 		if ( $including_tax && $product && $product->is_taxable() && ! ( WC()->customer && WC()->customer->get_is_vat_exempt() ) ) {
@@ -926,8 +934,44 @@ class OC_Frontend {
 		}
 		$suffix = wc_tax_enabled() && $product && $product->is_taxable()
 			? ( $including_tax ? WC()->countries->inc_tax_or_vat() : WC()->countries->ex_tax_or_vat() ) : '';
-		/* translators: 1: formatted surcharge, 2: tax display label. */
-		return sprintf( __( 'Personalisation: +%1$s per item %2$s', 'overcustomise' ), wc_price( $amount ), esc_html( $suffix ) );
+		return [ wc_price( $amount ), $suffix ];
+	}
+
+	/** List every chargeable layer, including linked layers whose duplicate controls are hidden. */
+	private static function layer_costs_html( array $areas, array $layers, int $product_id ): string {
+		$visible_areas = [];
+		foreach ( $areas as $area ) {
+			if ( ! isset( $area->visible ) || (bool) $area->visible ) {
+				$visible_areas[ (int) $area->id ] = (string) ( $area->label ?? '' );
+			}
+		}
+		$html = '';
+		foreach ( $layers as $layer ) {
+			$type = (string) ( $layer->type ?? '' );
+			if ( ! isset( $visible_areas[ (int) ( $layer->area_id ?? 0 ) ] )
+				|| ( isset( $layer->visible ) && ! (bool) $layer->visible ) || ! empty( $layer->locked )
+				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'clipmask' ], true ) ) {
+				continue;
+			}
+			$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], $type );
+			if ( empty( $settings['additional_cost_enabled'] ) || $settings['additional_cost'] <= 0
+				|| ( in_array( $type, [ 'image', 'clipmask' ], true ) && empty( $settings['allow_image_change'] ) ) ) {
+				continue;
+			}
+			$label = trim( (string) ( $layer->label ?? '' ) );
+			if ( '' === $label ) {
+				/* translators: %d: layer ID. */
+				$label = sprintf( __( 'Layer %d', 'overcustomise' ), (int) $layer->id );
+			}
+			$area_label = $visible_areas[ (int) $layer->area_id ];
+			if ( '' !== $area_label ) {
+				$label .= ' (' . $area_label . ')';
+			}
+			[ $price, $suffix ] = self::fee_display( (float) $settings['additional_cost'], $product_id );
+			/* translators: 1: layer and print area label, 2: formatted fee, 3: tax display label. */
+			$html .= '<li>' . sprintf( __( '%1$s: +%2$s per item %3$s', 'overcustomise' ), esc_html( $label ), $price, esc_html( $suffix ) ) . '</li>';
+		}
+		return $html;
 	}
 
 	/** Load clipart items for all clipart layers. */
@@ -1092,6 +1136,7 @@ class OC_Frontend {
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		$design_variants  = $this->design_variants;
 		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
+		$layer_costs_html = self::layer_costs_html( $areas, $layers, $this->fee_product_id );
 
 		include $template;
 	}

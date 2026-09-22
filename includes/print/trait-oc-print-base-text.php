@@ -138,7 +138,8 @@ trait OC_Print_Base_Text {
 		}
 		$is_textarea = 'textarea' === (string) ( $layer['type'] ?? '' );
 		$text        = str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) );
-		$text        = null !== $verified && 'engraving' === $mode ? $text : trim( $text );
+		// Empty textarea lines are layout slots, including at the block's edges.
+		$text        = $is_textarea || ( null !== $verified && 'engraving' === $mode ) ? $text : trim( $text );
 		if ( '' === trim( $text ) ) {
 			return;
 		}
@@ -189,7 +190,7 @@ trait OC_Print_Base_Text {
 				$verified_fallback = true;
 				$verified          = null;
 				unset( $input['renderedFontSize'], $input['renderedScaleX'], $input['renderedInsetX'], $input['renderedLines'] );
-				$text           = self::normalise_engraving_text( trim( $text ) );
+				$text           = self::normalise_engraving_text( $is_textarea ? $text : trim( $text ) );
 				$rendered_lines = null;
 				$render_text    = $text;
 			} finally {
@@ -658,6 +659,8 @@ trait OC_Print_Base_Text {
 		foreach ( preg_split( '/\R/u', $text ) ?: [] as $paragraph ) {
 			$paragraph = trim( (string) $paragraph );
 			if ( '' === $paragraph ) {
+				// Reserve the baseline even though there are no glyphs to paint.
+				$lines[] = '';
 				continue;
 			}
 

@@ -393,6 +393,35 @@ class Test_Print_Engraving extends TestCase {
 	}
 
 	#[Test]
+	public function legacy_textarea_outlines_preserve_blank_line_spacing(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' ) ?: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
+			$this->markTestSkipped( 'Actual TrueType font and TCPDF required.' );
+		}
+		$wrap   = new ReflectionMethod( OC_Print_Base::class, 'wrap_engraving_outline_lines' );
+		$render = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' );
+		$lines  = [ '', "Kallum's Kool Krew", '', 'Nick', '', 'Groomsman', '', '27.11.26', '' ];
+		foreach ( [ "\n", "\r\n", "\r" ] as $newline ) {
+			$text = implode( $newline, $lines );
+			$this->assertSame( $lines, $wrap->invoke( null, $text, $font, 12.0, 500.0 ) );
+			foreach ( [ 'T', 'C', 'B' ] as $valign ) {
+				$pdf = new OC_Test_Engraving_PDF();
+				$this->assertTrue( $render->invoke( null, $pdf, $text, $font, 12.0, 0.0, 0.0, 180.0, 100.0, 'C', $valign ) );
+				$this->assertCount( 4, $pdf->image_svg_calls );
+				$baselines = [];
+				foreach ( $pdf->image_svg_calls as $call ) {
+					preg_match( '/translate\([\d.-]+ ([\d.-]+)\)/', $call['svg'], $match );
+					$baselines[] = $call['y'] + (float) $match[1] * 25.4 / 72;
+				}
+				for ( $i = 1; $i < count( $baselines ); ++$i ) {
+					$this->assertEqualsWithDelta( 2 * 12 * 1.13 * 1.16 * 25.4 / 72, $baselines[ $i ] - $baselines[ $i - 1 ], 0.0001 );
+				}
+			}
+		}
+		$this->assertSame( [ 'Nick', '', '', 'Nick' ], $wrap->invoke( null, "Nick\n \t\n\nNick", $font, 12.0, 500.0 ) );
+	}
+
+	#[Test]
 	public function multiline_outline_failure_after_emission_is_explicit(): void {
 		$font = getenv( 'OC_TEST_FONT_PATH' );
 		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';

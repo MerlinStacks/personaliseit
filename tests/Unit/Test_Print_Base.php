@@ -845,6 +845,24 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function shared_print_textarea_keeps_edge_and_interior_blank_lines(): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF required.' );
+		}
+		$method = new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' );
+		foreach ( [ 'engraving', 'color', 'spot' ] as $mode ) {
+			$pdf = $this->getMockBuilder( TCPDF::class )->disableOriginalConstructor()->onlyMethods(
+				[ 'SetFont', 'SetTextColor', 'SetTextColorArray', 'getNumLines', 'StartTransform', 'Rect', 'SetXY', 'MultiCell', 'StopTransform' ]
+			)->getMock();
+			$pdf->method( 'getNumLines' )->willReturn( 5 );
+			$pdf->expects( $this->once() )->method( 'MultiCell' )->with(
+				$this->anything(), $this->anything(), "\nNick\n\nGroomsman\n"
+			);
+			$method->invoke( null, $pdf, [ 'type' => 'textarea', 'h' => 100 ], [ 'value' => "\r\nNick\r\n\r\nGroomsman\r\n", 'fontSize' => 4 ], [], 0.0, 0.0, 100.0, 100.0, $mode, 1.0 );
+		}
+	}
+
+	#[Test]
 	public function browser_rendered_text_lines_preserve_preview_wrapping(): void {
 		$lines = [ 'Happy birthday dad, I love you', '- Levi' ];
 

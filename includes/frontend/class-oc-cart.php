@@ -273,9 +273,10 @@ class OC_Cart {
 				$cart_item_data['_oc_customisation']['designVariant']      = $variant['id'];
 				$cart_item_data['_oc_customisation']['designVariantLabel'] = $variant['label'];
 			}
-			$cart_item_data['_oc_design_id']  = $design_id;
-			$cart_item_data['_oc_flat_rate']  = (float) $design->flat_rate;
-			$cart_item_data['_oc_unique_key'] = md5( $raw . microtime() );
+			$cart_item_data['_oc_design_id']   = $design_id;
+			$cart_item_data['_oc_layer_costs'] = $normalised['layer_costs'];
+			$cart_item_data['_oc_flat_rate']   = (float) $design->flat_rate + array_sum( array_column( $normalised['layer_costs'], 'amount' ) );
+			$cart_item_data['_oc_unique_key']  = md5( $raw . microtime() );
 
 			// New clients include a small preview in the cart request, avoiding a
 			// separate blocking REST request before WooCommerce can add the item.
@@ -548,7 +549,7 @@ class OC_Cart {
 	/**
 	 * Authoritatively normalise v2 layer input against the assigned design.
 	 *
-	 * @return array{design:object,layers:array<int,array>}|\WP_Error
+	 * @return array{design:object,layers:array<int,array>,layer_costs:array<int,array>}|\WP_Error
 	 */
 	public static function normalise_v2_layers( int $product_id, int $variation_id, int $design_id, array $raw_layers, string $upload_token = '' ): array|\WP_Error {
 		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id );
@@ -739,6 +740,17 @@ class OC_Cart {
 				$attachment_id        = $default_attachment;
 				$source_attachment_id = $default_attachment;
 			}
+			if ( $attachment_id && in_array( $type, [ 'image', 'clipmask' ], true ) ) {
+				// Crops and browser effects retain the attachment. Only server-created
+				// derivatives may name a different source, even without a selected filter.
+				$recorded_source = absint( get_post_meta( $attachment_id, '_oc_ai_filter_source_id', true ) );
+				$recorded_filter = absint( get_post_meta( $attachment_id, '_oc_ai_filter_id', true ) );
+				$actual_source   = $recorded_source && $recorded_filter ? $recorded_source : $attachment_id;
+				if ( $editable && $can_image_change && array_key_exists( 'sourceAttachmentId', $source ) && $source_attachment_id !== $actual_source ) {
+					return new \WP_Error( 'invalid_attachment_source', __( 'The artwork source does not match the uploaded image. Please select your artwork again.', 'overcustomise' ) );
+				}
+				$source_attachment_id = $actual_source;
+			}
 			$attachment_context_layer_id = absint( $source['_oc_link_source_layer_id'] ?? $layer_id );
 			if ( $attachment_context_layer_id !== $layer_id && in_array( $type, [ 'image', 'clipmask' ], true ) ) {
 				$raw_settings   = is_string( $layer->settings ?? null ) ? json_decode( $layer->settings, true ) : (array) $layer->settings;
@@ -899,9 +911,59 @@ class OC_Cart {
 		$normalised = self::synchronise_normalised_linked_colours( $design_layers, $normalised );
 
 		return $normalised ? [
-			'design' => $design,
-			'layers' => $normalised,
+			'design'      => $design,
+			'layers'      => $normalised,
+			'layer_costs' => self::layer_cost_breakdown( $design_layers, $normalised ),
 		] : new \WP_Error( 'invalid_design', __( 'Design has no valid layers.', 'overcustomise' ) );
+	}
+
+	/** Snapshot per-unit costs from saved eligible layers and successfully validated input. */
+	private static function layer_cost_breakdown( array $layers, array $normalised ): array {
+		$costs = [];
+		foreach ( $layers as $layer ) {
+			$id   = (int) $layer->id;
+			$type = (string) $layer->type;
+			if ( ! isset( $normalised[ $id ] ) || ! empty( $layer->locked ) || ( isset( $layer->visible ) && ! $layer->visible )
+				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'clipmask' ], true ) ) {
+				continue;
+			}
+			$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
+			if ( ! $settings['additional_cost_enabled'] || $settings['additional_cost'] <= 0 ) {
+				continue;
+			}
+			$input = $normalised[ $id ];
+			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
+				$canonical = static function ( string $text ) use ( $type ): string {
+					$text = str_replace( [ "\r\n", "\r" ], "\n", $text );
+					$text = 'textarea' === $type ? sanitize_textarea_field( $text ) : sanitize_text_field( $text );
+					return trim( (string) preg_replace( '/\s+/u', ' ', $text ) );
+				};
+				$value  = $canonical( $input['value'] );
+				$charge = '' !== $value && $value !== $canonical( $settings['default_text'] );
+			} else {
+				$charge = $settings['allow_image_change'] && ! empty( $input['attachmentId'] )
+					&& ! empty( $input['sourceAttachmentId'] )
+					&& $input['attachmentId'] !== $settings['default_attachment_id']
+					&& $input['sourceAttachmentId'] !== $settings['default_attachment_id'];
+			}
+			if ( $charge ) {
+				$costs[] = [
+					'layer_id' => $id,
+					'label'    => sanitize_text_field( (string) ( $layer->label ?? '' ) ),
+					'type'     => $type,
+					'amount'   => $settings['additional_cost'],
+				];
+			}
+		}
+		return $costs;
+	}
+
+	/** Accept finite nonnegative money only, rounded to the shop currency precision. */
+	private static function normalise_layer_cost( mixed $value ): float {
+		if ( ! is_numeric( $value ) || ! is_finite( (float) $value ) || (float) $value < 0 ) {
+			return 0.0;
+		}
+		return round( min( 1000000.0, (float) $value ), function_exists( 'wc_get_price_decimals' ) ? wc_get_price_decimals() : 2 );
 	}
 
 	/** Require derived layout to describe the server-selected text and font. */
@@ -1336,6 +1398,8 @@ class OC_Cart {
 
 		return [
 			'default_text'                 => $default_text,
+			'additional_cost_enabled'      => in_array( $type, [ 'text', 'textarea', 'image', 'clipmask' ], true ) && $boolean( $value['additional_cost_enabled'] ?? false ),
+			'additional_cost'              => self::normalise_layer_cost( $value['additional_cost'] ?? 0 ),
 			'char_limit'                   => max( 0, min( 10000, $number( $value['char_limit'] ?? 0 ) ) ),
 			'alignment'                    => in_array( $alignment, [ 'left', 'center', 'right' ], true ) ? $alignment : 'center',
 			'line_alignment'               => in_array( $line_alignment, [ 'top', 'center', 'bottom' ], true ) ? $line_alignment : 'top',
@@ -1703,6 +1767,9 @@ class OC_Cart {
 		$raw_unit_fee = is_numeric( $values['_oc_flat_rate'] ?? null ) ? (float) $values['_oc_flat_rate'] : 0.0;
 		$unit_fee     = is_finite( $raw_unit_fee ) ? max( 0.0, min( 1000000.0, $raw_unit_fee ) ) : 0.0;
 		$item->update_meta_data( '_oc_flat_rate', $unit_fee );
+		if ( isset( $values['_oc_layer_costs'] ) && is_array( $values['_oc_layer_costs'] ) ) {
+			$item->update_meta_data( '_oc_layer_costs', $values['_oc_layer_costs'] );
+		}
 		$quantity = max( 0, (int) ( $values['quantity'] ?? $item->get_quantity() ) );
 		$product  = $values['data'] ?? null;
 		$item->update_meta_data( '_oc_cart_item_key', (string) $cart_item_key );
@@ -1738,6 +1805,7 @@ class OC_Cart {
 						'_oc_design_id',
 						'_oc_config_id',
 						'_oc_flat_rate',
+						'_oc_layer_costs',
 						'_oc_preview_url',
 						'_oc_unique_key',
 						'_oc_cart_item_key',

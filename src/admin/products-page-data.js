@@ -74,6 +74,8 @@ export function createProductsPageDataNormalisers( deps ) {
 				return { cutLineSvg: '' };
 			case 'text':
 				return {
+					additional_cost_enabled: false,
+					additional_cost: 0,
 					default_text: '',
 					char_limit: 0,
 					alignment: 'center',
@@ -93,6 +95,8 @@ export function createProductsPageDataNormalisers( deps ) {
 				};
 			case 'textarea':
 				return {
+					additional_cost_enabled: false,
+					additional_cost: 0,
 					default_text: '',
 					char_limit: 0,
 					alignment: 'center',
@@ -114,6 +118,9 @@ export function createProductsPageDataNormalisers( deps ) {
 			case 'image':
 			case 'ai_image':
 				return {
+					...( type === 'image'
+						? { additional_cost_enabled: false, additional_cost: 0 }
+						: {} ),
 					formats: [
 						'png',
 						'jpg',
@@ -142,6 +149,8 @@ export function createProductsPageDataNormalisers( deps ) {
 				};
 			case 'clipmask':
 				return {
+					additional_cost_enabled: false,
+					additional_cost: 0,
 					formats: [ 'png', 'jpg', 'jpeg', 'heic', 'heif', 'webp' ],
 					max_size_mb: 10,
 					remove_background: false,
@@ -208,6 +217,14 @@ export function createProductsPageDataNormalisers( deps ) {
 			defaultSettings( type ),
 			existing || {}
 		);
+		if ( [ 'text', 'textarea', 'image', 'clipmask' ].includes( type ) ) {
+			settings.additional_cost_enabled =
+				settings.additional_cost_enabled === true;
+			const cost = Number( settings.additional_cost );
+			settings.additional_cost = Number.isFinite( cost )
+				? Math.max( 0, cost )
+				: 0;
+		}
 		if (
 			type === 'textarea' &&
 			! [ 'top', 'center', 'bottom' ].includes( settings.line_alignment )
