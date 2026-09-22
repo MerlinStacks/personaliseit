@@ -139,7 +139,7 @@ trait OC_Print_Base_Text {
 		$is_textarea = 'textarea' === (string) ( $layer['type'] ?? '' );
 		$text        = str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) );
 		// Empty textarea lines are layout slots, including at the block's edges.
-		$text        = $is_textarea || ( null !== $verified && 'engraving' === $mode ) ? $text : trim( $text );
+		$text = $is_textarea || ( null !== $verified && 'engraving' === $mode ) ? $text : trim( $text );
 		if ( '' === trim( $text ) ) {
 			return;
 		}

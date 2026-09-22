@@ -938,8 +938,8 @@ class OC_Cart {
 					$text = 'textarea' === $type ? sanitize_textarea_field( $text ) : sanitize_text_field( $text );
 					return trim( (string) preg_replace( '/\s+/u', ' ', $text ) );
 				};
-				$value  = $canonical( $input['value'] );
-				$charge = '' !== $value && $value !== $canonical( $settings['default_text'] );
+				$value     = $canonical( $input['value'] );
+				$charge    = '' !== $value && $value !== $canonical( $settings['default_text'] );
 			} else {
 				$charge = $settings['allow_image_change'] && ! empty( $input['attachmentId'] )
 					&& ! empty( $input['sourceAttachmentId'] )

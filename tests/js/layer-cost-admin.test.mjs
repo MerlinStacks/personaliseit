@@ -9,17 +9,23 @@ const createProductsPageDataNormalisers = new Function(
 		'function'
 	) + '\nreturn createProductsPageDataNormalisers;'
 )();
-const cutLineSource = await readFile( 'src/admin/products-page-cut-line.js', 'utf8' );
+const cutLineSource = await readFile(
+	'src/admin/products-page-cut-line.js',
+	'utf8'
+);
 const settingsSource = await readFile(
 	'src/admin/products-page-settings.js',
 	'utf8'
 );
 const createProductsPageSettings = new Function(
 	cutLineSource.replaceAll( 'export ', '' ) +
-	settingsSource
-		.replace( "import { bindCutLineUpload } from './products-page-cut-line';", '' )
-		.replace( 'export function', 'function' ) +
-	'\nreturn createProductsPageSettings;'
+		settingsSource
+			.replace(
+				"import { bindCutLineUpload } from './products-page-cut-line';",
+				''
+			)
+			.replace( 'export function', 'function' ) +
+		'\nreturn createProductsPageSettings;'
 )();
 const normalisers = createProductsPageDataNormalisers( {} );
 const supportedTypes = [ 'text', 'textarea', 'image', 'clipmask' ];
@@ -34,8 +40,14 @@ const unsupportedTypes = [
 ];
 
 function setupUi( t ) {
-	const previousWindow = Object.getOwnPropertyDescriptor( globalThis, 'window' );
-	const previousDocument = Object.getOwnPropertyDescriptor( globalThis, 'document' );
+	const previousWindow = Object.getOwnPropertyDescriptor(
+		globalThis,
+		'window'
+	);
+	const previousDocument = Object.getOwnPropertyDescriptor(
+		globalThis,
+		'document'
+	);
 	const handlers = new Map();
 	const commits = [];
 	globalThis.window = {};
@@ -43,9 +55,9 @@ function setupUi( t ) {
 		getElementById: ( id ) =>
 			id.startsWith( 'oc-set-additional-cost' )
 				? {
-					addEventListener: ( event, handler ) => {
-						handlers.set( `${ id }:${ event }`, handler );
-					},
+						addEventListener: ( event, handler ) => {
+							handlers.set( `${ id }:${ event }`, handler );
+						},
 				  }
 				: null,
 		querySelectorAll: () => [],
@@ -108,10 +120,20 @@ test( 'normalization preserves decimal amounts, enable flags and existing settin
 
 test( 'normalization clamps negative costs and rejects nonfinite or invalid amounts', () => {
 	for ( const type of supportedTypes ) {
-		for ( const value of [ -4, '-2.75', '', null, undefined, 'invalid', Infinity, NaN ] ) {
+		for ( const value of [
+			-4,
+			'-2.75',
+			'',
+			null,
+			undefined,
+			'invalid',
+			Infinity,
+			NaN,
+		] ) {
 			assert.equal(
-				normalisers.normaliseSettings( type, { additional_cost: value } )
-					.additional_cost,
+				normalisers.normaliseSettings( type, {
+					additional_cost: value,
+				} ).additional_cost,
 				0
 			);
 		}
@@ -123,16 +145,25 @@ test( 'General tab shows the amount only when enabled and explains charging rule
 	for ( const type of supportedTypes ) {
 		const layer = { type, settings: normalisers.defaultSettings( type ) };
 		const disabled = ui.buildTabContent( 'general', layer );
-		assert.match( disabled, /type="checkbox" id="oc-set-additional-cost-enabled"/ );
+		assert.match(
+			disabled,
+			/type="checkbox" id="oc-set-additional-cost-enabled"/
+		);
 		assert.doesNotMatch( disabled, /id="oc-set-additional-cost"/ );
-		assert.match( disabled, /per item.*nonblank custom text.*differs from the default.*customer-uploaded photo/ );
+		assert.match(
+			disabled,
+			/per item.*nonblank custom text.*differs from the default.*customer-uploaded photo/
+		);
 		assert.match( disabled, /Default content is never charged/ );
 		assert.match( disabled, /base design fee is separate/ );
 		layer.settings.additional_cost_enabled = true;
 		layer.settings.additional_cost = 2.75;
 		const enabled = ui.buildTabContent( 'general', layer );
 		assert.match( enabled, /id="oc-set-additional-cost-enabled" checked/ );
-		assert.match( enabled, /id="oc-set-additional-cost"[^>]*min="0"[^>]*step="any"[^>]*value="2.75"/ );
+		assert.match(
+			enabled,
+			/id="oc-set-additional-cost"[^>]*min="0"[^>]*step="any"[^>]*value="2.75"/
+		);
 	}
 } );
 
@@ -145,14 +176,18 @@ test( 'enable handlers request a rerender and preserve the amount across toggles
 		} );
 		const layer = { type, settings };
 		ui.bindSettingsHandlers( layer );
-		const toggle = ui.handlers.get( 'oc-set-additional-cost-enabled:change' );
+		const toggle = ui.handlers.get(
+			'oc-set-additional-cost-enabled:change'
+		);
 		for ( const checked of [ false, true ] ) {
 			toggle( { target: { checked } } );
 			assert.equal( settings.additional_cost_enabled, checked );
 			assert.equal( settings.additional_cost, 2.75 );
 			assert.deepEqual( ui.commits.at( -1 ), { rightColumn: true } );
 			assert.equal(
-				ui.buildTabContent( 'general', layer ).includes( 'id="oc-set-additional-cost"' ),
+				ui
+					.buildTabContent( 'general', layer )
+					.includes( 'id="oc-set-additional-cost"' ),
 				checked
 			);
 		}
@@ -201,7 +236,10 @@ test( 'unsupported layer types have no cost defaults, controls or handlers', ( t
 		assert.equal( settings.additional_cost_enabled, undefined );
 		assert.equal( settings.additional_cost, undefined );
 		const layer = { type, settings };
-		assert.doesNotMatch( ui.buildTabContent( 'general', layer ), /oc-set-additional-cost/ );
+		assert.doesNotMatch(
+			ui.buildTabContent( 'general', layer ),
+			/oc-set-additional-cost/
+		);
 		ui.bindSettingsHandlers( layer );
 		assert.equal( ui.handlers.size, 0 );
 	}

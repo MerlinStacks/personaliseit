@@ -624,15 +624,30 @@ class Test_Cart extends WC_Unit_Test_Case {
 	#[Test]
 	public function optional_layer_costs_preserve_base_fee_and_scale_with_cart_quantity(): void {
 		global $wpdb;
-		[ $design_id, $ids ] = $this->create_image_design( 'text', [
-			'link_group' => 'name',
-			'default_text' => 'Your name',
-			'additional_cost_enabled' => true,
-			'additional_cost' => 2.25,
-		] );
+		[ $design_id, $ids ] = $this->create_image_design(
+			'text',
+			[
+				'link_group'              => 'name',
+				'default_text'            => 'Your name',
+				'additional_cost_enabled' => true,
+				'additional_cost'         => 2.25,
+			]
+		);
 		$wpdb->update( $wpdb->prefix . 'oc_designs', [ 'flat_rate' => 3.5 ], [ 'id' => $design_id ] );
 		OC_Cache::flush_group();
-		$raw = wp_json_encode( [ 'v' => 2, 'designId' => $design_id, 'layers' => [ $ids[0] => [ 'value' => 'Alice', 'additional_cost' => 0 ] ], '_oc_flat_rate' => 0 ] );
+		$raw = wp_json_encode(
+			[
+				'v'             => 2,
+				'designId'      => $design_id,
+				'layers'        => [
+					$ids[0] => [
+						'value'           => 'Alice',
+						'additional_cost' => 0,
+					],
+				],
+				'_oc_flat_rate' => 0,
+			]
+		);
 		$this->assertTrue( OC_Cart::validate_v2_submission( $this->product->get_id(), 0, $raw ) );
 		$key = WC()->cart->add_to_cart( $this->product->get_id(), 3, 0, [], [ '_oc_submission_raw' => $raw ] );
 		$this->assertNotFalse( $key );
@@ -640,7 +655,10 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertSame( 8.0, $values['_oc_flat_rate'] );
 		$this->assertCount( 2, $values['_oc_layer_costs'] );
 		$integration = new OC_Cart();
-		foreach ( [ 3 => 24.0, 2 => 16.0 ] as $quantity => $expected ) {
+		foreach ( [
+			3 => 24.0,
+			2 => 16.0,
+		] as $quantity => $expected ) {
 			WC()->cart->set_quantity( $key, $quantity, false );
 			WC()->cart->fees_api()->remove_all_fees();
 			$integration->add_flat_rate_fee( WC()->cart );

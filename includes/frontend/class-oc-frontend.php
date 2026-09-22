@@ -919,7 +919,7 @@ class OC_Frontend {
 		if ( ! is_finite( $amount ) || $amount <= 0 ) {
 			return '';
 		}
-		$amount        = min( 1000000.0, $amount );
+		$amount             = min( 1000000.0, $amount );
 		[ $price, $suffix ] = self::fee_display( $amount, $product_id );
 		/* translators: 1: formatted surcharge, 2: tax display label. */
 		return sprintf( __( 'Personalisation: +%1$s per item %2$s', 'overcustomise' ), $price, esc_html( $suffix ) );

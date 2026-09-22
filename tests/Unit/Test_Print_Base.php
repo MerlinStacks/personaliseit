@@ -856,9 +856,29 @@ class Test_Print_Base extends TestCase {
 			)->getMock();
 			$pdf->method( 'getNumLines' )->willReturn( 5 );
 			$pdf->expects( $this->once() )->method( 'MultiCell' )->with(
-				$this->anything(), $this->anything(), "\nNick\n\nGroomsman\n"
+				$this->anything(),
+				$this->anything(),
+				"\nNick\n\nGroomsman\n"
 			);
-			$method->invoke( null, $pdf, [ 'type' => 'textarea', 'h' => 100 ], [ 'value' => "\r\nNick\r\n\r\nGroomsman\r\n", 'fontSize' => 4 ], [], 0.0, 0.0, 100.0, 100.0, $mode, 1.0 );
+			$method->invoke(
+				null,
+				$pdf,
+				[
+					'type' => 'textarea',
+					'h'    => 100,
+				],
+				[
+					'value'    => "\r\nNick\r\n\r\nGroomsman\r\n",
+					'fontSize' => 4,
+				],
+				[],
+				0.0,
+				0.0,
+				100.0,
+				100.0,
+				$mode,
+				1.0
+			);
 		}
 	}
 

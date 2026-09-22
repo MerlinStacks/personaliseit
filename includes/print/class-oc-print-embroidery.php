@@ -411,11 +411,20 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		} while ( $shrink );
 
-		$total_height  = count( $text_lines ) * $line_height;
-		$first_baseline = $multiline
-			? self::eps_multiline_first_baseline( $line_alignment, $y_pt, $h_pt, $total_height, $font_size )
-			: ( $centered ? self::eps_text_baseline_y( $line_alignment, $y_pt, $h_pt, $font_size ) : $y_pt + max( $font_size, ( $h_pt + $font_size ) / 2 ) );
-		$paint = [
+		// EPS glyphs extend upwards from their baseline. Align the painted block,
+		// not the baseline itself, otherwise captions rise into artwork above them.
+		$block_bounds = null;
+		foreach ( $text_lines as $index => $text_line ) {
+			if ( '' === $text_line ) {
+				continue;
+			}
+			$outline      = $font_path ? self::ttf_text_outline( $font_path, $text_line, $font_size ) : null;
+			$bbox         = $outline['bbox'] ?? [ 0.0, -0.2 * $font_size, 0.0, 0.8 * $font_size ];
+			$offset       = $index * $line_height;
+			$block_bounds = self::merge_bounds( $block_bounds, [ 0.0, $bbox[1] - $offset, 0.0, $bbox[3] - $offset ] );
+		}
+		$first_baseline = self::eps_text_baseline_y( $line_alignment, $y_pt, $h_pt, $font_size, $block_bounds );
+		$paint          = [
 			'%%OCTextColor: ' . strtoupper( self::normalise_hex( $hex ) ),
 			'%%OCTextFont: ' . self::eps_comment( $font_name ),
 			'gsave',
@@ -456,24 +465,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		};
 	}
 
-	/** Return baseline y coordinate for text inside a center-origin layer box. */
-	private static function eps_text_baseline_y( string $line_alignment, float $y_pt, float $h_pt, float $font_size ): float {
+	/** Align glyph bounds relative to the first baseline in upward-positive EPS coordinates. */
+	private static function eps_text_baseline_y( string $line_alignment, float $y_pt, float $h_pt, float $font_size, ?array $bounds = null ): float {
+		$bottom = $bounds[1] ?? -0.2 * $font_size;
+		$top    = $bounds[3] ?? 0.8 * $font_size;
+
 		return match ( $line_alignment ) {
-			'top' => $y_pt + $h_pt - $font_size * 0.2,
-			'bottom' => $y_pt + $font_size,
-			default => $y_pt + ( $h_pt + $font_size ) / 2,
+			'top' => $y_pt + $h_pt - $top,
+			'bottom' => $y_pt - $bottom,
+			default => $y_pt + $h_pt / 2 - ( $top + $bottom ) / 2,
 		};
-	}
-
-	/** Return the first (topmost) baseline for a vertically aligned text block. */
-	private static function eps_multiline_first_baseline( string $alignment, float $y_pt, float $h_pt, float $total_height, float $font_size ): float {
-		$block_bottom = match ( $alignment ) {
-			'top'    => $y_pt + max( 0.0, $h_pt - $total_height ),
-			'bottom' => $y_pt,
-			default  => $y_pt + max( 0.0, ( $h_pt - $total_height ) / 2 ),
-		};
-
-		return $block_bottom + $total_height - $font_size * 0.2;
 	}
 
 	/** Wrap textarea paragraphs to the exact retained font metrics when available. */

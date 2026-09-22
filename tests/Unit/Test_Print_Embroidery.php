@@ -129,7 +129,7 @@ class Test_Print_Embroidery extends TestCase {
 
 		$output = $this->materialise_lines( $lines );
 		$this->assertStringContainsString( '(Editable Text)', $output );
-		$this->assertStringContainsString( '0.0000 16.9500 translate', $output );
+		$this->assertStringContainsString( '0.0000 5.8300 translate', $output );
 		$this->assertStringNotContainsString( ' exch div 1 scale', $output );
 		$this->assertStringContainsString( '%%OCTextOutlineFallback: font-dependent', $output );
 		$this->assertStringContainsString( 'charpath fill', $output );
@@ -138,11 +138,63 @@ class Test_Print_Embroidery extends TestCase {
 	}
 
 	#[Test]
-	public function text_export_can_embed_real_ttf_glyph_paths(): void {
-		$font_path = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
-		if ( ! file_exists( $font_path ) ) {
-			$this->markTestSkipped( 'DejaVuSans.ttf is not available.' );
+	public function caption_baseline_aligns_glyph_bounds_instead_of_lifting_text_into_artwork(): void {
+		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'eps_text_baseline_y' );
+		// A caption box beneath an illustration, including script-like descenders.
+		$bounds = [ 0.0, -4.0, 100.0, 16.0 ];
+		foreach ( [
+			'top'    => 4.0,
+			'center' => -6.0,
+			'bottom' => -16.0,
+		] as $alignment => $expected ) {
+			$baseline = $method->invoke( null, $alignment, -20.0, 40.0, 20.0, $bounds );
+			$this->assertEqualsWithDelta( $expected, $baseline, 0.0001 );
+			$this->assertLessThanOrEqual( 20.0, $baseline + $bounds[3] );
+			$this->assertGreaterThanOrEqual( -20.0, $baseline + $bounds[1] );
 		}
+	}
+
+	#[Test]
+	public function multiline_export_centres_the_whole_painted_block(): void {
+		$lines = [];
+		( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' ) )->invokeArgs(
+			null,
+			[
+				&$lines,
+				[
+					'value'    => "First\nSecond",
+					'fontSize' => 10,
+				],
+				[],
+				-100.0,
+				-30.0,
+				200.0,
+				60.0,
+				true,
+				1.0,
+				'center',
+				true,
+			]
+		);
+		$output = $this->materialise_lines( $lines );
+		// Ink bounds are [-14, 8] before translation, so +3 centres the block.
+		$this->assertStringContainsString( '0.0000 3.0000 translate', $output );
+		$this->assertStringContainsString( '0.0000 -9.0000 translate', $output );
+	}
+
+	#[Test]
+	public function text_export_can_embed_real_ttf_glyph_paths(): void {
+		$font_path = getenv( 'OC_TEST_FONT_PATH' );
+		$font_path = $font_path ? $font_path : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! file_exists( $font_path ) ) {
+			$this->markTestSkipped( 'A test TrueType font is not available.' );
+		}
+
+		$outline = ( new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_text_outline' ) )->invoke( null, $font_path, 'Chicka & Fonz gy', 20.0 );
+		$this->assertIsArray( $outline );
+		$bbox     = $outline['bbox'];
+		$baseline = ( new ReflectionMethod( OC_Print_Embroidery::class, 'eps_text_baseline_y' ) )->invoke( null, 'center', -20.0, 40.0, 20.0, $bbox );
+		$this->assertEqualsWithDelta( 0.0, $baseline + ( $bbox[1] + $bbox[3] ) / 2, 0.0001 );
 
 		$lines  = [];
 		$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_ttf_text_outline' );
@@ -151,7 +203,7 @@ class Test_Print_Embroidery extends TestCase {
 		$output = implode( "\n", $lines );
 		$this->assertTrue( $ok );
 		$this->assertStringContainsString( '%%OCTextOutline: glyph-paths', $output );
-		$this->assertStringContainsString( '%%OCTextFontFile: DejaVuSans.ttf', $output );
+		$this->assertStringContainsString( '%%OCTextFontFile: ' . basename( $font_path ), $output );
 		$this->assertStringContainsString( '%%OCTextFitScale:', $output );
 		$this->assertMatchesRegularExpression( '/0\.[0-9]+ 0\.[0-9]+ scale/', $output );
 		$this->assertStringContainsString( 'curveto', $output );

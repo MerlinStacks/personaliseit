@@ -394,7 +394,8 @@ class Test_Print_Engraving extends TestCase {
 
 	#[Test]
 	public function legacy_textarea_outlines_preserve_blank_line_spacing(): void {
-		$font = getenv( 'OC_TEST_FONT_PATH' ) ?: '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
 			$this->markTestSkipped( 'Actual TrueType font and TCPDF required.' );
 		}
@@ -413,7 +414,8 @@ class Test_Print_Engraving extends TestCase {
 					preg_match( '/translate\([\d.-]+ ([\d.-]+)\)/', $call['svg'], $match );
 					$baselines[] = $call['y'] + (float) $match[1] * 25.4 / 72;
 				}
-				for ( $i = 1; $i < count( $baselines ); ++$i ) {
+				$baseline_count = count( $baselines );
+				for ( $i = 1; $i < $baseline_count; ++$i ) {
 					$this->assertEqualsWithDelta( 2 * 12 * 1.13 * 1.16 * 25.4 / 72, $baselines[ $i ] - $baselines[ $i - 1 ], 0.0001 );
 				}
 			}
