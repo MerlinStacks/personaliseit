@@ -25,6 +25,28 @@ export function createProductsPageSettings( deps ) {
 			'</div>'
 		);
 	}
+	// Values are escaped by callers; bounds retain their existing numeric output.
+	function numberField( label, id, value, attributes = 'min="0" ' ) {
+		return field(
+			label,
+			'<input type="number" id="' +
+				id +
+				'" class="oc-input" ' +
+				attributes +
+				'style="width:100%;" value="' +
+				value +
+				'" />'
+		);
+	}
+	function selectInput( id, options ) {
+		return (
+			'<select id="' +
+			id +
+			'" class="oc-input" style="width:100%;">' +
+			options +
+			'</select>'
+		);
+	}
 	function toggleField( label, id, checked ) {
 		return (
 			'<label class="oc-toggle-label oc-settings-toggle"><span class="oc-toggle"><input type="checkbox" id="' +
@@ -64,11 +86,11 @@ export function createProductsPageSettings( deps ) {
 			) +
 			'<p class="oc-hint">Charged per item only for nonblank custom text that differs from the default, or a customer-uploaded photo. Default content is never charged. The base design fee is separate.</p>' +
 			( s.additional_cost_enabled
-				? field(
+				? numberField(
 						'Cost amount (per item)',
-						'<input type="number" id="oc-set-additional-cost" class="oc-input" min="0" step="any" aria-label="Cost amount (per item)" style="width:100%;" value="' +
-							esc( s.additional_cost || 0 ) +
-							'" />'
+						'oc-set-additional-cost',
+						esc( s.additional_cost || 0 ),
+						'min="0" step="any" aria-label="Cost amount (per item)" '
 				  )
 				: '' )
 		);
@@ -169,19 +191,19 @@ export function createProductsPageSettings( deps ) {
 			'</div>'
 		);
 	}
-	function alignBtns( current ) {
+	function alignmentButtons( current, axis, options ) {
 		return (
 			'<div class="oc-align-btns">' +
-			[
-				[ 'left', '\u2190', 'Left' ],
-				[ 'center', '\u2261', 'Center' ],
-				[ 'right', '\u2192', 'Right' ],
-			]
+			options
 				.map(
 					( [ a, icon, lbl ] ) =>
-						'<button type="button" class="oc-align-btn' +
+						'<button type="button" class="oc-' +
+						axis +
+						'-btn' +
 						( a === current ? ' oc-align-btn--active' : '' ) +
-						'" data-align="' +
+						'" data-' +
+						axis +
+						'="' +
 						a +
 						'">' +
 						icon +
@@ -193,32 +215,22 @@ export function createProductsPageSettings( deps ) {
 			'</div>'
 		);
 	}
+	function alignBtns( current ) {
+		return alignmentButtons( current, 'align', [
+			[ 'left', '\u2190', 'Left' ],
+			[ 'center', '\u2261', 'Center' ],
+			[ 'right', '\u2192', 'Right' ],
+		] );
+	}
 	function lineAlignBtns( current ) {
 		const value = [ 'top', 'center', 'bottom' ].includes( current )
 			? current
 			: 'top';
-		return (
-			'<div class="oc-align-btns">' +
-			[
-				[ 'top', '\u2191', 'Top' ],
-				[ 'center', '\u2195', 'Center' ],
-				[ 'bottom', '\u2193', 'Bottom' ],
-			]
-				.map(
-					( [ a, icon, lbl ] ) =>
-						'<button type="button" class="oc-line-align-btn' +
-						( a === value ? ' oc-align-btn--active' : '' ) +
-						'" data-line-align="' +
-						a +
-						'">' +
-						icon +
-						' ' +
-						lbl +
-						'</button>'
-				)
-				.join( '' ) +
-			'</div>'
-		);
+		return alignmentButtons( value, 'line-align', [
+			[ 'top', '\u2191', 'Top' ],
+			[ 'center', '\u2195', 'Center' ],
+			[ 'bottom', '\u2193', 'Bottom' ],
+		] );
 	}
 	function groupChecks( cls, groups, selected ) {
 		if ( ! groups.length ) {
@@ -249,24 +261,7 @@ export function createProductsPageSettings( deps ) {
 		if ( ! filters.length ) {
 			return '<span class="oc-settings-empty">No image filters created yet.</span>';
 		}
-		return (
-			'<div class="oc-group-checks">' +
-			filters
-				.map(
-					( filter ) =>
-						'<label class="oc-group-check-item"><input type="checkbox" class="oc-if-check" value="' +
-						esc( filter.id ) +
-						'"' +
-						( selected.indexOf( Number( filter.id ) ) !== -1
-							? ' checked'
-							: '' ) +
-						' /><span>' +
-						esc( filter.name ) +
-						'</span></label>'
-				)
-				.join( '' ) +
-			'</div>'
-		);
+		return groupChecks( 'oc-if-check', filters, selected );
 	}
 	function imageFilterOptions( filters, allowedIds, selectedId ) {
 		const allowed = Array.isArray( allowedIds )
@@ -561,22 +556,20 @@ export function createProductsPageSettings( deps ) {
 					additionalCostFields( layer ) +
 					'<p class="oc-settings-section-hdr">Position</p>' +
 					'<div class="oc-bounds-grid">' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">X</label><input type="number" id="oc-layer-x" class="oc-input" ' +
-					( layer.type === 'cut_line' ? '' : 'min="0" ' ) +
-					'style="width:100%;" value="' +
-					layer.x +
-					'" /></div>' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">Y</label><input type="number" id="oc-layer-y" class="oc-input" ' +
-					( layer.type === 'cut_line' ? '' : 'min="0" ' ) +
-					'style="width:100%;" value="' +
-					layer.y +
-					'" /></div>' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">W</label><input type="number" id="oc-layer-w" class="oc-input" min="1" style="width:100%;" value="' +
-					layer.w +
-					'" /></div>' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">H</label><input type="number" id="oc-layer-h" class="oc-input" min="1" style="width:100%;" value="' +
-					layer.h +
-					'" /></div>' +
+					numberField(
+						'X',
+						'oc-layer-x',
+						layer.x,
+						layer.type === 'cut_line' ? '' : 'min="0" '
+					) +
+					numberField(
+						'Y',
+						'oc-layer-y',
+						layer.y,
+						layer.type === 'cut_line' ? '' : 'min="0" '
+					) +
+					numberField( 'W', 'oc-layer-w', layer.w, 'min="1" ' ) +
+					numberField( 'H', 'oc-layer-h', layer.h, 'min="1" ' ) +
 					'</div>'
 				);
 			case 'cut_line':
@@ -600,11 +593,10 @@ export function createProductsPageSettings( deps ) {
 							esc( s.default_text || '' ) +
 							'" />'
 					) +
-					field(
+					numberField(
 						'Max characters <span class="oc-hint">(0 = unlimited)</span>',
-						'<input type="number" id="oc-set-char-limit" class="oc-input" min="0" style="width:100%;" value="' +
-							esc( s.char_limit || 0 ) +
-							'" />'
+						'oc-set-char-limit',
+						esc( s.char_limit || 0 )
 					)
 				);
 			case 'prompt':
@@ -640,12 +632,13 @@ export function createProductsPageSettings( deps ) {
 					( availableFonts.length
 						? field(
 								'Default font',
-								'<select id="oc-set-default-font" class="oc-input" style="width:100%;">' +
+								selectInput(
+									'oc-set-default-font',
 									fontOptions(
 										availableFonts,
 										s.default_font_id || 0
-									) +
-									'</select>'
+									)
+								)
 						  )
 						: field(
 								'Default font',
@@ -656,31 +649,41 @@ export function createProductsPageSettings( deps ) {
 									'</span>'
 						  ) ) +
 					'<div class="oc-bounds-grid">' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">Default font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-default-font-size" class="oc-input" min="0" style="width:100%;" value="' +
-					esc( s.default_font_size || 0 ) +
-					'" /></div>' +
+					numberField(
+						'Default font size <span class="oc-hint">(0 = auto)</span>',
+						'oc-set-default-font-size',
+						esc( s.default_font_size || 0 )
+					) +
 					( isEngraving
 						? ''
 						: colourGroupsSelected.length
 						? availableColours.length
-							? '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><select id="oc-set-default-color" class="oc-input" style="width:100%;">' +
-							  colourOptions(
-									availableColours,
-									s.default_color
-							  ) +
-							  '</select></div>'
+							? field(
+									'Default colour',
+									selectInput(
+										'oc-set-default-color',
+										colourOptions(
+											availableColours,
+											s.default_color
+										)
+									)
+							  )
 							: '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><span class="oc-settings-empty">No colours are available in the selected groups.</span></div>'
 						: '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' +
 						  esc( normaliseHex( s.default_color ) ) +
 						  '" /></div>' ) +
 					'</div>' +
 					'<div class="oc-bounds-grid">' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">Min font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-min-font-size" class="oc-input" min="0" style="width:100%;" value="' +
-					esc( s.min_font_size || 0 ) +
-					'" /></div>' +
-					'<div class="oc-editor-field"><label class="oc-settings-label">Max font size <span class="oc-hint">(0 = auto)</span></label><input type="number" id="oc-set-max-font-size" class="oc-input" min="0" style="width:100%;" value="' +
-					esc( s.max_font_size || 0 ) +
-					'" /></div>' +
+					numberField(
+						'Min font size <span class="oc-hint">(0 = auto)</span>',
+						'oc-set-min-font-size',
+						esc( s.min_font_size || 0 )
+					) +
+					numberField(
+						'Max font size <span class="oc-hint">(0 = auto)</span>',
+						'oc-set-max-font-size',
+						esc( s.max_font_size || 0 )
+					) +
 					'</div>' +
 					( fGroups.length
 						? field(
@@ -726,13 +729,15 @@ export function createProductsPageSettings( deps ) {
 					) +
 					field(
 						'Default filter',
-						'<select id="oc-set-default-image-filter" class="oc-input" style="width:100%;">' +
+						selectInput(
+							'oc-set-default-image-filter',
 							imageFilterOptions(
 								data.imageFilters || [],
 								s.image_filter_ids || [],
 								s.default_image_filter_id || 0
-							) +
-							'</select><span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>'
+							)
+						) +
+							'<span class="oc-hint">Turn off Customer can change > Filter to lock this selection and hide filter options on the storefront.</span>'
 					) +
 					field(
 						'Accepted formats',
@@ -748,11 +753,11 @@ export function createProductsPageSettings( deps ) {
 							]
 						)
 					) +
-					field(
+					numberField(
 						'Max file size (MB)',
-						'<input type="number" id="oc-set-max-size" class="oc-input" min="1" style="width:100%;" value="' +
-							esc( s.max_size_mb || 10 ) +
-							'" />'
+						'oc-set-max-size',
+						esc( s.max_size_mb || 10 ),
+						'min="1" '
 					) +
 					toggleField(
 						'Automatically remove background',
@@ -813,12 +818,13 @@ export function createProductsPageSettings( deps ) {
 						field(
 							'Default colour',
 							selected.length && available.length
-								? '<select id="oc-set-default-color" class="oc-input" style="width:100%;">' +
+								? selectInput(
+										'oc-set-default-color',
 										colourOptions(
 											available,
 											s.default_color
-										) +
-										'</select>'
+										)
+								  )
 								: '<input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' +
 										esc( normaliseHex( s.default_color ) ) +
 										'" />'
@@ -883,12 +889,13 @@ export function createProductsPageSettings( deps ) {
 					field(
 						'Default clipart',
 						availableClipartItems.length
-							? '<select id="oc-set-default-clipart" class="oc-input" style="width:100%;">' +
+							? selectInput(
+									'oc-set-default-clipart',
 									clipartOptions(
 										availableClipartItems,
 										s.default_clipart_id || 0
-									) +
-									'</select>'
+									)
+							  )
 							: '<span class="oc-settings-empty">No active clipart is available.</span>'
 					)
 				);
