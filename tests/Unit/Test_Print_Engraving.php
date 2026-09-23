@@ -119,8 +119,16 @@ class Test_Print_Engraving extends TestCase {
 		];
 	}
 
+	public static function retry_textarea_lines(): array {
+		return [
+			'explicit breaks' => [ "Alex\nBob", [ 'Alex', 'Bob' ] ],
+			'preview soft wraps' => [ 'I married you for love… and stayed for the food. 5 years in forever to go', [ 'I married you for love…', 'and stayed for the food.', '5 years in forever to go' ] ],
+		];
+	}
+
 	#[Test]
-	public function verified_partial_outlines_are_rolled_back_before_legacy_retry(): void {
+	#[DataProvider( 'retry_textarea_lines' )]
+	public function verified_partial_outlines_are_rolled_back_before_legacy_retry( string $value, array $lines ): void {
 		$font = getenv( 'OC_TEST_FONT_PATH' );
 		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 		if ( ! class_exists( 'TCPDF' ) || ! is_file( $font ) ) {
@@ -150,14 +158,14 @@ class Test_Print_Engraving extends TestCase {
 			$pdf                                   = new OC_Test_Retry_Engraving_PDF();
 			$pdf->AddPage();
 			$input = [
-				'value'                 => "Alex\nBob",
-				'fontId'                => 9876126,
+				'value'                 => $value,
+				'fontId'                => 9876126 + count( $lines ) * 100,
 				'fontSize'              => 12,
 				'renderedLayoutVersion' => 1,
 				'renderedFontSize'      => 10,
 				'renderedScaleX'        => 1,
-				'renderedInsetX'        => 0,
-				'renderedLines'         => [ 'Alex', 'Bob' ],
+				'renderedInsetX'        => 0.05,
+				'renderedLines'         => $lines,
 			];
 			( new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' ) )->invoke(
 				null,
@@ -175,8 +183,13 @@ class Test_Print_Engraving extends TestCase {
 				'engraving',
 				1.0
 			);
-			$this->assertSame( 4, OC_Test_Retry_Engraving_PDF::$attempts );
-			$this->assertCount( 2, $pdf->image_svg_calls, 'Only the complete legacy retry should remain in the PDF.' );
+			$this->assertSame( 2 + count( $lines ), OC_Test_Retry_Engraving_PDF::$attempts );
+			$this->assertCount( count( $lines ), $pdf->image_svg_calls, 'Only the complete retry with preview line breaks should remain in the PDF.' );
+			$reference = new OC_Test_Engraving_PDF();
+			( new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' ) )->invoke(
+				null, $reference, implode( "\n", $lines ), $path, 10.0, 2.0, 0.0, 36.0, 40.0, 'C', 'T', $lines
+			);
+			$this->assertSame( $reference->image_svg_calls, $pdf->image_svg_calls, 'Fallback must retain the fitted font size, inset and exact glyphs on each preview line.' );
 		} finally {
 			$wpdb = $previous;
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Unit test temporary-file cleanup.

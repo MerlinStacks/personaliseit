@@ -336,6 +336,7 @@ abstract class OC_Print_Base {
 	 */
 	protected static function make_pdf( float $w_mm, float $h_mm, float $bleed = 0.0, float $slug = 0.0 ): \TCPDF {
 		self::require_tcpdf();
+		require_once __DIR__ . '/class-oc-print-pdf.php';
 
 		$bleed = max( 0.0, $bleed );
 		$slug  = max( 0.0, $slug );
@@ -345,43 +346,7 @@ abstract class OC_Print_Base {
 
 		$orientation = $page_w > $page_h ? 'L' : 'P';
 		$pdf_mode = self::pdf_conformance_mode();
-		$pdf = new class( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8', false, $pdf_mode ) extends \TCPDF {
-			/** Allow the legacy TCPDF facade to initialise tc-lib-pdf in PDF/X mode. */
-			protected function normalizePdfaMode( mixed $pdfa ): string {
-				$mode = strtolower( trim( (string) $pdfa ) );
-				if ( preg_match( '/^pdfx(?:1a|3|4|5)?$/', $mode ) ) {
-					return $mode;
-				}
-
-				return parent::normalizePdfaMode( $pdfa );
-			}
-
-			/** Include WordPress uploads in TCPDF 7's local file allowlist. */
-			protected function fileAllowedPaths(): array {
-				$paths      = parent::fileAllowedPaths();
-				$upload_dir = wp_upload_dir();
-
-				if ( empty( $upload_dir['error'] ) ) {
-					$paths[] = $upload_dir['basedir'];
-					$paths[] = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-fonts';
-					$paths[] = trailingslashit( $upload_dir['basedir'] ) . 'overcustomise/tcpdf-cache';
-				}
-				$private_artwork = class_exists( 'OC_Upload_Handler' ) ? OC_Upload_Handler::private_storage_path( 'artwork' ) : null;
-				if ( is_string( $private_artwork ) ) {
-					$paths[] = $private_artwork;
-				}
-
-				$allowed = [];
-				foreach ( $paths as $path ) {
-					if ( is_string( $path ) && '' !== $path ) {
-						$real = realpath( $path );
-						$allowed[] = false !== $real ? $real : $path;
-					}
-				}
-
-				return array_values( array_unique( $allowed ) );
-			}
-		};
+		$pdf = new OC_Print_PDF( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8', false, $pdf_mode );
 		$pdf->SetCreator( 'OverCustomise' );
 		$pdf->SetAuthor( 'Custom Kings' );
 		$pdf->SetSubject( 'Production print artwork' );

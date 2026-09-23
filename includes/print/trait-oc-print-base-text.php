@@ -152,6 +152,7 @@ trait OC_Print_Base_Text {
 		$font_id           = ! empty( $input['fontId'] ) ? (int) $input['fontId'] : (int) ( $settings['default_font_id'] ?? 0 );
 		$font              = $font_id ? self::get_font( $font_id ) : null;
 		$verified_fallback = false;
+		$fallback_inset    = 0.0;
 		if ( null !== $verified && 'engraving' === $mode ) {
 			$conversion = $font_px_to_pt ?? self::px_to_pt( 1.0 );
 			$size       = $verified['renderedFontSize'] * $conversion;
@@ -188,11 +189,17 @@ trait OC_Print_Base_Text {
 				}
 				OC_Logger::warning( 'Verified text layout fallback to existing companion/raster/PDF rendering: ' . $e->getMessage() );
 				$verified_fallback = true;
+				// A font/backend failure does not invalidate the browser's checked
+				// textarea breaks. Refit those lines, never reflow the original value.
+				if ( $is_textarea ) {
+					$fallback_inset = $inset;
+				} else {
+					unset( $input['renderedFontSize'], $input['renderedScaleX'], $input['renderedInsetX'], $input['renderedLines'] );
+					$text           = self::normalise_engraving_text( trim( $text ) );
+					$rendered_lines = null;
+					$render_text    = $text;
+				}
 				$verified          = null;
-				unset( $input['renderedFontSize'], $input['renderedScaleX'], $input['renderedInsetX'], $input['renderedLines'] );
-				$text           = self::normalise_engraving_text( $is_textarea ? $text : trim( $text ) );
-				$rendered_lines = null;
-				$render_text    = $text;
 			} finally {
 				if ( is_string( $temporary_font ) ) {
 					@unlink( $temporary_font ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.
@@ -228,8 +235,8 @@ trait OC_Print_Base_Text {
 			$font_size = max( $font_size, $min_size );
 		}
 
-		$draw_x_mm = $x_mm;
-		$draw_w_mm = $w_mm;
+		$draw_x_mm = $x_mm + $fallback_inset;
+		$draw_w_mm = $w_mm - 2 * $fallback_inset;
 
 		while ( $font_size > max( 4.0, $min_size ) ) {
 			$pdf->SetFont( $font_name, '', $font_size );

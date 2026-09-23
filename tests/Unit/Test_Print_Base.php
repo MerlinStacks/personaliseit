@@ -1245,6 +1245,31 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function make_pdf_supports_transaction_commit_and_rollback(): void {
+		$pdf = OC_Print_Base_Testable::test_make_pdf( 120.0, 40.0, 3.0 );
+		$pdf->AddPage();
+		$pdf->SetXY( 10.0, 12.0 );
+
+		// Verified text outlining snapshots the real production facade before drawing.
+		$pdf->startTransaction();
+		$pdf->SetXY( 20.0, 22.0 );
+		$pdf->AddPage();
+		$pdf->rollbackTransaction( true );
+		$this->assertSame( 1, $pdf->getNumPages() );
+		$this->assertEqualsWithDelta( 10.0, $pdf->GetX(), 0.001 );
+		$this->assertEqualsWithDelta( 12.0, $pdf->GetY(), 0.001 );
+
+		$pdf->startTransaction();
+		$pdf->SetXY( 30.0, 32.0 );
+		$pdf->Line( 10.0, 10.0, 20.0, 20.0 );
+		$pdf->commitTransaction();
+		$pdf->rollbackTransaction( true );
+		$this->assertEqualsWithDelta( 30.0, $pdf->GetX(), 0.001 );
+		$this->assertEqualsWithDelta( 32.0, $pdf->GetY(), 0.001 );
+		$this->assertStringStartsWith( '%PDF-', $pdf->Output( '', 'S' ) );
+	}
+
+	#[Test]
 	public function woff2_font_failure_explains_how_to_prepare_it_for_print(): void {
 		global $wpdb;
 		$previous_wpdb = $wpdb ?? null;
