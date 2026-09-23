@@ -154,6 +154,12 @@ class Test_Print_Engraving extends TestCase {
 			}
 		};
 		try {
+			// This case tests retention without refitting. DejaVu Sans (CI) is
+			// wider than Liberation Serif, so the old 36mm inner box shrank it.
+			$this->assertTrue(
+				( new ReflectionMethod( OC_Print_Base::class, 'engraving_outline_lines_fit_box' ) )->invoke( null, $lines, $path, 90.0, 40.0, 10.0 ),
+				'The fixture must fit at the preview font size before testing fallback retention.'
+			);
 			OC_Test_Retry_Engraving_PDF::$attempts = 0;
 			$pdf                                   = new OC_Test_Retry_Engraving_PDF();
 			$pdf->AddPage();
@@ -178,7 +184,7 @@ class Test_Print_Engraving extends TestCase {
 				[],
 				0.0,
 				0.0,
-				40.0,
+				100.0,
 				40.0,
 				'engraving',
 				1.0
@@ -187,7 +193,7 @@ class Test_Print_Engraving extends TestCase {
 			$this->assertCount( count( $lines ), $pdf->image_svg_calls, 'Only the complete retry with preview line breaks should remain in the PDF.' );
 			$reference = new OC_Test_Engraving_PDF();
 			( new ReflectionMethod( OC_Print_Base::class, 'render_engraving_multiline_text_outline' ) )->invoke(
-				null, $reference, implode( "\n", $lines ), $path, 10.0, 2.0, 0.0, 36.0, 40.0, 'C', 'T', $lines
+				null, $reference, implode( "\n", $lines ), $path, 10.0, 5.0, 0.0, 90.0, 40.0, 'C', 'T', $lines
 			);
 			$this->assertSame( $reference->image_svg_calls, $pdf->image_svg_calls, 'Fallback must retain the fitted font size, inset and exact glyphs on each preview line.' );
 		} finally {
