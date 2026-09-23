@@ -167,7 +167,7 @@ foreach ( $layers as $layer ) {
 											. 'font-weight:' . preg_replace( '/[^a-zA-Z0-9-]/', '', (string) ( $thumb_layer['fontWeight'] ?? 'normal' ) ) . ';'
 											. 'font-style:' . preg_replace( '/[^a-zA-Z-]/', '', (string) ( $thumb_layer['fontStyle'] ?? 'normal' ) ) . ';';
 										?>
-										<?php if ( 'text' === (string) ( $thumb_layer['type'] ?? '' ) ) : ?>
+										<?php if ( in_array( (string) ( $thumb_layer['type'] ?? '' ), [ 'text', 'textarea' ], true ) ) : ?>
 											<span class="oc-design-variant-thumb-layer oc-design-variant-thumb-text" style="<?php echo esc_attr( $thumb_text_style ); ?>"><?php echo esc_html( $thumb_layer['text'] ?? '' ); ?></span>
 										<?php elseif ( ! empty( $thumb_layer['url'] ) ) : ?>
 											<img class="oc-design-variant-thumb-layer" src="<?php echo esc_url( $thumb_layer['url'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" style="<?php echo esc_attr( $thumb_style ); ?>" />

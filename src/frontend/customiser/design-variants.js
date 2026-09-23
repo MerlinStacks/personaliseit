@@ -183,6 +183,14 @@ const designVariantMethods = {
 
 	async renderDesignVariantThumbnails() {
 		const designGeneration = this._designGeneration;
+		const variationRequestSeq = this._variationRequestSeq;
+		const variationKey = this._pendingVariationKey || this._activeVariationKey;
+		const variationId = this.currentVariationId();
+		const isCurrent = () =>
+			designGeneration === this._designGeneration &&
+			variationRequestSeq === this._variationRequestSeq &&
+			variationKey === ( this._pendingVariationKey || this._activeVariationKey ) &&
+			variationId === this.currentVariationId();
 		const canvases = Array.from(
 			document.querySelectorAll( '[data-oc-design-variant-thumb]' )
 		);
@@ -191,7 +199,7 @@ const designVariantMethods = {
 		}
 
 		for ( const canvasEl of canvases ) {
-			if ( designGeneration !== this._designGeneration ) {
+			if ( ! isCurrent() ) {
 				return;
 			}
 			if ( canvasEl.dataset.ocThumbRendered === '1' ) {
@@ -199,19 +207,40 @@ const designVariantMethods = {
 			}
 
 			const variantId = canvasEl.dataset.ocDesignVariantThumb;
-			const state = this.data.designVariantStates?.[ variantId ];
-			if ( ! state?.areas?.length ) {
-				canvasEl
-					.closest( '.oc-design-variant-option' )
-					?.classList.remove( 'oc-thumb-pending' );
-				continue;
-			}
-
 			try {
+				let state = this.data.designVariantStates?.[ variantId ];
+				if ( ! state?.areas?.length ) {
+					const variant = this.designVariants.find(
+						( item ) => item.id === variantId
+					);
+					if ( variant ) {
+						state = await this.fetchDesignVariantState(
+							variant,
+							undefined,
+							{ background: true }
+						);
+						if ( ! isCurrent() ) {
+							return;
+						}
+						if ( state?.areas?.length ) {
+							this.data.designVariantStates ||= {};
+							this.data.designVariantStates[ variantId ] = state;
+							const variationState = this.productVariationStates[ variationKey ];
+							if ( variationState ) {
+								variationState.designVariantStates ||= {};
+								variationState.designVariantStates[ variantId ] = state;
+							}
+						}
+					}
+				}
 				const rendered = await this.renderDesignVariantThumbnailCanvas(
 					canvasEl,
-					state
+					state || {},
+					isCurrent
 				);
+				if ( ! isCurrent() ) {
+					return;
+				}
 				canvasEl
 					.closest( '.oc-design-variant-option' )
 					?.classList.remove( 'oc-thumb-pending' );
@@ -222,6 +251,9 @@ const designVariantMethods = {
 						?.classList.add( 'oc-thumb-rendered' );
 				}
 			} catch ( err ) {
+				if ( ! isCurrent() ) {
+					return;
+				}
 				canvasEl
 					.closest( '.oc-design-variant-option' )
 					?.classList.remove( 'oc-thumb-pending' );
@@ -234,9 +266,9 @@ const designVariantMethods = {
 		}
 	},
 
-	async renderDesignVariantThumbnailCanvas( canvasEl, state ) {
+	async renderDesignVariantThumbnailCanvas( canvasEl, state, isCurrent = () => true ) {
 		const area = state.areas?.[ 0 ];
-		if ( ! area ) {
+		if ( ! area || ! isCurrent() ) {
 			return;
 		}
 
@@ -275,6 +307,9 @@ const designVariantMethods = {
 				Number( a.type === 'mask' ) - Number( b.type === 'mask' )
 		);
 		for ( const layer of thumbnailLayers ) {
+			if ( ! isCurrent() ) {
+				return false;
+			}
 			const input = {
 				...( state.layerInputs?.[ layer.id ] || {} ),
 			};
@@ -289,11 +324,14 @@ const designVariantMethods = {
 				layer,
 				input,
 				thumbnailArea,
-				() => true,
+				isCurrent,
 				{ fonts: thumbnailFonts }
 			);
 		}
 
+		if ( ! isCurrent() ) {
+			return false;
+		}
 		canvas.renderAll();
 		return (
 			canvas
@@ -449,7 +487,7 @@ const designVariantMethods = {
 		this.applyControlLocks();
 	},
 
-	async fetchDesignVariantState( variant, requestSeq ) {
+	async fetchDesignVariantState( variant, requestSeq, { background = false } = {} ) {
 		const designUrl =
 			this.data.productDesignUrl ||
 			`${ window.location.origin }/wp-json/overcustomise/v1/product-design/${
@@ -459,7 +497,10 @@ const designVariantMethods = {
 		url.searchParams.set( 'variant_id', String( this.currentVariationId() ) );
 		url.searchParams.set( 'design_id', String( variant.designId ) );
 		const request = this.createStateAbortController( 10000 );
-		this._designVariantAbortController = request.controller;
+		// Background thumbnails share lifecycle cleanup, not interactive ownership.
+		if ( ! background ) {
+			this._designVariantAbortController = request.controller;
+		}
 
 		try {
 			const response = await fetch( url.toString(), {
@@ -474,7 +515,7 @@ const designVariantMethods = {
 						`Artwork option request failed (${ response.status })`
 				);
 			}
-			if ( requestSeq !== this._designVariantRequestSeq ) {
+			if ( ! background && requestSeq !== this._designVariantRequestSeq ) {
 				throw new DOMException( 'Superseded request', 'AbortError' );
 			}
 
@@ -498,7 +539,7 @@ const designVariantMethods = {
 			throw error;
 		} finally {
 			request.release();
-			if ( this._designVariantAbortController === request.controller ) {
+			if ( ! background && this._designVariantAbortController === request.controller ) {
 				this._designVariantAbortController = null;
 			}
 		}
