@@ -199,7 +199,7 @@ trait OC_Print_Base_Text {
 					$rendered_lines = null;
 					$render_text    = $text;
 				}
-				$verified          = null;
+				$verified = null;
 			} finally {
 				if ( is_string( $temporary_font ) ) {
 					@unlink( $temporary_font ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Best-effort local temporary-file cleanup.

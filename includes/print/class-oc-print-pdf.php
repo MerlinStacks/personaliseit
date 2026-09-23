@@ -41,7 +41,7 @@ class OC_Print_PDF extends \TCPDF {
 		$allowed = [];
 		foreach ( $paths as $path ) {
 			if ( is_string( $path ) && '' !== $path ) {
-				$real = realpath( $path );
+				$real      = realpath( $path );
 				$allowed[] = false !== $real ? $real : $path;
 			}
 		}

@@ -345,8 +345,8 @@ abstract class OC_Print_Base {
 		$page_h = $h_mm + $inset * 2;
 
 		$orientation = $page_w > $page_h ? 'L' : 'P';
-		$pdf_mode = self::pdf_conformance_mode();
-		$pdf = new OC_Print_PDF( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8', false, $pdf_mode );
+		$pdf_mode    = self::pdf_conformance_mode();
+		$pdf         = new OC_Print_PDF( $orientation, 'mm', [ $page_w, $page_h ], true, 'UTF-8', false, $pdf_mode );
 		$pdf->SetCreator( 'OverCustomise' );
 		$pdf->SetAuthor( 'Custom Kings' );
 		$pdf->SetSubject( 'Production print artwork' );
