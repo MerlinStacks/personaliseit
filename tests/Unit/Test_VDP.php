@@ -11,6 +11,25 @@ use PHPUnit\Framework\TestCase;
 require_once OC_PATH . 'includes/class-oc-vdp.php';
 
 class Test_VDP extends TestCase {
+	#[Test]
+	public function printable_values_preserve_literal_syntax_and_enforce_actual_length(): void {
+		$vdp  = new OC_VDP();
+		$text = '<name> &lt; &#60; & "Zoë" %20';
+		foreach ( [ 'text', 'textarea' ] as $type ) {
+			$layer = (object) [
+				'type'     => $type,
+				'label'    => 'Name',
+				'settings' => '{}',
+			];
+			$this->assertSame( $text, $vdp->normalise_layer_value( $layer, $text ) );
+			$this->assertSame( 'textarea' === $type ? "<a>\n<b>" : '<a> <b>', $vdp->normalise_layer_value( $layer, "<a>\r\n<b>" ) );
+			$layer->settings = '{"char_limit":3}';
+			$this->assertSame( 'vdp_character_limit', $vdp->normalise_layer_value( $layer, '<name>' )->get_error_code() );
+			$layer->settings = '{"required":true}';
+			$this->assertSame( '<>', $vdp->normalise_layer_value( $layer, '<>' ) );
+			$this->assertSame( 'required_vdp_value', $vdp->normalise_layer_value( $layer, "\x00" )->get_error_code() );
+		}
+	}
 
 	#[Test]
 	public function merge_values_supports_sanitized_hyphenated_headers(): void {

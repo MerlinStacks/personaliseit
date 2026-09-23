@@ -19,6 +19,7 @@ defined( 'OC_ASSETS_URL' ) || define( 'OC_ASSETS_URL', OC_URL . 'assets/build/' 
 defined( 'OC_DB_VERSION' ) || define( 'OC_DB_VERSION', '1.16.2' );
 
 require_once OC_PATH . 'includes/class-oc-cache.php';
+require_once OC_PATH . 'includes/class-oc-print-text.php';
 require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 require_once OC_PATH . 'includes/class-oc-db.php';
 require_once OC_PATH . 'includes/class-oc-logger.php';

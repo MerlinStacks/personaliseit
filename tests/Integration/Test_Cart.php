@@ -156,6 +156,37 @@ class Test_Cart extends WC_Unit_Test_Case {
 	// ── add_cart_item_data ────────────────────────────────────────────────────
 
 	#[Test]
+	public function literal_print_text_survives_real_wordpress_cart_ingestion(): void {
+		$text = '<name> &lt; &#60; & "Zoë" %20';
+		$this->assertNotSame( $text, sanitize_text_field( $text ) );
+		$cart   = new OC_Cart();
+		$legacy = $cart->add_cart_item_data(
+			[ '_oc_submission_raw' => wp_json_encode( [ 'front' => [ 'text' => $text ] ] ) ],
+			$this->product->get_id(),
+			0
+		);
+		$this->assertSame( $text, $legacy['_oc_customisation']['front']['text'] );
+		[ $design_id, $ids ] = $this->create_image_design( 'text' );
+		$payload             = [
+			'v'        => 2,
+			'designId' => $design_id,
+			'layers'   => [ $ids[0] => [ 'value' => $text ] ],
+		];
+		$result              = $cart->add_cart_item_data( [ '_oc_submission_raw' => wp_json_encode( $payload ) ], $this->product->get_id(), 0 );
+		$this->assertSame( $text, $result['_oc_customisation']['layers'][ $ids[0] ]['value'] );
+		$this->assertSame(
+			$text,
+			( new OC_VDP() )->normalise_layer_value(
+				(object) [
+					'type'     => 'text',
+					'settings' => '{}',
+				],
+				$text
+			)
+		);
+	}
+
+	#[Test]
 	public function html_order_summary_keeps_saved_labels_after_design_edits(): void {
 		global $wpdb;
 		[ $design_id, $ids ] = $this->create_image_design( 'text' );

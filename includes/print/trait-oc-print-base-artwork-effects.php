@@ -463,6 +463,7 @@ trait OC_Print_Base_Artwork_Effects {
 
 		$ok    = match ( $key ) {
 			'ai'         => true,
+			'negative'   => imagefilter( $src, IMG_FILTER_NEGATE ),
 			'grayscale'  => imagefilter( $src, IMG_FILTER_GRAYSCALE ),
 			'sepia'      => imagefilter( $src, IMG_FILTER_GRAYSCALE ) && imagefilter( $src, IMG_FILTER_COLORIZE, 90, 45, 0 ),
 			'brightness' => imagefilter( $src, IMG_FILTER_BRIGHTNESS, max( -255, min( 255, (int) round( $value * 255 ) ) ) ),
@@ -543,19 +544,25 @@ trait OC_Print_Base_Artwork_Effects {
 	private static function adjust_raster_hue( $img, float $amount ): bool {
 		$w = imagesx( $img );
 		$h = imagesy( $img );
-		$angle = $amount * 2 * M_PI;
-		$cos = cos( $angle );
-		$sin = sin( $angle );
+		// Match Fabric HueRotation.calculateMatrix: stored 1 means half a turn.
+		$angle    = $amount * M_PI;
+		$cos      = cos( $angle );
+		$sin      = sin( $angle );
+		$third    = ( 1 - $cos ) / 3;
+		$skew     = sqrt( 1 / 3 ) * $sin;
+		$diagonal = $cos + $third;
+		$minus    = $third - $skew;
+		$plus     = $third + $skew;
 		for ( $y = 0; $y < $h; $y++ ) {
 			for ( $x = 0; $x < $w; $x++ ) {
-				$rgba = imagecolorat( $img, $x, $y );
-				$a    = ( $rgba >> 24 ) & 0x7F;
-				$r    = ( $rgba >> 16 ) & 0xFF;
-				$g    = ( $rgba >> 8 ) & 0xFF;
-				$b    = $rgba & 0xFF;
-				$new_r = ( .213 + $cos * .787 - $sin * .213 ) * $r + ( .715 - $cos * .715 - $sin * .715 ) * $g + ( .072 - $cos * .072 + $sin * .928 ) * $b;
-				$new_g = ( .213 - $cos * .213 + $sin * .143 ) * $r + ( .715 + $cos * .285 + $sin * .140 ) * $g + ( .072 - $cos * .072 - $sin * .283 ) * $b;
-				$new_b = ( .213 - $cos * .213 - $sin * .787 ) * $r + ( .715 - $cos * .715 + $sin * .715 ) * $g + ( .072 + $cos * .928 + $sin * .072 ) * $b;
+				$rgba  = imagecolorat( $img, $x, $y );
+				$a     = ( $rgba >> 24 ) & 0x7F;
+				$r     = ( $rgba >> 16 ) & 0xFF;
+				$g     = ( $rgba >> 8 ) & 0xFF;
+				$b     = $rgba & 0xFF;
+				$new_r = $r * $diagonal + $g * $minus + $b * $plus;
+				$new_g = $r * $plus + $g * $diagonal + $b * $minus;
+				$new_b = $r * $minus + $g * $plus + $b * $diagonal;
 				$color = imagecolorallocatealpha( $img, self::clamp_rgb( $new_r ), self::clamp_rgb( $new_g ), self::clamp_rgb( $new_b ), $a );
 				imagesetpixel( $img, $x, $y, $color );
 			}

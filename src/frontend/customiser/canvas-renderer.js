@@ -576,9 +576,7 @@ const canvasRendererMethods = {
 					  };
 				const singleLineMaxWidth = Math.max( 1, lw );
 				const singleLineMaxHeight = Math.max( 1, lh );
-				const obj = new textClass( raw, {
-					left: lcX,
-					top: lcY,
+				const textOptions = {
 					originX: 'center',
 					originY: 'center',
 					...textBoxSize,
@@ -587,11 +585,16 @@ const canvasRendererMethods = {
 					fontWeight: font?.weight || 'normal',
 					fontStyle: font?.style || 'normal',
 					fontSize,
-					fill: textFill,
 					textAlign: align,
 					selectable: false,
 					evented: false,
 					objectCaching: false,
+				};
+				const obj = new textClass( raw, {
+					...textOptions,
+					left: lcX,
+					top: lcY,
+					fill: textFill,
 				} );
 				obj._ocContent = true; // tag after creation
 				let stitchPad = null;
@@ -647,16 +650,9 @@ const canvasRendererMethods = {
 					const threadShadow = this.embroideryShadowColor( color );
 
 					stitchPad = new textClass( raw, {
+						...textOptions,
 						left: lcX + Math.max( 0.45, fontSize * 0.015 ),
 						top: lcY + Math.max( 0.65, fontSize * 0.02 ),
-						originX: 'center',
-						originY: 'center',
-						...textBoxSize,
-						angle: rotation,
-						fontFamily: font?.name || 'sans-serif',
-						fontWeight: font?.weight || 'normal',
-						fontStyle: font?.style || 'normal',
-						fontSize,
 						fill: threadShadow,
 						opacity: 0.24,
 						shadow: new Shadow( {
@@ -665,33 +661,18 @@ const canvasRendererMethods = {
 							offsetY: 0.9,
 							blur: 1.8,
 						} ),
-						textAlign: align,
-						selectable: false,
-						evented: false,
-						objectCaching: false,
 					} );
 					stitchPad._ocContent = true;
 					canvas.add( stitchPad );
 
 					stitchLift = new textClass( raw, {
+						...textOptions,
 						left: lcX - Math.max( 0.25, fontSize * 0.006 ),
 						top: lcY - Math.max( 0.25, fontSize * 0.006 ),
-						originX: 'center',
-						originY: 'center',
-						...textBoxSize,
-						angle: rotation,
-						fontFamily: font?.name || 'sans-serif',
-						fontWeight: font?.weight || 'normal',
-						fontStyle: font?.style || 'normal',
-						fontSize,
 						fill: 'rgba(255,255,255,0)',
 						stroke: threadLift,
 						strokeWidth: Math.max( 0.2, fontSize * 0.006 ),
 						opacity: 0.22,
-						textAlign: align,
-						selectable: false,
-						evented: false,
-						objectCaching: false,
 					} );
 					stitchLift._ocContent = true;
 					canvas.add( stitchLift );
@@ -2755,45 +2736,28 @@ const canvasRendererMethods = {
 		const key = String( config?.key || '' );
 		const value = Number( config?.value );
 		const amount = Number.isFinite( value ) ? value : 1;
-		switch ( key ) {
-			case 'grayscale':
-				if ( FabricFilters.Grayscale ) {
-					filters.push( new FabricFilters.Grayscale() );
-				}
-				break;
-			case 'sepia':
-				if ( FabricFilters.Sepia ) {
-					filters.push( new FabricFilters.Sepia() );
-				}
-				break;
-			case 'brightness':
-				if ( FabricFilters.Brightness ) {
-					filters.push(
-						new FabricFilters.Brightness( { brightness: amount } )
-					);
-				}
-				break;
-			case 'contrast':
-				if ( FabricFilters.Contrast ) {
-					filters.push(
-						new FabricFilters.Contrast( { contrast: amount } )
-					);
-				}
-				break;
-			case 'saturation':
-				if ( FabricFilters.Saturation ) {
-					filters.push(
-						new FabricFilters.Saturation( { saturation: amount } )
-					);
-				}
-				break;
-			case 'hue':
-				if ( FabricFilters.HueRotation ) {
-					filters.push(
-						new FabricFilters.HueRotation( { rotation: amount } )
-					);
-				}
-				break;
+		// Explicit references let webpack tree-shake unused Fabric filters.
+		const Filter = {
+			__proto__: null,
+			negative: FabricFilters.Invert,
+			grayscale: FabricFilters.Grayscale,
+			sepia: FabricFilters.Sepia,
+			brightness: FabricFilters.Brightness,
+			contrast: FabricFilters.Contrast,
+			saturation: FabricFilters.Saturation,
+			hue: FabricFilters.HueRotation,
+		}[ key ];
+		if ( Filter ) {
+			// Stored hue amounts are Fabric rotations: 1 = PI radians.
+			const options = [
+				'brightness',
+				'contrast',
+				'saturation',
+				'hue',
+			].includes( key )
+				? { [ key === 'hue' ? 'rotation' : key ]: amount }
+				: undefined;
+			filters.push( new Filter( options ) );
 		}
 	},
 

@@ -169,6 +169,66 @@ class OC_Print_Base_Testable extends OC_Print_Base {
 }
 
 class Test_Print_Base extends TestCase {
+	public static function literal_print_text_cases(): array {
+		$cases = [];
+		// UV colour and sublimation share colour mode; UV white uses spot mode.
+		foreach ( [ 'engraving', 'colour', 'spot' ] as $mode ) {
+			foreach ( [ '<', '>', '<3', '<name>', '&lt;' ] as $literal ) {
+				foreach ( [ 'text', 'textarea' ] as $type ) {
+					$cases[ "$mode $type $literal" ] = [ $mode, $type, $literal ];
+				}
+			}
+		}
+		return $cases;
+	}
+
+	#[Test]
+	#[DataProvider( 'literal_print_text_cases' )]
+	public function shared_pdf_layers_preserve_literal_customer_text( string $mode, string $type, string $literal ): void {
+		if ( ! class_exists( 'TCPDF' ) ) {
+			$this->markTestSkipped( 'TCPDF required.' );
+		}
+		// Deliberately feed stored plain text, not HTML or decoded entities.
+		$text  = 'textarea' === $type ? $literal . "\n" . $literal : $literal;
+		$pdf   = new OC_Test_Text_Cell_PDF();
+		$area  = (object) [
+			'canvas_unit' => 'px',
+			'canvas_w'    => 400,
+			'canvas_h'    => 120,
+		];
+		$input = [
+			'value'    => $text,
+			'fontSize' => 12,
+		];
+		if ( 'textarea' === $type ) {
+			$input['renderedLines'] = [ $literal, $literal ];
+		}
+		OC_Print_Base_Testable::test_render_layer_payload(
+			$pdf,
+			$area,
+			[
+				'layers' => [
+					[
+						'type'     => $type,
+						'x'        => 0,
+						'y'        => 0,
+						'w'        => 400,
+						'h'        => 120,
+						'input'    => $input,
+						'settings' => [],
+					],
+				],
+			],
+			$mode
+		);
+
+		$this->assertSame( $text, $pdf->cell_args[2] ?? null );
+		// MultiCell's ishtml argument must remain false (or its default).
+		if ( 'textarea' === $type ) {
+			$this->assertFalse( $pdf->cell_args[13] ?? false );
+		}
+	}
+
 	#[Test]
 	public function text_rendering_rejects_nonfinite_geometry_before_font_or_pdf_work(): void {
 		if ( ! class_exists( 'TCPDF' ) ) {

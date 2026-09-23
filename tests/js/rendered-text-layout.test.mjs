@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { FabricText, Textbox } from 'fabric/node';
+import { FabricText, Textbox, Shadow } from 'fabric/node';
 
 async function shared( path ) {
 	return import(
@@ -15,6 +15,7 @@ const math = await shared( 'src/shared/render-math.js' );
 const layout = await shared( 'src/shared/text-layout.js' );
 class Text {
 	constructor( text, options ) {
+		this.initialOptions = { ...options };
 		Object.assign(
 			this,
 			{ scaleX: 1, scaleY: 1, width: 200, height: 10 },
@@ -28,7 +29,13 @@ class Text {
 	initDimensions() {}
 	setCoords() {}
 }
-const dependencies = { ...math, ...layout, FabricText: Text, Textbox: Text };
+const dependencies = {
+	...math,
+	...layout,
+	FabricText: Text,
+	Textbox: Text,
+	Shadow,
+};
 const source = await readFile(
 	'src/frontend/customiser/canvas-renderer.js',
 	'utf8'
@@ -215,6 +222,51 @@ function fixture( type = 'text', settings = {}, unit = 'px', scale = 1 ) {
 		render: () => app.renderLayer( canvas, layer, input, area ),
 	};
 }
+
+test( 'embroidery text and textarea retain shared styles and distinct effect layers', async () => {
+	for ( const type of [ 'text', 'textarea' ] ) {
+		const f = fixture( type, {
+			alignment: 'right',
+			default_font_size: 20,
+		} );
+		f.area.printMethod = 'embroidery';
+		f.area.rotation = 15;
+		f.app.fonts[ 0 ].weight = 'bold';
+		f.app.fonts[ 0 ].style = 'italic';
+		f.app.stripUnsupportedPrintEmoji = ( value ) => value;
+		f.app.embroideryPattern = () => 'thread-pattern';
+		const objects = [];
+		f.canvas.add = ( object ) => objects.push( object );
+		await f.render();
+		assert.equal( objects.length, 3 );
+		for ( const object of objects ) {
+			assert.equal( object.originX, 'center' );
+			assert.equal( object.originY, 'center' );
+			assert.equal( object.angle, 15 );
+			assert.equal( object.fontFamily, 'Actual' );
+			assert.equal( object.fontWeight, 'bold' );
+			assert.equal( object.fontStyle, 'italic' );
+			assert.equal( object.fontSize, 20 );
+			assert.equal( object.textAlign, 'right' );
+			assert.equal( object.selectable, false );
+			assert.equal( object.evented, false );
+			assert.equal( object.objectCaching, false );
+			assert.equal( object._ocContent, true );
+			assert.equal(
+				object.initialOptions.width,
+				type === 'textarea' ? 96 : undefined
+			);
+		}
+		const [ pad, lift, text ] = objects;
+		assert.equal( pad.fill, 'rgba(0,0,0,0.72)' );
+		assert.equal( pad.opacity, 0.24 );
+		assert.equal( lift.fill, 'rgba(255,255,255,0)' );
+		assert.equal( lift.opacity, 0.22 );
+		assert.equal( text.fill, 'thread-pattern' );
+		assert.ok( pad.left > text.left );
+		assert.ok( lift.left < text.left );
+	}
+} );
 
 test( 'real Fabric textarea rendering does not shrink fitting text to the floor', async () => {
 	const f = fixture( 'textarea' );

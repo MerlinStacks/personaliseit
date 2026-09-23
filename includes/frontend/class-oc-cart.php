@@ -473,7 +473,7 @@ class OC_Cart {
 				return new \WP_Error( 'missing_area', sprintf( __( 'Please complete "%s".', 'overcustomise' ), $area->label ?: $area_key ) );
 			}
 
-			$text          = is_scalar( $area_data['text'] ?? null ) ? sanitize_textarea_field( (string) $area_data['text'] ) : '';
+			$text          = OC_Print_Text::normalise( $area_data['text'] ?? null, true );
 			$attachment_id = is_scalar( $area_data['artworkAttachmentId'] ?? null ) ? absint( $area_data['artworkAttachmentId'] ) : 0;
 			if ( '' === trim( $text ) ) {
 				/* translators: %s: Personalisation area label. */
@@ -663,7 +663,8 @@ class OC_Cart {
 
 			$default_value = is_scalar( $settings['default_text'] ?? null ) ? (string) $settings['default_text'] : '';
 			$value         = is_scalar( $source['value'] ?? null ) ? (string) $source['value'] : $default_value;
-			$value         = 'textarea' === $type && function_exists( 'sanitize_textarea_field' ) ? sanitize_textarea_field( $value ) : sanitize_text_field( $value );
+			$value         = in_array( $type, [ 'text', 'textarea' ], true )
+				? OC_Print_Text::normalise( $value, 'textarea' === $type ) : sanitize_text_field( $value );
 			if ( 'spotify' === $type && '' !== trim( $value ) ) {
 				$value = self::normalise_spotify_value( $value );
 				if ( '' === $value ) {
@@ -934,8 +935,7 @@ class OC_Cart {
 			$input = $normalised[ $id ];
 			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
 				$canonical = static function ( string $text ) use ( $type ): string {
-					$text = str_replace( [ "\r\n", "\r" ], "\n", $text );
-					$text = 'textarea' === $type ? sanitize_textarea_field( $text ) : sanitize_text_field( $text );
+					$text = OC_Print_Text::normalise( $text, 'textarea' === $type );
 					return trim( (string) preg_replace( '/\s+/u', ' ', $text ) );
 				};
 				$value     = $canonical( $input['value'] );
@@ -972,8 +972,7 @@ class OC_Cart {
 			|| (float) $posted['fontId'] !== (float) $font_id ) {
 			return [];
 		}
-		$posted_value = 'textarea' === $type && function_exists( 'sanitize_textarea_field' )
-			? sanitize_textarea_field( $posted['value'] ) : sanitize_text_field( $posted['value'] );
+		$posted_value = OC_Print_Text::normalise( $posted['value'], 'textarea' === $type );
 		return $posted_value === $value ? $posted : [];
 	}
 
@@ -1067,7 +1066,7 @@ class OC_Cart {
 			if ( ! is_scalar( $line ) ) {
 				return null;
 			}
-			$lines[] = sanitize_text_field( (string) $line );
+			$lines[] = OC_Print_Text::normalise( $line );
 		}
 
 		$normalise = static function ( string $text ): string {
@@ -1387,7 +1386,9 @@ class OC_Cart {
 		if ( ! array_key_exists( 'formats', $value ) || ! is_array( $value['formats'] ) ) {
 			$formats = $default_formats;
 		}
-		$default_text = sanitize_textarea_field( $string( $value['default_text'] ?? '' ) );
+		$default_text = in_array( $type, [ 'text', 'textarea' ], true )
+			? OC_Print_Text::normalise( $value['default_text'] ?? '', 'textarea' === $type )
+			: sanitize_textarea_field( $string( $value['default_text'] ?? '' ) );
 		if ( self::string_length_static( $default_text ) > 10000 ) {
 			$default_text = function_exists( 'mb_substr' ) ? mb_substr( $default_text, 0, 10000, 'UTF-8' ) : substr( $default_text, 0, 10000 );
 		}
@@ -1563,7 +1564,7 @@ class OC_Cart {
 				$type  = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
 				$label = $layer ? ( $layer->label ?: ucfirst( (string) $layer->type ) ) : ucfirst( $type ?: __( 'Layer', 'overcustomise' ) );
 				$value = $this->layer_display_value( $layer_data );
-				if ( ! $value ) {
+				if ( '' === $value ) {
 					continue;
 				}
 				$item_data[] = [
@@ -1583,7 +1584,7 @@ class OC_Cart {
 
 			$parts = [];
 			if ( is_scalar( $area_data['text'] ?? null ) && '' !== trim( (string) $area_data['text'] ) ) {
-				$parts[] = esc_html( (string) $area_data['text'] );
+				$parts[] = self::escape_printable_text( OC_Print_Text::normalise( $area_data['text'], true ) );
 				if ( ! empty( $area_data['fontId'] ) ) {
 					$font_name = OC_DB::get_font_name( absint( $area_data['fontId'] ) );
 					if ( $font_name ) {
@@ -1894,7 +1895,7 @@ class OC_Cart {
 					? ( ! empty( $layer->label ) ? $layer->label : ucfirst( (string) $layer->type ) )
 					: ucfirst( '' !== $type ? $type : __( 'Layer', 'overcustomise' ) );
 				$value = $this->layer_display_value( $layer_data, $layer, $admin_context, $print_method_map[ (int) $layer_id ] ?? '' );
-				if ( ! $value ) {
+				if ( '' === $value ) {
 					continue;
 				}
 				echo '<div style="display:grid;grid-template-columns:minmax(110px,38%) 1fr;gap:8px;align-items:start;margin:0 0 6px;">'
@@ -1913,7 +1914,7 @@ class OC_Cart {
 			if ( ! is_array( $area_data ) ) {
 				continue;
 			}
-			$text        = is_scalar( $area_data['text'] ?? null ) ? (string) $area_data['text'] : '';
+			$text        = OC_Print_Text::normalise( $area_data['text'] ?? null, true );
 			$has_text    = '' !== trim( $text );
 			$has_artwork = ! empty( $area_data['artworkAttachmentId'] );
 			if ( ! $has_text && ! $has_artwork ) {
@@ -1925,7 +1926,7 @@ class OC_Cart {
 				. '<div style="color:#1d2327;word-break:break-word;">';
 
 			if ( $has_text ) {
-				echo esc_html( $text );
+				echo self::escape_printable_text( $text ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escapes literal entities as well as markup.
 				if ( ! empty( $area_data['fontId'] ) ) {
 					$font_name = OC_DB::get_font_name( absint( $area_data['fontId'] ) );
 					if ( $font_name ) {
@@ -1967,6 +1968,12 @@ class OC_Cart {
 
 	// ── Shared helpers ────────────────────────────────────────────────────────
 
+	/** Escape literal printable text, including entity syntax, for HTML text content. */
+	private static function escape_printable_text( string $text ): string {
+		// esc_html() avoids double encoding, which would interpret a typed &lt; as <.
+		return htmlspecialchars( $text, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', true );
+	}
+
 	/**
 	 * Return a safe display string for a single v2 layer input array.
 	 * Returns empty string if there's nothing to show.
@@ -1978,12 +1985,12 @@ class OC_Cart {
 			case 'text':
 			case 'textarea':
 			case 'spotify':
-				$val = is_scalar( $layer_data['value'] ?? null ) ? trim( (string) $layer_data['value'] ) : '';
-				if ( ! $val ) {
+				$val = OC_Print_Text::normalise( $layer_data['value'] ?? null, 'textarea' === $type );
+				if ( '' === $val ) {
 					return '';
 				}
 
-				$html = esc_html( $val );
+				$html = self::escape_printable_text( $val );
 				if ( $admin_context && in_array( $type, [ 'text', 'textarea' ], true ) && ! empty( $layer_data['fontId'] ) && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
 					$font_name = OC_DB::get_font_name( absint( $layer_data['fontId'] ) );
 					if ( '' !== $font_name ) {
@@ -2271,7 +2278,7 @@ class OC_Cart {
 				}
 				$parts = [];
 				if ( is_scalar( $area_data['text'] ?? null ) && '' !== trim( (string) $area_data['text'] ) ) {
-					$parts[] = sanitize_textarea_field( (string) $area_data['text'] );
+					$parts[] = OC_Print_Text::normalise( $area_data['text'], true );
 				}
 				if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
 					$parts[] = __( 'Artwork attached', 'overcustomise' );
@@ -2285,14 +2292,14 @@ class OC_Cart {
 		if ( '' !== $preview_url ) {
 			$lines[] = __( 'Preview', 'overcustomise' ) . ': ' . esc_url_raw( $preview_url );
 		}
-		echo "\n" . implode( "\n", $lines ) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- plain-email values are sanitised above.
+		echo "\n" . implode( "\n", $lines ) . "\n"; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Plain-text email body: printable text must not be HTML-escaped or stripped.
 	}
 
 	/** Return one order layer as a safe plain-text email value. */
 	private function plain_text_layer_display_value( array $layer_data, ?object $layer, string $print_method ): string {
 		$type  = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
 		$value = match ( $type ) {
-			'text', 'textarea', 'spotify' => is_scalar( $layer_data['value'] ?? null ) ? sanitize_textarea_field( (string) $layer_data['value'] ) : '',
+			'text', 'textarea', 'spotify' => OC_Print_Text::normalise( $layer_data['value'] ?? null, 'textarea' === $type ),
 			'image', 'clipmask'            => ! empty( $layer_data['attachmentId'] ) ? __( 'Image uploaded', 'overcustomise' ) : '',
 			'ai_image'                     => ! empty( $layer_data['attachmentId'] ) ? __( 'Image generated', 'overcustomise' ) : '',
 			'clipart'                      => ! empty( $layer_data['clipartId'] ) ? __( 'Clipart selected', 'overcustomise' ) : '',

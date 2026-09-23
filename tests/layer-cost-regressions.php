@@ -67,6 +67,22 @@ class WP_Error {
 }
 class OC_DB {
 	public static array $layers = [];
+	public static function get_config_by_product( $id ) {
+		return (object) [
+			'id'          => 1,
+			'active'      => 1,
+			'custom_type' => 'text_only',
+			'flat_rate'   => 0,
+		];
+	}
+	public static function get_print_areas( $id ) {
+		return [
+			(object) [
+				'area_key' => 'front',
+				'label'    => 'Front',
+			],
+		];
+	}
 	public static function get_assignment_for_product( ...$args ) {
 		return (object) [ 'design_id' => 1 ];
 	}
@@ -149,6 +165,7 @@ class WC_Order_Item_Product {
 		$this->meta[ $key ] = $value;
 	}
 }
+require_once ABSPATH . 'includes/class-oc-print-text.php';
 require_once ABSPATH . 'includes/frontend/class-oc-cart.php';
 $assertions = 0;
 function check( $condition, $message ) {
@@ -187,6 +204,32 @@ function amount( $input ) {
 	check( ! is_wp_error( $result ), 'Expected valid normalisation' );
 	return (float) array_sum( array_column( $result['layer_costs'], 'amount' ) );
 }
+foreach ( [ 'text', 'textarea' ] as $text_type ) {
+	$literal       = '<name> &lt; &#60; & "Zoë" %20';
+	OC_DB::$layers = [
+		layer(
+			1,
+			$text_type,
+			[
+				'default_text' => $literal,
+				'required'     => true,
+			]
+		),
+	];
+	check( normalise( [] )['layers'][1]['value'] === $literal, 'Printable defaults remain literal' );
+	check( normalise( [ 1 => [ 'value' => $literal ] ] )['layers'][1]['value'] === $literal, 'Submitted text remains literal' );
+	check( 0.0 === amount( [ 1 => [ 'value' => $literal ] ] ), 'Exact literal default is free' );
+	check( 2.25 === amount( [ 1 => [ 'value' => str_replace( '<name>', '<other>', $literal ) ] ] ), 'Bracket-only changes incur fee' );
+	check( 2.25 === amount( [ 1 => [ 'value' => str_replace( '&lt;', '<', $literal ) ] ] ), 'Entity and literal bracket are distinct' );
+	OC_DB::$layers[0]->locked = 1;
+	check( normalise( [ 1 => [ 'value' => 'override' ] ] )['layers'][1]['value'] === $literal, 'Locked default remains literal' );
+	OC_DB::$layers = [ layer( 1, $text_type, [ 'char_limit' => 3 ] ) ];
+	check( is_wp_error( normalise( [ 1 => [ 'value' => '<name>' ] ] ) ), 'Character limit counts literal brackets' );
+}
+$legacy_text = "<name> &lt; %20\n<second>";
+$legacy      = OC_Cart::normalise_legacy_submission( 100, 0, [ 'front' => [ 'text' => $legacy_text ] ] );
+check( $legacy_text === $legacy['areas']['front']['text'], 'Legacy printable text remains literal and multiline' );
+check( is_wp_error( OC_Cart::normalise_legacy_submission( 100, 0, [ 'front' => [ 'text' => [] ] ] ) ), 'Legacy non-scalar required text is rejected' );
 foreach ( [ 'text', 'textarea', 'image', 'clipmask' ] as $layer_type ) {
 	$settings = OC_Cart::normalise_layer_settings( [], $layer_type );
 	check( false === $settings['additional_cost_enabled'] && 0.0 === $settings['additional_cost'], 'Old designs default to no fee' );
@@ -200,9 +243,10 @@ foreach ( [ 'ai_image', 'spotify', 'lineart', 'clipart', 'night_sky', 'mask', 'c
 }
 foreach ( [ 'text', 'textarea' ] as $layer_type ) {
 	OC_DB::$layers = [ layer( 1, $layer_type, [ 'default_text' => "Your\r\nname" ] ) ];
-	foreach ( [ [], [ 'value' => '' ], [ 'value' => " \t\n " ], [ 'value' => ' Your name ' ], [ 'value' => "Your\nname" ], [ 'value' => '<b>Your</b> name' ] ] as $input ) {
-		check( 0.0 === amount( [ 1 => $input ] ), 'Empty and sanitised multiline defaults are free' );
+	foreach ( [ [], [ 'value' => '' ], [ 'value' => " \t\n " ], [ 'value' => ' Your name ' ], [ 'value' => "Your\nname" ] ] as $input ) {
+		check( 0.0 === amount( [ 1 => $input ] ), 'Empty and whitespace-normalised defaults are free' );
 	}
+	check( 2.25 === amount( [ 1 => [ 'value' => '<b>Your</b> name' ] ] ), 'Literal tag-looking text differs from default' );
 	check(
 		2.25 === amount(
 			[

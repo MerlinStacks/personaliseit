@@ -1,11 +1,19 @@
 /* eslint-disable no-nested-ternary */
 
-import { cache, FabricText, StaticCanvas, Textbox } from 'fabric';
+import {
+	cache,
+	filters as FabricFilters,
+	FabricText,
+	StaticCanvas,
+	Textbox,
+} from 'fabric';
 import { appendCutLinePreview } from './products-page-cut-line';
 import {
 	layoutMultilineTextbox,
 	multilineTextboxFits,
 } from '../shared/text-layout';
+
+let huePreviewId = 0;
 
 export function createLayerPreviewRenderer( deps ) {
 	const { fontLimit, layerLabel, normaliseHex } = deps;
@@ -157,7 +165,7 @@ export function createLayerPreviewRenderer( deps ) {
 		} );
 	}
 
-	function imageFilterCss( filterId ) {
+	function imageFilterCss( filterId, el ) {
 		filterId = Number( filterId ) || 0;
 		if ( ! filterId ) {
 			return '';
@@ -173,6 +181,8 @@ export function createLayerPreviewRenderer( deps ) {
 			? Number( filter.value )
 			: 1;
 		switch ( filter.key ) {
+			case 'negative':
+				return 'invert(1)';
 			case 'grayscale':
 				return 'grayscale(1)';
 			case 'sepia':
@@ -183,8 +193,32 @@ export function createLayerPreviewRenderer( deps ) {
 				return 'contrast(' + Math.max( 0, 1 + value ) + ')';
 			case 'saturation':
 				return 'saturate(' + Math.max( 0, 1 + value ) + ')';
-			case 'hue':
-				return 'hue-rotate(' + value * 360 + 'deg)';
+			case 'hue': {
+				// CSS hue-rotate uses a different matrix. Keep stored Fabric semantics.
+				const hue = new FabricFilters.HueRotation( {
+					rotation: value,
+				} );
+				hue.calculateMatrix();
+				const ns = 'http://www.w3.org/2000/svg';
+				const svg = document.createElementNS( ns, 'svg' );
+				svg.setAttribute( 'class', 'oc-lp' );
+				svg.setAttribute( 'width', '0' );
+				svg.setAttribute( 'height', '0' );
+				svg.style.position = 'absolute';
+				const definition = document.createElementNS( ns, 'filter' );
+				definition.id = `oc-hue-preview-${ ++huePreviewId }`;
+				definition.setAttribute(
+					'color-interpolation-filters',
+					'sRGB'
+				);
+				const matrix = document.createElementNS( ns, 'feColorMatrix' );
+				matrix.setAttribute( 'type', 'matrix' );
+				matrix.setAttribute( 'values', hue.matrix.join( ' ' ) );
+				definition.appendChild( matrix );
+				svg.appendChild( definition );
+				el.appendChild( svg );
+				return `url(#${ definition.id })`;
+			}
 			default:
 				return '';
 		}
@@ -331,7 +365,7 @@ export function createLayerPreviewRenderer( deps ) {
 				img.alt = '';
 				img.style.filter = isEngraving
 					? engraving.photoFilter || engraving.filter
-					: imageFilterCss( s.default_image_filter_id );
+					: imageFilterCss( s.default_image_filter_id, el );
 				if (
 					isEngraving &&
 					[ 'leather', 'silver_plaque' ].includes( engravingMaterial )

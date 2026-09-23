@@ -139,9 +139,8 @@ class OC_VDP {
 		if ( ! in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) || ! empty( $layer->locked ) ) {
 			return new \WP_Error( 'invalid_vdp_layer', __( 'VDP fields may only target editable text, textarea, or Spotify layers.', 'overcustomise' ) );
 		}
-		$value = 'textarea' === $type && function_exists( 'sanitize_textarea_field' )
-			? sanitize_textarea_field( $value )
-			: sanitize_text_field( $value );
+		$value = in_array( $type, [ 'text', 'textarea' ], true )
+			? OC_Print_Text::normalise( $value, 'textarea' === $type ) : sanitize_text_field( $value );
 		if ( 'spotify' === $type && '' !== $value ) {
 			$value = OC_Cart::normalise_spotify_value( $value );
 			if ( '' === $value ) {

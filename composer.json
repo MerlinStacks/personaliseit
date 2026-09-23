@@ -39,7 +39,10 @@
     "phpstan":   "phpstan analyse --no-progress --memory-limit=2G",
     "test": [
       "phpunit --testsuite Unit",
-      "@php tests/colour-group-cache-regressions.php"
+      "@php tests/colour-group-cache-regressions.php",
+      "@php tests/admin-image-filter-regressions.php",
+      "@php tests/print-negative-renderer-regressions.php",
+      "@php tests/layer-cost-regressions.php"
     ],
     "test:unit": "phpunit --testsuite Unit",
     "test:all":  "phpunit",

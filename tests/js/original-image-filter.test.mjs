@@ -94,10 +94,41 @@ test( 'Original dropdown selection restores the source and serializes zero', asy
 	assert.equal( app.payload.imageFilterId, 0 );
 } );
 
-test( 'non-AI filters restore the source without clearing the selected effect', async () => {
-	const app = context();
-	assert.equal( await app.applyAiImageFilter( 1, 8 ), true );
-	assert.equal( app.inputs[ 1 ].attachmentId, 10 );
-	assert.equal( app.linkedInput.imageFilterId, 8 );
-	assert.equal( app.payload.imageFilterId, 8 );
-} );
+for ( const key of [
+	'grayscale',
+	'negative',
+	'sepia',
+	'brightness',
+	'contrast',
+	'saturation',
+	'hue',
+] ) {
+	test( `${ key } restores source and preserves selection without an AI request`, async () => {
+		const app = context();
+		app.data.imageFilters[ 0 ].key = key;
+		let aborted = false;
+		app.aiFilterAbortControllers[ 1 ] = {
+			abort() {
+				aborted = true;
+			},
+		};
+		const originalFetch = globalThis.fetch;
+		let requests = 0;
+		globalThis.fetch = () => {
+			requests++;
+			throw new Error(
+				'Standard filters must not make network requests'
+			);
+		};
+		try {
+			assert.equal( await app.applyAiImageFilter( 1, 8 ), true );
+			assert.equal( requests, 0 );
+			assert.equal( aborted, true );
+			assert.equal( app.inputs[ 1 ].attachmentId, 10 );
+			assert.equal( app.linkedInput.imageFilterId, 8 );
+			assert.equal( app.payload.imageFilterId, 8 );
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	} );
+}

@@ -8,6 +8,22 @@ require_once OC_PATH . 'includes/frontend/class-oc-cart.php';
 
 class Test_Cart_Text_Layout extends TestCase {
 	#[Test]
+	public function literal_text_layout_matches_without_entity_decoding_or_tag_stripping(): void {
+		$text   = '<name> &lt; %20 "Zoë"';
+		$posted = [
+			'value'                 => $text,
+			'fontId'                => 3,
+			'renderedLayoutVersion' => 1,
+		];
+		$match  = new ReflectionMethod( OC_Cart::class, 'matching_text_layout_source' );
+		$this->assertSame( $posted, $match->invoke( null, $posted, 'text', $text, 3 ) );
+		$this->assertSame( [], $match->invoke( null, $posted, 'text', ' &lt; %20 "Zoë"', 3 ) );
+		$lines = new ReflectionMethod( OC_Cart::class, 'normalise_rendered_text_lines' );
+		$this->assertSame( [ '<name>', '&lt; %20 "Zoë"' ], $lines->invoke( null, [ '<name>', '&lt; %20 "Zoë"' ], $text ) );
+		$this->assertNull( $lines->invoke( null, [ '<name>', '< %20 "Zoë"' ], $text ) );
+	}
+
+	#[Test]
 	public function legacy_hints_remain_independent_unverified_and_use_previous_size_limits(): void {
 		$method = new ReflectionMethod( OC_Cart::class, 'normalise_rendered_text_layout' );
 		$source = [

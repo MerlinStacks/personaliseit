@@ -45,7 +45,7 @@ class OC_Blocks_Integration {
 		];
 	}
 
-	/** Build an array of {key, value} summary lines for a cart item. */
+	/** Build plain-data {key, value} lines; HTML consumers must escape these strings. */
 	private function build_summary( array $cart_item ): array {
 		$customisation = $cart_item['_oc_customisation'] ?? null;
 		if ( empty( $customisation ) || ! is_array( $customisation ) ) {
@@ -83,7 +83,9 @@ class OC_Blocks_Integration {
 				: ucfirst( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : 'Layer' );
 
 			$value = $this->layer_value( $layer_data );
-			if ( ! $value ) continue;
+			if ( '' === $value ) {
+				continue;
+			}
 
 			$lines[] = [ 'key' => $label, 'value' => $value ];
 		}
@@ -99,7 +101,7 @@ class OC_Blocks_Integration {
 
 			$parts = [];
 			if ( is_scalar( $area_data['text'] ?? null ) && '' !== trim( (string) $area_data['text'] ) ) {
-				$parts[] = sanitize_textarea_field( (string) $area_data['text'] );
+				$parts[] = OC_Print_Text::normalise( $area_data['text'], true );
 			}
 			if ( ! empty( $area_data['artworkAttachmentId'] ) ) {
 				$parts[] = __( 'Artwork attached', 'overcustomise' );
@@ -121,7 +123,7 @@ class OC_Blocks_Integration {
 			case 'text':
 			case 'textarea':
 			case 'spotify':
-				return is_scalar( $layer_data['value'] ?? null ) ? trim( sanitize_textarea_field( (string) $layer_data['value'] ) ) : '';
+				return OC_Print_Text::normalise( $layer_data['value'] ?? null, 'textarea' === $type );
 			case 'image':
 			case 'clipmask':
 				return ! empty( $layer_data['attachmentId'] )

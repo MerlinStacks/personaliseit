@@ -32,6 +32,7 @@ class OC_Plugin {
 		spl_autoload_register( [ self::class, 'autoload_print_renderer' ] );
 
 		// Core utilities.
+		require_once OC_PATH . 'includes/class-oc-print-text.php';
 		require_once OC_PATH . 'includes/class-oc-tooltips.php';
 		require_once OC_PATH . 'includes/class-oc-cache.php';
 		require_once OC_PATH . 'includes/class-oc-woff-converter.php';

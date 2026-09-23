@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.18.0 - 2026-09-23
+
+### Added
+- Create reusable standard image filters without an AI provider or API key, including greyscale, negative, sepia, brightness, contrast, saturation, and hue rotation.
+- Apply negative filters in the design preview, customer customiser, and production print renderer while preserving transparency.
+
+### Fixed
+- Preserve literal printable text, including angle brackets, percent sequences, and entity syntax, through cart validation, VDP, text layout, order summaries, and plain-text emails. HTML output remains escaped.
+- Match admin and production hue rotation to the existing storefront matrix and half-turn amount scale.
+
+### Upgrade notes
+- No database migration is required; existing AI filter records and stored customer text are retained.
+- Regenerated hue-filtered print files now match the storefront rather than the old print-only hue calculation. Previously generated files are not rewritten automatically.
+
 ## 1.17.2 - 2026-09-18
 
 ### Fixed

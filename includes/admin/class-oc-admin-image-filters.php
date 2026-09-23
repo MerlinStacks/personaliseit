@@ -1,6 +1,6 @@
 <?php
 /**
- * AI image filter manager page.
+ * Standard and AI image filter manager page.
  *
  * @package OverCustomise
  */
@@ -8,6 +8,20 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Admin_Image_Filters {
+
+	/** Available filter types, shared by the form and save validation. */
+	private static function filter_types(): array {
+		return [
+			'ai'         => __( 'AI prompt', 'overcustomise' ),
+			'grayscale'  => __( 'Greyscale', 'overcustomise' ),
+			'negative'   => __( 'Negative', 'overcustomise' ),
+			'sepia'      => __( 'Sepia', 'overcustomise' ),
+			'brightness' => __( 'Brightness', 'overcustomise' ),
+			'contrast'   => __( 'Contrast', 'overcustomise' ),
+			'saturation' => __( 'Saturation', 'overcustomise' ),
+			'hue'        => __( 'Hue rotation', 'overcustomise' ),
+		];
+	}
 
 	public static function register_ajax(): void {
 		add_action( 'wp_ajax_oc_test_ai_image_filter', [ self::class, 'ajax_test_filter' ] );
@@ -114,8 +128,8 @@ class OC_Admin_Image_Filters {
 			<?php endif; ?>
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
-					<h1 class="oc-page-title"><?php esc_html_e( 'AI Image Filters', 'overcustomise' ); ?></h1>
-					<p class="oc-page-subtitle"><?php esc_html_e( 'Create reusable AI image prompts, test them, then enable them on image layers in a design.', 'overcustomise' ); ?></p>
+					<h1 class="oc-page-title"><?php esc_html_e( 'Image Filters', 'overcustomise' ); ?></h1>
+					<p class="oc-page-subtitle"><?php esc_html_e( 'Create instant standard effects or AI image prompts, then enable them on image layers in a design. Standard effects need no AI provider or API key.', 'overcustomise' ); ?></p>
 				</div>
 			</div>
 
@@ -138,6 +152,18 @@ class OC_Admin_Image_Filters {
 							<div class="oc-form-field"><input type="text" id="oc_filter_name" name="name" class="regular-text oc-input" required value="<?php echo esc_attr( (string) ( $editing->name ?? '' ) ); ?>" placeholder="<?php esc_attr_e( 'e.g. Embroidery pet outline', 'overcustomise' ); ?>" /></div>
 						</div>
 						<div class="oc-form-row">
+							<div class="oc-form-label"><label for="oc_filter_type"><?php esc_html_e( 'Filter type', 'overcustomise' ); ?></label></div>
+							<div class="oc-form-field"><select id="oc_filter_type" name="filter_key" class="oc-input">
+								<?php foreach ( self::filter_types() as $key => $label ) : ?>
+									<option value="<?php echo esc_attr( $key ); ?>" <?php selected( $editing->filter_key ?? 'ai', $key ); ?>><?php echo esc_html( $label ); ?></option>
+								<?php endforeach; ?>
+							</select><p class="oc-form-help"><?php esc_html_e( 'Standard effects apply instantly without sending the image to AI.', 'overcustomise' ); ?></p></div>
+						</div>
+						<div class="oc-form-row" data-filter-amount>
+							<div class="oc-form-label"><label for="oc_filter_value"><?php esc_html_e( 'Amount', 'overcustomise' ); ?></label></div>
+							<div class="oc-form-field"><input type="number" id="oc_filter_value" name="value" min="-1" max="1" step="0.01" value="<?php echo esc_attr( (string) ( $editing->value ?? 0.2 ) ); ?>" /><p class="oc-form-help"><?php esc_html_e( 'From -1 to 1. Zero leaves the image unchanged; negative values reduce or reverse the effect.', 'overcustomise' ); ?></p></div>
+						</div>
+						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_prompt"><?php esc_html_e( 'AI prompt', 'overcustomise' ); ?></label></div>
 							<div class="oc-form-field"><textarea id="oc_filter_prompt" name="prompt" class="large-text code" rows="18" required placeholder="<?php esc_attr_e( 'Describe exactly how the uploaded image should be transformed...', 'overcustomise' ); ?>"><?php echo esc_textarea( (string) ( $editing->prompt ?? '' ) ); ?></textarea><p class="oc-form-help"><?php esc_html_e( 'The customer image is sent to the globally selected AI image provider and model with this prompt.', 'overcustomise' ); ?></p></div>
 						</div>
@@ -157,19 +183,56 @@ class OC_Admin_Image_Filters {
 			<div class="oc-card">
 				<div class="oc-card-header"><h2><?php esc_html_e( 'Filters', 'overcustomise' ); ?></h2><span style="font-size:12px;color:var(--oc-gray-400);"><?php echo esc_html( (string) count( $filters ) ); ?></span></div>
 				<?php if ( empty( $filters ) ) : ?>
-					<div class="oc-empty"><h3><?php esc_html_e( 'No filters yet', 'overcustomise' ); ?></h3><p><?php esc_html_e( 'Add a prompt above, then enable it on image layers in the design editor.', 'overcustomise' ); ?></p></div>
+					<div class="oc-empty"><h3><?php esc_html_e( 'No filters yet', 'overcustomise' ); ?></h3><p><?php esc_html_e( 'Add a standard effect or AI prompt above, then enable it on image layers in the design editor.', 'overcustomise' ); ?></p></div>
 				<?php else : ?>
 					<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Name', 'overcustomise' ); ?></th><th><?php esc_html_e( 'Type', 'overcustomise' ); ?></th><th><?php esc_html_e( 'Status', 'overcustomise' ); ?></th><th><?php esc_html_e( 'Actions', 'overcustomise' ); ?></th></tr></thead><tbody>
-					<?php foreach ( $filters as $filter ) : ?><tr><td><strong><?php echo esc_html( $filter->name ); ?></strong><?php if ( ! empty( $filter->prompt ) ) : ?><details><summary><?php esc_html_e( 'View prompt', 'overcustomise' ); ?></summary><pre style="white-space:pre-wrap;max-width:700px;"><?php echo esc_html( $filter->prompt ); ?></pre></details><?php endif; ?></td><td><?php echo 'ai' === $filter->filter_key ? esc_html__( 'AI prompt', 'overcustomise' ) : esc_html__( 'Legacy image effect', 'overcustomise' ); ?><?php if ( ! empty( $filter->remove_background ) ) : ?><br><small><?php esc_html_e( 'Background removed', 'overcustomise' ); ?></small><?php endif; ?></td><td><?php echo ! empty( $filter->active ) ? esc_html__( 'Active', 'overcustomise' ) : esc_html__( 'Inactive', 'overcustomise' ); ?></td><td><a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-image-filters&action=edit&id=' . (int) $filter->id ) ); ?>"><?php esc_html_e( 'Edit', 'overcustomise' ); ?></a> <a class="button" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin.php?page=overcustomise-image-filters&action=toggle&id=' . (int) $filter->id . '&state=' . ( ! empty( $filter->active ) ? '0' : '1' ) ), 'oc_image_filter_toggle_' . (int) $filter->id ) ); ?>"><?php echo ! empty( $filter->active ) ? esc_html__( 'Deactivate', 'overcustomise' ) : esc_html__( 'Activate', 'overcustomise' ); ?></a> <a class="button button-link-delete" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin.php?page=overcustomise-image-filters&action=delete&id=' . (int) $filter->id ), 'oc_image_filter_delete_' . (int) $filter->id ) ); ?>" onclick="return confirm('<?php esc_attr_e( 'Delete this filter?', 'overcustomise' ); ?>');"><?php esc_html_e( 'Delete', 'overcustomise' ); ?></a></td></tr><?php endforeach; ?>
+					<?php foreach ( $filters as $filter ) : ?>
+						<tr>
+							<td>
+								<strong><?php echo esc_html( $filter->name ); ?></strong>
+								<?php if ( ! empty( $filter->prompt ) ) : ?>
+									<details><summary><?php esc_html_e( 'View prompt', 'overcustomise' ); ?></summary><pre style="white-space:pre-wrap;max-width:700px;"><?php echo esc_html( $filter->prompt ); ?></pre></details>
+								<?php endif; ?>
+							</td>
+							<td>
+								<?php echo esc_html( self::filter_types()[ $filter->filter_key ] ?? __( 'Standard effect', 'overcustomise' ) ); ?>
+								<?php if ( ! empty( $filter->remove_background ) ) : ?>
+									<br><small><?php esc_html_e( 'Background removed', 'overcustomise' ); ?></small>
+								<?php endif; ?>
+							</td>
+							<td><?php echo ! empty( $filter->active ) ? esc_html__( 'Active', 'overcustomise' ) : esc_html__( 'Inactive', 'overcustomise' ); ?></td>
+							<td>
+								<a class="button" href="<?php echo esc_url( admin_url( 'admin.php?page=overcustomise-image-filters&action=edit&id=' . (int) $filter->id ) ); ?>"><?php esc_html_e( 'Edit', 'overcustomise' ); ?></a>
+								<a class="button" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin.php?page=overcustomise-image-filters&action=toggle&id=' . (int) $filter->id . '&state=' . ( ! empty( $filter->active ) ? '0' : '1' ) ), 'oc_image_filter_toggle_' . (int) $filter->id ) ); ?>"><?php echo ! empty( $filter->active ) ? esc_html__( 'Deactivate', 'overcustomise' ) : esc_html__( 'Activate', 'overcustomise' ); ?></a>
+								<a class="button button-link-delete" href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin.php?page=overcustomise-image-filters&action=delete&id=' . (int) $filter->id ), 'oc_image_filter_delete_' . (int) $filter->id ) ); ?>" onclick="return confirm('<?php esc_attr_e( 'Delete this filter?', 'overcustomise' ); ?>');"><?php esc_html_e( 'Delete', 'overcustomise' ); ?></a>
+							</td>
+						</tr>
+					<?php endforeach; ?>
 					</tbody></table>
 				<?php endif; ?>
 			</div>
 		</div>
 		<script>
 		(function () {
+			const type = document.getElementById('oc_filter_type');
+			const updateFields = function () {
+				const isAi = type.value === 'ai';
+				['oc_filter_prompt', 'oc_filter_remove_background', 'oc_filter_test_image'].forEach(function (id) {
+					const field = document.getElementById(id);
+					field.closest('.oc-form-row').style.display = isAi ? '' : 'none';
+					field.disabled = !isAi;
+				});
+				document.getElementById('oc_filter_prompt').required = isAi;
+				const hasAmount = ['brightness', 'contrast', 'saturation', 'hue'].includes(type.value);
+				document.querySelector('[data-filter-amount]').style.display = hasAmount ? '' : 'none';
+				document.getElementById('oc_filter_value').disabled = !hasAmount;
+			};
+			type.addEventListener('change', updateFields);
+			updateFields();
 			const button = document.getElementById('oc-test-ai-filter');
 			if (!button) return;
 			button.addEventListener('click', async function () {
+				if (type.value !== 'ai') return;
 				const status = document.getElementById('oc-ai-test-status');
 				const result = document.getElementById('oc-ai-test-result');
 				const file = document.getElementById('oc_filter_test_image').files[0];
@@ -196,21 +259,31 @@ class OC_Admin_Image_Filters {
 	}
 
 	private function handle_save(): bool {
-		$name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) );
-		$prompt            = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) );
-		$remove_background = ! empty( $_POST['remove_background'] ) ? 1 : 0;
-		$id                = absint( $_POST['filter_id'] ?? 0 );
-		if ( '' === $name || '' === trim( $prompt ) || strlen( $name ) > 100 || strlen( $prompt ) > 10000 ) {
+		$name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$prompt            = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$remove_background = ! empty( $_POST['remove_background'] ) ? 1 : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$id                = absint( $_POST['filter_id'] ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$key               = sanitize_key( wp_unslash( $_POST['filter_key'] ?? 'ai' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$is_ai             = 'ai' === $key;
+		if ( ! isset( self::filter_types()[ $key ] ) || '' === $name || strlen( $name ) > 100 || ( $is_ai && ( '' === trim( $prompt ) || strlen( $prompt ) > 10000 ) ) ) {
 			return false;
+		}
+		$value = 1;
+		if ( in_array( $key, [ 'brightness', 'contrast', 'saturation', 'hue' ], true ) ) {
+			$raw_value = wp_unslash( $_POST['value'] ?? '' ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+			if ( ! is_numeric( $raw_value ) || ! is_finite( (float) $raw_value ) || (float) $raw_value < -1 || (float) $raw_value > 1 ) {
+				return false;
+			}
+			$value = (float) $raw_value;
 		}
 
 		global $wpdb;
 		$data = [
 			'name'              => $name,
-			'filter_key'        => 'ai',
-			'value'             => 1,
-			'prompt'            => $prompt,
-			'remove_background' => $remove_background,
+			'filter_key'        => $key,
+			'value'             => $value,
+			'prompt'            => $is_ai ? $prompt : '',
+			'remove_background' => $is_ai ? $remove_background : 0,
 			'active'            => 1,
 		];
 		if ( $id && ! $this->get_filter( $id ) ) {

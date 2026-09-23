@@ -6,6 +6,7 @@
  */
 
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 if ( ! class_exists( 'WC_Order' ) ) {
@@ -21,6 +22,51 @@ if ( ! class_exists( 'WC_Order' ) ) {
 }
 
 class Test_Print_Embroidery extends TestCase {
+	public static function literal_eps_text_cases(): array {
+		$cases = [];
+		foreach ( [ '<', '>', '<3', '<name>', '&lt;' ] as $literal ) {
+			foreach ( [ 'text', 'textarea' ] as $type ) {
+				$cases[ "$type $literal" ] = [ $type, $literal ];
+			}
+		}
+		return $cases;
+	}
+
+	#[Test]
+	#[DataProvider( 'literal_eps_text_cases' )]
+	public function eps_layers_preserve_literal_customer_text( string $type, string $literal ): void {
+		$lines = [];
+		$area  = (object) [
+			'canvas_unit' => 'px',
+			'canvas_w'    => 400,
+			'canvas_h'    => 120,
+		];
+		$text  = 'textarea' === $type ? $literal . "\n" . $literal : $literal;
+		$data  = [
+			'layers' => [
+				[
+					'type'     => $type,
+					'x'        => 0,
+					'y'        => 0,
+					'w'        => 400,
+					'h'        => 120,
+					'input'    => [
+						'value'    => $text,
+						'fontSize' => 12,
+					],
+					'settings' => [],
+				],
+			],
+		];
+		( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_layers' ) )->invokeArgs( null, [ &$lines, $area, $data ] );
+		$output = $this->materialise_lines( $lines );
+
+		// Inspect drawing operands rather than comments: entities must stay literal.
+		preg_match_all( '~/ocText \(([^()]*)\) def~', $output, $matches );
+		$this->assertSame( 'textarea' === $type ? [ $literal, $literal ] : [ $literal ], $matches[1] );
+		$this->assertSame( count( $matches[1] ), substr_count( $output, 'ocText false charpath fill' ) );
+	}
+
 	#[Test]
 	public function cmap_rejects_counts_and_ranges_outside_the_subtable(): void {
 		$format12 = new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_parse_cmap_format12' );
