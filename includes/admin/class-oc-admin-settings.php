@@ -75,7 +75,9 @@ class OC_Admin_Settings {
 			'openai_image_model'     => self::DEFAULT_OPENAI_IMAGE_MODEL,
 		];
 
-		$saved     = get_option( self::OPTION_KEY, [] );
+		$saved = get_option( self::OPTION_KEY, [] );
+		// Hash only: preserve value types for cache invalidation; this data is never unserialized.
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_serialize
 		$signature = md5( serialize( $saved ) );
 		if ( null !== self::$normalised_cache && hash_equals( self::$normalised_cache_signature, $signature ) ) {
 			return '' !== $key ? ( self::$normalised_cache[ $key ] ?? null ) : self::$normalised_cache;
@@ -83,10 +85,14 @@ class OC_Admin_Settings {
 
 		$all     = wp_parse_args( is_array( $saved ) ? $saved : [], $defaults );
 		$formats = is_array( $all['allowed_upload_formats'] ?? null ) ? $all['allowed_upload_formats'] : [];
-		$formats = array_values( array_unique( array_intersect(
-			[ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ],
-			array_map( static fn ( $format ): string => is_scalar( $format ) ? sanitize_key( (string) $format ) : '', $formats )
-		) ) );
+		$formats = array_values(
+			array_unique(
+				array_intersect(
+					[ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ],
+					array_map( static fn ( $format ): string => is_scalar( $format ) ? sanitize_key( (string) $format ) : '', $formats )
+				)
+			)
+		);
 
 		$flat_rate = is_numeric( $all['flat_rate_default'] ?? null ) ? (float) $all['flat_rate_default'] : 0.0;
 		$bleed     = is_numeric( $all['bleed_mm'] ?? null ) ? (float) $all['bleed_mm'] : 3.0;
