@@ -274,12 +274,18 @@ test( 'typing print dimensions preserves ordinary layers through temporary small
 			const h = await canvasHarness( 0, unit );
 			try {
 				Object.assign( h.layer, {
-					type: 'image', x: 40, y: 60, w: 60, h: 50,
+					type: 'image',
+					x: 40,
+					y: 60,
+					w: 60,
+					h: 50,
 				} );
 				Object.assign( h.area, { ratioLocked, aspectRatio: 1 } );
 				const before = JSON.stringify( h.layer );
 				for ( const field of [ 'w', 'h' ] ) {
-					const input = h.document.getElementById( 'oc-prop-' + field );
+					const input = h.document.getElementById(
+						'oc-prop-' + field
+					);
 					for ( const value of [ '', '2', '20', '200' ] ) {
 						input.value = value;
 						h.canvas.syncBoundsFromInputs( input.id );
@@ -300,7 +306,11 @@ test( 'print area handle resizing preserves layer sizes and local offsets across
 		try {
 			h.selectArea();
 			Object.assign( h.layer, {
-				type: 'image', x: 40, y: 60, w: 60, h: 50,
+				type: 'image',
+				x: 40,
+				y: 60,
+				w: 60,
+				h: 50,
 			} );
 			for ( const [ dir, dx, dy ] of [
 				[ 'se', -98, -98 ],
@@ -442,7 +452,13 @@ test( 'canvas area resize preserves both oversized cut lines and ordinary childr
 	assert.equal( h.area.w, 10 );
 	assert.equal( h.area.h, 20 );
 	assert.equal( JSON.stringify( h.layer ), before );
-	assert.deepEqual( ordinary, { type: 'image', x: 20, y: 30, w: 100, h: 100 } );
+	assert.deepEqual( ordinary, {
+		type: 'image',
+		x: 20,
+		y: 30,
+		w: 100,
+		h: 100,
+	} );
 	h.dom.window.close();
 } );
 
