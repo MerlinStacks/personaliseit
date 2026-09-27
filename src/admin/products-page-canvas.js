@@ -731,7 +731,7 @@ export function createProductsPageCanvas( deps ) {
 				  } ) ),
 		};
 	}
-	function restoreChildrenFromDrag( area, shouldClamp ) {
+	function restoreChildrenFromDrag( area ) {
 		const deltaX = area.x - drag.startX;
 		const deltaY = area.y - drag.startY;
 		drag.childGeometry.forEach( ( start ) => {
@@ -739,9 +739,6 @@ export function createProductsPageCanvas( deps ) {
 			start.child.y = start.y + deltaY;
 			start.child.w = start.w;
 			start.child.h = start.h;
-			if ( shouldClamp ) {
-				clampLayerToArea( start.child, area );
-			}
 		} );
 	}
 	function onDragMove( e ) {
@@ -822,7 +819,7 @@ export function createProductsPageCanvas( deps ) {
 					0,
 					Math.max( 0, natH - drag.startH * unitScale )
 				);
-				restoreChildrenFromDrag( area, false );
+				restoreChildrenFromDrag( area );
 			}
 		} else if ( layer ) {
 			let left = drag.startX;
@@ -942,7 +939,8 @@ export function createProductsPageCanvas( deps ) {
 				: drag.startY;
 			entity.w = nw;
 			entity.h = nh;
-			restoreChildrenFromDrag( area, true );
+			// Resizing the area must not destructively resize its artwork.
+			restoreChildrenFromDrag( area );
 			if ( ! area.ratioLocked ) {
 				updateAspectRatio( area );
 			}
@@ -1036,11 +1034,6 @@ export function createProductsPageCanvas( deps ) {
 					child.x += deltaX;
 					child.y += deltaY;
 				} );
-			}
-			if ( changedId === 'oc-prop-w' || changedId === 'oc-prop-h' ) {
-				( area.layers || [] ).forEach( ( child ) =>
-					clampLayerToArea( child, area )
-				);
 			}
 		}
 		if ( ! layer && area.ratioLocked ) {

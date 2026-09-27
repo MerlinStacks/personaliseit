@@ -49,6 +49,7 @@ class OC_Admin_Settings {
 		$defaults = [
 			// General.
 			'flat_rate_default'      => '0.00',
+			'label_position'         => 'top',
 
 			// File management.
 			'file_retention_days'    => 90,
@@ -88,6 +89,7 @@ class OC_Admin_Settings {
 		$flat_rate = is_numeric( $all['flat_rate_default'] ?? null ) ? (float) $all['flat_rate_default'] : 0.0;
 		$bleed     = is_numeric( $all['bleed_mm'] ?? null ) ? (float) $all['bleed_mm'] : 3.0;
 		$all = [
+			'label_position'         => in_array( $all['label_position'] ?? null, [ 'top', 'left', 'left_desktop' ], true ) ? $all['label_position'] : 'top',
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, is_numeric( $all['file_retention_days'] ?? null ) ? (int) $all['file_retention_days'] : 90 ) ),
 			'preview_retention_days' => max( 1, min( 3650, is_numeric( $all['preview_retention_days'] ?? null ) ? (int) $all['preview_retention_days'] : 90 ) ),
@@ -522,6 +524,19 @@ class OC_Admin_Settings {
 														class="small-text oc-input oc-input-small" />
 												</div>
 												<p class="oc-form-help"><?php esc_html_e( 'Applied per item unless overridden on the product config.', 'overcustomise' ); ?></p>
+											</div>
+										</div>
+										<div class="oc-form-row">
+											<div class="oc-form-label">
+												<label for="oc_label_position"><?php esc_html_e( 'Field label position', 'overcustomise' ); ?></label>
+											</div>
+											<div class="oc-form-field">
+												<select id="oc_label_position" name="oc_label_position" class="oc-input" aria-describedby="oc_label_position_help">
+													<option value="top" <?php selected( $s['label_position'], 'top' ); ?>><?php esc_html_e( 'Top of field', 'overcustomise' ); ?></option>
+													<option value="left" <?php selected( $s['label_position'], 'left' ); ?>><?php esc_html_e( 'Left of field', 'overcustomise' ); ?></option>
+													<option value="left_desktop" <?php selected( $s['label_position'], 'left_desktop' ); ?>><?php esc_html_e( 'Left of field (desktop only)', 'overcustomise' ); ?></option>
+												</select>
+												<p class="oc-form-help" id="oc_label_position_help"><?php esc_html_e( 'Controls customer customiser field labels. Desktop only places labels on the left at screen widths of 768px and above, and on top on smaller screens.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 									</div>
@@ -1074,6 +1089,7 @@ class OC_Admin_Settings {
 		$flat_rate = is_numeric( $_POST['oc_flat_rate_default'] ?? null ) ? (float) $_POST['oc_flat_rate_default'] : 0.0;
 		$bleed     = is_numeric( $_POST['oc_bleed_mm'] ?? null ) ? (float) $_POST['oc_bleed_mm'] : 3.0;
 		$settings = [
+			'label_position'         => in_array( $_POST['oc_label_position'] ?? null, [ 'top', 'left', 'left_desktop' ], true ) ? sanitize_key( $_POST['oc_label_position'] ) : 'top',
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ) ),
 			'preview_retention_days' => max( 1, min( 3650, (int) ( $_POST['oc_preview_retention_days'] ?? 90 ) ) ),

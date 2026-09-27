@@ -268,6 +268,58 @@ for ( const unit of [ 'px', 'mm', 'cm', 'in' ] ) {
 	}
 }
 
+test( 'typing print dimensions preserves ordinary layers through temporary small bounds', async () => {
+	for ( const unit of [ 'px', 'mm' ] ) {
+		for ( const ratioLocked of [ false, true ] ) {
+			const h = await canvasHarness( 0, unit );
+			try {
+				Object.assign( h.layer, {
+					type: 'image', x: 40, y: 60, w: 60, h: 50,
+				} );
+				Object.assign( h.area, { ratioLocked, aspectRatio: 1 } );
+				const before = JSON.stringify( h.layer );
+				for ( const field of [ 'w', 'h' ] ) {
+					const input = h.document.getElementById( 'oc-prop-' + field );
+					for ( const value of [ '', '2', '20', '200' ] ) {
+						input.value = value;
+						h.canvas.syncBoundsFromInputs( input.id );
+						assert.equal( JSON.stringify( h.layer ), before );
+					}
+					assert.equal( h.area[ field ], 200 );
+				}
+			} finally {
+				h.dom.window.close();
+			}
+		}
+	}
+} );
+
+test( 'print area handle resizing preserves layer sizes and local offsets across gestures', async () => {
+	for ( const unit of [ 'px', 'mm' ] ) {
+		const h = await canvasHarness( 0, unit, 0.5 );
+		try {
+			h.selectArea();
+			Object.assign( h.layer, {
+				type: 'image', x: 40, y: 60, w: 60, h: 50,
+			} );
+			for ( const [ dir, dx, dy ] of [
+				[ 'se', -98, -98 ],
+				[ 'se', 98, 98 ],
+				[ 'n', 0, 80 ],
+				[ 'n', 0, -80 ],
+			] ) {
+				h.drag( dir, dx, dy );
+				assert.equal( h.layer.w, 60 );
+				assert.equal( h.layer.h, 50 );
+				assert.equal( h.layer.x - h.area.x, 20 );
+				assert.equal( h.layer.y - h.area.y, 30 );
+			}
+		} finally {
+			h.dom.window.close();
+		}
+	}
+} );
+
 test( 'unlocked area edits leave the other input alone and capture the ratio for subsequent locking', async () => {
 	const h = await canvasHarness();
 	try {
@@ -380,7 +432,7 @@ test( 'dimension-only SVGs stretch with the layer rather than keeping their orig
 	dom.window.close();
 } );
 
-test( 'canvas area resize preserves oversized cut lines while constraining ordinary children', async () => {
+test( 'canvas area resize preserves both oversized cut lines and ordinary children', async () => {
 	const h = await canvasHarness();
 	const ordinary = { type: 'image', x: 20, y: 30, w: 100, h: 100 };
 	h.area.layers.push( ordinary );
@@ -390,8 +442,7 @@ test( 'canvas area resize preserves oversized cut lines while constraining ordin
 	assert.equal( h.area.w, 10 );
 	assert.equal( h.area.h, 20 );
 	assert.equal( JSON.stringify( h.layer ), before );
-	assert.equal( ordinary.w, 10 );
-	assert.equal( ordinary.h, 20 );
+	assert.deepEqual( ordinary, { type: 'image', x: 20, y: 30, w: 100, h: 100 } );
 	h.dom.window.close();
 } );
 

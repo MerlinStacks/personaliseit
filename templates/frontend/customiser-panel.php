@@ -116,7 +116,7 @@ foreach ( $layers as $layer ) {
 }
 ?>
 
-<div id="oc-customiser-panel" class="oc-customiser-panel<?php echo esc_attr( ! empty( $design_variants ) ? ' oc-has-design-variants' : '' ); ?>">
+<div id="oc-customiser-panel" class="oc-customiser-panel oc-labels-<?php echo esc_attr( OC_Admin_Settings::get( 'label_position' ) ); ?><?php echo esc_attr( ! empty( $design_variants ) ? ' oc-has-design-variants' : '' ); ?>">
 	<?php if ( ! empty( $surcharge_html ) ) : ?>
 		<p class="oc-personalisation-surcharge" role="status"><?php echo wp_kses_post( $surcharge_html ); ?></p>
 	<?php endif; ?>

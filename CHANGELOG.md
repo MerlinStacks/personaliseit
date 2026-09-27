@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.19.0 - 2026-09-27
+
+### Added
+- Add a General setting for customer customiser field labels: top of field, left of field, or left on desktop only (768px and above).
+
 ## 1.18.0 - 2026-09-23
 
 ### Added
