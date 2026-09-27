@@ -88,7 +88,7 @@ class OC_Admin_Settings {
 		) ) );
 		$flat_rate = is_numeric( $all['flat_rate_default'] ?? null ) ? (float) $all['flat_rate_default'] : 0.0;
 		$bleed     = is_numeric( $all['bleed_mm'] ?? null ) ? (float) $all['bleed_mm'] : 3.0;
-		$all = [
+		$all                              = [
 			'label_position'         => in_array( $all['label_position'] ?? null, [ 'top', 'left', 'left_desktop' ], true ) ? $all['label_position'] : 'top',
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, is_numeric( $all['file_retention_days'] ?? null ) ? (int) $all['file_retention_days'] : 90 ) ),
@@ -1088,7 +1088,7 @@ class OC_Admin_Settings {
 
 		$flat_rate = is_numeric( $_POST['oc_flat_rate_default'] ?? null ) ? (float) $_POST['oc_flat_rate_default'] : 0.0;
 		$bleed     = is_numeric( $_POST['oc_bleed_mm'] ?? null ) ? (float) $_POST['oc_bleed_mm'] : 3.0;
-		$settings = [
+		$settings  = [
 			'label_position'         => in_array( $_POST['oc_label_position'] ?? null, [ 'top', 'left', 'left_desktop' ], true ) ? sanitize_key( $_POST['oc_label_position'] ) : 'top',
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ) ),
