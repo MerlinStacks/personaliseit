@@ -75,20 +75,23 @@ class OC_Admin_Settings {
 			'openai_image_model'     => self::DEFAULT_OPENAI_IMAGE_MODEL,
 		];
 
-		$saved = get_option( self::OPTION_KEY, [] );
+		$saved     = get_option( self::OPTION_KEY, [] );
 		$signature = md5( serialize( $saved ) );
 		if ( null !== self::$normalised_cache && hash_equals( self::$normalised_cache_signature, $signature ) ) {
 			return '' !== $key ? ( self::$normalised_cache[ $key ] ?? null ) : self::$normalised_cache;
 		}
-		$all   = wp_parse_args( is_array( $saved ) ? $saved : [], $defaults );
+
+		$all     = wp_parse_args( is_array( $saved ) ? $saved : [], $defaults );
 		$formats = is_array( $all['allowed_upload_formats'] ?? null ) ? $all['allowed_upload_formats'] : [];
 		$formats = array_values( array_unique( array_intersect(
 			[ 'svg', 'pdf', 'eps', 'png', 'jpg', 'jpeg', 'webp', 'heic', 'heif' ],
 			array_map( static fn ( $format ): string => is_scalar( $format ) ? sanitize_key( (string) $format ) : '', $formats )
 		) ) );
+
 		$flat_rate = is_numeric( $all['flat_rate_default'] ?? null ) ? (float) $all['flat_rate_default'] : 0.0;
 		$bleed     = is_numeric( $all['bleed_mm'] ?? null ) ? (float) $all['bleed_mm'] : 3.0;
-		$all                              = [
+
+		$all = [
 			'label_position'         => in_array( $all['label_position'] ?? null, [ 'top', 'left', 'left_desktop' ], true ) ? $all['label_position'] : 'top',
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, is_numeric( $all['file_retention_days'] ?? null ) ? (int) $all['file_retention_days'] : 90 ) ),
@@ -109,6 +112,7 @@ class OC_Admin_Settings {
 			'openai_api_key_enc'     => self::normalise_encrypted_secret( $all['openai_api_key_enc'] ?? null ),
 			'openai_image_model'     => self::normalise_model( $all['openai_image_model'] ?? null, $defaults['openai_image_model'] ),
 		];
+
 		self::$normalised_cache           = $all;
 		self::$normalised_cache_signature = $signature;
 
