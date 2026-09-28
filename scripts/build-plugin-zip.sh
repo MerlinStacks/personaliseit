@@ -5,6 +5,9 @@ set -euo pipefail
 # Available on the existing ubuntu-latest CI runner; fail before installing.
 command -v python3 >/dev/null
 
+# Always package matching PHP, entry files, lazy chunks and release identity.
+npm run build
+
 # The release only bundles runtime Composer packages. Install that exact
 # dependency set so neither autoload metadata nor installed.php can reference
 # omitted development packages such as PHPUnit's myclabs/deep-copy dependency.

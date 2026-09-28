@@ -52,9 +52,21 @@ class OC_Rest_API {
 
 	public function register(): void {
 		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
+		add_filter( 'rest_post_dispatch', [ $this, 'prevent_response_caching' ], 10, 3 );
 		add_action( 'init', [ self::class, 'ensure_vdp_storage' ] );
 		add_action( 'admin_post_oc_serve_preview', [ self::class, 'serve_private_preview' ] );
 		add_action( 'admin_post_nopriv_oc_serve_preview', [ self::class, 'serve_private_preview' ] );
+	}
+
+	/** Apply to successes, inactive designs and errors, including guest requests. */
+	public function prevent_response_caching( $response, $server, \WP_REST_Request $request ) {
+		if ( str_starts_with( $request->get_route(), '/' . self::NAMESPACE . '/' ) && $response instanceof \WP_HTTP_Response ) {
+			$response->header( 'Cache-Control', 'private, no-store, no-cache, must-revalidate, max-age=0' );
+			$response->header( 'Pragma', 'no-cache' );
+			$response->header( 'Expires', '0' );
+			$response->header( 'Vary', 'Cookie, Origin' );
+		}
+		return $response;
 	}
 
 	public function register_routes(): void {

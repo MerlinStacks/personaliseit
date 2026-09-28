@@ -7,6 +7,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-oc-release-cache.php';
+
 class OC_Cache {
 
 	const GROUP = 'oc_data';
@@ -22,7 +24,7 @@ class OC_Cache {
 
 	/** Prefix a key with a generation captured by the caller. */
 	private static function versioned_key( string $key, string $generation ): string {
-		return $generation . ':' . $key;
+		return OC_Release_Cache::version() . ':' . $generation . ':' . $key;
 	}
 
 	/** Read a value and expose the exact generation used for the lookup. */
@@ -64,11 +66,10 @@ class OC_Cache {
 
 	public static function delete( string $key ): void {
 		// Advancing the generation also protects against an in-flight remember().
-		wp_cache_set_last_changed( self::GROUP );
+		self::invalidate_group( self::GROUP );
 	}
 
 	public static function flush_group(): void {
-		wp_cache_flush_group( self::GROUP );
 		self::invalidate_group( self::GROUP );
 	}
 
@@ -81,5 +82,8 @@ class OC_Cache {
 	/** Atomically advance a cache group's generation. */
 	public static function invalidate_group( string $group ): void {
 		wp_cache_set_last_changed( $group );
+		if ( self::GROUP === $group ) {
+			do_action( 'oc_catalogue_cache_invalidated' );
+		}
 	}
 }

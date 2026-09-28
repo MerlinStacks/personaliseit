@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.19.2 - 2026-09-28
+
+### Fixed
+- Refresh supported page caches after catalogue edits, shared resource changes, public media edits, and customiser settings changes. Coalesce each site's writes into one end-of-request purge and retry provider exceptions through cron.
+- Prevent caching of plugin REST responses, including inactive designs and errors, and explicitly fetch live design states without browser caching.
+- Recover once from rejected guest tokens or expired logged-in REST nonces without clearing customer inputs or replaying ambiguous network/server failures. Renew upload headers between authenticated retries.
+- Version clipart URLs by file content, revalidate SVG requests, clear processed SVGs when design state changes, and allow failed SVG loads to be retried.
+
+## 1.19.1 - 2026-09-27
+
+### Fixed
+- Preserve historical lazy-loaded JavaScript, stylesheets, and hashed resources in update ZIPs so cached visitors can finish loading the customiser.
+- Fingerprint release contents, including PHP-only same-version rebuilds, and isolate object-cache entries by release.
+- Purge supported page and optimisation caches once per site after a release change, with concurrency protection and retry cooldowns for provider failures.
+- Offer an explicit fresh-page recovery when customiser or upload chunks cannot load.
+- Rebuild assets before packaging so the release fingerprint and bundled files match.
+
+### Upgrade notes
+- No database migration is required. Cache integrations and asset-retention requirements are documented in `docs/cache-updates.md`.
+
 ## 1.19.0 - 2026-09-27
 
 ### Added

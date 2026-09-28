@@ -33,12 +33,10 @@ export function measureBundles( files, activeChunkFiles = null ) {
 	const isCoreChunk = ( item ) =>
 		/^chunks\/customiser-core\.[a-f0-9]+\.js$/.test( item.file );
 	const isUploadChunk = ( item ) =>
-		/^chunks\/upload-tools\.[a-f0-9]+\.js$/.test( item.file ) ||
+		/^chunks\/upload-tools\.[a-f0-9]+\.(?:js|css)$/.test( item.file ) ||
 		item.file === 'upload-tools.css';
 	const isActiveCustomiserChunk = ( item ) =>
-		item.file === 'upload-tools.css' ||
-		activeChunkFiles === null ||
-		activeChunkFiles.has( item.file );
+		activeChunkFiles === null || activeChunkFiles.has( item.file );
 	const entries = files.filter( isEntryAsset );
 	const chunks = files.filter( ( item ) => ! isEntryAsset( item ) );
 	const coreEntryBytes = totalSize( files.filter( isLoadedCustomiserAsset ) );
@@ -60,8 +58,7 @@ export function measureBundles( files, activeChunkFiles = null ) {
 		);
 	const budgetedFiles = files.filter(
 		( item ) =>
-			( ! isCoreChunk( item ) &&
-				! /^chunks\/upload-tools\.[a-f0-9]+\.js$/.test( item.file ) ) ||
+			( ! isCoreChunk( item ) && ! isUploadChunk( item ) ) ||
 			isActiveCustomiserChunk( item )
 	);
 	return {
@@ -75,19 +72,27 @@ export function measureBundles( files, activeChunkFiles = null ) {
 }
 
 export function activeCustomiserChunks( files, entrySource ) {
-	return new Set(
+	const active = new Set(
 		files
 			.filter( ( item ) =>
-				/^chunks\/(?:customiser-core|upload-tools)\.[a-f0-9]+\.js$/.test(
+				/^chunks\/(?:customiser-core|upload-tools)\.[a-f0-9]+\.(?:js|css)$/.test(
 					item.file
 				)
 			)
 			.filter( ( item ) => {
-				const hash = item.file.match( /\.([a-f0-9]+)\.js$/ )?.[ 1 ];
+				const hash = item.file.match(
+					/\.([a-f0-9]+)\.(?:js|css)$/
+				)?.[ 1 ];
 				return hash && entrySource.includes( hash );
 			} )
 			.map( ( item ) => item.file )
 	);
+	// Historical runtimes use unversioned upload CSS. New runtimes load only the
+	// hashed stylesheet; retained CSS still counts towards the separate ZIP cap.
+	if ( ! [ ...active ].some( ( file ) => file.endsWith( '.css' ) ) ) {
+		active.add( 'upload-tools.css' );
+	}
+	return active;
 }
 
 export function budgetFailures( measurements, limits ) {
@@ -140,19 +145,20 @@ async function main() {
 		// Night Sky, AI layers, and native gallery preview support add
 		// customer-facing controls to the core entry. Timezone boundary data
 		// remains lazy-loaded and is covered by the total.
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 204_000 ),
+		// 1.19.2 adds ~2.4 KB of shared auth recovery and upload retry handling.
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 207_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 534_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 537_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 602_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 605_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
 		),
 		chunk: Number( process.env.BUNDLE_CHUNK_MAX_BYTES || 340_000 ),
 		// Includes the optional detailed Night Sky catalogue chunk.
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_490_000 ),
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_493_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

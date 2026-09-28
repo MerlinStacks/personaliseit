@@ -21,6 +21,102 @@ const deferred = () => {
 	return { promise, resolve, reject };
 };
 
+test( 'chunk recovery refreshes the current product without a reload loop or lost URL context', () => {
+	const helper = source.slice(
+		source.indexOf( 'const refreshCustomiserPage =' ),
+		source.indexOf( 'const renderBootFailure =' )
+	);
+	let destination;
+	const recover = new Function(
+		'window',
+		helper + '; return refreshCustomiserPage;'
+	)( {
+		location: {
+			href: 'https://shop.example/product/mug/?attribute_colour=blue&oc_cache_refresh=old#design',
+			replace: ( url ) => {
+				destination = new URL( url );
+			},
+		},
+	} );
+	assert.equal( destination, undefined );
+	recover();
+	assert.equal( destination.pathname, '/product/mug/' );
+	assert.equal( destination.searchParams.get( 'attribute_colour' ), 'blue' );
+	assert.equal( destination.hash, '#design' );
+	assert.equal(
+		destination.searchParams.getAll( 'oc_cache_refresh' ).length,
+		1
+	);
+	assert.notEqual(
+		destination.searchParams.get( 'oc_cache_refresh' ),
+		'old'
+	);
+} );
+
+test( 'a missing chunk offers an explicit refresh instead of retrying a removed file', async ( t ) => {
+	const error = Object.assign( new Error( 'Loading chunk failed' ), {
+		name: 'ChunkLoadError',
+	} );
+	const app = await harness( t, { load: () => Promise.reject( error ) } );
+	app.ready();
+	await flush();
+	assert.equal(
+		app.root.querySelector( 'button' ).textContent,
+		'Refresh customiser'
+	);
+	assert.match( app.root.textContent, /files have changed/ );
+	assert.equal( app.buttons[ 0 ].disabled, true );
+	assert.equal( app.imports, 2 );
+} );
+
+test( 'missing upload CSS refreshes only on click, while other upload failures retry in place', async ( t ) => {
+	const uploadSource = await readFile(
+		'src/frontend/customiser/uploads.js',
+		'utf8'
+	);
+	const methods = new Function(
+		'console',
+		uploadSource
+			.replace( /^import .*;\n/gm, '' )
+			.replace( 'export default uploadMethods;', 'return uploadMethods;' )
+	)( { warn() {} } );
+	const dom = new JSDOM(
+		'<div class="oc-artwork-wrap"><div data-oc-upload-zone="1"></div><div class="oc-artwork-error"></div></div>'
+	);
+	t.after( () => dom.window.close() );
+	const zone = dom.window.document.querySelector( '[data-oc-upload-zone]' );
+	let refreshes = 0;
+	let retries = 0;
+	const app = {
+		setUploadZoneState() {},
+		showUploadError( element, message ) {
+			element.parentElement.querySelector(
+				'.oc-artwork-error'
+			).textContent = message;
+		},
+		refreshCustomiserPage() {
+			refreshes += 1;
+		},
+		setupUploadZones() {
+			retries += 1;
+		},
+	};
+	// Bind the real method to this fixture's document without browser globals.
+	const showFailure = new Function(
+		'document',
+		`return ({${ methods.showUploadImportFailure.toString() }}).showUploadImportFailure;`
+	)( dom.window.document );
+	showFailure.call( app, zone, { code: 'CSS_CHUNK_LOAD_FAILED' } );
+	assert.equal( refreshes, 0 );
+	dom.window.document.querySelector( 'button' ).click();
+	assert.equal( refreshes, 1 );
+	assert.equal( retries, 0 );
+	showFailure.call( app, zone, new Error( 'Temporary failure' ) );
+	dom.window.document.querySelector( 'button' ).click();
+	assert.equal( refreshes, 1 );
+	assert.equal( retries, 1 );
+} );
+
 async function harness(
 	t,
 	{ readyState = 'loading', token, hydrate, load } = {}

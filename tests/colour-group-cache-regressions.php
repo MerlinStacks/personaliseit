@@ -1,6 +1,9 @@
 <?php
 /** Dependency-free checks: php tests/colour-group-cache-regressions.php */
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
+define( 'OC_PATH', ABSPATH );
+define( 'OC_VERSION', 'cache-regression-test' );
+function do_action( $hook, ...$args ) {}
 function absint( $value ) {
 	return abs( (int) $value );
 }

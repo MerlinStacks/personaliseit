@@ -3,6 +3,7 @@
 const defaultConfig = require( '@wordpress/scripts/config/webpack.config' );
 const DependencyExtractionPlugin = require( '@wordpress/dependency-extraction-webpack-plugin' );
 const path = require( 'path' );
+const ReleaseManifestPlugin = require( './scripts/release-manifest.cjs' );
 
 // WooCommerce Blocks packages that are not handled by the default plugin.
 const WC_EXTERNALS = {
@@ -76,10 +77,11 @@ module.exports = {
 	output: {
 		...defaultConfig.output,
 		path: path.resolve( __dirname, 'assets/build' ),
-		// Retain released core chunks through the cache transition so old entry scripts
-		// continue to load during rolling WordPress/CDN deployments.
+		// Bundle historical immutable chunks in each ZIP, including from clean CI
+		// checkouts. Keep assets/build tracked; prune only after the supported cache
+		// and open-tab lifetime. Legacy runtimes also request the unversioned CSS.
 		clean: {
-			keep: /chunks\/customiser-core\.(?:3e383e06|8bebe481|f7f1b0d7)\.js$/,
+			keep: /(?:chunks\/.*\.[a-f0-9]{8}(?:-rtl)?\.(?:js|css)|[a-f0-9]{20}\.(?:wasm|woff2?|ttf|otf|png|jpe?g|svg|webp)|upload-tools(?:-rtl)?\.css)$/,
 		},
 		// Entry files live one directory below the build root. Webpack's automatic
 		// public path derives that root from the enqueued WordPress script URL.
@@ -117,9 +119,18 @@ module.exports = {
 	plugins: [
 		// Replace the default DependencyExtractionWebpackPlugin with one that
 		// also maps WooCommerce Blocks packages to their window globals.
-		...defaultConfig.plugins.filter(
-			( p ) => p.constructor.name !== 'DependencyExtractionWebpackPlugin'
-		),
+		...defaultConfig.plugins
+			.filter(
+				( p ) =>
+					p.constructor.name !== 'DependencyExtractionWebpackPlugin'
+			)
+			.map( ( plugin ) => {
+				if ( plugin.constructor.name === 'MiniCssExtractPlugin' ) {
+					plugin.options.chunkFilename =
+						'chunks/[name].[contenthash:8].css';
+				}
+				return plugin;
+			} ),
 		new DependencyExtractionPlugin( {
 			requestToExternal( request ) {
 				if ( WC_EXTERNALS[ request ] ) {
@@ -133,5 +144,6 @@ module.exports = {
 			},
 		} ),
 		new RemoveSourceMapCommentsPlugin(),
+		new ReleaseManifestPlugin(),
 	],
 };

@@ -349,14 +349,17 @@ const spotifyMethods = {
 			const controller = request.controller;
 			this.spotifyAbortControllers[ layerId ] = controller;
 			try {
-				const res = await fetch( this.data.validateSpotifyUrl, {
-					method: 'POST',
-					headers: this.restHeaders( {
-						'Content-Type': 'application/json',
-					} ),
-					body: JSON.stringify( { url: localUri } ),
-					signal: controller.signal,
-				} );
+				const res = await this.authenticatedFetch(
+					this.data.validateSpotifyUrl,
+					{
+						method: 'POST',
+						headers: this.restHeaders( {
+							'Content-Type': 'application/json',
+						} ),
+						body: JSON.stringify( { url: localUri } ),
+						signal: controller.signal,
+					}
+				);
 				const isJson = res.headers
 					.get( 'content-type' )
 					?.includes( 'application/json' );

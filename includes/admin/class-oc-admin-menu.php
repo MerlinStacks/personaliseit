@@ -227,7 +227,7 @@ class OC_Admin_Menu {
 				'oc-colour-manager',
 				OC_ASSETS_URL . 'admin/colour-manager.js',
 				[],
-				OC_VERSION,
+				OC_Release_Cache::version(),
 				true
 			);
 		}
@@ -238,7 +238,7 @@ class OC_Admin_Menu {
 				'oc-clipart-manager',
 				OC_ASSETS_URL . 'admin/clipart-manager.js',
 				[],
-				OC_VERSION,
+				OC_Release_Cache::version(),
 				true
 			);
 		}

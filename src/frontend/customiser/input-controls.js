@@ -844,7 +844,7 @@ const inputControlMethods = {
 									'AbortError'
 								);
 							}
-							const response = await fetch(
+							const response = await this.authenticatedFetch(
 								this.data.locationLookupUrl,
 								{
 									method: 'POST',
@@ -2077,24 +2077,27 @@ const inputControlMethods = {
 					once: true,
 				} );
 			}
-			const response = await fetch( this.data.authoriseArtworkUrl, {
-				method: 'POST',
-				credentials: 'same-origin',
-				signal: request.controller.signal,
-				headers: this.restHeaders( {
-					'Content-Type': 'application/json',
-					Accept: 'application/json',
-				} ),
-				body: JSON.stringify( {
-					source_attachment_id: sourceId,
-					derivative_attachment_id:
-						derivativeId !== sourceId ? derivativeId : 0,
-					product_id: Number( this.data.productId || 0 ),
-					variation_id: target.variationId,
-					design_id: target.designId,
-					layer_id: target.layerId,
-				} ),
-			} );
+			const response = await this.authenticatedFetch(
+				this.data.authoriseArtworkUrl,
+				{
+					method: 'POST',
+					credentials: 'same-origin',
+					signal: request.controller.signal,
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+						Accept: 'application/json',
+					} ),
+					body: JSON.stringify( {
+						source_attachment_id: sourceId,
+						derivative_attachment_id:
+							derivativeId !== sourceId ? derivativeId : 0,
+						product_id: Number( this.data.productId || 0 ),
+						variation_id: target.variationId,
+						design_id: target.designId,
+						layer_id: target.layerId,
+					} ),
+				}
+			);
 			if ( response.ok ) {
 				this.artworkContextAuthorisations.add( authorisationKey );
 			}

@@ -184,12 +184,14 @@ const designVariantMethods = {
 	async renderDesignVariantThumbnails() {
 		const designGeneration = this._designGeneration;
 		const variationRequestSeq = this._variationRequestSeq;
-		const variationKey = this._pendingVariationKey || this._activeVariationKey;
+		const variationKey =
+			this._pendingVariationKey || this._activeVariationKey;
 		const variationId = this.currentVariationId();
 		const isCurrent = () =>
 			designGeneration === this._designGeneration &&
 			variationRequestSeq === this._variationRequestSeq &&
-			variationKey === ( this._pendingVariationKey || this._activeVariationKey ) &&
+			variationKey ===
+				( this._pendingVariationKey || this._activeVariationKey ) &&
 			variationId === this.currentVariationId();
 		const canvases = Array.from(
 			document.querySelectorAll( '[data-oc-design-variant-thumb]' )
@@ -225,10 +227,13 @@ const designVariantMethods = {
 						if ( state?.areas?.length ) {
 							this.data.designVariantStates ||= {};
 							this.data.designVariantStates[ variantId ] = state;
-							const variationState = this.productVariationStates[ variationKey ];
+							const variationState =
+								this.productVariationStates[ variationKey ];
 							if ( variationState ) {
 								variationState.designVariantStates ||= {};
-								variationState.designVariantStates[ variantId ] = state;
+								variationState.designVariantStates[
+									variantId
+								] = state;
 							}
 						}
 					}
@@ -266,7 +271,11 @@ const designVariantMethods = {
 		}
 	},
 
-	async renderDesignVariantThumbnailCanvas( canvasEl, state, isCurrent = () => true ) {
+	async renderDesignVariantThumbnailCanvas(
+		canvasEl,
+		state,
+		isCurrent = () => true
+	) {
 		const area = state.areas?.[ 0 ];
 		if ( ! area || ! isCurrent() ) {
 			return;
@@ -462,7 +471,9 @@ const designVariantMethods = {
 			this._designVariantPendingSeq = requestSeq;
 			submitControls?.forEach( ( control ) => {
 				if ( control.dataset.ocDesignLoadDisabled === undefined ) {
-					control.dataset.ocDesignLoadDisabled = control.disabled ? '1' : '0';
+					control.dataset.ocDesignLoadDisabled = control.disabled
+						? '1'
+						: '0';
 				}
 				control.disabled = true;
 				control.setAttribute( 'aria-disabled', 'true' );
@@ -487,14 +498,23 @@ const designVariantMethods = {
 		this.applyControlLocks();
 	},
 
-	async fetchDesignVariantState( variant, requestSeq, { background = false } = {} ) {
+	async fetchDesignVariantState(
+		variant,
+		requestSeq,
+		{ background = false } = {}
+	) {
 		const designUrl =
 			this.data.productDesignUrl ||
-			`${ window.location.origin }/wp-json/overcustomise/v1/product-design/${
+			`${
+				window.location.origin
+			}/wp-json/overcustomise/v1/product-design/${
 				this.data.productId || 0
 			}`;
 		const url = new URL( designUrl, window.location.origin );
-		url.searchParams.set( 'variant_id', String( this.currentVariationId() ) );
+		url.searchParams.set(
+			'variant_id',
+			String( this.currentVariationId() )
+		);
 		url.searchParams.set( 'design_id', String( variant.designId ) );
 		const request = this.createStateAbortController( 10000 );
 		// Background thumbnails share lifecycle cleanup, not interactive ownership.
@@ -504,6 +524,7 @@ const designVariantMethods = {
 
 		try {
 			const response = await fetch( url.toString(), {
+				cache: 'no-store',
 				credentials: 'same-origin',
 				headers: { Accept: 'application/json' },
 				signal: request.controller.signal,
@@ -515,7 +536,10 @@ const designVariantMethods = {
 						`Artwork option request failed (${ response.status })`
 				);
 			}
-			if ( ! background && requestSeq !== this._designVariantRequestSeq ) {
+			if (
+				! background &&
+				requestSeq !== this._designVariantRequestSeq
+			) {
 				throw new DOMException( 'Superseded request', 'AbortError' );
 			}
 
@@ -539,7 +563,10 @@ const designVariantMethods = {
 			throw error;
 		} finally {
 			request.release();
-			if ( ! background && this._designVariantAbortController === request.controller ) {
+			if (
+				! background &&
+				this._designVariantAbortController === request.controller
+			) {
 				this._designVariantAbortController = null;
 			}
 		}

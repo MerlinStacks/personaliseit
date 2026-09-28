@@ -142,6 +142,7 @@ class OC_Plugin {
 
 	/** Register cron, upgrade, and cleanup hooks. */
 	private function register_maintenance_hooks(): void {
+		OC_Release_Cache::register();
 		add_filter( 'cron_schedules', [ self::class, 'add_cron_schedules' ] );
 		add_action( 'init', [ OC_DB::class, 'maybe_upgrade' ] );
 		add_action( 'init', [ self::class, 'ensure_cron_events' ] );
@@ -470,6 +471,8 @@ class OC_Plugin {
 		OC_DB::drop_all_tables();
 
 		delete_option( 'oc_db_version' );
+		delete_option( 'oc_cache_release' );
+		delete_option( 'oc_cache_release_lock' );
 		delete_option( 'oc_settings' );
 		delete_option( 'oc_print_methods' );
 		delete_option( 'oc_private_artwork_storage_version' );
@@ -542,7 +545,7 @@ class OC_Plugin {
 		}
 		delete_option( 'oc_private_storage_token' );
 
-		wp_cache_flush_group( 'oc_data' );
+		OC_Cache::invalidate_group( OC_Cache::GROUP );
 		self::delete_runtime_options( true );
 	}
 
@@ -611,6 +614,7 @@ class OC_Plugin {
 
 	/** Remove every duplicate event, including single events with arguments. */
 	private static function clear_scheduled_events(): void {
+		wp_clear_scheduled_hook( 'oc_retry_content_cache_purge' );
 		$hooks = [
 			'oc_daily_file_cleanup',
 			'oc_process_print_queue',

@@ -773,16 +773,19 @@ const checkoutMethods = {
 
 		const request = this.createStateAbortController( 20000 );
 		try {
-			const response = await fetch( this.data.savePreviewUrl, {
-				method: 'POST',
-				credentials: 'same-origin',
-				headers: this.restHeaders( {
-					'Content-Type': 'application/json',
-					Accept: 'application/json',
-				} ),
-				body: JSON.stringify( { image: previewImage } ),
-				signal: request.controller.signal,
-			} );
+			const response = await this.authenticatedFetch(
+				this.data.savePreviewUrl,
+				{
+					method: 'POST',
+					credentials: 'same-origin',
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+						Accept: 'application/json',
+					} ),
+					body: JSON.stringify( { image: previewImage } ),
+					signal: request.controller.signal,
+				}
+			);
 			const body = await response.json().catch( () => null );
 			if ( generation.designGeneration !== this._designGeneration ) {
 				throw new Error( 'The selected design changed while saving.' );

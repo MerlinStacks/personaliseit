@@ -2087,7 +2087,7 @@ const canvasRendererMethods = {
 		try {
 			const response = await fetch( url, {
 				credentials: 'same-origin',
-				cache: 'force-cache',
+				cache: 'no-cache',
 				signal: request.controller.signal,
 			} );
 			if ( ! response.ok ) {
@@ -2144,7 +2144,7 @@ const canvasRendererMethods = {
 		try {
 			const response = await fetch( url, {
 				credentials: 'same-origin',
-				cache: 'force-cache',
+				cache: 'no-cache',
 				signal: request.controller.signal,
 			} );
 			if ( ! response.ok ) {
@@ -2176,7 +2176,6 @@ const canvasRendererMethods = {
 			) }`;
 			return this.clipartSvgCache[ key ];
 		} catch {
-			this.clipartSvgCache[ key ] = url;
 			return url;
 		} finally {
 			request.release();

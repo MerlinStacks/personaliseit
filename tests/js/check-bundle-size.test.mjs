@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+	activeCustomiserChunks,
 	budgetFailures,
 	measureBundles,
 } from '../../scripts/check-bundle-size.mjs';
@@ -24,6 +25,24 @@ test( 'measures required and upload-enabled browser startup honestly', () => {
 	assert.equal( measured.uploadEnabledStartupBytes, 775 );
 	assert.equal( measured.totalBytes, 1156 );
 	assert.deepEqual( measured.chunks, files.slice( 4 ) );
+} );
+
+test( 'counts current hashed upload CSS once while retaining legacy files in the ZIP', () => {
+	const retained = [
+		...files,
+		{ file: 'chunks/upload-tools.abcdef01.css', bytes: 30 },
+		{ file: 'chunks/upload-tools.11111111.css', bytes: 20 },
+		{ file: 'chunks/upload-tools.22222222.js', bytes: 90 },
+	];
+	const active = activeCustomiserChunks( retained, '12345678 abcdef01' );
+	assert.equal( active.has( 'upload-tools.css' ), false );
+	assert.equal( active.has( 'chunks/upload-tools.11111111.css' ), false );
+	const measured = measureBundles( retained, active );
+	assert.equal( measured.uploadEnabledStartupBytes, 780 );
+	assert.equal( measured.totalBytes, 1161 );
+	assert.ok(
+		activeCustomiserChunks( files, '12345678' ).has( 'upload-tools.css' )
+	);
 } );
 
 test( 'reports each startup, entry, chunk, and total budget independently', () => {

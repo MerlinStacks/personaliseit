@@ -60,6 +60,11 @@ function fixture( t, { timeout = false } = {} ) {
 			return request;
 		},
 		async ensureRequestToken() {},
+		authenticatedFetch() {
+			return new Promise( ( done ) => {
+				resolve = done;
+			} );
+		},
 		restHeaders: ( headers ) => headers,
 		data: { locationLookupUrl: '/lookup' },
 	};
@@ -86,10 +91,7 @@ function fixture( t, { timeout = false } = {} ) {
 		document.getElementById( 'coordinates' ),
 		results,
 		new dom.window.AbortController().signal,
-		() =>
-			new Promise( ( done ) => {
-				resolve = done;
-			} ),
+		app.authenticatedFetch,
 		dom.window.DOMException,
 		() => {
 			saved = Object.fromEntries(

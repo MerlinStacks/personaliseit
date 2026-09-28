@@ -59,7 +59,16 @@ const setBootSubmitDisabled = ( disabled ) => {
 	} );
 };
 
-const renderBootFailure = ( retry ) => {
+const isChunkLoadError = ( error ) =>
+	error?.name === 'ChunkLoadError' || error?.code === 'CSS_CHUNK_LOAD_FAILED';
+
+const refreshCustomiserPage = () => {
+	const url = new URL( window.location.href );
+	url.searchParams.set( 'oc_cache_refresh', String( Date.now() ) );
+	window.location.replace( url.href );
+};
+
+const renderBootFailure = ( retry, staleAssets = false ) => {
 	const root = document.getElementById( 'oc-preflight-messages' );
 	if ( ! root ) {
 		return;
@@ -67,12 +76,15 @@ const renderBootFailure = ( retry ) => {
 	const message = document.createElement( 'div' );
 	message.className = 'oc-preflight-error';
 	message.setAttribute( 'role', 'alert' );
-	message.textContent =
-		'The customisation preview could not load. Check your connection and retry.';
+	message.textContent = staleAssets
+		? 'The customiser files have changed. Refresh the page to load the latest version.'
+		: 'The customisation preview could not load. Check your connection and retry.';
 	const button = document.createElement( 'button' );
 	button.type = 'button';
 	button.className = 'oc-upload-retry';
-	button.textContent = 'Retry customiser';
+	button.textContent = staleAssets
+		? 'Refresh customiser'
+		: 'Retry customiser';
 	button.addEventListener( 'click', retry, { once: true } );
 	root.replaceChildren( message, button );
 	root.dataset.ocBootFailure = '1';
@@ -113,7 +125,7 @@ const bootCustomiser = async ( data ) => {
 		clearBootFailure();
 		customiser = new OCCustomiser( data );
 		await customiser.init();
-	} catch {
+	} catch ( error ) {
 		try {
 			if ( customiser ) {
 				window.clearTimeout( customiser._requestTokenRefreshTimer );
@@ -125,7 +137,13 @@ const bootCustomiser = async ( data ) => {
 			bootStarted = false;
 			setBootLoading( false );
 			setBootSubmitDisabled( true );
-			renderBootFailure( () => bootCustomiser( data ) );
+			const staleAssets = isChunkLoadError( error );
+			renderBootFailure(
+				staleAssets
+					? refreshCustomiserPage
+					: () => bootCustomiser( data ),
+				staleAssets
+			);
 		}
 		return;
 	}
@@ -296,6 +314,7 @@ class OCCustomiser {
 	}
 
 	teardownDesignState() {
+		this.clipartSvgCache = {};
 		this.restoreProductGallery?.();
 		this.dismissMobileCartPreview?.();
 		this.dismissSpotifyModal?.();
@@ -442,6 +461,111 @@ class OCCustomiser {
 		return headers;
 	}
 
+	refreshCustomiserPage() {
+		refreshCustomiserPage();
+	}
+
+	authenticationSnapshot() {
+		return {
+			nonce: this.data.uploadNonce || '',
+			token: this.data.requestToken || '',
+		};
+	}
+
+	isAuthenticationRejection( status, code ) {
+		return (
+			status === 403 &&
+			[
+				'invalid_token',
+				'invalid_nonce',
+				'rest_cookie_invalid_nonce',
+			].includes( code )
+		);
+	}
+
+	async recoverAuthentication( failed, code ) {
+		if ( this._authenticationPromise ) {
+			await this._authenticationPromise;
+		}
+		const current = this.authenticationSnapshot();
+		const credential = code === 'invalid_token' ? 'token' : 'nonce';
+		if ( current[ credential ] !== failed[ credential ] ) {
+			return;
+		}
+		const recovery = ( async () => {
+			if ( credential === 'nonce' ) {
+				if ( ! this.data.restNonceUrl ) {
+					throw new Error(
+						'Please sign in again, then retry. Your customisation is still on this page.'
+					);
+				}
+				const request = this.createStateAbortController( 12000 );
+				try {
+					// WordPress's authenticated AJAX endpoint checks the login cookie,
+					// independently of the expired REST nonce. Never downgrade to guest.
+					const response = await fetch( this.data.restNonceUrl, {
+						method: 'GET',
+						credentials: 'same-origin',
+						cache: 'no-store',
+						signal: request.controller.signal,
+					} );
+					const nonce = ( await response.text() ).trim();
+					if ( ! response.ok || ! /^[a-f0-9]{10}$/.test( nonce ) ) {
+						throw new Error(
+							'Please sign in again, then retry. Your customisation is still on this page.'
+						);
+					}
+					this.data.uploadNonce = nonce;
+				} finally {
+					request.release();
+				}
+			} else {
+				this.data.requestTokenExpiresAt = 0;
+				await this.ensureRequestToken();
+			}
+		} )();
+		this._authenticationPromise = recovery;
+		try {
+			await recovery;
+		} finally {
+			if ( this._authenticationPromise === recovery ) {
+				this._authenticationPromise = null;
+			}
+		}
+	}
+
+	async authenticatedFetch( url, options = {} ) {
+		await this.ensureRequestToken();
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return -- Capture credentials before I/O; another request may renew them while this one is pending.
+		const failed = this.authenticationSnapshot();
+		const send = () => {
+			if ( options.signal?.aborted ) {
+				throw new DOMException( 'Aborted', 'AbortError' );
+			}
+			return fetch( url, {
+				...options,
+				credentials: 'same-origin',
+				cache: 'no-store',
+				headers: this.restHeaders( options.headers || {} ),
+			} );
+		};
+		const response = await send();
+		if ( response.status !== 403 ) {
+			return response;
+		}
+		const body = await response
+			.clone()
+			.json()
+			.catch( () => null );
+		if ( ! this.isAuthenticationRejection( response.status, body?.code ) ) {
+			return response;
+		}
+		// These specific rejections happen before the REST handler runs. Retry
+		// once only; ambiguous network/5xx failures must never replay paid work.
+		await this.recoverAuthentication( failed, body.code );
+		return send();
+	}
+
 	async ensureRequestToken() {
 		const expiresAt = Number( this.data.requestTokenExpiresAt || 0 );
 		if ( this.data.requestToken && expiresAt > Date.now() + 300000 ) {
@@ -491,6 +615,7 @@ class OCCustomiser {
 			}
 
 			this.data.requestToken = token;
+			this._requestTokenError = '';
 			this.data.requestTokenExpiresAt = Date.now() + tokenLifetime * 1000;
 			clearTimeout( this._requestTokenRefreshTimer );
 			this._requestTokenRefreshTimer = setTimeout(

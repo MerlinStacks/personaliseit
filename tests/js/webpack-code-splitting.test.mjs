@@ -67,8 +67,14 @@ test( 'built customiser references the emitted upload chunk', async () => {
 		/^upload-tools\.[a-f0-9]{8}\.js$/.test( file )
 	);
 
-	assert.equal( uploadChunks.length, 1 );
-	const chunkHash = uploadChunks[ 0 ].match(
+	const currentChunk = uploadChunks.find( ( file ) =>
+		buildSource.includes( file.match( /\.([a-f0-9]{8})\.js$/ )[ 1 ] )
+	);
+	assert.ok(
+		currentChunk,
+		'The current runtime references a shipped upload chunk'
+	);
+	const chunkHash = currentChunk.match(
 		/^upload-tools\.([a-f0-9]{8})\.js$/
 	)[ 1 ];
 	assert.match( buildSource, new RegExp( chunkHash ) );
@@ -79,11 +85,30 @@ test( 'built customiser references the emitted upload chunk', async () => {
 	] );
 
 	const chunkSource = await readFile(
-		`assets/build/chunks/${ uploadChunks[ 0 ] }`,
+		`assets/build/chunks/${ currentChunk }`,
 		'utf8'
 	);
 	assert.match( chunkSource, /webpackChunkovercustomise/ );
 	assert.ok( chunkSource.length > 1000 );
+} );
+
+test( 'retains every historical immutable chunk, including lazy CSS', () => {
+	for ( const file of [
+		'chunks/customiser-core.133c3734.js',
+		'chunks/upload-tools.12345678.js',
+		'chunks/night-sky-catalog.abcdef01.js',
+		'chunks/upload-tools.87654321.css',
+		'chunks/upload-tools.87654321-rtl.css',
+		'upload-tools.css',
+		'630956c266e3be4f718d.wasm',
+	] ) {
+		assert.ok( config.output.clean.keep.test( file ), file );
+	}
+	assert.equal(
+		config.output.clean.keep.test( 'frontend/customiser-app.js' ),
+		false
+	);
+	assert.equal( config.output.clean.keep.test( 'release.json' ), false );
 } );
 
 test( 'includes the customer order preview entry and asset manifest', async () => {

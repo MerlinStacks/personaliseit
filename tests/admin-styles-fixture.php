@@ -27,6 +27,7 @@ function wp_enqueue_style( $handle, $src, $deps = [], $version = false, $media =
 function wp_enqueue_script( ...$args ) {}
 function wp_register_script( ...$args ) {}
 
+require __DIR__ . '/../includes/class-oc-release-cache.php';
 require __DIR__ . '/../includes/admin/class-oc-admin-menu.php';
 ( new OC_Admin_Menu() )->enqueue_assets( $argv[1] ?? 'overcustomise_page_overcustomise-settings' );
 

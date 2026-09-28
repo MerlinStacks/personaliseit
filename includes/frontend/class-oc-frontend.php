@@ -76,7 +76,7 @@ class OC_Frontend {
 
 		$asset_file = OC_PATH . 'assets/build/frontend/customiser-app.asset.php';
 		$asset      = file_exists( $asset_file ) ? include $asset_file : [];
-		$version    = isset( $asset['version'] ) ? (string) $asset['version'] : OC_VERSION;
+		$version    = OC_Release_Cache::version();
 
 		wp_enqueue_script(
 			'oc-customiser-app',
@@ -120,6 +120,7 @@ class OC_Frontend {
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );
 		$state['locationLookupUrl']     = rest_url( 'overcustomise/v1/location-lookup' );
 		$state['requestTokenUrl']       = rest_url( 'overcustomise/v1/session-token' );
+		$state['restNonceUrl']          = add_query_arg( [ 'action' => 'rest-nonce' ], admin_url( 'admin-ajax.php' ) );
 		$state['productDesignUrl']      = rest_url( 'overcustomise/v1/product-design/' . (int) get_queried_object_id() );
 		$state['productId']             = (int) get_queried_object_id();
 		// Sending a stale guest nonce makes REST cookie authentication reject the
@@ -1084,7 +1085,10 @@ class OC_Frontend {
 			return '';
 		}
 		$relative = ltrim( substr( $real_path, strlen( $base_path ) ), '/' );
-		return esc_url_raw( trailingslashit( (string) $uploads['baseurl'] ) . $relative );
+		$url      = trailingslashit( (string) $uploads['baseurl'] ) . $relative;
+		// Hash actual bytes: replacement tools can preserve the filename and mtime.
+		$revision = hash_file( 'sha256', $real );
+		return esc_url_raw( $revision ? add_query_arg( [ 'oc_media' => substr( $revision, 0, 16 ) ], $url ) : $url );
 	}
 
 	private static function normalise_clipart_print_methods( string $raw ): array {

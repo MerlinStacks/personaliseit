@@ -33,6 +33,62 @@ const normaliseUploadFormats = ( formats ) => {
 };
 
 const uploadMethods = {
+	/** Uppy retries get new headers; only explicit pre-handler auth failures renew. */
+	uploadAuthenticationOptions() {
+		const sent = new WeakMap();
+		const recovered = new WeakSet();
+		const retryable = new WeakSet();
+		return {
+			headers: {},
+			onBeforeRequest: ( xhr, retryCount, files ) => {
+				const file = files[ 0 ];
+				if ( retryCount === 0 ) {
+					recovered.delete( file );
+				}
+				sent.set( xhr, {
+					file,
+					credentials: this.authenticationSnapshot(),
+				} );
+				Object.entries( this.restHeaders() ).forEach(
+					( [ name, value ] ) => xhr.setRequestHeader( name, value )
+				);
+			},
+			onAfterResponse: async ( xhr ) => {
+				const attempt = sent.get( xhr );
+				if (
+					xhr.status !== 403 ||
+					! attempt ||
+					recovered.has( attempt.file )
+				) {
+					return;
+				}
+				let body;
+				try {
+					body = JSON.parse( xhr.responseText );
+				} catch {
+					return;
+				}
+				if (
+					! this.isAuthenticationRejection( xhr.status, body?.code )
+				) {
+					return;
+				}
+				recovered.add( attempt.file );
+				await this.recoverAuthentication(
+					attempt.credentials,
+					body.code
+				);
+				retryable.add( xhr );
+			},
+			shouldRetry: ( xhr ) =>
+				retryable.has( xhr ) ||
+				xhr.status === 0 ||
+				xhr.status === 408 ||
+				xhr.status === 429 ||
+				xhr.status >= 500,
+		};
+	},
+
 	clearFailedArtworkReplacements( layerId ) {
 		const members = new Set( [
 			layerId,
@@ -411,14 +467,17 @@ const uploadMethods = {
 				errorEl.textContent =
 					'Generating image... This can take up to two minutes.';
 			}
-			const listResponse = await fetch( this.data.generateAiImageUrl, {
-				method: 'POST',
-				signal: request.controller.signal,
-				headers: this.restHeaders( {
-					'Content-Type': 'application/json',
-				} ),
-				body: JSON.stringify( { ...body, list_only: true } ),
-			} );
+			const listResponse = await this.authenticatedFetch(
+				this.data.generateAiImageUrl,
+				{
+					method: 'POST',
+					signal: request.controller.signal,
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+					} ),
+					body: JSON.stringify( { ...body, list_only: true } ),
+				}
+			);
 			const listed = await listResponse.json().catch( () => null );
 			if ( ! listResponse.ok || ! Array.isArray( listed?.results ) ) {
 				throw new Error(
@@ -442,14 +501,17 @@ const uploadMethods = {
 					listed.results.at( -1 )
 				);
 			}
-			const response = await fetch( this.data.generateAiImageUrl, {
-				method: 'POST',
-				signal: request.controller.signal,
-				headers: this.restHeaders( {
-					'Content-Type': 'application/json',
-				} ),
-				body: JSON.stringify( body ),
-			} );
+			const response = await this.authenticatedFetch(
+				this.data.generateAiImageUrl,
+				{
+					method: 'POST',
+					signal: request.controller.signal,
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+					} ),
+					body: JSON.stringify( body ),
+				}
+			);
 			const result = await response.json().catch( () => null );
 			if (
 				! response.ok ||
@@ -630,7 +692,7 @@ const uploadMethods = {
 			uppy.on( 'file-added', async ( file ) => {
 				uppy.getPlugin( 'XHRUpload' )?.setOptions( {
 					endpoint: this.uploadEndpoint( uploadUrl, lid ),
-					headers: () => this.restHeaders(),
+					headers: {},
 				} );
 				fileGenerations.set( file.id, activeGeneration );
 				fileOperations.set(
@@ -681,12 +743,7 @@ const uploadMethods = {
 				endpoint: this.uploadEndpoint( uploadUrl, lid ),
 				formData: true,
 				fieldName: 'artwork',
-				headers: () => this.restHeaders(),
-				shouldRetry: ( xhr ) =>
-					xhr.status === 0 ||
-					xhr.status === 408 ||
-					xhr.status === 429 ||
-					xhr.status >= 500,
+				...this.uploadAuthenticationOptions(),
 			} );
 			zoneEl.dataset.ocUppyReady = '1';
 			this.uppyInstances.add( uppy );
@@ -951,15 +1008,24 @@ const uploadMethods = {
 	},
 
 	async loadAiFilterResults( layerId, filterId, sourceId, signal ) {
-		const response = await fetch( this.data.applyImageFilterUrl, {
-			method: 'POST',
-			signal,
-			headers: this.restHeaders( { 'Content-Type': 'application/json' } ),
-			body: JSON.stringify( {
-				...this.imageFilterRequestBody( layerId, filterId, sourceId ),
-				list_only: true,
-			} ),
-		} );
+		const response = await this.authenticatedFetch(
+			this.data.applyImageFilterUrl,
+			{
+				method: 'POST',
+				signal,
+				headers: this.restHeaders( {
+					'Content-Type': 'application/json',
+				} ),
+				body: JSON.stringify( {
+					...this.imageFilterRequestBody(
+						layerId,
+						filterId,
+						sourceId
+					),
+					list_only: true,
+				} ),
+			}
+		);
 		const json = await response.json().catch( () => null );
 		if ( ! response.ok || ! Array.isArray( json?.results ) ) {
 			throw new Error(
@@ -1233,16 +1299,23 @@ const uploadMethods = {
 					Number( existing.results.at( -1 ).attachment_id )
 				);
 			}
-			const response = await fetch( this.data.applyImageFilterUrl, {
-				method: 'POST',
-				signal: controller.signal,
-				headers: this.restHeaders( {
-					'Content-Type': 'application/json',
-				} ),
-				body: JSON.stringify(
-					this.imageFilterRequestBody( layerId, filterId, sourceId )
-				),
-			} );
+			const response = await this.authenticatedFetch(
+				this.data.applyImageFilterUrl,
+				{
+					method: 'POST',
+					signal: controller.signal,
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+					} ),
+					body: JSON.stringify(
+						this.imageFilterRequestBody(
+							layerId,
+							filterId,
+							sourceId
+						)
+					),
+				}
+			);
 			const json = await response.json().catch( () => null );
 			if (
 				! response.ok ||
@@ -1410,10 +1483,15 @@ const uploadMethods = {
 
 	showUploadImportFailure( zoneEl, error ) {
 		console.warn( '[OC] Upload controls failed to load:', error );
+		const staleAssets =
+			error?.name === 'ChunkLoadError' ||
+			error?.code === 'CSS_CHUNK_LOAD_FAILED';
 		this.setUploadZoneState( zoneEl, 'error' );
 		this.showUploadError(
 			zoneEl,
-			'Upload controls could not load. Check your connection and retry.'
+			staleAssets
+				? 'The upload files have changed. Refresh the page, then re-enter any unsaved customisation.'
+				: 'Upload controls could not load. Check your connection and retry.'
 		);
 		const errorEl = zoneEl
 			.closest( '.oc-artwork-wrap' )
@@ -1425,11 +1503,17 @@ const uploadMethods = {
 		retry.type = 'button';
 		retry.className = 'oc-upload-retry';
 		retry.dataset.ocUploadRetry = '1';
-		retry.textContent = 'Retry upload controls';
+		retry.textContent = staleAssets
+			? 'Refresh customiser'
+			: 'Retry upload controls';
 		retry.addEventListener(
 			'click',
 			() => {
 				retry.disabled = true;
+				if ( staleAssets ) {
+					this.refreshCustomiserPage();
+					return;
+				}
 				zoneEl.removeAttribute( 'data-oc-uppy-ready' );
 				this._uploadSetupPromise = this.setupUploadZones();
 			},

@@ -903,6 +903,7 @@ const galleryPreviewMethods = {
 
 		try {
 			const response = await fetch( url.toString(), {
+				cache: 'no-store',
 				credentials: 'same-origin',
 				headers: { Accept: 'application/json' },
 				signal: request.controller.signal,

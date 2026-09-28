@@ -55,7 +55,7 @@ class OC_Admin_Mockups {
 			'oc-mockup-library',
 			OC_ASSETS_URL . 'admin/mockup-library.js',
 			[ 'jquery', 'wp-util' ],
-			OC_VERSION,
+			OC_Release_Cache::version(),
 			true
 		);
 		wp_localize_script( 'oc-mockup-library', 'ocMockupData', [
