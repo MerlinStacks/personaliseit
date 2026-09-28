@@ -795,7 +795,9 @@ export function createProductsPageSettings( deps ) {
 						( ( s.mask_shape || 'circle' ) === 'circle'
 							? ' selected'
 							: '' ) +
-						'>Circle</option></select>'
+						'>Circle</option><option value="oval"' +
+						( s.mask_shape === 'oval' ? ' selected' : '' ) +
+						'>Oval</option></select>'
 				);
 			case 'appearance':
 			case 'colours':

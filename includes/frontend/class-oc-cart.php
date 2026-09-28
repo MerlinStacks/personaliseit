@@ -1430,7 +1430,7 @@ class OC_Cart {
 			'formats'                      => $formats,
 			'max_size_mb'                  => max( 1, min( 100, $number( $value['max_size_mb'] ?? 10, 10 ) ) ),
 			'remove_background'            => $boolean( $value['remove_background'] ?? false ),
-			'mask_shape'                   => in_array( $mask_shape, [ 'circle', 'square', 'rectangle' ], true ) ? $mask_shape : 'circle',
+			'mask_shape'                   => in_array( $mask_shape, [ 'circle', 'oval', 'square', 'rectangle' ], true ) ? $mask_shape : 'circle',
 			'clipart_display'              => 'carousel' === sanitize_key( $string( $value['clipart_display'] ?? 'grid', 'grid' ) ) ? 'carousel' : 'grid',
 			'link_group'                   => $link_group,
 			'colour_link_group'            => $colour_link_group,

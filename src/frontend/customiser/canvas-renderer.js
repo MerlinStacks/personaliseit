@@ -7,6 +7,7 @@ import {
 	Textbox,
 	Rect,
 	Circle,
+	Ellipse,
 	Line,
 	Shadow,
 	Pattern,
@@ -1942,6 +1943,19 @@ const canvasRendererMethods = {
 		const shape = String( settings?.mask_shape || 'circle' ).toLowerCase();
 		const left = x + w / 2;
 		const top = y + h / 2;
+
+		if ( shape === 'oval' ) {
+			return new Ellipse( {
+				left,
+				top,
+				originX: 'center',
+				originY: 'center',
+				angle,
+				rx: w / 2,
+				ry: h / 2,
+				absolutePositioned: true,
+			} );
+		}
 
 		if ( shape === 'circle' ) {
 			return new Circle( {

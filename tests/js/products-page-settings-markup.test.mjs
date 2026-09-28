@@ -159,7 +159,7 @@ test( 'settings tabs preserve their original markup across layer and data varian
 			'fb4372465c5d1db41f70f55f34fb096274ba004bb2b374f174424ad85cd5125c',
 		style: 'b2d3d7f6a42d6894919300e2db4b1582c95c0d10b850727a5ddfa9400f46348e',
 		file: '419fbc6af179a24dc8d1aa20c9717634901498b2774331bcc594ca87f552e0a6',
-		mask: '65806890bdacc9e09a72a97d3052fb68b694cdf99062bad4c8cf90c4e658ee81',
+		mask: '62b4ff1a5958fc03b393f35edb6ad595c76d19e162163df008eed77314b9b4bd',
 		appearance:
 			'd8aa9504c690c17bbf342bd6cd481145e1695c470ce3552fe58e0a9a3d41e5f4',
 		library:

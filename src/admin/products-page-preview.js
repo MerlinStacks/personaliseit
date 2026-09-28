@@ -271,7 +271,7 @@ export function createLayerPreviewRenderer( deps ) {
 		el._ocTextPreviewCanvas?.dispose?.();
 		el._ocTextPreviewCanvas = null;
 		el.querySelectorAll( '.oc-lp' ).forEach( ( c ) => c.remove() );
-		el.classList.remove( 'oc-clipmask-circle' );
+		el.classList.remove( 'oc-clipmask-rounded' );
 		if ( ! layer ) {
 			return;
 		}
@@ -397,15 +397,18 @@ export function createLayerPreviewRenderer( deps ) {
 				'</span>';
 			if (
 				layer.type === 'clipmask' &&
-				String( s.mask_shape || 'circle' ).toLowerCase() === 'circle'
+				[ 'circle', 'oval' ].includes(
+					String( s.mask_shape || 'circle' ).toLowerCase()
+				)
 			) {
-				// Match the storefront crop: a centred circle using the shorter side.
+				// Ovals follow both dimensions; circles use the shorter side.
+				const isOval = String( s.mask_shape ).toLowerCase() === 'oval';
 				const diameter = Math.min( renderedW, renderedH );
 				const shape = document.createElement( 'div' );
-				shape.className = 'oc-lp oc-lp-clipmask-circle';
+				shape.className = 'oc-lp oc-lp-clipmask-rounded';
 				Object.assign( shape.style, {
-					width: diameter + 'px',
-					height: diameter + 'px',
+					width: ( isOval ? renderedW : diameter ) + 'px',
+					height: ( isOval ? renderedH : diameter ) + 'px',
 					borderColor: el.style.borderColor,
 					background: el.style.background,
 				} );
@@ -413,7 +416,7 @@ export function createLayerPreviewRenderer( deps ) {
 				if ( isGhost ) {
 					el.style.borderColor = 'transparent';
 				}
-				el.classList.add( 'oc-clipmask-circle' );
+				el.classList.add( 'oc-clipmask-rounded' );
 				shape.appendChild( d );
 				el.appendChild( shape );
 				return;

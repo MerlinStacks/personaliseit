@@ -1440,8 +1440,14 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		return true;
 	}
 
-	/** Clip an EPS artwork layer to the same circle/rectangle used by the preview. */
+	/** Clip an EPS artwork layer to the same shape used by the preview. */
 	private static function append_eps_clip_path( array &$lines, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $shape ): void {
+		if ( 'oval' === $shape ) {
+			// Restore the transform after constructing the ellipse, retaining its path.
+			$lines[] = sprintf( 'matrix currentmatrix %.4F %.4F translate %.4F %.4F scale newpath 0 0 1 0 360 arc closepath setmatrix clip newpath', $x_pt + $w_pt / 2, $y_pt + $h_pt / 2, $w_pt / 2, $h_pt / 2 );
+			return;
+		}
+
 		if ( 'circle' === $shape ) {
 			$radius  = min( $w_pt, $h_pt ) / 2;
 			$center_x = $x_pt + $w_pt / 2;

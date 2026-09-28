@@ -600,11 +600,11 @@
 }
 
 /* Icon+label stack (image, spotify, lineart, clipart) */
-.oc-bounds-box.oc-clipmask-circle {
+.oc-bounds-box.oc-clipmask-rounded {
 	border-style: dashed;
 }
 
-.oc-lp-clipmask-circle {
+.oc-lp-clipmask-rounded {
 	inset: auto;
 	left: 50%;
 	top: 50%;

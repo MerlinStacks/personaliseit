@@ -752,6 +752,8 @@ trait OC_Print_Base_Layers {
 			if ( 'circle' === $shape ) {
 				$radius = min( $w_mm, $h_mm ) / 2;
 				$pdf->Circle( $x_mm + $w_mm / 2, $y_mm + $h_mm / 2, $radius, 0, 360, 'CNZ' );
+			} elseif ( 'oval' === $shape ) {
+				$pdf->Ellipse( $x_mm + $w_mm / 2, $y_mm + $h_mm / 2, $w_mm / 2, $h_mm / 2, 0, 0, 360, 'CNZ' );
 			} else {
 				$pdf->Rect( $x_mm, $y_mm, $w_mm, $h_mm, 'CNZ' );
 			}
