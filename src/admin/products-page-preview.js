@@ -271,6 +271,7 @@ export function createLayerPreviewRenderer( deps ) {
 		el._ocTextPreviewCanvas?.dispose?.();
 		el._ocTextPreviewCanvas = null;
 		el.querySelectorAll( '.oc-lp' ).forEach( ( c ) => c.remove() );
+		el.classList.remove( 'oc-clipmask-circle' );
 		if ( ! layer ) {
 			return;
 		}
@@ -394,8 +395,28 @@ export function createLayerPreviewRenderer( deps ) {
 					? 'Upload Clipped Photo'
 					: 'Upload Image' ) +
 				'</span>';
-			if ( layer.type === 'clipmask' ) {
-				d.style.borderRadius = '999px';
+			if (
+				layer.type === 'clipmask' &&
+				String( s.mask_shape || 'circle' ).toLowerCase() === 'circle'
+			) {
+				// Match the storefront crop: a centred circle using the shorter side.
+				const diameter = Math.min( renderedW, renderedH );
+				const shape = document.createElement( 'div' );
+				shape.className = 'oc-lp oc-lp-clipmask-circle';
+				Object.assign( shape.style, {
+					width: diameter + 'px',
+					height: diameter + 'px',
+					borderColor: el.style.borderColor,
+					background: el.style.background,
+				} );
+				el.style.background = 'transparent';
+				if ( isGhost ) {
+					el.style.borderColor = 'transparent';
+				}
+				el.classList.add( 'oc-clipmask-circle' );
+				shape.appendChild( d );
+				el.appendChild( shape );
+				return;
 			}
 			el.appendChild( d );
 		} else if ( layer.type === 'clipart' && clipartUrl ) {

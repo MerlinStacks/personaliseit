@@ -1,5 +1,14 @@
 # Third-party notices
 
+## Twemoji
+
+UV print exports retrieve and locally cache Twemoji 17.0.2 SVG emoji artwork
+from the WordPress emoji CDN (`s.w.org`). Graphics are licensed under
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/), copyright Twitter,
+Inc. and other contributors. See [Twemoji](https://github.com/jdecked/twemoji).
+The exporter scales and positions the artwork alongside outlined lettering;
+white-ink plates use its visible silhouette.
+
 ## d3-celestial
 
 The Night Sky star catalogue and constellation line data are derived from

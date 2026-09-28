@@ -600,6 +600,20 @@
 }
 
 /* Icon+label stack (image, spotify, lineart, clipart) */
+.oc-bounds-box.oc-clipmask-circle {
+	border-style: dashed;
+}
+
+.oc-lp-clipmask-circle {
+	inset: auto;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+	box-sizing: border-box;
+	border: 1px solid;
+	border-radius: 50%;
+}
+
 .oc-lp-icon {
 	flex-direction: column;
 	gap: 4px;

@@ -122,7 +122,7 @@ class OC_Print_UV extends OC_Print_Base {
 		// Leave the page unpainted so transparent artwork does not gain a white box.
 
 		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, $origin_x, $origin_y, 'colour' );
+			self::render_layer_payload( $pdf, $area, $area_data, $origin_x, $origin_y, 'colour', [ 'outline_text' => true ] );
 			return;
 		}
 
@@ -148,8 +148,13 @@ class OC_Print_UV extends OC_Print_Base {
 			$pdf->SetFont( $font_name, '', $font_size );
 			$pdf->SetTextColorArray( [ $c, $m, $y, $k ] );
 
-			$cell_h = self::cell_h( $font_size );
-			self::draw_clipped_text_cell( $pdf, $origin_x, $origin_y, $w_mm, $h_mm, $text, $cell_h );
+			$input = [
+				'value'    => $text,
+				'fontId'   => $area_data['fontId'] ?? 0,
+				'fontSize' => $font_size,
+				'colorHex' => $color,
+			];
+			self::render_uv_text( $pdf, [ 'type' => 'text' ], $input, [], $origin_x, $origin_y, $w_mm, $h_mm, 'colour', 1.0 );
 		}
 	}
 
@@ -172,7 +177,7 @@ class OC_Print_UV extends OC_Print_Base {
 		self::set_spot_fill_colour( $pdf, $white_spot_name );
 
 		if ( self::has_layer_payload( $area_data ) ) {
-			self::render_layer_payload( $pdf, $area, $area_data, $origin_x, $origin_y, 'spot' );
+			self::render_layer_payload( $pdf, $area, $area_data, $origin_x, $origin_y, 'spot', [ 'outline_text' => true ] );
 			return;
 		}
 
@@ -192,8 +197,12 @@ class OC_Print_UV extends OC_Print_Base {
 			$font_size = self::auto_font_size( $pdf, $text, $font_name, $w_mm, $h_mm, $min_font_size, $max_font_size );
 
 			$pdf->SetFont( $font_name, '', $font_size );
-			$cell_h = self::cell_h( $font_size );
-			self::draw_clipped_text_cell( $pdf, $origin_x, $origin_y, $w_mm, $h_mm, $text, $cell_h );
+			$input = [
+				'value'    => $text,
+				'fontId'   => $area_data['fontId'] ?? 0,
+				'fontSize' => $font_size,
+			];
+			self::render_uv_text( $pdf, [ 'type' => 'text' ], $input, [], $origin_x, $origin_y, $w_mm, $h_mm, 'spot', 1.0 );
 		}
 	}
 
