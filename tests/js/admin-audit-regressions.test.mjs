@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
+import { JSDOM } from 'jsdom';
 
 const { parse } = createRequire( import.meta.url )( 'acorn' );
 async function loadFunctions( file, names, globals ) {
@@ -382,10 +383,12 @@ test( 'ghost rerender disposes Fabric canvases even without a usable image scale
 	assert.equal( container.innerHTML, '' );
 } );
 
-test( 'font callbacks cannot recreate canvases on detached previews', async () => {
+test( 'font callbacks cannot recreate canvases on detached previews', async ( t ) => {
 	const load = deferred();
 	let renders = 0;
-	const el = { isConnected: true, querySelectorAll: () => [] };
+	const dom = new JSDOM( '<div id="preview"></div>' );
+	t.after( () => dom.window.close() );
+	const el = dom.window.document.getElementById( 'preview' );
 	const { applyLayerPreview } = await loadFunctions(
 		'src/admin/products-page-preview.js',
 		[ 'applyLayerPreview' ],
@@ -411,7 +414,7 @@ test( 'font callbacks cannot recreate canvases on detached previews', async () =
 		true,
 		false
 	);
-	el.isConnected = false;
+	el.remove();
 	load.resolve();
 	await tick();
 	assert.equal( renders, 1 );
