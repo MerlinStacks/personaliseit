@@ -125,6 +125,16 @@ test( 'address selection saves coordinates with the search field focused', async
 			} ),
 			ensureRequestToken: async () => {},
 			restHeaders: ( headers ) => headers,
+			authenticatedFetch: async () => ( {
+				ok: true,
+				json: async () => ( {
+					results: Array.from( { length: 6 }, ( _, index ) => ( {
+						displayName: `Address ${ index + 1 }, Australia`,
+						latitude: -33.8688,
+						longitude: 151.2093,
+					} ) ),
+				} ),
+			} ),
 			data: { locationLookupUrl: '/lookup' },
 		};
 		new Function(
@@ -133,7 +143,6 @@ test( 'address selection saves coordinates with the search field focused', async
 			'addressMode',
 			'coordinateMode',
 			'resultsEl',
-			'fetch',
 			`
 			let searchTimer = null, searchSequence = 0, locationRequest = null;
 			const locationSearchCache = new Map(), error = null;
@@ -147,17 +156,7 @@ test( 'address selection saves coordinates with the search field focused', async
 			document.getElementById( 'root' ),
 			document.getElementById( 'address' ),
 			document.getElementById( 'coordinates' ),
-			document.getElementById( 'results' ),
-			async () => ( {
-				ok: true,
-				json: async () => ( {
-					results: Array.from( { length: 6 }, ( _, index ) => ( {
-						displayName: `Address ${ index + 1 }, Australia`,
-						latitude: -33.8688,
-						longitude: 151.2093,
-					} ) ),
-				} ),
-			} )
+			document.getElementById( 'results' )
 		);
 	}, handlers );
 	const input = page.locator( '#place' );
