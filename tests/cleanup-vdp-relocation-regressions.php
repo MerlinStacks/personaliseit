@@ -5,14 +5,24 @@ $fixture = __DIR__ . '/.cleanup-relocation-' . bin2hex( random_bytes( 6 ) );
 define( 'ABSPATH', $fixture . '/site/' );
 define( 'DAY_IN_SECONDS', 86400 );
 $options = [];
-function wp_normalize_path( $path ) { return str_replace( '\\', '/', $path ); }
-function trailingslashit( $path ) { return rtrim( $path, '/' ) . '/'; }
-function wp_upload_dir() { return [ 'basedir' => $GLOBALS['fixture'] . '/uploads' ]; }
-function wp_salt( $scheme ) { return 'cleanup-relocation'; }
-function get_current_blog_id() { return 1; }
-function get_option( $key, $default = false ) { return $GLOBALS['options'][$key] ?? $default; }
-function update_option( $key, $value, ...$args ) { $GLOBALS['options'][$key] = $value; return true; }
-function delete_option( $key ) { unset( $GLOBALS['options'][$key] ); return true; }
+function wp_normalize_path( $path ) {
+	return str_replace( '\\', '/', $path ); }
+function trailingslashit( $path ) {
+	return rtrim( $path, '/' ) . '/'; }
+function wp_upload_dir() {
+	return [ 'basedir' => $GLOBALS['fixture'] . '/uploads' ]; }
+function wp_salt( $scheme ) {
+	return 'cleanup-relocation'; }
+function get_current_blog_id() {
+	return 1; }
+function get_option( $key, $fallback = false ) {
+	return $GLOBALS['options'][ $key ] ?? $fallback; }
+function update_option( $key, $value, ...$args ) {
+	$GLOBALS['options'][ $key ] = $value;
+	return true; }
+function delete_option( $key ) {
+	unset( $GLOBALS['options'][ $key ] );
+	return true; }
 function wp_cache_delete( ...$args ) {}
 function wp_json_encode( $value ) { return json_encode( $value ); }
 function absint( $value ) { return abs( (int) $value ); }
@@ -23,7 +33,7 @@ function __( $text, ...$args ) { return $text; }
 class OC_Logger { public static function warning( $message ): void {} }
 class OC_Upload_Handler {
 	public static bool $blocked = false;
-	public static string $root = 'current';
+	public static string $root  = 'current';
 	public static function private_storage_path( string $directory = '', bool $force = false ): ?string {
 		return self::$blocked ? null : $GLOBALS['fixture'] . '/' . self::$root . '/' . $directory;
 	}
@@ -39,10 +49,12 @@ class wpdb {
 	public string $usermeta = 'wp_usermeta';
 	public string $last_error = '';
 	public bool $fail_publication = false;
-	public int $vdp_reads = 0;
-	public bool $fail_vdp_scan = false;
-	public function prepare( string $sql, mixed ...$args ): array { return [ $sql, $args ]; }
-	public function esc_like( string $text ): string { return $text; }
+	public int $vdp_reads         = 0;
+	public bool $fail_vdp_scan    = false;
+	public function prepare( string $sql, mixed ...$args ): array {
+		return [ $sql, $args ]; }
+	public function esc_like( string $text ): string {
+		return $text; }
 	public function get_results( array $query ): array {
 		if ( str_contains( $query[0], 'oc_vdp_templates' ) ) {
 			++$this->vdp_reads;
@@ -134,13 +146,15 @@ try {
 	OC_Rest_API::ensure_vdp_storage();
 	check( 1 === $wpdb->vdp_reads, 'Completed VDP migration kept scanning on subsequent workers' );
 	OC_Upload_Handler::$root = 'current2';
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_mkdir -- Real filesystem fixture without WordPress.
 	mkdir( $fixture . '/current2/vdp', 0750, true );
 	$wpdb->fail_vdp_scan = true;
 	OC_Rest_API::ensure_vdp_storage();
-	check( $complete === get_option( 'oc_vdp_migration_complete' ), 'Database failure incorrectly marked a changed root complete' );
+	check( get_option( 'oc_vdp_migration_complete' ) === $complete, 'Database failure incorrectly marked a changed root complete' );
 	$wpdb->fail_vdp_scan = false;
 	OC_Rest_API::ensure_vdp_storage();
-	check( $complete !== get_option( 'oc_vdp_migration_complete' ) && 3 === $wpdb->vdp_reads, 'Changed roots must retry and complete their own scan' );
+	check( get_option( 'oc_vdp_migration_complete' ) !== $complete && 3 === $wpdb->vdp_reads, 'Changed roots must retry and complete their own scan' );
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite -- CLI result, not a WordPress filesystem write.
 	fwrite( STDOUT, "Cleanup and VDP relocation regressions passed.\n" );
 } finally {
 	$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $fixture, FilesystemIterator::SKIP_DOTS ), RecursiveIteratorIterator::CHILD_FIRST );

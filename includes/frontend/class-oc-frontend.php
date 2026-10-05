@@ -25,9 +25,9 @@ class OC_Frontend {
 	private ?array $active_colours          = null;
 	private ?array $active_image_filters    = null;
 	private ?array $font_group_ids          = null;
-	private bool $paginate_clipart = false;
-	private array $clipart_pages = [];
-	private array $clipart_context = [];
+	private bool $paginate_clipart          = false;
+	private array $clipart_pages            = [];
+	private array $clipart_context          = [];
 
 	public function register(): void {
 		add_action( 'wp', [ $this, 'maybe_load_design' ], 10 );
@@ -43,10 +43,13 @@ class OC_Frontend {
 			return;
 		}
 
-		$product_id           = (int) get_queried_object_id();
+		$product_id             = (int) get_queried_object_id();
 		$this->paginate_clipart = true;
-		$this->clipart_context = [ 'product_id' => $product_id, 'variant_id' => 0 ];
-		$this->fee_product_id = $product_id;
+		$this->clipart_context  = [
+			'product_id' => $product_id,
+			'variant_id' => 0,
+		];
+		$this->fee_product_id   = $product_id;
 
 		$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
 		if ( ! $assignment ) {
@@ -152,11 +155,14 @@ class OC_Frontend {
 			];
 		}
 
-		$self                 = new self();
+		$self                   = new self();
 		$self->paginate_clipart = $paginate_clipart;
-		$self->clipart_context = [ 'product_id' => $product_id, 'variant_id' => $variation_id ];
-		$self->fee_product_id = $variation_id ?: $product_id;
-		$context              = $self->resolve_assignment_design( $assignment, $requested_design_id );
+		$self->clipart_context  = [
+			'product_id' => $product_id,
+			'variant_id' => $variation_id,
+		];
+		$self->fee_product_id   = $variation_id ? $variation_id : $product_id;
+		$context                = $self->resolve_assignment_design( $assignment, $requested_design_id );
 		if ( ! $context ) {
 			return [
 				'design_id' => (int) $assignment->design_id,
@@ -1016,10 +1022,10 @@ class OC_Frontend {
 					$by_layer[ $layer_id ] = $this->clipart_items_cache[ 'page:' . $layer_id ];
 					continue;
 				}
-				$page = OC_Clipart_Catalog::page( $group_ids, $print_method, 1, '', '', absint( $settings['default_clipart_id'] ?? 0 ) );
-				$page['url'] = add_query_arg( $this->clipart_context, rest_url( 'overcustomise/v1/clipart/' . (int) $layer->id ) );
+				$page                             = OC_Clipart_Catalog::page( $group_ids, $print_method, 1, '', '', absint( $settings['default_clipart_id'] ?? 0 ) );
+				$page['url']                      = add_query_arg( $this->clipart_context, rest_url( 'overcustomise/v1/clipart/' . (int) $layer->id ) );
 				$this->clipart_pages[ $layer_id ] = array_diff_key( $page, [ 'items' => true ] );
-				$by_layer[ $layer_id ] = $page['items'];
+				$by_layer[ $layer_id ]            = $page['items'];
 				$this->clipart_items_cache[ 'page:' . $layer_id ] = $page['items'];
 				continue;
 			}

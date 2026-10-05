@@ -71,18 +71,43 @@ class OC_Rest_API {
 	}
 
 	public function register_routes(): void {
-		register_rest_route( self::NAMESPACE, '/clipart/(?P<layer_id>\d+)', [
-			'methods' => \WP_REST_Server::READABLE,
-			'callback' => [ $this, 'get_clipart_page' ],
-			'permission_callback' => '__return_true',
-			'args' => [
-				'product_id' => [ 'type' => 'integer', 'minimum' => 1, 'required' => true ],
-				'variant_id' => [ 'type' => 'integer', 'minimum' => 0, 'default' => 0 ],
-				'page' => [ 'type' => 'integer', 'minimum' => 1, 'maximum' => 10000, 'default' => 1 ],
-				'search' => [ 'type' => 'string', 'maxLength' => 100, 'default' => '' ],
-				'category' => [ 'type' => 'string', 'maxLength' => 100, 'default' => '' ],
-			],
-		] );
+		register_rest_route(
+			self::NAMESPACE,
+			'/clipart/(?P<layer_id>\d+)',
+			[
+				'methods'             => \WP_REST_Server::READABLE,
+				'callback'            => [ $this, 'get_clipart_page' ],
+				'permission_callback' => '__return_true',
+				'args'                => [
+					'product_id' => [
+						'type'     => 'integer',
+						'minimum'  => 1,
+						'required' => true,
+					],
+					'variant_id' => [
+						'type'    => 'integer',
+						'minimum' => 0,
+						'default' => 0,
+					],
+					'page'       => [
+						'type'    => 'integer',
+						'minimum' => 1,
+						'maximum' => 10000,
+						'default' => 1,
+					],
+					'search'     => [
+						'type'      => 'string',
+						'maxLength' => 100,
+						'default'   => '',
+					],
+					'category'   => [
+						'type'      => 'string',
+						'maxLength' => 100,
+						'default'   => '',
+					],
+				],
+			]
+		);
 		// Product config + print areas for the frontend customiser.
 		register_rest_route(
 			self::NAMESPACE,
@@ -486,24 +511,28 @@ class OC_Rest_API {
 			return $context;
 		}
 		global $wpdb;
-		$layer = $wpdb->get_row( $wpdb->prepare(
-			"SELECT l.*, a.print_method FROM {$wpdb->prefix}oc_design_layers l
+		$layer = $wpdb->get_row(
+			$wpdb->prepare(
+				"SELECT l.*, a.print_method FROM {$wpdb->prefix}oc_design_layers l
 			 JOIN {$wpdb->prefix}oc_design_print_areas a ON a.id = l.area_id AND a.design_id = l.design_id
 			 JOIN {$wpdb->prefix}oc_designs d ON d.id = l.design_id
 			 WHERE l.id = %d AND l.type = 'clipart' AND l.visible = 1 AND a.visible = 1 AND d.active = 1 LIMIT 1",
-			absint( $request->get_param( 'layer_id' ) )
-		) );
+				absint( $request->get_param( 'layer_id' ) )
+			)
+		);
 		if ( ! $layer || empty( $context['assignment'] ) || ! OC_DB::assignment_allows_design( $context['assignment'], (int) $layer->design_id ) ) {
 			return new \WP_Error( 'invalid_design', __( 'This customisation design is not available.', 'overcustomise' ), [ 'status' => 404 ] );
 		}
 		$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], 'clipart' );
-		return rest_ensure_response( OC_Clipart_Catalog::page(
-			array_values( array_filter( array_map( 'absint', $settings['clipart_groups'] ) ) ),
-			(string) $layer->print_method,
-			max( 1, (int) $request->get_param( 'page' ) ),
-			sanitize_text_field( (string) $request->get_param( 'search' ) ),
-			sanitize_text_field( (string) $request->get_param( 'category' ) )
-		) );
+		return rest_ensure_response(
+			OC_Clipart_Catalog::page(
+				array_values( array_filter( array_map( 'absint', $settings['clipart_groups'] ) ) ),
+				(string) $layer->print_method,
+				max( 1, (int) $request->get_param( 'page' ) ),
+				sanitize_text_field( (string) $request->get_param( 'search' ) ),
+				sanitize_text_field( (string) $request->get_param( 'category' ) )
+			)
+		);
 	}
 
 	/**

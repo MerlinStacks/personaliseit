@@ -218,6 +218,7 @@ trait OC_Print_Base_Fonts {
 
 			throw new \RuntimeException( 'No compatible TCPDF font importer is available.' );
 		} catch ( \Throwable $e ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Preserve diagnostic text; callers escape it at the output boundary.
 			throw new \RuntimeException( 'The selected print font could not be registered (' . basename( $font_path ) . '): ' . $e->getMessage(), 0, $e );
 		}
 	}

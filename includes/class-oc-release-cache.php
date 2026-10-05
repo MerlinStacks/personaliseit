@@ -59,20 +59,27 @@ class OC_Release_Cache {
 			return false;
 		}
 		foreach ( [ 'oc_print_areas', 'oc_design_print_areas' ] as $table ) {
-			$found = $wpdb->get_var( $wpdb->prepare(
-				"SELECT id FROM {$wpdb->prefix}{$table} WHERE mockup_attachment_id = %d LIMIT 1",
-				$attachment_id
-			) );
+			$found = $wpdb->get_var(
+				$wpdb->prepare(
+					'SELECT id FROM %i WHERE mockup_attachment_id = %d LIMIT 1',
+					$wpdb->prefix . $table,
+					$attachment_id
+				)
+			);
 			if ( $found || '' !== (string) $wpdb->last_error ) {
 				return true;
 			}
 		}
 		// Settings are JSON; match exact numeric or quoted IDs, allowing historical whitespace.
 		$pattern = '"default_attachment_id"[[:space:]]*:[[:space:]]*("' . $attachment_id . '"|' . $attachment_id . '[[:space:]]*[,}])';
-		$found = $wpdb->get_var( $wpdb->prepare(
-			"SELECT id FROM {$wpdb->prefix}oc_design_layers WHERE settings REGEXP %s LIMIT 1",
-			$pattern
-		) );
+		$found   = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT id FROM {$wpdb->prefix}oc_design_layers WHERE settings REGEXP %s LIMIT 1",
+				$pattern
+			)
+		);
+		// The query above replaces last_error; PHPStan retains its earlier empty-string narrowing.
+		// @phpstan-ignore notIdentical.alwaysFalse
 		return (bool) apply_filters( 'oc_attachment_affects_catalogue', $found || '' !== (string) $wpdb->last_error, $attachment_id );
 	}
 

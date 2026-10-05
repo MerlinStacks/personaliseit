@@ -6,14 +6,17 @@ class OC_History_Cleanup {
 	/** Keep live-order snapshots; remove only old terminal jobs belonging to deleted orders. */
 	public static function run(): void {
 		global $wpdb;
-		$days = max( 90, (int) apply_filters( 'oc_deleted_order_history_retention_days', 90 ) );
+		$days   = max( 90, (int) apply_filters( 'oc_deleted_order_history_retention_days', 90 ) );
 		$cutoff = gmdate( 'Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS );
 		$cursor = max( 0, (int) get_option( 'oc_queue_cleanup_cursor', 0 ) );
-		$jobs = $wpdb->get_results( $wpdb->prepare(
-			"SELECT id, order_id, order_item_id FROM {$wpdb->prefix}oc_print_queue
+		$jobs   = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT id, order_id, order_item_id FROM {$wpdb->prefix}oc_print_queue
 			 WHERE id > %d AND status IN ('done','failed') AND processed_at < %s ORDER BY id ASC LIMIT 100",
-			$cursor, $cutoff
-		) );
+				$cursor,
+				$cutoff
+			)
+		);
 		if ( ! is_array( $jobs ) || '' !== (string) $wpdb->last_error ) {
 			return;
 		}
@@ -22,15 +25,23 @@ class OC_History_Cleanup {
 				continue;
 			}
 			try {
-				OC_Print_Generator::with_output_lock( (int) $job->order_id, (int) $job->order_item_id, static function () use ( $wpdb, $job, $cutoff ): array {
-					if ( self::order_is_deleted( (int) $job->order_id ) ) {
-						$wpdb->query( $wpdb->prepare(
-							"DELETE FROM {$wpdb->prefix}oc_print_queue WHERE id = %d AND order_id = %d AND status IN ('done','failed') AND processed_at < %s",
-							(int) $job->id, (int) $job->order_id, $cutoff
-						) );
+				OC_Print_Generator::with_output_lock(
+					(int) $job->order_id,
+					(int) $job->order_item_id,
+					static function () use ( $wpdb, $job, $cutoff ): array {
+						if ( self::order_is_deleted( (int) $job->order_id ) ) {
+							$wpdb->query(
+								$wpdb->prepare(
+									"DELETE FROM {$wpdb->prefix}oc_print_queue WHERE id = %d AND order_id = %d AND status IN ('done','failed') AND processed_at < %s",
+									(int) $job->id,
+									(int) $job->order_id,
+									$cutoff
+								)
+							);
+						}
+						return [];
 					}
-					return [];
-				} );
+				);
 			} catch ( \Throwable $error ) {
 				OC_Logger::warning( 'Print history retained: ' . $error->getMessage() );
 			}
@@ -57,12 +68,16 @@ class OC_History_Cleanup {
 	private static function cleanup_markers( string $cutoff ): void {
 		global $wpdb;
 		$cursor = max( 0, (int) get_option( 'oc_queue_marker_cleanup_cursor', 0 ) );
-		$rows = $wpdb->get_results( $wpdb->prepare(
-			"SELECT option_id, option_name, option_value FROM {$wpdb->options}
+		$rows   = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT option_id, option_name, option_value FROM {$wpdb->options}
 			 WHERE option_id > %d AND (option_name LIKE %s OR option_name LIKE %s)
 			 ORDER BY option_id ASC LIMIT 100",
-			$cursor, $wpdb->esc_like( 'oc_print_generated_emitted_' ) . '%', $wpdb->esc_like( 'oc_print_failure_emitted_' ) . '%'
-		) );
+				$cursor,
+				$wpdb->esc_like( 'oc_print_generated_emitted_' ) . '%',
+				$wpdb->esc_like( 'oc_print_failure_emitted_' ) . '%'
+			)
+		);
 		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
 			return;
 		}

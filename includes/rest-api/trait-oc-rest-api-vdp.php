@@ -24,10 +24,10 @@ trait OC_Rest_API_VDP {
 		}
 
 		$identity = hash( 'sha256', $directory . '|' . (string) $legacy_directory . '|1' );
-		if ( ! $run_migration || $identity === get_option( 'oc_vdp_migration_complete', '' ) ) {
+		if ( ! $run_migration || get_option( 'oc_vdp_migration_complete', '' ) === $identity ) {
 			return;
 		}
-		$legacy_complete = self::migrate_legacy_vdp_files( $directory );
+		$legacy_complete  = self::migrate_legacy_vdp_files( $directory );
 		$private_complete = self::migrate_private_vdp_files( $directory );
 		if ( $legacy_complete && $private_complete ) {
 			update_option( 'oc_vdp_migration_complete', $identity, false );

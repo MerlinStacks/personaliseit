@@ -1,28 +1,57 @@
 <?php
+// phpcs:disable WordPress.WP.AlternativeFunctions, WordPress.WP.GlobalVariablesOverride.Prohibited, WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Standalone WP doubles, real local fixtures and CLI assertions.
 /** Real catalogue filtering, pagination and revision caching with a fixture library. */
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
-$root = sys_get_temp_dir() . '/oc-clipart-pages-' . bin2hex( random_bytes( 6 ) );
-$options = [];
+$root       = sys_get_temp_dir() . '/oc-clipart-pages-' . bin2hex( random_bytes( 6 ) );
+$options    = [];
 $transients = [];
-function get_option( $key, $default = false ) { return $GLOBALS['options'][ $key ] ?? $default; }
-function update_option( $key, $value, $autoload = null ) { $GLOBALS['options'][ $key ] = $value; }
-function get_transient( $key ) { return $GLOBALS['transients'][ $key ] ?? false; }
-function set_transient( $key, $value, $ttl ) { $GLOBALS['transients'][ $key ] = $value; }
-function wp_generate_uuid4() { return 'changed-generation'; }
-function absint( $v ) { return abs( (int) $v ); }
-function wp_upload_dir() { return [ 'basedir' => $GLOBALS['root'], 'baseurl' => 'https://example.test/uploads' ]; }
-function trailingslashit( $v ) { return rtrim( $v, '/' ) . '/'; }
-function wp_normalize_path( $v ) { return str_replace( '\\', '/', $v ); }
-function esc_url_raw( $v ) { return $v; }
-function add_query_arg( $args, $url ) { return $url . '?' . http_build_query( $args ); }
-function check( $ok, $message ) { if ( ! $ok ) { throw new RuntimeException( $message ); } }
-$wpdb = new class {
-	public $prefix = 'wp_';
+function get_option( $key, $fallback = false ) {
+	return $GLOBALS['options'][ $key ] ?? $fallback; }
+function update_option( $key, $value, $autoload = null ) {
+	$GLOBALS['options'][ $key ] = $value; }
+function get_transient( $key ) {
+	return $GLOBALS['transients'][ $key ] ?? false; }
+function set_transient( $key, $value, $ttl ) {
+	$GLOBALS['transients'][ $key ] = $value; }
+function wp_generate_uuid4() {
+	return 'changed-generation'; }
+function absint( $v ) {
+	return abs( (int) $v ); }
+function wp_upload_dir() {
+	return [
+		'basedir' => $GLOBALS['root'],
+		'baseurl' => 'https://example.test/uploads',
+	]; }
+function trailingslashit( $v ) {
+	return rtrim( $v, '/' ) . '/'; }
+function wp_normalize_path( $v ) {
+	return str_replace( '\\', '/', $v ); }
+function esc_url_raw( $v ) {
+	return $v; }
+function add_query_arg( $args, $url ) {
+	return $url . '?' . http_build_query( $args ); }
+function check( $ok, $message ) {
+	if ( ! $ok ) {
+		throw new RuntimeException( $message ); } }
+$wpdb = new class() {
+	public $prefix     = 'wp_';
 	public $last_error = '';
-	public $reads = 0;
+	public $reads      = 0;
 	public function get_results( $sql ) {
 		++$this->reads;
-		return array_map( fn( $id ) => (object) [ 'id' => $id, 'name' => 'Art ' . $id, 'file_path' => $GLOBALS['root'] . '/overcustomise/clipart/art.svg', 'file_type' => 'svg', 'colour_changeable' => 1, 'allowed_print_methods' => 130 === $id ? '["embroidery"]' : '', 'group_ids' => '1', 'group_names' => 'Animals' ], range( 1, 130 ) );
+		return array_map(
+			fn( $id ) => (object) [
+				'id'                    => $id,
+				'name'                  => 'Art ' . $id,
+				'file_path'             => $GLOBALS['root'] . '/overcustomise/clipart/art.svg',
+				'file_type'             => 'svg',
+				'colour_changeable'     => 1,
+				'allowed_print_methods' => 130 === $id ? '["embroidery"]' : '',
+				'group_ids'             => '1',
+				'group_names'           => 'Animals',
+			],
+			range( 1, 130 )
+		);
 	}
 };
 require ABSPATH . 'includes/class-oc-clipart-catalog.php';
