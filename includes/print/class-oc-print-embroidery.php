@@ -1007,6 +1007,15 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$start = $cmap['start_codes'][ $i ];
 			$end = $cmap['end_codes'][ $i ];
 			$range = $cmap['id_range_offsets'][ $i ];
+			// Some older fonts (including Annabelle JF) put 0xFFFF in the
+			// terminal segment's range offset. This is a sentinel, not a glyph
+			// array address. Normalise it to .notdef without rejecting the real
+			// character mappings or weakening their bounds checks.
+			if ( $i === $seg_count - 1 && 0xFFFF === $start && 0xFFFF === $end ) {
+				$cmap['id_deltas'][ $i ]        = 1;
+				$cmap['id_range_offsets'][ $i ] = 0;
+				$range                        = 0;
+			}
 			$position = $cmap['id_range_offset_positions'][ $i ] + $range;
 			if ( $start > $end || ( $i > 0 && $start <= $cmap['end_codes'][ $i - 1 ] )
 				|| ( 0 !== $range && ( $range % 2 || $position < $id_range_offsets_offset + $seg_count * 2 || $position + ( $end - $start + 1 ) * 2 > $offset + $length ) ) ) {

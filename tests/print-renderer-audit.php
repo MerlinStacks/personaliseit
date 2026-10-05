@@ -88,6 +88,20 @@ try {
 	$reject( static fn () => $invoke( $eps, 'ttf_u16', "\0", 0 ), 'Truncated word read' );
 	$reject( static fn () => $invoke( $eps, 'ttf_u32', "\0", 0 ), 'Truncated dword read' );
 
+	// Older format-4 fonts can have a bogus offset in the final U+FFFF sentinel.
+	// Real glyph-array segments must still resolve safely and reject bad offsets.
+	foreach ( [ 0, 65535 ] as $sentinel_offset ) {
+		$cmap_data = pack( 'n17', 4, 34, 0, 4, 4, 1, 0, 65, 65535, 0, 65, 65535, 0, 1, 4, $sentinel_offset, 1 );
+		$cmap = $invoke( $eps, 'ttf_parse_cmap_format4', $cmap_data, 0 );
+		$check( is_array( $cmap ), 'Terminal sentinel rejected a usable character map' );
+		$cmap_font = [ 'data' => $cmap_data, 'cmap' => $cmap, 'num_glyphs' => 2 ];
+		$check( 1 === $invoke( $eps, 'ttf_glyph_id', $cmap_font, 65 ), 'Real glyph-array mapping was lost' );
+		$check( 0 === $invoke( $eps, 'ttf_glyph_id', $cmap_font, 65535 ), 'Sentinel must resolve to .notdef without reading an offset' );
+		foreach ( [ 2, 5, 65534, 65535 ] as $bad_offset ) {
+			$check( null === $invoke( $eps, 'ttf_parse_cmap_format4', substr_replace( $cmap_data, pack( 'n', $bad_offset ), 28, 2 ), 0 ), 'Invalid real glyph offset accepted' );
+		}
+	}
+
 	// A minimal retained TrueType with one triangular A and an empty .notdef.
 	$glyph = pack( 'n5', 1, 0, 0, 10, 10 ) . pack( 'nn', 2, 0 ) . "\x31\x33\x35\x0a\x0a\0";
 	$head = str_repeat( "\0", 54 );
