@@ -72,6 +72,76 @@ if ( class_exists( 'OC_Test_Engraving_PDF' ) ) {
 
 class Test_Print_Engraving extends TestCase {
 	#[Test]
+	public function textarea_fallback_wraps_legacy_coordinates_and_retains_browser_lines(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'Imagick' ) || ! class_exists( 'TCPDF' ) || ! is_readable( $font ) ) {
+			$this->markTestSkipped( 'ImageMagick, TCPDF and a test font are required.' );
+		}
+		$uploads = wp_upload_dir()['basedir'];
+		wp_mkdir_p( $uploads );
+		$path = tempnam( $uploads, 'oc-wrap-font-' );
+		copy( $font, $path );
+		global $wpdb;
+		$previous = $wpdb;
+		$wpdb     = new class( basename( $path ) ) {
+			public string $prefix = 'wp_';
+			public function __construct( private string $path ) {}
+			public function prepare( $query, ...$args ) {
+				return $query;
+			}
+			public function get_row( $query ) {
+				return (object) [ 'file_path' => $this->path ];
+			}
+		};
+		try {
+			// An unassigned codepoint forces the same outline-to-raster fallback
+			// with any test font, without depending on a proprietary font fixture.
+			$lines = [ "36°44'00\"S\u{0378}", "143°10'20\"E" ];
+			foreach ( [ false, true ] as $verified ) {
+				$input = [
+					'value'    => implode( ' ', $lines ),
+					'fontId'   => $verified ? 9876992 : 9876991,
+					'fontSize' => 10,
+				];
+				if ( $verified ) {
+					$input += [
+						'renderedLayoutVersion' => 1,
+						'renderedFontSize'      => 10,
+						'renderedScaleX'        => 1,
+						'renderedInsetX'        => 0,
+						'renderedLines'         => $lines,
+					];
+				}
+				$pdf = new OC_Test_Engraving_PDF();
+				$pdf->AddPage();
+				$layer = [
+					'type' => 'textarea',
+					'h'    => 40,
+				];
+				( new ReflectionMethod( OC_Print_Base::class, 'render_layer_text' ) )->invoke( null, $pdf, $layer, $input, [], 0.0, 0.0, 36.0, 12.0, 'engraving', 1.0 );
+				$this->assertTrue( $pdf->image_called, 'The full layer path must exercise raster fallback.' );
+				$reference = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+				$this->assertTrue( ( new ReflectionMethod( OC_Print_Base::class, 'render_engraving_text_raster' ) )->invoke( null, $reference, implode( "\n", $lines ), $path, 10.0, 0.0, 0.0, 36.0, 12.0, 'C', 'T', true, $lines ) );
+				$actual   = new Imagick();
+				$expected = new Imagick();
+				try {
+					$actual->readImageBlob( $pdf->image_data );
+					$expected->readImageBlob( $reference->image_data );
+					$this->assertSame( $expected->getImageSignature(), $actual->getImageSignature(), 'The complete coordinate lines must reach the raster, not an overflowing unwrapped string.' );
+				} finally {
+					$actual->clear();
+					$expected->clear();
+				}
+			}
+		} finally {
+			$wpdb = $previous;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Local test font cleanup.
+			unlink( $path );
+		}
+	}
+
+	#[Test]
 	public function raster_text_keeps_complete_lines_at_every_alignment(): void {
 		$font = getenv( 'OC_TEST_FONT_PATH' );
 		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
@@ -107,6 +177,34 @@ class Test_Print_Engraving extends TestCase {
 						$image->clear();
 					}
 				}
+			}
+		}
+	}
+
+	#[Test]
+	public function raster_fallback_fits_oversized_single_and_fixed_multiline_text(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'Imagick' ) || ! class_exists( 'TCPDF' ) || ! is_readable( $font ) ) {
+			$this->markTestSkipped( 'ImageMagick, TCPDF and a test font are required.' );
+		}
+		$render = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_text_raster' );
+		foreach ( [ [ '36°44\'00"S 143°10\'20"E' ], [ '36°44\'00"S', '143°10\'20"E' ] ] as $lines ) {
+			$pdf = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+			$this->assertTrue( $render->invoke( null, $pdf, implode( "\n", $lines ), $font, 24.0, 0.0, 0.0, 36.0, 10.0, 'C', 'C', count( $lines ) > 1, $lines ) );
+			$image = new Imagick();
+			try {
+				$image->readImageBlob( $pdf->image_data );
+				$width  = $image->getImageWidth();
+				$height = $image->getImageHeight();
+				$image->trimImage( 0 );
+				$page = $image->getImagePage();
+				$this->assertGreaterThan( 1, $page['x'], 'Left edge must not cut the first characters.' );
+				$this->assertGreaterThan( 1, $page['y'], 'Top edge must not cut the first line.' );
+				$this->assertLessThan( $width - 1, $page['x'] + $image->getImageWidth(), 'Right edge must retain the final characters.' );
+				$this->assertLessThan( $height - 1, $page['y'] + $image->getImageHeight(), 'Bottom edge must retain the final line.' );
+			} finally {
+				$image->clear();
 			}
 		}
 	}

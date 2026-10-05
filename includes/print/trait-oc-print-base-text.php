@@ -279,7 +279,7 @@ trait OC_Print_Base_Text {
 			}
 		}
 
-		if ( 'engraving' === $mode && is_string( $raw_font_path ) && '' !== $raw_font_path && self::render_engraving_text_raster( $pdf, $render_text, $raw_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign ) ) {
+		if ( 'engraving' === $mode && is_string( $raw_font_path ) && '' !== $raw_font_path && self::render_engraving_text_raster( $pdf, $render_text, $raw_font_path, $font_size, $draw_x_mm, $y_mm, $draw_w_mm, $h_mm, $align, $valign, $is_textarea, $rendered_lines ) ) {
 			return;
 		}
 
@@ -420,7 +420,7 @@ trait OC_Print_Base_Text {
 		return count( $lines ) * self::cell_h( $font_size ) <= $h_mm;
 	}
 
-	private static function render_engraving_text_raster( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign ): bool {
+	private static function render_engraving_text_raster( \TCPDF $pdf, string $text, string $font_path, float $font_size, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $align, string $valign, bool $multiline = false, ?array $fixed_lines = null ): bool {
 		if ( ! class_exists( '\Imagick' ) || ! class_exists( '\ImagickDraw' ) || ! is_readable( $font_path ) ) {
 			return false;
 		}
@@ -446,11 +446,34 @@ trait OC_Print_Base_Text {
 			$draw->setFontSize( $font_size * $height_px / self::mm_to_pt_value( max( 0.1, $h_mm ) ) );
 			$draw->setFillColor( new \ImagickPixel( 'black' ) );
 			$draw->setTextAntialias( true );
+			// The outline backend may have failed to measure this font/string.
+			// annotateImage() does not wrap text. Fit using the painting backend,
+			// retaining browser lines or wrapping legacy textareas as needed.
+			$measure = static function ( string $line ) use ( $image, $draw ): float {
+				return '' === $line ? 0.0 : (float) $image->queryFontMetrics( $draw, $line )['textWidth'];
+			};
+			$padding = max( 1.0, $draw->getFontSize() * 0.1 );
+			$lines   = $fixed_lines ?? ( $multiline
+				? self::wrap_engraving_raster_lines( $text, max( 1.0, $width_px - 2 * $padding ), $measure )
+				: explode( "\n", $text ) );
+			$text    = implode( "\n", $lines );
+			for ( $attempt = 0; $attempt < 8; ++$attempt ) {
+				$padding = max( 1.0, $draw->getFontSize() * 0.1 );
+				$metrics = $image->queryFontMetrics( $draw, $text, true );
+				$scale   = min( 1.0, ( $width_px - 2 * $padding ) / max( 1.0, (float) $metrics['textWidth'] ), ( $height_px - 2 * $padding ) / max( 1.0, (float) $metrics['textHeight'] ) );
+				if ( $scale >= 1.0 ) {
+					break;
+				}
+				if ( $scale <= 0 || 7 === $attempt ) {
+					throw new \RuntimeException( 'Engraving text could not fit the raster bounds.' );
+				}
+				$draw->setFontSize( $draw->getFontSize() * $scale * 0.98 );
+			}
 			// Gravity handles both axes. Explicit text alignment overrides its
 			// positioning in annotateImage(), placing the baseline at (0, 0)
 			// and clipping most of the lettering outside the raster.
 			$draw->setGravity( self::imagick_text_gravity( $align, $valign ) );
-			$image->annotateImage( $draw, 0, 0, 0, $text );
+			$image->annotateImage( $draw, 'C' === $align ? 0 : $padding, 'C' === $valign ? 0 : $padding, 0, $text );
 
 			if ( ! $image->writeImage( $temp ) ) {
 				return false;
@@ -472,6 +495,37 @@ trait OC_Print_Base_Text {
 			}
 			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 		}
+	}
+
+	/** Wrap legacy textarea values with the raster backend's actual font metrics. */
+	private static function wrap_engraving_raster_lines( string $text, float $width, callable $measure ): array {
+		$lines = [];
+		foreach ( explode( "\n", $text ) as $paragraph ) {
+			$current = '';
+			$words   = preg_split( '/[\t ]+/u', trim( $paragraph ) );
+			foreach ( false === $words ? [] : $words as $word ) {
+				$candidate = '' === $current ? $word : $current . ' ' . $word;
+				if ( $measure( $candidate ) <= $width ) {
+					$current = $candidate;
+					continue;
+				}
+				if ( '' !== $current ) {
+					$lines[] = $current;
+					$current = '';
+				}
+				// Break overlong words at grapheme boundaries, as Fabric does.
+				preg_match_all( '/\X/u', $word, $characters );
+				foreach ( $characters[0] as $character ) {
+					if ( '' !== $current && $measure( $current . $character ) > $width ) {
+						$lines[] = $current;
+						$current = '';
+					}
+					$current .= $character;
+				}
+			}
+			$lines[] = $current;
+		}
+		return $lines;
 	}
 
 	/** @return \Imagick::GRAVITY_NORTHWEST|\Imagick::GRAVITY_NORTH|\Imagick::GRAVITY_NORTHEAST|\Imagick::GRAVITY_WEST|\Imagick::GRAVITY_CENTER|\Imagick::GRAVITY_EAST|\Imagick::GRAVITY_SOUTHWEST|\Imagick::GRAVITY_SOUTH|\Imagick::GRAVITY_SOUTHEAST */

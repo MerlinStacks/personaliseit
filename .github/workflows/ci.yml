@@ -39,6 +39,18 @@ jobs:
       - run: composer test
       - run: composer phpcs
       - run: composer phpstan
+      # Exercise the raster fallback too; the main suite also tests no-Imagick paths.
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: dom, gd, imagick, libxml, mbstring, xml, xmlwriter
+          coverage: none
+      - name: Test engraving raster layout
+        env:
+          OC_TEST_FONT_PATH: ${{ runner.temp }}/engraving-fallback.ttf
+        run: |
+          php -r 'if (!extension_loaded("imagick")) { exit(1); } $font = gzuncompress(file_get_contents("vendor/tecnickcom/tc-lib-pdf-font/target/fonts/freefont/freesans.z")); if ($font === false || file_put_contents(getenv("OC_TEST_FONT_PATH"), $font) === false) { exit(1); }'
+          vendor/bin/phpunit --filter 'textarea_fallback_wraps|raster_fallback_fits|raster_text_keeps'
 
   frontend:
     runs-on: ubuntu-latest
