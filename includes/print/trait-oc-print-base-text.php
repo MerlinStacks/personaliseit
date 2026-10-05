@@ -446,11 +446,9 @@ trait OC_Print_Base_Text {
 			$draw->setFontSize( $font_size * $height_px / self::mm_to_pt_value( max( 0.1, $h_mm ) ) );
 			$draw->setFillColor( new \ImagickPixel( 'black' ) );
 			$draw->setTextAntialias( true );
-			$draw->setTextAlignment( match ( $align ) {
-				'L' => \Imagick::ALIGN_LEFT,
-				'R' => \Imagick::ALIGN_RIGHT,
-				default => \Imagick::ALIGN_CENTER,
-			} );
+			// Gravity handles both axes. Explicit text alignment overrides its
+			// positioning in annotateImage(), placing the baseline at (0, 0)
+			// and clipping most of the lettering outside the raster.
 			$draw->setGravity( self::imagick_text_gravity( $align, $valign ) );
 			$image->annotateImage( $draw, 0, 0, 0, $text );
 

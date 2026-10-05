@@ -26,12 +26,15 @@ if ( ! class_exists( 'OC_Test_Engraving_PDF' ) && class_exists( 'TCPDF' ) ) {
 		public bool $image_svg_called = false;
 		public int $image_svg_call_count = 0;
 		public bool $image_called        = false;
+		public string $image_data        = '';
 		public string $image_svg         = '';
 		/** @var array<int, array{x: float, y: float, w: float, h: float, svg: string}> */
 		public array $image_svg_calls = [];
 
 		public function Image( $file, $x = '', $y = '', $w = 0, $h = 0, $type = '', $link = '', $align = '', $resize = false, $dpi = 300, $palign = '', $ismask = false, $imgmask = false, $border = 0, $fitbox = false, $hidden = false, $fitonpage = false, $alt = false, $altimgs = [] ) {
 			$this->image_called = true;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Capture the temporary raster before the renderer removes it.
+			$this->image_data = is_readable( (string) $file ) ? (string) file_get_contents( (string) $file ) : '';
 		}
 
 		public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
@@ -68,6 +71,46 @@ if ( class_exists( 'OC_Test_Engraving_PDF' ) ) {
 }
 
 class Test_Print_Engraving extends TestCase {
+	#[Test]
+	public function raster_text_keeps_complete_lines_at_every_alignment(): void {
+		$font = getenv( 'OC_TEST_FONT_PATH' );
+		$font = $font ? $font : '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
+		if ( ! class_exists( 'Imagick' ) || ! class_exists( 'TCPDF' ) || ! is_readable( $font ) ) {
+			$this->markTestSkipped( 'ImageMagick, TCPDF and a test font are required.' );
+		}
+		$render = new ReflectionMethod( OC_Print_Base::class, 'render_engraving_text_raster' );
+		foreach ( [ 'Hello123', "Hello123\nHello123" ] as $text ) {
+			$reference = null;
+			foreach ( [ 'C', 'L', 'R' ] as $align ) {
+				foreach ( [ 'C', 'T', 'B' ] as $valign ) {
+					$pdf = ( new ReflectionClass( OC_Test_Engraving_PDF::class ) )->newInstanceWithoutConstructor();
+					$this->assertTrue( $render->invoke( null, $pdf, $text, $font, 10.0, 0.0, 0.0, 60.0, 25.0, $align, $valign ) );
+					$image = new Imagick();
+					try {
+						$image->readImageBlob( $pdf->image_data );
+						$width  = $image->getImageWidth();
+						$height = $image->getImageHeight();
+						$image->trimImage( 0 );
+						$ink = [ $image->getImageWidth(), $image->getImageHeight() ];
+						$this->assertGreaterThan( 30, $ink[1], 'Lettering was clipped to a baseline fragment.' );
+						$reference ??= $ink;
+						$this->assertEqualsWithDelta( $reference[0], $ink[0], 2, 'Horizontal alignment clipped glyphs.' );
+						$this->assertEqualsWithDelta( $reference[1], $ink[1], 2, 'Vertical alignment clipped glyphs or lines.' );
+						$page = $image->getImagePage();
+						if ( 'C' === $align ) {
+							$this->assertEqualsWithDelta( $width / 2, $page['x'] + $ink[0] / 2, 15 );
+						}
+						if ( 'C' === $valign ) {
+							$this->assertEqualsWithDelta( $height / 2, $page['y'] + $ink[1] / 2, 25 );
+						}
+					} finally {
+						$image->clear();
+					}
+				}
+			}
+		}
+	}
+
 	#[Test]
 	public function vector_fallback_forwards_size_but_preserves_resource_coordinate_paths(): void {
 		if ( class_exists( 'Imagick' ) ) {
