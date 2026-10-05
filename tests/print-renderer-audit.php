@@ -92,9 +92,13 @@ try {
 	// Real glyph-array segments must still resolve safely and reject bad offsets.
 	foreach ( [ 0, 65535 ] as $sentinel_offset ) {
 		$cmap_data = pack( 'n17', 4, 34, 0, 4, 4, 1, 0, 65, 65535, 0, 65, 65535, 0, 1, 4, $sentinel_offset, 1 );
-		$cmap = $invoke( $eps, 'ttf_parse_cmap_format4', $cmap_data, 0 );
+		$cmap      = $invoke( $eps, 'ttf_parse_cmap_format4', $cmap_data, 0 );
 		$check( is_array( $cmap ), 'Terminal sentinel rejected a usable character map' );
-		$cmap_font = [ 'data' => $cmap_data, 'cmap' => $cmap, 'num_glyphs' => 2 ];
+		$cmap_font = [
+			'data'       => $cmap_data,
+			'cmap'       => $cmap,
+			'num_glyphs' => 2,
+		];
 		$check( 1 === $invoke( $eps, 'ttf_glyph_id', $cmap_font, 65 ), 'Real glyph-array mapping was lost' );
 		$check( 0 === $invoke( $eps, 'ttf_glyph_id', $cmap_font, 65535 ), 'Sentinel must resolve to .notdef without reading an offset' );
 		foreach ( [ 2, 5, 65534, 65535 ] as $bad_offset ) {
