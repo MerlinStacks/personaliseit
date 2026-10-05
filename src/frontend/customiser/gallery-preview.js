@@ -895,6 +895,7 @@ const galleryPreviewMethods = {
 			}`;
 		const url = new URL( designUrl, window.location.origin );
 		url.searchParams.set( 'variant_id', key );
+		url.searchParams.set( 'paginate_clipart', '1' );
 		if ( designId ) {
 			url.searchParams.set( 'design_id', String( designId ) );
 		}

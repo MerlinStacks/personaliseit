@@ -62,6 +62,19 @@ class PluginZipTests(unittest.TestCase):
         self.write_zip(empty='vendor/autoload.php')
         self.assertIn('Empty required file: overcustomise/vendor/autoload.php', self.check()[2])
 
+    def test_same_named_stale_assets_are_rejected(self):
+        self.write_zip()
+        (self.root / self.build_files[0]).write_bytes(b'new release contents')
+        self.assertIn('Stale or mismatched file: overcustomise/' + self.build_files[0], self.check()[2])
+
+    def test_runtime_fonts_cannot_be_trimmed_as_tooling(self):
+        name = 'vendor/tecnickcom/tc-lib-pdf-font/target/fonts/cid0/example.json'
+        file = self.root / name
+        file.parent.mkdir(parents=True)
+        file.write_bytes(b'font metrics')
+        self.write_zip()
+        self.assertIn('Missing required file: overcustomise/' + name, self.check()[2])
+
     def test_empty_emitted_entry_is_allowed_only_when_empty_locally(self):
         name = self.build_files[0]
         self.write_zip(empty=name)

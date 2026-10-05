@@ -9,6 +9,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once dirname( __DIR__ ) . '/class-oc-clipart-catalog.php';
+
 class OC_Frontend {
 
 	private ?object $design                 = null;
@@ -23,6 +25,9 @@ class OC_Frontend {
 	private ?array $active_colours          = null;
 	private ?array $active_image_filters    = null;
 	private ?array $font_group_ids          = null;
+	private bool $paginate_clipart = false;
+	private array $clipart_pages = [];
+	private array $clipart_context = [];
 
 	public function register(): void {
 		add_action( 'wp', [ $this, 'maybe_load_design' ], 10 );
@@ -39,6 +44,8 @@ class OC_Frontend {
 		}
 
 		$product_id           = (int) get_queried_object_id();
+		$this->paginate_clipart = true;
+		$this->clipart_context = [ 'product_id' => $product_id, 'variant_id' => 0 ];
 		$this->fee_product_id = $product_id;
 
 		$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
@@ -136,7 +143,7 @@ class OC_Frontend {
 	}
 
 	/** Build the frontend state needed for one assignment design. */
-	public static function build_assignment_state( int $product_id, int $variation_id = 0, int $requested_design_id = 0, bool $allow_variant_fallback = false ): array|\WP_Error {
+	public static function build_assignment_state( int $product_id, int $variation_id = 0, int $requested_design_id = 0, bool $allow_variant_fallback = false, bool $paginate_clipart = false ): array|\WP_Error {
 		$assignment = OC_DB::get_assignment_for_product( $product_id, $variation_id, $allow_variant_fallback );
 		if ( ! $assignment ) {
 			return [
@@ -146,6 +153,8 @@ class OC_Frontend {
 		}
 
 		$self                 = new self();
+		$self->paginate_clipart = $paginate_clipart;
+		$self->clipart_context = [ 'product_id' => $product_id, 'variant_id' => $variation_id ];
 		$self->fee_product_id = $variation_id ?: $product_id;
 		$context              = $self->resolve_assignment_design( $assignment, $requested_design_id );
 		if ( ! $context ) {
@@ -537,6 +546,7 @@ class OC_Frontend {
 				$image_filters
 			),
 			'clipartByLayer'         => $clipart_by_layer,
+			'clipartPages'           => $this->clipart_pages,
 			'clipartGroups'          => $clipart_groups,
 			'layerInputs'            => $layer_inputs,
 			'restrictedLayerColours' => $restricted_layer_colours,
@@ -906,6 +916,7 @@ class OC_Frontend {
 		}
 
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
+		$clipart_pages    = $this->clipart_pages;
 		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
 		$layer_costs_html = self::layer_costs_html( $areas, $layers, $this->fee_product_id );
 
@@ -1000,6 +1011,19 @@ class OC_Frontend {
 			$print_method = $methods_by_area[ (int) $layer->area_id ] ?? '';
 			$cache_key    = $print_method . ':' . implode( ',', $group_ids );
 
+			if ( $this->paginate_clipart ) {
+				if ( isset( $this->clipart_items_cache[ 'page:' . $layer_id ] ) ) {
+					$by_layer[ $layer_id ] = $this->clipart_items_cache[ 'page:' . $layer_id ];
+					continue;
+				}
+				$page = OC_Clipart_Catalog::page( $group_ids, $print_method, 1, '', '', absint( $settings['default_clipart_id'] ?? 0 ) );
+				$page['url'] = add_query_arg( $this->clipart_context, rest_url( 'overcustomise/v1/clipart/' . (int) $layer->id ) );
+				$this->clipart_pages[ $layer_id ] = array_diff_key( $page, [ 'items' => true ] );
+				$by_layer[ $layer_id ] = $page['items'];
+				$this->clipart_items_cache[ 'page:' . $layer_id ] = $page['items'];
+				continue;
+			}
+
 			if ( isset( $this->clipart_items_cache[ $cache_key ] ) ) {
 				$by_layer[ $layer_id ] = $this->clipart_items_cache[ $cache_key ];
 				continue;
@@ -1071,24 +1095,7 @@ class OC_Frontend {
 
 	/** Resolve a stored clipart file only when it remains inside the managed directory. */
 	private static function clipart_public_url( string $path ): string {
-		$uploads   = wp_upload_dir();
-		$base      = realpath( (string) ( $uploads['basedir'] ?? '' ) );
-		$root      = realpath( trailingslashit( (string) ( $uploads['basedir'] ?? '' ) ) . 'overcustomise/clipart' );
-		$real      = realpath( $path );
-		$base_path = $base ? rtrim( wp_normalize_path( $base ), '/' ) : '';
-		$root_path = $root ? rtrim( wp_normalize_path( $root ), '/' ) : '';
-		$real_path = $real ? wp_normalize_path( $real ) : '';
-		if ( '' === $base_path || '' === $root_path || '' === $real_path || ! is_file( $real )
-			|| ! str_starts_with( $root_path, $base_path . '/' )
-			|| ! str_starts_with( $real_path, $root_path . '/' )
-		) {
-			return '';
-		}
-		$relative = ltrim( substr( $real_path, strlen( $base_path ) ), '/' );
-		$url      = trailingslashit( (string) $uploads['baseurl'] ) . $relative;
-		// Hash actual bytes: replacement tools can preserve the filename and mtime.
-		$revision = hash_file( 'sha256', $real );
-		return esc_url_raw( $revision ? add_query_arg( [ 'oc_media' => substr( $revision, 0, 16 ) ], $url ) : $url );
+		return OC_Clipart_Catalog::public_url( $path );
 	}
 
 	private static function normalise_clipart_print_methods( string $raw ): array {
@@ -1138,6 +1145,7 @@ class OC_Frontend {
 		$areas            = $this->areas;
 		$layers           = $this->layers;
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
+		$clipart_pages    = $this->clipart_pages;
 		$design_variants  = $this->design_variants;
 		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
 		$layer_costs_html = self::layer_costs_html( $areas, $layers, $this->fee_product_id );

@@ -35,6 +35,10 @@ function add_action( string $hook, array $callback ): void {
 	$hooks[ $hook ] = $callback;
 }
 
+function add_filter( string $hook, array $callback, int $priority = 10, int $accepted_args = 1 ): void {
+	add_action( $hook, $callback );
+}
+
 function register_rest_route( string $route_namespace, string $route, array $args ): void {
 	global $routes;
 	expect( 'overcustomise/v1' === $route_namespace, 'REST namespace is preserved.' );
@@ -49,7 +53,8 @@ require_once ABSPATH . 'includes/class-oc-rest-api.php';
 $api = new OC_Rest_API();
 $api->register();
 $api->register_routes();
-expect( 13 === count( $routes ), 'All existing routes are registered.' );
+expect( 14 === count( $routes ), 'All existing routes and paginated clipart are registered.' );
+expect( 1 === $routes['/clipart/(?P<layer_id>\d+)']['args']['page']['minimum'], 'Clipart pagination rejects invalid page numbers.' );
 expect( [ OC_Rest_API::class, 'ensure_vdp_storage' ] === $hooks['init'], 'VDP hook retains its class identity.' );
 foreach ( [ 'admin_post_oc_serve_preview', 'admin_post_nopriv_oc_serve_preview' ] as $hook ) {
 	expect( [ OC_Rest_API::class, 'serve_private_preview' ] === $hooks[ $hook ], 'Preview hook retains its class identity.' );

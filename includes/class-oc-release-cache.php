@@ -47,9 +47,33 @@ class OC_Release_Cache {
 
 	/** Public media replacement can change mockups and template artwork. */
 	public static function media_changed( int $attachment_id ): void {
-		if ( ! get_post_meta( $attachment_id, '_oc_artwork', true ) ) {
+		if ( ! get_post_meta( $attachment_id, '_oc_artwork', true ) && self::uses_attachment( $attachment_id ) ) {
 			OC_Cache::invalidate_group( OC_Cache::GROUP );
 		}
+	}
+
+	/** Check references at mutation time, including inactive designs and legacy mockups. */
+	public static function uses_attachment( int $attachment_id ): bool {
+		global $wpdb;
+		if ( $attachment_id <= 0 ) {
+			return false;
+		}
+		foreach ( [ 'oc_print_areas', 'oc_design_print_areas' ] as $table ) {
+			$found = $wpdb->get_var( $wpdb->prepare(
+				"SELECT id FROM {$wpdb->prefix}{$table} WHERE mockup_attachment_id = %d LIMIT 1",
+				$attachment_id
+			) );
+			if ( $found || '' !== (string) $wpdb->last_error ) {
+				return true;
+			}
+		}
+		// Settings are JSON; match exact numeric or quoted IDs, allowing historical whitespace.
+		$pattern = '"default_attachment_id"[[:space:]]*:[[:space:]]*("' . $attachment_id . '"|' . $attachment_id . '[[:space:]]*[,}])';
+		$found = $wpdb->get_var( $wpdb->prepare(
+			"SELECT id FROM {$wpdb->prefix}oc_design_layers WHERE settings REGEXP %s LIMIT 1",
+			$pattern
+		) );
+		return (bool) apply_filters( 'oc_attachment_affects_catalogue', $found || '' !== (string) $wpdb->last_error, $attachment_id );
 	}
 
 	/** Shared fonts, colours and designs can affect multiple assigned products. */

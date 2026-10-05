@@ -81,7 +81,7 @@ module.exports = {
 		// checkouts. Keep assets/build tracked; prune only after the supported cache
 		// and open-tab lifetime. Legacy runtimes also request the unversioned CSS.
 		clean: {
-			keep: /(?:chunks\/.*\.[a-f0-9]{8}(?:-rtl)?\.(?:js|css)|[a-f0-9]{20}\.(?:wasm|woff2?|ttf|otf|png|jpe?g|svg|webp)|upload-tools(?:-rtl)?\.css)$/,
+			keep: /(?:asset-retention\.json|chunks\/.*\.[a-f0-9]{8}(?:-rtl)?\.(?:js|css)|[a-f0-9]{20}\.(?:wasm|woff2?|ttf|otf|png|jpe?g|svg|webp)|upload-tools(?:-rtl)?\.css)$/,
 		},
 		// Entry files live one directory below the build root. Webpack's automatic
 		// public path derives that root from the enqueued WordPress script URL.

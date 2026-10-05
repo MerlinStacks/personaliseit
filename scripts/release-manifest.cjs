@@ -55,6 +55,10 @@ class ReleaseManifestPlugin {
 							new compiler.webpack.sources.RawSource(
 								JSON.stringify( {
 									build: hash.digest( 'hex' ),
+									assets: compilation
+										.getAssets()
+										.map( ( asset ) => asset.name )
+										.sort(),
 								} ) + '\n'
 							)
 						);

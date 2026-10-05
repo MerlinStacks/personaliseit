@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
 trait OC_Rest_API_VDP {
 
 	/** Ensure VDP values use private storage and migrate a bounded legacy batch. */
-	public static function ensure_vdp_storage(): void {
+	public static function ensure_vdp_storage( bool $run_migration = true ): void {
 		$legacy_directory = self::legacy_vdp_directory();
 		if ( null !== $legacy_directory ) {
 			self::protect_legacy_vdp_directory( $legacy_directory );
@@ -23,8 +23,15 @@ trait OC_Rest_API_VDP {
 			return;
 		}
 
-		self::migrate_legacy_vdp_files( $directory );
-		self::migrate_private_vdp_files( $directory );
+		$identity = hash( 'sha256', $directory . '|' . (string) $legacy_directory . '|1' );
+		if ( ! $run_migration || $identity === get_option( 'oc_vdp_migration_complete', '' ) ) {
+			return;
+		}
+		$legacy_complete = self::migrate_legacy_vdp_files( $directory );
+		$private_complete = self::migrate_private_vdp_files( $directory );
+		if ( $legacy_complete && $private_complete ) {
+			update_option( 'oc_vdp_migration_complete', $identity, false );
+		}
 	}
 
 	/** Upload and register a CSV file for VDP on a design. */
@@ -206,7 +213,7 @@ trait OC_Rest_API_VDP {
 	}
 
 	/** Advance through private-root candidates without allowing a bad row to starve later IDs. */
-	private static function migrate_private_vdp_files( string $directory ): void {
+	private static function migrate_private_vdp_files( string $directory ): bool {
 		global $wpdb;
 		$cursor = max( 0, (int) get_option( 'oc_private_vdp_migration_cursor', 0 ) );
 		$rows = $wpdb->get_results( $wpdb->prepare(
@@ -215,7 +222,7 @@ trait OC_Rest_API_VDP {
 		) );
 		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
 			OC_Storage_Upgrade::report( 'vdp', 'Private VDP migration could not read its batch; files and rows retained.' );
-			return;
+			return false;
 		}
 		$deadline = microtime( true ) + 2;
 		$processed = 0;
@@ -230,6 +237,7 @@ trait OC_Rest_API_VDP {
 		if ( $processed === count( $rows ) && count( $rows ) < 25 ) {
 			update_option( 'oc_private_vdp_migration_cursor', 0, false );
 		}
+		return 0 === $cursor && empty( $rows );
 	}
 
 	/** Storage-only migration API: never grants design, order or public CSV access. */
@@ -290,15 +298,15 @@ trait OC_Rest_API_VDP {
 	}
 
 	/** Migrate at most 25 legacy public-upload VDP files per request. */
-	private static function migrate_legacy_vdp_files( string $private_directory ): void {
+	private static function migrate_legacy_vdp_files( string $private_directory ): bool {
 		$uploads = wp_upload_dir();
 		if ( ! empty( $uploads['error'] ) || empty( $uploads['basedir'] ) ) {
-			return;
+			return false;
 		}
 		$legacy_directory = trailingslashit( (string) $uploads['basedir'] ) . 'overcustomise/vdp';
 		$legacy_real      = self::legacy_vdp_directory();
 		if ( null === $legacy_real ) {
-			return;
+			return true;
 		}
 		self::protect_legacy_vdp_directory( $legacy_real );
 
@@ -312,7 +320,7 @@ trait OC_Rest_API_VDP {
 			)
 		);
 		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
-			return;
+			return false;
 		}
 		$last = $rows ? end( $rows ) : null;
 		update_option( 'oc_vdp_migration_cursor', count( $rows ) < 25 ? 0 : (int) $last->id, false );
@@ -342,6 +350,7 @@ trait OC_Rest_API_VDP {
 			}
 			wp_delete_file( $source );
 		}
+		return 0 === $cursor && empty( $rows );
 	}
 
 	/** Resolve the exact legacy VDP root only when it stays inside uploads. */

@@ -1391,11 +1391,17 @@ const inputControlMethods = {
 
 		// Clipart items
 		document
-			.querySelectorAll( '[data-oc-layer-clipart]' )
-			.forEach( ( btn ) => {
-				btn.addEventListener(
+			.querySelectorAll( '[data-oc-clipart-grid]' )
+			.forEach( ( grid ) => {
+				grid.addEventListener(
 					'click',
-					() => {
+					( event ) => {
+						const btn = event.target.closest(
+							'[data-oc-layer-clipart]'
+						);
+						if ( ! btn || ! grid.contains( btn ) ) {
+							return;
+						}
 						const lid = parseInt( btn.dataset.ocLayerClipart, 10 );
 						if ( ! this.inputs[ lid ] ) {
 							this.inputs[ lid ] = {};

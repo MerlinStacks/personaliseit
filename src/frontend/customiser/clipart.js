@@ -3,7 +3,33 @@
  */
 
 const clipartMethods = {
+	async loadClipartPage( layerId, reset = false ) {
+		const page = this.data.clipartPages?.[ layerId ];
+		try {
+			const { default: loadPage } = await import(
+				/* webpackChunkName: "clipart-pagination" */ './clipart-pagination'
+			);
+			if ( page && this.data.clipartPages?.[ layerId ] === page ) {
+				await loadPage.call( this, layerId, reset );
+			}
+		} catch {
+			if ( page && this.data.clipartPages?.[ layerId ] === page ) {
+				const status = document.querySelector(
+					`[data-oc-clipart-status="${ layerId }"]`
+				);
+				if ( status ) {
+					status.textContent =
+						'Clipart controls could not load. Please try again.';
+				}
+			}
+		}
+	},
+
 	filterClipart( layerId ) {
+		if ( this.data.clipartPages?.[ layerId ] ) {
+			this.loadClipartPage( layerId, true );
+			return;
+		}
 		const grid =
 			document.querySelector(
 				`.oc-clipart-grid[data-oc-clipart-grid="${ layerId }"]`
@@ -54,6 +80,16 @@ const clipartMethods = {
 	},
 
 	setupClipartCarousels() {
+		document
+			.querySelectorAll( '[data-oc-clipart-more]' )
+			.forEach( ( button ) => {
+				const id = Number( button.dataset.ocClipartMore );
+				button.onclick = () =>
+					this.loadClipartPage(
+						id,
+						Boolean( this.data.clipartPages?.[ id ]?.retryReset )
+					);
+			} );
 		document
 			.querySelectorAll( '[data-oc-clipart-carousel]' )
 			.forEach( ( carousel ) => {

@@ -38,7 +38,8 @@ to trigger release detection. Do not strip or ignore asset `ver` query parameter
 
 Design/assignment, font, colour, clipart and image-filter invalidation also queues
 a page-cache purge. Changes to `oc_settings`, `oc_print_methods`, and edited/deleted
-public attachments do the same. Private customer-artwork edits and print-file
+public attachments referenced by design artwork or current/legacy mockups do the same.
+Unrelated library edits, private customer-artwork edits and print-file
 cache invalidations do not trigger this purge.
 
 Each site's changes are coalesced into one purge at shutdown. This is deliberately
@@ -52,15 +53,22 @@ External cache integrations should also subscribe to `oc_content_cache_purge`.
 ## Retaining assets between releases
 
 Keep `assets/build` in version control and include its historical assets in release
-ZIPs. Builds retain all content-hashed chunks and resources, rather than a fixed
-list of three old core chunks. Lazy CSS now has content-hashed filenames too;
+ZIPs. Builds retain content-hashed chunks and resources using an age ledger,
+rather than a fixed count of old core chunks. Lazy CSS has content-hashed filenames too;
 legacy upload CSS paths remain available to previously cached runtimes.
 
 Do not delete and recreate the build directory as part of a release. A clean CI
 checkout must contain the retained files from prior releases. Retention is
 deliberately conservative: remove historical assets only after the longest browser,
 page-cache and CDN TTL **and** the supported open-tab lifetime have passed, and
-only when no retained runtime/chunk still references them. The ZIP size check
+only when no retained runtime/chunk still references them. Release packaging runs
+`scripts/prune-build-assets.py`: the default window is 90 days from first observed
+retirement, never a filesystem modification timestamp. Existing untracked assets
+receive a full grace period. Set `OC_ASSET_RETENTION_DAYS` to a longer window if
+your supported cache/open-tab lifetime exceeds 90 days; shorter windows are rejected.
+Commit `assets/build/asset-retention.json` with each release, together with the
+retained assets. Active assets and dependencies of retained JS/CSS are protected.
+The ZIP size check
 continues to include retained assets. Files removed before this fix cannot be
 recovered automatically from customers' caches.
 
@@ -83,6 +91,35 @@ All `/overcustomise/v1/` REST responses receive private/no-store headers, includ
 inactive and error responses. Variation/design requests also use browser
 `cache: 'no-store'`. Clipart URLs include a hash of the actual file contents;
 SVG processing revalidates browser caches and is reset on a design-state change.
+Content revisions are cached for up to five minutes, with immediate rehashing on
+manager upload/conversion or a changed size/mtime/ctime. An external replacement
+that preserves these metadata fields becomes visible after that bounded interval;
+integrations can explicitly call `OC_Clipart_Catalog::public_url( $path, true )`.
+New pages request clipart in batches of 60 and retain an off-page default selection.
+Search/category filters cover the full allowed library, not just loaded items.
+The product-design endpoint retains its full-list format for older cached clients;
+new clients opt into pagination with `paginate_clipart=1`.
+
+## Background maintenance and order history
+
+Storage protection remains on customer requests; legacy file moves run through
+`oc_storage_maintenance` once per minute, with a site-specific database lock.
+Existing migration cursors resume automatically. VDP completion is recorded only
+after an empty scan from zero, so failed rows are retried. Changed storage roots
+invalidate completion. Keep WP-Cron or the site's system cron runner operating.
+
+Daily history cleanup examines at most 100 old terminal jobs and 100 deduplication
+markers per run, with persisted cursors. Jobs at least 90 days old can be removed
+only after WooCommerce confirms their order was permanently deleted. Pending and
+processing jobs, existing/trashed orders, and uncertain database reads are retained.
+`oc_deleted_order_history_retention_days` can lengthen this interval.
+Completed payloads for retained orders are authoritative regeneration snapshots,
+especially for VDP; deleting them merely because print files expired would break
+exact reprints. Their retention intentionally follows order retention.
+
+The PDF package's large generated font library is runtime data (including Unicode
+and CJK coverage), not development bloat. Releases preserve it, while excluding
+vendor build utilities, nested development dependencies and OS packaging files.
 
 Customer REST calls renew credentials only after an explicit 403 `invalid_token`,
 `invalid_nonce`, or `rest_cookie_invalid_nonce` rejection, then retry once. Network

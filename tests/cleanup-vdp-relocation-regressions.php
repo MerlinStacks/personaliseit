@@ -6,6 +6,7 @@ define( 'ABSPATH', $fixture . '/site/' );
 define( 'DAY_IN_SECONDS', 86400 );
 $options = [];
 function wp_normalize_path( $path ) { return str_replace( '\\', '/', $path ); }
+function trailingslashit( $path ) { return rtrim( $path, '/' ) . '/'; }
 function wp_upload_dir() { return [ 'basedir' => $GLOBALS['fixture'] . '/uploads' ]; }
 function wp_salt( $scheme ) { return 'cleanup-relocation'; }
 function get_current_blog_id() { return 1; }
@@ -22,8 +23,9 @@ function __( $text, ...$args ) { return $text; }
 class OC_Logger { public static function warning( $message ): void {} }
 class OC_Upload_Handler {
 	public static bool $blocked = false;
+	public static string $root = 'current';
 	public static function private_storage_path( string $directory = '', bool $force = false ): ?string {
-		return self::$blocked ? null : $GLOBALS['fixture'] . '/current/' . $directory;
+		return self::$blocked ? null : $GLOBALS['fixture'] . '/' . self::$root . '/' . $directory;
 	}
 }
 class OC_DB {
@@ -37,9 +39,16 @@ class wpdb {
 	public string $usermeta = 'wp_usermeta';
 	public string $last_error = '';
 	public bool $fail_publication = false;
+	public int $vdp_reads = 0;
+	public bool $fail_vdp_scan = false;
 	public function prepare( string $sql, mixed ...$args ): array { return [ $sql, $args ]; }
 	public function esc_like( string $text ): string { return $text; }
 	public function get_results( array $query ): array {
+		if ( str_contains( $query[0], 'oc_vdp_templates' ) ) {
+			++$this->vdp_reads;
+			$this->last_error = $this->fail_vdp_scan ? 'Scan failed' : '';
+			return [];
+		}
 		$rows = [];
 		foreach ( $GLOBALS['options'] as $name => $raw ) {
 			if ( str_starts_with( $name, 'oc_private_preview_' ) ) { $rows[] = (object) [ 'option_id' => count( $rows ) + 1, 'option_name' => $name, 'option_value' => $raw ]; }
@@ -116,6 +125,22 @@ try {
 		try { $vdp->get_template( 2 ); throw new LogicException( 'Unresolved VDP permitted fallback: ' . $failure ); } catch ( RuntimeException $expected ) {}
 		check( OC_DB::$template->csv_file_path === $original && is_file( $csv ), 'Failed VDP resolution lost original pointer or source' );
 	}
+	OC_Upload_Handler::$blocked = false;
+	OC_Rest_API::ensure_vdp_storage( false );
+	check( 0 === $wpdb->vdp_reads, 'Storefront storage protection scanned migration rows' );
+	OC_Rest_API::ensure_vdp_storage();
+	$complete = get_option( 'oc_vdp_migration_complete' );
+	check( is_string( $complete ) && 1 === $wpdb->vdp_reads, 'Empty scan did not mark VDP migration complete' );
+	OC_Rest_API::ensure_vdp_storage();
+	check( 1 === $wpdb->vdp_reads, 'Completed VDP migration kept scanning on subsequent workers' );
+	OC_Upload_Handler::$root = 'current2';
+	mkdir( $fixture . '/current2/vdp', 0750, true );
+	$wpdb->fail_vdp_scan = true;
+	OC_Rest_API::ensure_vdp_storage();
+	check( $complete === get_option( 'oc_vdp_migration_complete' ), 'Database failure incorrectly marked a changed root complete' );
+	$wpdb->fail_vdp_scan = false;
+	OC_Rest_API::ensure_vdp_storage();
+	check( $complete !== get_option( 'oc_vdp_migration_complete' ) && 3 === $wpdb->vdp_reads, 'Changed roots must retry and complete their own scan' );
 	fwrite( STDOUT, "Cleanup and VDP relocation regressions passed.\n" );
 } finally {
 	$iterator = new RecursiveIteratorIterator( new RecursiveDirectoryIterator( $fixture, FilesystemIterator::SKIP_DOTS ), RecursiveIteratorIterator::CHILD_FIRST );

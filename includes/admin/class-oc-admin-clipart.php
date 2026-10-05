@@ -7,6 +7,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once dirname( __DIR__ ) . '/class-oc-clipart-catalog.php';
+
 class OC_Admin_Clipart {
 
 	private const CLIPART_SUBDIR       = 'overcustomise/clipart';
@@ -18,6 +20,7 @@ class OC_Admin_Clipart {
 
 	/** Clear cached clipart and clipart-group data after manager changes. */
 	private static function clear_clipart_cache(): void {
+		OC_Clipart_Catalog::invalidate();
 		OC_Cache::invalidate_group( OC_Cache::GROUP );
 	}
 
@@ -529,6 +532,7 @@ class OC_Admin_Clipart {
 
 		self::clear_clipart_cache();
 		$row->file_type = 'svg';
+		OC_Clipart_Catalog::public_url( $converted, true );
 		wp_send_json_success( self::clipart_response( $id, (string) $row->name, $converted, 'svg', (bool) $row->active, $row ) );
 	}
 
@@ -887,7 +891,7 @@ class OC_Admin_Clipart {
 			'canConvert'          => false,
 			'colourChangeable'    => $colour_changeable,
 			'allowedPrintMethods' => $allowed_methods,
-			'url'                 => self::get_clipart_url( $dest ),
+			'url'                 => OC_Clipart_Catalog::public_url( $dest, true ),
 			'active'              => true,
 			'toggleUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $id . '&state=0' ),

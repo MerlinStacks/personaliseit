@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.19.3 - 2026-10-03
+
+### Improved
+- Run resumable artwork/VDP migrations in a site-locked background worker, keeping storage protection on ordinary requests. Completed VDP migrations stop scanning until the storage root changes.
+- Page storefront clipart in batches of 60, retain configured defaults, and search the full allowed catalogue. Older REST clients retain their full-list response format.
+- Cache clipart metadata and content revisions, refreshing revisions on manager uploads/conversions and bounding detection of external replacements to five minutes.
+- Restrict media-triggered catalogue purges to referenced design artwork and mockups.
+- Clean old terminal print jobs and deduplication markers only for permanently deleted orders. Existing and trashed orders retain exact regeneration payloads.
+- Track retired immutable assets and prune after at least 90 days, preserving dependencies of retained chunks. Existing assets receive a full grace period on first adoption.
+- Exclude additional vendor build tooling from release ZIPs while retaining all runtime fonts and language coverage.
+
+### Upgrade notes
+- No schema migration or customer reconfiguration is required. WP-Cron must run for background migrations and retention cleanup.
+- See `docs/cache-updates.md` for cache retention and reprint-data policy.
+
 ## 1.19.2 - 2026-09-28
 
 ### Fixed

@@ -446,6 +446,10 @@ foreach ( $layers as $layer ) {
 										}
 									}
 								}
+								$clipart_page = $clipart_pages[ (int) $layer->id ] ?? null;
+								if ( is_array( $clipart_page ) ) {
+									$group_names = $clipart_page['groups'];
+								}
 								sort( $group_names );
 								?>
 								<?php if ( count( $clipart_group_ids ) !== 1 ) : ?>
@@ -495,6 +499,10 @@ foreach ( $layers as $layer ) {
 								</div>
 								<?php endif; ?>
 
+								<?php if ( is_array( $clipart_page ) ) : ?>
+									<button type="button" data-oc-clipart-more="<?php echo esc_attr( $layer->id ); ?>" <?php echo empty( $clipart_page['hasMore'] ) ? 'hidden' : ''; ?>><?php esc_html_e( 'Load more clipart', 'overcustomise' ); ?></button>
+									<p data-oc-clipart-status="<?php echo esc_attr( $layer->id ); ?>" role="status"></p>
+								<?php endif; ?>
 								<?php if ( ! $is_engraving && $allow_colour_change ) : ?>
 									<div class="oc-control-group">
 									<label><?php esc_html_e( 'Clipart colour', 'overcustomise' ); ?></label>

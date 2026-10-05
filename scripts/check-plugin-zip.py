@@ -16,6 +16,7 @@ import argparse
 from pathlib import Path
 import sys
 import zipfile
+import zlib
 
 
 COMPRESSED_LIMIT = 34_000_000
@@ -51,6 +52,14 @@ def check_archive(archive, root, compressed_limit=COMPRESSED_LIMIT,
     required.update(file.relative_to(root).as_posix()
                     for file in (root / 'vendor/composer').rglob('*.php')
                     if file.is_file())
+    for directory in ('includes', 'templates'):
+        required.update(file.relative_to(root).as_posix()
+                        for file in (root / directory).rglob('*.php') if file.is_file())
+    # Font data is runtime coverage, not tooling. Protect it when trimming vendor.
+    for package in (root / 'vendor/tecnickcom').glob('*'):
+        for directory in ('src', 'target/fonts'):
+            required.update(file.relative_to(root).as_posix()
+                            for file in (package / directory).rglob('*') if file.is_file())
 
     compressed = archive.stat().st_size
     with zipfile.ZipFile(archive) as bundle:
@@ -63,6 +72,13 @@ def check_archive(archive, root, compressed_limit=COMPRESSED_LIMIT,
                 failures.append('Missing required file: overcustomise/' + name)
             elif entry.file_size == 0 and (name in REQUIRED or (root / name).stat().st_size > 0):
                 failures.append('Empty required file: overcustomise/' + name)
+            elif (root / name).is_file():
+                crc = 0
+                with (root / name).open('rb') as source:
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        crc = zlib.crc32(chunk, crc)
+                if entry.CRC != crc:
+                    failures.append('Stale or mismatched file: overcustomise/' + name)
         if len({entry.filename for entry in entries}) != len(entries):
             failures.append('Duplicate ZIP entry names.')
         if compressed > compressed_limit:

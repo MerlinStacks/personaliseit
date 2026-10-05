@@ -637,7 +637,12 @@ class TrueType
     protected function getFontName(): void
     {
         $this->fdt['name'] = '';
-        $this->offset = $this->fdt['table']['name']['offset'];
+        $tableOffset = $this->fdt['table']['name']['offset'];
+        $tableLength = $this->fdt['table']['name']['length'];
+        if ($tableLength < 6 || $tableOffset < 0 || $tableOffset + $tableLength > \strlen($this->font)) {
+            throw new FontException('Invalid font name table.');
+        }
+        $this->offset = $tableOffset;
         $this->offset += 2; // skip Format selector (=0).
         // Number of NameRecords that follow n.
         $numNameRecords = $this->fbyte->getUShort($this->offset);
@@ -646,6 +651,9 @@ class TrueType
         // Offset to start of string storage (from start of table).
         $stringStorageOffset = $this->fbyte->getUShort($this->offset);
         $this->offset += 2;
+        if ($stringStorageOffset < 6 + (12 * $numNameRecords) || $stringStorageOffset > $tableLength) {
+            throw new FontException('Invalid font name records.');
+        }
         for ($idx = 0; $idx < $numNameRecords; ++$idx) {
             $platformId = $this->fbyte->getUShort($this->offset);
             $this->offset += 2;
@@ -683,15 +691,19 @@ class TrueType
                 $stringOffset = $this->fbyte->getUShort($this->offset);
                 $this->offset += 2;
 
-                $this->offset = $this->fdt['table']['name']['offset'] + $stringStorageOffset + $stringOffset;
+                if ($stringStorageOffset + $stringOffset + $stringLength > $tableLength) {
+                    throw new FontException('Invalid font name string.');
+                }
                 // TTF encoded name string
-                $name = \substr($this->font, $this->offset, $stringLength);
+                // Keep the record cursor separate: an empty legacy record must not
+                // prevent us from trying a later Windows/Unicode PostScript name.
+                $name = \substr($this->font, $tableOffset + $stringStorageOffset + $stringOffset, $stringLength);
                 // Convert the string encoding if possible
                 $name = $this->convertStringEncoding($name, $platformId, $encodingId);
 
                 $name = \preg_replace('/[^a-zA-Z0-9_\-]/', '', $name);
                 if ($name === null || $name === '') {
-                    throw new FontException('Error getting font name.');
+                    continue;
                 }
 
                 $this->fdt['name'] = $name;
@@ -699,6 +711,11 @@ class TrueType
             } else {
                 $this->offset += 4; // skip String length, String offset
             }
+        }
+        if ($this->fdt['name'] === '') {
+            // Some converted fonts have no usable PostScript name. This is only
+            // a PDF resource label; retain the exact source outlines and metrics.
+            $this->fdt['name'] = 'OCFont' . \substr(\hash('sha256', $this->font), 0, 32);
         }
     }
 

@@ -218,7 +218,7 @@ trait OC_Print_Base_Fonts {
 
 			throw new \RuntimeException( 'No compatible TCPDF font importer is available.' );
 		} catch ( \Throwable $e ) {
-			throw new \RuntimeException( 'The selected print font could not be registered. Retain its source and rebuild the verified cache in a writable directory before retrying: ' . $e->getMessage(), 0, $e );
+			throw new \RuntimeException( 'The selected print font could not be registered (' . basename( $font_path ) . '): ' . $e->getMessage(), 0, $e );
 		}
 	}
 

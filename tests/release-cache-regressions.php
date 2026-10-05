@@ -12,6 +12,9 @@ $GLOBALS['oc_test_cache']   = [];
 function get_option( $key, $fallback = false ) {
 	return $GLOBALS['oc_test_options'][ $GLOBALS['oc_test_site'] ][ $key ] ?? $fallback;
 }
+function get_transient( $key ) { return get_option( '_transient_' . $key ); }
+function set_transient( $key, $value, $ttl ) { return update_option( '_transient_' . $key, $value, false ); }
+function apply_filters( $hook, $value, ...$args ) { return $value; }
 function add_option( $key, $value, $deprecated = '', $autoload = null ) {
 	if ( false !== get_option( $key ) ) {
 		return false;
@@ -115,6 +118,11 @@ function oc_check( $condition, $message ) {
 // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- In-memory database double for atomic lease deletion.
 $wpdb = new class() {
 	public $options = 'wp_options';
+	public $prefix = 'wp_';
+	public $last_error = '';
+	public function get_var( $args ) {
+		return 42 === ( $args[0] ?? null ) ? 1 : null;
+	}
 	public function prepare( $sql, ...$args ) {
 		return $args;
 	}
@@ -191,6 +199,7 @@ OC_Cache::get( 'design_1' );
 OC_Cache::invalidate_group( 'oc_print_files' );
 OC_Release_Cache::option_changed( 'unrelated_option' );
 OC_Release_Cache::media_changed( 99 );
+OC_Release_Cache::media_changed( 123 );
 OC_Release_Cache::purge_pending_content();
 oc_check( [] === $GLOBALS['oc_test_purges'], 'Reads, print jobs, private uploads and unrelated options must not purge pages.' );
 OC_Cache::invalidate_group( OC_Cache::GROUP );
@@ -283,7 +292,9 @@ try {
 	$oc_before = $oc_method->invoke( null, $oc_file );
 	file_put_contents( $oc_file, '<svg><text>B</text></svg>' );
 	touch( $oc_file, 1700000000 );
-	oc_check( $oc_before !== $oc_method->invoke( null, $oc_file ), 'Clipart URL versions must follow actual content, not only mtime.' );
+	oc_check( $oc_before !== OC_Clipart_Catalog::public_url( $oc_file, true ), 'Explicit replacements refresh actual content revisions even with preserved size and mtime.' );
+	$oc_after = $oc_method->invoke( null, $oc_file );
+	oc_check( $oc_after === $oc_method->invoke( null, $oc_file ), 'Unchanged files reuse their cached content revision.' );
 	oc_check( '' === $oc_method->invoke( null, OC_PATH . 'overcustomise.php' ), 'Versioning must not expose files outside managed clipart storage.' );
 } finally {
 	unlink( $oc_file );

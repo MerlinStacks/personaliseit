@@ -147,6 +147,8 @@ class OC_Plugin {
 		add_action( 'init', [ OC_DB::class, 'maybe_upgrade' ] );
 		add_action( 'init', [ self::class, 'ensure_cron_events' ] );
 		add_action( 'oc_daily_file_cleanup', [ 'OC_File_Cleanup', 'run' ] );
+		add_action( 'oc_daily_file_cleanup', [ self::class, 'cleanup_history' ], 20 );
+		add_action( 'oc_storage_maintenance', [ self::class, 'migrate_storage' ] );
 	}
 
 	/** Load method-specific print renderers only when generation needs them. */
@@ -162,11 +164,32 @@ class OC_Plugin {
 		}
 	}
 
-	/** Run storage protection and bounded migrations in their established order. */
+	/** Protect storage without moving customer files during a storefront request. */
 	public static function maintain_storage(): void {
-		OC_Rest_API::ensure_vdp_storage();
-		OC_Upload_Handler::ensure_private_storage();
+		OC_Rest_API::ensure_vdp_storage( false );
+		OC_Upload_Handler::ensure_private_storage( false, false );
 		OC_Print_Base::ensure_output_storage_protected();
+	}
+
+	/** Continue resumable legacy migrations in a single background worker per site. */
+	public static function migrate_storage(): void {
+		global $wpdb;
+		$lock = 'oc_storage_' . md5( $wpdb->prefix );
+		if ( 1 !== (int) $wpdb->get_var( $wpdb->prepare( 'SELECT GET_LOCK(%s, 0)', $lock ) ) ) {
+			return;
+		}
+		try {
+			OC_Rest_API::ensure_vdp_storage();
+			OC_Upload_Handler::ensure_private_storage();
+		} finally {
+			$wpdb->get_var( $wpdb->prepare( 'SELECT RELEASE_LOCK(%s)', $lock ) );
+		}
+	}
+
+	/** Load history maintenance only in the daily background cleanup. */
+	public static function cleanup_history(): void {
+		require_once OC_PATH . 'includes/class-oc-history-cleanup.php';
+		OC_History_Cleanup::run();
 	}
 
 	// -------------------------------------------------------------------------
@@ -411,6 +434,9 @@ class OC_Plugin {
 
 	/** Ensure queue/file cleanup events exist even if activation scheduling failed. */
 	public static function ensure_cron_events(): void {
+		if ( ! wp_next_scheduled( 'oc_storage_maintenance' ) ) {
+			wp_schedule_event( time() + 60, 'oc_every_minute', 'oc_storage_maintenance' );
+		}
 		if ( ! wp_next_scheduled( 'oc_daily_file_cleanup' ) ) {
 			wp_schedule_event( time(), 'daily', 'oc_daily_file_cleanup' );
 		}
@@ -482,6 +508,10 @@ class OC_Plugin {
 		delete_option( 'oc_budget_cleanup_cursor' );
 		delete_option( 'oc_print_cleanup_cursor' );
 		delete_option( 'oc_print_failure_cleanup_cursor' );
+		delete_option( 'oc_vdp_migration_complete' );
+		delete_option( 'oc_queue_cleanup_cursor' );
+		delete_option( 'oc_queue_marker_cleanup_cursor' );
+		delete_option( 'oc_clipart_catalogue_generation' );
 
 		self::clear_scheduled_events();
 
@@ -616,6 +646,7 @@ class OC_Plugin {
 	private static function clear_scheduled_events(): void {
 		wp_clear_scheduled_hook( 'oc_retry_content_cache_purge' );
 		$hooks = [
+			'oc_storage_maintenance',
 			'oc_daily_file_cleanup',
 			'oc_process_print_queue',
 			'oc_process_print_queue_now',

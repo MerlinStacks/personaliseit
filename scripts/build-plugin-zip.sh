@@ -7,6 +7,7 @@ command -v python3 >/dev/null
 
 # Always package matching PHP, entry files, lazy chunks and release identity.
 npm run build
+python3 -B scripts/prune-build-assets.py --days "${OC_ASSET_RETENTION_DAYS:-90}"
 
 # The release only bundles runtime Composer packages. Install that exact
 # dependency set so neither autoload metadata nor installed.php can reference
@@ -33,6 +34,11 @@ zip -d overcustomise.zip \
 	'overcustomise/vendor/tecnickcom/*/mago.*.toml' \
 	'overcustomise/vendor/tecnickcom/*/phpunit.xml.dist' \
 	'overcustomise/vendor/tecnickcom/*/resources/phpmd/*' \
+	'overcustomise/vendor/tecnickcom/*/util/*' \
+	'overcustomise/vendor/tecnickcom/*/resources/debian/*' \
+	'overcustomise/vendor/tecnickcom/*/resources/rpm/*' \
+	'overcustomise/vendor/tecnickcom/*/vendor/*' \
+	'overcustomise/vendor/tecnickcom/*/Makefile' \
 	>/dev/null
 
 # Validate the final artifact after the existing vendor fixture cleanup.

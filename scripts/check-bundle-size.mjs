@@ -157,8 +157,9 @@ async function main() {
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
 		),
 		chunk: Number( process.env.BUNDLE_CHUNK_MAX_BYTES || 340_000 ),
-		// Includes the optional detailed Night Sky catalogue chunk.
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_493_000 ),
+		// Includes optional Night Sky and ~3 KB on-demand clipart pagination.
+		// Startup budgets stay unchanged; pagination replaces large inline libraries.
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_497_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

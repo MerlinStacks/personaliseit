@@ -516,6 +516,7 @@ const designVariantMethods = {
 			String( this.currentVariationId() )
 		);
 		url.searchParams.set( 'design_id', String( variant.designId ) );
+		url.searchParams.set( 'paginate_clipart', '1' );
 		const request = this.createStateAbortController( 10000 );
 		// Background thumbnails share lifecycle cleanup, not interactive ownership.
 		if ( ! background ) {
@@ -624,6 +625,12 @@ const designVariantMethods = {
 		this.data.areas = state.areas || [];
 		this.data.layerInputs = state.layerInputs || {};
 		this.data.clipartByLayer = state.clipartByLayer || {};
+		this.data.clipartPages = Object.fromEntries(
+			Object.entries( state.clipartPages || {} ).map( ( [ id, page ] ) => [
+				id,
+				{ ...page },
+			] )
+		);
 		this.data.clipartGroups = state.clipartGroups || [];
 		this.data.designVariants = state.designVariants || this.designVariants;
 		this.data.designVariantStates =
