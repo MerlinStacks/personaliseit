@@ -11,15 +11,19 @@
 defined( 'ABSPATH' ) || exit;
 
 class OC_Print_Embroidery extends OC_Print_Base {
-	private const MAX_SVG_NODES = 20000;
-	private const MAX_SVG_DEPTH = 64;
-	private const MAX_SVG_USE_DEPTH = 16;
-	private const MAX_SVG_PATH_TOKENS = 100000;
-	private const MAX_SVG_PATH_BYTES = 2097152;
-	private const MAX_RASTER_EDGE_PX = 900;
+	/** Scoped to one generation; the GD backend accepts only our own geometry. */
+	private static bool $native_raster          = false;
+	private static ?string $native_default_font = null;
+
+	private const MAX_SVG_NODES           = 20000;
+	private const MAX_SVG_DEPTH           = 64;
+	private const MAX_SVG_USE_DEPTH       = 16;
+	private const MAX_SVG_PATH_TOKENS     = 100000;
+	private const MAX_SVG_PATH_BYTES      = 2097152;
+	private const MAX_RASTER_EDGE_PX      = 900;
 	private const ALPHA_VISIBLE_THRESHOLD = 64;
-	private const MAX_EPS_FRAGMENT_BYTES = 134217728;
-	private const MAX_EPS_OUTPUT_BYTES = 134217728;
+	private const MAX_EPS_FRAGMENT_BYTES  = 134217728;
+	private const MAX_EPS_OUTPUT_BYTES    = 134217728;
 
 	/** Parsed TrueType font cache for font-independent EPS text outlines. */
 	private static array $ttf_outline_cache = [];
@@ -41,24 +45,41 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		array $area_data
 	): array {
 		$output_dir = self::ensure_output_dir( $order->get_id() );
-		$binary     = OC_Preview_Generator::find_ghostscript();
-		if ( ! $binary ) {
-			throw new \RuntimeException( esc_html__( 'Embroidery BMP generation requires Ghostscript on the server.', 'overcustomise' ) );
-		}
-		$eps_path = self::generate_eps( $output_dir, $order, $item_id, $area, $area_data );
-		$bmp_path = substr( $eps_path, 0, -4 ) . '.bmp';
+		$binary     = function_exists( 'proc_open' ) ? OC_Preview_Generator::find_ghostscript() : null;
+		$eps_path   = null;
+		$bmp_path   = null;
+
+		self::$native_raster = ! $binary;
 		try {
-			self::render_bmp( $binary, $eps_path, $bmp_path );
+			if ( self::$native_raster && ! function_exists( 'imagebmp' ) ) {
+				throw new \RuntimeException( esc_html__( 'Embroidery BMP generation requires PHP GD with BMP support or Ghostscript. Ask your host to enable PHP GD, then regenerate the print file.', 'overcustomise' ) );
+			}
+			$eps_path = self::generate_eps( $output_dir, $order, $item_id, $area, $area_data );
+			$bmp_path = substr( $eps_path, 0, -4 ) . '.bmp';
+			if ( self::$native_raster ) {
+				require_once __DIR__ . '/class-oc-embroidery-raster.php';
+				OC_Embroidery_Raster::render( $eps_path, $bmp_path );
+			} else {
+				self::render_bmp( $binary, $eps_path, $bmp_path );
+			}
 			return [
 				'file_path' => $bmp_path,
 				'status'    => 'files_ready',
 			];
 		} catch ( \Throwable $e ) {
-			@unlink( $bmp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Remove a partial generated file without masking the conversion failure.
+			if ( is_string( $bmp_path ) ) {
+				@unlink( $bmp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Remove partial output.
+			}
 			throw $e;
 		} finally {
 			// EPS is only an internal composition stage, never the production download.
-			@unlink( $eps_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Always clean up the internal composition file.
+			foreach ( [ $eps_path, self::$native_default_font ] as $temporary ) {
+				if ( is_string( $temporary ) ) {
+					@unlink( $temporary ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Clean internal composition files.
+				}
+			}
+			self::$native_raster       = false;
+			self::$native_default_font = null;
 		}
 	}
 
@@ -439,6 +460,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		$font_name = self::eps_font_name_from_row( $font );
 		$font_path = is_object( $font ) ? self::get_font_path( $font ) : null;
+		if ( self::$native_raster && $font_id <= 0 ) {
+			$font_path = self::native_default_font();
+		}
 		if ( $font_id > 0 && ( ! is_string( $font_path ) || '' === $font_path ) ) {
 			throw new \RuntimeException( sprintf( __( 'The selected embroidery font #%d has no renderable production outline.', 'overcustomise' ), $font_id ) );
 		}
@@ -484,7 +508,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			$paint[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath clip newpath', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
 		}
 		$paint[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
-		if ( $font_id <= 0 ) {
+		if ( $font_id <= 0 && ! self::$native_raster ) {
 			$paint[] = '%%OCTextOutline: charpath';
 			$paint[] = '%%OCTextOutlineFallback: font-dependent';
 			$paint[] = sprintf( '/Helvetica findfont %.4F scalefont setfont', $font_size );
@@ -495,7 +519,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				continue;
 			}
 			$baseline_y = $first_baseline - $index * $line_height;
-			if ( $font_id > 0 ) {
+			if ( $font_id > 0 || self::$native_raster ) {
 				if ( ! self::append_eps_ttf_text_outline( $paint, $text_line, $align, $anchor_x, $baseline_y, $font_size, $font_path ) ) {
 					throw new \RuntimeException( sprintf( __( 'The selected embroidery font #%d could not outline all customer text.', 'overcustomise' ), $font_id ) );
 				}
@@ -1503,6 +1527,21 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Clip an EPS artwork layer to the same shape used by the preview. */
 	private static function append_eps_clip_path( array &$lines, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $shape ): void {
+		if ( 'oval' === $shape && self::$native_raster ) {
+			// Construct the ellipse without PostScript matrix-stack operators.
+			$cx = $x_pt + $w_pt / 2;
+			$cy = $y_pt + $h_pt / 2;
+			$rx = $w_pt / 2;
+			$ry = $h_pt / 2;
+			$k  = 0.5522847498;
+
+			$lines[] = sprintf( 'newpath %.4F %.4F moveto', $cx + $rx, $cy );
+			$lines[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx + $rx, $cy + $k * $ry, $cx + $k * $rx, $cy + $ry, $cx, $cy + $ry );
+			$lines[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx - $k * $rx, $cy + $ry, $cx - $rx, $cy + $k * $ry, $cx - $rx, $cy );
+			$lines[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto', $cx - $rx, $cy - $k * $ry, $cx - $k * $rx, $cy - $ry, $cx, $cy - $ry );
+			$lines[] = sprintf( '%.4F %.4F %.4F %.4F %.4F %.4F curveto closepath clip newpath', $cx + $k * $rx, $cy - $ry, $cx + $rx, $cy - $k * $ry, $cx + $rx, $cy );
+			return;
+		}
 		if ( 'oval' === $shape ) {
 			// Restore the transform after constructing the ellipse, retaining its path.
 			$lines[] = sprintf( 'matrix currentmatrix %.4F %.4F translate %.4F %.4F scale newpath 0 0 1 0 360 arc closepath setmatrix clip newpath', $x_pt + $w_pt / 2, $y_pt + $h_pt / 2, $w_pt / 2, $h_pt / 2 );
@@ -1561,7 +1600,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					return;
 				}
 
-				if ( self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
+				if ( ! self::$native_raster && self::append_eps_external_svg_vector( $lines, $path, $x_pt, $y_pt, $w_pt, $h_pt, $fit ) ) {
 					return;
 				}
 
@@ -1608,7 +1647,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		imagecopyresampled( $draw, $image, 0, 0, 0, 0, $out_w, $out_h, $src_w, $src_h );
 
 		[ $draw_x, $draw_y, $draw_w, $draw_h ] = self::fit_eps_box( (float) $src_w, (float) $src_h, $x_pt, $y_pt, $w_pt, $h_pt, $fit );
-		if ( self::gd_image_has_transparency( $draw ) ) {
+		if ( self::$native_raster || self::gd_image_has_transparency( $draw ) ) {
 			self::append_eps_alpha_raster_rects( $lines, $draw, $draw_x, $draw_y, $draw_w, $draw_h );
 			imagedestroy( $draw );
 			return;
@@ -3300,6 +3339,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Open a raster image resource for EPS embedding. */
 	private static function open_raster_resource( string $path ) {
+		self::assert_safe_raster_dimensions( $path );
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		return match ( $ext ) {
 			'jpg', 'jpeg' => function_exists( 'imagecreatefromjpeg' ) ? @imagecreatefromjpeg( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -3309,6 +3349,28 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			'gif' => function_exists( 'imagecreatefromgif' ) ? @imagecreatefromgif( $path ) : false, // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 			default => false,
 		};
+	}
+
+	/** Use the bundled TrueType fallback when no customer font was selected. */
+	private static function native_default_font(): string {
+		if ( null !== self::$native_default_font ) {
+			return self::$native_default_font;
+		}
+		$source = OC_PATH . 'vendor/tecnickcom/tc-lib-pdf-font/target/fonts/dejavu/dejavusans.z';
+		$bytes  = is_readable( $source ) ? file_get_contents( $source ) : false; // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bundled local compressed font.
+		$font   = is_string( $bytes ) ? gzuncompress( $bytes, 16777216 ) : false;
+		if ( ! is_string( $font ) ) {
+			throw new \RuntimeException( esc_html__( 'The bundled embroidery fallback font is unavailable. Reinstall the plugin dependencies or select an uploaded TrueType font.', 'overcustomise' ) );
+		}
+		$path = self::temp_path( 'oc-embroidery-font-' . wp_generate_uuid4() . '.ttf' );
+		if ( ! is_string( $path ) ) {
+			throw new \RuntimeException( 'Could not stage the embroidery fallback font.' );
+		}
+		self::$native_default_font = $path;
+		if ( file_put_contents( $path, $font ) !== strlen( $font ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Stage the bundled font for the local outline parser.
+			throw new \RuntimeException( 'Could not stage the embroidery fallback font.' );
+		}
+		return $path;
 	}
 
 }

@@ -182,8 +182,14 @@ class OC_Preview_Generator {
 		$paths = str_starts_with( strtoupper( PHP_OS_FAMILY ), 'WINDOWS' )
 			? [ 'gswin64c', 'gswin32c', 'gs' ]
 			: [ 'gs', '/usr/bin/gs', '/usr/local/bin/gs' ];
+		// Honour the same host-specific paths as the System Status check.
+		$filtered = apply_filters( 'oc_ghostscript_binary_candidates', $paths );
+		$paths    = is_array( $filtered ) ? $filtered : $paths;
 
 		foreach ( $paths as $candidate ) {
+			if ( ! is_string( $candidate ) || '' === trim( $candidate ) ) {
+				continue;
+			}
 			try {
 				$result = OC_Command_Runner::run( [ $candidate, '--version' ] );
 				if ( 0 === (int) $result['code'] ) {

@@ -117,17 +117,6 @@ foreach ( $layers as $layer ) {
 ?>
 
 <div id="oc-customiser-panel" class="oc-customiser-panel oc-labels-<?php echo esc_attr( OC_Admin_Settings::get( 'label_position' ) ); ?><?php echo esc_attr( ! empty( $design_variants ) ? ' oc-has-design-variants' : '' ); ?>">
-	<?php if ( ! empty( $surcharge_html ) ) : ?>
-		<p class="oc-personalisation-surcharge" role="status"><?php echo wp_kses_post( $surcharge_html ); ?></p>
-	<?php endif; ?>
-	<?php if ( ! empty( $layer_costs_html ) ) : ?>
-		<div class="oc-layer-cost-disclosure">
-			<p><strong><?php esc_html_e( 'Optional personalisation costs', 'overcustomise' ); ?></strong></p>
-			<ul><?php echo wp_kses_post( $layer_costs_html ); ?></ul>
-			<p><?php esc_html_e( 'These costs are in addition to any base personalisation fee. Each listed layer is charged per item only when you enter nonblank custom text that differs from its default, or upload your own photo. Blank text and default text or artwork add no extra cost. Linked fields can fill multiple layers; each listed layer is charged separately when customised.', 'overcustomise' ); ?></p>
-		</div>
-	<?php endif; ?>
-
 	<div id="oc-preflight-messages" class="oc-preflight-messages" hidden></div>
 
 	<?php if ( ! empty( $design_variants ) ) : ?>
@@ -239,6 +228,12 @@ foreach ( $layers as $layer ) {
 					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
+					$layer_cost_label = '';
+					if ( ! empty( $s['additional_cost_enabled'] ) && $s['additional_cost'] > 0
+						&& ( ! in_array( $layer->type, [ 'image', 'clipmask' ], true ) || $allow_image_change ) ) {
+						$cost = (float) $s['additional_cost'];
+						$layer_cost_label = ' +' . wc_price( $cost, [ 'decimals' => floor( $cost ) === $cost ? 0 : wc_get_price_decimals() ] );
+					}
 					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $s ) || ! empty( $s['allow_image_filter_change'] );
 					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
 					$enable_image_colour = ! empty( $s['enable_image_colour'] );
@@ -282,7 +277,7 @@ foreach ( $layers as $layer ) {
 					<?php
 					// These layer types either show their label inline or do not need a section header.
 					$inline_label_types      = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'clipart', 'spotify', 'night_sky' ];
-					$show_header_label       = ! in_array( $layer->type, $inline_label_types, true );
+					$show_header_label       = ! in_array( $layer->type, $inline_label_types, true ) || ( '' !== $layer_cost_label && in_array( $layer->type, [ 'image', 'clipmask' ], true ) );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					$default_attachment_id = absint( $s['default_attachment_id'] ?? 0 );
 					if ( $default_attachment_id && ( ! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id ) || ! str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' ) ) ) {
@@ -297,7 +292,7 @@ foreach ( $layers as $layer ) {
 						<?php if ( $show_header_label || $show_required_in_header ) : ?>
 						<div class="oc-layer-header">
 							<?php if ( $show_header_label ) : ?>
-								<span><?php echo esc_html( $layer->label ?: ucfirst( $layer->type ) ); ?></span>
+								<span><?php echo esc_html( $layer->label ?: ucfirst( $layer->type ) ); ?><?php echo wp_kses_post( $layer_cost_label ); ?></span>
 							<?php endif; ?>
 							<?php if ( $show_required_in_header ) : ?>
 								<span class="oc-layer-required">* <?php esc_html_e( 'Required', 'overcustomise' ); ?></span>
@@ -309,7 +304,7 @@ foreach ( $layers as $layer ) {
 
 							<?php if ( $layer->type === 'text' ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
-									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php if ( $required ) echo ' *'; ?></label>
+									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php if ( $required ) echo ' *'; ?></label>
 									<div class="oc-input-wrap">
 										<input type="text"
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
@@ -327,7 +322,7 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'textarea' ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
-									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php if ( $required ) echo ' *'; ?></label>
+									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php if ( $required ) echo ' *'; ?></label>
 									<div class="oc-input-wrap">
 										<textarea
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"

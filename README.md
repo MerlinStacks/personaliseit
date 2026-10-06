@@ -102,7 +102,7 @@ The print queue surfaces pending, processing, completed, and failed generation j
 Optional capabilities:
 
 - **Imagick/ImageMagick** for higher-quality conversion, image effects, and HEIC/HEIF support when the necessary codec is installed.
-- **Ghostscript** for outlining embedded PDF fonts.
+- **Ghostscript** (optional) for outlining embedded PDF fonts and embroidery BMP rendering. Embroidery automatically uses PHP GD with BMP support when Ghostscript is unavailable.
 - **OpenRouter, Google Gemini, or OpenAI API access** for AI image filters. Provider usage may incur charges, and submitted images are handled according to the selected provider's policies.
 
 ## Installation

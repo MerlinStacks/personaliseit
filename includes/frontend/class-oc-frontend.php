@@ -923,8 +923,6 @@ class OC_Frontend {
 
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		$clipart_pages    = $this->clipart_pages;
-		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
-		$layer_costs_html = self::layer_costs_html( $areas, $layers, $this->fee_product_id );
 
 		ob_start();
 		include $template;
@@ -1153,8 +1151,6 @@ class OC_Frontend {
 		$clipart_by_layer = $this->build_clipart_by_layer( $layers, $areas );
 		$clipart_pages    = $this->clipart_pages;
 		$design_variants  = $this->design_variants;
-		$surcharge_html   = self::surcharge_html( $design, $this->fee_product_id );
-		$layer_costs_html = self::layer_costs_html( $areas, $layers, $this->fee_product_id );
 
 		include $template;
 	}

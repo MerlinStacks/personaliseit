@@ -740,7 +740,7 @@ class OC_Admin_Settings {
 									<h2><?php esc_html_e( 'Embroidery', 'overcustomise' ); ?></h2>
 								</div>
 								<div class="oc-card-body">
-									<div class="notice notice-info inline"><p><?php esc_html_e( 'Embroidery downloads are uncompressed 24-bit BMP artwork for Hatch auto-digitising. Server-side Ghostscript is required.', 'overcustomise' ); ?></p></div>
+									<div class="notice notice-info inline"><p><?php esc_html_e( 'Embroidery downloads are uncompressed 24-bit BMP artwork for Hatch auto-digitising. PHP GD provides automatic generation when Ghostscript is unavailable.', 'overcustomise' ); ?></p></div>
 									<p class="oc-form-help"><?php esc_html_e( 'Set the print area to the real embroidery size. Import the BMP directly into Hatch using Insert Artwork, then Auto-Digitize Embroidery. Output is 144 DPI on white; verify the imported size before digitising.', 'overcustomise' ); ?></p>
 								</div>
 							</div>
