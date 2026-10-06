@@ -320,7 +320,7 @@ class OC_Print_Queue {
 			}
 
 			$thumb_path = null;
-			$ext = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
+			$ext        = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
 			if ( in_array( $ext, [ 'pdf', 'bmp' ], true ) && file_exists( $result['file_path'] ) ) {
 				$thumb_path = pathinfo( $result['file_path'], PATHINFO_DIRNAME ) . '/'
 					. pathinfo( $result['file_path'], PATHINFO_FILENAME ) . '-thumb.png';

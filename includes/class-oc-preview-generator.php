@@ -11,18 +11,18 @@ class OC_Preview_Generator {
 		if ( ! function_exists( 'imagecreatefrombmp' ) || ! is_readable( $source ) || filesize( $source ) > self::MAX_SOURCE_BYTES ) {
 			return false;
 		}
-		$info = @getimagesize( $source );
+		$info = @getimagesize( $source ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Invalid thumbnails return false below.
 		if ( ! $info || IMAGETYPE_BMP !== $info[2] || $info[0] > 4096 || $info[1] > 4096 ) {
 			return false;
 		}
-		$image = @imagecreatefrombmp( $source );
+		$image = @imagecreatefrombmp( $source ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Decode failure returns false below.
 		if ( ! $image ) {
 			return false;
 		}
-		$scale = min( 1, 300 / max( $info[0], $info[1] ) );
-		$width = max( 1, (int) round( $info[0] * $scale ) );
+		$scale  = min( 1, 300 / max( $info[0], $info[1] ) );
+		$width  = max( 1, (int) round( $info[0] * $scale ) );
 		$height = max( 1, (int) round( $info[1] * $scale ) );
-		$thumb = imagecreatetruecolor( $width, $height );
+		$thumb  = imagecreatetruecolor( $width, $height );
 		try {
 			imagecopyresampled( $thumb, $image, 0, 0, 0, 0, $width, $height, $info[0], $info[1] );
 			return imagepng( $thumb, $destination );
@@ -172,7 +172,7 @@ class OC_Preview_Generator {
 	}
 
 	public static function find_ghostscript(): ?string {
-		static $checked = false;
+		static $checked  = false;
 		static $resolved = null;
 		if ( $checked ) {
 			return $resolved;

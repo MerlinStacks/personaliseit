@@ -559,16 +559,46 @@ class Test_Upload_Handler_Validation extends TestCase {
 	public function generated_vector_uses_raster_provenance_for_linked_layer_policy(): void {
 		$this->create_test_artwork( 47, [ 10, 12, 20, 30 ] );
 		$GLOBALS['oc_test_post_mime_types'][47] = 'image/svg+xml';
-		$policy = [ 'formats' => [ 'png' ], 'max_size_mb' => 3 ];
+		$policy                                 = [
+			'formats'     => [ 'png' ],
+			'max_size_mb' => 3,
+		];
 		// An ordinary SVG must still be rejected by a raster-only destination.
 		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 47, $policy, false ) );
-		$GLOBALS['oc_test_post_meta'][47]['_oc_artwork_source_type'] = 'png';
+		$GLOBALS['oc_test_post_meta'][47]['_oc_artwork_source_type']  = 'png';
 		$GLOBALS['oc_test_post_meta'][47]['_oc_artwork_source_bytes'] = 2 * 1024 * 1024;
 		$this->assertTrue( OC_Upload_Handler::attachment_matches_upload_policy( 47, $policy, false ) );
-		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 47, [ 'formats' => [ 'jpg' ], 'max_size_mb' => 3 ], false ) );
-		$this->assertFalse( OC_Upload_Handler::attachment_matches_upload_policy( 47, [ 'formats' => [ 'png' ], 'max_size_mb' => 1 ], false ) );
+		$this->assertFalse(
+			OC_Upload_Handler::attachment_matches_upload_policy(
+				47,
+				[
+					'formats'     => [ 'jpg' ],
+					'max_size_mb' => 3,
+				],
+				false
+			)
+		);
+		$this->assertFalse(
+			OC_Upload_Handler::attachment_matches_upload_policy(
+				47,
+				[
+					'formats'     => [ 'png' ],
+					'max_size_mb' => 1,
+				],
+				false
+			)
+		);
 		$GLOBALS['oc_test_post_meta'][47]['_oc_artwork_source_type'] = 'jpg';
-		$this->assertTrue( OC_Upload_Handler::attachment_matches_upload_policy( 47, [ 'formats' => [ 'jpeg' ], 'max_size_mb' => 3 ], false ) );
+		$this->assertTrue(
+			OC_Upload_Handler::attachment_matches_upload_policy(
+				47,
+				[
+					'formats'     => [ 'jpeg' ],
+					'max_size_mb' => 3,
+				],
+				false
+			)
+		);
 	}
 
 	#[Test]

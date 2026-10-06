@@ -10,6 +10,9 @@ use PHPUnit\Framework\TestCase;
 
 require_once OC_PATH . 'includes/class-oc-artwork-vectoriser.php';
 
+// Fixtures use local temporary files without a WordPress filesystem bootstrap.
+// phpcs:disable WordPress.WP.AlternativeFunctions
+
 class Test_Artwork_Vectoriser extends TestCase {
 	protected function setUp(): void {
 		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
@@ -34,15 +37,18 @@ class Test_Artwork_Vectoriser extends TestCase {
 			$inside = false;
 			foreach ( explode( 'Z', $path->getAttribute( 'd' ) ) as $ring ) {
 				preg_match_all( '/[ML](\d+) (\d+)/', $ring, $matches, PREG_SET_ORDER );
-				for ( $i = 0, $j = count( $matches ) - 1; $i < count( $matches ); $j = $i++ ) {
-					[ , $xi, $yi ] = $matches[$i];
-					[ , $xj, $yj ] = $matches[$j];
+				$count = count( $matches );
+				for ( $i = 0, $j = $count - 1; $i < $count; $j = $i++ ) {
+					[ , $xi, $yi ] = $matches[ $i ];
+					[ , $xj, $yj ] = $matches[ $j ];
 					if ( ( $yi > $y ) !== ( $yj > $y ) && $x < ( $xj - $xi ) * ( $y - $yi ) / ( $yj - $yi ) + $xi ) {
 						$inside = ! $inside;
 					}
 				}
 			}
-			if ( $inside ) { $result = $path->getAttribute( 'fill' ); }
+			if ( $inside ) {
+				$result = $path->getAttribute( 'fill' );
+			}
 		}
 		return $result;
 	}
@@ -77,7 +83,7 @@ class Test_Artwork_Vectoriser extends TestCase {
 		$path = tempnam( sys_get_temp_dir(), 'oc-vector-test-' );
 		file_put_contents( $path, $svg );
 		try {
-			$lines = [];
+			$lines  = [];
 			$method = new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_svg_vector' );
 			$this->assertTrue( $method->invokeArgs( null, [ &$lines, $path, 0.0, 0.0, 60.0, 60.0, 'contain' ] ) );
 			$eps = implode( "\n", $lines );
@@ -114,12 +120,12 @@ class Test_Artwork_Vectoriser extends TestCase {
 		for ( $y = 0; $y < 120; $y++ ) {
 			for ( $x = 0; $x < 120; $x++ ) {
 				$shade = ( $x * 13 + $y * 19 ) % 16;
-				$rgb = $x < 60 ? ( ( 190 + $shade ) << 16 | 0x2222 ) : ( 0x222200 | ( 190 + $shade ) );
+				$rgb   = $x < 60 ? ( ( 190 + $shade ) << 16 | 0x2222 ) : ( 0x222200 | ( 190 + $shade ) );
 				imagesetpixel( $image, $x, $y, $rgb );
 			}
 		}
 		$bytes = $this->png( $image );
-		$svg = OC_Artwork_Vectoriser::trace( $bytes, 2, false );
+		$svg   = OC_Artwork_Vectoriser::trace( $bytes, 2, false );
 		$this->assertSame( 2, substr_count( $svg, '<path ' ) );
 		$this->assertLessThan( 1000, strlen( $svg ) );
 		$this->assertSame( $svg, OC_Artwork_Vectoriser::trace( $bytes, 2, false ) );
@@ -167,7 +173,21 @@ class Test_Artwork_Vectoriser extends TestCase {
 		$output = null;
 		try {
 			$method = new ReflectionMethod( OC_Print_Embroidery::class, 'build_filtered_image' );
-			$output = $method->invoke( null, $path, [ 'settings' => [ 'image_filter_ids' => [ 7 ], 'enable_image_colour' => true ] ], [ 'imageFilterId' => 7, 'imageFilterKey' => 'ai', 'colorHex' => '#123456' ] );
+			$output = $method->invoke(
+				null,
+				$path,
+				[
+					'settings' => [
+						'image_filter_ids'    => [ 7 ],
+						'enable_image_colour' => true,
+					],
+				],
+				[
+					'imageFilterId'  => 7,
+					'imageFilterKey' => 'ai',
+					'colorHex'       => '#123456',
+				]
+			);
 			$this->assertIsString( $output );
 			$this->assertStringEndsWith( '.svg', $output );
 			$dom = new DOMDocument();
@@ -179,7 +199,8 @@ class Test_Artwork_Vectoriser extends TestCase {
 		} finally {
 			unlink( $path );
 			unlink( substr( $path, 0, -4 ) );
-			if ( is_string( $output ) && is_file( $output ) ) { unlink( $output ); }
+			if ( is_string( $output ) && is_file( $output ) ) {
+				unlink( $output ); }
 		}
 	}
 

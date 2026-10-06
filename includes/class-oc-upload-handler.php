@@ -706,16 +706,19 @@ class OC_Upload_Handler {
 		}
 		$vector_source = null;
 		if ( $vector_colours > 0 ) {
-			$vector_source = [ 'type' => $extensions[ $mime ], 'bytes' => strlen( $bytes ) ];
+			$vector_source = [
+				'type'  => $extensions[ $mime ],
+				'bytes' => strlen( $bytes ),
+			];
 			require_once __DIR__ . '/class-oc-artwork-vectoriser.php';
 			try {
 				$bytes = OC_Artwork_Vectoriser::trace( $bytes, $vector_colours, $remove_background );
 			} catch ( \RuntimeException $e ) {
 				return new \WP_Error( 'generated_vector_failed', $e->getMessage() );
 			}
-			$mime              = 'image/svg+xml';
+			$mime                = 'image/svg+xml';
 			$extensions[ $mime ] = 'svg';
-			$remove_background = false;
+			$remove_background   = false;
 		}
 
 		$tmp = self::temp_path( 'oc-ai-image-' );

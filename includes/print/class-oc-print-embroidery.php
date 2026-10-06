@@ -41,27 +41,30 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		array $area_data
 	): array {
 		$output_dir = self::ensure_output_dir( $order->get_id() );
-		$binary = OC_Preview_Generator::find_ghostscript();
+		$binary     = OC_Preview_Generator::find_ghostscript();
 		if ( ! $binary ) {
-			throw new \RuntimeException( __( 'Embroidery BMP generation requires Ghostscript on the server.', 'overcustomise' ) );
+			throw new \RuntimeException( esc_html__( 'Embroidery BMP generation requires Ghostscript on the server.', 'overcustomise' ) );
 		}
-		$eps_path   = self::generate_eps( $output_dir, $order, $item_id, $area, $area_data );
+		$eps_path = self::generate_eps( $output_dir, $order, $item_id, $area, $area_data );
 		$bmp_path = substr( $eps_path, 0, -4 ) . '.bmp';
 		try {
 			self::render_bmp( $binary, $eps_path, $bmp_path );
-			return [ 'file_path' => $bmp_path, 'status' => 'files_ready' ];
+			return [
+				'file_path' => $bmp_path,
+				'status'    => 'files_ready',
+			];
 		} catch ( \Throwable $e ) {
-			@unlink( $bmp_path );
+			@unlink( $bmp_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Remove a partial generated file without masking the conversion failure.
 			throw $e;
 		} finally {
 			// EPS is only an internal composition stage, never the production download.
-			@unlink( $eps_path );
+			@unlink( $eps_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Always clean up the internal composition file.
 		}
 	}
 
 	/** Rasterise the composed artwork with the same settings proven in Hatch 3. */
 	private static function render_bmp( string $binary, string $source, string $destination ): void {
-		$header = file_get_contents( $source, false, null, 0, 4096 );
+		$header = file_get_contents( $source, false, null, 0, 4096 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local generated file.
 		if ( ! preg_match( '/%%BoundingBox: 0 0 (\d+) (\d+)/', (string) $header, $bounds ) ) {
 			throw new \RuntimeException( 'Missing embroidery artwork dimensions.' );
 		}
@@ -69,15 +72,28 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( (int) $bounds[1] * 2 > 4096 || (int) $bounds[2] * 2 > 4096 ) {
 			throw new \RuntimeException( 'Embroidery artwork exceeds the BMP rendering size limit.' );
 		}
-		$result = OC_Command_Runner::run( [
-			$binary, '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dQUIET', '-dEPSCrop',
-			'-dFirstPage=1', '-dLastPage=1', '-sDEVICE=bmp16m', '-r144',
-			'-dTextAlphaBits=1', '-dGraphicsAlphaBits=1', '-sOutputFile=' . $destination, $source,
-		] );
-		$info = is_file( $destination ) ? @getimagesize( $destination ) : false;
+		$result = OC_Command_Runner::run(
+			[
+				$binary,
+				'-dSAFER',
+				'-dBATCH',
+				'-dNOPAUSE',
+				'-dQUIET',
+				'-dEPSCrop',
+				'-dFirstPage=1',
+				'-dLastPage=1',
+				'-sDEVICE=bmp16m',
+				'-r144',
+				'-dTextAlphaBits=1',
+				'-dGraphicsAlphaBits=1',
+				'-sOutputFile=' . $destination,
+				$source,
+			]
+		);
+		$info   = is_file( $destination ) ? @getimagesize( $destination ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Invalid output is rejected below.
 		if ( 0 !== (int) $result['code'] || ! $info || IMAGETYPE_BMP !== $info[2]
 			|| $info[0] !== (int) $bounds[1] * 2 || $info[1] !== (int) $bounds[2] * 2 ) {
-			throw new \RuntimeException( __( 'Could not render embroidery BMP artwork. Check server Ghostscript support.', 'overcustomise' ) );
+			throw new \RuntimeException( esc_html__( 'Could not render embroidery BMP artwork. Check server Ghostscript support.', 'overcustomise' ) );
 		}
 	}
 
@@ -1684,34 +1700,34 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			for ( $y = 0; $y < $img_h; $y++ ) {
 				$x = 0;
 				while ( $x < $img_w ) {
-				$rgba  = imagecolorat( $image, $x, $y );
-				$alpha = ( $rgba >> 24 ) & 0x7F;
-				if ( $alpha >= self::ALPHA_VISIBLE_THRESHOLD ) {
-					$x++;
-					continue;
-				}
-
-				$rgb = $rgba & 0xFFFFFF;
-				$run = 1;
-				while ( $x + $run < $img_w ) {
-					$next       = imagecolorat( $image, $x + $run, $y );
-					$next_alpha = ( $next >> 24 ) & 0x7F;
-					if ( $next_alpha >= self::ALPHA_VISIBLE_THRESHOLD || ( $next & 0xFFFFFF ) !== $rgb ) {
-						break;
+					$rgba  = imagecolorat( $image, $x, $y );
+					$alpha = ( $rgba >> 24 ) & 0x7F;
+					if ( $alpha >= self::ALPHA_VISIBLE_THRESHOLD ) {
+						++$x;
+						continue;
 					}
-					$run++;
-				}
 
-				if ( $rgb !== $active_rgb ) {
-					$r = ( $rgb >> 16 ) & 0xFF;
-					$g = ( $rgb >> 8 ) & 0xFF;
-					$b = $rgb & 0xFF;
-					$write( sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 ) );
-					$active_rgb = $rgb;
-				}
-				$write( sprintf( '%d %d %d 1 rectfill', $x, $img_h - $y - 1, $run ) );
-				$has_paint = true;
-				$x += $run;
+					$rgb = $rgba & 0xFFFFFF;
+					$run = 1;
+					while ( $x + $run < $img_w ) {
+						$next       = imagecolorat( $image, $x + $run, $y );
+						$next_alpha = ( $next >> 24 ) & 0x7F;
+						if ( $next_alpha >= self::ALPHA_VISIBLE_THRESHOLD || ( $next & 0xFFFFFF ) !== $rgb ) {
+							break;
+						}
+						++$run;
+					}
+
+					if ( $rgb !== $active_rgb ) {
+						$r = ( $rgb >> 16 ) & 0xFF;
+						$g = ( $rgb >> 8 ) & 0xFF;
+						$b = $rgb & 0xFF;
+						$write( sprintf( '%.4F %.4F %.4F setrgbcolor', $r / 255, $g / 255, $b / 255 ) );
+						$active_rgb = $rgb;
+					}
+					$write( sprintf( '%d %d %d 1 rectfill', $x, $img_h - $y - 1, $run ) );
+					$has_paint = true;
+					$x        += $run;
 				}
 			}
 			$write( 'grestore' );

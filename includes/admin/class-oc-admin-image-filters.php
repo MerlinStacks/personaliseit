@@ -36,7 +36,7 @@ class OC_Admin_Image_Filters {
 
 		$prompt            = isset( $_POST['prompt'] ) ? trim( (string) wp_unslash( $_POST['prompt'] ) ) : '';
 		$remove_background = ! empty( $_POST['remove_background'] );
-		$vector_colours = (int) ( $_POST['vector_colours'] ?? 0 );
+		$vector_colours    = (int) ( $_POST['vector_colours'] ?? 0 );
 		if ( $vector_colours < 0 || $vector_colours > 32 ) {
 			wp_send_json_error( [ 'message' => __( 'Choose between 0 and 32 vector colours.', 'overcustomise' ) ], 400 );
 		}
@@ -208,7 +208,12 @@ class OC_Admin_Image_Filters {
 									<br><small><?php esc_html_e( 'Background removed', 'overcustomise' ); ?></small>
 								<?php endif; ?>
 								<?php if ( ! empty( $filter->vector_colours ) ) : ?>
-									<br><small><?php echo esc_html( sprintf( __( 'Vector: up to %d colours', 'overcustomise' ), (int) $filter->vector_colours ) ); ?></small>
+									<br><small>
+									<?php
+										/* translators: %d: maximum number of vector artwork colours. */
+										echo esc_html( sprintf( __( 'Vector: up to %d colours', 'overcustomise' ), (int) $filter->vector_colours ) );
+									?>
+									</small>
 								<?php endif; ?>
 							</td>
 							<td><?php echo ! empty( $filter->active ) ? esc_html__( 'Active', 'overcustomise' ) : esc_html__( 'Inactive', 'overcustomise' ); ?></td>
@@ -271,12 +276,12 @@ class OC_Admin_Image_Filters {
 	}
 
 	private function handle_save(): bool {
-		$name              = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
-		$prompt            = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
-		$remove_background = ! empty( $_POST['remove_background'] ) ? 1 : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
-		$id                = absint( $_POST['filter_id'] ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
-		$key               = sanitize_key( wp_unslash( $_POST['filter_key'] ?? 'ai' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
-		$is_ai             = 'ai' === $key;
+		$name               = sanitize_text_field( wp_unslash( $_POST['name'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$prompt             = sanitize_textarea_field( wp_unslash( $_POST['prompt'] ?? '' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$remove_background  = ! empty( $_POST['remove_background'] ) ? 1 : 0; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$id                 = absint( $_POST['filter_id'] ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$key                = sanitize_key( wp_unslash( $_POST['filter_key'] ?? 'ai' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
+		$is_ai              = 'ai' === $key;
 		$raw_vector_colours = $_POST['vector_colours'] ?? '0'; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() verifies the save nonce.
 		if ( $is_ai && ( ! is_scalar( $raw_vector_colours ) || ! preg_match( '/^(?:[0-9]|[12][0-9]|3[0-2])$/D', (string) $raw_vector_colours ) ) ) {
 			return false;

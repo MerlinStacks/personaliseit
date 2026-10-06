@@ -1,5 +1,8 @@
 <?php
 
+// Fixtures use local temporary files; cleanup must tolerate failed rendering.
+// phpcs:disable WordPress.WP.AlternativeFunctions, WordPress.PHP.NoSilencedErrors.Discouraged
+
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
@@ -15,8 +18,8 @@ class Test_Embroidery_Bmp extends TestCase {
 			$this->markTestSkipped( 'Ghostscript and GD are required.' );
 		}
 		$source = tempnam( sys_get_temp_dir(), 'oc-bmp-' );
-		$bmp = $source . '.bmp';
-		$thumb = $source . '.png';
+		$bmp    = $source . '.bmp';
+		$thumb  = $source . '.png';
 		try {
 			file_put_contents( $source, "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 72 36\n%%EndComments\n1 0 0 setrgbcolor 0 0 36 36 rectfill\nshowpage\n" );
 			$method = new ReflectionMethod( OC_Print_Embroidery::class, 'render_bmp' );
