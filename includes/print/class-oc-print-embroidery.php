@@ -2,7 +2,7 @@
 /**
  * Embroidery print file generator.
  *
- * Embroidery uses an EPS artwork file so production receives the customer's
+ * Embroidery uses a Hatch-compatible BMP artwork file so production receives the customer's
  * colours, text, line art and clipart/image placement in one print file.
  *
  * @package OverCustomise
@@ -25,7 +25,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	private static array $ttf_outline_cache = [];
 
 	/**
-	 * Generate embroidery artwork as an EPS print file.
+	 * Generate embroidery artwork as an uncompressed RGB BMP print file.
 	 *
 	 * @param  \WC_Order $order
 	 * @param  int       $item_id
@@ -41,9 +41,44 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		array $area_data
 	): array {
 		$output_dir = self::ensure_output_dir( $order->get_id() );
+		$binary = OC_Preview_Generator::find_ghostscript();
+		if ( ! $binary ) {
+			throw new \RuntimeException( __( 'Embroidery BMP generation requires Ghostscript on the server.', 'overcustomise' ) );
+		}
 		$eps_path   = self::generate_eps( $output_dir, $order, $item_id, $area, $area_data );
+		$bmp_path = substr( $eps_path, 0, -4 ) . '.bmp';
+		try {
+			self::render_bmp( $binary, $eps_path, $bmp_path );
+			return [ 'file_path' => $bmp_path, 'status' => 'files_ready' ];
+		} catch ( \Throwable $e ) {
+			@unlink( $bmp_path );
+			throw $e;
+		} finally {
+			// EPS is only an internal composition stage, never the production download.
+			@unlink( $eps_path );
+		}
+	}
 
-		return [ 'file_path' => $eps_path, 'status' => 'files_ready' ];
+	/** Rasterise the composed artwork with the same settings proven in Hatch 3. */
+	private static function render_bmp( string $binary, string $source, string $destination ): void {
+		$header = file_get_contents( $source, false, null, 0, 4096 );
+		if ( ! preg_match( '/%%BoundingBox: 0 0 (\d+) (\d+)/', (string) $header, $bounds ) ) {
+			throw new \RuntimeException( 'Missing embroidery artwork dimensions.' );
+		}
+		// 144 DPI matches the successful Hatch test; cap dimensions before rendering.
+		if ( (int) $bounds[1] * 2 > 4096 || (int) $bounds[2] * 2 > 4096 ) {
+			throw new \RuntimeException( 'Embroidery artwork exceeds the BMP rendering size limit.' );
+		}
+		$result = OC_Command_Runner::run( [
+			$binary, '-dSAFER', '-dBATCH', '-dNOPAUSE', '-dQUIET', '-dEPSCrop',
+			'-dFirstPage=1', '-dLastPage=1', '-sDEVICE=bmp16m', '-r144',
+			'-dTextAlphaBits=1', '-dGraphicsAlphaBits=1', '-sOutputFile=' . $destination, $source,
+		] );
+		$info = is_file( $destination ) ? @getimagesize( $destination ) : false;
+		if ( 0 !== (int) $result['code'] || ! $info || IMAGETYPE_BMP !== $info[2]
+			|| $info[0] !== (int) $bounds[1] * 2 || $info[1] !== (int) $bounds[2] * 2 ) {
+			throw new \RuntimeException( __( 'Could not render embroidery BMP artwork. Check server Ghostscript support.', 'overcustomise' ) );
+		}
 	}
 
 	/** Persist semantics, not a heuristic fallback from empty modern inputs to stale summaries. */

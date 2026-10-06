@@ -445,6 +445,10 @@ trait OC_Print_Base_Artwork_Effects {
 		if ( 'ai' === $key && ! $colour ) {
 			return $path;
 		}
+		if ( 'ai' === $key && 'svg' === strtolower( pathinfo( $path, PATHINFO_EXTENSION ) ) ) {
+			// Traced AI artwork stays vector when the layer applies a single colour.
+			return self::build_coloured_svg( $path, $colour, $w_mm, $h_mm );
+		}
 		if ( ! function_exists( 'imagefilter' ) ) {
 			return null;
 		}

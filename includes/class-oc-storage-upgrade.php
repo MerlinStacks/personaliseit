@@ -319,7 +319,7 @@ final class OC_Storage_Upgrade {
 			$nonce = bin2hex( random_bytes( 20 ) );
 			$content = 'OverCustomise harmless storage check ' . $nonce;
 			$names = [ 'oc-control-' . $nonce . '.txt' ];
-			foreach ( [ 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'svg', 'eps', 'heic', 'heif', 'csv', 'dst', 'zip', 'txt', 'bin', 'pdf.oc-backup-' . $nonce ] as $extension ) {
+			foreach ( [ 'pdf', 'bmp', 'png', 'jpg', 'jpeg', 'webp', 'svg', 'eps', 'heic', 'heif', 'csv', 'dst', 'zip', 'txt', 'bin', 'pdf.oc-backup-' . $nonce ] as $extension ) {
 				$names[] = 'oc-denied-' . $nonce . '.' . $extension;
 			}
 			$deadline = microtime( true ) + 5;

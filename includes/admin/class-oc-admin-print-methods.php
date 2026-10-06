@@ -305,7 +305,7 @@ class OC_Admin_Print_Methods {
 								<input type="number" name="<?php echo esc_attr( "oc_pm[{$key}][max_colours]" ); ?>"
 								       value="<?php echo esc_attr( $m['max_colours'] ); ?>"
 								       min="1" max="32" step="1" class="small-text oc-input" style="width:80px;" />
-								<p class="oc-form-help"><?php esc_html_e( 'Production metadata only; the current EPS generator does not reduce artwork colours to this limit.', 'overcustomise' ); ?></p>
+								<p class="oc-form-help"><?php esc_html_e( 'Production guidance only; BMP export does not reduce artwork colours to this limit. Set Vector colours on the AI filter before customer approval.', 'overcustomise' ); ?></p>
 							</div>
 						</div>
 						<div class="oc-form-row">
@@ -320,7 +320,7 @@ class OC_Admin_Print_Methods {
 										</option>
 									<?php endforeach; ?>
 								</select>
-								<p class="oc-form-help"><?php esc_html_e( 'Production metadata only; the current EPS generator does not perform thread-brand mapping.', 'overcustomise' ); ?></p>
+								<p class="oc-form-help"><?php esc_html_e( 'Production guidance only; BMP export does not perform thread-brand mapping.', 'overcustomise' ); ?></p>
 							</div>
 						</div>
 					<?php endif; ?>

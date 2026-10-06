@@ -36,6 +36,10 @@ class OC_Admin_Image_Filters {
 
 		$prompt            = isset( $_POST['prompt'] ) ? trim( (string) wp_unslash( $_POST['prompt'] ) ) : '';
 		$remove_background = ! empty( $_POST['remove_background'] );
+		$vector_colours = (int) ( $_POST['vector_colours'] ?? 0 );
+		if ( $vector_colours < 0 || $vector_colours > 32 ) {
+			wp_send_json_error( [ 'message' => __( 'Choose between 0 and 32 vector colours.', 'overcustomise' ) ], 400 );
+		}
 		if ( '' === $prompt || strlen( $prompt ) > 10000 || empty( $_FILES['test_image'] ) ) {
 			wp_send_json_error( [ 'message' => __( 'Enter a prompt and choose a test image.', 'overcustomise' ) ], 400 );
 		}
@@ -52,8 +56,8 @@ class OC_Admin_Image_Filters {
 			if ( is_wp_error( $result ) ) {
 				$error = $result->get_error_message();
 			} else {
-				if ( $remove_background ) {
-					$saved = OC_Upload_Handler::save_generated_image( $result['bytes'], $result['mime'], [], [], true );
+				if ( $remove_background || $vector_colours > 0 ) {
+					$saved = OC_Upload_Handler::save_generated_image( $result['bytes'], $result['mime'], [], [], $remove_background, $vector_colours );
 					if ( is_wp_error( $saved ) ) {
 						throw new \RuntimeException( $saved->get_error_message() );
 					}
@@ -61,7 +65,7 @@ class OC_Admin_Image_Filters {
 					$path         = get_attached_file( $generated_id );
 					$bytes        = is_string( $path ) ? file_get_contents( $path ) : false;
 					$mime         = (string) get_post_mime_type( $generated_id );
-					if ( ! is_string( $bytes ) || '' === $bytes || ! in_array( $mime, [ 'image/png', 'image/jpeg', 'image/webp' ], true ) ) {
+					if ( ! is_string( $bytes ) || '' === $bytes || ! in_array( $mime, [ 'image/png', 'image/jpeg', 'image/webp', 'image/svg+xml' ], true ) ) {
 						throw new \RuntimeException( __( 'The background-removed test image could not be read.', 'overcustomise' ) );
 					}
 					$result['bytes'] = $bytes;
@@ -172,6 +176,10 @@ class OC_Admin_Image_Filters {
 							<div class="oc-form-field"><label><input type="checkbox" id="oc_filter_remove_background" name="remove_background" value="1" <?php checked( ! empty( $editing->remove_background ) ); ?> /> <?php esc_html_e( 'Remove the generated image background', 'overcustomise' ); ?></label><p class="oc-form-help"><?php esc_html_e( 'Converts a plain light or dark background into transparency while preserving contrasting line artwork and anti-aliased edges.', 'overcustomise' ); ?></p></div>
 						</div>
 						<div class="oc-form-row">
+							<div class="oc-form-label"><label for="oc_filter_vector_colours"><?php esc_html_e( 'Vector colours', 'overcustomise' ); ?></label></div>
+							<div class="oc-form-field"><input type="number" id="oc_filter_vector_colours" name="vector_colours" min="0" max="32" step="1" value="<?php echo esc_attr( (string) ( $editing->vector_colours ?? 0 ) ); ?>" /><p class="oc-form-help"><?php esc_html_e( '0 keeps the generated raster. Set 1–32 to trace flat-colour SVG outlines before customer approval (use 3 for a three-colour design). This is a maximum, not a named thread palette. The preview and embroidery EPS use the same SVG. Background removal preserves enclosed white details. Existing orders require their original image and a new approval.', 'overcustomise' ); ?></p></div>
+						</div>
+						<div class="oc-form-row">
 							<div class="oc-form-label"><label for="oc_filter_test_image"><?php esc_html_e( 'Test image', 'overcustomise' ); ?></label></div>
 							<div class="oc-form-field"><input type="file" id="oc_filter_test_image" accept="image/jpeg,image/png,image/webp" /><button type="button" id="oc-test-ai-filter" class="button" style="margin-left:8px;"><?php esc_html_e( 'Run Test', 'overcustomise' ); ?></button><span id="oc-ai-test-status" style="margin-left:8px;"></span><div id="oc-ai-test-result" style="display:none;margin-top:12px;"><img alt="<?php esc_attr_e( 'AI filter test result', 'overcustomise' ); ?>" style="max-width:520px;max-height:520px;border:1px solid #dcdcde;background:#fff;" /></div></div>
 						</div>
@@ -199,6 +207,9 @@ class OC_Admin_Image_Filters {
 								<?php if ( ! empty( $filter->remove_background ) ) : ?>
 									<br><small><?php esc_html_e( 'Background removed', 'overcustomise' ); ?></small>
 								<?php endif; ?>
+								<?php if ( ! empty( $filter->vector_colours ) ) : ?>
+									<br><small><?php echo esc_html( sprintf( __( 'Vector: up to %d colours', 'overcustomise' ), (int) $filter->vector_colours ) ); ?></small>
+								<?php endif; ?>
 							</td>
 							<td><?php echo ! empty( $filter->active ) ? esc_html__( 'Active', 'overcustomise' ) : esc_html__( 'Inactive', 'overcustomise' ); ?></td>
 							<td>
@@ -217,7 +228,7 @@ class OC_Admin_Image_Filters {
 			const type = document.getElementById('oc_filter_type');
 			const updateFields = function () {
 				const isAi = type.value === 'ai';
-				['oc_filter_prompt', 'oc_filter_remove_background', 'oc_filter_test_image'].forEach(function (id) {
+				['oc_filter_prompt', 'oc_filter_remove_background', 'oc_filter_vector_colours', 'oc_filter_test_image'].forEach(function (id) {
 					const field = document.getElementById(id);
 					field.closest('.oc-form-row').style.display = isAi ? '' : 'none';
 					field.disabled = !isAi;
@@ -240,6 +251,7 @@ class OC_Admin_Image_Filters {
 				if (!file || !prompt) { status.textContent = '<?php echo esc_js( __( 'Choose an image and enter a prompt.', 'overcustomise' ) ); ?>'; return; }
 				button.disabled = true; status.textContent = '<?php echo esc_js( __( 'Generating...', 'overcustomise' ) ); ?>'; result.style.display = 'none';
 				const body = new FormData(); body.append('action', 'oc_test_ai_image_filter'); body.append('nonce', '<?php echo esc_js( wp_create_nonce( 'oc-image-filter-test' ) ); ?>'); body.append('prompt', prompt); body.append('test_image', file); if (document.getElementById('oc_filter_remove_background').checked) body.append('remove_background', '1');
+				body.append('vector_colours', document.getElementById('oc_filter_vector_colours').value);
 				try { const response = await fetch(ajaxurl, {method:'POST', body}); const json = await response.json(); if (!json.success) throw new Error(json.data?.message || '<?php echo esc_js( __( 'Test failed.', 'overcustomise' ) ); ?>'); result.querySelector('img').src = json.data.image; result.style.display = ''; status.textContent = '<?php echo esc_js( __( 'Generated with ', 'overcustomise' ) ); ?>' + json.data.model; }
 				catch (error) { status.textContent = error.message || '<?php echo esc_js( __( 'Test failed.', 'overcustomise' ) ); ?>'; }
 				finally { button.disabled = false; }
@@ -265,6 +277,10 @@ class OC_Admin_Image_Filters {
 		$id                = absint( $_POST['filter_id'] ?? 0 ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
 		$key               = sanitize_key( wp_unslash( $_POST['filter_key'] ?? 'ai' ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() checks manage_woocommerce and the oc_image_filter_save nonce before calling this private method.
 		$is_ai             = 'ai' === $key;
+		$raw_vector_colours = $_POST['vector_colours'] ?? '0'; // phpcs:ignore WordPress.Security.NonceVerification.Missing -- render() verifies the save nonce.
+		if ( $is_ai && ( ! is_scalar( $raw_vector_colours ) || ! preg_match( '/^(?:[0-9]|[12][0-9]|3[0-2])$/D', (string) $raw_vector_colours ) ) ) {
+			return false;
+		}
 		if ( ! isset( self::filter_types()[ $key ] ) || '' === $name || strlen( $name ) > 100 || ( $is_ai && ( '' === trim( $prompt ) || strlen( $prompt ) > 10000 ) ) ) {
 			return false;
 		}
@@ -284,15 +300,16 @@ class OC_Admin_Image_Filters {
 			'value'             => $value,
 			'prompt'            => $is_ai ? $prompt : '',
 			'remove_background' => $is_ai ? $remove_background : 0,
+			'vector_colours'    => $is_ai ? (int) $raw_vector_colours : 0,
 			'active'            => 1,
 		];
 		if ( $id && ! $this->get_filter( $id ) ) {
 			return false;
 		}
 		if ( $id ) {
-			$result = $wpdb->update( $wpdb->prefix . 'oc_image_filters', $data, [ 'id' => $id ], [ '%s', '%s', '%f', '%s', '%d', '%d' ], [ '%d' ] );
+			$result = $wpdb->update( $wpdb->prefix . 'oc_image_filters', $data, [ 'id' => $id ], [ '%s', '%s', '%f', '%s', '%d', '%d', '%d' ], [ '%d' ] );
 		} else {
-			$result = $wpdb->insert( $wpdb->prefix . 'oc_image_filters', $data, [ '%s', '%s', '%f', '%s', '%d', '%d' ] );
+			$result = $wpdb->insert( $wpdb->prefix . 'oc_image_filters', $data, [ '%s', '%s', '%f', '%s', '%d', '%d', '%d' ] );
 		}
 		if ( false === $result ) {
 			return false;

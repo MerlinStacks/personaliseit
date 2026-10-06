@@ -684,8 +684,8 @@ class OC_Upload_Handler {
 		}
 	}
 
-	/** Save an AI-generated raster image as owned customer artwork. */
-	public static function save_generated_image( string $bytes, string $mime, array $context, array $provenance = [], bool $remove_background = false ): array|\WP_Error {
+	/** Save generated artwork, optionally tracing the canonical preview/production SVG. */
+	public static function save_generated_image( string $bytes, string $mime, array $context, array $provenance = [], bool $remove_background = false, int $vector_colours = 0 ): array|\WP_Error {
 		$extensions = [
 			'image/png'  => 'png',
 			'image/jpeg' => 'jpg',
@@ -703,6 +703,19 @@ class OC_Upload_Handler {
 			self::validate_raster_bytes( $bytes, $mime );
 		} catch ( \RuntimeException $e ) {
 			return new \WP_Error( 'invalid_generated_image', $e->getMessage() );
+		}
+		$vector_source = null;
+		if ( $vector_colours > 0 ) {
+			$vector_source = [ 'type' => $extensions[ $mime ], 'bytes' => strlen( $bytes ) ];
+			require_once __DIR__ . '/class-oc-artwork-vectoriser.php';
+			try {
+				$bytes = OC_Artwork_Vectoriser::trace( $bytes, $vector_colours, $remove_background );
+			} catch ( \RuntimeException $e ) {
+				return new \WP_Error( 'generated_vector_failed', $e->getMessage() );
+			}
+			$mime              = 'image/svg+xml';
+			$extensions[ $mime ] = 'svg';
+			$remove_background = false;
 		}
 
 		$tmp = self::temp_path( 'oc-ai-image-' );
@@ -730,6 +743,17 @@ class OC_Upload_Handler {
 		}
 		if ( is_wp_error( $attachment_id ) ) {
 			return $attachment_id;
+		}
+
+		// Linked layers validate the original format for server-converted artwork,
+		// just as they do for HEIC conversions. Do not require SVG upload permission
+		// merely because an accepted generated raster was traced on the server.
+		if ( null !== $vector_source
+			&& ( ! update_post_meta( $attachment_id, '_oc_artwork_source_type', $vector_source['type'] )
+				|| ! update_post_meta( $attachment_id, '_oc_artwork_source_bytes', $vector_source['bytes'] ) )
+		) {
+			wp_delete_attachment( $attachment_id, true );
+			return new \WP_Error( 'generated_image_save_failed', __( 'Could not retain the generated image conversion metadata.', 'overcustomise' ) );
 		}
 
 		if ( ! self::record_ownership( $attachment_id, $context, 'ai-filter.' . $extensions[ $mime ] ) ) {
@@ -813,7 +837,7 @@ class OC_Upload_Handler {
 		$formats     = is_array( $policy['formats'] ?? null ) ? array_map( 'strtolower', $policy['formats'] ) : [];
 		$type        = self::SUPPORTED_TYPES[ (string) get_post_mime_type( $attachment_id ) ] ?? '';
 		$source_type = sanitize_key( (string) get_post_meta( $attachment_id, '_oc_artwork_source_type', true ) );
-		if ( 'jpg' === $type && array_intersect( [ 'jpg', 'jpeg' ], $formats ) ) {
+		if ( ( 'jpg' === $type || 'jpg' === $source_type ) && array_intersect( [ 'jpg', 'jpeg' ], $formats ) ) {
 			$formats[] = 'jpg';
 		}
 		$max_bytes   = absint( $policy['max_size_mb'] ?? 0 ) * 1024 * 1024;

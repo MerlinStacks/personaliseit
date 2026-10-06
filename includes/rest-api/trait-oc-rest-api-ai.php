@@ -306,7 +306,8 @@ trait OC_Rest_API_AI {
 				break;
 			}
 		}
-		$prompt = $filter ? trim( (string) ( $filter->prompt ?? '' ) ) : '';
+		$prompt         = $filter ? trim( (string) ( $filter->prompt ?? '' ) ) : '';
+		$vector_colours = max( 0, min( 32, (int) ( $filter->vector_colours ?? 0 ) ) );
 		if ( ! $filter || 'ai' !== (string) $filter->filter_key || '' === $prompt || strlen( $prompt ) > self::MAX_AI_PROMPT_BYTES
 			|| wp_check_invalid_utf8( $prompt, true ) !== $prompt
 		) {
@@ -370,6 +371,7 @@ trait OC_Rest_API_AI {
 					$design_id,
 					$layer_id,
 					$filter_id,
+					...( $vector_colours > 0 ? [ 'vector-v2-' . $vector_colours . '-' . (int) ! empty( $filter->remove_background ) ] : [] ),
 				]
 			)
 		);
@@ -461,7 +463,8 @@ trait OC_Rest_API_AI {
 						'model'                => (string) ( $generated['model'] ?? $model ),
 						'provider'             => (string) ( $generated['provider'] ?? $provider ),
 					],
-					! empty( $filter->remove_background )
+					! empty( $filter->remove_background ),
+					$vector_colours
 				);
 			} catch ( \Throwable $e ) {
 				self::release_budget_reservation( $storage_reservation );

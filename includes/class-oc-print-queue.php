@@ -321,11 +321,14 @@ class OC_Print_Queue {
 
 			$thumb_path = null;
 			$ext = strtolower( pathinfo( $result['file_path'], PATHINFO_EXTENSION ) );
-			if ( 'pdf' === $ext && file_exists( $result['file_path'] ) ) {
+			if ( in_array( $ext, [ 'pdf', 'bmp' ], true ) && file_exists( $result['file_path'] ) ) {
 				$thumb_path = pathinfo( $result['file_path'], PATHINFO_DIRNAME ) . '/'
 					. pathinfo( $result['file_path'], PATHINFO_FILENAME ) . '-thumb.png';
 
-				if ( ! OC_Preview_Generator::from_pdf( $result['file_path'], $thumb_path ) ) {
+				$generated = 'bmp' === $ext
+					? OC_Preview_Generator::from_bmp( $result['file_path'], $thumb_path )
+					: OC_Preview_Generator::from_pdf( $result['file_path'], $thumb_path );
+				if ( ! $generated ) {
 					$thumb_path = null;
 				} else {
 					$artifact_paths[] = $thumb_path;

@@ -271,7 +271,7 @@ class OC_Print_Generator {
 		$file_path = self::resolve_print_storage_path( $file_path, true ) ?? '';
 		$ext = strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) );
 
-		if ( 'pdf' !== $ext || ! file_exists( $file_path ) ) {
+		if ( ! in_array( $ext, [ 'pdf', 'bmp' ], true ) || ! file_exists( $file_path ) ) {
 			return null;
 		}
 
@@ -281,7 +281,10 @@ class OC_Print_Generator {
 			return null;
 		}
 
-		if ( ! OC_Preview_Generator::from_pdf( $file_path, $thumb_path ) ) {
+		$generated = 'bmp' === $ext
+			? OC_Preview_Generator::from_bmp( $file_path, $thumb_path )
+			: OC_Preview_Generator::from_pdf( $file_path, $thumb_path );
+		if ( ! $generated ) {
 			return null;
 		}
 		@touch( $thumb_path ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -1882,6 +1885,7 @@ class OC_Print_Generator {
 			'jef', 'vp3',
 			'pes', 'xxx'    => 'application/octet-stream',
 			'png'           => 'image/png',
+			'bmp'           => 'image/bmp',
 			'jpg', 'jpeg'   => 'image/jpeg',
 			default         => 'application/octet-stream',
 		};

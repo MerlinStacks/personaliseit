@@ -6,6 +6,32 @@ class OC_Preview_Generator {
 	private const MAX_RENDER_DIMENSION = 1200;
 	private const MAX_RENDER_PIXELS = 1440000;
 
+	/** Create an admin PNG thumbnail from the embroidery production bitmap. */
+	public static function from_bmp( string $source, string $destination ): bool {
+		if ( ! function_exists( 'imagecreatefrombmp' ) || ! is_readable( $source ) || filesize( $source ) > self::MAX_SOURCE_BYTES ) {
+			return false;
+		}
+		$info = @getimagesize( $source );
+		if ( ! $info || IMAGETYPE_BMP !== $info[2] || $info[0] > 4096 || $info[1] > 4096 ) {
+			return false;
+		}
+		$image = @imagecreatefrombmp( $source );
+		if ( ! $image ) {
+			return false;
+		}
+		$scale = min( 1, 300 / max( $info[0], $info[1] ) );
+		$width = max( 1, (int) round( $info[0] * $scale ) );
+		$height = max( 1, (int) round( $info[1] * $scale ) );
+		$thumb = imagecreatetruecolor( $width, $height );
+		try {
+			imagecopyresampled( $thumb, $image, 0, 0, 0, 0, $width, $height, $info[0], $info[1] );
+			return imagepng( $thumb, $destination );
+		} finally {
+			imagedestroy( $image );
+			imagedestroy( $thumb );
+		}
+	}
+
 	public static function from_pdf( string $pdf_path, string $thumb_path ): bool {
 		$pdf_path = realpath( $pdf_path ) ?: '';
 		$size     = $pdf_path ? filesize( $pdf_path ) : false;
@@ -145,7 +171,7 @@ class OC_Preview_Generator {
 		return (bool) $result && file_exists( $thumb_path );
 	}
 
-	private static function find_ghostscript(): ?string {
+	public static function find_ghostscript(): ?string {
 		static $checked = false;
 		static $resolved = null;
 		if ( $checked ) {

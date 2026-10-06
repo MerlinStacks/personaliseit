@@ -80,7 +80,7 @@ function save_case( array $post, bool $expected, string $label ): ?array {
 	}
 	$write = $wpdb->writes[0];
 	check( 'regression_oc_image_filters' === $write['table'], $label . ': prefixed table' );
-	check( [ '%s', '%s', '%f', '%s', '%d', '%d' ] === $write['formats'], $label . ': persistence formats' );
+	check( [ '%s', '%s', '%f', '%s', '%d', '%d', '%d' ] === $write['formats'], $label . ': persistence formats' );
 	check( 1 === $write['data']['active'], $label . ': saved filter is active' );
 	check( ( empty( $post['filter_id'] ) ? 'insert' : 'update' ) === $write['operation'], $label . ': persistence operation' );
 	return $write;
@@ -140,6 +140,11 @@ foreach ( [ null, '', " \n\t ", str_repeat( 'x', 10001 ) ] as $prompt ) {
 	save_case( $fixture_post, false, 'AI rejects missing, blank or oversized prompt (' . ( null === $prompt ? 'missing' : strlen( $prompt ) ) . ')' );
 }
 $prompt = "Keep the pet's markings.\nUse \"ink\" outlines and C:\\art as a reference.";
+$vector_write = save_case( [ 'name' => 'Vector', 'filter_key' => 'ai', 'prompt' => $prompt, 'vector_colours' => '3' ], true, 'three-colour vectors' );
+check( 3 === $vector_write['data']['vector_colours'], 'Vector colour count is retained' );
+foreach ( [ '-1', '33', '3.5', 'abc', [] ] as $invalid_vector_count ) {
+	save_case( [ 'name' => 'Vector', 'filter_key' => 'ai', 'prompt' => $prompt, 'vector_colours' => $invalid_vector_count ], false, 'invalid vector count' );
+}
 foreach ( [ 0, 1 ] as $remove_background ) {
 	$write = save_case(
 		[
@@ -158,6 +163,7 @@ foreach ( [ 0, 1 ] as $remove_background ) {
 			'value'             => 1,
 			'prompt'            => $prompt,
 			'remove_background' => $remove_background,
+			'vector_colours'    => 0,
 			'active'            => 1,
 		] === $write['data'],
 		'AI persists unslashed multiline prompt and background preference'
