@@ -228,10 +228,10 @@ foreach ( $layers as $layer ) {
 					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
 					$allow_size_change   = ! empty( $s['allow_size_change'] );
 					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
-					$layer_cost_label = '';
+					$layer_cost_label    = '';
 					if ( ! empty( $s['additional_cost_enabled'] ) && $s['additional_cost'] > 0
 						&& ( ! in_array( $layer->type, [ 'image', 'clipmask' ], true ) || $allow_image_change ) ) {
-						$cost = (float) $s['additional_cost'];
+						$cost             = (float) $s['additional_cost'];
 						$layer_cost_label = ' +' . wc_price( $cost, [ 'decimals' => floor( $cost ) === $cost ? 0 : wc_get_price_decimals() ] );
 					}
 					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $s ) || ! empty( $s['allow_image_filter_change'] );
@@ -292,7 +292,7 @@ foreach ( $layers as $layer ) {
 						<?php if ( $show_header_label || $show_required_in_header ) : ?>
 						<div class="oc-layer-header">
 							<?php if ( $show_header_label ) : ?>
-								<span><?php echo esc_html( $layer->label ?: ucfirst( $layer->type ) ); ?><?php echo wp_kses_post( $layer_cost_label ); ?></span>
+								<span><?php echo esc_html( $layer->label ? $layer->label : ucfirst( $layer->type ) ); ?><?php echo wp_kses_post( $layer_cost_label ); ?></span>
 							<?php endif; ?>
 							<?php if ( $show_required_in_header ) : ?>
 								<span class="oc-layer-required">* <?php esc_html_e( 'Required', 'overcustomise' ); ?></span>
@@ -304,7 +304,7 @@ foreach ( $layers as $layer ) {
 
 							<?php if ( $layer->type === 'text' ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
-									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php if ( $required ) echo ' *'; ?></label>
+									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php echo $required ? ' *' : ''; ?></label>
 									<div class="oc-input-wrap">
 										<input type="text"
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"
@@ -322,7 +322,7 @@ foreach ( $layers as $layer ) {
 
 							<?php elseif ( $layer->type === 'textarea' ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
-									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php if ( $required ) echo ' *'; ?></label>
+									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php echo $required ? ' *' : ''; ?></label>
 									<div class="oc-input-wrap">
 										<textarea
 											id="oc-text-<?php echo esc_attr( $layer->id ); ?>"

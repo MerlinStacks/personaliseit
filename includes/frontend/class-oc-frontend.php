@@ -14,7 +14,6 @@ require_once dirname( __DIR__ ) . '/class-oc-clipart-catalog.php';
 class OC_Frontend {
 
 	private ?object $design                 = null;
-	private int $fee_product_id             = 0;
 	private array $areas                    = [];
 	private array $layers                   = [];
 	private array $design_variants          = [];
@@ -49,7 +48,6 @@ class OC_Frontend {
 			'product_id' => $product_id,
 			'variant_id' => 0,
 		];
-		$this->fee_product_id   = $product_id;
 
 		$assignment = OC_DB::get_assignment_for_product( $product_id, 0, true );
 		if ( ! $assignment ) {
@@ -161,7 +159,6 @@ class OC_Frontend {
 			'product_id' => $product_id,
 			'variant_id' => $variation_id,
 		];
-		$self->fee_product_id   = $variation_id ? $variation_id : $product_id;
 		$context                = $self->resolve_assignment_design( $assignment, $requested_design_id );
 		if ( ! $context ) {
 			return [
@@ -951,43 +948,6 @@ class OC_Frontend {
 		$suffix = wc_tax_enabled() && $product && $product->is_taxable()
 			? ( $including_tax ? WC()->countries->inc_tax_or_vat() : WC()->countries->ex_tax_or_vat() ) : '';
 		return [ wc_price( $amount ), $suffix ];
-	}
-
-	/** List every chargeable layer, including linked layers whose duplicate controls are hidden. */
-	private static function layer_costs_html( array $areas, array $layers, int $product_id ): string {
-		$visible_areas = [];
-		foreach ( $areas as $area ) {
-			if ( ! isset( $area->visible ) || (bool) $area->visible ) {
-				$visible_areas[ (int) $area->id ] = (string) ( $area->label ?? '' );
-			}
-		}
-		$html = '';
-		foreach ( $layers as $layer ) {
-			$type = (string) ( $layer->type ?? '' );
-			if ( ! isset( $visible_areas[ (int) ( $layer->area_id ?? 0 ) ] )
-				|| ( isset( $layer->visible ) && ! (bool) $layer->visible ) || ! empty( $layer->locked )
-				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'clipmask' ], true ) ) {
-				continue;
-			}
-			$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], $type );
-			if ( empty( $settings['additional_cost_enabled'] ) || $settings['additional_cost'] <= 0
-				|| ( in_array( $type, [ 'image', 'clipmask' ], true ) && empty( $settings['allow_image_change'] ) ) ) {
-				continue;
-			}
-			$label = trim( (string) ( $layer->label ?? '' ) );
-			if ( '' === $label ) {
-				/* translators: %d: layer ID. */
-				$label = sprintf( __( 'Layer %d', 'overcustomise' ), (int) $layer->id );
-			}
-			$area_label = $visible_areas[ (int) $layer->area_id ];
-			if ( '' !== $area_label ) {
-				$label .= ' (' . $area_label . ')';
-			}
-			[ $price, $suffix ] = self::fee_display( (float) $settings['additional_cost'], $product_id );
-			/* translators: 1: layer and print area label, 2: formatted fee, 3: tax display label. */
-			$html .= '<li>' . sprintf( __( '%1$s: +%2$s per item %3$s', 'overcustomise' ), esc_html( $label ), $price, esc_html( $suffix ) ) . '</li>';
-		}
-		return $html;
 	}
 
 	/** Load clipart items for all clipart layers. */

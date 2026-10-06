@@ -96,37 +96,8 @@ function check( $condition, $message ) {
 	}
 	++$GLOBALS['assertions'];
 }
-function layer( $layer_type = 'text', $settings = [], $properties = [] ) {
-	return (object) array_replace(
-		[
-			'id'       => 1,
-			'area_id'  => 1,
-			'label'    => 'Name <script>',
-			'type'     => $layer_type,
-			'settings' => array_replace(
-				[
-					'additional_cost_enabled' => true,
-					'additional_cost'         => 10,
-					'link_group'              => 'shared',
-				],
-				$settings
-			),
-		],
-		$properties
-	);
-}
-$areas  = [
-	(object) [
-		'id'    => 1,
-		'label' => 'Front & back',
-	],
-	(object) [
-		'id'      => 2,
-		'visible' => 0,
-	],
-];
-$method = new ReflectionMethod( OC_Frontend::class, 'layer_costs_html' );
-$render = static fn ( $layers, $product = 100 ) => $method->invoke( null, $areas, $layers, $product );
+// Layer fees now appear inline in the template. Retain coverage of the public
+// base-surcharge formatter rather than the retired separate layer-fee list.
 foreach (
 	[
 		[ 'incl', true, false, 100, '$12.00' ],
@@ -136,37 +107,9 @@ foreach (
 		[ 'incl', true, false, 200, '$10.50' ],
 	] as [ $display, $taxable, $exempt, $product, $expected ]
 ) {
-	check( str_contains( $render( [ layer() ], $product ), $expected ), 'Layer fee respects product tax display/exemption.' );
 	check( str_contains( OC_Frontend::surcharge_html( (object) [ 'flat_rate' => 10 ], $product ), $expected ), 'Base fee retains matching tax semantics.' );
 }
-foreach ( [ 'text', 'textarea', 'image', 'clipmask' ] as $layer_type ) {
-	check( str_contains( $render( [ layer( $layer_type ) ] ), 'per item' ), 'Supported layer disclosed.' );
-}
-foreach (
-	[
-		layer( 'clipart' ),
-		layer( 'ai_image' ),
-		layer( 'text', [], [ 'locked' => 1 ] ),
-		layer( 'text', [], [ 'visible' => 0 ] ),
-		layer( 'text', [], [ 'area_id' => 2 ] ),
-		layer( 'text', [], [ 'area_id' => 99 ] ),
-		layer( 'image', [ 'allow_image_change' => false ] ),
-		layer( 'clipmask', [ 'allow_image_change' => false ] ),
-		layer( 'text', [ 'additional_cost_enabled' => false ] ),
-		layer( 'text', [ 'additional_cost' => 0 ] ),
-		layer( 'text', [ 'additional_cost' => -1 ] ),
-	] as $excluded
-) {
-	check( '' === $render( [ $excluded ] ), 'Ineligible layer excluded.' );
-}
-$html = $render(
-	[
-		layer(),
-		layer( 'text', [ 'additional_cost' => 20 ], [ 'id' => 2 ] ),
-	]
-);
-check( 2 === substr_count( $html, '<li>' ) && str_contains( $html, '$12.00' ) && str_contains( $html, '$24.00' ), 'Linked layers retain each individual price.' );
-check( str_contains( $html, '&lt;script&gt;' ) && str_contains( $html, 'Front &amp; back' ), 'Labels are escaped.' );
-check( '' === OC_Frontend::surcharge_html( (object) [ 'flat_rate' => 0 ], 100 ) && '' !== $html, 'Layer disclosure independent of base fee.' );
+check( '' === OC_Frontend::surcharge_html( (object) [ 'flat_rate' => 0 ], 100 ), 'Zero base fees are omitted.' );
+check( '' === OC_Frontend::surcharge_html( (object) [ 'flat_rate' => -10 ], 100 ), 'Negative base fees are omitted.' );
 // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Plain-text CLI summary, not HTML output.
-echo "Passed {$assertions} frontend layer-cost disclosure assertions.\n";
+echo "Passed {$assertions} frontend surcharge disclosure assertions.\n";
