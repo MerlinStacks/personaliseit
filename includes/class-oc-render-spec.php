@@ -147,7 +147,7 @@ class OC_Render_Spec {
 			$input    = is_array( $layer['input'] ?? null ) ? $layer['input'] : [];
 			$settings = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
 
-			if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) ) {
+			if ( in_array( $type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true ) ) {
 				$value = trim( (string) ( $input['value'] ?? '' ) );
 				if ( '' !== $value ) {
 					$text_parts[] = $value;

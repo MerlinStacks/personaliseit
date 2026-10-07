@@ -29,6 +29,7 @@ import {
 	imagePlacementClipPath,
 	imagePlacementScale,
 } from '../../shared/image-layout';
+import { createCurvedText } from '../../shared/curved-text';
 
 const canvasRendererMethods = {
 	// ── Canvas initialisation ──────────────────────────────────────────────────
@@ -413,7 +414,7 @@ const canvasRendererMethods = {
 		const capturesTextLayout = canvas._ocArea === area;
 		if (
 			capturesTextLayout &&
-			[ 'text', 'textarea' ].includes( layer.type )
+			[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
 		) {
 			for ( const key of [
 				'Lines',
@@ -484,9 +485,10 @@ const canvasRendererMethods = {
 		};
 
 		switch ( layer.type ) {
+			case 'curved_text':
 			case 'text':
 			case 'textarea': {
-				const isSingleLineText = layer.type === 'text';
+				const isSingleLineText = layer.type !== 'textarea';
 				let inputValue = input.value;
 				if ( inputValue === undefined ) {
 					inputValue = layer.locked
@@ -574,6 +576,124 @@ const canvasRendererMethods = {
 					? this.leatherEngravingPattern( fontSize )
 					: color;
 				const textClass = isSingleLineText ? FabricText : Textbox;
+				if ( layer.type === 'curved_text' ) {
+					const objects = createCurvedText(
+						raw,
+						{
+							left: lcX,
+							top: lcY,
+							angle: rotation,
+							fontFamily: font?.name || 'sans-serif',
+							fontWeight: font?.weight || 'normal',
+							fontStyle: font?.style || 'normal',
+							fontSize,
+							fill: textFill,
+							textAlign: align,
+						},
+						lw,
+						lh,
+						layer.settings?.curve_angle,
+						minFontSize
+					);
+					const pads = [];
+					const lifts = [];
+					objects.forEach( ( object ) => {
+						const size = object.fontSize;
+						if ( isEngraving ) {
+							object.set( {
+								fill:
+									engravingPalette.pattern === 'wood'
+										? this.woodEngravingPattern( size )
+										: engravingPalette.pattern === 'leather'
+										? this.leatherEngravingPattern( size )
+										: color,
+								opacity: engravingPalette.opacity,
+								globalCompositeOperation:
+									engravingPalette.composite || 'source-over',
+								shadow: new Shadow( {
+									color:
+										engravingPalette.shadow ||
+										engravingPalette.highlight,
+									offsetX: 0,
+									offsetY: engravingPalette.shadow ? 0 : 1,
+									blur: engravingPalette.shadow ? 1.25 : 1,
+								} ),
+							} );
+						} else if ( isEmbroidery ) {
+							const glyphOptions = {
+								originX: 'center',
+								originY: 'center',
+								left: object.left,
+								top: object.top,
+								angle: object.angle,
+								fontFamily: object.fontFamily,
+								fontWeight: object.fontWeight,
+								fontStyle: object.fontStyle,
+								fontSize: size,
+								textAlign: align,
+								selectable: false,
+								evented: false,
+								objectCaching: false,
+							};
+							pads.push(
+								new FabricText( object.text, {
+									...glyphOptions,
+									left:
+										object.left +
+										Math.max( 0.45, size * 0.015 ),
+									top:
+										object.top +
+										Math.max( 0.65, size * 0.02 ),
+									fill: this.embroideryShadowColor( color ),
+									opacity: 0.24,
+									shadow: new Shadow( {
+										color: 'rgba(0,0,0,0.22)',
+										offsetX: 0.6,
+										offsetY: 0.9,
+										blur: 1.8,
+									} ),
+								} )
+							);
+							lifts.push(
+								new FabricText( object.text, {
+									...glyphOptions,
+									left:
+										object.left -
+										Math.max( 0.25, size * 0.006 ),
+									top:
+										object.top -
+										Math.max( 0.25, size * 0.006 ),
+									fill: 'rgba(255,255,255,0)',
+									stroke: this.embroideryHighlightColor(
+										color
+									),
+									strokeWidth: Math.max( 0.2, size * 0.006 ),
+									opacity: 0.22,
+								} )
+							);
+							object.set( {
+								fill: this.embroideryPattern( color, size ),
+								stroke: this.embroiderySoftEdgeColor( color ),
+								strokeWidth: Math.max( 0.18, size * 0.005 ),
+								shadow: new Shadow( {
+									color: 'rgba(0,0,0,0.22)',
+									offsetX: 0.7,
+									offsetY: 0.95,
+									blur: 1.1,
+								} ),
+							} );
+						}
+					} );
+					[ ...pads, ...lifts, ...objects ].forEach( ( object ) => {
+						object._ocContent = true;
+						this.applyContentClip(
+							object,
+							textClip( this.textClipPadding( object.fontSize ) )
+						);
+						canvas.add( object );
+					} );
+					break;
+				}
 				const textBoxSize = isSingleLineText
 					? {}
 					: {
@@ -1415,6 +1535,25 @@ const canvasRendererMethods = {
 		const displaySize = bounds
 			? displayFontSize( fontSize, bounds, scale )
 			: fontSize * scale;
+		if ( layer?.type === 'curved_text' ) {
+			const objects = createCurvedText(
+				raw,
+				{
+					fontFamily: font?.name || 'sans-serif',
+					fontWeight: font?.weight || 'normal',
+					fontStyle: font?.style || 'normal',
+					fontSize: displaySize,
+				},
+				Math.max( 1, layerBox.w * scale ),
+				Math.max( 1, layerBox.h * scale ),
+				layer.settings?.curve_angle
+			);
+			const fits =
+				! objects.length ||
+				objects[ 0 ].fontSize >= displaySize - 0.001;
+			objects.forEach( ( object ) => object.dispose() );
+			return fits;
+		}
 
 		return this.textFitsBox(
 			raw,
@@ -1477,7 +1616,10 @@ const canvasRendererMethods = {
 
 	async maxFittingFontSize( layerId, upperLimit ) {
 		const layer = this.getLayerById( layerId );
-		if ( ! layer || ! [ 'text', 'textarea' ].includes( layer.type ) ) {
+		if (
+			! layer ||
+			! [ 'text', 'curved_text', 'textarea' ].includes( layer.type )
+		) {
 			return upperLimit;
 		}
 		const maxLimit = this.fontLimit( layer.settings?.max_font_size );

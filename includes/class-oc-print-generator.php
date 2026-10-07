@@ -810,7 +810,7 @@ class OC_Print_Generator {
 			$layer_id   = absint( $field['layer_id'] ?? 0 );
 			$field_name = sanitize_key( (string) ( $field['field_name'] ?? '' ) );
 			$layer      = $layers_by_id[ $layer_id ] ?? null;
-			if ( ! $layer || empty( $layer->has_input ) || ! isset( $header_lookup[ $field_name ] ) || isset( $field_map[ $layer_id ] ) || isset( $used_headers[ $field_name ] ) || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true ) || ! empty( $layer->locked ) ) {
+			if ( ! $layer || empty( $layer->has_input ) || ! isset( $header_lookup[ $field_name ] ) || isset( $field_map[ $layer_id ] ) || isset( $used_headers[ $field_name ] ) || ! in_array( (string) $layer->type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true ) || ! empty( $layer->locked ) ) {
 				$order->add_order_note( __( 'OverCustomise VDP fields do not match editable layers in the stored render snapshot. A standard single-output print job was queued instead.', 'overcustomise' ) );
 				return null;
 			}
@@ -1232,7 +1232,7 @@ class OC_Print_Generator {
 			if ( in_array( $type, [ 'lineart', 'cut_line' ], true ) ) {
 				return true;
 			}
-			if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) && '' !== trim( (string) ( $input['value'] ?? '' ) ) ) {
+			if ( in_array( $type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true ) && '' !== trim( (string) ( $input['value'] ?? '' ) ) ) {
 				return true;
 			}
 			if ( in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) && absint( $input['attachmentId'] ?? $layer['artworkAttachmentId'] ?? 0 ) > 0 ) {
@@ -1680,7 +1680,7 @@ class OC_Print_Generator {
 
 		foreach ( OC_DB::get_design_layers( $design_id ) as $layer ) {
 			$layer_id = (int) $layer->id;
-			if ( ! $layer_id || ! in_array( (string) $layer->type, [ 'text', 'textarea' ], true ) ) {
+			if ( ! $layer_id || ! in_array( (string) $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) ) {
 				continue;
 			}
 

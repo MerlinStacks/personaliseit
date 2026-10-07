@@ -263,6 +263,10 @@ trait OC_Print_Base_Layers {
 
 			try {
 				switch ( $type ) {
+					case 'curved_text':
+						self::render_uv_text( $pdf, $layer, $input, $settings, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $font_px_to_pt );
+						break;
+
 					case 'text':
 					case 'textarea':
 						if ( ! empty( $options['outline_text'] ) ) {

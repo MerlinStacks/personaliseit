@@ -156,7 +156,7 @@ foreach ( $layers as $layer ) {
 											. 'font-weight:' . preg_replace( '/[^a-zA-Z0-9-]/', '', (string) ( $thumb_layer['fontWeight'] ?? 'normal' ) ) . ';'
 											. 'font-style:' . preg_replace( '/[^a-zA-Z-]/', '', (string) ( $thumb_layer['fontStyle'] ?? 'normal' ) ) . ';';
 										?>
-										<?php if ( in_array( (string) ( $thumb_layer['type'] ?? '' ), [ 'text', 'textarea' ], true ) ) : ?>
+										<?php if ( in_array( (string) ( $thumb_layer['type'] ?? '' ), [ 'text', 'curved_text', 'textarea' ], true ) ) : ?>
 											<span class="oc-design-variant-thumb-layer oc-design-variant-thumb-text" style="<?php echo esc_attr( $thumb_text_style ); ?>"><?php echo esc_html( $thumb_layer['text'] ?? '' ); ?></span>
 										<?php elseif ( ! empty( $thumb_layer['url'] ) ) : ?>
 											<img class="oc-design-variant-thumb-layer" src="<?php echo esc_url( $thumb_layer['url'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" style="<?php echo esc_attr( $thumb_style ); ?>" />
@@ -276,7 +276,7 @@ foreach ( $layers as $layer ) {
 					?>
 					<?php
 					// These layer types either show their label inline or do not need a section header.
-					$inline_label_types      = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'clipart', 'spotify', 'night_sky' ];
+					$inline_label_types      = [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipmask', 'clipart', 'spotify', 'night_sky' ];
 					$show_header_label       = ! in_array( $layer->type, $inline_label_types, true ) || ( '' !== $layer_cost_label && in_array( $layer->type, [ 'image', 'clipmask' ], true ) );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					$default_attachment_id = absint( $s['default_attachment_id'] ?? 0 );
@@ -302,7 +302,7 @@ foreach ( $layers as $layer ) {
 
 						<div class="oc-layer-body">
 
-							<?php if ( $layer->type === 'text' ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'curved_text' ], true ) ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
 									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php echo $required ? ' *' : ''; ?></label>
 									<div class="oc-input-wrap">
@@ -584,10 +584,10 @@ foreach ( $layers as $layer ) {
 							<?php endif; ?>
 
 							<!-- Font picker (text / textarea) -->
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
 								<div class="oc-font-size-row">
 							<?php endif; ?>
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_font_change && ! empty( $layer_fonts ) ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) && $allow_font_change && ! empty( $layer_fonts ) ) : ?>
 								<div class="oc-control-group">
 									<label for="oc-font-search-<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Font', 'overcustomise' ); ?></label>
 									<select class="oc-font-native-select" data-oc-layer-font="<?php echo esc_attr( $layer->id ); ?>" aria-hidden="true" tabindex="-1">
@@ -627,7 +627,7 @@ foreach ( $layers as $layer ) {
 								</div>
 							<?php endif; ?>
 
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && $allow_size_change ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) && $allow_size_change ) : ?>
 								<div class="oc-control-group" data-oc-font-size-control="<?php echo esc_attr( $layer->id ); ?>">
 									<label for="oc-font-size-<?php echo esc_attr( $layer->id ); ?>" data-oc-font-size-label>
 										<?php esc_html_e( 'Text size', 'overcustomise' ); ?>
@@ -643,12 +643,12 @@ foreach ( $layers as $layer ) {
 									<p class="oc-font-size-notice" data-oc-font-size-notice hidden><?php esc_html_e( 'The font size cannot be increased or decreased for your current text and font.', 'overcustomise' ); ?></p>
 								</div>
 							<?php endif; ?>
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) && ( ( $allow_font_change && ! empty( $layer_fonts ) ) || $allow_size_change ) ) : ?>
 								</div>
 							<?php endif; ?>
 
 							<!-- Colour picker (text / textarea) — skipped for engraving. -->
-							<?php if ( in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! $is_engraving && $allow_colour_change ) : ?>
+							<?php if ( in_array( $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) && ! $is_engraving && $allow_colour_change ) : ?>
 								<div class="oc-control-group">
 									<label><?php esc_html_e( 'Text colour', 'overcustomise' ); ?></label>
 									<?php if ( ! empty( $layer_colours ) ) : ?>

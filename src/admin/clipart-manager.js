@@ -1,5 +1,6 @@
 import ImageTracer from 'imagetracerjs';
 import { createLibraryBrowser } from './library-browser';
+import { createGroupPicker } from './group-picker';
 
 /* eslint-disable no-console, no-alert, no-undef, @wordpress/no-unused-vars-before-return, no-unused-vars */
 
@@ -1078,6 +1079,8 @@ function syncGroupWriteControls() {
 	}
 }
 
+let clipartGroupPicker;
+
 function openGroupModal( id ) {
 	groupModalGeneration++;
 	editGroupId = id || null;
@@ -1090,7 +1093,12 @@ function openGroupModal( id ) {
 		deleteBtn.style.display = group ? '' : 'none';
 	}
 
-	renderClipartPicker( group ? group.clipartIds : [] );
+	clipartGroupPicker ||= createGroupPicker(
+		groupPicker(),
+		renderClipartPicker,
+		updateGroupSelCount
+	);
+	clipartGroupPicker.open( clipart, group ? group.clipartIds : [] );
 
 	groupModal().hidden = false;
 	document.body.style.overflow = 'hidden';
@@ -1106,17 +1114,21 @@ function closeGroupModal() {
 	syncGroupWriteControls();
 }
 
-function renderClipartPicker( selectedIds ) {
+function renderClipartPicker( pageClipart, selectedIds ) {
 	const picker = groupPicker();
 	if ( ! picker ) {
 		return;
 	}
 	picker.innerHTML = '';
 
-	clipart.forEach( ( item ) => {
+	if ( ! pageClipart.length ) {
+		picker.textContent = 'No clipart uploaded yet.';
+	}
+	pageClipart.forEach( ( item ) => {
 		const checked = selectedIds.includes( item.id );
 		const label = document.createElement( 'label' );
-		label.className = 'oc-group-font-item';
+		label.className =
+			'oc-group-font-item' + ( checked ? ' oc-selected' : '' );
 		label.innerHTML =
 			'<input type="checkbox" value="' +
 			item.id +
@@ -1140,32 +1152,18 @@ function renderClipartPicker( selectedIds ) {
 			h( item.fileType.toUpperCase() ) +
 			'</span>' +
 			'</span>';
-		label
-			.querySelector( 'input' )
-			.addEventListener( 'change', updateGroupSelCount );
 		picker.appendChild( label );
 	} );
-
-	updateGroupSelCount();
 }
 
-function updateGroupSelCount() {
-	const n = groupPicker()
-		? groupPicker().querySelectorAll( 'input:checked' ).length
-		: 0;
+function updateGroupSelCount( n ) {
 	if ( groupSelCount() ) {
 		groupSelCount().textContent = n + ' selected';
 	}
 }
 
 function selectedClipartIds() {
-	const picker = groupPicker();
-	if ( ! picker ) {
-		return [];
-	}
-	return Array.from( picker.querySelectorAll( 'input:checked' ) ).map(
-		( cb ) => Number( cb.value )
-	);
+	return clipartGroupPicker.getSelectedIds();
 }
 
 async function saveGroup() {

@@ -146,20 +146,21 @@ async function main() {
 		// customer-facing controls to the core entry. Timezone boundary data
 		// remains lazy-loaded and is covered by the total.
 		// 1.19.2 adds ~2.4 KB of shared auth recovery and upload retry handling.
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 207_000 ),
+		// Curved Text adds shared glyph geometry and text-layer integration.
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 209_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 537_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 543_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 605_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 611_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
 		),
 		chunk: Number( process.env.BUNDLE_CHUNK_MAX_BYTES || 340_000 ),
 		// Includes optional Night Sky and ~3 KB on-demand clipart pagination.
-		// Startup budgets stay unchanged; pagination replaces large inline libraries.
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_497_000 ),
+		// Includes Curved Text in both the design editor and customer preview.
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_514_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

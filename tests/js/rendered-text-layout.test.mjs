@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
-import { FabricText, Textbox, Shadow } from 'fabric/node';
+import { FabricText, Textbox, Shadow, util } from 'fabric/node';
 
 async function shared( path ) {
 	return import(
@@ -13,6 +13,16 @@ async function shared( path ) {
 }
 const math = await shared( 'src/shared/render-math.js' );
 const layout = await shared( 'src/shared/text-layout.js' );
+const { curvedTextLayout } = await shared( 'src/shared/curved-text-layout.js' );
+const curvedSource = await readFile( 'src/shared/curved-text.js', 'utf8' );
+const createCurvedText = new Function(
+	'FabricText',
+	'util',
+	'curvedTextLayout',
+	curvedSource
+		.replace( /import[^;]+;/g, '' )
+		.replace( 'export function', 'function' ) + '\nreturn createCurvedText;'
+)( FabricText, util, curvedTextLayout );
 const { default: preflightMethods } = await shared(
 	'src/frontend/customiser/preflight.js'
 );
@@ -38,6 +48,7 @@ const dependencies = {
 	FabricText: Text,
 	Textbox: Text,
 	Shadow,
+	createCurvedText,
 };
 const source = await readFile(
 	'src/frontend/customiser/canvas-renderer.js',
@@ -225,6 +236,111 @@ function fixture( type = 'text', settings = {}, unit = 'px', scale = 1 ) {
 		render: () => app.renderLayer( canvas, layer, input, area ),
 	};
 }
+
+test( 'curved engraving keeps substrate opacity, compositing and etched edges', async () => {
+	for ( const pattern of [ undefined, 'wood', 'leather' ] ) {
+		const f = fixture( 'curved_text', {
+			curve_angle: 120,
+			default_font_size: 40,
+		} );
+		f.app.renderLayer = fabricMethods.renderLayer;
+		f.area.printMethod = 'engraving';
+		f.input.value = 'ABC';
+		f.input.colorHex = '#ff0000';
+		f.app.stripUnsupportedPrintEmoji = ( value ) => value;
+		f.app.engravingPalette = () => ( {
+			text: '#111315',
+			opacity: 0.62,
+			composite: 'multiply',
+			shadow: '#223344',
+			pattern,
+		} );
+		const patternSizes = [];
+		f.app.woodEngravingPattern = f.app.leatherEngravingPattern = (
+			size
+		) => {
+			patternSizes.push( size );
+			return '#654321';
+		};
+		const objects = [];
+		f.canvas.add = ( object ) => objects.push( object );
+		f.app.applyContentClip = ( object ) => {
+			object._testClipped = true;
+		};
+		await f.render();
+		assert.equal( objects.length, 3 );
+		for ( const object of objects ) {
+			assert.equal( object.opacity, 0.62 );
+			assert.equal( object.globalCompositeOperation, 'multiply' );
+			assert.equal( object.shadow.color, '#223344' );
+			assert.equal( object.shadow.blur, 1.25 );
+			assert.equal( object.fill, pattern ? '#654321' : '#111315' );
+			assert.equal( object._testClipped, true );
+			assert.equal( object._ocContent, true );
+		}
+		if ( pattern ) {
+			assert.deepEqual(
+				patternSizes.slice( -3 ),
+				objects.map( ( object ) => object.fontSize )
+			);
+		}
+		assert.ok( objects[ 0 ].angle < objects[ 2 ].angle );
+	}
+} );
+
+test( 'curved embroidery adds aligned thread padding, highlights and soft edges at the fitted size', async () => {
+	const f = fixture( 'curved_text', {
+		curve_angle: -120,
+		default_font_size: 40,
+	} );
+	f.app.renderLayer = fabricMethods.renderLayer;
+	f.area.printMethod = 'embroidery';
+	f.area.rotation = 15;
+	f.input.value = 'ABC';
+	f.input.colorHex = '#123456';
+	f.app.fonts[ 0 ].weight = 'bold';
+	f.app.fonts[ 0 ].style = 'italic';
+	f.app.stripUnsupportedPrintEmoji = ( value ) => value;
+	const patternSizes = [];
+	f.app.embroideryPattern = ( color, size ) => {
+		patternSizes.push( size );
+		return color;
+	};
+	const objects = [];
+	f.canvas.add = ( object ) => objects.push( object );
+	f.app.applyContentClip = ( object ) => {
+		object._testClipped = true;
+	};
+	await f.render();
+	assert.equal( objects.length, 9 );
+	for ( let index = 0; index < 3; index++ ) {
+		const [ pad, lift, main ] = [
+			objects[ index ],
+			objects[ index + 3 ],
+			objects[ index + 6 ],
+		];
+		assert.equal( pad.opacity, 0.24 );
+		assert.equal( lift.opacity, 0.22 );
+		assert.equal( main.fill, '#123456' );
+		assert.equal( main.stroke, f.app.embroiderySoftEdgeColor( '#123456' ) );
+		assert.equal( main.shadow.blur, 1.1 );
+		assert.ok( pad.left > main.left && pad.top > main.top );
+		assert.ok( lift.left < main.left && lift.top < main.top );
+		for ( const object of [ pad, lift, main ] ) {
+			assert.equal( object.fontSize, main.fontSize );
+			assert.equal( object.angle, main.angle );
+			assert.equal( object.text, main.text );
+			assert.equal( object.fontWeight, 'bold' );
+			assert.equal( object.fontStyle, 'italic' );
+			assert.equal( object._testClipped, true );
+			assert.equal( object._ocContent, true );
+		}
+	}
+	assert.deepEqual(
+		patternSizes.slice( -3 ),
+		objects.slice( 6 ).map( ( object ) => object.fontSize )
+	);
+} );
 
 test( 'embroidery text and textarea retain shared styles and distinct effect layers', async () => {
 	for ( const type of [ 'text', 'textarea' ] ) {

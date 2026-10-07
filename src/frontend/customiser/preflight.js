@@ -73,6 +73,7 @@ const preflightMethods = {
 			return null;
 		}
 		switch ( layer.type ) {
+			case 'curved_text':
 			case 'text':
 			case 'textarea':
 				return document.querySelector(
@@ -245,9 +246,21 @@ const preflightMethods = {
 				let value = '';
 
 				switch ( layer.type ) {
+					case 'curved_text':
 					case 'text':
 					case 'textarea':
 						value = String( input.value || '' ).trim();
+						if (
+							layer.type === 'curved_text' &&
+							! ( await this.textareaFitsMinimum( layer ) )
+						) {
+							errors.push(
+								`${ label } is too long to fit the curve. Please shorten it.`
+							);
+							fieldEl?.classList.add(
+								'oc-preflight-field-error'
+							);
+						}
 						if ( layer.type === 'textarea' ) {
 							const overflow =
 								! ( await this.textareaFitsMinimum( layer ) );
@@ -558,6 +571,7 @@ const preflightMethods = {
 
 				let filled = true;
 				switch ( layer.type ) {
+					case 'curved_text':
 					case 'text':
 					case 'textarea':
 					case 'spotify':

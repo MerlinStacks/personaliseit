@@ -545,3 +545,80 @@
 	margin-top: 3px;
 	flex-wrap: wrap;
 }
+
+/* Paginated font and clipart membership cards. */
+#oc-group-modal .oc-group-editor-modal,
+#oc-clipart-group-modal .oc-group-editor-modal {
+	max-width: 800px;
+}
+
+.oc-group-picker-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 12px;
+	padding: 16px;
+}
+
+.oc-group-picker-grid .oc-group-font-item {
+	position: relative;
+	flex-direction: column;
+	justify-content: flex-start;
+	gap: 10px;
+	padding: 16px 10px 12px;
+	border: 1px solid var(--oc-gray-200);
+	border-radius: 8px;
+	text-align: center;
+	min-width: 0;
+}
+
+.oc-group-picker-grid .oc-group-font-item.oc-selected {
+	border-color: var(--oc-primary);
+}
+
+.oc-group-picker-grid .oc-group-font-item:focus-within {
+	outline: 2px solid var(--oc-primary);
+	outline-offset: 2px;
+}
+
+.oc-group-picker-grid input[type="checkbox"] {
+	position: absolute;
+	top: 10px;
+	left: 10px;
+	margin: 0;
+}
+
+.oc-group-picker-grid .oc-clipart-picker-thumb {
+	width: 80px;
+	height: 80px;
+}
+
+.oc-group-picker-grid .oc-group-font-preview-mini {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 80px;
+	font-size: 36px;
+}
+
+.oc-group-picker-grid .oc-group-font-info-name {
+	display: block;
+	white-space: normal;
+	overflow-wrap: anywhere;
+}
+
+.oc-group-picker-grid .oc-group-font-info-meta {
+	justify-content: center;
+}
+
+.oc-group-picker-pagination {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	padding: 12px 16px;
+	border-top: 1px solid var(--oc-gray-100);
+}
+
+.oc-group-picker-pagination[hidden] {
+	display: none;
+}

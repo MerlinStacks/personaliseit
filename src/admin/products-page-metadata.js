@@ -1,6 +1,7 @@
 export const LAYER_TYPES = {
 	cut_line: { label: 'Cut Line', icon: '\u2702', color: '#db2777' },
 	text: { label: 'Text', icon: 'Aa', color: '#0284c7' },
+	curved_text: { label: 'Curved Text', icon: '⌒', color: '#0284c7' },
 	textarea: { label: 'Text Area', icon: '\u00b6', color: '#7c3aed' },
 	image: { label: 'Image', icon: '\ud83d\uddbc', color: '#059669' },
 	ai_image: { label: 'AI Image', icon: 'AI', color: '#db2777' },
@@ -15,6 +16,7 @@ export const LAYER_TYPES = {
 export const LAYER_DEFAULTS = {
 	cut_line: { w: 200, h: 200 },
 	text: { w: 300, h: 50 },
+	curved_text: { w: 300, h: 150 },
 	textarea: { w: 300, h: 120 },
 	image: { w: 200, h: 200 },
 	ai_image: { w: 200, h: 200 },
@@ -49,6 +51,12 @@ export const ICO_BIN =
 	'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><line x1="1.5" y1="4" x2="14.5" y2="4"/><path d="M6 4V2.5a.5.5 0 0 1 .5-.5h3a.5.5 0 0 1 .5.5V4"/><path d="M3 4l.8 9.5a.5.5 0 0 0 .5.5h7.4a.5.5 0 0 0 .5-.5L13 4"/></svg>';
 
 export const LAYER_TABS = {
+	curved_text: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'content', label: 'Content', icon: 'T' },
+		{ id: 'style', label: 'Style', icon: 'A' },
+		{ id: 'properties', label: 'Properties', icon: '\u2699' },
+	],
 	cut_line: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'cut_line', label: 'SVG', icon: '\u2702' },
@@ -69,7 +77,6 @@ export const LAYER_TABS = {
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'file', label: 'File', icon: '\ud83d\uddbc' },
 		{ id: 'colours', label: 'Colours', icon: '\u25cf' },
-		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		{ id: 'properties', label: 'Properties', icon: '\u2699' },
 	],
 	ai_image: [
@@ -77,7 +84,6 @@ export const LAYER_TABS = {
 		{ id: 'prompt', label: 'AI / Prompt', icon: 'AI' },
 		{ id: 'file', label: 'Image', icon: '\ud83d\uddbc' },
 		{ id: 'colours', label: 'Colours', icon: '\u25cf' },
-		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		{ id: 'properties', label: 'Properties', icon: '\u2699' },
 	],
 	clipmask: [
@@ -99,7 +105,6 @@ export const LAYER_TABS = {
 	clipart: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'library', label: 'Library', icon: '\u2726' },
-		{ id: 'validation', label: 'Validation', icon: '\u2713' },
 		{ id: 'properties', label: 'Properties', icon: '\u2699' },
 	],
 	night_sky: [

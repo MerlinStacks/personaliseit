@@ -641,7 +641,7 @@ class OC_Cart {
 			$active_filters[ (int) $filter->id ] = $filter;
 		}
 		$normalised  = [];
-		$valid_types = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'spotify', 'lineart', 'clipart', 'night_sky' ];
+		$valid_types = [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipmask', 'spotify', 'lineart', 'clipart', 'night_sky' ];
 
 		foreach ( $design_layers as $layer ) {
 			if ( isset( $layer->visible ) && ! (bool) $layer->visible ) {
@@ -663,7 +663,7 @@ class OC_Cart {
 
 			$default_value = is_scalar( $settings['default_text'] ?? null ) ? (string) $settings['default_text'] : '';
 			$value         = is_scalar( $source['value'] ?? null ) ? (string) $source['value'] : $default_value;
-			$value         = in_array( $type, [ 'text', 'textarea' ], true )
+			$value         = in_array( $type, [ 'text', 'curved_text', 'textarea' ], true )
 				? OC_Print_Text::normalise( $value, 'textarea' === $type ) : sanitize_text_field( $value );
 			if ( 'spotify' === $type && '' !== trim( $value ) ) {
 				$value = self::normalise_spotify_value( $value );
@@ -693,7 +693,7 @@ class OC_Cart {
 			}
 			$font_groups   = self::id_list( $settings['font_groups'] ?? [] );
 			$allowed_fonts = $font_groups ? array_values( array_intersect( $active_font_ids, array_map( 'intval', OC_DB::get_font_ids_for_groups( $font_groups ) ) ) ) : $active_font_ids;
-			if ( in_array( $type, [ 'text', 'textarea' ], true ) && ! in_array( $font_id, $allowed_fonts, true ) ) {
+			if ( in_array( $type, [ 'text', 'curved_text', 'textarea' ], true ) && ! in_array( $font_id, $allowed_fonts, true ) ) {
 				$font_id = in_array( $default_font, $allowed_fonts, true ) ? $default_font : (int) ( $allowed_fonts[0] ?? $fallback_font_id );
 			}
 
@@ -856,7 +856,7 @@ class OC_Cart {
 			}
 
 			$filled = match ( $type ) {
-				'text', 'textarea', 'spotify' => '' !== trim( $value ),
+				'text', 'curved_text', 'textarea', 'spotify' => '' !== trim( $value ),
 				'image', 'ai_image', 'clipmask' => $attachment_id > 0,
 				'clipart'                      => $clipart_id > 0,
 				'night_sky'                    => ! empty( $night_sky['nightSkyGeometry']['stars'] ) || ! empty( $night_sky['nightSkyGeometry']['segments'] ),
@@ -925,7 +925,7 @@ class OC_Cart {
 			$id   = (int) $layer->id;
 			$type = (string) $layer->type;
 			if ( ! isset( $normalised[ $id ] ) || ! empty( $layer->locked ) || ( isset( $layer->visible ) && ! $layer->visible )
-				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'clipmask' ], true ) ) {
+				|| ! in_array( $type, [ 'text', 'curved_text', 'textarea', 'image', 'clipmask' ], true ) ) {
 				continue;
 			}
 			$settings = self::normalise_layer_settings( $layer->settings ?? [], $type );
@@ -933,7 +933,7 @@ class OC_Cart {
 				continue;
 			}
 			$input = $normalised[ $id ];
-			if ( in_array( $type, [ 'text', 'textarea' ], true ) ) {
+			if ( in_array( $type, [ 'text', 'curved_text', 'textarea' ], true ) ) {
 				$canonical = static function ( string $text ) use ( $type ): string {
 					$text = OC_Print_Text::normalise( $text, 'textarea' === $type );
 					return trim( (string) preg_replace( '/\s+/u', ' ', $text ) );
@@ -1129,7 +1129,7 @@ class OC_Cart {
 				? $context_layer_id
 				: ( in_array( $primary_layer_id, $layer_ids, true ) ? $primary_layer_id : $source_id );
 			foreach ( $layer_ids as $layer_id ) {
-				if ( str_starts_with( $group_key, 'text:' ) || str_starts_with( $group_key, 'textarea:' ) ) {
+				if ( str_starts_with( $group_key, 'text:' ) || str_starts_with( $group_key, 'curved_text:' ) || str_starts_with( $group_key, 'textarea:' ) ) {
 					$raw_layers[ $layer_id ]['value'] = $source_data['value'] ?? '';
 					continue;
 				}
@@ -1149,7 +1149,7 @@ class OC_Cart {
 		$groups = [];
 		foreach ( $layers as $layer ) {
 			$type = sanitize_key( (string) ( $layer->type ?? '' ) );
-			if ( ! in_array( $type, [ 'text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky' ], true )
+			if ( ! in_array( $type, [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky' ], true )
 				|| ( isset( $layer->visible ) && ! (bool) $layer->visible )
 				|| ! empty( $layer->locked )
 			) {
@@ -1199,7 +1199,7 @@ class OC_Cart {
 		foreach ( $layers as $layer ) {
 			$type = sanitize_key( (string) ( $layer->type ?? '' ) );
 			if ( ! isset( $normalised[ (int) $layer->id ] )
-				|| ! in_array( $type, [ 'text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky' ], true )
+				|| ! in_array( $type, [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipart', 'lineart', 'night_sky' ], true )
 				|| ! empty( $layer->locked )
 			) {
 				continue;
@@ -1386,7 +1386,7 @@ class OC_Cart {
 		if ( ! array_key_exists( 'formats', $value ) || ! is_array( $value['formats'] ) ) {
 			$formats = $default_formats;
 		}
-		$default_text = in_array( $type, [ 'text', 'textarea' ], true )
+		$default_text = in_array( $type, [ 'text', 'curved_text', 'textarea' ], true )
 			? OC_Print_Text::normalise( $value['default_text'] ?? '', 'textarea' === $type )
 			: sanitize_textarea_field( $string( $value['default_text'] ?? '' ) );
 		if ( self::string_length_static( $default_text ) > 10000 ) {
@@ -1399,7 +1399,7 @@ class OC_Cart {
 
 		return [
 			'default_text'                 => $default_text,
-			'additional_cost_enabled'      => in_array( $type, [ 'text', 'textarea', 'image', 'clipmask' ], true ) && $boolean( $value['additional_cost_enabled'] ?? false ),
+			'additional_cost_enabled'      => in_array( $type, [ 'text', 'curved_text', 'textarea', 'image', 'clipmask' ], true ) && $boolean( $value['additional_cost_enabled'] ?? false ),
 			'additional_cost'              => self::normalise_layer_cost( $value['additional_cost'] ?? 0 ),
 			'char_limit'                   => max( 0, min( 10000, $number( $value['char_limit'] ?? 0 ) ) ),
 			'alignment'                    => in_array( $alignment, [ 'left', 'center', 'right' ], true ) ? $alignment : 'center',
@@ -1407,6 +1407,7 @@ class OC_Cart {
 			'default_font_id'              => max( 0, $number( $value['default_font_id'] ?? 0 ) ),
 			'default_font_size'            => max( 0, min( 1000, $number( $value['default_font_size'] ?? 0 ) ) ),
 			'min_font_size'                => max( 0, min( 1000, $number( $value['min_font_size'] ?? 0 ) ) ),
+			'curve_angle'                  => max( -180, min( 180, $number( $value['curve_angle'] ?? 120 ) ) ),
 			'max_font_size'                => max( 0, min( 1000, $number( $value['max_font_size'] ?? 0 ) ) ),
 			'default_color'                => sanitize_hex_color( $string( $value['default_color'] ?? '#000000', '#000000' ) ) ?: '#000000',
 			'font_groups'                  => self::id_list( $value['font_groups'] ?? [] ),
@@ -1982,6 +1983,7 @@ class OC_Cart {
 		$type        = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
 		$show_colour = $this->should_display_layer_colour( $print_method, $admin_context );
 		switch ( $type ) {
+			case 'curved_text':
 			case 'text':
 			case 'textarea':
 			case 'spotify':
@@ -1991,7 +1993,7 @@ class OC_Cart {
 				}
 
 				$html = self::escape_printable_text( $val );
-				if ( $admin_context && in_array( $type, [ 'text', 'textarea' ], true ) && ! empty( $layer_data['fontId'] ) && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
+				if ( $admin_context && in_array( $type, [ 'text', 'curved_text', 'textarea' ], true ) && ! empty( $layer_data['fontId'] ) && $this->customer_can_change_layer_setting( $layer, 'allow_font_change' ) ) {
 					$font_name = OC_DB::get_font_name( absint( $layer_data['fontId'] ) );
 					if ( '' !== $font_name ) {
 						$html .= ' &mdash; ' . esc_html( $font_name );
@@ -2299,7 +2301,7 @@ class OC_Cart {
 	private function plain_text_layer_display_value( array $layer_data, ?object $layer, string $print_method ): string {
 		$type  = sanitize_key( is_scalar( $layer_data['type'] ?? null ) ? (string) $layer_data['type'] : '' );
 		$value = match ( $type ) {
-			'text', 'textarea', 'spotify' => OC_Print_Text::normalise( $layer_data['value'] ?? null, 'textarea' === $type ),
+			'text', 'curved_text', 'textarea', 'spotify' => OC_Print_Text::normalise( $layer_data['value'] ?? null, 'textarea' === $type ),
 			'image', 'clipmask'            => ! empty( $layer_data['attachmentId'] ) ? __( 'Image uploaded', 'overcustomise' ) : '',
 			'ai_image'                     => ! empty( $layer_data['attachmentId'] ) ? __( 'Image generated', 'overcustomise' ) : '',
 			'clipart'                      => ! empty( $layer_data['clipartId'] ) ? __( 'Clipart selected', 'overcustomise' ) : '',
@@ -2309,7 +2311,7 @@ class OC_Cart {
 		if ( '' === trim( $value ) && 'lineart' !== $type ) {
 			return '';
 		}
-		$has_colour = in_array( $type, [ 'text', 'textarea', 'spotify', 'clipart', 'lineart', 'night_sky' ], true )
+		$has_colour = in_array( $type, [ 'text', 'curved_text', 'textarea', 'spotify', 'clipart', 'lineart', 'night_sky' ], true )
 			? $this->customer_can_change_layer_setting( $layer, 'allow_colour_change' )
 			: in_array( $type, [ 'image', 'ai_image', 'clipmask' ], true ) && $this->image_layer_has_order_colour( $layer_data, $layer );
 		if ( ! $this->should_display_layer_colour( $print_method, false ) || ! $has_colour ) {

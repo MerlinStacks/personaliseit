@@ -426,17 +426,15 @@ test( 'font picker preserves selected non-first family variants', async () => {
 		'src/admin/font-manager.js',
 		[ 'renderFontPicker' ],
 		{
-			fonts: [
-				{ id: 1, name: 'Family', weight: 'normal' },
-				{ id: 2, name: 'Family', weight: 'bold' },
-			],
 			groupFontPicker: picker,
 			injectFontFace() {},
-			updateSelectedCount() {},
 			h: String,
 		}
 	);
-	renderFontPicker( [ 2 ] );
+	renderFontPicker( [
+		{ id: 1, name: 'Family', weight: 'normal' },
+		{ id: 2, name: 'Family', weight: 'bold' },
+	], [ 2 ] );
 	assert.match( picker.innerHTML, /value="1"/ );
 	assert.match( picker.innerHTML, /value="2" checked/ );
 } );

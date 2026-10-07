@@ -363,6 +363,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 
 			switch ( $type ) {
+				case 'curved_text':
+					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt, 'center', false, true );
+					break;
 				case 'text':
 				case 'textarea':
 					self::append_eps_text( $lines, $input, $settings, $x_pt, $y_pt, $w_pt, $h_pt, true, $font_px_to_pt, 'textarea' === $type ? (string) ( $settings['line_alignment'] ?? 'top' ) : 'center', 'textarea' === $type );
@@ -434,7 +437,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		bool $centered = false,
 		?float $font_px_to_pt = null,
 		string $line_alignment = 'center',
-		bool $multiline = false
+		bool $multiline = false,
+		bool $curved = false
 	): void {
 		$text = trim( str_replace( [ "\r\n", "\r" ], "\n", (string) ( $input['value'] ?? '' ) ) );
 		if ( '' === $text ) {
@@ -468,6 +472,41 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 		$align    = $centered ? (string) ( $settings['alignment'] ?? 'center' ) : 'left';
 		$anchor_x = $centered ? self::eps_text_align_x( $align, $x_pt, $w_pt ) : $x_pt;
+		if ( $curved ) {
+			$text = preg_replace( '/[\r\n]+/u', ' ', $text ) ?? $text;
+			preg_match_all( '/\X/u', $text, $characters );
+			$widths  = array_map( static fn( string $character ): float => self::eps_text_width( $character, $font_path, 1.0 ), $characters[0] );
+			$seed    = (float) ( $input['fontSize'] ?? $settings['default_font_size'] ?? 0 ) * $font_scale;
+			$seed    = $seed > 0 ? $seed : $h_pt * 0.72;
+			$min     = (float) ( $settings['min_font_size'] ?? 0 ) * $font_scale;
+			$max     = (float) ( $settings['max_font_size'] ?? 0 ) * $font_scale;
+			$seed    = max( 0.01, $min, $max > 0 ? min( $seed, $max ) : $seed );
+			$layout  = self::curved_text_layout( $widths, (float) ( $settings['curve_angle'] ?? 120 ), $w_pt, $h_pt, $seed, $min, $align );
+			$size    = $layout['fontSize'];
+			$lines[] = 'gsave';
+			$lines[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath clip newpath', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
+			$lines[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
+			$lines[] = sprintf( '/Helvetica findfont %.6F scalefont setfont', $size );
+			foreach ( $layout['glyphs'] as $index => $glyph ) {
+				$character = $characters[0][ $index ];
+				if ( '' === trim( $character ) ) {
+					continue;
+				}
+				$lines[]  = 'gsave';
+				$lines[]  = sprintf( '%.6F %.6F translate %.6F rotate', $x_pt + $glyph['x'], $y_pt + $h_pt - $glyph['y'], -$glyph['angle'] );
+				$baseline = -$size * 1.13 * ( 0.5 - 0.222 );
+				if ( $font_path ) {
+					if ( ! self::append_eps_ttf_text_outline( $lines, $character, 'center', 0, $baseline, $size, $font_path ) ) {
+						throw new \RuntimeException( 'Could not outline curved embroidery text.' );
+					}
+				} else {
+					self::append_eps_text_line( $lines, $character, 'center', 0, $baseline );
+				}
+				$lines[] = 'grestore';
+			}
+			$lines[] = 'grestore';
+			return;
+		}
 
 		do {
 			$text_lines = $multiline ? self::wrap_eps_text_lines( $text, $font_path, $font_size, max( 1.0, $w_pt ) ) : [ preg_replace( '/\s+/u', ' ', $text ) ?? $text ];

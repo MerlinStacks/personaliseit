@@ -120,6 +120,7 @@ class OC_Blocks_Integration {
 	private function layer_value( array $layer_data ): string {
 		$type = is_scalar( $layer_data['type'] ?? null ) ? sanitize_key( (string) $layer_data['type'] ) : '';
 		switch ( $type ) {
+			case 'curved_text':
 			case 'text':
 			case 'textarea':
 			case 'spotify':

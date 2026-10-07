@@ -513,6 +513,33 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 	gap: 4px;
 }
 
+/* Shared layer links. */
+.oc-links-description {
+	margin: 0 0 10px;
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--oc-gray-500);
+}
+
+.oc-link-group-row {
+	display: flex;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.oc-link-group-row label {
+	display: flex;
+	align-items: center;
+	flex: 0 0 20px;
+	min-height: 36px;
+	margin-bottom: 0;
+}
+
+.oc-link-group-controls {
+	flex: 1;
+	min-width: 0;
+}
+
 /* Right panel — bounds grid */
 .oc-bounds-grid {
 	display: grid;
@@ -528,17 +555,54 @@ body:has(.oc-design-editor-page)::-webkit-scrollbar {
 .oc-bounds-size-row {
 	display: flex;
 	grid-column: 1 / -1;
-	gap: 8px;
-	align-items: flex-end;
+	gap: 6px;
+	align-items: center;
 }
 
 .oc-bounds-size-row .oc-editor-field {
 	flex: 1 1 0;
+	min-width: 0;
 	margin-bottom: 0;
 }
 
 .oc-bounds-size-row .oc-bounds-unit-field {
-	flex: 0 0 68px;
+	flex: 0 0 56px;
+}
+
+.oc-bounds-grid--area .oc-bounds-inline-field,
+.oc-bounds-grid--position .oc-editor-field {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	min-width: 0;
+	margin-bottom: 0;
+}
+
+.oc-bounds-inline-field label,
+.oc-bounds-grid--position .oc-editor-field label {
+	flex-shrink: 0;
+	margin-bottom: 0;
+}
+
+.oc-bounds-inline-field .oc-input,
+.oc-bounds-grid--position .oc-input {
+	width: 100%;
+	min-width: 0;
+	padding-right: 4px !important;
+	padding-left: 6px !important;
+}
+
+.oc-bounds-unit-field .oc-select {
+	width: 100%;
+	min-width: 0;
+	padding-right: 22px !important;
+	padding-left: 6px !important;
+	background-position: right 6px center !important;
+}
+
+.oc-bounds-size-row .oc-layer-action-btn {
+	flex: 0 0 24px;
+	height: 36px;
 }
 
 /* Left panel — area props section (below areas list) */

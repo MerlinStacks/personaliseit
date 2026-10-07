@@ -18,6 +18,7 @@ require_once __DIR__ . '/trait-oc-print-base-fonts.php';
 require_once __DIR__ . '/trait-oc-print-base-images.php';
 require_once __DIR__ . '/trait-oc-print-base-text.php';
 require_once __DIR__ . '/trait-oc-print-uv-text.php';
+require_once __DIR__ . '/trait-oc-print-curved-text.php';
 require_once __DIR__ . '/trait-oc-print-base-layers.php';
 require_once __DIR__ . '/trait-oc-print-base-artwork-effects.php';
 
@@ -28,6 +29,7 @@ abstract class OC_Print_Base {
 	use OC_Print_Base_Images;
 	use OC_Print_Base_Text;
 	use OC_Print_UV_Text;
+	use OC_Print_Curved_Text;
 	use OC_Print_Base_Layers;
 	use OC_Print_Base_Artwork_Effects;
 

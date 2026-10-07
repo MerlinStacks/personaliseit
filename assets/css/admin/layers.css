@@ -353,7 +353,8 @@
 	gap: 4px;
 }
 
-.oc-align-btn {
+.oc-align-btn,
+.oc-line-align-btn {
 	flex: 1;
 	padding: 5px 0;
 	border: 1.5px solid var(--oc-gray-200);
@@ -368,7 +369,8 @@
 		color 0.1s;
 }
 
-.oc-align-btn:hover {
+.oc-align-btn:hover,
+.oc-line-align-btn:hover {
 	border-color: var(--oc-primary);
 	color: var(--oc-primary);
 }
@@ -381,6 +383,53 @@
 }
 
 /* Group & format checkboxes */
+.oc-text-settings-hint {
+	margin: 0 0 8px;
+	font-size: 11px;
+	line-height: 1.4;
+	color: var(--oc-gray-500);
+}
+
+.oc-text-inline-field {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.oc-text-inline-field label {
+	flex-shrink: 0;
+	margin-bottom: 0;
+}
+
+.oc-text-inline-field .oc-input {
+	flex: 1;
+	width: 100%;
+	min-width: 0;
+	padding-right: 6px !important;
+	padding-left: 6px !important;
+}
+
+.oc-text-settings .oc-bounds-grid {
+	margin-bottom: 10px;
+}
+
+.oc-text-settings .oc-bounds-grid .oc-editor-field {
+	margin-bottom: 0;
+}
+
+.oc-text-settings .oc-group-check-item {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	margin: 0;
+	padding: 4px 0;
+	font-size: 12px;
+	font-weight: 400;
+	text-transform: none;
+	letter-spacing: normal;
+}
+
 .oc-group-checks {
 	display: flex;
 	flex-direction: column;

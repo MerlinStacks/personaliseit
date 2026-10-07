@@ -12,6 +12,7 @@
  */
 
 import { createLibraryBrowser } from './library-browser';
+import { createGroupPicker } from './group-picker';
 
 ( function () {
 	'use strict';
@@ -992,6 +993,16 @@ import { createLibraryBrowser } from './library-browser';
 
 	// ── Group modal open / close ───────────────────────────────────────────────
 
+	const fontGroupPicker = createGroupPicker(
+		groupFontPicker,
+		renderFontPicker,
+		( n ) => {
+			if ( selectedCountEl ) {
+				selectedCountEl.textContent = `${ n } selected`;
+			}
+		}
+	);
+
 	function openGroupModal( group ) {
 		groupGeneration++;
 		editingGroup = group || null;
@@ -1002,7 +1013,7 @@ import { createLibraryBrowser } from './library-browser';
 			groupDeleteBtn.style.display = group ? '' : 'none';
 		}
 
-		renderFontPicker( group ? group.fontIds : [] );
+		fontGroupPicker.open( fonts, group ? group.fontIds : [] );
 		groupModal.hidden = false;
 		document.body.style.overflow = 'hidden';
 		groupNameInput.focus();
@@ -1017,16 +1028,15 @@ import { createLibraryBrowser } from './library-browser';
 
 	// ── Font picker (checkboxes) ───────────────────────────────────────────────
 
-	function renderFontPicker( selectedIds ) {
-		if ( ! fonts.length ) {
+	function renderFontPicker( pageFonts, selectedIds ) {
+		if ( ! pageFonts.length ) {
 			groupFontPicker.innerHTML =
 				'<p style="padding:20px;color:var(--oc-gray-400);font-size:13px;">No fonts uploaded yet.</p>';
-			updateSelectedCount();
 			return;
 		}
 
 		// Membership is per font ID; show every weight/style without losing variants.
-		groupFontPicker.innerHTML = fonts
+		groupFontPicker.innerHTML = pageFonts
 			.map( ( f ) => {
 				injectFontFace( f );
 				const checked = selectedIds.includes( f.id ) ? 'checked' : '';
@@ -1056,35 +1066,10 @@ import { createLibraryBrowser } from './library-browser';
 			`;
 			} )
 			.join( '' );
-
-		// Toggle selected class on checkbox change.
-		groupFontPicker
-			.querySelectorAll( 'input[type="checkbox"]' )
-			.forEach( ( cb ) => {
-				cb.addEventListener( 'change', function () {
-					this.closest( '.oc-group-font-item' ).classList.toggle(
-						'oc-selected',
-						this.checked
-					);
-					updateSelectedCount();
-				} );
-			} );
-
-		updateSelectedCount();
 	}
 
 	function getCheckedFontIds() {
-		return Array.from(
-			groupFontPicker.querySelectorAll( 'input[type="checkbox"]:checked' )
-		).map( ( cb ) => parseInt( cb.value, 10 ) );
-	}
-
-	function updateSelectedCount() {
-		if ( ! selectedCountEl ) {
-			return;
-		}
-		const n = getCheckedFontIds().length;
-		selectedCountEl.textContent = `${ n } selected`;
+		return fontGroupPicker.getSelectedIds();
 	}
 
 	// ── AJAX: save group (create or update) ────────────────────────────────────

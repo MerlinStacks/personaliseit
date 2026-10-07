@@ -70,6 +70,8 @@ export function createProductsPageDataNormalisers( deps ) {
 
 	function defaultSettings( type ) {
 		switch ( type ) {
+			case 'curved_text':
+				return { ...defaultSettings( 'text' ), curve_angle: 120 };
 			case 'cut_line':
 				return { cutLineSvg: '' };
 			case 'text':
@@ -217,7 +219,11 @@ export function createProductsPageDataNormalisers( deps ) {
 			defaultSettings( type ),
 			existing || {}
 		);
-		if ( [ 'text', 'textarea', 'image', 'clipmask' ].includes( type ) ) {
+		if (
+			[ 'text', 'curved_text', 'textarea', 'image', 'clipmask' ].includes(
+				type
+			)
+		) {
 			settings.additional_cost_enabled =
 				settings.additional_cost_enabled === true;
 			const cost = Number( settings.additional_cost );

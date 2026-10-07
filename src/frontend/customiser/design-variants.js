@@ -323,7 +323,7 @@ const designVariantMethods = {
 				...( state.layerInputs?.[ layer.id ] || {} ),
 			};
 			if (
-				( layer.type === 'text' || layer.type === 'textarea' ) &&
+				[ 'text', 'curved_text', 'textarea' ].includes( layer.type ) &&
 				! String( input.value || '' ).trim()
 			) {
 				input.value = layer.settings?.default_text || layer.label || '';

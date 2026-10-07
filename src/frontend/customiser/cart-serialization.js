@@ -25,7 +25,9 @@ const cartSerializationMethods = {
 					return;
 				}
 				const input = { ...( inputs[ layer.id ] || {} ) };
-				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+				if (
+					[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
+				) {
 					if ( layer.locked ) {
 						input.value = layer.settings?.default_text || '';
 					} else if ( input.value !== undefined ) {
@@ -93,7 +95,7 @@ const cartSerializationMethods = {
 				}
 				if (
 					layer.locked &&
-					[ 'text', 'textarea' ].includes( layer.type )
+					[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
 				) {
 					inputs[ layer.id ].value =
 						layer.settings?.default_text || '';

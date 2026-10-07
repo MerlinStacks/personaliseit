@@ -1565,7 +1565,9 @@ const inputControlMethods = {
 					layer.required || layer.settings?.required
 				);
 				const label = layer.label || 'Personalisation option';
-				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+				if (
+					[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
+				) {
 					const input = layerControl( 'layer-text', layer.id );
 					if ( input ) {
 						input.required = required;
@@ -1674,7 +1676,11 @@ const inputControlMethods = {
 	seedLayerFontDefaults() {
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
-				if ( ! [ 'text', 'textarea' ].includes( layer.type ) ) {
+				if (
+					! [ 'text', 'curved_text', 'textarea' ].includes(
+						layer.type
+					)
+				) {
 					return;
 				}
 				if ( ! this.inputs[ layer.id ] ) {
@@ -1718,7 +1724,11 @@ const inputControlMethods = {
 	seedLockedLayerDefaults() {
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
-				if ( ! [ 'text', 'textarea' ].includes( layer.type ) ) {
+				if (
+					! [ 'text', 'curved_text', 'textarea' ].includes(
+						layer.type
+					)
+				) {
 					return;
 				}
 				if ( ! this.inputs[ layer.id ] ) {
@@ -1922,9 +1932,14 @@ const inputControlMethods = {
 		const group = String( layer?.settings?.link_group || '' ).trim();
 		if (
 			! group ||
-			! [ 'text', 'textarea', 'image', 'ai_image', 'clipmask' ].includes(
-				layer?.type
-			) ||
+			! [
+				'text',
+				'curved_text',
+				'textarea',
+				'image',
+				'ai_image',
+				'clipmask',
+			].includes( layer?.type ) ||
 			! this.isLinkedLayerEligible( layer )
 		) {
 			return '';
@@ -1984,7 +1999,9 @@ const inputControlMethods = {
 					return;
 				}
 
-				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+				if (
+					[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
+				) {
 					const value = this.inputs[ layer.id ]?.value;
 					const defaultValue =
 						this.data.layerInputs?.[ layer.id ]?.value;
@@ -2141,7 +2158,9 @@ const inputControlMethods = {
 					continue;
 				}
 				hydrated.add( key );
-				if ( [ 'text', 'textarea' ].includes( layer.type ) ) {
+				if (
+					[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
+				) {
 					if ( carried.payload?.value !== undefined ) {
 						this.inputs[ layer.id ] = {
 							...( this.inputs[ layer.id ] || {} ),
@@ -2271,6 +2290,7 @@ const inputControlMethods = {
 				if (
 					[
 						'text',
+						'curved_text',
 						'textarea',
 						'image',
 						'ai_image',

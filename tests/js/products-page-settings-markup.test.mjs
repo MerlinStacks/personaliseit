@@ -21,9 +21,9 @@ const esc = ( value ) =>
 		.replaceAll( '<', '&lt;' )
 		.replaceAll( '>', '&gt;' );
 
-// These fingerprints freeze the complete pre-deduplication HTML, including
+// These fingerprints freeze the complete settings HTML, including
 // whitespace, attribute order, escaping, empty states and selected options.
-test( 'settings tabs preserve their original markup across layer and data variants', () => {
+test( 'settings tabs preserve their expected markup across layer and data variants', () => {
 	const hashes = {};
 	for ( const tab of [
 		'general',
@@ -154,10 +154,10 @@ test( 'settings tabs preserve their original markup across layer and data varian
 	}
 	assert.deepEqual( hashes, {
 		general:
-			'1ef2b0a0e1a684f9cc6d97d1235efec7e054946998f64c2baa519a012f143505',
+			'f4dd6d7968657de055c000d026a949f3096c579f5dbe971a7867851afdd9096d',
 		content:
 			'fb4372465c5d1db41f70f55f34fb096274ba004bb2b374f174424ad85cd5125c',
-		style: 'b2d3d7f6a42d6894919300e2db4b1582c95c0d10b850727a5ddfa9400f46348e',
+		style: '84851e50f8760c73b652f49de17bc5b5bcf24075884a173e3f8a72e5e9542401',
 		file: '419fbc6af179a24dc8d1aa20c9717634901498b2774331bcc594ca87f552e0a6',
 		mask: '62b4ff1a5958fc03b393f35edb6ad595c76d19e162163df008eed77314b9b4bd',
 		appearance:

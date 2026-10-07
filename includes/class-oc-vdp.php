@@ -136,10 +136,10 @@ class OC_VDP {
 	/** Sanitize one CSV value against the mapped variable layer. */
 	public function normalise_layer_value( object $layer, string $value ): string|\WP_Error {
 		$type = (string) ( $layer->type ?? '' );
-		if ( ! in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) || ! empty( $layer->locked ) ) {
-			return new \WP_Error( 'invalid_vdp_layer', __( 'VDP fields may only target editable text, textarea, or Spotify layers.', 'overcustomise' ) );
+		if ( ! in_array( $type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true ) || ! empty( $layer->locked ) ) {
+			return new \WP_Error( 'invalid_vdp_layer', __( 'VDP fields may only target editable text, curved text, textarea, or Spotify layers.', 'overcustomise' ) );
 		}
-		$value = in_array( $type, [ 'text', 'textarea' ], true )
+		$value = in_array( $type, [ 'text', 'curved_text', 'textarea' ], true )
 			? OC_Print_Text::normalise( $value, 'textarea' === $type ) : sanitize_text_field( $value );
 		if ( 'spotify' === $type && '' !== $value ) {
 			$value = OC_Cart::normalise_spotify_value( $value );

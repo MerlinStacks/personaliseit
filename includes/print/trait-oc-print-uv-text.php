@@ -21,7 +21,19 @@ trait OC_Print_UV_Text {
 			return;
 		}
 		$multiline = 'textarea' === ( $layer['type'] ?? '' );
-		$verified  = self::browser_rendered_text_layout( $input, $layer, $settings );
+		$curved    = 'curved_text' === ( $layer['type'] ?? '' );
+		if ( $curved ) {
+			$text = trim( preg_replace( '/[\r\n]+/u', ' ', $text ) ?? $text );
+			if ( 'engraving' === $mode ) {
+				$text = self::normalise_engraving_text( $text );
+			}
+			if ( '' === trim( $text ) ) {
+				return;
+			}
+			// Curved geometry is recomputed from the retained font and settings.
+			unset( $input['renderedFontSize'], $input['renderedScaleX'], $input['renderedInsetX'], $input['renderedLines'], $input['renderedLayoutVersion'] );
+		}
+		$verified = self::browser_rendered_text_layout( $input, $layer, $settings );
 		if ( null === $verified && array_key_exists( 'renderedLayoutVersion', $input ) ) {
 			unset( $input['renderedFontSize'], $input['renderedLines'] );
 		}
@@ -72,6 +84,10 @@ trait OC_Print_UV_Text {
 			if ( null === $lines ) {
 				$lines = self::wrap_uv_text( $text, $path, $available / $size );
 			}
+			if ( $curved ) {
+				preg_match_all( '/\X/u', $text, $characters );
+				$lines = $characters[0];
+			}
 			$runs         = array_map( static fn( string $line ): array => self::uv_text_runs( $line, $path ), $lines );
 			$line_width   = max( 0.01, ...array_column( $runs, 'width' ) );
 			$block_height = self::FABRIC_FONT_SIZE_MULTIPLIER * ( 1 + ( count( $lines ) - 1 ) * self::FABRIC_TEXTBOX_LINE_HEIGHT );
@@ -89,6 +105,21 @@ trait OC_Print_UV_Text {
 			$colour  = (string) ( $input['colorHex'] ?? $settings['default_color'] ?? '#000000' );
 			$colour  = preg_match( '/^#[0-9a-f]{6}$/i', $colour ) ? $colour : '#000000';
 			$content = '';
+			if ( $curved ) {
+				// Use the configured seed, before the straight-line fitting above.
+				$seed   = ( $configured > 0 ? $configured : (float) ( $layer['h'] ?? 1 ) * 0.72 ) * $conversion;
+				$seed   = max( 0.01, $min, $max > 0 ? min( $seed, $max ) : $seed );
+				$layout = self::curved_text_layout( array_column( $runs, 'width' ), (float) ( $settings['curve_angle'] ?? 120 ), $width, $height, $seed, $min, $align );
+				$size   = $layout['fontSize'];
+				if ( 'engraving' === $mode ) {
+					$colour = '#000000';
+				}
+				foreach ( $layout['glyphs'] as $index => $glyph ) {
+					$baseline = self::FABRIC_FONT_SIZE_MULTIPLIER * ( 0.5 - self::FABRIC_FONT_SIZE_FRACTION );
+					$content .= sprintf( '<g transform="translate(%.6F %.6F) rotate(%.6F) scale(%.8F) translate(%.8F %.8F)" fill="%s">%s</g>', $glyph['x'], $glyph['y'], $glyph['angle'], $size, -$runs[ $index ]['width'] / 2, $baseline, $colour, $runs[ $index ]['svg'] );
+				}
+				$runs = [];
+			}
 			foreach ( $runs as $index => $line ) {
 				$advance = $line['width'] * $size * $scale_x;
 				$left    = $inset + match ( $align ) {

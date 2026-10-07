@@ -130,10 +130,12 @@ trait OC_Rest_API_VDP {
 			if ( ! is_array( $all_layers ) || '' !== $layers_error ) {
 				throw new \RuntimeException( 'Could not lock the VDP layers.' );
 			}
-			$all_layers = array_values( array_filter(
-				$all_layers,
-				static fn( object $layer ): bool => (bool) $layer->visible && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'textarea', 'spotify' ], true )
-			) );
+			$all_layers = array_values(
+				array_filter(
+					$all_layers,
+					static fn( object $layer ): bool => (bool) $layer->visible && empty( $layer->locked ) && in_array( (string) $layer->type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true )
+				)
+			);
 			if ( count( $csv_data['headers'] ) > count( $all_layers ) ) {
 				$validation_error = new \WP_Error( 'invalid_csv_fields', __( 'The CSV contains more fields than the design has editable variable layers.', 'overcustomise' ), [ 'status' => 422 ] );
 				throw new \RuntimeException( 'The VDP design has insufficient editable layers.' );

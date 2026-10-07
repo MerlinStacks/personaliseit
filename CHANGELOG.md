@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Add Curved Text layers with adjustable arch/bowl angles, font and colour controls, material-aware engraving and raised-thread embroidery previews, and outlined PDF/EPS production output.
+
 ### Improved
 - Automatically delete customer uploads after 48 hours when unused by an order or cart, or after 7 days from upload when still in an active or saved cart. Order-linked artwork and its related files are retained. Hourly WP-Cron cleanup processes backlogs in bounded batches; the policy also applies to existing uploads.
 

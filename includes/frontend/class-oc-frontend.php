@@ -425,7 +425,7 @@ class OC_Frontend {
 
 				// Default input per layer.
 				$layer_inputs[ (int) $layer->id ] = [
-					'value'               => in_array( $layer->type, [ 'text', 'textarea' ], true ) && ! empty( $layer->locked ) ? (string) ( $settings['default_text'] ?? '' ) : '',
+					'value'               => in_array( $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) && ! empty( $layer->locked ) ? (string) ( $settings['default_text'] ?? '' ) : '',
 					'fontId'              => absint( $settings['default_font_id'] ),
 					'fontSize'            => absint( $settings['default_font_size'] ?? 0 ),
 					'colorHex'            => $default_colour,
@@ -665,7 +665,7 @@ class OC_Frontend {
 				'h'    => max( 1, (int) $layer->h * $scale ),
 			];
 
-			if ( in_array( (string) $layer->type, [ 'text', 'textarea' ], true ) ) {
+			if ( in_array( (string) $layer->type, [ 'text', 'curved_text', 'textarea' ], true ) ) {
 				$text = trim( (string) ( $settings['default_text'] ?? $layer->label ?? '' ) );
 				if ( '' === $text ) {
 					continue;
@@ -710,7 +710,7 @@ class OC_Frontend {
 		$max_y = null;
 
 		foreach ( $layers as $layer ) {
-			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'textarea', 'image', 'clipart' ], true ) ) {
+			if ( ( isset( $layer->visible ) && ! (bool) $layer->visible ) || (int) $layer->area_id !== (int) $area->id || ! in_array( (string) $layer->type, [ 'text', 'curved_text', 'textarea', 'image', 'clipart' ], true ) ) {
 				continue;
 			}
 

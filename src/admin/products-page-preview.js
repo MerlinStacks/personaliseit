@@ -8,6 +8,7 @@ import {
 	Textbox,
 } from 'fabric';
 import { appendCutLinePreview } from './products-page-cut-line';
+import { createCurvedText } from '../shared/curved-text';
 import {
 	layoutMultilineTextbox,
 	multilineTextboxFits,
@@ -74,6 +75,29 @@ export function createLayerPreviewRenderer( deps ) {
 			height: Math.max( 1, height ),
 		} );
 		el._ocTextPreviewCanvas = canvas;
+		if ( settings.curvedText ) {
+			canvas.add(
+				...createCurvedText(
+					text,
+					{
+						left: width / 2,
+						top: height / 2,
+						fontFamily: font?.name || 'sans-serif',
+						fontWeight: font?.weight || 'normal',
+						fontStyle: font?.style || 'normal',
+						fontSize,
+						fill: color,
+						textAlign: settings.alignment || 'center',
+					},
+					width,
+					height,
+					settings.curve_angle,
+					fontLimit( settings.min_font_size ) ? minFontSize : 0
+				)
+			);
+			canvas.renderAll();
+			return;
+		}
 
 		const maxWidth = Math.max( 1, width );
 		const floor = Math.max( 1, minFontSize || 4 );
@@ -289,8 +313,10 @@ export function createLayerPreviewRenderer( deps ) {
 
 		if ( layer.type === 'cut_line' ) {
 			appendCutLinePreview( el, s.cutLineSvg );
-		} else if ( layer.type === 'text' || layer.type === 'textarea' ) {
-			const isSingleLine = layer.type === 'text';
+		} else if (
+			[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
+		) {
+			const isSingleLine = layer.type !== 'textarea';
 			const text =
 				s.default_text || layer.label || layerLabel( layer.type );
 			const align = s.alignment || 'center';
@@ -318,7 +344,11 @@ export function createLayerPreviewRenderer( deps ) {
 					minFontSize,
 					Math.max( 1, renderedW ),
 					Math.max( 1, renderedH ),
-					{ ...s, alignment: align },
+					{
+						...s,
+						alignment: align,
+						curvedText: layer.type === 'curved_text',
+					},
 					color,
 					isSingleLine
 				);

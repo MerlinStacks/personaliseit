@@ -1415,22 +1415,21 @@ class OC_Admin_Products {
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
 								</div>
 								<div class="oc-bounds-grid oc-bounds-grid--area">
-									<div class="oc-editor-field"><label>X</label><input type="number" id="oc-prop-x" class="oc-input" min="0" style="width:100%;" /></div>
-									<div class="oc-editor-field"><label>Y</label><input type="number" id="oc-prop-y" class="oc-input" min="0" style="width:100%;" /></div>
-									<div class="oc-editor-field"><label><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" style="width:100%;" /></div>
-									<div class="oc-bounds-size-row" style="display:flex;grid-column:1 / -1;gap:8px;align-items:flex-end;flex-wrap:nowrap;">
-										<div class="oc-editor-field" style="flex:1 1 0;min-width:0;margin-bottom:0;"><label>W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" style="width:100%;" /></div>
-										<button type="button" id="oc-prop-ratio-lock" class="oc-layer-action-btn" aria-label="<?php esc_attr_e( 'Lock aspect ratio', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Lock aspect ratio', 'overcustomise' ); ?>" style="flex:0 0 32px;height:36px;margin-bottom:0;align-self:flex-end;"></button>
-										<div class="oc-editor-field" style="flex:1 1 0;min-width:0;margin-bottom:0;"><label>H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" style="width:100%;" /></div>
-										<div class="oc-editor-field oc-bounds-unit-field" style="flex:0 0 64px;margin-bottom:0;">
-											<label for="oc-prop-unit"><?php esc_html_e( 'Unit', 'overcustomise' ); ?></label>
-											<select id="oc-prop-unit" class="oc-select" style="width:100%;">
+									<div class="oc-editor-field oc-bounds-inline-field"><label for="oc-prop-x">X</label><input type="number" id="oc-prop-x" class="oc-input" min="0" /></div>
+									<div class="oc-editor-field oc-bounds-inline-field"><label for="oc-prop-y">Y</label><input type="number" id="oc-prop-y" class="oc-input" min="0" /></div>
+									<div class="oc-editor-field oc-bounds-inline-field"><label for="oc-prop-rotation" title="<?php esc_attr_e( 'Rotate', 'overcustomise' ); ?>"><span aria-hidden="true">&#8635;</span><span class="screen-reader-text"><?php esc_html_e( 'Rotate', 'overcustomise' ); ?></span></label><input type="number" id="oc-prop-rotation" class="oc-input" min="0" max="359" step="1" /></div>
+									<div class="oc-bounds-size-row">
+										<div class="oc-editor-field oc-bounds-inline-field"><label for="oc-prop-w">W</label><input type="number" id="oc-prop-w" class="oc-input" min="1" /></div>
+										<div class="oc-editor-field oc-bounds-inline-field"><label for="oc-prop-h">H</label><input type="number" id="oc-prop-h" class="oc-input" min="1" /></div>
+										<div class="oc-editor-field oc-bounds-unit-field">
+											<select id="oc-prop-unit" class="oc-select" aria-label="<?php esc_attr_e( 'Unit', 'overcustomise' ); ?>">
 												<option value="px">px</option>
 												<option value="mm">mm</option>
 												<option value="cm">cm</option>
 												<option value="in">in</option>
 											</select>
 										</div>
+										<button type="button" id="oc-prop-ratio-lock" class="oc-layer-action-btn" aria-label="<?php esc_attr_e( 'Lock aspect ratio', 'overcustomise' ); ?>" title="<?php esc_attr_e( 'Lock aspect ratio', 'overcustomise' ); ?>"></button>
 									</div>
 									<div class="oc-editor-field" style="grid-column:1 / -1;margin-bottom:0;">
 										<label for="oc-prop-dpi"><?php esc_html_e( 'Canvas DPI', 'overcustomise' ); ?></label>
@@ -1526,12 +1525,12 @@ class OC_Admin_Products {
 							</div>
 							<div class="oc-layer-type-grid">
 								<button type="button" class="oc-layer-type-btn" data-type="text"><span class="oc-layer-type-btn-icon" style="color:#0284c7;">Aa</span><span><?php esc_html_e( 'Text', 'overcustomise' ); ?></span></button>
+								<button type="button" class="oc-layer-type-btn" data-type="curved_text"><span class="oc-layer-type-btn-icon" style="color:#0284c7;">&#x2312;</span><span><?php esc_html_e( 'Curved Text', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="textarea"><span class="oc-layer-type-btn-icon" style="color:#7c3aed;">&para;</span><span><?php esc_html_e( 'Text Area', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="image"><span class="oc-layer-type-btn-icon" style="color:#059669;">&#x1f5bc;</span><span><?php esc_html_e( 'Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="ai_image"><span class="oc-layer-type-btn-icon" style="color:#db2777;">AI</span><span><?php esc_html_e( 'AI Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipmask"><span class="oc-layer-type-btn-icon" style="color:#0d9488;">&#9711;</span><span><?php esc_html_e( 'Clipping Mask', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="spotify"><span class="oc-layer-type-btn-icon" style="color:#1db954;">&#x266b;</span><span><?php esc_html_e( 'Spotify', 'overcustomise' ); ?></span></button>
-								<button type="button" class="oc-layer-type-btn" data-type="lineart"><span class="oc-layer-type-btn-icon" style="color:#d97706;">&#x270f;</span><span><?php esc_html_e( 'Line Art', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="night_sky"><span class="oc-layer-type-btn-icon" style="color:#4338ca;">&#x2606;</span><span><?php esc_html_e( 'Night Sky', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="cut_line"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2702;</span><span><?php esc_html_e( 'Cut Line', 'overcustomise' ); ?></span></button>
@@ -1911,7 +1910,8 @@ class OC_Admin_Products {
 				$area_id_map[ (int) $area_index ] = $db_area_id;
 			}
 
-			$valid_types = [ 'text', 'textarea', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line' ];
+			// Retain lineart for saved designs created before its retirement from the layer picker.
+			$valid_types = [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line' ];
 			foreach ( $posted_layers as $sort => $layer_data ) {
 				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;

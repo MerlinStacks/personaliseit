@@ -310,7 +310,7 @@ class OC_Admin_Order_Metabox {
 		$type        = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
 		$show_colour = 'engraving' !== sanitize_key( $print_method );
 
-		if ( in_array( $type, [ 'text', 'textarea', 'spotify' ], true ) ) {
+		if ( in_array( $type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true ) ) {
 			$value     = is_scalar( $layer_data['value'] ?? null ) ? trim( (string) $layer_data['value'] ) : '';
 			$font_name = '';
 			if ( ! empty( $layer_data['fontId'] ) ) {

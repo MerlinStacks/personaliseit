@@ -50,7 +50,7 @@ The print queue surfaces pending, processing, completed, and failed generation j
 
 - **One workflow from browser to production:** customer inputs are preserved through WooCommerce and transformed into production artwork.
 - **Visual, reusable design system:** define print areas, variants, editable layers, fonts, colours, clipart, mockups, and image filters once, then assign them to products or variations.
-- **Built for varied products:** collect text, multiline text, images, clipping-mask artwork, line art, clipart, and Spotify-related input across multiple print areas.
+- **Built for varied products:** collect text, multiline text, images, clipping-mask artwork, clipart, and Spotify-related input across multiple print areas.
 - **Production-aware output:** generate files for engraving, UV printing, embroidery (EPS artwork), and sublimation with configurable bleed, crop marks, and DPI metadata.
 - **Operational tooling:** monitor and retry queued print jobs, regenerate artwork, clean up expired files, import variable data from CSV, and notify external systems with signed webhooks.
 - **Modern WooCommerce integration:** supports High-Performance Order Storage and Cart/Checkout Blocks.
@@ -66,7 +66,7 @@ The print queue surfaces pending, processing, completed, and failed generation j
 ### Storefront customiser
 
 - Live canvas rendering powered by Fabric.js
-- Text, textarea, image, clipping mask, line art, clipart, and Spotify-related layers
+- Text, textarea, image, clipping mask, clipart, and Spotify-related layers
 - Design variants and multiple print areas
 - Product gallery, cart, checkout, and order previews
 - Customer uploads including SVG, PDF, EPS, PNG, JPEG, WebP, HEIC, and HEIF where the server supports the required conversions

@@ -47,6 +47,18 @@ export function createProductsPageSettings( deps ) {
 			'</select>'
 		);
 	}
+	function inlineSetting( label, id, inputHtml ) {
+		return `<div class="oc-editor-field oc-text-inline-field"><label for="${ id }">${ label }</label>${ inputHtml }</div>`;
+	}
+	function fontSizeField( label, id, value ) {
+		return inlineSetting(
+			label,
+			id,
+			`<input type="number" id="${ id }" class="oc-input" min="0" value="${ esc(
+				value || 0
+			) }" aria-describedby="oc-font-size-hint" />`
+		);
+	}
 	function toggleField( label, id, checked ) {
 		return (
 			'<label class="oc-toggle-label oc-settings-toggle"><span class="oc-toggle"><input type="checkbox" id="' +
@@ -73,7 +85,13 @@ export function createProductsPageSettings( deps ) {
 	}
 	function additionalCostFields( layer ) {
 		if (
-			! [ 'text', 'textarea', 'image', 'clipmask' ].includes( layer.type )
+			! [
+				'text',
+				'curved_text',
+				'textarea',
+				'image',
+				'clipmask',
+			].includes( layer.type )
 		) {
 			return '';
 		}
@@ -313,10 +331,10 @@ export function createProductsPageSettings( deps ) {
 				: 'oc-set-link-group';
 		const newId = `${ id }-new`;
 		if ( ! groups.length ) {
-			return `<input type="text" id="${ id }" class="oc-input" style="width:100%;" placeholder="Create a link group, e.g. name" value="" />`;
+			return `<input type="text" id="${ id }" class="oc-input" style="width:100%;" aria-describedby="oc-links-description" placeholder="Create a link group, e.g. name" value="" />`;
 		}
 		return (
-			`<select id="${ id }" class="oc-input" style="width:100%;">` +
+			`<select id="${ id }" class="oc-input" style="width:100%;" aria-describedby="oc-links-description">` +
 			'<option value="">No link group</option>' +
 			groups
 				.map(
@@ -332,12 +350,25 @@ export function createProductsPageSettings( deps ) {
 				.join( '' ) +
 			'<option value="__new">Create new link group...</option>' +
 			'</select>' +
-			`<input type="text" id="${ newId }" class="oc-input" style="width:100%;margin-top:8px;display:none;" placeholder="New link group name" value="" />`
+			`<input type="text" id="${ newId }" class="oc-input" style="width:100%;margin-top:8px;display:none;" aria-label="New ${
+				setting === 'colour_link_group' ? 'colour' : 'input'
+			} link group name" placeholder="New link group name" value="" />`
+		);
+	}
+	function linkGroupRow( current, setting = 'link_group' ) {
+		const isColour = setting === 'colour_link_group';
+		const id = isColour ? 'oc-set-colour-link-group' : 'oc-set-link-group';
+		const label = isColour ? 'Colour link group' : 'Input link group';
+		const icon = isColour ? 'art' : 'admin-links';
+		return (
+			`<div class="oc-editor-field oc-link-group-row"><label for="${ id }" title="${ label }"><span class="dashicons dashicons-${ icon }" aria-hidden="true"></span><span class="screen-reader-text">${ label }</span></label><div class="oc-link-group-controls">` +
+			linkGroupField( current, setting ) +
+			'</div></div>'
 		);
 	}
 	function fontOptions( fonts, selected ) {
 		return (
-			'<option value="0">Auto / first available</option>' +
+			'<option value="0" style="font-family:system-ui;">Auto / first available</option>' +
 			fonts
 				.map(
 					( f ) =>
@@ -347,7 +378,19 @@ export function createProductsPageSettings( deps ) {
 						( Number( selected ) === Number( f.id )
 							? ' selected'
 							: '' ) +
-						'>' +
+						` style="font-family:oc-font-${
+							Number( f.id ) || 0
+						};font-weight:${
+							/^(normal|bold|[1-9]00)$/.test( String( f.weight ) )
+								? f.weight
+								: 'normal'
+						};font-style:${
+							[ 'normal', 'italic', 'oblique' ].includes(
+								f.style
+							)
+								? f.style
+								: 'normal'
+						};">` +
 						esc( f.name ) +
 						'</option>'
 				)
@@ -435,7 +478,7 @@ export function createProductsPageSettings( deps ) {
 		const data = window.ocProductsData || {};
 		let changed = false;
 
-		if ( layer.type === 'text' || layer.type === 'textarea' ) {
+		if ( [ 'text', 'curved_text', 'textarea' ].includes( layer.type ) ) {
 			changed = ensureDefaultFontInList(
 				settings,
 				fontsForSelectedGroups(
@@ -521,6 +564,7 @@ export function createProductsPageSettings( deps ) {
 		const isEngraving = area && area.method === 'engraving';
 		const supportsColourLink = [
 			'text',
+			'curved_text',
 			'textarea',
 			'image',
 			'ai_image',
@@ -540,22 +584,22 @@ export function createProductsPageSettings( deps ) {
 					) +
 					( layer.type === 'cut_line'
 						? ''
-						: field(
-								'Link group <span class="oc-hint">(same type layers with the same value mirror customer input)</span>',
-								linkGroupField( s.link_group || '' )
-						  ) ) +
+						: '<p class="oc-settings-section-hdr">Links</p>' +
+						  '<p id="oc-links-description" class="oc-links-description">Use the same group to share customer input between layers of the same type.' +
+						  ( supportsColourLink
+								? ' Colour groups keep text and artwork colours in sync.'
+								: '' ) +
+						  '</p>' +
+						  linkGroupRow( s.link_group || '' ) ) +
 					( supportsColourLink
-						? field(
-								'Colour link group <span class="oc-hint">(keeps colour identical across text and artwork layers)</span>',
-								linkGroupField(
-									s.colour_link_group || '',
-									'colour_link_group'
-								)
+						? linkGroupRow(
+								s.colour_link_group || '',
+								'colour_link_group'
 						  )
 						: '' ) +
 					additionalCostFields( layer ) +
 					'<p class="oc-settings-section-hdr">Position</p>' +
-					'<div class="oc-bounds-grid">' +
+					'<div class="oc-bounds-grid oc-bounds-grid--position">' +
 					numberField(
 						'X',
 						'oc-layer-x',
@@ -622,16 +666,30 @@ export function createProductsPageSettings( deps ) {
 					colourGroupsSelected
 				);
 				return (
-					field( 'Alignment', alignBtns( s.alignment || 'center' ) ) +
+					'<div class="oc-text-settings"><p class="oc-settings-section-hdr">Alignment</p>' +
+					field(
+						'Horizontal',
+						alignBtns( s.alignment || 'center' )
+					) +
+					( layer.type === 'curved_text'
+						? numberField(
+								'Curve angle <span class="oc-hint">(−180 to 180°; positive = arch, negative = bowl, 0 = straight)</span>',
+								'oc-set-curve-angle',
+								esc( s.curve_angle ?? 120 ),
+								'min="-180" max="180" step="1" '
+						  )
+						: '' ) +
 					( layer.type === 'textarea'
 						? field(
-								'Line alignment',
+								'Vertical',
 								lineAlignBtns( s.line_alignment || 'top' )
 						  )
 						: '' ) +
+					'<p class="oc-settings-section-hdr">Font</p>' +
 					( availableFonts.length
-						? field(
-								'Default font',
+						? inlineSetting(
+								'Default',
+								'oc-set-default-font',
 								selectInput(
 									'oc-set-default-font',
 									fontOptions(
@@ -648,12 +706,25 @@ export function createProductsPageSettings( deps ) {
 										: 'No fonts uploaded yet.' ) +
 									'</span>'
 						  ) ) +
-					'<div class="oc-bounds-grid">' +
-					numberField(
-						'Default font size <span class="oc-hint">(0 = auto)</span>',
+					'<p class="oc-settings-section-hdr">Font size</p>' +
+					'<p id="oc-font-size-hint" class="oc-text-settings-hint">Use 0 for automatic sizing.</p>' +
+					fontSizeField(
+						'Default',
 						'oc-set-default-font-size',
-						esc( s.default_font_size || 0 )
+						s.default_font_size
 					) +
+					'<div class="oc-bounds-grid">' +
+					fontSizeField(
+						'Min',
+						'oc-set-min-font-size',
+						s.min_font_size
+					) +
+					fontSizeField(
+						'Max',
+						'oc-set-max-font-size',
+						s.max_font_size
+					) +
+					'</div>' +
 					( isEngraving
 						? ''
 						: colourGroupsSelected.length
@@ -672,22 +743,11 @@ export function createProductsPageSettings( deps ) {
 						: '<div class="oc-editor-field"><label class="oc-settings-label">Default colour</label><input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' +
 						  esc( normaliseHex( s.default_color ) ) +
 						  '" /></div>' ) +
-					'</div>' +
-					'<div class="oc-bounds-grid">' +
-					numberField(
-						'Min font size <span class="oc-hint">(0 = auto)</span>',
-						'oc-set-min-font-size',
-						esc( s.min_font_size || 0 )
-					) +
-					numberField(
-						'Max font size <span class="oc-hint">(0 = auto)</span>',
-						'oc-set-max-font-size',
-						esc( s.max_font_size || 0 )
-					) +
-					'</div>' +
+					'<p class="oc-settings-section-hdr">Groups</p>' +
+					'<p class="oc-text-settings-hint">Leave unchecked to allow all groups.</p>' +
 					( fGroups.length
 						? field(
-								'Font groups <span class="oc-hint">(empty = all)</span>',
+								'Fonts',
 								groupChecks(
 									'oc-fg-check',
 									fGroups,
@@ -702,7 +762,7 @@ export function createProductsPageSettings( deps ) {
 						? ''
 						: cGroups.length
 						? field(
-								'Colour groups <span class="oc-hint">(empty = all)</span>',
+								'Colours',
 								groupChecks(
 									'oc-cg-check',
 									cGroups,
@@ -712,7 +772,8 @@ export function createProductsPageSettings( deps ) {
 						: field(
 								'Colour groups',
 								'<span class="oc-settings-empty">No colour groups created yet.</span>'
-						  ) )
+						  ) ) +
+					'</div>'
 				);
 			}
 			case 'file':
@@ -921,6 +982,7 @@ export function createProductsPageSettings( deps ) {
 			case 'properties':
 				if ( [ 'image', 'ai_image' ].includes( layer.type ) ) {
 					return (
+						buildTabContent( 'validation', layer ) +
 						'<p class="oc-settings-section-hdr">Customer can change</p>' +
 						( layer.type === 'image'
 							? toggleField(
@@ -945,6 +1007,7 @@ export function createProductsPageSettings( deps ) {
 				}
 				if ( layer.type === 'clipart' ) {
 					return (
+						buildTabContent( 'validation', layer ) +
 						'<p class="oc-settings-section-hdr">Customer can change</p>' +
 						toggleField(
 							'Clipart',
@@ -992,7 +1055,9 @@ export function createProductsPageSettings( deps ) {
 			bindCutLineUpload( layer, area, commitChange );
 		}
 		if (
-			[ 'text', 'textarea', 'image', 'clipmask' ].includes( layer.type )
+			[ 'text', 'curved_text', 'textarea', 'image', 'clipmask' ].includes(
+				layer.type
+			)
 		) {
 			document
 				.getElementById( 'oc-set-additional-cost-enabled' )
@@ -1145,16 +1210,35 @@ export function createProductsPageSettings( deps ) {
 				s.default_attachment_url = '';
 				commitChange( { canvas: true, rightColumn: true } );
 			} );
-		document
-			.getElementById( 'oc-set-default-font' )
-			?.addEventListener( 'change', ( e ) => {
-				s.default_font_id = parseInt( e.target.value, 10 ) || 0;
-				commitChange( { canvas: true } );
-			} );
+		const fontSelect = document.getElementById( 'oc-set-default-font' );
+		const reflectSelectedFont = () => {
+			const option = fontSelect?.selectedOptions[ 0 ];
+			if ( ! option ) {
+				return;
+			}
+			fontSelect.style.fontFamily = option.style.fontFamily;
+			fontSelect.style.fontWeight = option.style.fontWeight;
+			fontSelect.style.fontStyle = option.style.fontStyle;
+		};
+		reflectSelectedFont();
+		fontSelect?.addEventListener( 'change', ( e ) => {
+			reflectSelectedFont();
+			s.default_font_id = parseInt( e.target.value, 10 ) || 0;
+			commitChange( { canvas: true } );
+		} );
 		document
 			.getElementById( 'oc-set-default-font-size' )
 			?.addEventListener( 'input', ( e ) => {
 				s.default_font_size = fontLimit( e.target.value );
+				commitChange( { canvas: true } );
+			} );
+		document
+			.getElementById( 'oc-set-curve-angle' )
+			?.addEventListener( 'input', ( e ) => {
+				s.curve_angle = Math.max(
+					-180,
+					Math.min( 180, Number( e.target.value ) || 0 )
+				);
 				commitChange( { canvas: true } );
 			} );
 		document
