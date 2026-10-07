@@ -3,8 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 
-const source = readFileSync( new URL( '../../src/admin/group-picker.js', import.meta.url ), 'utf8' )
-	.replace( 'export function', 'return function' );
+const source = readFileSync(
+	new URL( '../../src/admin/group-picker.js', import.meta.url ),
+	'utf8'
+).replace( 'export function', 'return function' );
 
 test( 'group selections span pages, survive navigation, and reset when reopened', ( t ) => {
 	const dom = new JSDOM( '<div id="picker"></div><span id="count"></span>' );
@@ -13,12 +15,29 @@ test( 'group selections span pages, survive navigation, and reset when reopened'
 	const container = document.getElementById( 'picker' );
 	const count = document.getElementById( 'count' );
 	const create = new Function( 'document', source )( document );
-	const picker = create( container, ( items, selected ) => {
-		container.innerHTML = items.map( ( item ) => `<label><input type="checkbox" value="${ item.id }" ${ selected.includes( item.id ) ? 'checked' : '' } />${ item.id }</label>` ).join( '' );
-	}, ( n ) => { count.textContent = n; } );
-	const items = Array.from( { length: 25 }, ( _, index ) => ( { id: index + 1 } ) );
-	const step = ( value ) => document.querySelector( `[data-step="${ value }"]` ).click();
-	const toggle = ( id ) => container.querySelector( `[value="${ id }"]` ).click();
+	const picker = create(
+		container,
+		( items, selected ) => {
+			container.innerHTML = items
+				.map(
+					( item ) =>
+						`<label><input type="checkbox" value="${ item.id }" ${
+							selected.includes( item.id ) ? 'checked' : ''
+						} />${ item.id }</label>`
+				)
+				.join( '' );
+		},
+		( n ) => {
+			count.textContent = n;
+		}
+	);
+	const items = Array.from( { length: 25 }, ( _, index ) => ( {
+		id: index + 1,
+	} ) );
+	const step = ( value ) =>
+		document.querySelector( `[data-step="${ value }"]` ).click();
+	const toggle = ( id ) =>
+		container.querySelector( `[value="${ id }"]` ).click();
 	picker.open( items, [ 25 ] );
 	assert.equal( container.querySelectorAll( 'input' ).length, 12 );
 	assert.equal( count.textContent, '1' );

@@ -1115,7 +1115,7 @@ class Test_Print_Base extends TestCase {
 	public function image_only_production_pdf_has_no_font_resources(): void {
 		$pdf = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
 		// A real image exercises the image path without relying on Ghostscript cleanup.
-		$image = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' );
+		$image = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_decode -- Inline PNG test fixture.
 		foreach ( range( 1, 2 ) as $page ) {
 			$pdf->AddPage();
 			$pdf->Image( '@' . $image, 0, 0, 40, 30, 'PNG' );
@@ -1159,7 +1159,7 @@ class Test_Print_Base extends TestCase {
 			static fn( $pdf ) => $pdf->replaceMissingChars( 'Hello' ),
 		];
 		foreach ( $queries as $query ) {
-			$pdf = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
+			$pdf       = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
 			$reference = new TCPDF();
 			$this->assertSame( $query( $reference ), $query( $pdf ) );
 		}

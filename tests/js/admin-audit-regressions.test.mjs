@@ -431,10 +431,13 @@ test( 'font picker preserves selected non-first family variants', async () => {
 			h: String,
 		}
 	);
-	renderFontPicker( [
-		{ id: 1, name: 'Family', weight: 'normal' },
-		{ id: 2, name: 'Family', weight: 'bold' },
-	], [ 2 ] );
+	renderFontPicker(
+		[
+			{ id: 1, name: 'Family', weight: 'normal' },
+			{ id: 2, name: 'Family', weight: 'bold' },
+		],
+		[ 2 ]
+	);
 	assert.match( picker.innerHTML, /value="1"/ );
 	assert.match( picker.innerHTML, /value="2" checked/ );
 } );

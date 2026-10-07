@@ -497,9 +497,9 @@ class OC_File_Cleanup {
 
 	/** Hourly: expire unordered uploads after 48 hours, or seven days when in a cart. */
 	public static function cleanup_customer_artwork(): void {
-		$cursor         = max( 0, (int) get_option( 'oc_artwork_cleanup_cursor', 0 ) );
-		$cutoff         = gmdate( 'Y-m-d H:i:s', time() - ( 2 * DAY_IN_SECONDS ) );
-		$limit          = 100;
+		$cursor = max( 0, (int) get_option( 'oc_artwork_cleanup_cursor', 0 ) );
+		$cutoff = gmdate( 'Y-m-d H:i:s', time() - ( 2 * DAY_IN_SECONDS ) );
+		$limit  = 100;
 
 		global $wpdb;
 		$attachments = $wpdb->get_col( $wpdb->prepare(
