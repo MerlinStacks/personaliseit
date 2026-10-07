@@ -554,6 +554,12 @@
 		}
 	}
 
+	.oc-text-overflow-notice {
+		color: var(--oc-danger);
+		font-size: 0.875rem;
+		margin: 0.5rem 0;
+	}
+
 	.oc-font-size-notice {
 		margin: 0;
 		padding: 10px 12px;
@@ -598,11 +604,24 @@
 		position: relative;
 	}
 
+	// Keep theme button/input typography from distorting font previews.
+	.oc-font-search,
+	button.oc-font-option,
+	select.oc-font-native-select,
+	select.oc-font-native-select option {
+		font-size: inherit;
+		font-weight: 400;
+		font-style: normal;
+		font-variant: normal;
+		letter-spacing: normal;
+		text-transform: none;
+	}
+
 	.oc-font-search {
 		width: 100%;
 		min-height: 40px;
 		padding: 8px 36px 8px 12px;
-		font: inherit;
+		font-family: inherit;
 		color: inherit;
 		background: var(--oc-accent-ink, #fff);
 		border: 1px solid var(--oc-border-strong);

@@ -598,14 +598,10 @@ class OC_Admin_Settings {
 										</div>
 										<div class="oc-form-row">
 											<div class="oc-form-label">
-												<label for="oc_artwork_retention_days"><?php esc_html_e( 'Customer artwork retention', 'overcustomise' ); ?></label>
+												<span><?php esc_html_e( 'Unordered customer uploads', 'overcustomise' ); ?></span>
 											</div>
 											<div class="oc-form-field">
-												<div class="oc-inline-row">
-													<input type="number" id="oc_artwork_retention_days" name="oc_artwork_retention_days" value="<?php echo esc_attr( $s['artwork_retention_days'] ); ?>" min="1" step="1" class="small-text oc-input oc-input-xs" />
-													<span class="oc-input-suffix"><?php esc_html_e( 'days', 'overcustomise' ); ?></span>
-												</div>
-												<p class="oc-form-help"><?php esc_html_e( 'Unreferenced customer uploads older than this are eligible for cleanup. Order and active-cart artwork is always retained.', 'overcustomise' ); ?></p>
+												<p class="oc-form-help"><?php esc_html_e( 'Customer uploads not used by an order or cart are automatically deleted after 48 hours. Uploads in active or saved carts are retained for 7 days from upload. Artwork used by orders is retained. Cleanup runs hourly in batches when WordPress cron runs.', 'overcustomise' ); ?></p>
 											</div>
 										</div>
 										<div class="oc-form-row">
@@ -1103,7 +1099,8 @@ class OC_Admin_Settings {
 			'flat_rate_default'      => number_format( max( 0, min( 1000000, is_finite( $flat_rate ) ? $flat_rate : 0.0 ) ), 2, '.', '' ),
 			'file_retention_days'    => max( 1, min( 3650, (int) ( $_POST['oc_file_retention_days'] ?? 90 ) ) ),
 			'preview_retention_days' => max( 1, min( 3650, (int) ( $_POST['oc_preview_retention_days'] ?? 90 ) ) ),
-			'artwork_retention_days' => max( 1, min( 3650, (int) ( $_POST['oc_artwork_retention_days'] ?? 90 ) ) ),
+			// Retain the legacy value for AI attempt metadata; upload expiry is now fixed.
+			'artwork_retention_days' => (int) self::get( 'artwork_retention_days' ),
 			'max_upload_size_mb'     => max( 1, min( 100, (int) ( $_POST['oc_max_upload_size_mb'] ?? 10 ) ) ),
 			'allowed_upload_formats' => array_values( $posted_formats ),
 			'bleed_mm'               => max( 0, min( 100, is_finite( $bleed ) ? $bleed : 3.0 ) ),

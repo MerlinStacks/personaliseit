@@ -42,6 +42,7 @@
       "@php tests/colour-group-cache-regressions.php",
       "@php tests/release-cache-regressions.php",
       "@php tests/maintenance-cleanup-regressions.php",
+      "@php tests/artwork-cleanup-regressions.php",
       "@php tests/cleanup-vdp-relocation-regressions.php",
       "@php tests/clipart-pagination-regressions.php",
       "@php tests/admin-image-filter-regressions.php",

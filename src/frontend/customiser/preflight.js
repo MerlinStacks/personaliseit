@@ -5,6 +5,56 @@
  */
 
 const preflightMethods = {
+	setTextareaOverflowNotice( layer, overflow ) {
+		const field = this.getLayerInputEl( layer );
+		if ( ! field ) {
+			return;
+		}
+		const id = `oc-text-overflow-${ layer.id }`;
+		let notice = document.getElementById( id );
+		const message =
+			'This text has too many lines to fit. Please shorten it or remove some line breaks.';
+		if ( overflow && ! notice ) {
+			notice = document.createElement( 'p' );
+			notice.id = id;
+			notice.className = 'oc-text-overflow-notice';
+			notice.setAttribute( 'role', 'status' );
+			(
+				field.closest( '.oc-input-wrap' ) || field
+			).insertAdjacentElement( 'afterend', notice );
+		}
+		if ( notice ) {
+			notice.textContent = overflow ? message : '';
+			notice.hidden = ! overflow;
+		}
+		const describedBy = new Set(
+			( field.getAttribute( 'aria-describedby' ) || '' )
+				.split( /\s+/ )
+				.filter( Boolean )
+		);
+		if ( overflow ) {
+			describedBy.add( id );
+			field.setCustomValidity( message );
+			field.setAttribute( 'aria-invalid', 'true' );
+			field.classList.add( 'oc-preflight-field-error' );
+		} else {
+			describedBy.delete( id );
+			if ( field.validationMessage === message ) {
+				field.setCustomValidity( '' );
+				field.setAttribute( 'aria-invalid', 'false' );
+				field.classList.remove( 'oc-preflight-field-error' );
+			}
+		}
+		if ( describedBy.size ) {
+			field.setAttribute(
+				'aria-describedby',
+				[ ...describedBy ].join( ' ' )
+			);
+		} else {
+			field.removeAttribute( 'aria-describedby' );
+		}
+	},
+
 	clearCustomValidity() {
 		document
 			.querySelectorAll(
@@ -198,6 +248,16 @@ const preflightMethods = {
 					case 'text':
 					case 'textarea':
 						value = String( input.value || '' ).trim();
+						if ( layer.type === 'textarea' ) {
+							const overflow =
+								! ( await this.textareaFitsMinimum( layer ) );
+							this.setTextareaOverflowNotice( layer, overflow );
+							if ( overflow ) {
+								errors.push(
+									`${ label } has too many lines to fit. Please shorten it or remove some line breaks.`
+								);
+							}
+						}
 						if ( required && ! value ) {
 							errors.push( `${ label } is required.` );
 							fieldEl?.classList.add(

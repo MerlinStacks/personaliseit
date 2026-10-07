@@ -5,7 +5,8 @@
  */
 /* stylelint-disable no-descending-specificity, no-duplicate-selectors */
 
-.oc-page.oc-library-page {
+.oc-page.oc-library-page,
+.oc-page.oc-customer-uploads-page {
 	max-width: none;
 }
 

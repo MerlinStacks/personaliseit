@@ -99,7 +99,7 @@ class OC_Admin_Customer_Uploads {
 			$filters[ (int) $filter->id ] = $filter;
 		}
 		?>
-		<div class="wrap oc-page">
+		<div class="wrap oc-page oc-customer-uploads-page">
 			<?php $this->render_action_notice(); ?>
 			<div class="oc-page-header oc-customer-upload-hero">
 				<div class="oc-page-header-left">

@@ -13,6 +13,9 @@ async function shared( path ) {
 }
 const math = await shared( 'src/shared/render-math.js' );
 const layout = await shared( 'src/shared/text-layout.js' );
+const { default: preflightMethods } = await shared(
+	'src/frontend/customiser/preflight.js'
+);
 class Text {
 	constructor( text, options ) {
 		this.initialOptions = { ...options };
@@ -278,6 +281,81 @@ test( 'real Fabric textarea rendering does not shrink fitting text to the floor'
 	f.input.fontSize = 24;
 	await f.render();
 	assert.equal( f.canvas.object.fontSize, 24 );
+} );
+
+test( 'multiline fitting preserves every line, vertical padding and print metadata', async () => {
+	for ( const alignment of [ 'top', 'center', 'bottom' ] ) {
+		const f = fixture( 'textarea', {
+			min_font_size: 8,
+			line_alignment: alignment,
+		} );
+		f.app.renderLayer = fabricMethods.renderLayer;
+		f.app.textFitsBox = fabricMethods.textFitsBox;
+		f.layer.h = 100;
+		f.input.value = 'Égj\nsdf\n\nsdf\nsdf\nÉgj';
+		f.input.fontSize = 24;
+		await f.render();
+		const object = f.canvas.object;
+		const margin = layout.multilineTextSafetyMargin( object.fontSize ).y;
+		assert.ok( object.fontSize < 24 );
+		assert.ok( object.fontSize >= 8 );
+		assert.ok( object.top - object.getScaledHeight() / 2 >= margin - 0.01 );
+		assert.ok(
+			object.top + object.getScaledHeight() / 2 <= 100 - margin + 0.01
+		);
+		assert.deepEqual( f.input.renderedLines, f.input.value.split( '\n' ) );
+		assert.equal( f.input.renderedFontSize, object.fontSize );
+		assert.equal( f.input.renderedLayoutVersion, 1 );
+	}
+} );
+
+test( 'overflow at the minimum size is reported and recovers when lines are removed', async ( t ) => {
+	const dom = new JSDOM(
+		'<textarea data-oc-layer-text="1" aria-describedby="help"></textarea>'
+	);
+	const previous = globalThis.document;
+	globalThis.document = dom.window.document;
+	t.after( () => {
+		globalThis.document = previous;
+		dom.window.close();
+	} );
+	const f = fixture( 'textarea', { min_font_size: 24 } );
+	Object.assign( f.app, preflightMethods, {
+		renderLayer: fabricMethods.renderLayer,
+		textFitsBox: fabricMethods.textFitsBox,
+		areas: [ { ...f.area, layers: [ f.layer ] } ],
+		inputs: { 1: f.input },
+		canvases: [ f.canvas ],
+	} );
+	f.layer.id = 1;
+	f.layer.h = 100;
+	f.layer.label = 'Message';
+	f.input.value = 'sdf\nsdf\nsdf\nsdf\nsdf\nsdf';
+	f.input.fontSize = 24;
+	const field = document.querySelector( 'textarea' );
+	await f.render();
+	assert.equal( f.canvas.object.fontSize, 24 );
+	assert.equal( f.input.renderedLayoutVersion, undefined );
+	assert.match( field.validationMessage, /too many lines/ );
+	assert.equal(
+		field.getAttribute( 'aria-describedby' ),
+		'help oc-text-overflow-1'
+	);
+	// Checkout remeasures rather than trusting a previous preview or validity.
+	f.app.clearCustomValidity();
+	const preflight = await f.app.runPreflight();
+	assert.equal( preflight.ok, false );
+	assert.match( preflight.errors[ 0 ], /Message has too many lines/ );
+	f.input.value = 'sdf\nsdf';
+	await f.render();
+	assert.equal( ( await f.app.runPreflight() ).ok, true );
+	assert.equal( field.validationMessage, '' );
+	assert.equal( field.getAttribute( 'aria-describedby' ), 'help' );
+	assert.equal( document.querySelector( 'p' ).hidden, true );
+	assert.equal( f.input.renderedLayoutVersion, 1 );
+	f.input.value = '';
+	await f.render();
+	assert.equal( field.validationMessage, '' );
 } );
 
 test( 'non-engraving rendering does not request the engraving chunk', async () => {

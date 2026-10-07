@@ -9,7 +9,6 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_File_Cleanup {
 
-	private const ARTWORK_DELETE_GRACE_SECONDS            = DAY_IN_SECONDS;
 	private const PRIVATE_PREVIEW_OPTION_PREFIX           = 'oc_private_preview_';
 	private const PRIVATE_PREVIEW_CURSOR_OPTION           = 'oc_preview_cleanup_private_cursor';
 	private const LEGACY_PREVIEW_CURSOR_OPTION            = 'oc_legacy_preview_cleanup_cursor';
@@ -42,7 +41,6 @@ class OC_File_Cleanup {
 
 		if ( empty( $expired ) ) {
 			self::cleanup_preview_images();
-			self::cleanup_customer_artwork();
 			self::cleanup_security_budgets();
 			return;
 		}
@@ -71,7 +69,6 @@ class OC_File_Cleanup {
 
 		OC_Logger::info( sprintf( 'File cleanup: expired %d print file records.', $expired_count ) );
 		self::cleanup_preview_images();
-		self::cleanup_customer_artwork();
 		self::cleanup_security_budgets();
 	}
 
@@ -498,11 +495,10 @@ class OC_File_Cleanup {
 		return '' !== $directory && str_starts_with( $path, $directory . '/' );
 	}
 
-	/** Delete expired customer artwork that is no longer referenced by an order or cart. */
-	private static function cleanup_customer_artwork(): void {
-		$retention_days = max( 1, (int) OC_Admin_Settings::get( 'artwork_retention_days' ) ?: 90 );
+	/** Hourly: expire unordered uploads after 48 hours, or seven days when in a cart. */
+	public static function cleanup_customer_artwork(): void {
 		$cursor         = max( 0, (int) get_option( 'oc_artwork_cleanup_cursor', 0 ) );
-		$cutoff         = gmdate( 'Y-m-d H:i:s', time() - ( $retention_days * DAY_IN_SECONDS ) );
+		$cutoff         = gmdate( 'Y-m-d H:i:s', time() - ( 2 * DAY_IN_SECONDS ) );
 		$limit          = 100;
 
 		global $wpdb;
@@ -527,7 +523,23 @@ class OC_File_Cleanup {
 		}
 
 		$attachment_ids = array_map( 'absint', $attachments );
-		$references     = self::customer_artwork_batch_references( $attachment_ids );
+		$cart_protected = [];
+		$expired_carts  = [];
+		$unknown_age    = [];
+		foreach ( $attachment_ids as $attachment_id ) {
+			$uploaded_at = get_post_time( 'U', true, $attachment_id );
+			if ( false === $uploaded_at || (int) $uploaded_at <= 0 ) {
+				// Retain uploads whose age could not be confirmed.
+				$unknown_age[ $attachment_id ] = true;
+			} elseif ( (int) $uploaded_at > time() - ( 7 * DAY_IN_SECONDS ) ) {
+				$cart_protected[] = $attachment_id;
+			} else {
+				$expired_carts[] = $attachment_id;
+			}
+		}
+		$cart_references  = self::customer_artwork_batch_references( $cart_protected );
+		$order_references = self::customer_artwork_batch_references( $expired_carts, false );
+		$references       = null === $cart_references || null === $order_references ? null : $cart_references + $order_references + $unknown_age;
 		if ( null === $references ) {
 			OC_Logger::warning( 'Customer artwork cleanup retained a batch because its references could not be checked.' );
 			update_option( 'oc_artwork_cleanup_cursor', max( $attachment_ids ), false );
@@ -540,29 +552,22 @@ class OC_File_Cleanup {
 				continue;
 			}
 
-			// Require two cleanup passes so a cart being persisted concurrently with
-			// this cron run cannot immediately lose its newly uploaded artwork.
-			$unreferenced_since = (int) get_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since', true );
-			if ( $unreferenced_since <= 0 ) {
-				update_post_meta( $attachment_id, '_oc_cleanup_unreferenced_since', time() );
-				continue;
-			}
-			if ( $unreferenced_since > time() - self::ARTWORK_DELETE_GRACE_SECONDS ) {
-				continue;
-			}
-
 			// Recheck immediately before deletion. False positives are preferable to
 			// deleting customer data that has just reached checkout.
-			if ( ! self::customer_artwork_is_referenced( $attachment_id ) ) {
+			if ( ! self::customer_artwork_is_referenced( $attachment_id, in_array( $attachment_id, $cart_protected, true ) ) ) {
 				wp_delete_attachment( $attachment_id, true );
 			}
 		}
 
-		update_option( 'oc_artwork_cleanup_cursor', max( $attachment_ids ), false );
+		update_option( 'oc_artwork_cleanup_cursor', count( $attachment_ids ) < $limit ? 0 : max( $attachment_ids ), false );
+		// Drain large backlogs in bounded batches rather than waiting an hour per page.
+		if ( count( $attachment_ids ) === $limit && ! wp_next_scheduled( 'oc_artwork_cleanup_batch' ) ) {
+			wp_schedule_single_event( time() + 60, 'oc_artwork_cleanup_batch' );
+		}
 	}
 
 	/** Resolve references for a cleanup batch with one wildcard scan per payload store. */
-	private static function customer_artwork_batch_references( array $attachment_ids ): ?array {
+	private static function customer_artwork_batch_references( array $attachment_ids, bool $include_carts = true ): ?array {
 		global $wpdb;
 
 		$attachment_ids          = array_values( array_unique( array_filter( array_map( 'absint', $attachment_ids ) ) ) );
@@ -591,7 +596,7 @@ class OC_File_Cleanup {
 				self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
 			),
 		];
-		$sessions_exist = self::sessions_table_exists();
+		$sessions_exist = $include_carts ? self::sessions_table_exists() : false;
 		if ( null === $sessions_exist ) {
 			return null;
 		}
@@ -603,12 +608,14 @@ class OC_File_Cleanup {
 				self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
 			);
 		}
-		$queries[] = $wpdb->prepare(
-			"SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE %s AND meta_value REGEXP %s LIMIT %d",
-			$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
-			$id_pattern,
-			self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
-		);
+		if ( $include_carts ) {
+			$queries[] = $wpdb->prepare(
+				"SELECT meta_value FROM {$wpdb->usermeta} WHERE meta_key LIKE %s AND meta_value REGEXP %s LIMIT %d",
+				$wpdb->esc_like( '_woocommerce_persistent_cart_' ) . '%',
+				$id_pattern,
+				self::ARTWORK_REFERENCE_SCAN_LIMIT + 1
+			);
+		}
 
 		foreach ( $queries as $query ) {
 			$rows = $wpdb->get_col( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Every query is prepared when the bounded list is built above.
@@ -616,7 +623,7 @@ class OC_File_Cleanup {
 				return null;
 			}
 			if ( count( $rows ) > self::ARTWORK_REFERENCE_SCAN_LIMIT ) {
-				return self::split_customer_artwork_batch_references( $attachment_ids );
+				return self::split_customer_artwork_batch_references( $attachment_ids, $include_carts );
 			}
 			$payloads = array_merge( $payloads, array_map( 'strval', $rows ) );
 		}
@@ -637,15 +644,15 @@ class OC_File_Cleanup {
 	}
 
 	/** Split an overly broad batch, falling back to exact checks for one attachment. */
-	private static function split_customer_artwork_batch_references( array $attachment_ids ): ?array {
+	private static function split_customer_artwork_batch_references( array $attachment_ids, bool $include_carts = true ): ?array {
 		if ( 1 === count( $attachment_ids ) ) {
 			$attachment_id = (int) reset( $attachment_ids );
-			return self::customer_artwork_is_referenced( $attachment_id ) ? [ $attachment_id => true ] : [];
+			return self::customer_artwork_is_referenced( $attachment_id, $include_carts ) ? [ $attachment_id => true ] : [];
 		}
 
 		$references = [];
 		foreach ( array_chunk( $attachment_ids, (int) ceil( count( $attachment_ids ) / 2 ) ) as $chunk ) {
-			$chunk_references = self::customer_artwork_batch_references( $chunk );
+			$chunk_references = self::customer_artwork_batch_references( $chunk, $include_carts );
 			if ( null === $chunk_references ) {
 				return null;
 			}
@@ -660,7 +667,7 @@ class OC_File_Cleanup {
 	 *
 	 * @phpstan-impure
 	 */
-	public static function customer_artwork_is_referenced( int $attachment_id ): bool {
+	public static function customer_artwork_is_referenced( int $attachment_id, bool $include_carts = true ): bool {
 		if ( $attachment_id <= 0 ) {
 			return false;
 		}
@@ -685,6 +692,9 @@ class OC_File_Cleanup {
 		}
 		if ( $found ) {
 			return true;
+		}
+		if ( ! $include_carts ) {
+			return false;
 		}
 
 		$sessions_table  = $wpdb->prefix . 'woocommerce_sessions';
@@ -726,6 +736,15 @@ class OC_File_Cleanup {
 			$related_id = absint( get_post_meta( $attachment_id, $meta_key, true ) );
 			if ( $related_id > 0 ) {
 				$related_ids[] = $related_id;
+			}
+		}
+		$parent_id = absint( get_post_meta( $attachment_id, '_oc_artwork_parent_id', true ) );
+		if ( $parent_id > 0 ) {
+			foreach ( [ '_oc_print_derivative_attachment_id', '_oc_artwork_preview_attachment_id' ] as $meta_key ) {
+				$related_id = absint( get_post_meta( $parent_id, $meta_key, true ) );
+				if ( $related_id > 0 ) {
+					$related_ids[] = $related_id;
+				}
 			}
 		}
 		return array_values( array_unique( $related_ids ) );

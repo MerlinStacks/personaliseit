@@ -502,6 +502,13 @@ const canvasRendererMethods = {
 					? normalisedText.trim()
 					: normalisedText;
 				if ( ! raw.trim() ) {
+					if (
+						! isSingleLineText &&
+						capturesTextLayout &&
+						! layer.locked
+					) {
+						this.setTextareaOverflowNotice?.( layer, false );
+					}
 					break;
 				}
 				const lineAlign = [ 'top', 'center', 'bottom' ].includes(
@@ -615,7 +622,11 @@ const canvasRendererMethods = {
 						),
 						lh
 					);
-					const freeY = Math.max( 0, ( lh - contentH ) / 2 );
+					const freeY = Math.max(
+						0,
+						( lh - contentH ) / 2 -
+							multilineTextSafetyMargin( fontSize ).y
+					);
 					const localY =
 						lineAlign === 'bottom'
 							? freeY
@@ -726,6 +737,15 @@ const canvasRendererMethods = {
 					if ( stitchLift ) {
 						stitchLift.set( { fontSize } );
 					}
+				}
+				const multilineFits =
+					isSingleLineText || fitsTextLayer( fontSize );
+				if (
+					! isSingleLineText &&
+					capturesTextLayout &&
+					! layer.locked
+				) {
+					this.setTextareaOverflowNotice?.( layer, ! multilineFits );
 				}
 				if ( isSingleLineText ) {
 					obj.initDimensions?.();
@@ -866,6 +886,7 @@ const canvasRendererMethods = {
 				if (
 					capturesTextLayout &&
 					fontLoaded &&
+					multilineFits &&
 					( isSingleLineText || validLines ) &&
 					isCurrent() &&
 					[
@@ -1404,6 +1425,54 @@ const canvasRendererMethods = {
 			Math.max( Number( layerBox?.h || 0 ) * scale, 10 ),
 			layer?.type === 'textarea'
 		);
+	},
+
+	async textareaFitsMinimum( layer ) {
+		const input = this.inputs[ layer.id ] || {};
+		let raw = String( input.value || '' ).replace( /\r\n?/g, '\n' );
+		if ( ! raw.trim() ) {
+			return true;
+		}
+		const index = this.areaIndexForLayer( layer.id );
+		const area = this.areas[ index ];
+		if ( [ 'engraving', 'embroidery' ].includes( area?.printMethod ) ) {
+			raw = this.stripUnsupportedPrintEmoji( raw );
+		}
+		let font = this.fonts.find(
+			( f ) =>
+				f.id ===
+				( input.fontId || layer.settings?.default_font_id || 0 )
+		);
+		if ( font ) {
+			try {
+				if ( ( await this.loadFont( font ) ) !== true ) {
+					font = null;
+				}
+			} catch {
+				font = null;
+			}
+		}
+		const bounds = area ? this.areaBounds( area ) : null;
+		const scale = this.canvases?.[ index ]?._ocScaleX ?? 1;
+		const displayScale = bounds ? unitPxScale( bounds ) * scale : scale;
+		const max = this.fontLimit( layer.settings?.max_font_size ) || Infinity;
+		const min = Math.min(
+			this.fontLimit( layer.settings?.min_font_size ),
+			max
+		);
+		// Match the renderer's display-pixel floor without rejecting a smaller
+		// explicitly configured size that the renderer already permits.
+		const configured = Number(
+			input.fontSize ?? layer.settings?.default_font_size
+		);
+		const floor =
+			min ||
+			Math.min(
+				4 / displayScale,
+				max,
+				configured > 0 ? configured : Number( layer.h ) * 0.72
+			);
+		return this.textLayerFitsAtSize( layer, raw, font, floor );
 	},
 
 	async maxFittingFontSize( layerId, upperLimit ) {

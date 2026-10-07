@@ -147,6 +147,8 @@ class OC_Plugin {
 		add_action( 'init', [ OC_DB::class, 'maybe_upgrade' ] );
 		add_action( 'init', [ self::class, 'ensure_cron_events' ] );
 		add_action( 'oc_daily_file_cleanup', [ 'OC_File_Cleanup', 'run' ] );
+		add_action( 'oc_hourly_artwork_cleanup', [ 'OC_File_Cleanup', 'cleanup_customer_artwork' ] );
+		add_action( 'oc_artwork_cleanup_batch', [ 'OC_File_Cleanup', 'cleanup_customer_artwork' ] );
 		add_action( 'oc_daily_file_cleanup', [ self::class, 'cleanup_history' ], 20 );
 		add_action( 'oc_storage_maintenance', [ self::class, 'migrate_storage' ] );
 	}
@@ -434,6 +436,9 @@ class OC_Plugin {
 
 	/** Ensure queue/file cleanup events exist even if activation scheduling failed. */
 	public static function ensure_cron_events(): void {
+		if ( ! wp_next_scheduled( 'oc_hourly_artwork_cleanup' ) ) {
+			wp_schedule_event( time() + 60, 'hourly', 'oc_hourly_artwork_cleanup' );
+		}
 		if ( ! wp_next_scheduled( 'oc_storage_maintenance' ) ) {
 			wp_schedule_event( time() + 60, 'oc_every_minute', 'oc_storage_maintenance' );
 		}
@@ -455,6 +460,9 @@ class OC_Plugin {
 	// -------------------------------------------------------------------------
 
 	public static function activate(): void {
+		if ( ! wp_next_scheduled( 'oc_hourly_artwork_cleanup' ) ) {
+			wp_schedule_event( time() + 60, 'hourly', 'oc_hourly_artwork_cleanup' );
+		}
 		require_once OC_PATH . 'includes/class-oc-db.php';
 		require_once OC_PATH . 'includes/class-oc-logger.php';
 		require_once OC_PATH . 'includes/class-oc-svg-sanitiser.php';
@@ -648,6 +656,8 @@ class OC_Plugin {
 		$hooks = [
 			'oc_storage_maintenance',
 			'oc_daily_file_cleanup',
+			'oc_hourly_artwork_cleanup',
+			'oc_artwork_cleanup_batch',
 			'oc_process_print_queue',
 			'oc_process_print_queue_now',
 			'oc_webhook_deliver',
