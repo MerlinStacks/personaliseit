@@ -352,7 +352,7 @@ abstract class OC_Print_Base {
 		$pdf->SetCreator( 'OverCustomise' );
 		$pdf->SetAuthor( 'Custom Kings' );
 		$pdf->SetSubject( 'Production print artwork' );
-		$pdf->SetKeywords( 'print,production,customisation,PDF/X' );
+		$pdf->SetKeywords( 'print,production,customisation' . ( '' !== $pdf_mode ? ',PDF/X' : '' ) );
 		$pdf->SetMargins( $inset, $inset, $inset );
 		$pdf->SetAutoPageBreak( false, 0 );
 		$pdf->setPrintHeader( false );
@@ -361,9 +361,11 @@ abstract class OC_Print_Base {
 		return $pdf;
 	}
 
-	/** Return the PDF conformance mode for generated print PDFs. */
+	/** Return the opt-in PDF conformance mode; outlined production PDFs are standard PDFs by default. */
 	protected static function pdf_conformance_mode(): string {
-		$mode = apply_filters( 'oc_print_pdf_conformance_mode', 'pdfx4' );
+		// The Ghostscript outlining pass does not preserve PDF/X output intents.
+		// Only request PDF/X when a custom workflow supplies the required conformance handling.
+		$mode = apply_filters( 'oc_print_pdf_conformance_mode', '' );
 		$mode = strtolower( trim( is_string( $mode ) ? $mode : '' ) );
 
 		return preg_match( '/^pdfx(?:1a|3|4|5)?$/', $mode ) ? $mode : '';

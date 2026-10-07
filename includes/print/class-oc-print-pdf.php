@@ -13,6 +13,61 @@ defined( 'ABSPATH' ) || exit;
  */
 class OC_Print_PDF extends \TCPDF {
 
+	/** Defer TCPDF's implicit constructor font until font metrics are needed. */
+	public function setFont( $_family, $_style = '', $_size = null, $_fontfile = '', $_subset = 'default', $_out = true ) {
+		if ( 0 === $this->docstate ) {
+			// Keep the default for currentFontMetric() to initialise if text is actually drawn.
+			$this->fontfamily = strtolower( trim( (string) $_family ) );
+			$this->fontstyle  = strtoupper( (string) $_style );
+			$this->fontsizept = (float) $_size;
+			return;
+		}
+
+		parent::setFont( $_family, $_style, $_size, $_fontfile, $_subset, $_out );
+	}
+
+	/** SVG style resolution needs font metrics even when its lettering is already paths. */
+	public function ImageSVG( $file, $x = '', $y = '', $w = 0, $h = 0, $link = '', $align = '', $palign = '', $border = 0, $fitonpage = false ) {
+		$this->currentFontMetric();
+		return parent::ImageSVG( $file, $x, $y, $w, $h, $link, $align, $palign, $border, $fitonpage );
+	}
+
+	/** Initialise the deferred font for width queries that use the current font. */
+	public function GetArrStringWidth( $_sa, $_fontname = '', $_fontstyle = '', $_fontsize = 0, $_getarray = false ) {
+		if ( '' === $_fontname ) {
+			$this->currentFontMetric();
+		}
+		return parent::GetArrStringWidth( $_sa, $_fontname, $_fontstyle, $_fontsize, $_getarray );
+	}
+
+	/** Initialise the deferred font for individual character measurements. */
+	public function getRawCharWidth( $_char ) {
+		$this->currentFontMetric();
+		return parent::getRawCharWidth( $_char );
+	}
+
+	/** Initialise the deferred font for individual character bounds. */
+	public function getCharBBox( $_char ) {
+		$this->currentFontMetric();
+		return parent::getCharBBox( $_char );
+	}
+
+	/** Initialise the deferred font for current-font glyph checks. */
+	public function isCharDefined( $_char, $_font = '', $_style = '' ) {
+		if ( '' === (string) $_font ) {
+			$this->currentFontMetric();
+		}
+		return parent::isCharDefined( $_char, $_font, $_style );
+	}
+
+	/** Initialise the deferred font for current-font glyph substitution. */
+	public function replaceMissingChars( $_text, $_font = '', $_style = '', $_subs = [] ) {
+		if ( '' === (string) $_font ) {
+			$this->currentFontMetric();
+		}
+		return parent::replaceMissingChars( $_text, $_font, $_style, $_subs );
+	}
+
 	/** Allow the legacy TCPDF facade to initialise tc-lib-pdf in PDF/X mode. */
 	protected function normalizePdfaMode( mixed $pdfa ): string {
 		$mode = strtolower( trim( (string) $pdfa ) );

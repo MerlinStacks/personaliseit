@@ -312,7 +312,7 @@ class OC_System_Status {
 			self::check( 'php', __( 'PHP 8.2 or newer', 'overcustomise' ), PHP_VERSION_ID >= 80200, PHP_VERSION, true, __( 'Required by OverCustomise and its Composer packages.', 'overcustomise' ) ),
 			self::check( 'wordpress', __( 'WordPress 6.8 or newer', 'overcustomise' ), version_compare( (string) $wp_version, '6.8', '>=' ), (string) $wp_version, true, __( 'Required by the plugin metadata.', 'overcustomise' ) ),
 			self::check( 'woocommerce', __( 'WooCommerce', 'overcustomise' ), class_exists( 'WooCommerce' ), defined( 'WC_VERSION' ) ? WC_VERSION : '', true, __( 'Required for products, carts, orders, and administration.', 'overcustomise' ) ),
-			self::check( 'tcpdf', __( 'TCPDF and core fonts', 'overcustomise' ), class_exists( '\TCPDF' ) && is_readable( $tcpdf_fonts ), class_exists( '\TCPDF' ) ? __( 'Loaded', 'overcustomise' ) : '', true, __( 'Required to create production PDF/X files.', 'overcustomise' ) ),
+			self::check( 'tcpdf', __( 'TCPDF and core fonts', 'overcustomise' ), class_exists( '\TCPDF' ) && is_readable( $tcpdf_fonts ), class_exists( '\TCPDF' ) ? __( 'Loaded', 'overcustomise' ) : '', true, __( 'Required to create production PDF files.', 'overcustomise' ) ),
 			self::extension_check( 'bcmath', 'BCMath', true, __( 'Required by PDF generation dependencies.', 'overcustomise' ) ),
 			self::extension_check( 'curl', 'cURL', true, __( 'Required by bundled PDF libraries and remote service requests.', 'overcustomise' ) ),
 			self::extension_check( 'gd', 'GD', true, __( 'Required for raster artwork processing and previews.', 'overcustomise' ) ),

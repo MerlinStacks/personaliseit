@@ -5,6 +5,67 @@
  */
 /* stylelint-disable no-descending-specificity, no-duplicate-selectors */
 
+.oc-page.oc-library-page {
+	max-width: none;
+}
+
+.oc-library-page .oc-page-header,
+.oc-library-page .oc-page-header-right {
+	flex-wrap: wrap;
+}
+
+.oc-library-toolbar,
+.oc-library-pagination {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 12px;
+	padding: 18px;
+}
+
+.oc-library-toolbar {
+	align-items: flex-end;
+	margin-bottom: 20px;
+	background: #fff;
+	border: 1px solid var(--oc-gray-200);
+	border-radius: 8px;
+}
+
+.oc-library-toolbar label {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	font-weight: 500;
+	min-width: 0;
+}
+
+.oc-library-toolbar label:first-child {
+	flex: 1 1 240px;
+}
+
+.oc-library-toolbar input,
+.oc-library-toolbar select {
+	min-height: 36px;
+	max-width: 100%;
+	margin: 0;
+}
+
+.oc-library-pagination {
+	justify-content: center;
+	border-top: 1px solid var(--oc-gray-200);
+}
+
+.oc-library-pagination[hidden],
+.oc-library-page .oc-empty[hidden] {
+	display: none;
+}
+
+.oc-library-pagination [aria-current="page"] {
+	background: var(--oc-gray-100);
+	border-color: currentcolor;
+	font-weight: 700;
+}
+
 @media (max-width: 1100px) {
 	.oc-design-editor-topbar,
 	.oc-design-editor-topbar > div:last-child {

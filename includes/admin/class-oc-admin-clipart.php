@@ -13,7 +13,7 @@ class OC_Admin_Clipart {
 
 	private const CLIPART_SUBDIR       = 'overcustomise/clipart';
 	private const PRINT_METHODS        = [ 'engraving', 'uv', 'embroidery', 'sublimation' ];
-	private const INITIAL_CARD_LIMIT   = 60;
+	private const INITIAL_CARD_LIMIT   = 24;
 	private const MAX_UPLOAD_BYTES     = 15 * 1024 * 1024;
 	private const MAX_RASTER_DIMENSION = 6000;
 	private const MAX_RASTER_PIXELS    = 16000000;
@@ -117,7 +117,7 @@ class OC_Admin_Clipart {
 		window.ocAjaxUrl       = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
 		</script>
 
-		<div class="wrap oc-page">
+		<div class="wrap oc-page oc-library-page">
 
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
@@ -128,23 +128,14 @@ class OC_Admin_Clipart {
 					<button id="oc-upload-clipart-btn" class="oc-btn oc-btn-primary" type="button">
 						+ <?php esc_html_e( 'Upload Clipart', 'overcustomise' ); ?>
 					</button>
-					<button id="oc-create-clipart-group-btn" class="oc-btn oc-btn-primary" type="button" style="display:none;">
+					<button id="oc-create-clipart-group-btn" class="oc-btn oc-btn-secondary" type="button">
 						+ <?php esc_html_e( 'Create Group', 'overcustomise' ); ?>
 					</button>
 				</div>
 			</div>
 
 			<!-- Tabs ──────────────────────────────────────────────────────────── -->
-			<div class="oc-tabs-bar">
-				<button class="oc-tab oc-tab--active" data-target="oc-tab-clipart" type="button">
-					<?php esc_html_e( 'Clipart', 'overcustomise' ); ?>
-					<span class="oc-tab-count"><?php echo count( $clipart ); ?></span>
-				</button>
-				<button class="oc-tab" data-target="oc-tab-clipart-groups" type="button">
-					<?php esc_html_e( 'Clipart Groups', 'overcustomise' ); ?>
-					<span class="oc-tab-count"><?php echo count( $groups ); ?></span>
-				</button>
-			</div>
+			<div id="oc-library-toolbar" class="oc-library-toolbar"></div>
 
 			<!-- ── Tab: Clipart ───────────────────────────────────────────── -->
 			<div id="oc-tab-clipart" class="oc-tab-panel">
@@ -213,13 +204,6 @@ class OC_Admin_Clipart {
 								</div>
 							<?php endforeach; ?>
 						</div>
-						<?php if ( count( $clipart ) > self::INITIAL_CARD_LIMIT ) : ?>
-							<div style="padding:0 18px 18px;text-align:center;">
-								<button type="button" class="button" id="oc-clipart-load-more" data-offset="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>">
-									<?php esc_html_e( 'Load more clipart', 'overcustomise' ); ?>
-								</button>
-							</div>
-						<?php endif; ?>
 					<?php endif; ?>
 				</div>
 			</div>

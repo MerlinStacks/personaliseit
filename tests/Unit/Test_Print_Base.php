@@ -1112,6 +1112,60 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function image_only_production_pdf_has_no_font_resources(): void {
+		$pdf = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
+		// A real image exercises the image path without relying on Ghostscript cleanup.
+		$image = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC' );
+		foreach ( range( 1, 2 ) as $page ) {
+			$pdf->AddPage();
+			$pdf->Image( '@' . $image, 0, 0, 40, 30, 'PNG' );
+		}
+		$raw = $pdf->Output( 'images.pdf', 'S' );
+
+		$this->assertStringContainsString( '/Subtype /Image', $raw );
+		$this->assertDoesNotMatchRegularExpression( '~/Type\s*/Font\b|/BaseFont\b~', $raw );
+		$this->assertStringNotContainsString( 'Helvetica', $raw );
+	}
+
+	#[Test]
+	public function production_pdf_only_registers_the_selected_text_font(): void {
+		$pdf = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
+		$pdf->AddPage();
+		$pdf->SetFont( 'courier', '', 12 );
+		$pdf->Text( 2, 2, 'Print text' );
+		$raw = $pdf->Output( 'text.pdf', 'S' );
+
+		$this->assertStringContainsString( '/BaseFont /Courier', $raw );
+		$this->assertStringNotContainsString( 'Helvetica', $raw );
+	}
+
+	#[Test]
+	public function production_pdf_initialises_default_font_when_text_is_drawn(): void {
+		$pdf = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
+		$pdf->AddPage();
+		$pdf->Text( 2, 2, 'Default font text' );
+		$raw = $pdf->Output( 'default-text.pdf', 'S' );
+
+		$this->assertStringContainsString( '/BaseFont /Helvetica', $raw );
+	}
+
+	#[Test]
+	public function production_pdf_can_measure_the_deferred_default_font(): void {
+		$queries = [
+			static fn( $pdf ) => $pdf->GetStringWidth( 'Hello' ),
+			static fn( $pdf ) => $pdf->GetCharWidth( 'H' ),
+			static fn( $pdf ) => $pdf->getCharBBox( 'H' ),
+			static fn( $pdf ) => $pdf->isCharDefined( 'H' ),
+			static fn( $pdf ) => $pdf->replaceMissingChars( 'Hello' ),
+		];
+		foreach ( $queries as $query ) {
+			$pdf = OC_Print_Base_Testable::test_make_pdf( 40.0, 30.0 );
+			$reference = new TCPDF();
+			$this->assertSame( $query( $reference ), $query( $pdf ) );
+		}
+	}
+
+	#[Test]
 	public function production_pdf_command_outlines_fonts_without_rasterising(): void {
 		$command = OC_Print_Base_Testable::test_ghostscript_outline_command( 'gs', '/tmp/source.pdf', '/tmp/output.pdf' );
 

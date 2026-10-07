@@ -11,11 +11,14 @@
  * - "Add weight / style" from detail panel pre-fills the upload modal
  */
 
+import { createLibraryBrowser } from './library-browser';
+
 ( function () {
 	'use strict';
 
 	// ── State ──────────────────────────────────────────────────────────────────
 	let fonts = window.ocFontsData || [];
+	let libraryBrowser = null;
 	const nonce = window.ocFontNonce || '';
 	const ajaxUrl = window.ocAjaxUrl || '';
 
@@ -45,7 +48,6 @@
 	const embroCheck = document.getElementById( 'oc_font_embroidery' );
 	const uploadError = document.getElementById( 'oc-upload-error' );
 	const fontGrid = document.getElementById( 'oc-font-grid' );
-	const loadMoreFontsBtn = document.getElementById( 'oc-font-load-more' );
 	const fontsEmpty = document.getElementById( 'oc-fonts-empty' );
 	const fontsCount = document.getElementById( 'oc-fonts-count' );
 	const detailPanel = document.getElementById( 'oc-font-detail' );
@@ -474,6 +476,10 @@
 	}
 
 	function addCardToGrid( font ) {
+		if ( libraryBrowser ) {
+			libraryBrowser.refresh();
+			return;
+		}
 		if ( fontsEmpty ) {
 			fontsEmpty.style.display = 'none';
 		}
@@ -484,6 +490,10 @@
 	}
 
 	function updateFontsCount() {
+		if ( libraryBrowser ) {
+			libraryBrowser.refresh();
+			return;
+		}
 		if ( ! fontsCount ) {
 			return;
 		}
@@ -727,6 +737,10 @@
 	}
 
 	function replaceFontCard( font ) {
+		if ( libraryBrowser ) {
+			libraryBrowser.refresh();
+			return;
+		}
 		const existing = document.querySelector(
 			`.oc-font-card[data-font-id="${ font.id }"]`
 		);
@@ -803,6 +817,7 @@
 				detailFontName = json.data.newName;
 				detailNameInput.value = json.data.newName;
 			}
+			libraryBrowser?.refresh();
 		} catch ( err ) {
 			alert( err?.message || 'Network error — please try again.' );
 		} finally {
@@ -830,19 +845,6 @@
 	}
 
 	document.querySelectorAll( '.oc-font-card' ).forEach( bindCardClick );
-
-	if ( loadMoreFontsBtn ) {
-		loadMoreFontsBtn.addEventListener( 'click', function () {
-			const offset = Number( this.dataset.offset || 0 );
-			const step = Number( this.dataset.step || 60 );
-			fonts.slice( offset, offset + step ).forEach( addCardToGrid );
-			const nextOffset = offset + step;
-			this.dataset.offset = String( nextOffset );
-			if ( nextOffset >= fonts.length ) {
-				this.parentElement?.remove();
-			}
-		} );
-	}
 
 	document.addEventListener( 'click', function ( e ) {
 		const btn = e.target.closest( '.oc-font-convert-btn' );
@@ -948,30 +950,9 @@
 		openUploadModal( detailFontName );
 	} );
 
-	// ── Tab switching ──────────────────────────────────────────────────────────
+	// Group creation remains available beside the upload button.
 
 	const createGroupBtn = document.getElementById( 'oc-create-group-btn' );
-
-	document.querySelectorAll( '.oc-tab' ).forEach( function ( tab ) {
-		tab.addEventListener( 'click', function () {
-			document
-				.querySelectorAll( '.oc-tab' )
-				.forEach( ( t ) => t.classList.remove( 'oc-tab--active' ) );
-			document.querySelectorAll( '.oc-tab-panel' ).forEach( ( p ) => {
-				p.hidden = true;
-			} );
-			tab.classList.add( 'oc-tab--active' );
-			document.getElementById( tab.dataset.target ).hidden = false;
-
-			const onFonts = tab.dataset.target === 'oc-tab-fonts';
-			if ( uploadFontBtn ) {
-				uploadFontBtn.style.display = onFonts ? '' : 'none';
-			}
-			if ( createGroupBtn ) {
-				createGroupBtn.style.display = onFonts ? 'none' : '';
-			}
-		} );
-	} );
 
 	// ── Groups state ───────────────────────────────────────────────────────────
 
@@ -993,6 +974,21 @@
 	const selectedCountEl = document.getElementById(
 		'oc-group-selected-count'
 	);
+
+	libraryBrowser = createLibraryBrowser( {
+		grid: fontGrid,
+		count: fontsCount,
+		empty: fontsEmpty,
+		getItems: () => fonts,
+		getGroups: () => groups,
+		memberKey: 'fontIds',
+		buildCard: ( font ) => {
+			const card = buildCardEl( font );
+			bindCardClick( card );
+			return card;
+		},
+		editGroup: openGroupModal,
+	} );
 
 	// ── Group modal open / close ───────────────────────────────────────────────
 
@@ -1159,6 +1155,7 @@
 				updateGroupsCount();
 			}
 
+			libraryBrowser?.refresh();
 			if ( generation === groupGeneration ) {
 				closeGroupModal();
 			}
@@ -1281,6 +1278,7 @@
 	}
 
 	function updateGroupsCount() {
+		libraryBrowser?.refresh();
 		if ( ! groupsCount ) {
 			return;
 		}

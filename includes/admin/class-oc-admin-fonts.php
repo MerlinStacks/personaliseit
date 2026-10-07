@@ -11,7 +11,7 @@ defined( 'ABSPATH' ) || exit;
 class OC_Admin_Fonts {
 
 	private const FONT_SUBDIR        = 'overcustomise/fonts';
-	private const INITIAL_CARD_LIMIT = 60;
+	private const INITIAL_CARD_LIMIT = 24;
 
 	/** Clear cached font and font-group data after manager changes. */
 	private static function clear_font_cache(): void {
@@ -71,7 +71,7 @@ class OC_Admin_Fonts {
 		window.ocAjaxUrl    = <?php echo wp_json_encode( admin_url( 'admin-ajax.php' ) ); ?>;
 		</script>
 
-		<div class="wrap oc-page">
+		<div class="wrap oc-page oc-library-page">
 
 			<div class="oc-page-header">
 				<div class="oc-page-header-left">
@@ -82,23 +82,14 @@ class OC_Admin_Fonts {
 					<button id="oc-upload-font-btn" class="oc-btn oc-btn-primary" type="button">
 						+ <?php esc_html_e( 'Upload Font', 'overcustomise' ); ?>
 					</button>
-					<button id="oc-create-group-btn" class="oc-btn oc-btn-primary" type="button" style="display:none;">
+					<button id="oc-create-group-btn" class="oc-btn oc-btn-secondary" type="button">
 						+ <?php esc_html_e( 'Create Group', 'overcustomise' ); ?>
 					</button>
 				</div>
 			</div>
 
 			<!-- Tabs ─────────────────────────────────────────────────────────── -->
-			<div class="oc-tabs-bar">
-				<button class="oc-tab oc-tab--active" data-target="oc-tab-fonts" type="button">
-					<?php esc_html_e( 'Fonts', 'overcustomise' ); ?>
-					<span class="oc-tab-count"><?php echo count( $fonts ); ?></span>
-				</button>
-				<button class="oc-tab" data-target="oc-tab-groups" type="button">
-					<?php esc_html_e( 'Font Groups', 'overcustomise' ); ?>
-					<span class="oc-tab-count"><?php echo count( $groups ); ?></span>
-				</button>
-			</div>
+			<div id="oc-library-toolbar" class="oc-library-toolbar"></div>
 
 			<!-- ── Tab: Fonts ──────────────────────────────────────────────── -->
 			<div id="oc-tab-fonts" class="oc-tab-panel">
@@ -192,13 +183,6 @@ class OC_Admin_Fonts {
 								</div>
 							<?php endforeach; ?>
 						</div>
-						<?php if ( count( $fonts ) > self::INITIAL_CARD_LIMIT ) : ?>
-							<div style="padding:0 18px 18px;text-align:center;">
-								<button type="button" class="button" id="oc-font-load-more" data-offset="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>" data-step="<?php echo esc_attr( (string) self::INITIAL_CARD_LIMIT ); ?>">
-									<?php esc_html_e( 'Load more fonts', 'overcustomise' ); ?>
-								</button>
-							</div>
-						<?php endif; ?>
 					<?php endif; ?>
 				</div>
 

@@ -1,4 +1,5 @@
 import ImageTracer from 'imagetracerjs';
+import { createLibraryBrowser } from './library-browser';
 
 /* eslint-disable no-console, no-alert, no-undef, @wordpress/no-unused-vars-before-return, no-unused-vars */
 
@@ -6,7 +7,7 @@ import ImageTracer from 'imagetracerjs';
  * Clipart Manager admin JS.
  *
  * Handles:
- *  - Tab switching (Clipart / Clipart Groups)
+ *  - Search, group/status filters and numbered pagination
  *  - Upload modal with drag-and-drop (step 1 then step 2 then AJAX)
  *  - Edit modal — rename via AJAX; delete via server redirect link
  *  - Clipart group editor modal (create / update / delete)
@@ -37,6 +38,7 @@ let groupModalGeneration = 0;
 let uploadWrite = null;
 let editWrite = null;
 let groupWrite = null;
+let libraryBrowser = null;
 
 // ---------------------------------------------------------------------------
 // Normalisers
@@ -106,43 +108,6 @@ function h( str ) {
 		.replace( /</g, '&lt;' )
 		.replace( />/g, '&gt;' )
 		.replace( /"/g, '&quot;' );
-}
-
-// ---------------------------------------------------------------------------
-// Tab switching
-// ---------------------------------------------------------------------------
-
-function initTabs() {
-	const tabs = document.querySelectorAll( '.oc-tab' );
-	const panels = document.querySelectorAll( '.oc-tab-panel' );
-
-	const uploadBtn = document.getElementById( 'oc-upload-clipart-btn' );
-	const createGrpBtn = document.getElementById(
-		'oc-create-clipart-group-btn'
-	);
-
-	tabs.forEach( ( tab ) => {
-		tab.addEventListener( 'click', () => {
-			tabs.forEach( ( t ) => t.classList.remove( 'oc-tab--active' ) );
-			panels.forEach( ( p ) => {
-				p.hidden = true;
-			} );
-
-			tab.classList.add( 'oc-tab--active' );
-			const target = document.getElementById( tab.dataset.target );
-			if ( target ) {
-				target.hidden = false;
-			}
-
-			const isGroups = tab.dataset.target === 'oc-tab-clipart-groups';
-			if ( uploadBtn ) {
-				uploadBtn.style.display = isGroups ? 'none' : '';
-			}
-			if ( createGrpBtn ) {
-				createGrpBtn.style.display = isGroups ? 'inline-flex' : 'none';
-			}
-		} );
-	} );
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +378,10 @@ function safeFilename( value ) {
 }
 
 function updateClipartGridUI() {
+	if ( libraryBrowser ) {
+		libraryBrowser.refresh();
+		return;
+	}
 	const grid = document.getElementById( 'oc-clipart-grid' );
 	const empty = document.getElementById( 'oc-clipart-empty' );
 	const count = document.getElementById( 'oc-clipart-count' );
@@ -448,7 +417,6 @@ function updateClipartGridUI() {
 	clipart.forEach( ( c ) => {
 		grid.appendChild( buildClipartCardEl( c ) );
 	} );
-	document.getElementById( 'oc-clipart-load-more' )?.parentElement?.remove();
 }
 
 function bindClipartCard( card ) {
@@ -959,33 +927,8 @@ function initEditModal() {
 		}
 	} );
 
-	// Wire up server-rendered cards and append additional cards on demand.
+	// Wire up server-rendered cards before the library browser initialises.
 	document.querySelectorAll( '.oc-clipart-card' ).forEach( bindClipartCard );
-	document
-		.getElementById( 'oc-clipart-load-more' )
-		?.addEventListener( 'click', function () {
-			const grid = document.getElementById( 'oc-clipart-grid' );
-			const step = Number( this.dataset.step || 60 );
-			if ( ! grid ) {
-				return;
-			}
-			const renderedIds = new Set(
-				[ ...grid.querySelectorAll( '.oc-clipart-card' ) ].map(
-					( card ) => Number( card.dataset.clipartId )
-				)
-			);
-			clipart
-				.filter( ( item ) => ! renderedIds.has( item.id ) )
-				.slice( 0, step )
-				.forEach( ( item ) => {
-					grid.appendChild( buildClipartCardEl( item ) );
-					renderedIds.add( item.id );
-				} );
-			this.dataset.offset = String( renderedIds.size );
-			if ( renderedIds.size >= clipart.length ) {
-				this.parentElement?.remove();
-			}
-		} );
 }
 
 // ---------------------------------------------------------------------------
@@ -1061,6 +1004,7 @@ function buildGroupCardEl( group ) {
 }
 
 function updateGroupGridUI() {
+	libraryBrowser?.refresh();
 	const grid = document.getElementById( 'oc-clipart-group-grid' );
 	const empty = document.getElementById( 'oc-clipart-groups-empty' );
 	const count = document.getElementById( 'oc-clipart-groups-count' );
@@ -1394,8 +1338,17 @@ function initGroupModal() {
 // ---------------------------------------------------------------------------
 
 document.addEventListener( 'DOMContentLoaded', () => {
-	initTabs();
 	initUploadModal();
 	initEditModal();
 	initGroupModal();
+	libraryBrowser = createLibraryBrowser( {
+		grid: document.getElementById( 'oc-clipart-grid' ),
+		count: document.getElementById( 'oc-clipart-count' ),
+		empty: document.getElementById( 'oc-clipart-empty' ),
+		getItems: () => clipart,
+		getGroups: () => groups,
+		memberKey: 'clipartIds',
+		buildCard: buildClipartCardEl,
+		editGroup: ( group ) => openGroupModal( group.id ),
+	} );
 } );

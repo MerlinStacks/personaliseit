@@ -486,7 +486,9 @@ test( 'font group create remains a create after opening an existing group', asyn
 	const response = deferred();
 	let added = 0;
 	let closed = 0;
+	let refreshed = 0;
 	const globals = {
+		libraryBrowser: { refresh: () => refreshed++ },
 		editingGroup: null,
 		groupGeneration: 1,
 		groupWrite: false,
@@ -522,6 +524,7 @@ test( 'font group create remains a create after opening an existing group', asyn
 	assert.equal( globals.groups.length, 2 );
 	assert.equal( added, 1 );
 	assert.equal( closed, 0 );
+	assert.equal( refreshed, 1 );
 } );
 
 for ( const manager of [ 'colour', 'clipart' ] ) {
