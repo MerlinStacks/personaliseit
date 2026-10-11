@@ -51,9 +51,9 @@ class OC_Embroidery_Raster {
 			throw new \RuntimeException( 'Could not read composed embroidery artwork.' );
 		}
 		try {
-			$header = fread( $stream, 4096 );
+			$header                   = fread( $stream, 4096 );
 			[ $dpi, $width, $height ] = OC_Print_Embroidery::bmp_geometry( (string) $header );
-			$renderer = new self( $width, $height, $dpi / 72 );
+			$renderer                 = new self( $width, $height, $dpi / 72 );
 			rewind( $stream );
 			try {
 				while ( false !== ( $line = fgets( $stream, 1048577 ) ) ) { // phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition -- Stream one bounded line at a time.

@@ -72,7 +72,7 @@ class Test_Embroidery_Gd extends TestCase {
 	public function configured_resolution_preserves_physical_size_and_artwork_scale(): void {
 		foreach ( [ 300, 600 ] as $dpi ) {
 			$source = $this->temporary( 'eps' );
-			$bmp = $this->temporary( 'bmp' );
+			$bmp    = $this->temporary( 'bmp' );
 			file_put_contents( $source, "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 72 36\n%%OCOutputDPI: {$dpi}\n1 0 0 setrgbcolor 0 0 36 36 rectfill\nshowpage\n" );
 			OC_Embroidery_Raster::render( $source, $bmp );
 			$header = file_get_contents( $bmp, false, null, 0, 54 );
@@ -95,10 +95,26 @@ class Test_Embroidery_Gd extends TestCase {
 			$lines = [ 'gsave 36 18 translate' ];
 			( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' ) )->invokeArgs(
 				null,
-				[ &$lines, [ 'value' => 'The Eleanor', 'fontSize' => 40 ], [ 'min_font_size' => 40, 'alignment' => $alignment ], -24.0, -10.0, 48.0, 20.0, true, 1.0 ]
+				[
+					&$lines,
+					[
+						'value'    => 'The Eleanor',
+						'fontSize' => 40,
+					],
+					[
+						'min_font_size' => 40,
+						'alignment'     => $alignment,
+					],
+					-24.0,
+					-10.0,
+					48.0,
+					20.0,
+					true,
+					1.0,
+				]
 			);
 			$lines[] = 'grestore';
-			$source = $this->temporary( 'eps' );
+			$source  = $this->temporary( 'eps' );
 			file_put_contents( $source, "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 72 36\n" . implode( "\n", $lines ) . "\nshowpage\n" );
 			foreach ( $binary ? [ 'gd', 'gs' ] : [ 'gd' ] as $backend ) {
 				$bmp = $this->temporary( 'bmp' );
@@ -107,7 +123,7 @@ class Test_Embroidery_Gd extends TestCase {
 				} else {
 					OC_Embroidery_Raster::render( $source, $bmp );
 				}
-				$image = imagecreatefrombmp( $bmp );
+				$image   = imagecreatefrombmp( $bmp );
 				$painted = 0;
 				$outside = 0;
 				for ( $y = 0; $y < 72; ++$y ) {
@@ -344,10 +360,28 @@ newpath 0 0 10 0 360 arc closepath clip newpath
 	}
 
 	#[Test]
+	public function large_artboard_reduces_dpi_without_exceeding_pixel_limit(): void {
+		$source = $this->temporary( 'eps' );
+		$bmp    = $this->temporary( 'bmp' );
+		file_put_contents( $source, "%%BoundingBox: 0 0 3000 36\n%%OCOutputDPI: 600\n1 0 0 setrgbcolor 0 0 1500 36 rectfill\nshowpage\n" );
+		OC_Embroidery_Raster::render( $source, $bmp );
+		$header = file_get_contents( $bmp, false, null, 0, 54 );
+		$this->assertSame( (int) round( 98 / 0.0254 ), unpack( 'V', substr( $header, 38, 4 ) )[1] );
+		$image = imagecreatefrombmp( $bmp );
+		$this->assertSame( 4083, imagesx( $image ) );
+		$this->assertSame( 49, imagesy( $image ) );
+		$this->assertSame( 0xff0000, imagecolorat( $image, 1000, 20 ) );
+		$this->assertSame( 0xffffff, imagecolorat( $image, 3000, 20 ) );
+		imagedestroy( $image );
+	}
+
+	#[Test]
 	public function oversized_artboard_is_rejected_before_allocation(): void {
 		$source = $this->temporary( 'eps' );
-		file_put_contents( $source, "%%BoundingBox: 0 0 3000 36\n" );
+		// Even the minimum 72 DPI would exceed the 4096-pixel allocation limit.
+		file_put_contents( $source, "%%BoundingBox: 0 0 4097 36\n%%OCOutputDPI: 600\n" );
 		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'Embroidery artwork exceeds the BMP rendering size limit.' );
 		OC_Embroidery_Raster::render( $source, $this->temporary( 'bmp' ) );
 	}
 }

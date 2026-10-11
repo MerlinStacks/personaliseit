@@ -99,9 +99,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Rasterise artwork at the configured DPI, retaining Hatch-compatible RGB output. */
 	private static function render_bmp( string $binary, string $source, string $destination ): void {
-		$header = file_get_contents( $source, false, null, 0, 4096 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local generated file.
+		$header                   = file_get_contents( $source, false, null, 0, 4096 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local generated file.
 		[ $dpi, $width, $height ] = self::bmp_geometry( (string) $header );
-		$result = OC_Command_Runner::run(
+		$result                   = OC_Command_Runner::run(
 			[
 				$binary,
 				'-dSAFER',
@@ -119,7 +119,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				$source,
 			]
 		);
-		$info   = is_file( $destination ) ? @getimagesize( $destination ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Invalid output is rejected below.
+		$info                     = is_file( $destination ) ? @getimagesize( $destination ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Invalid output is rejected below.
 		if ( 0 !== (int) $result['code'] || ! $info || IMAGETYPE_BMP !== $info[2]
 			|| $info[0] !== $width || $info[1] !== $height ) {
 			throw new \RuntimeException( esc_html__( 'Could not render embroidery BMP artwork. Check server Ghostscript support.', 'overcustomise' ) );
@@ -175,15 +175,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		array $area_data
 	): string {
 		$area_data = self::normalise_payload( $area_data );
+
 		[ $area, $w_mm, $h_mm ] = self::normalise_rotated_artboard_for_print( $area, $area_data );
-		$w_pt            = max( 1, (int) ceil( self::mm_to_pt( $w_mm ) ) );
-		$h_pt            = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
-		$method_settings = class_exists( 'OC_Admin_Print_Methods' ) ? OC_Admin_Print_Methods::get( 'embroidery' ) : [];
-		$method_settings = is_array( $method_settings ) ? $method_settings : [];
-		$output_dpi      = max( 72, min( 2400, (int) ( $method_settings['dpi'] ?? 300 ) ) );
-		$max_colours     = max( 1, min( 32, (int) ( $method_settings['max_colours'] ?? 8 ) ) );
-		$thread_brand    = sanitize_text_field( (string) ( $method_settings['thread_brand'] ?? 'Madeira' ) );
-		$lines           = [
+		$w_pt                   = max( 1, (int) ceil( self::mm_to_pt( $w_mm ) ) );
+		$h_pt                   = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
+		$method_settings        = class_exists( 'OC_Admin_Print_Methods' ) ? OC_Admin_Print_Methods::get( 'embroidery' ) : [];
+		$method_settings        = is_array( $method_settings ) ? $method_settings : [];
+		$output_dpi             = max( 72, min( 2400, (int) ( $method_settings['dpi'] ?? 300 ) ) );
+		$max_colours            = max( 1, min( 32, (int) ( $method_settings['max_colours'] ?? 8 ) ) );
+		$thread_brand           = sanitize_text_field( (string) ( $method_settings['thread_brand'] ?? 'Madeira' ) );
+		$lines                  = [
 			'%!PS-Adobe-3.0 EPSF-3.0',
 			'%%Creator: OverCustomise',
 			'%%Title: Embroidery Artwork - Order #' . self::eps_comment( (string) $order->get_order_number() ),
@@ -539,7 +540,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$height_scale = min( 1.0, $h_pt / max( 0.01, count( $text_lines ) * $line_height ) );
 		$font_size   *= $height_scale;
 		$line_height *= $height_scale;
-		$widest_line = 0.0;
+		$widest_line  = 0.0;
 		foreach ( $text_lines as $text_line ) {
 			$widest_line = max( $widest_line, self::eps_text_width( $text_line, $font_path, $font_size ) );
 		}
@@ -713,13 +714,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return false;
 		}
 
-		$width    = (float) ( $outline['width'] ?? 0.0 );
-		$origin_y = $baseline_pt;
-		$bbox     = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : null;
+		$width        = (float) ( $outline['width'] ?? 0.0 );
+		$origin_y     = $baseline_pt;
+		$bbox         = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : null;
 		$left_bearing = $bbox ? min( 0.0, (float) $bbox[0] ) : 0.0;
-		$width = max( $width, $bbox ? (float) $bbox[2] : $width ) - $left_bearing;
-		$fit_scale = 1.0;
-		$glyph_h   = $bbox ? (float) $bbox[3] - (float) $bbox[1] : 0.0;
+		$width        = max( $width, $bbox ? (float) $bbox[2] : $width ) - $left_bearing;
+		$fit_scale    = 1.0;
+		$glyph_h      = $bbox ? (float) $bbox[3] - (float) $bbox[1] : 0.0;
 		if ( null !== $box_w_pt && $box_w_pt > 0.0 && $width > $box_w_pt ) {
 			$fit_scale = min( $fit_scale, $box_w_pt / $width );
 		}
