@@ -10,6 +10,8 @@
 
 /* eslint-disable no-console, no-alert, no-undef, @wordpress/no-unused-vars-before-return */
 
+import { createGroupPicker } from './group-picker';
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -560,6 +562,8 @@ function syncGroupWriteControls() {
 	}
 }
 
+let colourGroupPicker;
+
 function openGroupModal( id ) {
 	groupModalGeneration++;
 	editGroupId = id || null;
@@ -572,7 +576,12 @@ function openGroupModal( id ) {
 		deleteBtn.style.display = group ? '' : 'none';
 	}
 
-	renderColourPicker( group ? group.colourIds : [] );
+	colourGroupPicker ||= createGroupPicker(
+		groupPicker(),
+		renderColourPicker,
+		updateGroupSelCount
+	);
+	colourGroupPicker.open( colours, group ? group.colourIds : [] );
 
 	groupModal().hidden = false;
 	document.body.style.overflow = 'hidden';
@@ -588,7 +597,7 @@ function closeGroupModal() {
 	syncGroupWriteControls();
 }
 
-function renderColourPicker( selectedIds ) {
+function renderColourPicker( pageColours, selectedIds ) {
 	const picker = groupPicker();
 	if ( ! picker ) {
 		return;
@@ -596,11 +605,15 @@ function renderColourPicker( selectedIds ) {
 
 	picker.innerHTML = '';
 
-	colours.forEach( ( colour ) => {
+	if ( ! pageColours.length ) {
+		picker.textContent = 'No colours added yet.';
+	}
+	pageColours.forEach( ( colour ) => {
 		const checked = selectedIds.includes( colour.id );
 
 		const item = document.createElement( 'label' );
-		item.className = 'oc-group-font-item';
+		item.className =
+			'oc-group-font-item' + ( checked ? ' oc-selected' : '' );
 		item.innerHTML = `
 			<input type="checkbox" value="${ colour.id }" ${ checked ? 'checked' : '' } />
 			<span class="oc-colour-dot" style="background:${ h(
@@ -611,27 +624,18 @@ function renderColourPicker( selectedIds ) {
 				<span class="oc-group-font-info-meta">${ h( colour.hex.toUpperCase() ) }</span>
 			</span>`;
 
-		item.querySelector( 'input' ).addEventListener(
-			'change',
-			updateGroupSelCount
-		);
 		picker.appendChild( item );
 	} );
-
-	updateGroupSelCount();
 }
 
-function updateGroupSelCount() {
-	const n = groupPicker()?.querySelectorAll( 'input:checked' ).length ?? 0;
+function updateGroupSelCount( n ) {
 	if ( groupSelCount() ) {
 		groupSelCount().textContent = n + ' selected';
 	}
 }
 
 function selectedColourIds() {
-	return [
-		...( groupPicker()?.querySelectorAll( 'input:checked' ) || [] ),
-	].map( ( cb ) => Number( cb.value ) );
+	return colourGroupPicker.getSelectedIds();
 }
 
 async function saveGroup() {

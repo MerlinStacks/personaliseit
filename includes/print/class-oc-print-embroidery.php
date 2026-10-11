@@ -83,16 +83,24 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		}
 	}
 
-	/** Rasterise the composed artwork with the same settings proven in Hatch 3. */
-	private static function render_bmp( string $binary, string $source, string $destination ): void {
-		$header = file_get_contents( $source, false, null, 0, 4096 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local generated file.
-		if ( ! preg_match( '/%%BoundingBox: 0 0 (\d+) (\d+)/', (string) $header, $bounds ) ) {
+	/** Resolve output resolution and bounded pixel dimensions from our EPS header. */
+	public static function bmp_geometry( string $header ): array {
+		if ( ! preg_match( '/%%BoundingBox: 0 0 (\d+) (\d+)/', $header, $bounds ) || min( (int) $bounds[1], (int) $bounds[2] ) < 1 ) {
 			throw new \RuntimeException( 'Missing embroidery artwork dimensions.' );
 		}
-		// 144 DPI matches the successful Hatch test; cap dimensions before rendering.
-		if ( (int) $bounds[1] * 2 > 4096 || (int) $bounds[2] * 2 > 4096 ) {
+		// Older internal fixtures without resolution metadata retain their original scale.
+		$dpi = preg_match( '/%%OCOutputDPI: (\d+)/', $header, $resolution ) ? max( 72, min( 2400, (int) $resolution[1] ) ) : 144;
+		$dpi = min( $dpi, (int) floor( 4096 * 72 / max( (int) $bounds[1], (int) $bounds[2] ) ) );
+		if ( $dpi < 72 ) {
 			throw new \RuntimeException( 'Embroidery artwork exceeds the BMP rendering size limit.' );
 		}
+		return [ $dpi, (int) round( (int) $bounds[1] * $dpi / 72 ), (int) round( (int) $bounds[2] * $dpi / 72 ) ];
+	}
+
+	/** Rasterise artwork at the configured DPI, retaining Hatch-compatible RGB output. */
+	private static function render_bmp( string $binary, string $source, string $destination ): void {
+		$header = file_get_contents( $source, false, null, 0, 4096 ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local generated file.
+		[ $dpi, $width, $height ] = self::bmp_geometry( (string) $header );
 		$result = OC_Command_Runner::run(
 			[
 				$binary,
@@ -104,7 +112,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 				'-dFirstPage=1',
 				'-dLastPage=1',
 				'-sDEVICE=bmp16m',
-				'-r144',
+				'-r' . $dpi,
 				'-dTextAlphaBits=1',
 				'-dGraphicsAlphaBits=1',
 				'-sOutputFile=' . $destination,
@@ -113,7 +121,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		);
 		$info   = is_file( $destination ) ? @getimagesize( $destination ) : false; // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged -- Invalid output is rejected below.
 		if ( 0 !== (int) $result['code'] || ! $info || IMAGETYPE_BMP !== $info[2]
-			|| $info[0] !== (int) $bounds[1] * 2 || $info[1] !== (int) $bounds[2] * 2 ) {
+			|| $info[0] !== $width || $info[1] !== $height ) {
 			throw new \RuntimeException( esc_html__( 'Could not render embroidery BMP artwork. Check server Ghostscript support.', 'overcustomise' ) );
 		}
 	}
@@ -172,7 +180,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$h_pt            = max( 1, (int) ceil( self::mm_to_pt( $h_mm ) ) );
 		$method_settings = class_exists( 'OC_Admin_Print_Methods' ) ? OC_Admin_Print_Methods::get( 'embroidery' ) : [];
 		$method_settings = is_array( $method_settings ) ? $method_settings : [];
-		$output_dpi      = self::normalise_canvas_dpi( $method_settings['dpi'] ?? self::CANVAS_DPI );
+		$output_dpi      = max( 72, min( 2400, (int) ( $method_settings['dpi'] ?? 300 ) ) );
 		$max_colours     = max( 1, min( 32, (int) ( $method_settings['max_colours'] ?? 8 ) ) );
 		$thread_brand    = sanitize_text_field( (string) ( $method_settings['thread_brand'] ?? 'Madeira' ) );
 		$lines           = [
@@ -525,6 +533,21 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 		} while ( $shrink );
 
+		// The minimum is an editor preference, not permission to crop production
+		// artwork. Fabric can compress a single line after reaching that minimum.
+		// Fit the complete block here too, including script-font overhangs.
+		$height_scale = min( 1.0, $h_pt / max( 0.01, count( $text_lines ) * $line_height ) );
+		$font_size   *= $height_scale;
+		$line_height *= $height_scale;
+		$widest_line = 0.0;
+		foreach ( $text_lines as $text_line ) {
+			$widest_line = max( $widest_line, self::eps_text_width( $text_line, $font_path, $font_size ) );
+		}
+		$width_scale = min( 1.0, $w_pt / max( 0.01, $widest_line ) );
+		if ( ! is_finite( $widest_line ) || $width_scale <= 0.0 || $font_size <= 0.0 ) {
+			throw new \RuntimeException( 'Could not fit embroidery text to its print bounds.' );
+		}
+
 		// EPS glyphs extend upwards from their baseline. Align the painted block,
 		// not the baseline itself, otherwise captions rise into artwork above them.
 		$block_bounds = null;
@@ -545,6 +568,9 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		];
 		if ( $multiline ) {
 			$paint[] = sprintf( 'newpath %.4F %.4F moveto %.4F 0 rlineto 0 %.4F rlineto %.4F 0 rlineto closepath clip newpath', $x_pt, $y_pt, $w_pt, $h_pt, -$w_pt );
+		}
+		if ( $width_scale < 1.0 ) {
+			$paint[] = sprintf( '%.4F 0 translate %.8F 1 scale %.4F 0 translate', $anchor_x, $width_scale, -$anchor_x );
 		}
 		$paint[] = sprintf( '%.4F %.4F %.4F setrgbcolor', $r, $g, $b );
 		if ( $font_id <= 0 && ! self::$native_raster ) {
@@ -644,9 +670,16 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	private static function eps_text_width( string $text, ?string $font_path, float $font_size ): float {
+		if ( '' === $text ) {
+			return 0.0;
+		}
 		if ( is_string( $font_path ) && '' !== $font_path ) {
 			$outline = self::ttf_text_outline( $font_path, $text, $font_size );
-			return is_array( $outline ) ? (float) ( $outline['width'] ?? INF ) : INF;
+			if ( ! is_array( $outline ) ) {
+				return INF;
+			}
+			$bbox = $outline['bbox'] ?? [ 0.0, 0.0, 0.0, 0.0 ];
+			return max( (float) $outline['width'], (float) $bbox[2] ) - min( 0.0, (float) $bbox[0] );
 		}
 
 		return count( self::utf8_codepoints( $text ) ) * $font_size * 0.55;
@@ -683,6 +716,8 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$width    = (float) ( $outline['width'] ?? 0.0 );
 		$origin_y = $baseline_pt;
 		$bbox     = is_array( $outline['bbox'] ?? null ) ? $outline['bbox'] : null;
+		$left_bearing = $bbox ? min( 0.0, (float) $bbox[0] ) : 0.0;
+		$width = max( $width, $bbox ? (float) $bbox[2] : $width ) - $left_bearing;
 		$fit_scale = 1.0;
 		$glyph_h   = $bbox ? (float) $bbox[3] - (float) $bbox[1] : 0.0;
 		if ( null !== $box_w_pt && $box_w_pt > 0.0 && $width > $box_w_pt ) {
@@ -707,6 +742,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		if ( null !== $box_x_pt && null !== $box_w_pt && 'center' === $align ) {
 			$origin_x = $box_x_pt + ( $box_w_pt - $fitted_width ) / 2;
 		}
+		$origin_x -= $left_bearing * $fit_scale;
 
 		$lines[] = '%%OCTextOutline: glyph-paths';
 		$lines[] = '%%OCTextFontFile: ' . self::eps_comment( basename( $font_path ) );

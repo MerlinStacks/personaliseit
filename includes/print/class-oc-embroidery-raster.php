@@ -52,10 +52,8 @@ class OC_Embroidery_Raster {
 		}
 		try {
 			$header = fread( $stream, 4096 );
-			if ( ! preg_match( '/%%BoundingBox: 0 0 (\d+) (\d+)/', (string) $header, $bounds ) ) {
-				throw new \RuntimeException( 'Missing embroidery artwork dimensions.' );
-			}
-			$renderer = new self( (int) $bounds[1] * 2, (int) $bounds[2] * 2 );
+			[ $dpi, $width, $height ] = OC_Print_Embroidery::bmp_geometry( (string) $header );
+			$renderer = new self( $width, $height, $dpi / 72 );
 			rewind( $stream );
 			try {
 				while ( false !== ( $line = fgets( $stream, 1048577 ) ) ) { // phpcs:ignore Generic.CodeAnalysis.AssignmentInCondition.FoundInWhileCondition -- Stream one bounded line at a time.
@@ -79,7 +77,8 @@ class OC_Embroidery_Raster {
 					throw new \RuntimeException( 'Could not set embroidery BMP resolution.' );
 				}
 				try {
-					if ( 0 !== fseek( $output, 38 ) || 8 !== fwrite( $output, pack( 'V2', 5669, 5669 ) ) || ! fflush( $output ) ) {
+					$pixels_per_metre = (int) round( $dpi / 0.0254 );
+					if ( 0 !== fseek( $output, 38 ) || 8 !== fwrite( $output, pack( 'V2', $pixels_per_metre, $pixels_per_metre ) ) || ! fflush( $output ) ) {
 						throw new \RuntimeException( 'Could not set embroidery BMP resolution.' );
 					}
 				} finally {
@@ -93,13 +92,13 @@ class OC_Embroidery_Raster {
 		}
 	}
 
-	private function __construct( int $width, int $height ) {
+	private function __construct( int $width, int $height, float $scale ) {
 		if ( min( $width, $height ) < 1 || max( $width, $height ) > 4096 ) {
 			throw new \RuntimeException( 'Embroidery artwork exceeds the BMP rendering size limit.' );
 		}
 		$this->width  = $width;
 		$this->height = $height;
-		$this->matrix = [ 2.0, 0.0, 0.0, -2.0, 0.0, (float) $height ];
+		$this->matrix = [ $scale, 0.0, 0.0, -$scale, 0.0, (float) $height ];
 		$this->image  = imagecreatetruecolor( $width, $height );
 		imagefilledrectangle( $this->image, 0, 0, $width - 1, $height - 1, 0xffffff );
 	}

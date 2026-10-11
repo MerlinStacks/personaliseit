@@ -546,8 +546,9 @@
 	flex-wrap: wrap;
 }
 
-/* Paginated font and clipart membership cards. */
+/* Paginated font, clipart and colour membership cards. */
 #oc-group-modal .oc-group-editor-modal,
+#oc-colour-group-modal .oc-group-editor-modal,
 #oc-clipart-group-modal .oc-group-editor-modal {
 	max-width: 800px;
 }

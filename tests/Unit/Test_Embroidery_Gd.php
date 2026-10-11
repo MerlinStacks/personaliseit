@@ -69,6 +69,63 @@ class Test_Embroidery_Gd extends TestCase {
 	}
 
 	#[Test]
+	public function configured_resolution_preserves_physical_size_and_artwork_scale(): void {
+		foreach ( [ 300, 600 ] as $dpi ) {
+			$source = $this->temporary( 'eps' );
+			$bmp = $this->temporary( 'bmp' );
+			file_put_contents( $source, "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 72 36\n%%OCOutputDPI: {$dpi}\n1 0 0 setrgbcolor 0 0 36 36 rectfill\nshowpage\n" );
+			OC_Embroidery_Raster::render( $source, $bmp );
+			$header = file_get_contents( $bmp, false, null, 0, 54 );
+			$this->assertSame( (int) round( $dpi / 0.0254 ), unpack( 'V', substr( $header, 38, 4 ) )[1] );
+			$this->assertSame( substr( $header, 38, 4 ), substr( $header, 42, 4 ) );
+			$image = imagecreatefrombmp( $bmp );
+			$this->assertSame( $dpi, imagesx( $image ) );
+			$this->assertSame( intdiv( $dpi, 2 ), imagesy( $image ) );
+			$this->assertSame( 0xff0000, imagecolorat( $image, intdiv( $dpi, 4 ), 30 ) );
+			$this->assertSame( 0xffffff, imagecolorat( $image, intdiv( $dpi * 3, 4 ), 30 ) );
+			imagedestroy( $image );
+		}
+	}
+
+	#[Test]
+	public function minimum_font_size_cannot_push_customer_text_outside_its_print_box(): void {
+		( new ReflectionProperty( OC_Print_Embroidery::class, 'native_raster' ) )->setValue( null, true );
+		$binary = OC_Preview_Generator::find_ghostscript();
+		foreach ( [ 'left', 'center', 'right' ] as $alignment ) {
+			$lines = [ 'gsave 36 18 translate' ];
+			( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' ) )->invokeArgs(
+				null,
+				[ &$lines, [ 'value' => 'The Eleanor', 'fontSize' => 40 ], [ 'min_font_size' => 40, 'alignment' => $alignment ], -24.0, -10.0, 48.0, 20.0, true, 1.0 ]
+			);
+			$lines[] = 'grestore';
+			$source = $this->temporary( 'eps' );
+			file_put_contents( $source, "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 0 0 72 36\n" . implode( "\n", $lines ) . "\nshowpage\n" );
+			foreach ( $binary ? [ 'gd', 'gs' ] : [ 'gd' ] as $backend ) {
+				$bmp = $this->temporary( 'bmp' );
+				if ( 'gs' === $backend ) {
+					( new ReflectionMethod( OC_Print_Embroidery::class, 'render_bmp' ) )->invoke( null, $binary, $source, $bmp );
+				} else {
+					OC_Embroidery_Raster::render( $source, $bmp );
+				}
+				$image = imagecreatefrombmp( $bmp );
+				$painted = 0;
+				$outside = 0;
+				for ( $y = 0; $y < 72; ++$y ) {
+					for ( $x = 0; $x < 144; ++$x ) {
+						if ( 0xffffff !== imagecolorat( $image, $x, $y ) ) {
+							++$painted;
+							$outside += $x < 23 || $x > 121 || $y < 15 || $y > 57 ? 1 : 0;
+						}
+					}
+				}
+				imagedestroy( $image );
+				$this->assertGreaterThan( 100, $painted, $backend . ': text must paint.' );
+				$this->assertSame( 0, $outside, $backend . ': text must fit before the page crops it (' . $alignment . ').' );
+			}
+		}
+	}
+
+	#[Test]
 	public function native_bitmap_retains_rgb_scale_white_background_and_winding_holes(): void {
 		$image = $this->render(
 			'1 0 0 setrgbcolor 0 0 36 36 rectfill
