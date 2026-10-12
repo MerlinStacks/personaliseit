@@ -145,6 +145,36 @@ test( 'lost logins preserve customer work and do not retry as a guest', async ()
 	assert.equal( app.inputs[ 1 ].value, 'Keep my customisation' );
 } );
 
+test( 'initial allowance reads authenticate logged-in customers and renew an expired nonce once', async () => {
+	const calls = [];
+	const app = fixture(
+		async ( url, options ) => {
+			calls.push( url );
+			if ( url === '/nonce' ) {
+				return new Response( '123456789a' );
+			}
+			assert.ok(
+				options.headers[ 'X-WP-Nonce' ],
+				'Quota reads must not become guest requests'
+			);
+			if ( options.headers[ 'X-WP-Nonce' ] === 'old-nonce' ) {
+				return rejected( 'rest_cookie_invalid_nonce' );
+			}
+			return json( {
+				token: newToken,
+				expires_in: 21600,
+				image_filter_quota: { remaining: 2, limit: 5 },
+			} );
+		},
+		{ uploadNonce: 'old-nonce', requestTokenExpiresAt: 0 }
+	);
+	app.renderAiFilterQuota = () => {};
+	await app.ensureRequestToken();
+	assert.deepEqual( calls, [ '/token', '/nonce', '/token' ] );
+	assert.equal( app.aiFilterQuota.remaining, 2 );
+	assert.equal( app.data.requestToken, newToken );
+} );
+
 test( 'network, server and unrelated permission failures never replay a write', async () => {
 	for ( const outcome of [
 		new Error( 'Connection lost' ),

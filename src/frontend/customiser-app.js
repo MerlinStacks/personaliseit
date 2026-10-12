@@ -594,13 +594,27 @@ class OCCustomiser {
 	async fetchRequestToken() {
 		const request = this.createStateAbortController( 12000 );
 		try {
-			const response = await fetch( this.data.requestTokenUrl, {
-				credentials: 'same-origin',
-				cache: 'no-store',
-				headers: { Accept: 'application/json' },
-				signal: request.controller.signal,
-			} );
-			const body = await response.json().catch( () => null );
+			const failed = this.authenticationSnapshot();
+			const send = () =>
+				fetch( this.data.requestTokenUrl, {
+					credentials: 'same-origin',
+					cache: 'no-store',
+					headers: this.restHeaders( { Accept: 'application/json' } ),
+					signal: request.controller.signal,
+				} );
+			let response = await send();
+			let body = await response.json().catch( () => null );
+			// Keep logged-in quota reads bound to the customer, rather than having
+			// WordPress silently treat a nonce-less REST request as a guest.
+			if (
+				failed.nonce &&
+				response.status === 403 &&
+				body?.code === 'rest_cookie_invalid_nonce'
+			) {
+				await this.recoverAuthentication( failed, body.code );
+				response = await send();
+				body = await response.json().catch( () => null );
+			}
 			const token = typeof body?.token === 'string' ? body.token : '';
 			const expiresIn = Number( body?.expires_in );
 			const tokenLifetime = Math.max(
@@ -615,6 +629,10 @@ class OCCustomiser {
 			}
 
 			this.data.requestToken = token;
+			if ( body.image_filter_quota ) {
+				this.aiFilterQuota = body.image_filter_quota;
+				this.renderAiFilterQuota();
+			}
 			this._requestTokenError = '';
 			this.data.requestTokenExpiresAt = Date.now() + tokenLifetime * 1000;
 			clearTimeout( this._requestTokenRefreshTimer );

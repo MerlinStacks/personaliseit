@@ -717,6 +717,49 @@ trait OC_Rest_API_Budgets {
 		return self::paid_ai_quota_specs( $actor, false );
 	}
 
+	/** Report the customer's remaining filter generations without reserving capacity. */
+	private static function image_filter_quota_status( string $actor ): ?array {
+		if ( current_user_can( 'manage_options' ) ) {
+			return [ 'unlimited' => true ];
+		}
+		$limit = self::filtered_limit( 'oc_ai_filter_actor_hourly_limit', 5, 1, 100 );
+		if ( null === $limit || '' === $actor ) {
+			return null;
+		}
+		// Reservations use transactional SQL. Read directly so an earlier cached
+		// missing option cannot hide a newly created budget row.
+		global $wpdb;
+		$raw = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT option_value FROM {$wpdb->options} WHERE option_name = %s",
+				self::budget_option_name( 'ai:actor:' . hash( 'sha256', $actor ) )
+			)
+		);
+		if ( '' !== $wpdb->last_error ) {
+			return null;
+		}
+		$buckets = [];
+		if ( null !== $raw ) {
+			try {
+				$state = is_string( $raw ) ? json_decode( $raw, true ) : null;
+				if ( ! is_array( $state ) ) {
+					return null;
+				}
+				$state   = self::normalise_sliding_budget_state( $state, 15 * MINUTE_IN_SECONDS, time() );
+				$buckets = $state['buckets'];
+			} catch ( \RuntimeException $e ) {
+				return null;
+			}
+		}
+		[ $used ] = self::sliding_budget_totals( $buckets );
+		return [
+			'limit'          => $limit,
+			'remaining'      => max( 0, $limit - $used ),
+			'window_seconds' => 15 * MINUTE_IN_SECONDS,
+			'next_reset_in'  => $buckets ? max( 1, $buckets[0]['timestamp'] + 15 * MINUTE_IN_SECONDS - time() ) : 0,
+		];
+	}
+
 	/** Build isolated text-to-image actor/IP/site quota rows. */
 	private static function ai_generation_quota_specs( string $actor ): array|\WP_Error {
 		return self::paid_ai_quota_specs( $actor, true );

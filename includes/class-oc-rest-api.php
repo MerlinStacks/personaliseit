@@ -180,6 +180,17 @@ class OC_Rest_API {
 			]
 		);
 
+		// List the customer's retained image effects for this product context.
+		register_rest_route(
+			self::NAMESPACE,
+			'/image-filter-history',
+			[
+				'methods'             => \WP_REST_Server::CREATABLE,
+				'callback'            => [ $this, 'image_filter_history' ],
+				'permission_callback' => [ $this, 'public_write_permission' ],
+			]
+		);
+
 		// Generate owned artwork for an AI Image layer.
 		register_rest_route(
 			self::NAMESPACE,

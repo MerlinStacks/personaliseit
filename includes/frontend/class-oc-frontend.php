@@ -123,6 +123,7 @@ class OC_Frontend {
 		$state['uploadUrl']             = rest_url( 'overcustomise/v1/upload-artwork' );
 		$state['authoriseArtworkUrl']   = rest_url( 'overcustomise/v1/authorise-artwork-context' );
 		$state['applyImageFilterUrl']   = rest_url( 'overcustomise/v1/apply-image-filter' );
+		$state['imageFilterHistoryUrl'] = rest_url( 'overcustomise/v1/image-filter-history' );
 		$state['generateAiImageUrl']    = rest_url( 'overcustomise/v1/generate-ai-image' );
 		$state['savePreviewUrl']        = rest_url( 'overcustomise/v1/save-preview' );
 		$state['validateSpotifyUrl']    = rest_url( 'overcustomise/v1/validate-spotify' );

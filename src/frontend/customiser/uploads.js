@@ -338,11 +338,10 @@ const uploadMethods = {
 		);
 		if ( remainingEl ) {
 			remainingEl.textContent = remaining
-				? `${ remaining } ${
-						remaining === 1 ? 'try' : 'tries'
-				  } remaining`
-				: 'No tries remaining';
+				? `${ remaining } / 3 results remaining for this image effect`
+				: 'All 3 results created for this image effect';
 		}
+		this.renderAiFilterQuota();
 		const retry = wrap.querySelector( '[data-oc-ai-image-retry]' );
 		const generate = document.querySelector(
 			`[data-oc-ai-image-generate="${ layerId }"]`
@@ -1036,6 +1035,171 @@ const uploadMethods = {
 		return json;
 	},
 
+	async loadAiFilterHistory( layerId, details ) {
+		if ( details._ocHistoryLoading ) {
+			return;
+		}
+		const status = details.querySelector(
+			'[data-oc-filter-history-status]'
+		);
+		if ( ! this.data.imageFilterHistoryUrl ) {
+			status.textContent = 'Previous results are currently unavailable.';
+			return;
+		}
+		details._ocHistoryLoading = true;
+		const designGeneration = this._designGeneration;
+		const request = this.createStateAbortController( 12000 );
+		const isCurrent = () =>
+			designGeneration === this._designGeneration &&
+			details.isConnected &&
+			this._customisationActive;
+		status.textContent = 'Loading previous results…';
+		try {
+			const response = await this.authenticatedFetch(
+				this.data.imageFilterHistoryUrl,
+				{
+					method: 'POST',
+					headers: this.restHeaders( {
+						'Content-Type': 'application/json',
+					} ),
+					body: JSON.stringify(
+						this.imageFilterRequestBody( layerId, 0, 0 )
+					),
+					signal: request.controller.signal,
+				}
+			);
+			const body = await response.json().catch( () => null );
+			if ( ! isCurrent() ) {
+				return;
+			}
+			if ( ! response.ok || ! Array.isArray( body?.results ) ) {
+				throw new Error(
+					body?.message ||
+						'Previous results could not be loaded. Please refresh to retry.'
+				);
+			}
+			details._ocHistoryResults = body.results;
+			const grid = details.querySelector(
+				'[data-oc-filter-history-grid]'
+			);
+			grid.replaceChildren(
+				...body.results.map( ( result ) => {
+					const button = document.createElement( 'button' );
+					button.type = 'button';
+					button.className = 'oc-image-filter-result';
+					button.dataset.ocHistoryResult = String(
+						result.attachment_id
+					);
+					const image = document.createElement( 'img' );
+					image.src = result.preview_url;
+					image.alt = '';
+					image.loading = 'lazy';
+					const label = document.createElement( 'span' );
+					label.textContent = `${ result.filter_name } · Result ${ result.attempt }`;
+					button.append( image, label );
+					return button;
+				} )
+			);
+			status.textContent = body.results.length
+				? 'Choose a saved result to use it again.'
+				: 'No saved results are available for these product options yet.';
+		} catch ( error ) {
+			if ( isCurrent() ) {
+				status.textContent = request.timedOut()
+					? 'Loading timed out. Please refresh to retry.'
+					: error.message;
+			}
+		} finally {
+			details._ocHistoryLoading = false;
+			request.release();
+		}
+	},
+
+	async usePreviousAiFilterResult( layerId, result ) {
+		if (
+			this.artworkPendingCount > 0 ||
+			this._submitInProgress ||
+			! this._customisationActive
+		) {
+			throw new Error(
+				'Please wait for the current image operation to finish.'
+			);
+		}
+		const original = this.inputs[ layerId ];
+		const designGeneration = this._designGeneration;
+		// The operation is settled in finally, including stale-design return paths.
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return
+		const operation = this.beginArtworkOperation( 'history', layerId );
+		const lock = `history:${ designGeneration }:${ layerId }`;
+		this.setControlLock( lock, true );
+		try {
+			const [ sourceMeta, imageMeta ] = await Promise.all( [
+				this.getTrackedImageMeta( result.source_preview_url, layerId ),
+				this.getTrackedImageMeta( result.preview_url, layerId ),
+			] );
+			if (
+				designGeneration !== this._designGeneration ||
+				this.inputs[ layerId ] !== original ||
+				! this._customisationActive
+			) {
+				return false;
+			}
+			if ( ! sourceMeta || ! imageMeta ) {
+				throw new Error(
+					'This saved image is unavailable. Please refresh previous results. Your current image has been kept.'
+				);
+			}
+			const filterId = Number( result.filter_id );
+			const sourceId = Number( result.source_attachment_id );
+			const results = result.related_results?.length
+				? result.related_results
+				: [ result ];
+			this.cancelAiFilterForLayer( layerId );
+			this.inputs[ layerId ] = {
+				...original,
+				attachmentId: Number( result.attachment_id ),
+				attachmentUrl: result.preview_url,
+				originalAttachmentUrl:
+					result.original_url || result.preview_url,
+				artworkFileType: result.file_type,
+				previewAttachmentId: 0,
+				imageMeta,
+				sourceAttachmentId: sourceId,
+				sourceAttachmentUrl: result.source_preview_url,
+				sourceOriginalAttachmentUrl: result.source_preview_url,
+				sourceArtworkFileType: result.source_file_type,
+				sourcePreviewAttachmentId: 0,
+				sourceImageMeta: sourceMeta,
+				baseAttachmentId: sourceId,
+				baseAttachmentUrl: result.source_preview_url,
+				baseOriginalAttachmentUrl: result.source_preview_url,
+				baseArtworkFileType: result.source_file_type,
+				basePreviewAttachmentId: 0,
+				baseImageMeta: sourceMeta,
+				imageFilterId: filterId,
+				imageFilterResults: { [ filterId ]: results },
+				imageFilterAttemptCount: { [ filterId ]: results.length },
+				customerUploaded: true,
+				artworkContextLayerId: layerId,
+				imageCrop: original?.imageCrop ?? 100,
+			};
+			delete this.aiFilterErrors[ layerId ];
+			this.syncLinkedImageInput( layerId );
+			this.recordImageLinkGroupCarry( layerId );
+			this.updateLinkedLayerControls( layerId, [ 'imageFilterId' ] );
+			this.clearFailedArtworkReplacements( layerId );
+			this.updateImageCropControl( layerId );
+			this.renderAiFilterResults( layerId );
+			this.requestPreviewFocus();
+			this.scheduleRedraw( this.areaIndexForLayer( layerId ) );
+			this.updateHiddenField();
+			return true;
+		} finally {
+			this.finishArtworkOperation( operation );
+			this.setControlLock( lock, false );
+		}
+	},
+
 	async selectAiFilterResult( layerId, attachmentId ) {
 		const input = this.inputs[ layerId ];
 		if ( ! input ) {
@@ -1126,11 +1290,15 @@ const uploadMethods = {
 		);
 		const retry = wrap.querySelector( '[data-oc-image-filter-retry]' );
 		const choices = [
-			{
-				attachment_id: 0,
-				preview_url: input.baseAttachmentUrl,
-				label: 'Original',
-			},
+			...( wrap.dataset.ocFilterAllowOriginal === 'false'
+				? []
+				: [
+						{
+							attachment_id: 0,
+							preview_url: input.baseAttachmentUrl,
+							label: 'Original',
+						},
+				  ] ),
 			...results.map( ( result ) => ( {
 				...result,
 				label: `Result ${ Number( result.attempt || 0 ) }`,
@@ -1176,6 +1344,26 @@ const uploadMethods = {
 				Boolean( this.aiFilterAbortControllers[ layerId ] );
 		}
 		wrap.hidden = false;
+	},
+
+	renderAiFilterQuota() {
+		const quota = this.aiFilterQuota;
+		let message = 'Checking generations remaining…';
+		if ( quota?.unlimited ) {
+			message = 'Unlimited generations for administrators';
+		} else if ( Number.isInteger( quota?.remaining ) ) {
+			message = `${ quota.remaining } / ${ quota.limit } generations left across all image effects (15-minute allowance).`;
+			if ( quota.next_reset_in > 0 ) {
+				message += ` More available in ${ Math.ceil(
+					quota.next_reset_in / 60
+				) } min.`;
+			}
+		}
+		document
+			.querySelectorAll( '[data-oc-image-filter-quota]' )
+			.forEach( ( el ) => {
+				el.textContent = message;
+			} );
 	},
 
 	async applyAiImageFilter(
@@ -1245,14 +1433,20 @@ const uploadMethods = {
 			this.updateHiddenField();
 			return false;
 		}
-		try {
-			await this.ensureRequestToken();
-		} catch ( error ) {
-			this.aiFilterErrors[ layerId ] =
-				error?.message || 'Security verification failed.';
-			this.updateHiddenField();
-			return false;
-		}
+		// A failed retry must not invalidate artwork the customer already selected.
+		const previousFilter = Object.entries(
+			input.imageFilterResults || {}
+		).find( ( [ , results ] ) =>
+			results.some(
+				( result ) =>
+					Number( result.attachment_id ) ===
+					Number( input.attachmentId )
+			)
+		);
+		const previous =
+			previousFilter && input.attachmentUrl
+				? { ...input, imageFilterId: Number( previousFilter[ 0 ] ) }
+				: null;
 
 		// Keep the source visible while processing; submission remains blocked until
 		// the generated attachment replaces it or an error is resolved.
@@ -1278,12 +1472,25 @@ const uploadMethods = {
 		}
 
 		try {
-			const existing = await this.loadAiFilterResults(
-				layerId,
-				filterId,
-				sourceId,
-				controller.signal
-			);
+			await this.ensureRequestToken();
+			if ( ! isCurrent() ) {
+				return false;
+			}
+			// Retry results are already in memory. The POST still enforces all limits
+			// atomically, so another listing request only adds latency.
+			const cached = input.imageFilterResults?.[ filterId ];
+			const existing =
+				forceRetry && Array.isArray( cached )
+					? {
+							results: cached,
+							retries_remaining: Math.max( 0, 3 - cached.length ),
+					  }
+					: await this.loadAiFilterResults(
+							layerId,
+							filterId,
+							sourceId,
+							controller.signal
+					  );
 			if ( ! isCurrent() ) {
 				return false;
 			}
@@ -1292,6 +1499,9 @@ const uploadMethods = {
 			input.imageFilterResults[ filterId ] = existing.results;
 			input.imageFilterAttemptCount[ filterId ] =
 				3 - Number( existing.retries_remaining || 0 );
+			if ( existing.quota ) {
+				this.aiFilterQuota = existing.quota;
+			}
 			this.renderAiFilterResults( layerId );
 			if ( ! forceRetry && existing.results.length ) {
 				return await this.selectAiFilterResult(
@@ -1322,6 +1532,9 @@ const uploadMethods = {
 				! json?.attachment_id ||
 				! json?.preview_url
 			) {
+				if ( isCurrent() && json?.data?.quota ) {
+					this.aiFilterQuota = json.data.quota;
+				}
 				throw new Error(
 					json?.message || 'The image effect could not be applied.'
 				);
@@ -1344,9 +1557,11 @@ const uploadMethods = {
 				),
 				result,
 			];
-			input.imageFilterAttemptCount[ filterId ] = Number(
-				json.attempt || 0
-			);
+			input.imageFilterAttemptCount[ filterId ] =
+				3 - Number( json.retries_remaining ?? 0 );
+			if ( json.quota ) {
+				this.aiFilterQuota = json.quota;
+			}
 			return await this.selectAiFilterResult(
 				layerId,
 				Number( result.attachment_id )
@@ -1355,11 +1570,20 @@ const uploadMethods = {
 			if ( ! isCurrent() ) {
 				return false;
 			}
-			const message = request.timedOut()
+			let message = request.timedOut()
 				? 'The image effect timed out. Please try again.'
 				: error?.message || 'The image effect could not be applied.';
-			this.aiFilterErrors[ layerId ] = message;
+			if ( previous ) {
+				Object.assign( input, previous );
+				this.updateLinkedLayerControls( layerId, [ 'imageFilterId' ] );
+				delete this.aiFilterErrors[ layerId ];
+				message +=
+					' Your previous image is still selected and you can add it to your cart.';
+			} else {
+				this.aiFilterErrors[ layerId ] = message;
+			}
 			this.syncLinkedImageInput( layerId );
+			this.recordImageLinkGroupCarry( layerId );
 			if ( targetZone ) {
 				this.showUploadError( targetZone, message );
 			}

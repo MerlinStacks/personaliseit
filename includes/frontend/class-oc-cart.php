@@ -1938,7 +1938,7 @@ class OC_Cart {
 			if ( $has_artwork ) {
 				$attachment_id = absint( $area_data['artworkAttachmentId'] );
 				$preview_id    = absint( get_post_meta( $attachment_id, '_oc_artwork_preview_attachment_id', true ) );
-				$thumb         = $this->artwork_thumbnail_html( $preview_id ?: $attachment_id, 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;' );
+				$thumb         = $this->artwork_thumbnail_html( $preview_id ?: $attachment_id, 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;', true );
 				echo $thumb ?: ' ' . esc_html__( '[Artwork]', 'overcustomise' );
 			}
 			$legacy_colour = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
@@ -2013,7 +2013,7 @@ class OC_Cart {
 			case 'clipmask':
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
 					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? 0 ) ?: absint( $layer_data['attachmentId'] );
-					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;' );
+					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;', $admin_context );
 					$html          = '' !== $thumb ? $thumb : esc_html__( '[Image uploaded]', 'overcustomise' );
 					$colour_html   = $show_colour && $this->image_layer_has_order_colour( $layer_data, $layer )
 						? $this->colour_display_value( $layer_data, $this->legacy_linked_image_colour_requires_lookup( $layer_data, $layer ) )
@@ -2124,16 +2124,27 @@ class OC_Cart {
 	}
 
 	/** Render customer artwork through its signed endpoint instead of its uploads URL. */
-	private function artwork_thumbnail_html( int $attachment_id, string $style ): string {
+	private function artwork_thumbnail_html( int $attachment_id, string $style, bool $open_modal = false ): string {
 		$url = OC_Upload_Handler::attachment_access_url( $attachment_id );
 		if ( '' === $url ) {
 			return '';
 		}
 
-		return sprintf(
+		$thumbnail = sprintf(
 			'<img src="%s" alt="" width="48" height="48" loading="lazy" style="%s" />',
 			esc_url( $url ),
 			esc_attr( $style )
+		);
+		if ( ! $open_modal ) {
+			return $thumbnail;
+		}
+
+		return sprintf(
+			'<a href="%s" class="oc-order-preview-trigger" data-oc-preview-title="%s" aria-label="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+			esc_url( $url ),
+			esc_attr__( 'Customer upload', 'overcustomise' ),
+			esc_attr__( 'Preview customer upload', 'overcustomise' ),
+			$thumbnail
 		);
 	}
 

@@ -237,6 +237,80 @@ trait OC_Rest_API_AI {
 		return $results;
 	}
 
+	/** List retained, owned image effects without generating or reserving quota. */
+	public function image_filter_history( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
+		$auth = $this->verify_public_write_auth( $request );
+		if ( is_wp_error( $auth ) ) {
+			return $auth;
+		}
+		$body = $request->get_json_params();
+		$body = is_array( $body ) ? $body : [];
+		$product_id = absint( $body['product_id'] ?? 0 );
+		$variation_id = absint( $body['variation_id'] ?? 0 );
+		$design_id = absint( $body['design_id'] ?? 0 );
+		$layer_id = absint( $body['layer_id'] ?? 0 );
+		$assignment = self::active_assignment_design( $product_id, $variation_id, $design_id );
+		if ( is_wp_error( $assignment ) ) {
+			return $assignment;
+		}
+		$layer = self::public_design_layer( $design_id, $layer_id, [ 'image' ] );
+		if ( is_wp_error( $layer ) ) {
+			return $layer;
+		}
+		$settings = self::decode_layer_settings( $layer->settings ?? null );
+		if ( is_wp_error( $settings ) ) {
+			return $settings;
+		}
+		if ( array_key_exists( 'allow_image_change', $settings ) && true !== self::setting_boolean( $settings['allow_image_change'] ) ) {
+			return new \WP_Error( 'image_is_fixed', __( 'This product uses fixed artwork.', 'overcustomise' ), [ 'status' => 400 ] );
+		}
+		$allowed = array_map( 'absint', (array) ( $settings['image_filter_ids'] ?? [] ) );
+		$can_change = ! array_key_exists( 'allow_image_filter_change', $settings ) || true === self::setting_boolean( $settings['allow_image_filter_change'] );
+		$filters = [];
+		foreach ( OC_DB::get_image_filters( true ) as $filter ) {
+			$id = (int) $filter->id;
+			if ( 'ai' === $filter->filter_key && in_array( $id, $allowed, true ) && ( $can_change || $id === absint( $settings['default_image_filter_id'] ?? 0 ) ) ) {
+				$filters[ $id ] = (string) $filter->name;
+			}
+		}
+		$token = trim( (string) $request->get_header( 'X-OC-Token' ) );
+		$context = [ $product_id, $variation_id, $design_id, $layer_id ];
+		$results = [];
+		$groups = [];
+		foreach ( OC_Upload_Handler::recent_filter_attachment_ids( $context, $token ) as $id ) {
+			$filter_id = absint( get_post_meta( $id, '_oc_ai_filter_id', true ) );
+			$source_id = absint( get_post_meta( $id, '_oc_ai_filter_source_id', true ) );
+			$source_is_default = $source_id && $source_id === absint( $settings['default_attachment_id'] ?? 0 ) && OC_Upload_Handler::admin_default_attachment_is_valid( $source_id );
+			if ( ! isset( $filters[ $filter_id ] ) || ! $source_id || ( ! $source_is_default && ! OC_Upload_Handler::attachment_is_accepted( $source_id, ...array_merge( $context, [ $token ] ) ) ) ) {
+				continue;
+			}
+			$url = OC_Upload_Handler::attachment_access_url( $id );
+			$source_url = OC_Upload_Handler::attachment_access_url( $source_id );
+			if ( '' === $url || '' === $source_url ) {
+				continue;
+			}
+			$group = sanitize_key( (string) get_post_meta( $id, '_oc_ai_filter_group', true ) );
+			if ( '' === $group ) {
+				continue;
+			}
+			if ( ! isset( $groups[ $group ] ) ) {
+				$groups[ $group ] = self::image_filter_results( $group, $source_id, $product_id, $variation_id, $design_id, $layer_id, $token );
+			}
+			$results[] = [
+				'attachment_id' => $id, 'preview_url' => $url, 'original_url' => $url,
+				'filter_id' => $filter_id, 'filter_name' => $filters[ $filter_id ],
+				'file_type' => sanitize_key( (string) get_post_meta( $id, '_oc_artwork_type', true ) ),
+				'attempt' => absint( get_post_meta( $id, '_oc_ai_filter_attempt', true ) ),
+				'source_attachment_id' => $source_id, 'source_preview_url' => $source_url,
+				'source_file_type' => sanitize_key( (string) get_post_meta( $source_id, '_oc_artwork_type', true ) ),
+				'related_results' => $groups[ $group ],
+			];
+		}
+		$response = rest_ensure_response( [ 'results' => $results ] );
+		$response->header( 'Cache-Control', 'no-store, private' );
+		return $response;
+	}
+
 	/** Apply an allowed AI filter and persist the result as owned artwork. */
 	public function apply_image_filter( \WP_REST_Request $request ): \WP_REST_Response|\WP_Error {
 		$auth = $this->verify_public_write_auth( $request );
@@ -375,11 +449,12 @@ trait OC_Rest_API_AI {
 				]
 			)
 		);
-		$attempt_key = 'oc_ai_filter_attempt_' . $group;
-		$results     = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
+		$results = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
 		if ( ! empty( $body['list_only'] ) ) {
-			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
-			return rest_ensure_response( self::image_filter_result_payload( $results, $attempt_count ) );
+			return rest_ensure_response( array_merge( self::image_filter_result_payload( $results ), [
+				'retries_remaining' => max( 0, self::MAX_AI_FILTER_ATTEMPTS - count( $results ) ),
+				'quota'             => self::image_filter_quota_status( $actor ),
+			] ) );
 		}
 		$quota_specs = self::ai_quota_specs( $actor );
 		if ( is_wp_error( $quota_specs ) ) {
@@ -396,9 +471,13 @@ trait OC_Rest_API_AI {
 			return new \WP_Error( 'ai_filter_in_progress', __( 'This image effect is already being applied.', 'overcustomise' ), [ 'status' => 409 ] );
 		}
 
+		$completed         = false;
+		$quota_reservation = null;
 		try {
-			$results       = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
-			$attempt_count = max( count( $results ), absint( get_transient( $attempt_key ) ) );
+			$results = self::image_filter_results( $group, $source_attachment_id, $product_id, $variation_id, $design_id, $layer_id, $token );
+			// Only retained results consume customer attempts, including for older groups
+			// whose transient included failed provider requests.
+			$attempt_count = count( $results );
 			if ( $attempt_count >= self::MAX_AI_FILTER_ATTEMPTS ) {
 				return new \WP_Error(
 					'ai_filter_attempt_limit',
@@ -413,15 +492,12 @@ trait OC_Rest_API_AI {
 			$quota_reservation = self::reserve_budgets( $quota_specs );
 			if ( is_wp_error( $quota_reservation ) ) {
 				self::release_budget_reservation( $storage_reservation );
+				$quota_reservation->add_data( array_merge( (array) $quota_reservation->get_error_data(), [
+					'quota' => self::image_filter_quota_status( $actor ),
+				] ) );
 				return $quota_reservation;
 			}
-			$attempt        = $attempt_count + 1;
-			$retention_days = max( 1, (int) OC_Admin_Settings::get( 'artwork_retention_days' ) ?: 90 );
-			if ( ! set_transient( $attempt_key, $attempt, $retention_days * DAY_IN_SECONDS ) ) {
-				self::release_budget_reservation( $storage_reservation );
-				self::release_budget_reservation( $quota_reservation );
-				return new \WP_Error( 'ai_attempt_unavailable', __( 'Image processing is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
-			}
+			$attempt = $results ? max( array_column( $results, 'attempt' ) ) + 1 : 1;
 
 			try {
 				$generated = OC_AI_Image_Filter::generate( $source_attachment_id, $prompt );
@@ -496,9 +572,14 @@ trait OC_Rest_API_AI {
 			$result['filter_id']            = $filter_id;
 			$result['attempt']              = $attempt;
 			$result['attempt_limit']        = self::MAX_AI_FILTER_ATTEMPTS;
-			$result['retries_remaining']    = self::MAX_AI_FILTER_ATTEMPTS - $attempt;
+			$result['retries_remaining']    = self::MAX_AI_FILTER_ATTEMPTS - $attempt_count - 1;
+			$result['quota']                = self::image_filter_quota_status( $actor );
+			$completed                     = true;
 			return rest_ensure_response( $result );
 		} finally {
+			if ( ! $completed && is_array( $quota_reservation ) ) {
+				self::release_budget_reservation( $quota_reservation );
+			}
 			self::delete_owned_option( $lock_key, (string) $lock_owner );
 		}
 	}

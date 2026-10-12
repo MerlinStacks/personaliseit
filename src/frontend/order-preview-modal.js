@@ -95,6 +95,13 @@ const openModal = ( trigger ) => {
 	}
 
 	previousFocus = trigger;
+	const uploadTitle = trigger.dataset.ocPreviewTitle;
+	modal.querySelector( 'h2' ).textContent =
+		uploadTitle || text( 'title', 'Personalised preview' );
+	previewImage.alt =
+		uploadTitle || text( 'imageAlt', 'Personalised product preview' );
+	modal.querySelector( '.oc-preview-modal__hint' ).hidden =
+		Boolean( uploadTitle );
 	modal.classList.remove( 'is-loaded', 'is-error' );
 	previewError.hidden = true;
 	modal.hidden = false;

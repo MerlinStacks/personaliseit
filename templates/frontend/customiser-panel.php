@@ -392,7 +392,10 @@ foreach ( $layers as $layer ) {
 													<?php endforeach; ?>
 											</select>
 										</div>
-										<div class="oc-image-filter-results" data-oc-image-filter-results="<?php echo esc_attr( $layer->id ); ?>" hidden>
+									<?php endif; ?>
+									<?php endif; ?>
+									<?php if ( in_array( $layer->type, [ 'image', 'ai_image' ], true ) && array_filter( $all_image_filters, fn( $filter ) => 'ai' === $filter->filter_key && in_array( (int) $filter->id, $image_filter_ids, true ) ) ) : ?>
+										<div class="oc-image-filter-results" data-oc-image-filter-results="<?php echo esc_attr( $layer->id ); ?>" data-oc-filter-allow-original="<?php echo $allow_image_filter_change ? 'true' : 'false'; ?>" hidden>
 											<div class="oc-image-filter-results__header">
 												<strong><?php esc_html_e( 'Choose your result', 'overcustomise' ); ?></strong>
 												<span data-oc-image-filter-remaining></span>
@@ -400,7 +403,16 @@ foreach ( $layers as $layer ) {
 											<div class="oc-image-filter-results__grid" data-oc-image-filter-result-grid></div>
 											<button type="button" class="oc-image-filter-retry" data-oc-image-filter-retry="<?php echo esc_attr( $layer->id ); ?>"><?php esc_html_e( 'Try another result', 'overcustomise' ); ?></button>
 										</div>
-									<?php endif; ?>
+										<p class="oc-image-filter-quota" data-oc-image-filter-quota role="status" aria-live="polite"><?php esc_html_e( 'Checking generations remaining…', 'overcustomise' ); ?></p>
+										<?php if ( 'image' === $layer->type && $allow_image_change ) : ?>
+											<details class="oc-image-filter-history" data-oc-filter-history="<?php echo esc_attr( $layer->id ); ?>">
+												<summary><?php esc_html_e( 'Previous results', 'overcustomise' ); ?></summary>
+												<p><?php esc_html_e( 'Reuse a recent result for these product options. This does not use a generation.', 'overcustomise' ); ?></p>
+												<p data-oc-filter-history-status role="status" aria-live="polite"></p>
+												<div class="oc-image-filter-results__grid" data-oc-filter-history-grid></div>
+												<button type="button" class="oc-image-filter-retry" data-oc-filter-history-refresh><?php esc_html_e( 'Refresh previous results', 'overcustomise' ); ?></button>
+											</details>
+										<?php endif; ?>
 									<?php endif; ?>
 									<?php if ( in_array( $layer->type, [ 'image', 'ai_image' ], true ) && $enable_image_colour && ! $is_engraving && $allow_colour_change && ! empty( $image_filter_ids ) ) : ?>
 										<div class="oc-control-group" style="margin-top:10px;">

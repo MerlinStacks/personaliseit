@@ -1251,6 +1251,19 @@ const inputControlMethods = {
 			} );
 
 		// Image filters
+		if ( document.querySelector( '[data-oc-image-filter-quota]' ) ) {
+			this.renderAiFilterQuota();
+			this.ensureRequestToken()
+				.then( () => this.renderAiFilterQuota() )
+				.catch( () => {
+					document
+						.querySelectorAll( '[data-oc-image-filter-quota]' )
+						.forEach( ( el ) => {
+							el.textContent =
+								'Your generation allowance will be checked when you apply an effect.';
+						} );
+				} );
+		}
 		document
 			.querySelectorAll( '[data-oc-layer-image-filter]' )
 			.forEach( ( el ) => {
@@ -1344,6 +1357,72 @@ const inputControlMethods = {
 						{ signal: stateSignal }
 					);
 				this.renderAiFilterResults( lid );
+			} );
+
+		// Fetch retained artwork only when the customer opens its chooser.
+		document
+			.querySelectorAll( '[data-oc-filter-history]' )
+			.forEach( ( details ) => {
+				const layerId = this.canonicalLinkedLayerId(
+					Number( details.dataset.ocFilterHistory )
+				);
+				details.addEventListener(
+					'toggle',
+					() => {
+						if ( details.open ) {
+							this.loadAiFilterHistory( layerId, details );
+						}
+					},
+					{ signal: stateSignal }
+				);
+				details
+					.querySelector( '[data-oc-filter-history-refresh]' )
+					?.addEventListener(
+						'click',
+						() => {
+							this.loadAiFilterHistory( layerId, details );
+						},
+						{ signal: stateSignal }
+					);
+				details.addEventListener(
+					'click',
+					async ( event ) => {
+						const button = event.target.closest(
+							'[data-oc-history-result]'
+						);
+						if ( ! button || ! details.contains( button ) ) {
+							return;
+						}
+						const result = details._ocHistoryResults?.find(
+							( item ) =>
+								Number( item.attachment_id ) ===
+								Number( button.dataset.ocHistoryResult )
+						);
+						if ( ! result ) {
+							return;
+						}
+						const status = details.querySelector(
+							'[data-oc-filter-history-status]'
+						);
+						try {
+							status.textContent = 'Loading your saved result…';
+							if (
+								await this.usePreviousAiFilterResult(
+									layerId,
+									result
+								)
+							) {
+								status.textContent =
+									'Previous result selected. No generation used.';
+							}
+						} catch ( error ) {
+							status.textContent =
+								error?.message ||
+								'This result could not be loaded. Your current image has been kept.';
+						}
+					},
+					{ signal: stateSignal }
+				);
 			} );
 
 		// Image filters remain source effects; this control only changes placement.

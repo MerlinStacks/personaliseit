@@ -107,10 +107,14 @@ trait OC_Rest_API_Authentication {
 			return new \WP_Error( 'token_unavailable', __( 'Security verification is temporarily unavailable.', 'overcustomise' ), [ 'status' => 503 ] );
 		}
 
+		$actor = is_user_logged_in()
+			? 'user:' . get_current_user_id()
+			: (string) $state['binding_type'] . ':' . (string) $state['binding_hash'];
 		$response = new \WP_REST_Response(
 			[
-				'token'      => $token,
-				'expires_in' => max( 1, $state['expires_at'] - time() ),
+				'token'              => $token,
+				'expires_in'         => max( 1, $state['expires_at'] - time() ),
+				'image_filter_quota' => self::image_filter_quota_status( $actor ),
 			],
 			200
 		);
