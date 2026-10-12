@@ -147,12 +147,14 @@ async function main() {
 		// remains lazy-loaded and is covered by the total.
 		// 1.19.2 adds ~2.4 KB of shared auth recovery and upload retry handling.
 		// Curved Text adds shared glyph geometry and text-layer integration.
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 209_000 ),
+		// AI retry recovery, allowance display, and retained-result selection add
+		// ~6.5 KB to startup. History data/images are fetched only when opened.
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 216_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 543_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 550_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 611_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 619_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
@@ -160,7 +162,8 @@ async function main() {
 		chunk: Number( process.env.BUNDLE_CHUNK_MAX_BYTES || 340_000 ),
 		// Includes optional Night Sky and ~3 KB on-demand clipart pagination.
 		// Includes Curved Text in both the design editor and customer preview.
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_514_000 ),
+		// Includes the retry/history controls and customer-upload preview links.
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_523_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

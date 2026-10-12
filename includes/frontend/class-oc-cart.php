@@ -1938,8 +1938,8 @@ class OC_Cart {
 			if ( $has_artwork ) {
 				$attachment_id = absint( $area_data['artworkAttachmentId'] );
 				$preview_id    = absint( get_post_meta( $attachment_id, '_oc_artwork_preview_attachment_id', true ) );
-				$thumb         = $this->artwork_thumbnail_html( $preview_id ?: $attachment_id, 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;', true );
-				echo $thumb ?: ' ' . esc_html__( '[Artwork]', 'overcustomise' );
+				$thumb         = $this->artwork_thumbnail_html( $preview_id ? $preview_id : $attachment_id, 'vertical-align:middle;margin-left:6px;border:1px solid #ddd;border-radius:2px;', true );
+				echo '' !== $thumb ? wp_kses_post( $thumb ) : ' ' . esc_html__( '[Artwork]', 'overcustomise' );
 			}
 			$legacy_colour = is_string( $area_data['color'] ?? null ) ? sanitize_hex_color( $area_data['color'] ) : '';
 			$print_method  = $this->legacy_area_print_method( $item, (string) $area_key );
@@ -2012,7 +2012,8 @@ class OC_Cart {
 			case 'ai_image':
 			case 'clipmask':
 				if ( ! empty( $layer_data['attachmentId'] ) ) {
-					$attachment_id = absint( $layer_data['previewAttachmentId'] ?? 0 ) ?: absint( $layer_data['attachmentId'] );
+					$preview_id    = absint( $layer_data['previewAttachmentId'] ?? 0 );
+					$attachment_id = $preview_id ? $preview_id : absint( $layer_data['attachmentId'] );
 					$thumb         = $this->artwork_thumbnail_html( $attachment_id, 'vertical-align:middle;border:1px solid #ddd;border-radius:2px;', $admin_context );
 					$html          = '' !== $thumb ? $thumb : esc_html__( '[Image uploaded]', 'overcustomise' );
 					$colour_html   = $show_colour && $this->image_layer_has_order_colour( $layer_data, $layer )

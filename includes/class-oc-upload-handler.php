@@ -873,36 +873,63 @@ class OC_Upload_Handler {
 		}
 		$owners = [ 'relation' => 'OR' ];
 		if ( is_user_logged_in() ) {
-			$owners[] = [ 'key' => '_oc_artwork_user_id', 'value' => get_current_user_id() ];
+			$owners[] = [
+				'key'   => '_oc_artwork_user_id',
+				'value' => get_current_user_id(),
+			];
 		}
 		$session = self::session_hash();
 		if ( '' !== $session ) {
-			$owners[] = [ 'key' => '_oc_artwork_session', 'value' => $session ];
+			$owners[] = [
+				'key'   => '_oc_artwork_session',
+				'value' => $session,
+			];
 		}
 		if ( OC_Rest_API::validate_public_token( $token ) ) {
-			$owners[] = [ 'key' => '_oc_artwork_token', 'value' => hash( 'sha256', $token ) ];
-			$browser = OC_Rest_API::browser_principal();
+			$owners[] = [
+				'key'   => '_oc_artwork_token',
+				'value' => hash( 'sha256', $token ),
+			];
+			$browser  = OC_Rest_API::browser_principal();
 			if ( '' !== $browser ) {
-				$owners[] = [ 'key' => '_oc_artwork_browser', 'value' => $browser ];
+				$owners[] = [
+					'key'   => '_oc_artwork_browser',
+					'value' => $browser,
+				];
 			}
 		}
 		if ( 1 === count( $owners ) ) {
 			return [];
 		}
-		$ids = get_posts( [
-			'post_type' => 'attachment', 'post_status' => [ 'private', 'inherit' ],
-			'posts_per_page' => 24, 'fields' => 'ids', 'orderby' => 'ID', 'order' => 'DESC',
-			'meta_query' => [
-				'relation' => 'AND',
-				[ 'key' => '_oc_ai_filter', 'value' => 1 ],
-				$owners,
-				[
-					'relation' => 'OR',
-					[ 'key' => '_oc_artwork_context', 'value' => maybe_serialize( $context ) ],
-					[ 'key' => self::context_grant_meta_key( $context ), 'value' => maybe_serialize( $context ) ],
+		$ids = get_posts(
+			[
+				'post_type'      => 'attachment',
+				'post_status'    => [ 'private', 'inherit' ],
+				'posts_per_page' => 24,
+				'fields'         => 'ids',
+				'orderby'        => 'ID',
+				'order'          => 'DESC',
+				'meta_query'     => [
+					'relation' => 'AND',
+					[
+						'key'   => '_oc_ai_filter',
+						'value' => 1,
+					],
+					$owners,
+					[
+						'relation' => 'OR',
+						[
+							'key'   => '_oc_artwork_context',
+							'value' => maybe_serialize( $context ),
+						],
+						[
+							'key'   => self::context_grant_meta_key( $context ),
+							'value' => maybe_serialize( $context ),
+						],
+					],
 				],
-			],
-		] );
+			]
+		);
 		return array_values( array_filter( array_map( 'absint', $ids ), static fn( int $id ): bool => self::attachment_is_accepted( $id, ...array_merge( $context, [ $token ] ) ) ) );
 	}
 

@@ -1,20 +1,37 @@
 <?php
+// Render trusted local template fragments in a standalone CLI fixture.
+// phpcs:disable WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents, Squiz.PHP.Eval.Discouraged
 /** Render the real filter-controls template for fixed and customer-selectable effects. */
-function esc_attr( mixed $value ): string { return htmlspecialchars( (string) $value, ENT_QUOTES ); }
-function esc_html( mixed $value ): string { return htmlspecialchars( (string) $value, ENT_QUOTES ); }
-function esc_html_e( string $value, string $domain ): void { echo esc_html( $value ); }
-function selected( mixed $value, mixed $expected ): void { if ( $value === $expected ) { echo 'selected'; } }
+function esc_attr( mixed $value ): string {
+	return htmlspecialchars( (string) $value, ENT_QUOTES ); }
+function esc_html( mixed $value ): string {
+	return htmlspecialchars( (string) $value, ENT_QUOTES ); }
+function esc_html_e( string $value, string $domain ): void {
+	echo esc_html( $value ); }
+function selected( mixed $value, mixed $expected ): void {
+	if ( $value === $expected ) {
+		echo 'selected'; } }
 
 $template = file_get_contents( __DIR__ . '/../templates/frontend/customiser-panel.php' );
-$start = strpos( $template, '<?php if ( in_array( $layer->type, [ \'image\', \'ai_image\' ], true ) && ! empty( $image_filter_ids ) && $allow_image_filter_change )' );
-$end = strpos( $template, '<?php if ( in_array( $layer->type, [ \'image\', \'ai_image\' ], true ) && $enable_image_colour' );
-if ( false === $start || false === $end ) { throw new RuntimeException( 'Filter controls template could not be located.' ); }
-$controls = substr( $template, $start, $end - $start );
-$layer = (object) [ 'id' => 12, 'type' => 'image' ];
-$image_filter_ids = [ 7 ];
+$start    = strpos( $template, '<?php if ( in_array( $layer->type, [ \'image\', \'ai_image\' ], true ) && ! empty( $image_filter_ids ) && $allow_image_filter_change )' );
+$end      = strpos( $template, '<?php if ( in_array( $layer->type, [ \'image\', \'ai_image\' ], true ) && $enable_image_colour' );
+if ( false === $start || false === $end ) {
+	throw new RuntimeException( 'Filter controls template could not be located.' ); }
+$controls                = substr( $template, $start, $end - $start );
+$layer                   = (object) [
+	'id'   => 12,
+	'type' => 'image',
+];
+$image_filter_ids        = [ 7 ];
 $default_image_filter_id = 7;
-$allow_image_change = true;
-$all_image_filters = [ (object) [ 'id' => 7, 'filter_key' => 'ai', 'name' => 'Line art' ] ];
+$allow_image_change      = true;
+$all_image_filters       = [
+	(object) [
+		'id'         => 7,
+		'filter_key' => 'ai',
+		'name'       => 'Line art',
+	],
+];
 foreach ( [ false, true ] as $allow_image_filter_change ) {
 	ob_start();
 	eval( '?>' . $controls );
