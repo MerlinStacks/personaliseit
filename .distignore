@@ -21,6 +21,9 @@
 /vendor/**/doc
 /vendor/**/docs
 /vendor/**/examples
+/vendor/**/scripts
+/vendor/**/resources/css
+/vendor/**/resources/preflight
 /vendor/**/example
 /vendor/**/CONTRIBUTING.md
 /vendor/**/CODE_OF_CONDUCT.md

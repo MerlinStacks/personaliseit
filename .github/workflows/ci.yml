@@ -107,5 +107,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: overcustomise-${{ github.sha }}
-          path: overcustomise.zip
+          path: |
+            overcustomise.zip
+            dist/overcustomise-*.zip
+            docs/releases/*.txt
           if-no-files-found: error

@@ -9,6 +9,7 @@ import { createProductsPageSettings } from './products-page-settings';
 import {
 	AREA_COLORS,
 	ICO_BIN,
+	ICO_COPY,
 	ICO_EYE,
 	ICO_EYE_OFF,
 	ICO_LOCK,
@@ -1343,6 +1344,9 @@ import {
 				'">' +
 				( layer.locked ? ICO_LOCK : ICO_UNLOCK ) +
 				'</button>' +
+				'<button type="button" class="oc-layer-action-btn oc-layer-copy-btn" title="Copy layer">' +
+				ICO_COPY +
+				'</button>' +
 				'<button type="button" class="oc-layer-action-btn oc-layer-delete-btn" title="Delete layer">' +
 				ICO_BIN +
 				'</button>' +
@@ -1390,6 +1394,26 @@ import {
 						selectedLayerIndex = -1;
 					} else if ( selectedLayerIndex > li ) {
 						selectedLayerIndex--;
+					}
+					snapshot();
+					renderAll();
+				}
+			);
+			item.querySelector( '.oc-layer-copy-btn' ).addEventListener(
+				'click',
+				( e ) => {
+					e.stopPropagation();
+					const copy = JSON.parse( JSON.stringify( layer ) );
+					copy._uid = ++uidCounter;
+					copy.id = 0;
+					copy.label =
+						( layer.label || layerLabel( layer.type ) ) + ' (copy)';
+					copy.sortOrder = area.layers.length;
+					area.layers.splice( li + 1, 0, copy );
+					if ( selectedLayerIndex === li ) {
+						selectedLayerIndex = li + 1;
+					} else if ( selectedLayerIndex > li ) {
+						selectedLayerIndex++;
 					}
 					snapshot();
 					renderAll();

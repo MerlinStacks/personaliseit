@@ -14,6 +14,7 @@ parameters:
 	tmpDir: .phpstan-cache
 	excludePaths:
 		analyse:
+			- includes/plugin-update-checker
 			- assets/build
 			- node_modules (?)
 			- vendor

@@ -13,7 +13,7 @@ that are packaged still count toward the whole-archive budgets.
 """
 
 import argparse
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import sys
 import zipfile
 import zlib
@@ -30,6 +30,13 @@ REQUIRED = (
     'vendor/composer/autoload_static.php',
     'vendor/composer/ClassLoader.php',
     'vendor/tecnickcom/tcpdf/tcpdf.php',
+    'includes/plugin-update-checker/plugin-update-checker.php',
+    'includes/plugin-update-checker/load-v5p7.php',
+    'includes/plugin-update-checker/license.txt',
+    'includes/plugin-update-checker/vendor/LICENSE.txt',
+    'includes/plugin-update-checker/vendor/Parsedown.php',
+    'includes/plugin-update-checker/vendor/ParsedownModern.php',
+    'includes/plugin-update-checker/vendor/PucReadmeParser.php',
 )
 
 
@@ -55,6 +62,9 @@ def check_archive(archive, root, compressed_limit=COMPRESSED_LIMIT,
     for directory in ('includes', 'templates'):
         required.update(file.relative_to(root).as_posix()
                         for file in (root / directory).rglob('*.php') if file.is_file())
+    required.update(file.relative_to(root).as_posix()
+                    for file in (root / 'includes/plugin-update-checker').rglob('*')
+                    if file.is_file())
     # Font data is runtime coverage, not tooling. Protect it when trimming vendor.
     for package in (root / 'vendor/tecnickcom').glob('*'):
         for directory in ('src', 'target/fonts'):
@@ -66,6 +76,23 @@ def check_archive(archive, root, compressed_limit=COMPRESSED_LIMIT,
         entries = bundle.infolist()
         uncompressed = sum(entry.file_size for entry in entries)
         files = {entry.filename: entry for entry in entries if not entry.is_dir()}
+        for entry in entries:
+            parts = PurePosixPath(entry.filename).parts
+            if (not parts or parts[0] != 'overcustomise' or '..' in parts
+                    or '\\' in entry.filename or entry.filename.startswith('/')):
+                failures.append('Invalid ZIP path or package root: ' + entry.filename)
+            if any(part in {'.git', '.github', 'node_modules', 'tests', 'test',
+                            'examples', 'example', '.env'} or part.startswith('.env.')
+                   for part in parts):
+                failures.append('Development or secret file in ZIP: ' + entry.filename)
+            if len(parts) > 2 and parts[1] == 'vendor' and parts[2] not in {
+                    'autoload.php', 'composer', 'tecnickcom'}:
+                failures.append('Non-production Composer package: ' + entry.filename)
+            if (len(parts) > 4 and parts[1:3] == ('vendor', 'tecnickcom')
+                    and (parts[4] == 'scripts' or
+                         (len(parts) > 5 and parts[4] == 'resources'
+                          and parts[5] in {'css', 'preflight'}))):
+                failures.append('Vendor development tooling: ' + entry.filename)
         for name in sorted(required):
             entry = files.get('overcustomise/' + name)
             if entry is None:

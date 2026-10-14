@@ -37,6 +37,7 @@ Thumbs.db
 /test-results/
 /.phpstan-cache/
 /overcustomise.zip
+/dist/
 
 # Claude Code
 /.claude/

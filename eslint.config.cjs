@@ -2,6 +2,7 @@ const defaultConfig = require( '@wordpress/scripts/config/eslint.config.cjs' );
 
 module.exports = [
 	...defaultConfig,
+	{ ignores: [ 'includes/plugin-update-checker/**' ] },
 	{
 		files: [ 'src/frontend/customiser/design-variants.js' ],
 		languageOptions: {

@@ -4,6 +4,8 @@ set -euo pipefail
 
 # Available on the existing ubuntu-latest CI runner; fail before installing.
 command -v python3 >/dev/null
+version=$(node -p "require('./package.json').version")
+test -f "docs/releases/${version}.txt"
 
 # Always package matching PHP, entry files, lazy chunks and release identity.
 npm run build
@@ -34,6 +36,9 @@ zip -d overcustomise.zip \
 	'overcustomise/vendor/tecnickcom/*/mago.*.toml' \
 	'overcustomise/vendor/tecnickcom/*/phpunit.xml.dist' \
 	'overcustomise/vendor/tecnickcom/*/resources/phpmd/*' \
+	'overcustomise/vendor/tecnickcom/*/resources/css/*' \
+	'overcustomise/vendor/tecnickcom/*/resources/preflight/*' \
+	'overcustomise/vendor/tecnickcom/*/scripts/*' \
 	'overcustomise/vendor/tecnickcom/*/util/*' \
 	'overcustomise/vendor/tecnickcom/*/resources/debian/*' \
 	'overcustomise/vendor/tecnickcom/*/resources/rpm/*' \
@@ -43,3 +48,10 @@ zip -d overcustomise.zip \
 
 # Validate the final artifact after the existing vendor fixture cleanup.
 python3 -B scripts/check-plugin-zip.py overcustomise.zip
+
+# Keep the established CI artifact and also emit a publisher-ready versioned ZIP.
+mkdir -p dist
+cp overcustomise.zip "dist/overcustomise-${version}.zip"
+python3 -B scripts/build-legacy-plugin-zip.py overcustomise.zip \
+	"dist/personaliseit-main-${version}.zip"
+printf 'Release ZIP: dist/overcustomise-%s.zip\nRelease notes: docs/releases/%s.txt\n' "$version" "$version"

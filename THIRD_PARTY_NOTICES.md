@@ -1,5 +1,19 @@
 # Third-party notices
 
+## Plugin Update Checker
+
+Bundled in `includes/plugin-update-checker/` from the stable
+[v5.7 release](https://github.com/YahnisElsts/plugin-update-checker/releases/tag/v5.7),
+commit `275a96a2a18d03c34c87f35cb68673c8c49ac3b1`.
+Copyright 2026 Janis Elsts, MIT license; see the bundled `license.txt`.
+The upstream distribution includes its readme parser and Parsedown dependencies
+with their license notices, translations, and UI assets. No Composer installation
+is needed for this library. Its PHP minimum (5.6.20) is below this plugin's 8.2 minimum.
+The versioned namespaces and shared v5 factory allow coexistence with other PUC v5 bundles.
+Upstream files are unmodified. The additional `vendor/LICENSE.txt` supplies the
+[Parsedown 1.6.0 MIT license](https://github.com/erusev/parsedown/blob/1.6.0/LICENSE.txt)
+referenced by the bundled parser.
+
 ## Twemoji
 
 UV print exports retrieve and locally cache Twemoji 17.0.2 SVG emoji artwork

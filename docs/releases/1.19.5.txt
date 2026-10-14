@@ -1,0 +1,9 @@
+OverCustomise 1.19.5 - 12 October 2026
+
+Provides a compatibility ZIP rooted at personaliseit-main for manual replacement of existing GitHub source-ZIP installations. Includes the SLDevs-hosted updater introduced in 1.19.4; future hosted updates preserve the existing plugin folder.
+
+Upload the compatibility ZIP through WordPress and choose to replace the existing plugin. Do not uninstall first. No database schema change is introduced by this release.
+
+Includes all 1.19.4 features and its upload retention policy: unused uploads expire after 48 hours, or after 7 days when still in an active or saved cart. Order-linked artwork is retained.
+
+Requires WordPress 6.8+, PHP 8.2+, and WooCommerce. Standard overcustomise ZIPs remain the packages used by the hosted update feed.

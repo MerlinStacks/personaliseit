@@ -1,0 +1,9 @@
+OverCustomise 1.19.6 - 14 October 2026
+
+Adds a Copy layer button to the design editor. Copies preserve the original layer's settings and geometry, receive a new identity, and are inserted immediately after the original. Nested settings are independent, and copying supports undo, redo and autosave.
+
+Includes the SLDevs-hosted updater and the personaliseit-main compatibility ZIP for existing GitHub source-ZIP installations. Replace the existing plugin without uninstalling; subsequent hosted updates preserve its installed folder.
+
+No database schema change is introduced by this release. The existing upload retention policy remains unchanged: unused uploads expire after 48 hours, or after 7 days when still in an active or saved cart. Order-linked artwork is retained.
+
+Requires WordPress 6.8+, PHP 8.2+, and WooCommerce. The current hosted feed serves the personaliseit-main compatibility ZIP; Plugin Update Checker preserves the installed folder during hosted updates.

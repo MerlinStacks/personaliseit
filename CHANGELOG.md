@@ -1,8 +1,19 @@
 # Changelog
 
-## Unreleased
+## 1.19.6 - 2026-10-14
 
 ### Added
+- Copy layers in the design editor, preserving their settings and geometry while creating an independent layer. Layer copies support undo, redo and autosave.
+
+## 1.19.5 - 2026-10-12
+
+### Improved
+- Provide a ready-to-upload `personaliseit-main` compatibility ZIP for existing GitHub source-ZIP installations, including the hosted updater. Replace the existing plugin through WordPress without uninstalling; subsequent hosted updates preserve its installed folder.
+
+## 1.19.4 - 2026-10-12
+
+### Added
+- Check for SLDevs-hosted updates using bundled Plugin Update Checker 5.7, including WordPress plugin-information support. Existing installations need this release installed once before hosted updates work; automatic updates remain the administrator's choice.
 - Add Curved Text layers with adjustable arch/bowl angles, font and colour controls, material-aware engraving and raised-thread embroidery previews, and outlined PDF/EPS production output.
 
 ### Improved

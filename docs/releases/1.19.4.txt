@@ -1,0 +1,11 @@
+OverCustomise 1.19.4 - 12 October 2026
+
+Added SLDevs-hosted WordPress updates and plugin-information support using bundled Plugin Update Checker 5.7. Update checks use the library's normal caching and scheduling. Automatic updates are not force-enabled.
+
+Includes Curved Text layers with adjustable arch/bowl angles, font and colour controls, material-aware previews, and outlined PDF/EPS output.
+
+Unused customer uploads are removed after 48 hours, or after 7 days from upload when still in an active or saved cart. Order-linked artwork is retained. Hourly WP-Cron processes cleanup in bounded batches, including existing uploads.
+
+Requires WordPress 6.8+, PHP 8.2+, and active WooCommerce. Includes production Composer dependencies, compiled frontend assets, and the update library. No database schema change.
+
+Install this updater-enabled release once manually or through your existing update mechanism before subsequent SLDevs-hosted updates can work. The release folder remains overcustomise; check any source-cloned installation using a different folder name before upgrading on staging.

@@ -86,6 +86,25 @@ class PluginZipTests(unittest.TestCase):
         self.write_zip(prefix='wrong/')
         self.assertTrue(self.check()[2])
 
+    def test_extra_roots_unsafe_paths_and_development_files(self):
+        for name in ('other/file.php', 'overcustomise/../escape.php',
+                     'overcustomise/.env.production', 'overcustomise/tests/test.php',
+                     'overcustomise/vendor/phpunit/phpunit/main.php',
+                     'overcustomise/vendor/tecnickcom/tcpdf/scripts/example_smoke.php'):
+            with self.subTest(name=name):
+                self.write_zip()
+                with zipfile.ZipFile(self.archive, 'a') as bundle:
+                    bundle.writestr(name, b'unwanted')
+                self.assertTrue(self.check()[2])
+
+    def test_updater_non_php_dependencies_are_required(self):
+        name = 'includes/plugin-update-checker/languages/plugin-update-checker-fr_FR.mo'
+        file = self.root / name
+        file.parent.mkdir(parents=True)
+        file.write_bytes(b'translation')
+        self.write_zip()
+        self.assertIn('Missing required file: overcustomise/' + name, self.check()[2])
+
     def test_missing_or_map_only_build_inventory(self):
         self.write_zip()
         for name in self.build_files:
@@ -95,7 +114,7 @@ class PluginZipTests(unittest.TestCase):
     def test_whole_archive_budgets_and_exact_boundary(self):
         self.write_zip()
         with zipfile.ZipFile(self.archive, 'a', zipfile.ZIP_DEFLATED) as bundle:
-            bundle.writestr('overcustomise/vendor/fonts/large.dat', b'x' * 100_000)
+            bundle.writestr('overcustomise/vendor/tecnickcom/fonts/large.dat', b'x' * 100_000)
         compressed, uncompressed, _ = self.check()
         self.assertEqual([], self.check(compressed_limit=compressed,
                                       uncompressed_limit=uncompressed)[2])

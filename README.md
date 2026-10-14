@@ -111,6 +111,10 @@ CI builds an installable `overcustomise.zip` artifact with production Composer
 dependencies and compiled frontend assets. Use that artifact for WordPress
 installations rather than GitHub's automatically generated source archive.
 
+Run `npm run plugin-zip` to also produce `dist/overcustomise-<version>.zip`.
+See [SLDevs-hosted releases](docs/hosted-updates.md) for the update endpoint,
+manual bootstrap upgrade, packaging and deployment steps.
+
 To install from source:
 
 1. Clone or download this repository into `wp-content/plugins/`.

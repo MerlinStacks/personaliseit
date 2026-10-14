@@ -1,5 +1,6 @@
 {
 	"extends": "@wordpress/stylelint-config/scss-stylistic",
+	"ignoreFiles": [ "includes/plugin-update-checker/**" ],
 	"rules": {
 		"selector-class-pattern": null,
 		"@stylistic/declaration-colon-newline-after": null,
