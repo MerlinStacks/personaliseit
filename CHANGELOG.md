@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.19.8 - 2026-10-16
+
+### Fixed
+- Restore the pale frosted finish for uploaded glass engraving images instead of the grey shading introduced in 1.19.7. Silver-metal photo detail, transparent backgrounds, and silver-plaque photo dithering remain unchanged.
+
+## 1.19.7 - 2026-10-15
+
+### Fixed
+- Preserve light and dark photo detail in silver-metal and other tinted engraving previews instead of displaying uploaded photos as a flat rectangle. Solid-colour artwork and silver-plaque photo dithering remain unchanged.
+
 ## 1.19.6 - 2026-10-14
 
 ### Added

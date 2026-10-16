@@ -2750,7 +2750,10 @@ const canvasRendererMethods = {
 					filters.push(
 						new FabricFilters.BlendColor( {
 							color: palette.imageTint,
-							mode: 'tint',
+							// Preserve photo tones unless the material needs a solid finish.
+							mode: effects.photoEngraving
+								? palette.photoTintMode || 'multiply'
+								: 'tint',
 							alpha: palette.tintAlpha ?? 1,
 						} )
 					);

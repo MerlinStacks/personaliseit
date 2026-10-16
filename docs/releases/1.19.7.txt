@@ -1,0 +1,7 @@
+OverCustomise 1.19.7 - 15 October 2026
+
+Fixes uploaded photos appearing as a flat rectangle in silver-metal engraving previews. Photo tinting now preserves light and dark detail instead of replacing every visible pixel with one colour. The fix also applies to other tinted engraving materials. Solid-colour artwork and silver-plaque photo dithering remain unchanged.
+
+No database schema change or customer reconfiguration is required. Upload retention and production artwork are unchanged.
+
+Requires WordPress 6.8+, PHP 8.2+, and WooCommerce. Includes the SLDevs-hosted updater and the personaliseit-main compatibility ZIP. Hosted updates preserve the existing plugin folder; do not uninstall the plugin to update it.

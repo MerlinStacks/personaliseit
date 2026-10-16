@@ -1,0 +1,7 @@
+OverCustomise 1.19.8 - 16 October 2026
+
+Restores the pale frosted finish for uploaded glass engraving images instead of the grey shading introduced in 1.19.7. Glass artwork uses the material's frosted tint again, while silver-metal photos retain their light and dark detail. White-background removal, existing transparency, solid-colour artwork, and silver-plaque photo dithering remain unchanged.
+
+No database schema change or customer reconfiguration is required. Upload retention and production artwork are unchanged.
+
+Requires WordPress 6.8+, PHP 8.2+, and WooCommerce. Includes the SLDevs-hosted updater and the personaliseit-main compatibility ZIP. Hosted updates preserve the existing plugin folder; do not uninstall the plugin to update it.

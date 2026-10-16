@@ -30,6 +30,8 @@ export function engravingPalette(
 		glass: {
 			text: '#eef4f4',
 			imageTint: '#eef4f4',
+			// Glass artwork needs a pale frosted finish, not dark photo shading.
+			photoTintMode: 'tint',
 			bg: 'F7FAFA',
 			highlight: 'rgba(255,255,255,0.7)',
 			brightness: 0.16,
