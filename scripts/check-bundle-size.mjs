@@ -35,6 +35,8 @@ export function measureBundles( files, activeChunkFiles = null ) {
 	const isUploadChunk = ( item ) =>
 		/^chunks\/upload-tools\.[a-f0-9]+\.(?:js|css)$/.test( item.file ) ||
 		item.file === 'upload-tools.css';
+	const isEngravingChunk = ( item ) =>
+		/^chunks\/engraving-preview\.[a-f0-9]+\.js$/.test( item.file );
 	const isActiveCustomiserChunk = ( item ) =>
 		activeChunkFiles === null || activeChunkFiles.has( item.file );
 	const entries = files.filter( isEntryAsset );
@@ -58,7 +60,9 @@ export function measureBundles( files, activeChunkFiles = null ) {
 		);
 	const budgetedFiles = files.filter(
 		( item ) =>
-			( ! isCoreChunk( item ) && ! isUploadChunk( item ) ) ||
+			( ! isCoreChunk( item ) &&
+				! isUploadChunk( item ) &&
+				! isEngravingChunk( item ) ) ||
 			isActiveCustomiserChunk( item )
 	);
 	return {
@@ -75,7 +79,7 @@ export function activeCustomiserChunks( files, entrySource ) {
 	const active = new Set(
 		files
 			.filter( ( item ) =>
-				/^chunks\/(?:customiser-core|upload-tools)\.[a-f0-9]+\.(?:js|css)$/.test(
+				/^chunks\/(?:customiser-core|upload-tools|engraving-preview)\.[a-f0-9]+\.(?:js|css)$/.test(
 					item.file
 				)
 			)

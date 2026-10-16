@@ -45,6 +45,24 @@ test( 'counts current hashed upload CSS once while retaining legacy files in the
 	);
 } );
 
+test( 'counts only the active engraving preview without changing startup budgets', () => {
+	const retained = [
+		...files,
+		{ file: 'chunks/engraving-preview.abcdef01.js', bytes: 80 },
+		{ file: 'chunks/engraving-preview.11111111.js', bytes: 70 },
+	];
+	const active = activeCustomiserChunks( retained, '12345678 abcdef01' );
+	assert.equal( active.has( 'chunks/engraving-preview.abcdef01.js' ), true );
+	assert.equal( active.has( 'chunks/engraving-preview.11111111.js' ), false );
+	const measured = measureBundles( retained, active );
+	assert.equal( measured.totalBytes, 1236 );
+	assert.equal( measured.requiredStartupBytes, 650 );
+	assert.equal( measured.uploadEnabledStartupBytes, 775 );
+	// Retained assets still receive the per-chunk size check.
+	assert.ok( measured.chunks.includes( retained.at( -1 ) ) );
+	assert.equal( measureBundles( retained ).totalBytes, 1306 );
+} );
+
 test( 'reports each startup, entry, chunk, and total budget independently', () => {
 	const failures = budgetFailures( measureBundles( files ), {
 		coreEntry: 449,

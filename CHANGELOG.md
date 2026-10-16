@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.19.9 - 2026-10-16
+
+### Fixed
+- Correct the CI bundle-size check to count only the active engraving-preview chunk, rather than also counting historical copies retained for cached pages. Performance limits and retained assets are unchanged.
+
 ## 1.19.8 - 2026-10-16
 
 ### Fixed

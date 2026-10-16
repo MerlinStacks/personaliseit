@@ -1,0 +1,7 @@
+OverCustomise 1.19.9 - 16 October 2026
+
+Fixes the CI bundle-size check counting historical engraving-preview chunks alongside the active version. Cached-page assets remain available and performance limits are unchanged. Adds regression coverage for the active-chunk accounting.
+
+Includes the frosted glass engraving fix from 1.19.8. No customer-facing rendering, database schema, settings, upload retention, or production artwork changes are introduced in this release.
+
+Requires WordPress 6.8+, PHP 8.2+, and WooCommerce. Includes the SLDevs-hosted updater and the personaliseit-main compatibility ZIP. Hosted updates preserve the existing plugin folder; do not uninstall the plugin to update it.
