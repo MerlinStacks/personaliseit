@@ -50,6 +50,8 @@ export function engravingPalette(
 		silver_metal: {
 			text: '#c9c9c3',
 			imageTint: '#c9c9c3',
+			// Lift black artwork to silver without flattening photo gradients.
+			photoTintMode: 'screen',
 			bg: 'ECEFF1',
 			highlight: 'rgba(255,255,255,0.42)',
 			brightness: -0.28,
@@ -71,6 +73,8 @@ export function engravingPalette(
 		black_metal: {
 			text: '#d8d8d8',
 			imageTint: '#d8d8d8',
+			// Engraving exposes pale metal; multiplying leaves dark uploads black.
+			photoTintMode: 'tint',
 			bg: '1F2328',
 			highlight: 'rgba(255,255,255,0.24)',
 			shadow: 'rgba(0,0,0,0.42)',

@@ -80,6 +80,7 @@ const box = { w: 200, h: 100 };
 const original = {
 	text: '#c9c9c3',
 	imageTint: '#c9c9c3',
+	photoTintMode: 'screen',
 	bg: 'ECEFF1',
 	highlight: 'rgba(255,255,255,0.42)',
 	brightness: -0.28,

@@ -92,6 +92,11 @@ test( 'silver photo engraving retains distinct tones on dark and pale mockups', 
 			{ photoEngraving: true },
 			brightness
 		);
+		assert.deepEqual(
+			Array.from( pixels.slice( 0, 3 ) ),
+			brightness === null ? [ 201, 201, 195 ] : [ 116, 120, 115 ],
+			'dark artwork exposes silver instead of remaining black'
+		);
 		assert.ok( pixels[ 0 ] < pixels[ 4 ] );
 		assert.ok( pixels[ 4 ] < pixels[ 8 ] );
 		assert.equal( pixels[ 3 ], 255 );
@@ -117,6 +122,25 @@ test( 'glass uploads retain the pale frosted tint and transparent background', a
 			assert.deepEqual(
 				Array.from( pixels.slice( offset, offset + 3 ) ),
 				[ 238, 244, 244 ]
+			);
+			assert.equal( pixels[ offset + 3 ], offset === 8 ? 0 : 255 );
+		}
+		assert.equal( pixels[ 15 ], 0, 'white background remains transparent' );
+		assert.equal(
+			pixels[ 19 ],
+			0,
+			'transparent pixels remain transparent'
+		);
+	}
+} );
+
+test( 'black metal uploads use silver engraving, including black line artwork', async () => {
+	for ( const effects of [ {}, { photoEngraving: true } ] ) {
+		const { pixels } = await render( 'black_metal', effects );
+		for ( const offset of [ 0, 4, 8 ] ) {
+			assert.deepEqual(
+				Array.from( pixels.slice( offset, offset + 3 ) ),
+				[ 216, 216, 216 ]
 			);
 			assert.equal( pixels[ offset + 3 ], offset === 8 ? 0 : 255 );
 		}

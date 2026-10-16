@@ -9,12 +9,14 @@ import {
 } from 'fabric';
 import { appendCutLinePreview } from './products-page-cut-line';
 import { createCurvedText } from '../shared/curved-text';
+import { engravingPalette } from '../frontend/customiser/engraving-preview';
 import {
 	layoutMultilineTextbox,
 	multilineTextboxFits,
 } from '../shared/text-layout';
 
 let huePreviewId = 0;
+let engravingPreviewId = 0;
 
 export function createLayerPreviewRenderer( deps ) {
 	const { fontLimit, layerLabel, normaliseHex } = deps;
@@ -249,6 +251,15 @@ export function createLayerPreviewRenderer( deps ) {
 	}
 
 	function engravingPreview( material ) {
+		if ( [ 'glass', 'gold_metal', 'wood' ].includes( material ) ) {
+			const palette = engravingPalette( material );
+			return {
+				color: palette.text,
+				palette,
+				shadow: `0 1px 1px ${ palette.highlight }`,
+			};
+		}
+
 		if ( material === 'black_metal' ) {
 			return {
 				color: '#d8d8d8',
@@ -280,6 +291,76 @@ export function createLayerPreviewRenderer( deps ) {
 			filter: 'brightness(0) saturate(100%) invert(91%) opacity(0.9)',
 			shadow: '',
 		};
+	}
+
+	function engravingImageFilter( palette, el, photo = false ) {
+		// Use the storefront palette rather than approximating material colours
+		// with CSS hue rotations. Separate stages retain photo shading and alpha.
+		const ns = 'http://www.w3.org/2000/svg';
+		const svg = document.createElementNS( ns, 'svg' );
+		svg.setAttribute( 'class', 'oc-lp' );
+		svg.setAttribute( 'width', '0' );
+		svg.setAttribute( 'height', '0' );
+		svg.style.position = 'absolute';
+		const definition = document.createElementNS( ns, 'filter' );
+		definition.id = `oc-engraving-preview-${ ++engravingPreviewId }`;
+		definition.setAttribute( 'color-interpolation-filters', 'sRGB' );
+		const matrix = ( values ) => {
+			const stage = document.createElementNS( ns, 'feColorMatrix' );
+			stage.setAttribute( 'type', 'matrix' );
+			stage.setAttribute( 'values', values.join( ' ' ) );
+			definition.appendChild( stage );
+		};
+		// prettier-ignore
+		const diagonal = ( scale, offset, opacity = 1 ) => [
+			scale[ 0 ], 0, 0, 0, offset[ 0 ],
+			0, scale[ 1 ], 0, 0, offset[ 1 ],
+			0, 0, scale[ 2 ], 0, offset[ 2 ],
+			0, 0, 0, opacity, 0,
+		];
+		// prettier-ignore
+		matrix( [
+			1 / 3, 1 / 3, 1 / 3, 0, 0,
+			1 / 3, 1 / 3, 1 / 3, 0, 0,
+			1 / 3, 1 / 3, 1 / 3, 0, 0,
+			0, 0, 0, 1, 0,
+		] );
+		matrix(
+			diagonal(
+				[ 1, 1, 1 ],
+				Array( 3 ).fill( Math.round( palette.brightness * 255 ) / 255 )
+			)
+		);
+		const contrast = Math.floor( palette.contrast * 255 );
+		const factor =
+			( 259 * ( contrast + 255 ) ) / ( 255 * ( 259 - contrast ) );
+		matrix(
+			diagonal(
+				Array( 3 ).fill( factor ),
+				Array( 3 ).fill( ( 128 / 255 ) * ( 1 - factor ) )
+			)
+		);
+		const tint = palette.imageTint
+			.match( /[a-f\d]{2}/gi )
+			.map(
+				( hex ) =>
+					( parseInt( hex, 16 ) / 255 ) * ( palette.tintAlpha ?? 1 )
+			);
+		const mode = photo ? palette.photoTintMode || 'multiply' : 'tint';
+		matrix(
+			diagonal(
+				mode === 'multiply'
+					? tint
+					: mode === 'screen'
+					? tint.map( ( value ) => 1 - value )
+					: Array( 3 ).fill( 1 - ( palette.tintAlpha ?? 1 ) ),
+				mode === 'multiply' ? [ 0, 0, 0 ] : tint,
+				palette.opacity
+			)
+		);
+		svg.appendChild( definition );
+		el.appendChild( svg );
+		return `url(#${ definition.id }) drop-shadow(0 1px 1px ${ palette.highlight })`;
 	}
 
 	function applyLayerPreview(
@@ -395,11 +476,16 @@ export function createLayerPreviewRenderer( deps ) {
 				img.src = s.default_attachment_url;
 				img.alt = '';
 				img.style.filter = isEngraving
-					? engraving.photoFilter || engraving.filter
+					? engraving.palette
+						? engravingImageFilter( engraving.palette, el, true )
+						: engraving.photoFilter || engraving.filter
 					: imageFilterCss( s.default_image_filter_id, el );
 				if (
 					isEngraving &&
-					[ 'leather', 'silver_plaque' ].includes( engravingMaterial )
+					( engraving.palette?.composite === 'multiply' ||
+						[ 'leather', 'silver_plaque' ].includes(
+							engravingMaterial
+						) )
 				) {
 					img.style.mixBlendMode = 'multiply';
 				}
@@ -463,8 +549,13 @@ export function createLayerPreviewRenderer( deps ) {
 					( selectedClipart?.fileType === 'svg' &&
 						selectedClipart.colourChangeable !== false ) )
 			) {
-				img.style.filter = engraving.filter;
-				if ( engravingMaterial === 'leather' ) {
+				img.style.filter = engraving.palette
+					? engravingImageFilter( engraving.palette, el )
+					: engraving.filter;
+				if (
+					engravingMaterial === 'leather' ||
+					engraving.palette?.composite === 'multiply'
+				) {
 					img.style.mixBlendMode = 'multiply';
 				}
 			}

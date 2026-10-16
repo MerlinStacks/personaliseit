@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.19.10 - 2026-10-16
+
+### Fixed
+- Show the pale silver finish for uploaded black-metal engraving images, including AI-generated artwork and clipped uploads, instead of leaving dark lines black. White-background removal and existing transparency are preserved.
+- Lift dark artwork to silver in silver-metal image previews while retaining distinct photo tones and the existing background-aware silver palette.
+- Use the storefront material colours for gold-metal, wood and glass text and artwork in the admin design preview, including material-aware photo tinting and wood compositing.
+
+### Upgrade notes
+- No database migration or customer reconfiguration is required. Production artwork and upload retention are unchanged.
+
 ## 1.19.9 - 2026-10-16
 
 ### Fixed

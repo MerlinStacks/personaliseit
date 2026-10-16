@@ -167,7 +167,9 @@ async function main() {
 		// Includes optional Night Sky and ~3 KB on-demand clipart pagination.
 		// Includes Curved Text in both the design editor and customer preview.
 		// Includes the retry/history controls and customer-upload preview links.
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_523_000 ),
+		// Shared engraving palettes and sRGB admin colour filters add ~3 KB;
+		// customer startup budgets above are unchanged.
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_526_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

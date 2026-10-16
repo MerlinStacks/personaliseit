@@ -1,0 +1,9 @@
+OverCustomise 1.19.10 - 16 October 2026
+
+Fixes black-metal engraving previews showing uploaded artwork as black instead of the exposed pale silver finish. The fix also covers AI-generated images and clipped uploads, preserving white-background removal and existing transparency.
+
+Silver-metal image previews now lift dark artwork to silver while retaining distinct photo tones and the background-aware silver palette. Gold-metal, wood and glass text and artwork in the admin design preview now use the storefront material colours, including material-aware photo tinting and wood compositing.
+
+Includes regression coverage for material colours, image tinting and transparency. The admin colour filters add approximately 3 KB to the total asset budget; customer startup budgets are unchanged. Silver-plaque photo dithering, production artwork and upload retention are unchanged. No database migration or customer reconfiguration is required.
+
+Requires WordPress 6.8+, PHP 8.2+, and WooCommerce. Includes the SLDevs-hosted updater and the personaliseit-main compatibility ZIP. Hosted updates preserve the existing plugin folder; do not uninstall the plugin to update it.
