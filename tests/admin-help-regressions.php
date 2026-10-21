@@ -15,7 +15,7 @@ function sanitize_html_class( $value ) {
 }
 function wp_unique_id( $prefix = '' ) {
 	static $counter = 0;
-	return $prefix . ++$counter;
+	return $prefix . ( ++$counter );
 }
 require ABSPATH . 'includes/class-oc-tooltips.php';
 ob_start();
@@ -36,8 +36,8 @@ foreach ( [
 		throw new RuntimeException( 'Help disclosure rendering regression.' );
 	}
 }
-foreach ( $controls[1] as $id ) {
-	if ( ! str_contains( $html, 'id="' . $id . '" hidden' ) ) {
+foreach ( $controls[1] as $hint_id ) {
+	if ( ! str_contains( $html, 'id="' . $hint_id . '" hidden' ) ) {
 		throw new RuntimeException( 'Help control must reference its own hint.' );
 	}
 }

@@ -1004,8 +1004,8 @@ class OC_Admin_Products {
 				foreach ( $designs as $design ) :
 					$thumb = $design_thumbs[ (int) $design->id ] ?? '';
 					?>
-					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ?: '' ); ?>" data-icon-url="<?php echo esc_url( OC_Chooser_Icons::url( 'design', (int) $design->id ) ); ?>">
-						<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
+					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ? $thumb : '' ); ?>" data-icon-url="<?php echo esc_url( OC_Chooser_Icons::url( 'design', (int) $design->id ) ); ?>">
+						<?php echo esc_html( $design->name ? $design->name : __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
 					</option>
 				<?php endforeach; ?>
 			</select>

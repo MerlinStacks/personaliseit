@@ -6,7 +6,8 @@ class OC_Chooser_Icons {
 	/** Resolve only the optional chooser image. */
 	public static function url( string $kind, int $id ): string {
 		$attachment_id = (int) get_option( 'oc_chooser_icon_' . $kind . '_' . $id, 0 );
-		return $attachment_id > 0 ? ( wp_get_attachment_image_url( $attachment_id, 'medium' ) ?: '' ) : '';
+		$url           = $attachment_id > 0 ? wp_get_attachment_image_url( $attachment_id, 'medium' ) : false;
+		return $url ? $url : '';
 	}
 
 	/** Load the shared media-library upload/select control. */
@@ -50,7 +51,7 @@ class OC_Chooser_Icons {
 		}
 		global $wpdb;
 		$table = 'clipart' === $kind ? 'oc_clipart' : 'oc_designs';
-		if ( ! $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}{$table} WHERE id = %d", $id ) ) ) {
+		if ( ! $wpdb->get_var( $wpdb->prepare( 'SELECT id FROM %i WHERE id = %d', $wpdb->prefix . $table, $id ) ) ) {
 			wp_send_json_error( [ 'message' => __( 'Artwork not found.', 'overcustomise' ) ], 404 );
 		}
 		if ( $attachment_id && ( ! wp_attachment_is_image( $attachment_id ) || ! wp_get_attachment_image_url( $attachment_id, 'medium' ) ) ) {

@@ -622,8 +622,9 @@ class OC_Frontend {
 			$thumb_layers = $this->get_design_variant_thumb_layers( $design_id, $area );
 			$thumb_url    = empty( $thumb_layers ) ? $this->get_design_variant_artwork_thumb_url( $design_id, $areas ) : '';
 			if ( empty( $thumb_layers ) && '' === $thumb_url && ! empty( $area->mockup_attachment_id ) ) {
-				$mockup_src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
-				$thumb_url  = wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: ( $mockup_src[0] ?? '' );
+				$mockup_src   = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
+				$mockup_thumb = wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' );
+				$thumb_url    = $mockup_thumb ? $mockup_thumb : ( $mockup_src[0] ?? '' );
 			}
 		}
 

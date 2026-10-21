@@ -26,6 +26,7 @@
 		<properties>
 			<property name="custom_capabilities" type="array">
 				<element value="read_private_products"/>
+				<element value="manage_woocommerce"/>
 			</property>
 		</properties>
 	</rule>
