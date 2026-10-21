@@ -128,7 +128,7 @@ class OC_Webhooks {
 		// Persist the winning UUID so retries and duplicate callbacks keep it.
 		$delivery_id = wp_generate_uuid4();
 		$job_key     = self::JOB_PREFIX . ( '' !== $receipt_key ? hash( 'sha256', $receipt_key ) : $delivery_id );
-		$job = [
+		$job         = [
 			'webhook_id'  => $webhook_id,
 			'body'        => $body,
 			'event'       => $event,

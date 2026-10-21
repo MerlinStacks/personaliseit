@@ -71,7 +71,7 @@ try {
 	check( 1 === count( $search['items'] ) && 125 === $search['items'][0]['id'], 'Search must cover items beyond the loaded page.' );
 	check( 1 === $wpdb->reads, 'Repeated pages should reuse the persistent metadata cache.' );
 	$options['oc_chooser_icon_clipart_125'] = 88;
-	$with_icon = OC_Clipart_Catalog::page( [ 1 ], 'uv', 1, 'Art 125' )['items'][0];
+	$with_icon                              = OC_Clipart_Catalog::page( [ 1 ], 'uv', 1, 'Art 125' )['items'][0];
 	check( 'https://example.test/uploads/chooser-icon.png' === $with_icon['iconUrl'], 'Configured chooser icons must be available on paginated and initial results.' );
 	check( str_contains( $with_icon['url'], '/overcustomise/clipart/art.svg' ), 'Chooser icons must never replace the production artwork URL.' );
 	$options['oc_chooser_icon_clipart_125'] = 999;

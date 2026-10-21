@@ -72,7 +72,7 @@ class OC_Admin_Clipart {
 
 		$clipart = OC_DB::get_clipart( false );
 		OC_Chooser_Icons::enqueue();
-		$groups  = OC_DB::get_clipart_groups();
+		$groups = OC_DB::get_clipart_groups();
 
 		// JS payload — clipart items.
 		$clipart_js = array_map(
@@ -250,10 +250,10 @@ class OC_Admin_Clipart {
 													$cdata = $c;
 													break;
 												}
-												}
-												if ( ! $cdata ) {
-													continue;
-												}
+											}
+											if ( ! $cdata ) {
+												continue;
+											}
 												$thumb_url = self::get_clipart_url( $cdata->file_path );
 												?>
 												<div class="oc-clipart-thumb" title="<?php echo esc_attr( $cdata->name ); ?>">

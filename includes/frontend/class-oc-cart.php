@@ -644,7 +644,7 @@ class OC_Cart {
 		$valid_types = [ 'text', 'curved_text', 'textarea', 'staff_note', 'image', 'ai_image', 'clipmask', 'spotify', 'lineart', 'clipart', 'night_sky' ];
 		// Resolve controlling clipart defaults before evaluating rules, including
 		// catalogue fallback for locked choices whose old default was removed.
-		$condition_inputs = $raw_layers;
+		$condition_inputs  = $raw_layers;
 		$condition_sources = [];
 		foreach ( $design_layers as $candidate ) {
 			$candidate_settings = self::normalise_layer_settings( $candidate->settings ?? [] );
@@ -661,10 +661,10 @@ class OC_Cart {
 				continue;
 			}
 			$candidate_input = $raw_layers[ $candidate->id ] ?? [];
-			$fixed = ! empty( $candidate->locked ) || ! $candidate_settings['allow_clipart_change'];
-			$default = $candidate_settings['default_clipart_id'];
-			$selected = $fixed ? $default : absint( $candidate_input['clipartId'] ?? $default );
-			$method = $methods[ absint( $candidate->area_id ?? 0 ) ] ?? '';
+			$fixed           = ! empty( $candidate->locked ) || ! $candidate_settings['allow_clipart_change'];
+			$default         = $candidate_settings['default_clipart_id'];
+			$selected        = $fixed ? $default : absint( $candidate_input['clipartId'] ?? $default );
+			$method          = $methods[ absint( $candidate->area_id ?? 0 ) ] ?? '';
 			if ( $selected && ! self::get_allowed_clipart( $selected, $candidate_settings['clipart_groups'], $method ) ) {
 				$using_default = ! array_key_exists( 'clipartId', $candidate_input ) || $selected === $default;
 				if ( $fixed || ( $using_default && $candidate_settings['required'] ) ) {
@@ -698,16 +698,23 @@ class OC_Cart {
 			$editable = ( ! isset( $layer->visible ) || (bool) $layer->visible ) && empty( $layer->locked );
 			$source   = $editable ? $posted : [];
 			if ( 'staff_note' === $type ) {
-				$note = OC_Print_Text::normalise( $source['value'] ?? '', true );
+				$note       = OC_Print_Text::normalise( $source['value'] ?? '', true );
+				$note_label = $layer->label ? $layer->label : __( 'Note for staff', 'overcustomise' );
 				if ( $editable && $settings['required'] && '' === trim( $note ) ) {
-					return new \WP_Error( 'required_layer', sprintf( __( 'Please complete "%s".', 'overcustomise' ), $layer->label ?: __( 'Note for staff', 'overcustomise' ) ) );
+					/* translators: %s: Customer instruction field label. */
+					return new \WP_Error( 'required_layer', sprintf( __( 'Please complete "%s".', 'overcustomise' ), $note_label ) );
 				}
-				$limit = $settings['char_limit'] ?: 10000;
+				$limit = $settings['char_limit'] ? $settings['char_limit'] : 10000;
 				if ( self::string_length_static( $note ) > $limit ) {
-					return new \WP_Error( 'note_too_long', sprintf( __( 'The note for "%s" is too long.', 'overcustomise' ), $layer->label ?: __( 'Note for staff', 'overcustomise' ) ) );
+					/* translators: %s: Customer instruction field label. */
+					return new \WP_Error( 'note_too_long', sprintf( __( 'The note for "%s" is too long.', 'overcustomise' ), $note_label ) );
 				}
 				// Snapshot its label separately from the production render specification.
-				$normalised[ $layer_id ] = [ 'type' => 'staff_note', 'label' => sanitize_text_field( (string) $layer->label ), 'value' => $note ];
+				$normalised[ $layer_id ] = [
+					'type'  => 'staff_note',
+					'label' => sanitize_text_field( (string) $layer->label ),
+					'value' => $note,
+				];
 				continue;
 			}
 
@@ -1521,17 +1528,22 @@ class OC_Cart {
 			return false;
 		}
 		$visiting[ $id ] = true;
-		$sources = array_values( array_filter( $layers, static function ( $candidate ) use ( $settings ): bool {
-			$candidate_settings = self::normalise_layer_settings( $candidate->settings ?? [] );
-			return 'clipart' === ( $candidate->type ?? '' ) && $candidate_settings['condition_key'] === $settings['condition_source_key'];
-		} ) );
+		$sources         = array_values(
+			array_filter(
+				$layers,
+				static function ( $candidate ) use ( $settings ): bool {
+					$candidate_settings = self::normalise_layer_settings( $candidate->settings ?? [] );
+					return 'clipart' === ( $candidate->type ?? '' ) && $candidate_settings['condition_key'] === $settings['condition_source_key'];
+				}
+			)
+		);
 		if ( 1 !== count( $sources ) || ! self::conditional_layer_is_shown( $sources[0], $layers, $inputs, $visiting, $canonical_inputs ) ) {
 			return false;
 		}
-		$source = $sources[0];
+		$source          = $sources[0];
 		$source_settings = self::normalise_layer_settings( $source->settings ?? [], 'clipart' );
-		$posted = is_array( $inputs[ $source->id ] ?? null ) ? $inputs[ $source->id ] : [];
-		$selected = ! $canonical_inputs && ( ! empty( $source->locked ) || ! $source_settings['allow_clipart_change'] )
+		$posted          = is_array( $inputs[ $source->id ] ?? null ) ? $inputs[ $source->id ] : [];
+		$selected        = ! $canonical_inputs && ( ! empty( $source->locked ) || ! $source_settings['allow_clipart_change'] )
 			? $source_settings['default_clipart_id']
 			: ( $posted['clipartId'] ?? $source_settings['default_clipart_id'] );
 		if ( ! $settings['condition_clipart_ids'] ) {
@@ -2188,9 +2200,11 @@ class OC_Cart {
 		foreach ( is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [] as $id => $input ) {
 			if ( is_array( $input ) && 'staff_note' === ( $input['type'] ?? '' ) && absint( $id ) > 0 ) {
 				$layers[ absint( $id ) ] = (object) [
-					'id' => absint( $id ), 'type' => 'staff_note',
-					'label' => sanitize_text_field( is_scalar( $input['label'] ?? null ) ? (string) $input['label'] : __( 'Note for staff', 'overcustomise' ) ),
-					'settings' => [], 'locked' => false,
+					'id'       => absint( $id ),
+					'type'     => 'staff_note',
+					'label'    => sanitize_text_field( is_scalar( $input['label'] ?? null ) ? (string) $input['label'] : __( 'Note for staff', 'overcustomise' ) ),
+					'settings' => [],
+					'locked'   => false,
 				];
 			}
 		}

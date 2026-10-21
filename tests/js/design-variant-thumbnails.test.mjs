@@ -139,21 +139,30 @@ test( 'initial lazy payload fetches missing thumbnails and caches both states wi
 } );
 
 test( 'an uploaded design icon is not overwritten by generated artwork thumbnails', async ( t ) => {
-	const { app, calls, rendered, document } = runtime( t, async ( id ) => responseFor( id ) );
-	const option = document.querySelector( '[data-oc-design-variant-thumb="2"]' ).parentElement;
+	const { app, calls, rendered, document } = runtime( t, async ( id ) =>
+		responseFor( id )
+	);
+	const option = document.querySelector(
+		'[data-oc-design-variant-thumb="2"]'
+	).parentElement;
 	option.classList.remove( 'oc-thumb-pending' );
 	option.innerHTML = '<img src="/chooser-icon.png" alt="">';
 	await app.renderDesignVariantThumbnails();
-	assert.deepEqual( calls.map( ( call ) => call.url.searchParams.get( 'design_id' ) ), [ '3' ] );
+	assert.deepEqual(
+		calls.map( ( call ) => call.url.searchParams.get( 'design_id' ) ),
+		[ '3' ]
+	);
 	assert.deepEqual( rendered.map( Number ), [ 1, 3 ] );
-	assert.equal( option.querySelector( 'img' ).getAttribute( 'src' ), '/chooser-icon.png' );
+	assert.equal(
+		option.querySelector( 'img' ).getAttribute( 'src' ),
+		'/chooser-icon.png'
+	);
 	assert.equal( app.selectedDesignVariant, '1' );
 } );
 
 test( 'icon variants skip thumbnail fetches and rendering even with an older canvas present', async ( t ) => {
-	const { app, calls, rendered, document } = runtime(
-		t,
-		async ( id ) => responseFor( id )
+	const { app, calls, rendered, document } = runtime( t, async ( id ) =>
+		responseFor( id )
 	);
 	// Cover both a cached selected design and an uncached alternate design.
 	app.designVariants[ 0 ].iconUrl = '/first-icon.png';
@@ -166,7 +175,8 @@ test( 'icon variants skip thumbnail fetches and rendering even with an older can
 	assert.deepEqual( rendered.map( Number ), [ 3 ] );
 	for ( const id of [ 1, 2 ] ) {
 		assert.equal(
-			document.querySelector( `[data-oc-design-variant-thumb="${ id }"]` )
+			document
+				.querySelector( `[data-oc-design-variant-thumb="${ id }"]` )
 				.parentElement.classList.contains( 'oc-thumb-pending' ),
 			false
 		);
@@ -182,9 +192,8 @@ test( 'icon variants skip thumbnail fetches and rendering even with an older can
 } );
 
 test( 'an all-icon chooser needs no background thumbnail requests or canvases', async ( t ) => {
-	const { app, calls, rendered, document } = runtime(
-		t,
-		() => assert.fail( 'Icons must not prefetch design artwork' )
+	const { app, calls, rendered, document } = runtime( t, () =>
+		assert.fail( 'Icons must not prefetch design artwork' )
 	);
 	for ( const canvas of document.querySelectorAll( 'canvas' ) ) {
 		const option = canvas.parentElement;

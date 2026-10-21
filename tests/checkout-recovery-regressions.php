@@ -282,9 +282,9 @@ $wpdb->fail = false;
 $plugin = ( new ReflectionClass( OC_Plugin::class ) )->newInstanceWithoutConstructor();
 ( new ReflectionMethod( OC_Plugin::class, 'register_maintenance_hooks' ) )->invoke( $plugin );
 check( in_array( [ OC_Autosave::class, 'cleanup_recovery' ], $hooks['oc_daily_file_cleanup'][30], true ), 'Recovery cleanup is wired to daily maintenance' );
-$options['unrelated_setting'] = 'keep';
-$options['oc_wh_created_7_1'] = '2026-10-17 00:00:00';
-$options['oc_chooser_icon_design_7'] = 88;
+$options['unrelated_setting']         = 'keep';
+$options['oc_wh_created_7_1']         = '2026-10-17 00:00:00';
+$options['oc_chooser_icon_design_7']  = 88;
 $options['oc_chooser_icon_clipart_9'] = 99;
 
 $cleanup = new ReflectionMethod( OC_Plugin::class, 'delete_runtime_options' );

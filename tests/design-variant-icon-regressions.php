@@ -1,4 +1,5 @@
 <?php
+// phpcs:disable WordPress.Security.EscapeOutput.ExceptionNotEscaped -- Isolated CLI assertions, not HTML output.
 /** Verify chooser icons bypass thumbnail generation, not design validation. */
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
 $options = [ 'oc_chooser_icon_design_7' => 88 ];
@@ -9,7 +10,7 @@ function wp_get_attachment_image_url( $id, $size ) {
 	return 88 === $id ? 'https://example.test/icon.png' : false;
 }
 function sanitize_text_field( $value ) {
-	return strip_tags( $value );
+	return strip_tags( $value ); // phpcs:ignore WordPress.WP.AlternativeFunctions.strip_tags_strip_tags -- Boundary double without WordPress.
 }
 function __( $value, ...$args ) {
 	return $value;
@@ -28,16 +29,19 @@ function check( $condition, $message ) {
 	}
 }
 $frontend = ( new ReflectionClass( OC_Frontend::class ) )->newInstanceWithoutConstructor();
-$cache = new ReflectionProperty( OC_Frontend::class, 'design_context_cache' );
-$cache->setValue( $frontend, [
-	7 => [
-		'design' => (object) [ 'name' => 'Design seven' ],
-		'areas'  => [ (object) [ 'id' => 1 ] ],
-		'layers' => [],
-	],
-	8 => null,
-] );
-$build = new ReflectionMethod( OC_Frontend::class, 'build_design_variant_option' );
+$cache    = new ReflectionProperty( OC_Frontend::class, 'design_context_cache' );
+$cache->setValue(
+	$frontend,
+	[
+		7 => [
+			'design' => (object) [ 'name' => 'Design seven' ],
+			'areas'  => [ (object) [ 'id' => 1 ] ],
+			'layers' => [],
+		],
+		8 => null,
+	]
+);
+$build  = new ReflectionMethod( OC_Frontend::class, 'build_design_variant_option' );
 $option = $build->invoke( $frontend, 7, 'Artwork seven', 7 );
 check( 'https://example.test/icon.png' === $option['iconUrl'], 'The uploaded icon is the chooser image' );
 check( [] === $option['thumbLayers'] && '' === $option['thumbUrl'] && 0 === OC_DB::$thumbnail_reads, 'An icon skips all generated-thumbnail work' );
@@ -46,8 +50,8 @@ $options['oc_chooser_icon_design_8'] = 88;
 check( null === $build->invoke( $frontend, 8, '', 7 ), 'An icon cannot make an unusable design selectable' );
 foreach ( [ 0, 999 ] as $attachment_id ) {
 	$options['oc_chooser_icon_design_7'] = $attachment_id;
-	OC_DB::$thumbnail_reads = 0;
-	$option = $build->invoke( $frontend, 7, '', 7 );
+	OC_DB::$thumbnail_reads              = 0;
+	$option                              = $build->invoke( $frontend, 7, '', 7 );
 	check( '' === $option['iconUrl'] && 2 === OC_DB::$thumbnail_reads, 'Removed or missing icons restore the existing thumbnail generation path' );
 }
 echo "Design variant icon regressions passed.\n";

@@ -256,25 +256,25 @@ check( $before_uuid + 4 === $GLOBALS['uuid_counter'], 'Regeneration notification
 
 // Existing queued deliveries retain their pre-upgrade identity through retries.
 send_created( 11 );
-$legacy_id = '11111111-1111-5111-a111-111111111111';
+$legacy_id                               = '11111111-1111-5111-a111-111111111111';
 $options[ job_key( 11 ) ]['delivery_id'] = $legacy_id;
 send_created( 11 );
 $http_code = 503;
 $webhooks->process_delivery( 1, job_key( 11 ) );
 check( $legacy_id === $options[ job_key( 11 ) ]['delivery_id'], 'An existing delivery UUID is never regenerated on checkout retries or HTTP failures' );
 $options[ job_key( 11 ) ]['run_after'] = time() - 1;
-$http_code = 200;
+$http_code                             = 200;
 $webhooks->process_delivery( 1, job_key( 11 ) );
-check( $legacy_id === end( $requests )['headers']['X-OC-Delivery-ID'], 'Upgraded jobs send the same header on their successful retry' );
+check( hash_equals( $legacy_id, end( $requests )['headers']['X-OC-Delivery-ID'] ), 'Upgraded jobs send the same header on their successful retry' );
 
 // A separate store has its own options table but may reuse order/destination IDs.
 $first_store_id = $original['delivery_id'];
 unset( OC_DB::$webhooks[2] );
-$options = [];
+$options   = [];
 $scheduled = [];
 send_created( 7 );
 $second_store_job = $options[ job_key( 7 ) ];
-check( $first_store_id !== $second_store_job['delivery_id'], 'Matching order and destination IDs on separate stores have distinct delivery identities' );
+check( ! hash_equals( $first_store_id, $second_store_job['delivery_id'] ), 'Matching order and destination IDs on separate stores have distinct delivery identities' );
 send_created( 7 );
 check( $second_store_job === $options[ job_key( 7 ) ] && 1 === count( $scheduled ), 'The second store still deduplicates locally without replacing its UUID or payload' );
 echo "Webhook deduplication regressions passed.\n";

@@ -63,9 +63,9 @@ function linkedApp( type = 'text' ) {
 		},
 		fonts: [ { id: 1 } ],
 		getLayerById( id ) {
-			return this.areas.flatMap( ( area ) => area.layers ).find(
-				( layer ) => Number( layer.id ) === Number( id )
-			);
+			return this.areas
+				.flatMap( ( area ) => area.layers )
+				.find( ( layer ) => Number( layer.id ) === Number( id ) );
 		},
 		areaIndexForLayer( id ) {
 			return this.areas.findIndex( ( area ) =>
@@ -311,9 +311,13 @@ test( 'locked and fixed clipart conditions use resolved fallback inputs, not rem
 						const applies =
 							operator === 'is_not' ? ! matches : matches;
 						assert.equal(
-							layerIsShown( dependent, [ controller, dependent ], {
-								1: { clipartId: id },
-							} ),
+							layerIsShown(
+								dependent,
+								[ controller, dependent ],
+								{
+									1: { clipartId: id },
+								}
+							),
 							action === 'hide' ? ! applies : applies
 						);
 					}

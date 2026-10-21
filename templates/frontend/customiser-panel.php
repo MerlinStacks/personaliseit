@@ -135,12 +135,12 @@ foreach ( $layers as $layer ) {
 							class="oc-design-variant-option<?php echo empty( $variant['iconUrl'] ) ? ' oc-thumb-pending' : ''; ?><?php echo $is_selected ? ' oc-selected' : ''; ?>"
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
 							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
-							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
+							aria-label="<?php /* translators: %s: Artwork option label. */ echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
 							<?php if ( ! empty( $variant['iconUrl'] ) ) : ?>
 								<img src="<?php echo esc_url( $variant['iconUrl'] ); ?>" alt="" loading="eager" decoding="async" />
 							<?php else : ?>
 							<canvas class="oc-design-variant-canvas" data-oc-design-variant-thumb="<?php echo esc_attr( $variant['id'] ); ?>" aria-hidden="true"></canvas>
-							<?php if ( ! empty( $variant['thumbLayers'] ) ) : ?>
+								<?php if ( ! empty( $variant['thumbLayers'] ) ) : ?>
 								<div class="oc-design-variant-thumb" aria-hidden="true">
 									<?php foreach ( $variant['thumbLayers'] as $thumb_layer ) :
 										$thumb_style = sprintf(
@@ -308,8 +308,8 @@ foreach ( $layers as $layer ) {
 
 							<?php if ( 'staff_note' === $layer->type ) : ?>
 								<div class="oc-control-group">
-									<label for="oc-note-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ?: __( 'Note for staff', 'overcustomise' ) ); ?><?php echo $required ? ' *' : ''; ?></label>
-									<textarea id="oc-note-<?php echo esc_attr( $layer->id ); ?>" name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]" rows="4" maxlength="<?php echo esc_attr( (string) ( $char_lim ?: 10000 ) ); ?>" data-oc-layer-note="<?php echo esc_attr( $layer->id ); ?>" <?php echo $required ? 'required aria-required="true"' : ''; ?>></textarea>
+									<label for="oc-note-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ? $layer->label : __( 'Note for staff', 'overcustomise' ) ); ?><?php echo $required ? ' *' : ''; ?></label>
+									<textarea id="oc-note-<?php echo esc_attr( $layer->id ); ?>" name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]" rows="4" maxlength="<?php echo esc_attr( (string) ( $char_lim ? $char_lim : 10000 ) ); ?>" data-oc-layer-note="<?php echo esc_attr( $layer->id ); ?>" <?php echo $required ? 'required aria-required="true"' : ''; ?>></textarea>
 								</div>
 							<?php elseif ( in_array( $layer->type, [ 'text', 'curved_text' ], true ) ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
@@ -502,7 +502,8 @@ foreach ( $layers as $layer ) {
 										title="<?php echo esc_attr( $ci->name ); ?>"
 										aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart', 'overcustomise' ), $ci->name ) ); ?>"
 										aria-pressed="false">
-										<img src="<?php echo esc_url( OC_Chooser_Icons::url( 'clipart', (int) $ci->id ) ?: $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
+										<?php $chooser_icon_url = OC_Chooser_Icons::url( 'clipart', (int) $ci->id ); ?>
+										<img src="<?php echo esc_url( $chooser_icon_url ? $chooser_icon_url : $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
 									</button>
 									<?php endforeach; ?>
 									<?php if ( empty( $items ) ) : ?>

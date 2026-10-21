@@ -383,20 +383,35 @@ class Test_Cart extends WC_Unit_Test_Case {
 	public function hidden_conditional_required_layers_do_not_block_cart_or_print(): void {
 		global $wpdb;
 		[ $design_id, $ids ] = $this->create_image_design( 'text' );
-		$rule = [
+		$rule                = [
 			'required'              => true,
 			'condition_enabled'     => true,
 			'condition_source_key'  => 'clipart-source',
 			'condition_clipart_ids' => [ 10 ],
 		];
-		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'type' => 'clipart', 'settings' => wp_json_encode( [ 'condition_key' => 'clipart-source' ] ) ], [ 'id' => $ids[0] ] );
+		$wpdb->update(
+			$wpdb->prefix . 'oc_design_layers',
+			[
+				'type'     => 'clipart',
+				'settings' => wp_json_encode( [ 'condition_key' => 'clipart-source' ] ),
+			],
+			[ 'id' => $ids[0] ]
+		);
 		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'settings' => wp_json_encode( $rule ) ], [ 'id' => $ids[1] ] );
 		OC_Cache::flush_group();
-		$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [ $ids[0] => [ 'clipartId' => 0 ], $ids[1] => [ 'value' => '' ] ] );
+		$result = OC_Cart::normalise_v2_layers(
+			$this->product->get_id(),
+			0,
+			$design_id,
+			[
+				$ids[0] => [ 'clipartId' => 0 ],
+				$ids[1] => [ 'value' => '' ],
+			]
+		);
 		$this->assertNotWPError( $result );
 		$this->assertArrayNotHasKey( $ids[1], $result['layers'] );
 		$this->assertSame( [], $result['layer_costs'] );
-		$spec = OC_Render_Spec::build( $design_id, $result['layers'] );
+		$spec        = OC_Render_Spec::build( $design_id, $result['layers'] );
 		$printed_ids = [];
 		foreach ( $spec['areas'] as $area ) {
 			foreach ( $area['layers'] as $layer ) {
@@ -405,23 +420,58 @@ class Test_Cart extends WC_Unit_Test_Case {
 		}
 		$this->assertNotContains( $ids[1], $printed_ids );
 		// A forged client-side hidden flag cannot bypass a matching saved condition.
-		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'locked' => 1, 'settings' => wp_json_encode( [ 'condition_key' => 'clipart-source', 'default_clipart_id' => 10 ] ) ], [ 'id' => $ids[0] ] );
+		$wpdb->update(
+			$wpdb->prefix . 'oc_design_layers',
+			[
+				'locked'   => 1,
+				'settings' => wp_json_encode(
+					[
+						'condition_key'      => 'clipart-source',
+						'default_clipart_id' => 10,
+					]
+				),
+			],
+			[ 'id' => $ids[0] ]
+		);
 		OC_Cache::flush_group();
 		// The rule evaluator does not accept customer-supplied visibility flags.
 		$layers = OC_DB::get_design_layers( $design_id );
 		$target = array_values( array_filter( $layers, static fn ( $layer ): bool => (int) $layer->id === $ids[1] ) )[0];
-		$this->assertTrue( OC_Cart::conditional_layer_is_shown( $target, $layers, [ $ids[0] => [ 'clipartId' => 0 ], $ids[1] => [ 'hidden' => true ] ] ) );
+		$this->assertTrue(
+			OC_Cart::conditional_layer_is_shown(
+				$target,
+				$layers,
+				[
+					$ids[0] => [ 'clipartId' => 0 ],
+					$ids[1] => [ 'hidden' => true ],
+				]
+			)
+		);
 	}
 
 	#[Test]
 	public function staff_notes_are_saved_but_never_enter_production_specs(): void {
 		global $wpdb;
-		[ $design_id, $ids ] = $this->create_image_design( 'staff_note', [ 'required' => true, 'char_limit' => 100 ] );
-		$note = "Check the spelling.\nDo not print this note.";
-		$result = OC_Cart::normalise_v2_layers( $this->product->get_id(), 0, $design_id, [
-			$ids[0] => [ 'value' => $note, 'label' => 'Forged label' ],
-			$ids[1] => [ 'value' => 'Second instruction' ],
-		] );
+		[ $design_id, $ids ] = $this->create_image_design(
+			'staff_note',
+			[
+				'required'   => true,
+				'char_limit' => 100,
+			]
+		);
+		$note                = "Check the spelling.\nDo not print this note.";
+		$result              = OC_Cart::normalise_v2_layers(
+			$this->product->get_id(),
+			0,
+			$design_id,
+			[
+				$ids[0] => [
+					'value' => $note,
+					'label' => 'Forged label',
+				],
+				$ids[1] => [ 'value' => 'Second instruction' ],
+			]
+		);
 		$this->assertNotWPError( $result );
 		$this->assertSame( $note, $result['layers'][ $ids[0] ]['value'] );
 		$this->assertSame( 'First', $result['layers'][ $ids[0] ]['label'] );
@@ -433,7 +483,12 @@ class Test_Cart extends WC_Unit_Test_Case {
 		$this->assertStringNotContainsString( $note, wp_json_encode( $spec ) );
 		$wpdb->update( $wpdb->prefix . 'oc_design_layers', [ 'label' => 'Changed label' ], [ 'id' => $ids[0] ] );
 		OC_Cache::flush_group();
-		$map = OC_Cart::render_spec_layer_map( [ 'renderSpec' => $spec, 'layers' => $result['layers'] ] );
+		$map = OC_Cart::render_spec_layer_map(
+			[
+				'renderSpec' => $spec,
+				'layers'     => $result['layers'],
+			]
+		);
 		$this->assertSame( 'First', $map[ $ids[0] ]->label );
 	}
 
