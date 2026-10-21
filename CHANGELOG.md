@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.20.1 - 2026-10-21
+
+### Fixed
+- Resolve the JavaScript formatting and WordPress PHP coding-standard violations that blocked the 1.20.0 GitHub workflow, without weakening the existing baselines or workflow checks.
+- Prepare chooser-icon target lookups with WordPress's native identifier placeholder and add translator context for Staff Note validation messages.
+
+### Release notes
+- Hosted plugin-details notes use native WordPress headings, paragraphs and lists, with no nested frame or preformatted scrolling box.
+- Includes the conditional layers, non-printing Staff Notes, chooser icons and checkout reliability fixes introduced in 1.20.0.
+
+### Upgrade notes
+- No database migration or customer reconfiguration is required. Requirements remain WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation.
+- Hosted updates preserve the installed plugin folder. Replace the existing plugin without uninstalling it.
+
 ## 1.20.0 - 2026-10-21
 
 ### Added

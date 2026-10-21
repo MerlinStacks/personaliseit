@@ -3,7 +3,7 @@
         'name' => 'customkings/overcustomise',
         'pretty_version' => 'dev-main',
         'version' => 'dev-main',
-        'reference' => 'a95964e70228fdc5a0afbb4393ef62019faf60b9',
+        'reference' => 'fb129e85623ebdd0a553c78373f8b82d39bb1d39',
         'type' => 'wordpress-plugin',
         'install_path' => __DIR__ . '/../../',
         'aliases' => array(),
@@ -13,7 +13,7 @@
         'customkings/overcustomise' => array(
             'pretty_version' => 'dev-main',
             'version' => 'dev-main',
-            'reference' => 'a95964e70228fdc5a0afbb4393ef62019faf60b9',
+            'reference' => 'fb129e85623ebdd0a553c78373f8b82d39bb1d39',
             'type' => 'wordpress-plugin',
             'install_path' => __DIR__ . '/../../',
             'aliases' => array(),

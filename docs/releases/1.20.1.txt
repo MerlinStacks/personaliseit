@@ -1,0 +1,20 @@
+OverCustomise 1.20.1 - 21 October 2026
+
+Fixes:
+- Resolve JavaScript formatting and WordPress PHP coding-standard violations that blocked the 1.20.0 GitHub workflow, without weakening existing baselines or workflow checks.
+- Use WordPress's native identifier placeholder when checking chooser-icon targets and provide translator context for Staff Note validation messages.
+
+Release notes:
+- Display these notes directly in WordPress's native plugin-details changelog tab, using headings, paragraphs and lists. No nested frame, embedded page or preformatted scrolling box is used.
+
+Included from 1.20.0:
+- Conditional frontend layers controlled by clipart selections. Hidden layers are not required, charged or printed, and shared controls remain usable while any linked layer is visible.
+- Non-printing Staff Notes for customer instructions, saved with orders but excluded from production artwork.
+- Separate chooser icons for designs and clipart. Design variants with icons skip generated-thumbnail rendering and background thumbnail requests without changing live artwork.
+- Checkout Block print-generation safeguards, classic/Block checkout webhooks, per-order delivery deduplication and cross-store-safe delivery UUIDs.
+- Accessible admin help, 30-day editor recovery retention, and chooser-icon reference cleanup on uninstall without deleting Media Library images.
+
+Upgrade notes:
+- Requires WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation. No database migration or customer reconfiguration is required.
+- Production artwork, saved customisations and the existing plugin-folder identity are preserved. The personaliseit-main compatibility ZIP is included for legacy installations.
+- Replace the existing plugin without uninstalling it. Existing recovery copies retain the 30-day grace-period behaviour introduced in 1.20.0.
