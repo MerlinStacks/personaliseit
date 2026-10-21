@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * B.php
+ * CodeOneTwoEightB.php
  *
  * @since       2015-02-21
  * @category    Library
@@ -21,7 +21,7 @@ namespace Com\Tecnick\Barcode\Type\Linear\CodeOneTwoEight;
 use Com\Tecnick\Barcode\Exception as BarcodeException;
 
 /**
- * Com\Tecnick\Barcode\Type\Linear\CodeOneTwoEight\B;
+ * Com\Tecnick\Barcode\Type\Linear\CodeOneTwoEight\CodeOneTwoEightB;
  *
  * CodeOneTwoEightB Barcode type class
  * CODE 128 B
@@ -53,6 +53,9 @@ class CodeOneTwoEightB extends \Com\Tecnick\Barcode\Type\Linear\CodeOneTwoEight
     protected function getCodeData(): array
     {
         $code = $this->code;
+        if ($code === '') {
+            throw new BarcodeException('Code 128 payload must not be empty');
+        }
         $len = \strlen($code);
         $code_data = [];
         $this->getCodeDataB($code_data, $code, $len);

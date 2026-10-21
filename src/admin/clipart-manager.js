@@ -57,6 +57,7 @@ function normaliseClipart( c ) {
 		),
 		active: !! c.active,
 		url: c.url || '',
+		iconUrl: c.iconUrl || '',
 		toggleUrl: c.toggleUrl || '',
 		deleteUrl: c.deleteUrl || '',
 	};
@@ -767,6 +768,16 @@ function openEditModal( id ) {
 	}
 	editModalGeneration++;
 	editClipartId = id;
+	const iconControl = document.querySelector(
+		'#oc-clipart-modal [data-oc-chooser-icon]'
+	);
+	if ( iconControl ) {
+		iconControl.dataset.id = String( id );
+		const icon = iconControl.querySelector( '[data-oc-icon-preview]' );
+		icon.src = item.iconUrl;
+		icon.style.display = item.iconUrl ? '' : 'none';
+		iconControl.querySelector( '[data-oc-icon-status]' ).textContent = '';
+	}
 
 	const modal = document.getElementById( 'oc-clipart-modal' );
 	const nameInp = document.getElementById( 'oc_clipart_name' );
@@ -1336,6 +1347,17 @@ function initGroupModal() {
 // ---------------------------------------------------------------------------
 
 document.addEventListener( 'DOMContentLoaded', () => {
+	document.addEventListener( 'oc:chooser-icon-saved', ( event ) => {
+		if ( event.detail.kind !== 'clipart' ) {
+			return;
+		}
+		const item = clipart.find(
+			( c ) => c.id === Number( event.detail.id )
+		);
+		if ( item ) {
+			item.iconUrl = event.detail.url;
+		}
+	} );
 	initUploadModal();
 	initEditModal();
 	initGroupModal();

@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -60,5 +61,30 @@ class CodabarTest extends TestUtil
         $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
         $barcode = $this->getTestObject();
         $barcode->getBarcodeObj('CODABAR', \chr(218));
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return \array_map(static fn (string $code): array => [$code], [
+            '', 'A123A', 'a123a', 'B12C', '12A34', '12a34', '12D34', '123 ', "12\n34", "12\x0034",
+        ]);
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testGuardsAndInvalidPayloadCharactersAreRejected(string $code): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('CODABAR', $code);
+    }
+
+    public function testAllSupportedPunctuation(): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('CODABAR', '-$:/.+');
+        $this->assertSame('A-$:/.+A', $type->getExtendedCode());
+        $this->assertSame(
+            "101100100101010011010101100101011010110110110110101101101101101010110011001101011001001\n",
+            $type->getGrid(),
+        );
     }
 }

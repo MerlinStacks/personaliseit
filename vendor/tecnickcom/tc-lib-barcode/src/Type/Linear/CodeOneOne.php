@@ -124,9 +124,15 @@ class CodeOneOne extends \Com\Tecnick\Barcode\Type\Linear
 
     /**
      * Format code
+     *
+     * @throws BarcodeException if the payload contains anything other than digits and hyphens
      */
     protected function formatCode(): void
     {
+        if (\preg_match('/\A[0-9-]+\z/', $this->code) !== 1) {
+            throw new BarcodeException('Code 11 payload must contain only digits and hyphens');
+        }
+
         $this->extcode = 'S' . $this->code . $this->getChecksum($this->code) . 'S';
     }
 

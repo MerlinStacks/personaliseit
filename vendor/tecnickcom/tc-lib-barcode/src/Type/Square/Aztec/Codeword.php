@@ -312,6 +312,8 @@ abstract class Codeword
             $this->addShift(Data::MODE_PUNCT);
         }
 
+        $this->addRawCwd(5, 0); // FLG(n) in the punctuation table precedes the 3-bit flag length.
+
         if ($eci === 0) {
             $this->addRawCwd(3, 0); // FNC1
             return;

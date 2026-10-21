@@ -265,10 +265,9 @@ abstract class Process extends \Com\Tecnick\Barcode\Type\Linear
             }
 
             if ($num_offset > $end_offset) {
-                $sequence = \array_merge(
-                    $sequence,
-                    $this->get128ABsequence(\substr($code, $end_offset, $num_offset - $end_offset)),
-                );
+                foreach ($this->get128ABsequence(\substr($code, $end_offset, $num_offset - $end_offset)) as $part) {
+                    $sequence[] = $part;
+                }
             }
 
             $sequence[] = ['C', \substr($code, $num_offset, $num_len), $num_len];
@@ -276,7 +275,9 @@ abstract class Process extends \Com\Tecnick\Barcode\Type\Linear
         }
 
         if ($end_offset < $len) {
-            $sequence = \array_merge($sequence, $this->get128ABsequence(\substr($code, $end_offset)));
+            foreach ($this->get128ABsequence(\substr($code, $end_offset)) as $part) {
+                $sequence[] = $part;
+            }
         }
 
         if ($sequence === []) {

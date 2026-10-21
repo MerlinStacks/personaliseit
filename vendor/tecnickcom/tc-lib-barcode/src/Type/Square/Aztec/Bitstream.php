@@ -72,6 +72,18 @@ abstract class Bitstream extends \Com\Tecnick\Barcode\Type\Square\Aztec\Layers
      */
     protected function binaryEncode(array $chars, int $chrlen): void
     {
+        // The extended 11-bit length stores run length minus 31 (maximum 2078).
+        for ($offset = 0; $offset < $chrlen; $offset += 2078) {
+            $length = \min(2078, $chrlen - $offset);
+            $this->binaryEncodeChunk(\array_slice($chars, $offset, $length), $length);
+        }
+    }
+
+    /** Encode one representable binary run, preserving the enclosing text mode.
+     * @param list<int> $chars Binary bytes to encode.
+     */
+    protected function binaryEncodeChunk(array $chars, int $chrlen): void
+    {
         $bits = Data::MODE_BITS[Data::MODE_BINARY] ?? 8;
         $this->addShift(Data::MODE_BINARY);
         if ($chrlen > 62) {

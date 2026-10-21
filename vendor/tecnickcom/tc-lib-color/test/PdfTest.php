@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -24,11 +24,45 @@ namespace Test;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class PdfTest extends TestUtil
 {
+    public function testRegisteredLabSpotOutput(): void
+    {
+        $pdf = $this->getTestObject();
+        $pdf->addSpotLabColor('Brand', 50, 10, -20);
+        $this->assertSame("/CS1 cs 0.250000 scn\n", $pdf->getPdfFillColor('Brand', 0.25));
+        $this->assertSame("/CS1 CS 0.750000 SCN\n", $pdf->getPdfStrokeColor('Brand', 0.75));
+        $number = 7;
+        $this->assertStringContainsString('[/Separation /Brand [/Lab', $pdf->getPdfSpotObjects($number));
+        $this->assertSame(8, $number);
+        $this->assertSame("/ColorSpace << /CS1 8 0 R >>\n", $pdf->getPdfSpotResources());
+    }
+
+    public static function invalidWrapperTints(): array
+    {
+        return [
+            ['getPdfFillColor', NAN], ['getPdfFillColor', INF], ['getPdfFillColor', -INF],
+            ['getPdfStrokeColor', NAN], ['getPdfStrokeColor', INF], ['getPdfStrokeColor', -INF],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('invalidWrapperTints')]
+    public function testWrapperTintRejectionPreservesRegistry(string $method, float $tint): void
+    {
+        $pdf = $this->getTestObject();
+        $pdf->getPdfColor('red');
+        $before = $pdf->getSpotColors();
+        try {
+            $pdf->$method('cyan', $tint);
+            $this->fail('Expected a library exception');
+        } catch (\Com\Tecnick\Color\Exception) {
+            $this->assertSame($before, $pdf->getSpotColors());
+        }
+    }
+
     protected function getTestObject(): \Com\Tecnick\Color\Pdf
     {
         return new \Com\Tecnick\Color\Pdf();

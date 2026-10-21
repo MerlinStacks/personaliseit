@@ -9,6 +9,8 @@ function get_option( $key, $fallback = false ) {
 	return $GLOBALS['options'][ $key ] ?? $fallback; }
 function update_option( $key, $value, $autoload = null ) {
 	$GLOBALS['options'][ $key ] = $value; }
+function wp_get_attachment_image_url( $id, $size ) {
+	return 88 === $id ? 'https://example.test/uploads/chooser-icon.png' : false; }
 function get_transient( $key ) {
 	return $GLOBALS['transients'][ $key ] ?? false; }
 function set_transient( $key, $value, $ttl ) {
@@ -68,6 +70,14 @@ try {
 	$search = OC_Clipart_Catalog::page( [ 1 ], 'uv', 1, 'Art 125', 'Animals' );
 	check( 1 === count( $search['items'] ) && 125 === $search['items'][0]['id'], 'Search must cover items beyond the loaded page.' );
 	check( 1 === $wpdb->reads, 'Repeated pages should reuse the persistent metadata cache.' );
+	$options['oc_chooser_icon_clipart_125'] = 88;
+	$with_icon = OC_Clipart_Catalog::page( [ 1 ], 'uv', 1, 'Art 125' )['items'][0];
+	check( 'https://example.test/uploads/chooser-icon.png' === $with_icon['iconUrl'], 'Configured chooser icons must be available on paginated and initial results.' );
+	check( str_contains( $with_icon['url'], '/overcustomise/clipart/art.svg' ), 'Chooser icons must never replace the production artwork URL.' );
+	$options['oc_chooser_icon_clipart_125'] = 999;
+	check( '' === OC_Clipart_Catalog::page( [ 1 ], 'uv', 1, 'Art 125' )['items'][0]['iconUrl'], 'Deleted icon attachments must fall back to the original artwork.' );
+	$options['oc_chooser_icon_clipart_125'] = 0;
+	check( '' === OC_Clipart_Catalog::page( [ 1 ], 'uv', 1, 'Art 125' )['items'][0]['iconUrl'], 'Removing an icon restores the original thumbnail.' );
 	OC_Clipart_Catalog::invalidate();
 	OC_Clipart_Catalog::page( [ 1 ], 'uv' );
 	check( 2 === $wpdb->reads, 'Manager mutations must invalidate cached catalogue data.' );

@@ -351,7 +351,7 @@ class CodeThreeNineExtCheck extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function formatCode(): void
     {
-        $code = $this->getExtendCode(\strtoupper($this->code));
+        $code = $this->getExtendCode($this->code);
         $this->extcode = '*' . $code . $this->getChecksum($code) . '*';
     }
 

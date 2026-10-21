@@ -31,6 +31,14 @@ use Test\TestUtil;
  */
 class CodeThreeNineExtCheckTest extends TestUtil
 {
+    public function testChecksumUsesExpandedAsciiSymbols(): void
+    {
+        $barcode = $this->getTestObject();
+        // '+' has value 41 and 'A' value 10, so expanded 'a' has checksum 8.
+        $this->assertSame('*+A8*', $barcode->getBarcodeObj('C39E+', 'a')->getExtendedCode());
+        $this->assertSame('*%U$A+Z/J+*', $barcode->getBarcodeObj('C39E+', "\x00\x01z*")->getExtendedCode());
+        $this->assertNotSame($barcode->getBarcodeObj('C39E+', 'A')->getGrid(), $barcode->getBarcodeObj('C39E+', 'a')->getGrid());
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

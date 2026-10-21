@@ -260,6 +260,16 @@ class Datamatrix extends \Com\Tecnick\Barcode\Type\Square
         $data_length = \strlen($data); // number of chars
         $field_length = 0; // number of chars in current field
 
+        if ($this->gsonemode) {
+            // GS1 must begin with FNC1, before any encoding-mode latch.
+            $cdw[] = 232;
+            ++$cdw_num;
+            if ($data !== '' && ($data[0] === "\xe8" || $data[0] === "\x1d")) {
+                // Preserve callers that already supply an explicit initial FNC1.
+                $pos = 1;
+            }
+        }
+
         // Switch to predefined encoding (no action needed if ASCII because it's the default encoding)
         if ($this->defenc !== Data::ENC_ASCII) {
             $cdw[] = $this->dmx->getSwitchEncodingCodeword($this->defenc);

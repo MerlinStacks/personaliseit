@@ -21,7 +21,8 @@ Provides:  php-composer(%{c_vendor}/%{gh_project}) = %{version}
 Provides:  php-%{gh_project} = %{version}
 
 %description
-PHP library to manipulate various color representations (GRAY, RGB, HSL, CMYK) and parse Web colors.
+PHP library to manipulate color representations (GRAY, RGB, HSL, CMYK, CIE Lab
+and spot colors) and parse Web colors.
 
 %build
 #(cd %{_current_directory} && make build)

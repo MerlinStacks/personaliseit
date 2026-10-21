@@ -209,12 +209,18 @@ const designVariantMethods = {
 			}
 
 			const variantId = canvasEl.dataset.ocDesignVariantThumb;
+			const variant = this.designVariants.find(
+				( item ) => item.id === variantId
+			);
+			if ( variant?.iconUrl ) {
+				canvasEl
+					.closest( '.oc-design-variant-option' )
+					?.classList.remove( 'oc-thumb-pending' );
+				continue;
+			}
 			try {
 				let state = this.data.designVariantStates?.[ variantId ];
 				if ( ! state?.areas?.length ) {
-					const variant = this.designVariants.find(
-						( item ) => item.id === variantId
-					);
 					if ( variant ) {
 						state = await this.fetchDesignVariantState(
 							variant,

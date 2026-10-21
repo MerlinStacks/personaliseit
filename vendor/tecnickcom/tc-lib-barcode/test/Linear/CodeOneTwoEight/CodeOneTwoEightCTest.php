@@ -17,6 +17,7 @@
 namespace Test\Linear\CodeOneTwoEight;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,30 @@ use Test\TestUtil;
  */
 class CodeOneTwoEightCTest extends TestUtil
 {
+    public function testConsecutiveAndTrailingFnc1Markers(): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('C128C', "\xf1\xf1" . "00\xf1\xf1" . "12\xf1");
+        $this->assertSame(
+            [105, 102, 102, 0, 102, 102, 12, 102, 55, 106, 107],
+            (new \ReflectionMethod($type, 'getCodeData'))->invoke($type),
+        );
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return \array_map(static fn (string $code): array => [$code], [
+            '', "1\xf1" . '23', "12\xf1" . '3', "1\xf1" . '1', "\xf1" . '1',
+            "12\xf2\xf2", "12\xf3\xf3", "12\xf4\xf4", "12\x0034", '12 34',
+        ]);
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidRunsAndFunctionCodesAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('C128C', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

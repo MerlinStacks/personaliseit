@@ -9,6 +9,8 @@
 
 defined( 'ABSPATH' ) || exit;
 
+require_once dirname( __DIR__ ) . '/class-oc-chooser-icons.php';
+
 class OC_Admin_Products {
 
 	private const ADMIN_PAGE_SIZE = 50;
@@ -276,6 +278,7 @@ class OC_Admin_Products {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'You do not have permission to access this page.', 'overcustomise' ) );
 		}
+		OC_Chooser_Icons::enqueue();
 
 		$action = isset( $_GET['action'] ) ? sanitize_key( $_GET['action'] ) : '';
 
@@ -698,6 +701,11 @@ class OC_Admin_Products {
 						( item.thumbUrl ? '<img src="' + escHtml( item.thumbUrl ) + '" alt="" style="width:44px;height:44px;object-fit:contain;border:1px solid #ddd;background:#fff;" />' : '' ) +
 						'<input type="text" class="oc-input oc-design-variant-label" value="' + escHtml( item.label ) + '" placeholder="Option label" style="width:120px;" />' +
 						'<span class="oc-code">#' + escHtml( item.designId ) + '</span>' +
+						'<div data-oc-chooser-icon data-kind="design" data-id="' + escHtml( item.designId ) + '">' +
+						'<img data-oc-icon-preview src="' + escHtml( item.iconUrl || '' ) + '" alt="" style="width:44px;height:44px;object-fit:contain;' + ( item.iconUrl ? '' : 'display:none;' ) + '" />' +
+						'<button type="button" class="button" data-oc-icon-select>Upload / choose icon</button>' +
+						'<button type="button" class="button" data-oc-icon-remove>Remove icon</button>' +
+						'<span data-oc-icon-status role="status"></span></div>' +
 						'<button type="button" class="button oc-design-variant-remove">Remove</button>' +
 					'</div>';
 				} ).join( '' );
@@ -731,6 +739,17 @@ class OC_Admin_Products {
 
 			document.querySelectorAll( '.oc-design-variants-admin' ).forEach( function ( box ) {
 				renderVariants( box );
+				document.addEventListener( 'oc:chooser-icon-saved', function ( event ) {
+					if ( event.detail.kind !== 'design' ) return;
+					var data = parseVariants( box );
+					data.forEach( function ( item ) {
+						if ( Number( item.designId ) === Number( event.detail.id ) ) item.iconUrl = event.detail.url;
+					} );
+					box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
+					box.querySelectorAll( '.oc-design-variant-design-select option' ).forEach( function ( option ) {
+						if ( Number( option.value ) === Number( event.detail.id ) ) option.dataset.iconUrl = event.detail.url;
+					} );
+				} );
 				box.addEventListener( 'click', function ( e ) {
 					if ( e.target.classList.contains( 'oc-design-variant-remove' ) ) {
 						var data = parseVariants( box );
@@ -746,7 +765,7 @@ class OC_Admin_Products {
 						var selected = select.options[ select.selectedIndex ];
 						var data = parseVariants( box );
 						if ( data.some( function ( item ) { return parseInt( item.designId, 10 ) === designId; } ) ) return;
-						data.push( { designId: designId, label: selected.text, thumbUrl: selected.dataset.thumbUrl || '' } );
+						data.push( { designId: designId, label: selected.text, thumbUrl: selected.dataset.thumbUrl || '', iconUrl: selected.dataset.iconUrl || '' } );
 						box.querySelector( '.oc-design-variants-data' ).value = JSON.stringify( data );
 						renderVariants( box );
 						saveVariants( box );
@@ -963,11 +982,20 @@ class OC_Admin_Products {
 				'designId' => $design_id,
 				'label'    => sanitize_text_field( (string) ( $item['label'] ?? '' ) ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
 				'thumbUrl' => $thumb,
+				'iconUrl'  => OC_Chooser_Icons::url( 'design', $design_id ),
 			];
 		}
 		$variants = $normalised_variants;
 		?>
 		<div class="oc-design-variants-admin" data-product-id="<?php echo esc_attr( (string) $product_id ); ?>" data-variant-id="<?php echo esc_attr( (string) $variant_id ); ?>">
+			<?php
+			$assignment = OC_DB::get_assignment_for_product( $product_id, $variant_id );
+			if ( $assignment && ! empty( $assignment->design_id ) ) {
+				echo '<p>' . esc_html__( 'Default design icon', 'overcustomise' ) . '</p>';
+				OC_Chooser_Icons::render( 'design', (int) $assignment->design_id );
+			}
+			?>
+			<p class="description"><?php esc_html_e( 'Optional icons are saved immediately and shared wherever this design is used. They only change customer selection buttons, never the live preview or print artwork.', 'overcustomise' ); ?></p>
 			<input type="hidden" class="oc-design-variants-data" value="<?php echo esc_attr( wp_json_encode( $variants ) ); ?>" />
 			<div class="oc-design-variants-list"></div>
 			<select class="oc-select oc-design-variant-design-select" style="max-width:180px;">
@@ -976,7 +1004,7 @@ class OC_Admin_Products {
 				foreach ( $designs as $design ) :
 					$thumb = $design_thumbs[ (int) $design->id ] ?? '';
 					?>
-					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ?: '' ); ?>">
+					<option value="<?php echo esc_attr( $design->id ); ?>" data-thumb-url="<?php echo esc_url( $thumb ?: '' ); ?>" data-icon-url="<?php echo esc_url( OC_Chooser_Icons::url( 'design', (int) $design->id ) ); ?>">
 						<?php echo esc_html( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design->id ); ?>
 					</option>
 				<?php endforeach; ?>
@@ -1434,7 +1462,6 @@ class OC_Admin_Products {
 									<div class="oc-editor-field" style="grid-column:1 / -1;margin-bottom:0;">
 										<label for="oc-prop-dpi"><?php esc_html_e( 'Canvas DPI', 'overcustomise' ); ?></label>
 										<input type="number" id="oc-prop-dpi" class="oc-input" min="1" max="1200" step="1" style="width:100%;" />
-										<p class="description" style="margin:4px 0 0;font-size:11px;line-height:1.3;"><?php esc_html_e( 'Controls how mm, cm and inch sizes appear on the mockup preview. Print/export dimensions stay unchanged.', 'overcustomise' ); ?></p>
 									</div>
 								</div>
 								</div>
@@ -1444,10 +1471,8 @@ class OC_Admin_Products {
 							<div class="oc-editor-section-header">
 								<h3><?php esc_html_e( 'Design Settings', 'overcustomise' ); ?></h3>
 							</div>
-							<div class="oc-editor-field" style="margin-bottom:0;">
-								<label for="oc_flat_rate"><?php esc_html_e( 'Flat Rate (AUD)', 'overcustomise' ); ?></label>
-								<input type="number" id="oc_flat_rate" name="oc_flat_rate" class="oc-input" min="0" step="0.01" inputmode="decimal" value="<?php echo esc_attr( number_format( $design_flat_rate, 2, '.', '' ) ); ?>" style="width:100%;" />
-							</div>
+							<?php // Preserve legacy pricing data during saves and autosave recovery without exposing an unused control. ?>
+							<input type="hidden" id="oc_flat_rate" name="oc_flat_rate" value="<?php echo esc_attr( number_format( $design_flat_rate, 2, '.', '' ) ); ?>" />
 							<div class="oc-design-media-grid">
 								<div class="oc-editor-field">
 									<label><?php esc_html_e( 'Design Mockup', 'overcustomise' ); ?></label>
@@ -1480,8 +1505,6 @@ class OC_Admin_Products {
 
 					<!-- CENTER: canvas -->
 					<div class="oc-editor-canvas-wrap">
-
-						<div id="oc-area-strip" class="oc-area-strip"></div>
 
 						<div class="oc-canvas-no-mockup" id="oc-canvas-no-mockup">
 							<div class="oc-canvas-no-mockup-inner">
@@ -1527,6 +1550,7 @@ class OC_Admin_Products {
 								<button type="button" class="oc-layer-type-btn" data-type="text"><span class="oc-layer-type-btn-icon" style="color:#0284c7;">Aa</span><span><?php esc_html_e( 'Text', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="curved_text"><span class="oc-layer-type-btn-icon" style="color:#0284c7;">&#x2312;</span><span><?php esc_html_e( 'Curved Text', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="textarea"><span class="oc-layer-type-btn-icon" style="color:#7c3aed;">&para;</span><span><?php esc_html_e( 'Text Area', 'overcustomise' ); ?></span></button>
+								<button type="button" class="oc-layer-type-btn" data-type="staff_note"><span class="oc-layer-type-btn-icon" style="color:#64748b;">&#9998;</span><span><?php esc_html_e( 'Staff Note', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="image"><span class="oc-layer-type-btn-icon" style="color:#059669;">&#x1f5bc;</span><span><?php esc_html_e( 'Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="ai_image"><span class="oc-layer-type-btn-icon" style="color:#db2777;">AI</span><span><?php esc_html_e( 'AI Image', 'overcustomise' ); ?></span></button>
 								<button type="button" class="oc-layer-type-btn" data-type="clipmask"><span class="oc-layer-type-btn-icon" style="color:#0d9488;">&#9711;</span><span><?php esc_html_e( 'Clipping Mask', 'overcustomise' ); ?></span></button>
@@ -1911,7 +1935,7 @@ class OC_Admin_Products {
 			}
 
 			// Retain lineart for saved designs created before its retirement from the layer picker.
-			$valid_types = [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line' ];
+			$valid_types = [ 'text', 'curved_text', 'textarea', 'staff_note', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line' ];
 			foreach ( $posted_layers as $sort => $layer_data ) {
 				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;

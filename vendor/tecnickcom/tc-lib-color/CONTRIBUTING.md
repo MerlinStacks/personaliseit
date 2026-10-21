@@ -50,8 +50,17 @@ Please follow the [Security Policy](SECURITY.md) and report them privately.
 ```bash
 git clone https://github.com/tecnickcom/tc-lib-color.git
 cd tc-lib-color
-make buildall
+make deps
+make qa
 ```
+
+`make deps` deletes the local `vendor/` contents before reinstalling development
+dependencies. Run it only in a development checkout, and preserve any local vendor
+changes first. For repeat QA runs after setup, use `make qa` alone.
+
+`make buildall` is an optional maintainer packaging workflow: it reinstalls
+dependencies, formats source files, runs QA, and builds archives, RPMs and DEBs.
+It requires the corresponding packaging tools and is not needed for ordinary PRs.
 
 To verify everything is working after a change:
 
@@ -150,7 +159,7 @@ Tests are written with [PHPUnit](https://phpunit.de/) and live in `test/`.
 make test
 
 # Run a specific test file
-XDEBUG_MODE=coverage ./vendor/bin/phpunit test/HTMLTest.php
+XDEBUG_MODE=coverage ./vendor/bin/phpunit test/WebTest.php
 ```
 
 Requirements for contributions:

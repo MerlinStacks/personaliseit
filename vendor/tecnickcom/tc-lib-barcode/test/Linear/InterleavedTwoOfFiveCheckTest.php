@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,18 @@ use Test\TestUtil;
  */
 class InterleavedTwoOfFiveCheckTest extends TestUtil
 {
+    /** @return array<array{string, string}> */
+    public static function checksumVectors(): array
+    {
+        return [['0', 'AA00ZA'], ['1', 'AA17ZA'], ['12', 'AA0123ZA'],
+            ['123', 'AA1236ZA'], ['1234', 'AA012348ZA'], ['000', 'AA0000ZA']];
+    }
+
+    #[DataProvider('checksumVectors')]
+    public function testChecksumWeightingAndPadding(string $payload, string $expected): void
+    {
+        $this->assertSame($expected, $this->getTestObject()->getBarcodeObj('I25+', $payload)->getExtendedCode());
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

@@ -3,10 +3,22 @@
 define( 'ABSPATH', __DIR__ . '/../' );
 define( 'DAY_IN_SECONDS', 86400 );
 define( 'ARRAY_A', 'ARRAY_A' );
-function get_current_user_id() { return $GLOBALS['user_id'] ?? 1; }
-function current_user_can( ...$args ) { return $GLOBALS['allowed'] ?? true; }
-function wp_verify_nonce( ...$args ) { return $GLOBALS['nonce_valid'] ?? true; }
-function get_option( $key, $default = false ) { return $GLOBALS['options'][ $key ] ?? $default; }
+function get_current_user_id() {
+	return $GLOBALS['user_id'] ?? 1;
+}
+function current_user_can( ...$args ) {
+	return $GLOBALS['allowed'] ?? true;
+}
+function wp_verify_nonce( ...$args ) {
+	return $GLOBALS['nonce_valid'] ?? true;
+}
+function get_option( $key, $fallback = false ) {
+	return $GLOBALS['options'][ $key ] ?? $fallback;
+}
+function update_option( $key, $value, ...$args ) {
+	$GLOBALS['options'][ $key ] = $value;
+	return true;
+}
 function add_option( $key, $value, ...$args ) {
 	if ( ! empty( $GLOBALS['fail_retention'] ) || isset( $GLOBALS['options'][ $key ] ) ) { return false; }
 	$GLOBALS['options'][ $key ] = $value; return true;

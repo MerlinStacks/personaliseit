@@ -141,8 +141,15 @@ abstract class Convert
             throw new BarcodeException('Empty input string');
         }
 
+        if (!\array_is_list($rows)) {
+            throw new BarcodeException('Binary rows must be a list');
+        }
+
         $this->nrows = \count($rows);
         $firstRow = $rows[0] ?? '';
+        if (!\is_array($firstRow) && !\is_string($firstRow)) {
+            throw new BarcodeException('Invalid binary row');
+        }
         $this->ncols = \is_array($firstRow) ? \count($firstRow) : \strlen($firstRow);
 
         if ($this->ncols === 0) {
@@ -151,9 +158,23 @@ abstract class Convert
 
         $this->bars = [];
         foreach ($rows as $posy => $row) {
-            if (!\is_array($row)) {
+            if (\is_string($row)) {
                 $row = \str_split($row, 1);
+            } elseif (!\is_array($row)) {
+                throw new BarcodeException('Invalid binary row');
             }
+
+            if (!\array_is_list($row) || \count($row) !== $this->ncols) {
+                throw new BarcodeException('Binary rows must have equal widths');
+            }
+
+            foreach ($row as &$cell) {
+                if ($cell !== 0 && $cell !== 1 && $cell !== '0' && $cell !== '1') {
+                    throw new BarcodeException('Binary rows must contain only 0 and 1');
+                }
+                $cell = (string) $cell;
+            }
+            unset($cell);
 
             $prevcol = '';
             $bar_width = 0;

@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -43,11 +44,30 @@ class PharmaTest extends TestUtil
     public function testGetGrid(): void
     {
         $barcode = $this->getTestObject();
-        $type = $barcode->getBarcodeObj('PHARMA', '0123456789');
+        $type = $barcode->getBarcodeObj('PHARMA', '12345');
         $grid = $type->getGrid();
-        $expected =
-            '111001110010011100100111001110010011100111001110011100100'
-            . "1001110011100100111001001001001110010011100111001\n";
+        $expected = "11100100100100100100100111001110011100100111001\n";
         $this->assertEquals($expected, $grid);
+    }
+
+    public function testRangeBoundariesAndLeadingZeros(): void
+    {
+        $barcode = $this->getTestObject();
+        $this->assertSame("1001\n", $barcode->getBarcodeObj('PHARMA', '3')->getGrid());
+        $this->assertSame(\str_repeat('11100', 15) . "111\n", $barcode->getBarcodeObj('PHARMA', '131070')->getGrid());
+        $this->assertSame($barcode->getBarcodeObj('PHARMA', '12345')->getGrid(), $barcode->getBarcodeObj('PHARMA', '00012345')->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [[''], ['0'], ['2'], ['131071'], ['0123456789'], ['-3'], ['3.0'], [' 3'], ["3\n"], [\str_repeat('9', 40)]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testOutOfRangeAndMalformedInputIsRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('PHARMA', $payload);
     }
 }

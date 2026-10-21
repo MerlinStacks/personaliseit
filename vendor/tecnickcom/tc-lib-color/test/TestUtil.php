@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -17,14 +17,14 @@
 namespace Test;
 
 /**
- * Web Color class test
+ * Shared color-test assertion and exception helpers
  *
  * @since     2020-12-19
  * @category  Library
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class TestUtil extends \PHPUnit\Framework\TestCase

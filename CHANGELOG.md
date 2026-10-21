@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.20.0 - 2026-10-21
+
+### Added
+- Frontend layer conditions controlled by clipart selections, with is/is-not comparisons and show/hide actions. Hidden layers are excluded from checkout validation, charges and production artwork.
+- Non-printing Staff Note layers for customer instructions, with required-field and character-limit validation and order-summary support.
+- Optional design and clipart chooser icons, stored independently from live previews and production artwork.
+
+### Improved
+- Replace hover-only admin help with keyboard-accessible help disclosures and simplify the design editor while preserving existing flat-rate values.
+- Render hosted release notes as native WordPress headings, paragraphs and lists rather than a preformatted box or embedded page.
+
+### Fixed
+- Skip generated chooser thumbnails and their background loading for design variants with an uploaded icon; show the icon immediately instead.
+- Remove chooser icon references on uninstall without deleting Media Library images; preserve references on deactivation.
+- Keep shared linked-layer controls and artwork checkout guards active whenever any linked member is shown by frontend conditions.
+- Use persisted random webhook delivery UUIDs to prevent matching order IDs on different stores from colliding at shared receivers.
+- Evaluate conditional layers against resolved clipart selections, including catalogue fallbacks for locked or fixed choices, so previews and checkout agree when a saved default is unavailable.
+- Wait until Checkout Block orders are submitted before queuing print generation; draft checkout orders no longer create production jobs or schema-retry markers.
+- Send the customisation-created webhook for Checkout Block orders as well as classic checkout orders.
+- Deduplicate customisation-created webhooks per order and destination across repeated checkout/payment attempts, preserving one durable delivery job and its normal retries. Completed jobs become compact receipts outside the delivery recovery scan.
+- Expire editor recovery copies after 30 days and remove them on uninstall. Existing recovery copies receive a 30-day grace period when first read or scanned by daily cleanup; reads do not renew that period. Normal autosaves are unchanged.
+- Delete clipart library entries transactionally while retaining their artwork files for existing design and order references.
+- Harden bundled barcode and colour handling with input validation and encoding corrections.
+
+### Upgrade notes
+- No database schema migration or customer reconfiguration is required. Designs without enabled conditions retain their existing visibility behaviour.
+- Requires WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation. Existing plugin-folder identity is preserved by hosted updates; replace the plugin without uninstalling it.
+- Production artwork is unaffected by chooser icons and Staff Notes. Existing recovery copies receive the documented 30-day grace period.
+
 ## 1.19.10 - 2026-10-16
 
 ### Fixed

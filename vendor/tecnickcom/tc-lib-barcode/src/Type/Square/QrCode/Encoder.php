@@ -61,8 +61,23 @@ class Encoder extends \Com\Tecnick\Barcode\Type\Square\QrCode\Init
      */
     public function encodeMask(int $maskNo, array $datacode): array
     {
+        if ($maskNo < -1 || $maskNo > 7) {
+            throw new BarcodeException('Invalid QR mask number');
+        }
+        $expectedLength = $this->spc->rsDataLength(
+            $this->spc->getEccSpec($this->version, $this->level, []),
+        );
+        if (\count($datacode) !== $expectedLength) {
+            throw new BarcodeException('QR data codeword count does not match version and level');
+        }
+        foreach ($datacode as $byte) {
+            if (!\is_int($byte) || $byte < 0 || $byte > 255) {
+                throw new BarcodeException('QR data codewords must be bytes');
+            }
+        }
         // initialize values
-        $this->datacode = $datacode;
+        $this->datacode = \array_values($datacode);
+        $this->rsblocks = [];
         $spec = $this->spc->getEccSpec($this->version, $this->level, [0, 0, 0, 0, 0]);
         $this->bv1 = $this->spc->rsBlockNum1($spec);
         $this->dataLength = $this->spc->rsDataLength($spec);
@@ -106,7 +121,7 @@ class Encoder extends \Com\Tecnick\Barcode\Type\Square\QrCode\Init
             return $this->mask($this->width, $this->frame, $this->level);
         }
 
-        return $this->makeMask($this->width, $this->frame, $this->qr_default_mask % 8, $this->level);
+        return $this->makeMask($this->width, $this->frame, (($this->qr_default_mask % 8) + 8) % 8, $this->level);
     }
 
     /**

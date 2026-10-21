@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,31 @@ use Test\TestUtil;
  */
 class CodeOneTwoEightTest extends TestUtil
 {
+    public function testExactShiftAndLatchTransitions(): void
+    {
+        foreach ([
+            ["ab\x01cd", [104, 65, 66, 98, 65, 67, 68, 53, 106, 107]],
+            ["\x01\x02a\x03", [103, 65, 66, 98, 65, 67, 56, 106, 107]],
+            ["ab\x01\x02cd", [104, 65, 66, 101, 65, 66, 100, 67, 68, 26, 106, 107]],
+            ["\x01\x02ab\x03", [103, 65, 66, 100, 65, 66, 98, 67, 84, 106, 107]],
+        ] as [$payload, $expected]) {
+            $type = $this->getTestObject()->getBarcodeObj('C128', $payload);
+            $this->assertSame($expected, (new \ReflectionMethod($type, 'getCodeData'))->invoke($type));
+        }
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return \array_map(static fn (string $code): array => [$code], ['', "\x80", "a\xf0", "\xf5", "\xff"]);
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testUnsupportedPayloadsAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('C128', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

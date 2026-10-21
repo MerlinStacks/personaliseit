@@ -112,7 +112,7 @@ abstract class Compaction extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSev
      */
     protected function mulNumeric(string $left, string $right): string
     {
-        return $this->normalizeNumericString(\bcmul($left, $right));
+        return $this->normalizeNumericString(\bcmul($left, $right, 0));
     }
 
     /**
@@ -123,7 +123,7 @@ abstract class Compaction extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSev
      */
     protected function addNumeric(string $left, string $right): string
     {
-        return $this->normalizeNumericString(\bcadd($left, $right));
+        return $this->normalizeNumericString(\bcadd($left, $right, 0));
     }
 
     /**
@@ -132,7 +132,7 @@ abstract class Compaction extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSev
      */
     protected function modNumeric(string $left, string $right): int
     {
-        return (int) \bcmod($left, $right);
+        return (int) \bcmod($left, $right, 0);
     }
 
     /**
@@ -143,7 +143,7 @@ abstract class Compaction extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSev
      */
     protected function divNumeric(string $left, string $right): string
     {
-        return $this->normalizeNumericString(\bcdiv($left, $right));
+        return $this->normalizeNumericString(\bcdiv($left, $right, 0));
     }
 
     /**

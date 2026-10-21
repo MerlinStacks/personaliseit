@@ -89,6 +89,8 @@ The print queue surfaces pending, processing, completed, and failed generation j
 - Configurable retention and cleanup
 - Signed webhooks for customisation and print-job events
 
+Customisation-created webhooks are queued once per order and destination, including across checkout retries. Delivery failures still use bounded retries with the same `X-OC-Delivery-ID`; receivers should use that ID to prevent duplicate processing if an HTTP response is lost. Print-regeneration notifications remain repeatable.
+
 ## Requirements
 
 | Dependency | Requirement |
@@ -195,6 +197,8 @@ Optional E2E settings include `E2E_PRODUCT_PATH`, `E2E_CART_PATH`, `E2E_PRODUCT_
 ## Data, privacy, and uninstalling
 
 OverCustomise stores customer artwork, generated previews, variable-data files, and production output. Access controls and retention settings are included, but site operators remain responsible for server configuration, backups, privacy notices, and compliance with applicable law.
+
+Editor recovery copies expire after 30 days and are removed in bounded daily cleanup batches. Existing copies receive a 30-day grace period when first read or scanned after upgrading. Reading or exporting a copy does not extend its retention. Uninstall removes these copies; deactivation preserves them.
 
 > [!CAUTION]
 > Uninstalling the plugin permanently removes its custom database tables, settings, taxonomy data, and plugin-managed upload files. Back up anything you need before uninstalling.

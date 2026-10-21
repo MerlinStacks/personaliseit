@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -26,7 +26,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class WebTest extends TestUtil
@@ -121,7 +121,7 @@ class WebTest extends TestUtil
     {
         $this->bcExpectException(\Com\Tecnick\Color\Exception::class);
         $web = $this->getTestObject();
-        // 5-character hex code is accepted by regex but not handled by switch
+        // Five hex digits match the grammar but are not a supported color length.
         $web->extractHexCode('12345');
     }
 
@@ -132,7 +132,7 @@ class WebTest extends TestUtil
     {
         $this->bcExpectException(\Com\Tecnick\Color\Exception::class);
         $web = $this->getTestObject();
-        // 7-character hex code is accepted by regex but not handled by switch
+        // Seven hex digits match the grammar but are not a supported color length.
         $web->extractHexCode('1234567');
     }
 

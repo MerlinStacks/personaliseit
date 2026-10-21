@@ -33,6 +33,7 @@ $design_tables = [ 'oc_designs', 'oc_design_print_areas', 'oc_design_layers' ];
 $cases[] = [ 'OC_Admin_Products', 'handle_design_duplicate', $design_tables ];
 $cases[] = [ 'OC_Admin_Products', 'handle_design_delete', array_merge( $design_tables, [ 'oc_product_assignments', 'oc_vdp_templates', 'oc_vdp_fields' ] ) ];
 $cases[] = [ 'OC_Admin_Colours', 'handle_delete', [ 'oc_colours', 'oc_colour_group_items' ] ];
+$cases[] = [ 'OC_Admin_Clipart', 'handle_delete', [ 'oc_clipart', 'oc_clipart_group_items' ] ];
 foreach ( $cases as [ $class, $method, $tables ] ) {
 	foreach ( $tables as $table ) {
 		OC_DB::$unsupported_table = $table;
@@ -71,6 +72,7 @@ foreach ( [ 'self::protected_vdp_directory()', 'move_uploaded_file(', "'START TR
 	check( false !== strpos( $source, $operation ) && $guard < strpos( $source, $operation ), 'VDP guard precedes ' . $operation );
 }
 
+require_once __DIR__ . '/../includes/class-oc-print-text.php';
 require __DIR__ . '/../includes/class-oc-vdp.php';
 // Execute the actual lock/validation block without manufacturing an HTTP upload or touching files.
 $start = strpos( $source, '$locked_design = ' );

@@ -50,26 +50,31 @@ class PharmaTwoTracks extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function setBars(): void
     {
-        if (!\ctype_digit($this->code) || (int) $this->code < 1) {
-            throw new BarcodeException('Invalid barcode value: the code must be a positive integer');
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1) {
+            throw new BarcodeException('Two-track Pharmacode requires a digit-only payload');
+        }
+        // Bound the normalized string before casting, avoiding integer saturation.
+        $numeric = \ltrim($this->code, '0');
+        if (\strlen($numeric) > 8 || (int) $numeric < 4 || (int) $numeric > 64570080) {
+            throw new BarcodeException('Two-track Pharmacode value must be between 4 and 64570080');
         }
 
         $seq = '';
-        $code = (int) $this->code;
+        $code = (int) $numeric;
 
         do {
             switch ($code % 3) {
                 case 0:
                     $seq .= '3';
-                    $code = ($code - 3) / 3;
+                    $code = \intdiv($code - 3, 3);
                     break;
                 case 1:
                     $seq .= '1';
-                    $code = ($code - 1) / 3;
+                    $code = \intdiv($code - 1, 3);
                     break;
                 case 2:
                     $seq .= '2';
-                    $code = ($code - 2) / 3;
+                    $code = \intdiv($code - 2, 3);
             }
         } while ($code !== 0);
 

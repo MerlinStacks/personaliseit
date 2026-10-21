@@ -120,6 +120,10 @@ class MsiCheck extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function setBars(): void
     {
+        if ($this->code === '') {
+            throw new BarcodeException('MSI payload must not be empty');
+        }
+
         $this->formatCode();
         $seq = '110'; // left guard
         $clen = \strlen($this->extcode);

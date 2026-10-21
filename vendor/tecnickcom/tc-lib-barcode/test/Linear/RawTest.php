@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -43,7 +44,6 @@ class RawTest extends TestUtil
     public function testGetGrid(): void
     {
         $testObj = $this->getTestObject();
-        $testObj = $this->getTestObject();
 
         $type = $testObj->getBarcodeObj('LRAW', '01001100011100001111,10110011100011110000');
         $grid = $type->getGrid();
@@ -62,5 +62,30 @@ class RawTest extends TestUtil
         $testObj = $this->getTestObject();
         $type = $testObj->getBarcodeObj('LRAW', '[101][010]');
         $this->assertSame("101\n010\n", $type->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function formattedRows(): array
+    {
+        return [['[101,010]'], [" [101][010] \n"], ["1 0 1, 0 1 0\n"]];
+    }
+
+    #[DataProvider('formattedRows')]
+    public function testSupportedFormatting(string $payload): void
+    {
+        $this->assertSame("101\n010\n", $this->getTestObject()->getBarcodeObj('LRAW', $payload)->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidRows(): array
+    {
+        return [[''], ['10,1'], ['10,1x'], ['1,,0'], ['12'], ['[10][1]']];
+    }
+
+    #[DataProvider('invalidRows')]
+    public function testMalformedRowsAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('LRAW', $payload);
     }
 }

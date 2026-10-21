@@ -17,9 +17,43 @@
 namespace Test;
 
 use Test\Fixture\InternalConvert;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class ConvertTest extends TestUtil
 {
+    /** @return array<string, array{array<mixed>}> */
+    public static function invalidBinaryRows(): array
+    {
+        return [
+            'empty row' => [['']],
+            'ragged strings' => [['10', '1']],
+            'ragged arrays' => [[[1, 0], [1]]],
+            'nonbinary string' => [['1x']],
+            'nonbinary integer' => [[[1, 2]]],
+            'boolean cell' => [[[1, true]]],
+            'null cell' => [[[1, null]]],
+            'invalid row type' => [[123]],
+            'sparse rows' => [[1 => '10']],
+            'sparse cells' => [[[1 => 1, 2 => 0]]],
+        ];
+    }
+
+    /** @param array<mixed> $rows */
+    #[DataProvider('invalidBinaryRows')]
+    public function testMalformedBinaryRowsAreRejected(array $rows): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        (new InternalConvert())->exposeProcessBinarySequence($rows);
+    }
+
+    public function testMixedBinaryCellRepresentationsAndReuse(): void
+    {
+        $helper = new InternalConvert();
+        $helper->exposeProcessBinarySequence([[1, '0'], ['0', 1]]);
+        $this->assertSame([[0, 0, 1, 1], [1, 1, 1, 1]], $helper->getBars());
+        $helper->exposeProcessBinarySequence(['01']);
+        $this->assertSame([[1, 0, 1, 1]], $helper->getBars());
+    }
     /**
      * @throws \Com\Tecnick\Barcode\Exception
      */

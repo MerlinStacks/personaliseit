@@ -191,8 +191,8 @@ abstract class Init extends \Com\Tecnick\Barcode\Type\Square\QrCode\Mask
         array &$ecc,
     ): void {
         for ($idx = 0; $idx < $endfor; ++$idx) {
-            $data = \array_slice($this->datacode, $dataPos);
-            $ecc = \array_slice($this->ecccode, $eccPos);
+            $data = \array_slice($this->datacode, $dataPos, $dlv);
+            $ecc = \array_slice($this->ecccode, $eccPos, $elv);
             $ecc = $this->encodeRsChar($rsv, $data, $ecc);
             $this->rsblocks[$blockNo] = [
                 'data' => $data,
@@ -297,8 +297,11 @@ abstract class Init extends \Com\Tecnick\Barcode\Type\Square\QrCode\Mask
      */
     protected function checkRsCharParamsA(int $symsize, int $fcr, int $prim): void
     {
+        if ($symsize < 1 || $symsize > 8) {
+            throw new BarcodeException('Invalid symbol size');
+        }
         $shfsymsize = 1 << $symsize;
-        if ($symsize < 0 || $symsize > 8 || $fcr < 0 || $fcr >= $shfsymsize || $prim <= 0 || $prim >= $shfsymsize) {
+        if ($fcr < 0 || $fcr >= $shfsymsize || $prim <= 0 || $prim >= $shfsymsize) {
             throw new BarcodeException('Invalid parameters');
         }
     }

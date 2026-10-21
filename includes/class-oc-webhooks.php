@@ -12,9 +12,11 @@ class OC_Webhooks {
 	private const ACTION_GROUP           = 'overcustomise-webhooks';
 	private const RECOVERY_BATCH_SIZE    = 20;
 	private const RECOVERY_CURSOR_OPTION = 'oc_wh_recovery_cursor';
+	private const CREATED_RECEIPT_PREFIX = 'oc_wh_created_';
 
 	public function register(): void {
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'on_order_created' ], 25, 1 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', [ $this, 'on_order_created' ], 25, 1 );
 		add_action( 'oc_print_files_generated', [ $this, 'on_print_files_generated' ], 10, 1 );
 		add_action( 'oc_print_file_failed', [ $this, 'on_print_file_failed' ], 10, 4 );
 		add_action( 'oc_webhook_deliver', [ $this, 'process_delivery' ], 10, 2 );
@@ -111,15 +113,22 @@ class OC_Webhooks {
 				continue;
 			}
 
-			$this->enqueue_delivery( (int) $webhook->id, $body, $event );
+			$this->enqueue_delivery( (int) $webhook->id, $body, $event, 'order.customisation.created' === $event ? absint( $payload['order_id'] ?? 0 ) : 0 );
 		}
 	}
 
 	/** Persist a delivery before scheduling it off the caller's critical path. */
-	private function enqueue_delivery( int $webhook_id, string $body, string $event ): void {
+	private function enqueue_delivery( int $webhook_id, string $body, string $event, int $created_order_id = 0 ): void {
+		$receipt_key = $created_order_id > 0 ? self::CREATED_RECEIPT_PREFIX . $created_order_id . '_' . $webhook_id : '';
+		if ( '' !== $receipt_key && false !== self::created_receipt_exists( $receipt_key ) ) {
+			return;
+		}
+		// A unique option name is the atomic guard while delivery (including retries) is active.
+		// Delivery identity must be unique across stores, not just local order IDs.
+		// Persist the winning UUID so retries and duplicate callbacks keep it.
 		$delivery_id = wp_generate_uuid4();
-		$job_key     = self::JOB_PREFIX . $delivery_id;
-		$job         = [
+		$job_key     = self::JOB_PREFIX . ( '' !== $receipt_key ? hash( 'sha256', $receipt_key ) : $delivery_id );
+		$job = [
 			'webhook_id'  => $webhook_id,
 			'body'        => $body,
 			'event'       => $event,
@@ -129,8 +138,34 @@ class OC_Webhooks {
 			'run_after'   => time(),
 			'claimed_at'  => 0,
 		];
-		if ( ! add_option( $job_key, $job, '', false ) ) {
+		if ( '' !== $receipt_key ) {
+			global $wpdb;
+			$job['receipt_key'] = $receipt_key;
+			// Unlike add_option(), a duplicate must never overwrite a concurrent worker's job.
+			$inserted = $wpdb->query(
+				$wpdb->prepare(
+					"INSERT IGNORE INTO {$wpdb->options} (option_name, option_value, autoload) VALUES (%s, %s, %s)",
+					$job_key,
+					maybe_serialize( $job ),
+					'off'
+				)
+			);
+			if ( 0 === $inserted ) {
+				return; // Preserve the existing payload, attempt count and retry deadline.
+			}
+			$persisted = 1 === $inserted;
+			wp_cache_delete( $job_key, 'options' );
+			wp_cache_delete( 'notoptions', 'options' );
+		} else {
+			$persisted = add_option( $job_key, $job, '', false );
+		}
+		if ( ! $persisted ) {
 			OC_Logger::error( "Webhook #{$webhook_id} delivery could not be persisted for event {$event}." );
+			return;
+		}
+		// A previous worker may have completed between our receipt check and insert.
+		if ( '' !== $receipt_key && true === self::created_receipt_exists( $receipt_key ) ) {
+			$this->compare_and_delete_delivery( $job_key, $job );
 			return;
 		}
 
@@ -295,6 +330,15 @@ class OC_Webhooks {
 			$this->compare_and_swap_delivery( $job_key, $job, $pending );
 			return;
 		}
+		if ( ! empty( $job['receipt_key'] ) ) {
+			$completed = self::created_receipt_exists( (string) $job['receipt_key'] );
+			if ( false !== $completed ) {
+				if ( true === $completed ) {
+					$this->compare_and_delete_delivery( $job_key, $job );
+				}
+				return; // On a failed read, retain the claimed job for stale-claim recovery.
+			}
+		}
 		$webhook = OC_DB::get_webhook( $webhook_id );
 		if ( ! $webhook || ! $webhook->active ) {
 			$this->compare_and_delete_delivery( $job_key, $job );
@@ -400,20 +444,46 @@ class OC_Webhooks {
 		return true;
 	}
 
-	/** Delete an option-backed job only while this worker still owns its state. */
+	/** Read directly: another checkout request may have cached a missing receipt. */
+	private static function created_receipt_exists( string $receipt_key ): ?bool {
+		global $wpdb;
+		$value = $wpdb->get_var( $wpdb->prepare( "SELECT option_name FROM {$wpdb->options} WHERE option_name = %s", $receipt_key ) );
+		if ( '' !== (string) $wpdb->last_error ) {
+			OC_Logger::warning( 'Webhook deduplication receipt could not be checked; delivery was deferred.' );
+			return null;
+		}
+		return null !== $value;
+	}
+
+	/** Atomically retire a job, keeping a compact receipt for order-created deliveries. */
 	private function compare_and_delete_delivery( string $job_key, array $expected ): bool {
 		global $wpdb;
-		$deleted = $wpdb->query(
-			$wpdb->prepare(
-				"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
-				$job_key,
-				maybe_serialize( $expected )
-			)
+		$receipt_key = (string) ( $expected['receipt_key'] ?? '' );
+		$completed   = '' !== $receipt_key ? self::created_receipt_exists( $receipt_key ) : true;
+		if ( null === $completed ) {
+			return false;
+		}
+		// Rename in one statement: there is never a gap with neither a job nor a receipt.
+		$query   = false === $completed ? $wpdb->prepare(
+			"UPDATE {$wpdb->options} SET option_name = %s, option_value = %s WHERE option_name = %s AND option_value = %s",
+			$receipt_key,
+			gmdate( 'Y-m-d H:i:s' ),
+			$job_key,
+			maybe_serialize( $expected )
+		) : $wpdb->prepare(
+			"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+			$job_key,
+			maybe_serialize( $expected )
 		);
+		$deleted = $wpdb->query( $query ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Both branches above use prepare().
 		if ( 1 !== $deleted ) {
 			return false;
 		}
 		wp_cache_delete( $job_key, 'options' );
+		if ( '' !== $receipt_key ) {
+			wp_cache_delete( $receipt_key, 'options' );
+			wp_cache_delete( 'notoptions', 'options' );
+		}
 		wp_cache_delete( 'alloptions', 'options' );
 		return true;
 	}

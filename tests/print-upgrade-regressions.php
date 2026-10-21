@@ -26,6 +26,9 @@ class Upgrade_Item {
 	public function get_product_id(): int { return $this->id; }
 }
 class WC_Order extends Upgrade_Item {
+	public function get_status(): string {
+		return 'pending';
+	}
 	public array $items = [];
 	public array $notes = [];
 	public function get_id(): int { return $this->id; }

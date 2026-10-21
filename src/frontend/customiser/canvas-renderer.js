@@ -1,5 +1,6 @@
 /* eslint-disable no-console, no-undef, no-unused-vars, no-nested-ternary, @wordpress/no-unused-vars-before-return */
 
+import { layerIsShown } from '../../shared/layer-conditions';
 import {
 	StaticCanvas,
 	FabricImage,
@@ -354,6 +355,18 @@ const canvasRendererMethods = {
 					Number( b.layer.type === 'mask' )
 			);
 			for ( const { area, layer } of renderLayers ) {
+				if ( layer.type === 'staff_note' ) {
+					continue;
+				}
+				if (
+					! layerIsShown(
+						layer,
+						this.areas.flatMap( ( entry ) => entry.layers || [] ),
+						options.inputs || this.inputs
+					)
+				) {
+					continue;
+				}
 				if ( ! isCurrent() ) {
 					return;
 				}
@@ -408,7 +421,7 @@ const canvasRendererMethods = {
 		isCurrent = () => true,
 		renderContext = {}
 	) {
-		if ( ! isCurrent() ) {
+		if ( layer.type === 'staff_note' || ! isCurrent() ) {
 			return;
 		}
 		const capturesTextLayout = canvas._ocArea === area;

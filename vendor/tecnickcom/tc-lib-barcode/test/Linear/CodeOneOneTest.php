@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -84,5 +85,25 @@ class CodeOneOneTest extends TestUtil
     {
         $barcode = $this->getTestObject();
         $this->assertSame('S000000000077-S', $barcode->getBarcodeObj('CODE11', '00000000007')->getExtendedCode());
+    }
+
+    public function testChecksumLengthTransition(): void
+    {
+        $barcode = $this->getTestObject();
+        $this->assertSame('S12345678901S', $barcode->getBarcodeObj('CODE11', '1234567890')->getExtendedCode());
+        $this->assertSame('S123456789014-S', $barcode->getBarcodeObj('CODE11', '12345678901')->getExtendedCode());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return \array_map(static fn (string $code): array => [$code], ['', '12A', 'S12S', '12.3', '+12', ' 12', "12\n", "12\x00"]);
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testUnsupportedPayloadsAreRejected(string $code): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('CODE11', $code);
     }
 }

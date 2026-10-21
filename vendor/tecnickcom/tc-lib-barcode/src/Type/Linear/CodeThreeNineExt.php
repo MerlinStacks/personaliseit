@@ -46,6 +46,6 @@ class CodeThreeNineExt extends \Com\Tecnick\Barcode\Type\Linear\CodeThreeNineExt
      */
     protected function formatCode(): void
     {
-        $this->extcode = '*' . $this->getExtendCode(\strtoupper($this->code)) . '*';
+        $this->extcode = '*' . $this->getExtendCode($this->code) . '*';
     }
 }

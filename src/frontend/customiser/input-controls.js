@@ -487,6 +487,22 @@ const inputControlMethods = {
 			);
 		} );
 
+		// Non-printing customer instructions: no font fitting or preview refresh.
+		document.querySelectorAll( '[data-oc-layer-note]' ).forEach( ( el ) => {
+			const id = Number( el.dataset.ocLayerNote );
+			el.addEventListener(
+				'input',
+				() => {
+					el.setCustomValidity( '' );
+					el.removeAttribute( 'aria-invalid' );
+					el.classList.remove( 'oc-preflight-field-error' );
+					this.inputs[ id ] = { value: el.value };
+					this.updateHiddenField();
+				},
+				{ signal: stateSignal }
+			);
+		} );
+
 		// Text / textarea
 		document.querySelectorAll( '[data-oc-layer-text]' ).forEach( ( el ) => {
 			const lid = parseInt( el.dataset.ocLayerText, 10 );
@@ -2637,6 +2653,10 @@ const inputControlMethods = {
 			}
 
 			const textEl = layerControl( 'layer-text', layerId );
+			const noteEl = layerControl( 'layer-note', layerId );
+			if ( noteEl && inp.value !== undefined ) {
+				noteEl.value = inp.value;
+			}
 			if ( textEl && inp.value !== undefined ) {
 				this.clampLayerInputValue( layerId );
 				textEl.value = inp.value;
@@ -2745,6 +2765,10 @@ const inputControlMethods = {
 					this.inputs[ layerId ] = {};
 				}
 				const input = this.inputs[ layerId ];
+				const noteEl = layerControl( 'layer-note', layerId );
+				if ( noteEl ) {
+					input.value = noteEl.value;
+				}
 
 				const textEl = layerControl( 'layer-text', layerId );
 				if ( textEl ) {

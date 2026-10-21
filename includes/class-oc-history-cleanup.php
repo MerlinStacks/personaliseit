@@ -71,20 +71,21 @@ class OC_History_Cleanup {
 		$rows   = $wpdb->get_results(
 			$wpdb->prepare(
 				"SELECT option_id, option_name, option_value FROM {$wpdb->options}
-			 WHERE option_id > %d AND (option_name LIKE %s OR option_name LIKE %s)
+			 WHERE option_id > %d AND (option_name LIKE %s OR option_name LIKE %s OR option_name LIKE %s)
 			 ORDER BY option_id ASC LIMIT 100",
 				$cursor,
 				$wpdb->esc_like( 'oc_print_generated_emitted_' ) . '%',
-				$wpdb->esc_like( 'oc_print_failure_emitted_' ) . '%'
+				$wpdb->esc_like( 'oc_print_failure_emitted_' ) . '%',
+				$wpdb->esc_like( 'oc_wh_created_' ) . '%'
 			)
 		);
 		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
 			return;
 		}
 		foreach ( $rows as $row ) {
-			if ( preg_match( '/^oc_print_(?:generated|failure)_emitted_(\d+)$/D', (string) $row->option_name, $matches )
+			if ( preg_match( '/^(?:oc_print_(?:generated|failure)_emitted_(\d+)|oc_wh_created_(\d+)_\d+)$/D', (string) $row->option_name, $matches )
 				&& preg_match( '/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/D', (string) $row->option_value )
-				&& $row->option_value < $cutoff && self::order_is_deleted( (int) $matches[1] ) ) {
+				&& $row->option_value < $cutoff && self::order_is_deleted( (int) ( $matches[2] ?? $matches[1] ) ) ) {
 				delete_option( (string) $row->option_name );
 			}
 		}

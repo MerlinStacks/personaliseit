@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,29 @@ use Test\TestUtil;
  */
 class UpcATest extends TestUtil
 {
+    public function testSuppliedChecksumAndExtendedCode(): void
+    {
+        $barcode = $this->getTestObject();
+        $auto = $barcode->getBarcodeObj('UPCA', '03600029145');
+        $full = $barcode->getBarcodeObj('UPCA', '036000291452');
+        $this->assertSame('0036000291452', $auto->getExtendedCode());
+        $this->assertSame($auto->getExtendedCode(), $full->getExtendedCode());
+        $this->assertSame($auto->getGrid(), $full->getGrid());
+        $this->assertSame('0000000000017', $barcode->getBarcodeObj('UPCA', '1')->getExtendedCode());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [[''], ['036000291453'], ['1234567890123'], ['03600029145A'], [' 03600029145'], ["03600029145\n"]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidChecksumsLengthsAndCharacters(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('UPCA', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

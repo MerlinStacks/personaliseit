@@ -90,7 +90,16 @@ make qa
 make server
 ```
 
-Run `make server` and open <http://127.0.0.1:8000/example/index.php> to check the example in a browser.
+`make deps` deletes local `vendor/` contents before reinstalling development
+dependencies. Preserve any local vendor changes first, and use these commands in
+a development checkout rather than a deployed installation.
+
+The Composer `qa`, `analyse`, and `cs-check` scripts also require Mago. It is not a
+Composer package dependency: `make deps` installs the pinned Mago binary under
+`vendor/bin/`. Run that development bootstrap first, or provide a compatible Mago
+binary on PATH when invoking these Composer scripts.
+
+Run `make server` and open <http://127.0.0.1:8000/> to check the example in a browser.
 
 ---
 
@@ -112,4 +121,3 @@ require_once '/usr/share/php/Com/Tecnick/Color/autoload.php';
 ## Contributing
 
 Contributions are welcome. Please review [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md).
-

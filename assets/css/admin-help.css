@@ -1,0 +1,49 @@
+[data-oc-help-disclosure] {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	margin-inline-start: 6px;
+}
+
+[data-oc-help-disclosure] > .oc-help-toggle {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	min-width: 24px;
+	min-height: 24px;
+	padding: 2px;
+	border: 1px solid #646970;
+	border-radius: 50%;
+	background: #fff;
+	color: #2c3338;
+	font: inherit;
+	cursor: pointer;
+}
+
+[data-oc-help-disclosure] > .oc-help-toggle:focus-visible {
+	outline: 2px solid #2271b1;
+	outline-offset: 2px;
+}
+
+[data-oc-help-disclosure] > .oc-help-hint {
+	position: absolute;
+	inset-block-start: calc(100% + 6px);
+	inset-inline-end: 0;
+	z-index: 100;
+	box-sizing: border-box;
+	width: min(280px, 70vw);
+	padding: 10px 12px;
+	border: 1px solid #8c8f94;
+	border-radius: 4px;
+	background: #fff;
+	color: #2c3338;
+	box-shadow: 0 2px 8px rgb(0 0 0 / 15%);
+	font-size: 13px;
+	font-weight: 400;
+	line-height: 1.5;
+	overflow-wrap: anywhere;
+}
+
+[data-oc-help-disclosure] > .oc-help-hint[hidden] {
+	display: none !important;
+}

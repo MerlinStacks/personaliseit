@@ -3,6 +3,7 @@ export const LAYER_TYPES = {
 	text: { label: 'Text', icon: 'Aa', color: '#0284c7' },
 	curved_text: { label: 'Curved Text', icon: '⌒', color: '#0284c7' },
 	textarea: { label: 'Text Area', icon: '\u00b6', color: '#7c3aed' },
+	staff_note: { label: 'Staff Note', icon: '\u270e', color: '#64748b' },
 	image: { label: 'Image', icon: '\ud83d\uddbc', color: '#059669' },
 	ai_image: { label: 'AI Image', icon: 'AI', color: '#db2777' },
 	clipmask: { label: 'Clipping Mask', icon: '◯', color: '#0d9488' },
@@ -18,6 +19,7 @@ export const LAYER_DEFAULTS = {
 	text: { w: 300, h: 50 },
 	curved_text: { w: 300, h: 150 },
 	textarea: { w: 300, h: 120 },
+	staff_note: { w: 300, h: 120 },
 	image: { w: 200, h: 200 },
 	ai_image: { w: 200, h: 200 },
 	clipmask: { w: 200, h: 200 },
@@ -53,6 +55,11 @@ export const ICO_COPY =
 	'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M11 5.5V4A1.5 1.5 0 0 0 9.5 2.5H4.5A1.5 1.5 0 0 0 3 4V9.5A1.5 1.5 0 0 0 4.5 11H6"/></svg>';
 
 export const LAYER_TABS = {
+	staff_note: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'content', label: 'Content', icon: 'T' },
+		{ id: 'validation', label: 'Validation', icon: '\u2713' },
+	],
 	curved_text: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'content', label: 'Content', icon: 'T' },

@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,30 @@ use Test\TestUtil;
  */
 class EanEightTest extends TestUtil
 {
+    public function testExplicitCheckDigitAndShortInputPadding(): void
+    {
+        $barcode = $this->getTestObject();
+        $auto = $barcode->getBarcodeObj('EAN8', '1234567');
+        $full = $barcode->getBarcodeObj('EAN8', '12345670');
+        $this->assertSame('12345670', $full->getExtendedCode());
+        $this->assertSame($auto->getGrid(), $full->getGrid());
+        $short = $barcode->getBarcodeObj('EAN8', '1');
+        $this->assertSame('00000017', $short->getExtendedCode());
+        $this->assertSame($barcode->getBarcodeObj('EAN8', '0000001')->getGrid(), $short->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [[''], ['12345671'], ['123456789'], [' 1234567'], ["1234567\n"], ['12 3456'], ["\xff"]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidChecksumsLengthsAndWhitespace(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('EAN8', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

@@ -4,11 +4,13 @@ defined( 'ABSPATH' ) || exit;
 
 class OC_Autosave {
 
-	private const TRANSIENT_PREFIX = 'oc_autosave_';
-	private const TTL_SECONDS      = DAY_IN_SECONDS;
-	private const MAX_STATE_BYTES  = 1048576;
-	private const MAX_AREAS        = 100;
-	private const MAX_LAYERS       = 1000;
+	private const TRANSIENT_PREFIX           = 'oc_autosave_';
+	private const TTL_SECONDS                = DAY_IN_SECONDS;
+	private const MAX_STATE_BYTES            = 1048576;
+	private const MAX_AREAS                  = 100;
+	private const MAX_LAYERS                 = 1000;
+	private const RECOVERY_PREFIX            = 'oc_recovery_';
+	private const RECOVERY_RETENTION_SECONDS = 30 * DAY_IN_SECONDS;
 
 	/** Separate, user-scoped recovery copies cannot be replaced by another tab. */
 	public static function retain_recovery( array $data ): ?string {
@@ -16,9 +18,21 @@ class OC_Autosave {
 		if ( get_current_user_id() <= 0 || ! is_string( $json ) || strlen( $json ) > self::MAX_STATE_BYTES ) {
 			return null;
 		}
-		$token = hash( 'sha256', $json );
-		$key = 'oc_recovery_' . get_current_user_id() . '_' . $token;
-		if ( get_option( $key, null ) === $data || add_option( $key, $data, '', false ) ) {
+		$token    = hash( 'sha256', $json );
+		$key      = self::RECOVERY_PREFIX . get_current_user_id() . '_' . $token;
+		$existing = self::recovery_record( $key );
+		if ( is_array( $existing ) && $existing['data'] === $data && $existing['expires_at'] > time() ) {
+			return $token;
+		}
+		$record = [
+			'version'    => 1,
+			'expires_at' => time() + self::RECOVERY_RETENTION_SECONDS,
+			'data'       => $data,
+		];
+		$stored = null === $existing
+			? add_option( $key, $record, '', false )
+			: update_option( $key, $record, false );
+		if ( $stored || get_option( $key, null ) === $record ) {
 			return $token;
 		}
 		return null;
@@ -28,8 +42,67 @@ class OC_Autosave {
 		if ( get_current_user_id() <= 0 || ! preg_match( '/^[a-f0-9]{64}$/D', $token ) ) {
 			return null;
 		}
-		$data = get_option( 'oc_recovery_' . get_current_user_id() . '_' . $token, null );
-		return is_array( $data ) ? $data : null;
+		$record = self::recovery_record( self::RECOVERY_PREFIX . get_current_user_id() . '_' . $token );
+		return is_array( $record ) && $record['expires_at'] > time() ? $record['data'] : null;
+	}
+
+	/** Preserve old immutable payloads, granting them a full retention window on upgrade. */
+	private static function recovery_record( string $key ): ?array {
+		$record = get_option( $key, null );
+		if ( ! is_array( $record ) ) {
+			return null;
+		}
+		if ( ( isset( $record['state'] ) && is_array( $record['state'] ) ) || 'overcustomise-rejected-form' === ( $record['format'] ?? null ) ) {
+			$record = [
+				'version'    => 1,
+				'expires_at' => time() + self::RECOVERY_RETENTION_SECONDS,
+				'data'       => $record,
+			];
+			if ( ! update_option( $key, $record, false ) && get_option( $key, null ) !== $record ) {
+				return null;
+			}
+		}
+		return 1 === ( $record['version'] ?? null ) && is_int( $record['expires_at'] ?? null ) && is_array( $record['data'] ?? null )
+			? $record : null;
+	}
+
+	/** Expire recovery copies in bounded daily batches; ordinary reads never extend retention. */
+	public static function cleanup_recovery(): void {
+		global $wpdb;
+		$cursor = max( 0, (int) get_option( 'oc_recovery_cleanup_cursor', 0 ) );
+		$rows   = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT option_id, option_name FROM {$wpdb->options} WHERE option_name LIKE %s AND option_id > %d ORDER BY option_id ASC LIMIT 100",
+				$wpdb->esc_like( self::RECOVERY_PREFIX ) . '%',
+				$cursor
+			)
+		);
+		if ( ! is_array( $rows ) || '' !== (string) $wpdb->last_error ) {
+			return;
+		}
+		foreach ( $rows as $row ) {
+			$key = (string) $row->option_name;
+			if ( ! preg_match( '/^oc_recovery_[1-9][0-9]*_[a-f0-9]{64}$/D', $key ) ) {
+				continue;
+			}
+			$record = self::recovery_record( $key );
+			if ( null === $record || $record['expires_at'] > time() ) {
+				continue;
+			}
+			// An explicit retain can renew an expired copy while this worker runs.
+			$deleted = $wpdb->query(
+				$wpdb->prepare(
+					"DELETE FROM {$wpdb->options} WHERE option_name = %s AND option_value = %s",
+					$key,
+					maybe_serialize( $record )
+				)
+			);
+			if ( 1 === $deleted ) {
+				wp_cache_delete( $key, 'options' );
+				wp_cache_delete( 'alloptions', 'options' );
+			}
+		}
+		update_option( 'oc_recovery_cleanup_cursor', count( $rows ) < 100 ? 0 : (int) end( $rows )->option_id, false );
 	}
 
 	public static function store( int $design_id, array $state, int $revision = 0, int $expected_revision = 0 ): array {

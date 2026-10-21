@@ -132,10 +132,13 @@ foreach ( $layers as $layer ) {
 						$is_selected = ! empty( $variant['selected'] ) || ( 0 === $i && ! $has_selected_design_variant );
 						?>
 						<button type="button"
-							class="oc-design-variant-option oc-thumb-pending<?php echo $is_selected ? ' oc-selected' : ''; ?>"
+							class="oc-design-variant-option<?php echo empty( $variant['iconUrl'] ) ? ' oc-thumb-pending' : ''; ?><?php echo $is_selected ? ' oc-selected' : ''; ?>"
 							data-oc-design-variant="<?php echo esc_attr( $variant['id'] ); ?>"
 							aria-pressed="<?php echo $is_selected ? 'true' : 'false'; ?>"
 							aria-label="<?php echo esc_attr( sprintf( __( 'Select %s artwork option', 'overcustomise' ), $variant['label'] ) ); ?>">
+							<?php if ( ! empty( $variant['iconUrl'] ) ) : ?>
+								<img src="<?php echo esc_url( $variant['iconUrl'] ); ?>" alt="" loading="eager" decoding="async" />
+							<?php else : ?>
 							<canvas class="oc-design-variant-canvas" data-oc-design-variant-thumb="<?php echo esc_attr( $variant['id'] ); ?>" aria-hidden="true"></canvas>
 							<?php if ( ! empty( $variant['thumbLayers'] ) ) : ?>
 								<div class="oc-design-variant-thumb" aria-hidden="true">
@@ -165,6 +168,7 @@ foreach ( $layers as $layer ) {
 								</div>
 							<?php elseif ( ! empty( $variant['thumbUrl'] ) ) : ?>
 								<img src="<?php echo esc_url( $variant['thumbUrl'], $oc_thumb_protocols ); ?>" alt="" loading="lazy" />
+							<?php endif; ?>
 							<?php endif; ?>
 							<span><?php echo esc_html( $variant['label'] ); ?></span>
 						</button>
@@ -276,7 +280,7 @@ foreach ( $layers as $layer ) {
 					?>
 					<?php
 					// These layer types either show their label inline or do not need a section header.
-					$inline_label_types      = [ 'text', 'curved_text', 'textarea', 'image', 'ai_image', 'clipmask', 'clipart', 'spotify', 'night_sky' ];
+					$inline_label_types      = [ 'text', 'curved_text', 'textarea', 'staff_note', 'image', 'ai_image', 'clipmask', 'clipart', 'spotify', 'night_sky' ];
 					$show_header_label       = ! in_array( $layer->type, $inline_label_types, true ) || ( '' !== $layer_cost_label && in_array( $layer->type, [ 'image', 'clipmask' ], true ) );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
 					$default_attachment_id = absint( $s['default_attachment_id'] ?? 0 );
@@ -285,7 +289,7 @@ foreach ( $layers as $layer ) {
 					}
 					$default_attachment_url = $default_attachment_id ? (string) wp_get_attachment_url( $default_attachment_id ) : '';
 					?>
-					<div class="oc-layer-section">
+					<div class="oc-layer-section" data-oc-condition-layer="<?php echo esc_attr( (string) $layer->id ); ?>">
 						<?php if ( in_array( $layer->type, [ 'image', 'clipmask' ], true ) && $default_attachment_url ) : ?>
 							<span hidden data-oc-default-image="<?php echo esc_attr( (string) $layer->id ); ?>" data-oc-default-image-id="<?php echo esc_attr( (string) $default_attachment_id ); ?>" data-oc-default-image-url="<?php echo esc_url( $default_attachment_url ); ?>"></span>
 						<?php endif; ?>
@@ -302,7 +306,12 @@ foreach ( $layers as $layer ) {
 
 						<div class="oc-layer-body">
 
-							<?php if ( in_array( $layer->type, [ 'text', 'curved_text' ], true ) ) : ?>
+							<?php if ( 'staff_note' === $layer->type ) : ?>
+								<div class="oc-control-group">
+									<label for="oc-note-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ?: __( 'Note for staff', 'overcustomise' ) ); ?><?php echo $required ? ' *' : ''; ?></label>
+									<textarea id="oc-note-<?php echo esc_attr( $layer->id ); ?>" name="oc_layer_inputs[<?php echo esc_attr( $layer->id ); ?>][value]" rows="4" maxlength="<?php echo esc_attr( (string) ( $char_lim ?: 10000 ) ); ?>" data-oc-layer-note="<?php echo esc_attr( $layer->id ); ?>" <?php echo $required ? 'required aria-required="true"' : ''; ?>></textarea>
+								</div>
+							<?php elseif ( in_array( $layer->type, [ 'text', 'curved_text' ], true ) ) : ?>
 								<div class="oc-control-group oc-control-group--side-label">
 									<label for="oc-text-<?php echo esc_attr( $layer->id ); ?>"><?php echo esc_html( $layer->label ); ?><?php echo wp_kses_post( $layer_cost_label ); ?><?php echo $required ? ' *' : ''; ?></label>
 									<div class="oc-input-wrap">
@@ -493,7 +502,7 @@ foreach ( $layers as $layer ) {
 										title="<?php echo esc_attr( $ci->name ); ?>"
 										aria-label="<?php echo esc_attr( sprintf( __( 'Select %s clipart', 'overcustomise' ), $ci->name ) ); ?>"
 										aria-pressed="false">
-										<img src="<?php echo esc_url( $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
+										<img src="<?php echo esc_url( OC_Chooser_Icons::url( 'clipart', (int) $ci->id ) ?: $curl ); ?>" alt="<?php echo esc_attr( $ci->name ); ?>" loading="lazy" />
 									</button>
 									<?php endforeach; ?>
 									<?php if ( empty( $items ) ) : ?>

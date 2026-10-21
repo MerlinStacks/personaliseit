@@ -562,6 +562,7 @@ export function createProductsPageSettings( deps ) {
 		const printMethod = area?.method || '';
 		const aGroups = data.clipartGroups || [];
 		const isEngraving = area && area.method === 'engraving';
+		// eslint-disable-next-line @wordpress/no-unused-vars-before-return
 		const supportsColourLink = [
 			'text',
 			'curved_text',
@@ -574,7 +575,125 @@ export function createProductsPageSettings( deps ) {
 		].includes( layer.type );
 
 		switch ( tabId ) {
+			case 'conditions': {
+				const sources = getAreas()
+					.flatMap( ( entry ) => entry.layers || [] )
+					.filter(
+						( candidate ) =>
+							candidate !== layer && candidate.type === 'clipart'
+					);
+				const source = sources.find(
+					( candidate ) =>
+						candidate.settings.condition_key &&
+						candidate.settings.condition_key ===
+							s.condition_source_key
+				);
+				const sourceArea = getAreas().find( ( entry ) =>
+					entry.layers?.includes( source )
+				);
+				const items = source
+					? clipartForSelectedGroups(
+							data.clipartItems || [],
+							source.settings.clipart_groups,
+							sourceArea?.method || ''
+					  )
+					: [];
+				return (
+					toggleField(
+						'Enable conditions',
+						'oc-set-condition-enabled',
+						s.condition_enabled
+					) +
+					'<p class="oc-hint">Hidden layers are not printed or charged, and required fields only apply while shown.</p>' +
+					( s.condition_enabled
+						? field(
+								'Clipart layer',
+								selectInput(
+									'oc-set-condition-source',
+									'<option value="">Choose a clipart layer</option>' +
+										sources
+											.map(
+												( candidate, index ) =>
+													`<option value="${ index }"${
+														candidate === source
+															? ' selected'
+															: ''
+													}>${ esc(
+														candidate.label ||
+															'Clipart'
+													) }</option>`
+											)
+											.join( '' )
+								)
+						  ) +
+						  field(
+								'Comparison',
+								selectInput(
+									'oc-set-condition-operator',
+									`<option value="is"${
+										s.condition_operator !== 'is_not'
+											? ' selected'
+											: ''
+									}>Is</option><option value="is_not"${
+										s.condition_operator === 'is_not'
+											? ' selected'
+											: ''
+									}>Is not</option>`
+								)
+						  ) +
+						  field(
+								'Clipart options (any selected option)',
+								`<select id="oc-set-condition-options" class="oc-input" multiple size="6" style="width:100%;">${ items
+									.map(
+										( item ) =>
+											`<option value="${ esc(
+												item.id
+											) }"${
+												(
+													s.condition_clipart_ids ||
+													[]
+												)
+													.map( Number )
+													.includes(
+														Number( item.id )
+													)
+													? ' selected'
+													: ''
+											}>${ esc( item.name ) }</option>`
+									)
+									.join( '' ) }</select>`
+						  ) +
+						  field(
+								'When the condition matches',
+								selectInput(
+									'oc-set-condition-action',
+									`<option value="show"${
+										s.condition_action !== 'hide'
+											? ' selected'
+											: ''
+									}>Show layer</option><option value="hide"${
+										s.condition_action === 'hide'
+											? ' selected'
+											: ''
+									}>Hide layer</option>`
+								)
+						  ) +
+						  '<p class="oc-hint">The opposite action applies when the condition does not match. Is not also matches when no clipart is selected. Choose a source layer and at least one option to activate the rule.</p>'
+						: '' )
+				);
+			}
 			case 'general':
+				if ( layer.type === 'staff_note' ) {
+					return (
+						field(
+							'Label',
+							`<input type="text" id="oc-layer-label" class="oc-input" style="width:100%;" value="${ esc(
+								layer.label
+							) }" />`
+						) +
+						'<p class="oc-hint">Customer instructions saved with the order for staff. Never shown on the design preview or included in print files.</p>'
+					);
+				}
 				return (
 					field(
 						'Label',
@@ -630,6 +749,14 @@ export function createProductsPageSettings( deps ) {
 						'</p>'
 				);
 			case 'content':
+				if ( layer.type === 'staff_note' ) {
+					return numberField(
+						'Max characters <span class="oc-hint">(0 = 10,000)</span>',
+						'oc-set-char-limit',
+						esc( s.char_limit || 0 ),
+						'min="0" max="10000" '
+					);
+				}
 				return (
 					field(
 						'Default text',
@@ -1048,6 +1175,55 @@ export function createProductsPageSettings( deps ) {
 
 	function bindSettingsHandlers( layer ) {
 		const s = layer.settings;
+		[
+			[ 'operator', 'is' ],
+			[ 'action', 'show' ],
+		].forEach( ( [ key, fallback ] ) => {
+			document
+				.getElementById( `oc-set-condition-${ key }` )
+				?.addEventListener( 'change', ( event ) => {
+					s[ `condition_${ key }` ] = event.target.value || fallback;
+					commitChange();
+				} );
+		} );
+		document
+			.getElementById( 'oc-set-condition-enabled' )
+			?.addEventListener( 'change', ( event ) => {
+				s.condition_enabled = event.target.checked;
+				commitChange( { rightColumn: true } );
+			} );
+		document
+			.getElementById( 'oc-set-condition-source' )
+			?.addEventListener( 'change', ( event ) => {
+				const sources = getAreas()
+					.flatMap( ( entry ) => entry.layers || [] )
+					.filter(
+						( candidate ) =>
+							candidate !== layer && candidate.type === 'clipart'
+					);
+				const source =
+					event.target.value === ''
+						? null
+						: sources[ Number( event.target.value ) ];
+				if ( source && ! source.settings.condition_key ) {
+					source.settings.condition_key = Array.from(
+						window.crypto.getRandomValues( new Uint32Array( 4 ) ),
+						( value ) => value.toString( 16 )
+					).join( '-' );
+				}
+				s.condition_source_key = source?.settings.condition_key || '';
+				s.condition_clipart_ids = [];
+				commitChange( { rightColumn: true } );
+			} );
+		document
+			.getElementById( 'oc-set-condition-options' )
+			?.addEventListener( 'change', ( event ) => {
+				s.condition_clipart_ids = Array.from(
+					event.target.selectedOptions,
+					( option ) => Number( option.value )
+				);
+				commitChange();
+			} );
 		const area = selectedArea();
 		const data = window.ocProductsData || {};
 

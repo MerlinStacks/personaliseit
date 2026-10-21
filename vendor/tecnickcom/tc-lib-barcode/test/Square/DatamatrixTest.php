@@ -378,13 +378,13 @@ class DatamatrixTest extends TestUtil
             [
                 'DATAMATRIX,R',
                 '0123456789012345678901234567890123456789',
-                'b748b02c1c4cae621a84c8dbba97c710',
+                'd9c3f7ee7a7be4b4e57cf4a5a485e725',
             ],
             // Rectangular GS1
             [
                 'DATAMATRIX,R,GS1',
                 "\xE8" . '01034531200000111719112510ABCD1234',
-                'f55524d239fc95072d99eafe5363cfeb',
+                '11000d4c60f667f3b5b7fba22483ccf0',
             ],
             [
                 'DATAMATRIX,R,GS1',
@@ -470,7 +470,7 @@ class DatamatrixTest extends TestUtil
                 'DATAMATRIX,S,GS1,C40',
                 // \xE8 is the control character FNC1 (ASCII 232)
                 "\xE8" . '01095011010209171719050810ABCD1234' . "\xE8" . '2110',
-                'ba117111dfa40a40e1bb968c719d2eef',
+                'ef0af4b9ddddff4ee8f0c8992ba66d80',
             ],
         ];
     }
@@ -492,6 +492,37 @@ class DatamatrixTest extends TestUtil
      */
     public static function getStringDataProvider(): array
     {
-        return \Test\TestStrings::$data;
+        return \Test\TestStrings::namedData();
+    }
+
+    public function testGs1LeadingMarkerEquivalence(): void
+    {
+        $barcode = $this->getTestObject();
+        $payload = '0101234567890128';
+        foreach (['DATAMATRIX,S,GS1', 'DATAMATRIX,R,GS1', 'DATAMATRIX,S,GS1,C40'] as $mode) {
+            $grid = $barcode->getBarcodeObj($mode, $payload)->getGrid();
+            $this->assertSame($grid, $barcode->getBarcodeObj($mode, "\xe8" . $payload)->getGrid());
+            $this->assertSame($grid, $barcode->getBarcodeObj($mode, "\x1d" . $payload)->getGrid());
+        }
+    }
+
+    /** @return array<array{int}> */
+    public static function maximumBase256Lengths(): array
+    {
+        return [[1555], [1556]];
+    }
+
+    #[DataProvider('maximumBase256Lengths')]
+    public function testMaximumBase256SymbolDimensions(int $length): void
+    {
+        $data = $this->getTestObject()->getBarcodeObj('DATAMATRIX,S,N,BASE256', \str_repeat("\x80", $length))->getArray();
+        $this->assertSame(144, $data['nrows']);
+        $this->assertSame(144, $data['ncols']);
+    }
+
+    public function testBase256BeyondMaximumIsRejected(): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('DATAMATRIX,S,N,BASE256', \str_repeat("\x80", 1557));
     }
 }

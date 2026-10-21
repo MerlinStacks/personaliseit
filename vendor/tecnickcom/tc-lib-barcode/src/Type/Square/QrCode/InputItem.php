@@ -99,9 +99,14 @@ abstract class InputItem extends \Com\Tecnick\Barcode\Type\Square\QrCode\Estimat
      */
     protected function newInputItem(int $mode, int $size, array $data, array $bstream = []): array
     {
+        if ($size <= 0 || \count($data) < $size) {
+            throw new BarcodeException('Input item size exceeds available data or is not positive');
+        }
         $setData = \array_slice($data, 0, $size);
-        if (\count($setData) < $size) {
-            $setData = \array_merge($setData, \array_fill(0, \max(0, $size - \count($setData)), '0'));
+        foreach ($setData as $byte) {
+            if (!\is_string($byte) || \strlen($byte) !== 1) {
+                throw new BarcodeException('Input item must contain single-byte strings');
+            }
         }
 
         if (!$this->check($mode, $size, $setData)) {
@@ -135,7 +140,13 @@ abstract class InputItem extends \Com\Tecnick\Barcode\Type\Square\QrCode\Estimat
             $this->getEncModeValue('NM') => $this->checkModeNum($size, $data),
             $this->getEncModeValue('AN') => $this->checkModeAn($size, $data),
             $this->getEncModeValue('KJ') => $this->checkModeKanji($size, $data),
-            $this->getEncModeValue('8B'), $this->getEncModeValue('ST') => true,
+            $this->getEncModeValue('8B') => true,
+            // Header bytes are symbol count, one-based symbol index, and parity.
+            $this->getEncModeValue('ST') => $size === 3
+                && $this->getItemDataOrd($data, 0) >= 1
+                && $this->getItemDataOrd($data, 0) <= Data::MAX_STRUCTURED_SYMBOLS
+                && $this->getItemDataOrd($data, 1) >= 1
+                && $this->getItemDataOrd($data, 1) <= $this->getItemDataOrd($data, 0),
             default => false,
         };
     }

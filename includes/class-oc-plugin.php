@@ -150,6 +150,7 @@ class OC_Plugin {
 		add_action( 'oc_hourly_artwork_cleanup', [ 'OC_File_Cleanup', 'cleanup_customer_artwork' ] );
 		add_action( 'oc_artwork_cleanup_batch', [ 'OC_File_Cleanup', 'cleanup_customer_artwork' ] );
 		add_action( 'oc_daily_file_cleanup', [ self::class, 'cleanup_history' ], 20 );
+		add_action( 'oc_daily_file_cleanup', [ OC_Autosave::class, 'cleanup_recovery' ], 30 );
 		add_action( 'oc_storage_maintenance', [ self::class, 'migrate_storage' ] );
 	}
 
@@ -602,6 +603,9 @@ class OC_Plugin {
 			'_transient_timeout_oc_',
 		];
 		if ( $uninstalling ) {
+			$prefixes[] = 'oc_chooser_icon_';
+			$prefixes[] = 'oc_wh_created_';
+			$prefixes[] = 'oc_recovery_';
 			$prefixes[] = 'oc_private_preview_';
 			$prefixes[] = 'oc_budget_';
 			$prefixes[] = 'oc_storage_protection_';

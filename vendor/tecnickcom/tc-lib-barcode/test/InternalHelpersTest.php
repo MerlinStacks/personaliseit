@@ -45,13 +45,13 @@ class InternalHelpersTest extends TestUtil
      * @throws \Com\Tecnick\Barcode\Exception
      * @throws \Com\Tecnick\Color\Exception
      */
-    public function testQrInputItemPaddingAndAppendBranches(): void
+    public function testQrInputItemAndAppendBranches(): void
     {
         $helper = new InternalQrByteStream(\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_8B, 1, 0);
 
-        $item = $helper->exposeNewInputItem(\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_NM, 3, ['1']);
+        $item = $helper->exposeNewInputItem(\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_NM, 3, ['1', '2', '3']);
 
-        $this->assertSame(['1', '0', '0'], $item['data']);
+        $this->assertSame(['1', '2', '3'], $item['data']);
         $this->assertSame(-1, $helper->exposeLookAnTable(128));
 
         $items = $helper->exposeAppendNewInputItem(
@@ -88,6 +88,7 @@ class InternalHelpersTest extends TestUtil
     public static function getInvalidQrInputItemProvider(): array
     {
         return [
+            [\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_NM, 3, ['1']],
             [\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_AN, 1, ["\x80"]],
             [\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_KJ, 1, ["\x81"]],
             [999, 1, ['A']],
@@ -113,10 +114,11 @@ class InternalHelpersTest extends TestUtil
 
         $shortBits = \max(0, $maxBits - 2);
         $short = \array_fill(0, $shortBits, 1);
-        $this->assertCount($maxBits, $helper->exposeAppendPaddingBit($short));
+        $this->assertSame(\array_merge($short, [0, 0]), $helper->exposeAppendPaddingBit($short));
 
         $padded = $helper->exposeAppendPaddingBit([1, 0, 1, 0]);
         $this->assertCount($maxWords, $helper->exposeBitstreamToByte($padded));
+        $this->assertSame(\array_merge([0xa0], \array_merge(...\array_fill(0, 9, [0xec, 0x11]))), $helper->exposeBitstreamToByte($padded));
 
         $this->assertSame([], $helper->exposeBitstreamToByte([]));
         $this->assertSame([21], $helper->exposeBitstreamToByte([1, 0, 1, 0, 1]));
@@ -132,7 +134,8 @@ class InternalHelpersTest extends TestUtil
 
         $item = $helper->exposeNewInputItem(\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_NM, 3, ['1', '2', '3']);
         $stream = $helper->exposeCreateBitStream([$item]);
-        $this->assertGreaterThan(0, $stream[1]);
+        $this->assertSame(24, $stream[1]);
+        $this->assertSame('000100000000110001111011', \implode('', $stream[0][0]['bstream']));
 
         $helper->forcedEstVer = 2;
         $helper->forcedMinVer = 2;
@@ -181,7 +184,22 @@ class InternalHelpersTest extends TestUtil
         );
 
         $encoded = $helper->encodeBitStream($item, 1);
-        $this->assertNotEmpty($encoded['bstream']);
+        $expected = '010011111111' . \str_repeat('01000001', 255) . '01000000000101000001';
+        $this->assertSame($expected, \implode('', $encoded['bstream']));
+    }
+
+    public function testQrModeBitContents(): void
+    {
+        $helper = new InternalQrByteStream(\Com\Tecnick\Barcode\Type\Square\QrCode\Data::MODE_8B, 1, 0);
+        foreach ([
+            [1, ['A', 'Z'], '001000000001000111100101'],
+            [2, ['A'], '01000000000101000001'],
+            [3, ["\x81", "\x40"], '1000000000010000000000000'],
+            [4, ["\x02", "\x01", "\xff"], '00110000000111111111'],
+        ] as [$mode, $data, $expected]) {
+            $item = $helper->exposeNewInputItem($mode, \count($data), $data);
+            $this->assertSame($expected, \implode('', $helper->encodeBitStream($item, 1)['bstream']));
+        }
     }
 
     /**

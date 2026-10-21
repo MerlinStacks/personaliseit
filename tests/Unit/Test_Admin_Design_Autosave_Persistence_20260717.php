@@ -179,7 +179,8 @@ class Test_Admin_Design_Autosave_Persistence_20260717 extends PHPUnit\Framework\
 		$this->assertSame( 'Newer name', $GLOBALS['oc_test_transients'][ $key ]['state']['design']['name'] );
 		$this->assertSame( 86400, $GLOBALS['oc_test_transient_expirations'][ $key ] );
 		$token = hash( 'sha256', wp_json_encode( $legacy ) );
-		$this->assertSame( [ 'oc_recovery_1_' . $token => $legacy ], $GLOBALS['oc_test_options'] );
+		$this->assertSame( $legacy, $GLOBALS['oc_test_options'][ 'oc_recovery_1_' . $token ]['data'] );
+		$this->assertGreaterThanOrEqual( time() + 30 * DAY_IN_SECONDS - 1, $GLOBALS['oc_test_options'][ 'oc_recovery_1_' . $token ]['expires_at'] );
 		$this->assertSame( $legacy, OC_Autosave::recovery( $token ) );
 		$this->assertSame( [], $GLOBALS['wpdb']->locks );
 	}

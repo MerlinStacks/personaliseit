@@ -47,7 +47,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeModule(array $marr, int $nrow, int $ncol, int $row, int $col, int $chr, int $bit): array
+    protected function placeModule(array &$marr, int $nrow, int $ncol, int $row, int $col, int $chr, int $bit): array
     {
         if ($row < 0) {
             $row += $nrow;
@@ -76,7 +76,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeUtah(array $marr, int $nrow, int $ncol, int $row, int $col, int $chr): array
+    protected function placeUtah(array &$marr, int $nrow, int $ncol, int $row, int $col, int $chr): array
     {
         $marr = $this->placeModule($marr, $nrow, $ncol, $row - 2, $col - 2, $chr, 1);
         $marr = $this->placeModule($marr, $nrow, $ncol, $row - 2, $col - 1, $chr, 2);
@@ -101,7 +101,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeCornerA(array $marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
+    protected function placeCornerA(array &$marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
     {
         if ($row !== $nrow || $col !== 0) {
             return $marr;
@@ -132,7 +132,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeCornerB(array $marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
+    protected function placeCornerB(array &$marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
     {
         if ($row !== ($nrow - 2) || $col !== 0 || ($ncol % 4) === 0) {
             return $marr;
@@ -163,7 +163,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeCornerC(array $marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
+    protected function placeCornerC(array &$marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
     {
         if ($row !== ($nrow - 2) || $col !== 0 || ($ncol % 8) !== 4) {
             return $marr;
@@ -194,7 +194,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeCornerD(array $marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
+    protected function placeCornerD(array &$marr, int $nrow, int $ncol, int &$chr, int $row, int $col): array
     {
         if ($row !== ($nrow + 4) || $col !== 2 || ($ncol % 8)) {
             return $marr;
@@ -225,7 +225,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeSweepUpward(array $marr, int $nrow, int $ncol, int &$chr, int &$row, int &$col): array
+    protected function placeSweepUpward(array &$marr, int $nrow, int $ncol, int &$chr, int &$row, int &$col): array
     {
         do {
             if ($row < $nrow && $col >= 0 && !($marr[($row * $ncol) + $col] ?? 0)) {
@@ -255,7 +255,7 @@ abstract class Placement
      *
      * @return array<int, int>
      */
-    protected function placeSweepDownward(array $marr, int $nrow, int $ncol, int &$chr, int &$row, int &$col): array
+    protected function placeSweepDownward(array &$marr, int $nrow, int $ncol, int &$chr, int &$row, int &$col): array
     {
         do {
             if ($row >= 0 && $col < $ncol && !($marr[($row * $ncol) + $col] ?? 0)) {

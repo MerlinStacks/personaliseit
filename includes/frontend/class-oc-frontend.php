@@ -614,15 +614,22 @@ class OC_Frontend {
 			return null;
 		}
 
-		$thumb_layers = $this->get_design_variant_thumb_layers( $design_id, $area );
-		$thumb_url    = empty( $thumb_layers ) ? $this->get_design_variant_artwork_thumb_url( $design_id, $areas ) : '';
-		if ( empty( $thumb_layers ) && '' === $thumb_url && ! empty( $area->mockup_attachment_id ) ) {
-			$mockup_src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
-			$thumb_url  = wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: ( $mockup_src[0] ?? '' );
+		$icon_url     = OC_Chooser_Icons::url( 'design', $design_id );
+		$thumb_layers = [];
+		$thumb_url    = '';
+		// Uploaded icons replace the generated chooser thumbnail, not live artwork.
+		if ( '' === $icon_url ) {
+			$thumb_layers = $this->get_design_variant_thumb_layers( $design_id, $area );
+			$thumb_url    = empty( $thumb_layers ) ? $this->get_design_variant_artwork_thumb_url( $design_id, $areas ) : '';
+			if ( empty( $thumb_layers ) && '' === $thumb_url && ! empty( $area->mockup_attachment_id ) ) {
+				$mockup_src = wp_get_attachment_image_src( (int) $area->mockup_attachment_id, 'large' );
+				$thumb_url  = wp_get_attachment_image_url( (int) $area->mockup_attachment_id, 'thumbnail' ) ?: ( $mockup_src[0] ?? '' );
+			}
 		}
 
 		return [
 			'id'          => 'design-' . $design_id,
+			'iconUrl'     => $icon_url,
 			'designId'    => $design_id,
 			'label'       => sanitize_text_field( $label ) ?: ( $design->name ?: __( 'Untitled Design #', 'overcustomise' ) . $design_id ),
 			'thumbUrl'    => $thumb_url,

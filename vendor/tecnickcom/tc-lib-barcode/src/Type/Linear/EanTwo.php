@@ -130,6 +130,10 @@ class EanTwo extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function formatCode(): void
     {
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1 || \strlen($this->code) > $this->code_length) {
+            throw new BarcodeException('EAN extension must contain only digits and fit the barcode length');
+        }
+
         $this->extcode = \str_pad($this->code, $this->code_length, '0', STR_PAD_LEFT);
     }
 

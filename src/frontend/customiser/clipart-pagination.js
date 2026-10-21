@@ -89,7 +89,7 @@ export default async function loadClipartPage( layerId, reset = false ) {
 			button.classList.toggle( 'oc-selected', selected );
 			button.setAttribute( 'aria-pressed', String( selected ) );
 			const image = document.createElement( 'img' );
-			image.src = item.url;
+			image.src = item.iconUrl || item.url;
 			image.alt = item.name;
 			image.loading = 'lazy';
 			button.appendChild( image );

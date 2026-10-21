@@ -85,6 +85,45 @@ test( 'additional clipart pages deduplicate items and preserve customer selectio
 	);
 } );
 
+test( 'chooser icons never replace the selected production artwork URL', async ( t ) => {
+	const f = fixture( t, async () => ( {
+		ok: true,
+		json: async () => ( {
+			items: [
+				{
+					id: 125,
+					name: 'Visible icon',
+					url: '/production.svg',
+					iconUrl: '/icon.png',
+				},
+				{
+					id: 126,
+					name: 'Original fallback',
+					url: '/original.svg',
+					iconUrl: '',
+				},
+			],
+			nextPage: 3,
+			hasMore: false,
+		} ),
+	} ) );
+	await f.app.loadClipartPage( 7 );
+	const button = f.document.querySelector( '[data-oc-clipart="125"]' );
+	assert.equal(
+		button.querySelector( 'img' ).getAttribute( 'src' ),
+		'/icon.png'
+	);
+	assert.equal( button.dataset.ocClipartUrl, '/production.svg' );
+	assert.equal( button.getAttribute( 'aria-pressed' ), 'true' );
+	assert.equal( f.app.inputs[ 7 ].clipartId, 125 );
+	assert.equal(
+		f.document
+			.querySelector( '[data-oc-clipart="126"] img' )
+			.getAttribute( 'src' ),
+		'/original.svg'
+	);
+} );
+
 test( 'search covers the server catalogue and superseded responses cannot replace newer results', async ( t ) => {
 	const pending = [];
 	const f = fixture(

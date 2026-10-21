@@ -83,6 +83,10 @@ class InterleavedTwoOfFiveCheck extends \Com\Tecnick\Barcode\Type\Linear\Standar
      */
     protected function setBars(): void
     {
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1) {
+            throw new BarcodeException('Interleaved 2 of 5 requires a non-empty digit-only payload');
+        }
+
         $this->formatCode();
         if ((\strlen($this->extcode) % 2) !== 0) {
             // add leading zero if code-length is odd

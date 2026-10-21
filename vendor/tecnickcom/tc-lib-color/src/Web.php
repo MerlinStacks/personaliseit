@@ -10,7 +10,7 @@ declare(strict_types=1);
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -30,7 +30,7 @@ use Com\Tecnick\Color\Exception as ColorException;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class Web extends \Com\Tecnick\Color\Css
@@ -248,7 +248,7 @@ class Web extends \Com\Tecnick\Color\Css
     public function extractHexCode(string $hex): string
     {
         $match = [];
-        if (\preg_match('/^[#]?([0-9a-f]{3,8})$/', \strtolower($hex), $match) !== 1) {
+        if (\preg_match('/\A[#]?([0-9a-f]{3,8})\z/', \strtolower($hex), $match) !== 1) {
             throw new ColorException('unable to extract the color hash: ' . $hex);
         }
 
@@ -327,31 +327,31 @@ class Web extends \Com\Tecnick\Color\Css
     /**
      * Get the normalized integer value from [0..$max] to [0..1]
      *
+     * Invalid or non-finite input values return zero.
+     *
      * @param mixed $value Value to convert
-     * @param int    $max   Max input value
+     * @param int    $max   Positive max input value
      *
      * @return float value [0..1]
+     * @throws ColorException if $max is not positive
      */
     public function normalizeValue(mixed $value, int $max): float
     {
-        if (\is_string($value) && str_contains($value, '%')) {
-            $percent = \str_replace('%', '', $value);
-            if (!\is_numeric($percent)) {
-                return 0.0;
+        if ($max <= 0) {
+            throw new ColorException('Normalization maximum must be positive');
+        }
+        if (\is_string($value)) {
+            $value = \trim($value);
+            if (\str_ends_with($value, '%')) {
+                $value = \substr($value, 0, -1);
+                $max = 100;
             }
-
-            return \max(0, \min(1, (float) $percent / 100));
         }
-
-        if (\is_int($value) || \is_float($value)) {
-            return \max(0, \min(1, (float) $value / $max));
+        if (!(\is_int($value) || \is_float($value) || \is_string($value))
+            || !\is_numeric($value) || !\is_finite((float) $value)) {
+            return 0.0;
         }
-
-        if (\is_string($value) && \is_numeric($value)) {
-            return \max(0, \min(1, (float) $value / $max));
-        }
-
-        return 0.0;
+        return \max(0.0, \min(1.0, (float) $value / $max));
     }
 
     /**
@@ -365,7 +365,7 @@ class Web extends \Com\Tecnick\Color\Css
     {
         $col = [];
         $color = \strtolower(\trim($color));
-        if ($color === '' || str_contains($color, 'transparent')) {
+        if ($color === '' || $color === 'transparent' || $color === 'color.transparent') {
             return null;
         }
 

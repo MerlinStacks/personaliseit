@@ -1,0 +1,25 @@
+OverCustomise 1.20.0 - 21 October 2026
+
+New features:
+- Show or hide frontend layers based on a customer's clipart selection, using is/is-not comparisons and show/hide actions. Hidden layers are not required, charged or printed.
+- Collect customer instructions using non-printing Staff Note layers, with optional required-field and character-limit validation. Notes are saved with the order and never enter production artwork.
+- Upload separate design and clipart chooser icons without changing the live preview or print artwork. Design variants with icons display them immediately and skip generated-thumbnail rendering and background thumbnail requests.
+
+Checkout and reliability fixes:
+- Keep shared linked-layer controls usable while any linked member is visible, and retain pending/failed-artwork checkout checks for visible linked copies.
+- Evaluate conditions using the resolved clipart fallback when a saved default is no longer available.
+- Wait until Checkout Block orders are submitted before queuing print generation; draft orders no longer create production jobs or schema-retry markers.
+- Send customisation-created webhooks for both classic and Block checkout, deduplicated per order and destination. Random delivery UUIDs avoid cross-store collisions and remain unchanged during retries; existing queued delivery IDs are preserved.
+- Improve bundled barcode and colour input validation and encoding handling.
+
+Administration and maintenance:
+- Use accessible, keyboard-friendly admin help disclosures and simplify the design editor while preserving existing flat-rate values.
+- Delete clipart library entries transactionally while retaining referenced artwork files.
+- Expire editor recovery copies after 30 days. Existing copies receive a 30-day grace period on their first read or cleanup scan after upgrading; ordinary reads do not renew retention. Normal autosaves are unchanged.
+- Remove chooser icon references on uninstall without deleting Media Library images. Deactivation preserves icon references and recovery copies.
+- Present release notes directly in WordPress's native plugin-details changelog section, using headings, paragraphs and lists without a nested frame or preformatted box.
+
+Upgrade notes:
+- Requires WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation. No database schema migration or customer reconfiguration is required.
+- Existing designs without enabled conditions keep their current visibility behaviour. Chooser icons and Staff Notes do not alter production artwork.
+- Hosted updates preserve the existing plugin folder. The personaliseit-main compatibility ZIP is included for legacy installations. Replace the existing plugin without uninstalling it.

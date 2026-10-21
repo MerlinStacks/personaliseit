@@ -27,6 +27,7 @@ class OC_Admin_Clipart {
 	// ── AJAX registration ──────────────────────────────────────────────────────
 
 	public static function register_ajax(): void {
+		add_action( 'wp_ajax_oc_save_chooser_icon', [ OC_Chooser_Icons::class, 'ajax_save' ] );
 		add_action( 'wp_ajax_oc_clipart_upload', [ self::class, 'ajax_upload' ] );
 		add_action( 'wp_ajax_oc_clipart_convert_svg', [ self::class, 'ajax_convert_svg' ] );
 		add_action( 'wp_ajax_oc_clipart_rename', [ self::class, 'ajax_rename' ] );
@@ -70,6 +71,7 @@ class OC_Admin_Clipart {
 		}
 
 		$clipart = OC_DB::get_clipart( false );
+		OC_Chooser_Icons::enqueue();
 		$groups  = OC_DB::get_clipart_groups();
 
 		// JS payload — clipart items.
@@ -84,6 +86,7 @@ class OC_Admin_Clipart {
 					'colourChangeable'    => self::clipart_colour_changeable( $c ),
 					'allowedPrintMethods' => self::clipart_allowed_print_methods( $c ),
 					'url'                 => self::get_clipart_url( $c->file_path ),
+					'iconUrl'             => OC_Chooser_Icons::url( 'clipart', (int) $c->id ),
 					'active'              => (bool) $c->active,
 					'toggleUrl'           => wp_nonce_url(
 						admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $c->id . '&state=' . ( $c->active ? '0' : '1' ) ),
@@ -305,6 +308,11 @@ class OC_Admin_Clipart {
 						<p class="description"><?php esc_html_e( 'No selection means available for all print methods.', 'overcustomise' ); ?></p>
 					</div>
 				</div>
+						<div class="oc-upload-field">
+							<label><?php esc_html_e( 'Frontend chooser icon (optional)', 'overcustomise' ); ?></label>
+							<?php OC_Chooser_Icons::render( 'clipart', 0 ); ?>
+							<p class="description"><?php esc_html_e( 'Saved immediately. Only changes the customer selection icon, not the artwork, live preview or print file.', 'overcustomise' ); ?></p>
+						</div>
 						<div id="oc-clipart-error" class="oc-upload-error" style="display:none;"></div>
 					</div>
 
@@ -759,11 +767,20 @@ class OC_Admin_Clipart {
 		}
 
 		global $wpdb;
-		$exists  = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id = %d LIMIT 1", $id ) );
-		$updated = $exists ? $wpdb->update( "{$wpdb->prefix}oc_clipart", [ 'active' => 0 ], [ 'id' => $id ], [ '%d' ], [ '%d' ] ) : false;
-		if ( false === $updated ) {
-			wp_die( esc_html__( 'Could not deactivate clipart.', 'overcustomise' ) );
+		if ( ! OC_DB::tables_support_transactions( [ 'oc_clipart', 'oc_clipart_group_items' ] ) ) {
+			wp_die( esc_html__( 'Clipart deletion requires InnoDB tables. No changes were applied. Contact the site administrator.', 'overcustomise' ) );
 		}
+		if ( false === $wpdb->query( 'START TRANSACTION' ) ) {
+			wp_die( esc_html__( 'Could not delete clipart.', 'overcustomise' ) );
+		}
+		$exists        = $wpdb->get_var( $wpdb->prepare( "SELECT id FROM {$wpdb->prefix}oc_clipart WHERE id = %d FOR UPDATE", $id ) );
+		$deleted_items = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_clipart_group_items", [ 'clipart_id' => $id ], [ '%d' ] ) : false;
+		$deleted       = $exists ? $wpdb->delete( "{$wpdb->prefix}oc_clipart", [ 'id' => $id ], [ '%d' ] ) : false;
+		if ( false === $deleted_items || 1 !== $deleted || false === $wpdb->query( 'COMMIT' ) ) {
+			$wpdb->query( 'ROLLBACK' );
+			wp_die( esc_html__( 'Could not delete clipart.', 'overcustomise' ) );
+		}
+		// Retain the artwork file for designs and orders that already reference its URL.
 		self::clear_clipart_cache();
 		wp_safe_redirect( admin_url( 'admin.php?page=overcustomise-clipart' ) );
 		exit;
@@ -897,6 +914,7 @@ class OC_Admin_Clipart {
 			'colourChangeable'    => $row ? self::clipart_colour_changeable( $row ) : true,
 			'allowedPrintMethods' => $row ? self::clipart_allowed_print_methods( $row ) : [],
 			'url'                 => self::get_clipart_url( $path ),
+			'iconUrl'             => OC_Chooser_Icons::url( 'clipart', $id ),
 			'active'              => $active,
 			'toggleUrl'           => wp_nonce_url(
 				admin_url( 'admin.php?page=overcustomise-clipart&action=toggle&id=' . $id . '&state=' . ( $active ? '0' : '1' ) ),

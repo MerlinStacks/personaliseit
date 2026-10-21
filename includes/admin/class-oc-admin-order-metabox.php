@@ -309,6 +309,9 @@ class OC_Admin_Order_Metabox {
 	private function v2_layer_display_value( array $layer_data, ?object $layer = null, string $print_method = '' ): string {
 		$type        = is_string( $layer_data['type'] ?? null ) ? $layer_data['type'] : '';
 		$show_colour = 'engraving' !== sanitize_key( $print_method );
+		if ( 'staff_note' === $type ) {
+			return nl2br( htmlspecialchars( OC_Print_Text::normalise( $layer_data['value'] ?? '', true ), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8', true ) );
+		}
 
 		if ( in_array( $type, [ 'text', 'curved_text', 'textarea', 'spotify' ], true ) ) {
 			$value     = is_scalar( $layer_data['value'] ?? null ) ? trim( (string) $layer_data['value'] ) : '';

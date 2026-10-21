@@ -11,7 +11,7 @@
  * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
  * @link      https://github.com/tecnickcom/tc-lib-barcode
  *
- * This file is part of tc-lib-color software library.
+ * This file is part of tc-lib-barcode software library.
  */
 
 namespace Test;
@@ -19,7 +19,7 @@ namespace Test;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Web Color class test
+ * Shared barcode test helpers
  *
  * @since     2020-12-19
  * @category  Library

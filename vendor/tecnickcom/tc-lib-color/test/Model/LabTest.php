@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -26,11 +26,34 @@ use Test\TestUtil;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class LabTest extends TestUtil
 {
+    public function testNeutralEndpoints(): void
+    {
+        foreach ([0.0, 100.0] as $lightness) {
+            $lab = new \Com\Tecnick\Color\Model\Lab(['lstar' => $lightness, 'alpha' => 0.25]);
+            $expected = $lightness / 100;
+            $this->assertEqualsWithDelta(['red' => $expected, 'green' => $expected,
+                'blue' => $expected, 'alpha' => 0.25], $lab->toRgbArray(), 1e-6);
+            $this->assertSame(0.25, $lab->toRgbArray()['alpha']);
+        }
+    }
+
+    public function testInGamutRgbRoundTrips(): void
+    {
+        foreach ([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0], [0.0, 0.0, 1.0], [0.2, 0.4, 0.6]] as $values) {
+            $input = ['red' => $values[0], 'green' => $values[1], 'blue' => $values[2], 'alpha' => 0.25];
+            $rgb = new \Com\Tecnick\Color\Model\Rgb($input);
+            $lab = new \Com\Tecnick\Color\Model\Lab($rgb->toLabArray());
+            $this->assertEqualsWithDelta($input, $lab->toRgbArray(), 1e-5);
+            $this->assertSame(0.25, $lab->toRgbArray()['alpha']);
+        }
+    }
+
     protected function getTestObject(): \Com\Tecnick\Color\Model\Lab
     {
         return new \Com\Tecnick\Color\Model\Lab([

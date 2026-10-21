@@ -128,7 +128,7 @@ abstract class Mask extends \Com\Tecnick\Barcode\Type\Square\QrCode\MaskNum
         $checked_masks = [0, 1, 2, 3, 4, 5, 6, 7];
         if ($this->qr_find_from_random >= 0) {
             // keep at least one candidate mask so a mask and its format info are always applied
-            $howManuOut = \min(7, 8 - ($this->qr_find_from_random % 9));
+            $howManuOut = 8 - \max(1, \min(8, $this->qr_find_from_random));
             for ($idx = 0; $idx < $howManuOut; ++$idx) {
                 $maxpos = \count($checked_masks) - 1;
                 $remPos = $maxpos > 0 ? \random_int(0, $maxpos) : 0;

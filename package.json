@@ -1,13 +1,16 @@
 {
   "name": "overcustomise",
-  "version": "1.19.10",
+  "version": "1.20.0",
   "description": "WooCommerce product customiser for Custom Kings",
   "private": true,
   "files": [
     "assets/build",
     "assets/css/admin.css",
+    "assets/css/admin-help.css",
     "assets/css/admin",
     "assets/js/admin-customer-uploads.js",
+    "assets/js/admin-chooser-icons.js",
+    "assets/js/admin-help.js",
     "includes",
     "templates",
     "vendor/autoload.php",

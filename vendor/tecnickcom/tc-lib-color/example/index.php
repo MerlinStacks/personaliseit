@@ -16,11 +16,26 @@ declare(strict_types=1);
  * This file is part of tc-lib-color software library.
  */
 
-// autoloader when using Composer
-require __DIR__ . '/../vendor/autoload.php';
-
-// autoloader when using RPM or DEB package installation
-//require ('/usr/share/php/Com/Tecnick/Color/autoload.php');
+// Accept an existing application autoloader, a standalone development checkout,
+// a Composer consumer installation, or an RPM/DEB system installation.
+if (!\class_exists(\Com\Tecnick\Color\Web::class)) {
+    foreach ([
+        __DIR__ . '/../vendor/autoload.php',
+        __DIR__ . '/../../../autoload.php',
+        '/usr/share/php/Com/Tecnick/Color/autoload.php',
+    ] as $autoload) {
+        if (\is_file($autoload)) {
+            require_once $autoload;
+            if (\class_exists(\Com\Tecnick\Color\Web::class)) {
+                break;
+            }
+        }
+    }
+}
+if (!\class_exists(\Com\Tecnick\Color\Web::class)) {
+    throw new \RuntimeException('Unable to load tc-lib-color; install Composer dependencies or register its autoloader.');
+}
+unset($autoload);
 
 $colobj = new \Com\Tecnick\Color\Web();
 

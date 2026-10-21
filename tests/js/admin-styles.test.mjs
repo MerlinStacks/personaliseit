@@ -73,8 +73,9 @@ const assets = capture( 'overcustomise_page_overcustomise-settings' );
 const files = loadSequence( assets );
 
 test( 'all OC pages load the same ordered cascade through the existing handle', () => {
-	assert.deepEqual( assets.queue, [ 'oc-admin' ] );
+	assert.deepEqual( assets.queue, [ 'oc-admin-help', 'oc-admin' ] );
 	assert.deepEqual( files, [
+		'assets/css/admin-help.css',
 		...modules.map( ( name ) => `assets/css/admin/${ name }.css` ),
 		'assets/css/admin.css',
 	] );
@@ -178,7 +179,13 @@ test(
 			[ 'show', `${ baseline }:assets/css/admin.css` ],
 			{ cwd: root, encoding: 'utf8' }
 		);
-		const actual = files.flatMap( ( file ) => sequence( read( file ) ) );
+		// New help disclosures are additive, not part of the historical CSS split.
+		const originalFiles = files.filter(
+			( file ) => file !== 'assets/css/admin-help.css'
+		);
+		const actual = originalFiles.flatMap( ( file ) =>
+			sequence( read( file ) )
+		);
 		assert.deepEqual( actual, sequence( original ) );
 		// Also prove that complete individual rules/at-rules survived verbatim.
 		const rawRules = ( css ) =>
@@ -186,7 +193,7 @@ test(
 				.nodes.filter( ( node ) => node.type !== 'comment' )
 				.map( ( node ) => node.toString() );
 		assert.deepEqual(
-			files.flatMap( ( file ) => rawRules( read( file ) ) ),
+			originalFiles.flatMap( ( file ) => rawRules( read( file ) ) ),
 			rawRules( original )
 		);
 		const counts = { rules: 0, declarations: 0, atRules: 0 };

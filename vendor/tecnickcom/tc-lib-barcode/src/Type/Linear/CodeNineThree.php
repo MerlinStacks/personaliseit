@@ -291,6 +291,17 @@ class CodeNineThree extends \Com\Tecnick\Barcode\Type\Linear\CodeThreeNineExtChe
         '?',
     ];
 
+    /**
+     * Preserve case when expanding the full ASCII payload for Code 93.
+     *
+     * @throws BarcodeException if the input is outside the supported ASCII range
+     */
+    protected function formatCode(): void
+    {
+        $code = $this->getExtendCode($this->code);
+        $this->extcode = '*' . $code . $this->getChecksum($code) . '*';
+    }
+
     protected function getBarPattern(int $char): string
     {
         return $this::CHBAR[$char] ?? '000000';

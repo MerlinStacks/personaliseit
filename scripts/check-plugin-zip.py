@@ -23,6 +23,8 @@ COMPRESSED_LIMIT = 34_000_000
 UNCOMPRESSED_LIMIT = 64_000_000
 REQUIRED = (
     'assets/css/admin.css',
+    'assets/css/admin-help.css',
+    'assets/js/admin-help.js',
     'assets/js/admin-customer-uploads.js',
     'overcustomise.php',
     'vendor/autoload.php',
@@ -89,7 +91,7 @@ def check_archive(archive, root, compressed_limit=COMPRESSED_LIMIT,
                     'autoload.php', 'composer', 'tecnickcom'}:
                 failures.append('Non-production Composer package: ' + entry.filename)
             if (len(parts) > 4 and parts[1:3] == ('vendor', 'tecnickcom')
-                    and (parts[4] == 'scripts' or
+                    and (parts[4] in {'scripts', '.gitignore', 'CODEOWNERS'} or
                          (len(parts) > 5 and parts[4] == 'resources'
                           and parts[5] in {'css', 'preflight'}))):
                 failures.append('Vendor development tooling: ' + entry.filename)

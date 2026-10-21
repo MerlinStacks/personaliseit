@@ -32,6 +32,7 @@ class OC_Print_Generator {
 
 		// Primary: order created at checkout.
 		add_action( 'woocommerce_checkout_order_created', [ $this, 'generate_for_order_safely' ], 20, 1 );
+		add_action( 'woocommerce_store_api_checkout_order_processed', [ $this, 'generate_for_order_safely' ], 20, 1 );
 
 		// Admin/API orders receive line items after the order object is created.
 		add_action( 'woocommerce_new_order', [ $this, 'defer_order_generation' ], 30, 2 );
@@ -507,6 +508,10 @@ class OC_Print_Generator {
 
 	/** Generate print files for all customised items in a new order. */
 	public function generate_for_order( \WC_Order $order ): void {
+		// Store API drafts are mutable and may never be submitted. Wait for checkout processing.
+		if ( 'checkout-draft' === $order->get_status() ) {
+			return;
+		}
 		if ( ! OC_DB::print_pipeline_available() ) {
 			self::mark_order_generation_pending( $order );
 			self::schedule_order_generation_retry( (int) $order->get_id() );
@@ -1035,13 +1040,13 @@ class OC_Print_Generator {
 
 	/** Retry idempotent order generation until the print schema is available. */
 	public function retry_order_generation( int $order_id ): void {
-		if ( ! OC_DB::print_pipeline_available() ) {
-			self::schedule_order_generation_retry( $order_id );
+		$order = wc_get_order( $order_id );
+		if ( ! $order instanceof \WC_Order || 'checkout-draft' === $order->get_status() ) {
 			return;
 		}
 
-		$order = wc_get_order( $order_id );
-		if ( ! $order instanceof \WC_Order ) {
+		if ( ! OC_DB::print_pipeline_available() ) {
+			self::schedule_order_generation_retry( $order_id );
 			return;
 		}
 
@@ -1172,7 +1177,10 @@ class OC_Print_Generator {
 		if ( $order_id > 0 ) {
 			$this->deferred_order_ids[ $order_id ] = true;
 			if ( ! OC_DB::print_pipeline_available() ) {
-				self::schedule_order_generation_retry( $order_id );
+				$order = $order instanceof \WC_Order ? $order : wc_get_order( $order_id );
+				if ( $order instanceof \WC_Order && 'checkout-draft' !== $order->get_status() ) {
+					self::schedule_order_generation_retry( $order_id );
+				}
 			}
 		}
 	}

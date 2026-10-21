@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Barcode\Type\Square\PdfFourOneSeven;
 
+use Com\Tecnick\Barcode\Exception as BarcodeException;
+
 /**
  * Com\Tecnick\Barcode\Type\Square\PdfFourOneSeven\Sequence
  *
@@ -73,7 +75,10 @@ abstract class Sequence extends \Com\Tecnick\Barcode\Type\Square
     protected function getErrorCorrectionLevel(int $ecl, int $numcw): int
     {
         $maxecl = 8; // maximum error level
-        $maxerrsize = 928 - $numcw; // available codewords for error
+        $maxerrsize = 927 - $numcw; // Reserve one word for the Symbol Length Descriptor.
+        if ($maxerrsize < 2) {
+            throw new BarcodeException('PDF417 payload leaves no room for mandatory error correction');
+        }
         while ($maxecl > 0 && $maxerrsize < (2 << $maxecl)) {
             --$maxecl;
         }

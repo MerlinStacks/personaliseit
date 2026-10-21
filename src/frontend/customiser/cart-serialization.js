@@ -1,4 +1,82 @@
+import { layerIsShown } from '../../shared/layer-conditions';
+
 const cartSerializationMethods = {
+	syncConditionalLayers() {
+		const layers = this.areas.flatMap( ( area ) => area.layers || [] );
+		layers.forEach( ( layer ) => {
+			const shown = layerIsShown( layer, layers, this.inputs );
+			this._conditionVisibility ||= {};
+			const changed = this._conditionVisibility[ layer.id ] !== shown;
+			this._conditionVisibility[ layer.id ] = shown;
+			if ( changed && layer.settings?.condition_enabled ) {
+				this.clearPreflightMessages?.();
+				this.scheduleRedraw?.( this.areaIndexForLayer( layer.id ) );
+			}
+			const section = document.querySelector(
+				`[data-oc-condition-layer="${ layer.id }"]`
+			);
+			if ( ! section ) {
+				return;
+			}
+			// The template renders one control for the entire linked group. Keep
+			// that control usable while any member still needs customer input.
+			const memberIds = this.linkedLayerMembers?.( layer.id ) || [];
+			const members = layers.filter( ( candidate ) =>
+				memberIds.includes( candidate.id )
+			);
+			const shownMembers = members.filter( ( candidate ) =>
+				layerIsShown( candidate, layers, this.inputs )
+			);
+			const controlShown = shown || shownMembers.length > 0;
+			section.hidden = ! controlShown;
+			section.style.display = controlShown ? '' : 'none';
+			section
+				.querySelectorAll( 'input, select, textarea, button' )
+				.forEach( ( control ) => {
+					if ( members.length > 1 && 'required' in control ) {
+						if (
+							control.dataset.ocConditionRequired === undefined
+						) {
+							control.dataset.ocConditionRequired =
+								control.required ? '1' : '0';
+						}
+						if ( control.dataset.ocConditionRequired === '1' ) {
+							control.required = shownMembers.some(
+								( member ) => member.settings?.required
+							);
+							control.setAttribute(
+								'aria-required',
+								String( control.required )
+							);
+						}
+					}
+					if ( ! controlShown || ! shown ) {
+						control.setCustomValidity?.( '' );
+						control.classList.remove( 'oc-preflight-field-error' );
+						control.removeAttribute( 'aria-invalid' );
+					}
+					if ( ! controlShown ) {
+						if (
+							! control.disabled ||
+							control.dataset.ocLockDisabled === '0'
+						) {
+							control.dataset.ocConditionDisabled = '1';
+							control.disabled = true;
+						}
+						if ( control.dataset.ocLockDisabled !== undefined ) {
+							control.dataset.ocLockDisabled = '1';
+						}
+					} else if ( control.dataset.ocConditionDisabled ) {
+						if ( control.dataset.ocLockDisabled !== undefined ) {
+							control.dataset.ocLockDisabled = '0';
+						} else {
+							control.disabled = false;
+						}
+						delete control.dataset.ocConditionDisabled;
+					}
+				} );
+		} );
+	},
 	cloneSubmissionInputs() {
 		return JSON.parse( JSON.stringify( this.inputs || {} ) );
 	},
@@ -21,10 +99,24 @@ const cartSerializationMethods = {
 		const layers = {};
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
-				if ( layer.type === 'mask' ) {
+				if (
+					layer.type === 'mask' ||
+					! layerIsShown(
+						layer,
+						this.areas.flatMap( ( entry ) => entry.layers || [] ),
+						inputs
+					)
+				) {
 					return;
 				}
 				const input = { ...( inputs[ layer.id ] || {} ) };
+				if ( layer.type === 'staff_note' ) {
+					layers[ layer.id ] = {
+						type: 'staff_note',
+						value: String( input.value || '' ),
+					};
+					return;
+				}
 				if (
 					[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
 				) {
@@ -140,6 +232,7 @@ const cartSerializationMethods = {
 	},
 
 	updateHiddenField( options = {} ) {
+		this.syncConditionalLayers();
 		const el = document.getElementById( 'oc-customisation-data' );
 		if ( ! el ) {
 			return;

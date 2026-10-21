@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,17 @@ use Test\TestUtil;
  */
 class StandardTwoOfFiveCheckTest extends TestUtil
 {
+    /** @return array<array{string, string}> */
+    public static function checksumVectors(): array
+    {
+        return [['0', '00'], ['1', '17'], ['12', '0123'], ['123', '1236'], ['1234', '012348'], ['000', '0000']];
+    }
+
+    #[DataProvider('checksumVectors')]
+    public function testChecksumAndPaddingOrder(string $payload, string $expected): void
+    {
+        $this->assertSame($expected, $this->getTestObject()->getBarcodeObj('S25+', $payload)->getExtendedCode());
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

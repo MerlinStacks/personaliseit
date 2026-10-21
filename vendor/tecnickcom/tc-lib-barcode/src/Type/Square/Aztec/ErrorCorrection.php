@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Barcode\Type\Square\Aztec;
 
+use Com\Tecnick\Barcode\Exception as BarcodeException;
+
 /**
  * Com\Tecnick\Barcode\Type\Square\Aztec\ErrorCorrection
  *
@@ -83,9 +85,14 @@ class ErrorCorrection
      * Initialize the the Reed-Solomon Error Correction.
      *
      * @param int $wsize Size of a word in bits.
+     *
+     * @throws BarcodeException if the field word size is unsupported
      */
     public function __construct(int $wsize)
     {
+        if (!\array_key_exists($wsize, self::GF)) {
+            throw new BarcodeException('Unsupported Aztec Reed-Solomon word size');
+        }
         $this->genTables($wsize);
     }
 
@@ -96,9 +103,23 @@ class ErrorCorrection
      * @param int   $necc   Number of error correction bytes.
      *
      * @return array<int>
+     *
+     * @throws BarcodeException if a word, parity count, or block length is invalid
      */
     public function checkwords(array $data, int $necc): array
     {
+        if ($necc < 0 || $necc >= $this->tsize || \count($data) + $necc >= $this->tsize) {
+            throw new BarcodeException('Invalid Aztec Reed-Solomon parity count or block length');
+        }
+        foreach ($data as $word) {
+            if (!\is_int($word) || $word < 0 || $word >= $this->tsize) {
+                throw new BarcodeException('Aztec Reed-Solomon data word is outside the field');
+            }
+        }
+        if ($necc === 0) {
+            return [];
+        }
+
         $coeff = $this->getCoefficients($data, $necc);
         return \array_pad($coeff, -$necc, 0); // @phpstan-ignore return.type
     }

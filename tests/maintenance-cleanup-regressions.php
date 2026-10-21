@@ -65,7 +65,7 @@ $wpdb = new class() {
 				[ 10, 20, 30 ]
 			);
 		}
-		return array_map(
+		$markers = array_map(
 			fn( $id ) => (object) [
 				'option_id'    => $id,
 				'option_name'  => 'oc_print_generated_emitted_' . $id,
@@ -73,6 +73,14 @@ $wpdb = new class() {
 			],
 			[ 10, 20, 30 ]
 		);
+		foreach ( [ 10, 20, 30 ] as $id ) {
+			$markers[] = (object) [
+				'option_id'    => 100 + $id,
+				'option_name'  => 'oc_wh_created_' . $id . '_1',
+				'option_value' => '2020-01-01 00:00:00',
+			];
+		}
+		return $markers;
 	}
 	public function query( $query ) {
 		$this->deleted[] = $query[1][0];
@@ -93,10 +101,12 @@ $wpdb->lock = 1;
 OC_Plugin::migrate_storage();
 check( [ [ 'vdp', true ], [ 'artwork', true ] ] === $calls, 'Background worker must resume both migrations.' );
 foreach ( [ 10, 20, 30 ] as $id ) {
+	$options[ 'oc_wh_created_' . $id . '_1' ]       = '2020-01-01 00:00:00';
 	$options[ 'oc_print_generated_emitted_' . $id ] = '2020-01-01 00:00:00'; }
 OC_History_Cleanup::run();
 check( [ 20 ] === $wpdb->deleted, 'Preserve existing/trashed orders and uncertain reads; remove only deleted-order history.' );
 check( false === get_option( 'oc_print_generated_emitted_20' ) && false !== get_option( 'oc_print_generated_emitted_10' ) && false !== get_option( 'oc_print_generated_emitted_30' ), 'Deduplication markers follow the same retention policy.' );
+check( false === get_option( 'oc_wh_created_20_1' ) && false !== get_option( 'oc_wh_created_10_1' ) && false !== get_option( 'oc_wh_created_30_1' ), 'Webhook receipts are retained for live/trashed/uncertain orders and cleaned for deleted orders.' );
 $wpdb->fail = true;
 OC_History_Cleanup::run();
 check( [ 20 ] === $wpdb->deleted, 'Database failures must not delete history.' );

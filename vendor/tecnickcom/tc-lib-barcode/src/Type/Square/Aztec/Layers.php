@@ -135,15 +135,24 @@ abstract class Layers extends \Com\Tecnick\Barcode\Type\Square\Aztec\Codeword
      */
     protected function sizeAndBitStuffing(int $ecc, string $mode = 'A'): bool
     {
-        $nsbits = 0;
         $eccbits = 11 + (int) (($this->totbits * $ecc) / 100);
-        do {
-            if (!$this->setLayerByBits($this->totbits + $nsbits + $eccbits, $mode)) {
+        $required = $this->totbits + $eccbits;
+        while (true) {
+            if (!$this->setLayerByBits($required, $mode)) {
                 return false;
             }
 
             $nsbits = $this->bitStuffing();
-        } while (($nsbits + $eccbits) > $this->layer[3]);
+            $required = $nsbits + $eccbits;
+            if ($this->compact && \count($this->tmpCdws) > 64) {
+                // Compact mode messages can represent at most 64 data words.
+                $mode = 'F';
+                continue;
+            }
+            if ($required <= $this->layer[3]) {
+                break;
+            }
+        }
 
         $this->bitstream = [];
         $this->totbits = 0;

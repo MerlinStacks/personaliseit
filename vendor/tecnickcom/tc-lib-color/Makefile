@@ -120,13 +120,19 @@ x: buildall
 
 ## Full build and test sequence
 .PHONY: buildall
-buildall: deps format qa bz2 rpm deb
+buildall:
+	$(MAKE) deps
+	$(MAKE) format
+	$(MAKE) qa
+	$(MAKE) bz2
+	$(MAKE) rpm
+	$(MAKE) deb
 
 ## Package the library in a compressed bz2 archive
 .PHONY: bz2
 bz2:
 	rm -rf $(PATHBZ2PKG)
-	make install DESTDIR=$(PATHBZ2PKG)
+	$(MAKE) install DESTDIR=$(PATHBZ2PKG)
 	tar -jcvf $(PATHBZ2PKG)/$(PKGNAME)-$(VERSION)-$(RELEASE).tbz2 -C $(PATHBZ2PKG) $(DATADIR)
 
 ## Delete the vendor and target directories
@@ -161,12 +167,12 @@ endif
 	echo "new-package-should-close-itp-bug" > $(PATHDEBPKG)/$(PKGNAME)-$(VERSION)/debian/$(PKGNAME).lintian-overrides
 	cd $(PATHDEBPKG)/$(PKGNAME)-$(VERSION) && debuild -us -uc
 
-## Clean all artifacts and download all dependencies
+## Delete local vendor contents and reinstall development dependencies
 .PHONY: deps
 deps: ensuretarget
 	rm -rf ./vendor/*
 	($(COMPOSER) install -vvv --no-interaction)
-	curl --proto '=https' --tlsv1.2 --silent --show-error --fail --location https://carthage.software/mago.sh | bash -s -- --install-dir=./vendor/bin --version=$(MAGOVERSION) --version=$(MAGOVERSION)
+	curl --proto '=https' --tlsv1.2 --silent --show-error --fail --location https://carthage.software/mago.sh | bash -s -- --install-dir=./vendor/bin --version=$(MAGOVERSION)
 
 ## Generate source code documentation
 .PHONY: doc

@@ -153,12 +153,14 @@ async function main() {
 		// Curved Text adds shared glyph geometry and text-layer integration.
 		// AI retry recovery, allowance display, and retained-result selection add
 		// ~6.5 KB to startup. History data/images are fetched only when opened.
-		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 216_000 ),
+		// Conditional layers add rule evaluation, native validation suppression,
+		// and hidden-artwork checkout guards (~3 KB including preview integration).
+		coreEntry: Number( process.env.BUNDLE_CORE_ENTRY_MAX_BYTES || 219_000 ),
 		requiredStartup: Number(
-			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 550_000
+			process.env.BUNDLE_REQUIRED_STARTUP_MAX_BYTES || 554_000
 		),
 		uploadEnabledStartup: Number(
-			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 619_000
+			process.env.BUNDLE_UPLOAD_STARTUP_MAX_BYTES || 623_000
 		),
 		entryAsset: Number(
 			process.env.BUNDLE_ENTRY_ASSET_MAX_BYTES || 450_000
@@ -169,7 +171,8 @@ async function main() {
 		// Includes the retry/history controls and customer-upload preview links.
 		// Shared engraving palettes and sRGB admin colour filters add ~3 KB;
 		// customer startup budgets above are unchanged.
-		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_526_000 ),
+		// Includes the Conditions editor and customer visibility handling (~9 KB).
+		total: Number( process.env.BUNDLE_TOTAL_MAX_BYTES || 1_535_000 ),
 	};
 	const files = await collectBundleFiles( buildDirectory );
 	const entrySource = await readFile(

@@ -83,6 +83,7 @@ class Split
      */
     public function getSplittedString(string $data): array
     {
+        $this->items = [];
         $modeNm = $this->getEncMode('NM');
         $modeAn = $this->getEncMode('AN');
         $modeKj = $this->getEncMode('KJ');

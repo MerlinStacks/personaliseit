@@ -33,7 +33,7 @@ If you do not receive a timely response, please follow up by replying to the sam
 A high-quality report helps us triage and fix issues faster. Please provide:
 
 - **Description** — a clear summary of the vulnerability and its potential impact.
-- **Affected component** — which class, method, or feature is involved (e.g., `HTML::render()`, font loading, image processing).
+- **Affected component** — which class, method, or feature is involved (e.g., `Web::getRgbObjFromHex()`, CSS color parsing, color-model conversion, or CSS/PDF color serialization).
 - **Steps to reproduce** — a minimal, self-contained PHP script or unit test that demonstrates the issue.
 - **Expected vs. actual behaviour** — what you expected to happen and what actually happened.
 - **Environment** — PHP version, OS, library version (output of `composer show tecnickcom/tc-lib-color`).

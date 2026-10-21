@@ -2,6 +2,8 @@
 /** Cached clipart catalogue and bounded public pages. @package OverCustomise */
 defined( 'ABSPATH' ) || exit;
 
+require_once __DIR__ . '/class-oc-chooser-icons.php';
+
 class OC_Clipart_Catalog {
 	public const PAGE_SIZE = 60;
 
@@ -74,6 +76,7 @@ class OC_Clipart_Catalog {
 					'id'           => (int) $row->id,
 					'name'         => (string) $row->name,
 					'url'          => $url,
+					'iconUrl'      => OC_Chooser_Icons::url( 'clipart', (int) $row->id ),
 					'fileType'     => (string) $row->file_type,
 					'recolourable' => ! empty( $row->colour_changeable ) && 'svg' === strtolower( (string) $row->file_type ),
 					'groupNames'   => array_values( array_filter( array_map( 'trim', explode( '||', (string) ( $row->group_names ?? '' ) ) ) ) ),

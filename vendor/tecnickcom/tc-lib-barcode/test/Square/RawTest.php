@@ -17,6 +17,7 @@
 namespace Test\Square;
 
 use PHPUnit\Framework\TestCase;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Raw Barcode class test
@@ -31,6 +32,33 @@ use PHPUnit\Framework\TestCase;
  */
 class RawTest extends TestCase
 {
+    /** @return array<array{string}> */
+    public static function formattedRectangles(): array
+    {
+        return [['101,010'], ['[101][010]'], [" [1 0 1,0 1 0] \n"]];
+    }
+
+    #[DataProvider('formattedRectangles')]
+    public function testRectanglesAndFormatting(string $payload): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('SRAW', $payload);
+        $this->assertSame("101\n010\n", $type->getGrid());
+        $this->assertSame(3, $type->getArray()['ncols']);
+        $this->assertSame(2, $type->getArray()['nrows']);
+    }
+
+    /** @return array<array{string}> */
+    public static function malformedRows(): array
+    {
+        return [[''], ['101,01'], ['10x,010'], ['10,,01'], ['[10][1]']];
+    }
+
+    #[DataProvider('malformedRows')]
+    public function testMalformedRowsAreRejected(string $payload): void
+    {
+        $this->expectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('SRAW', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

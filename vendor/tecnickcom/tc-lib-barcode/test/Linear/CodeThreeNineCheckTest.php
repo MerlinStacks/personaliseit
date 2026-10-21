@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,25 @@ use Test\TestUtil;
  */
 class CodeThreeNineCheckTest extends TestUtil
 {
+    public function testChecksumZeroWraparoundAndCaseNormalization(): void
+    {
+        foreach (['0' => '*00*', 'Z8' => '*Z80*', 'ZZ' => '*ZZR*', 'abc' => '*ABCX*'] as $payload => $expected) {
+            $this->assertSame($expected, $this->getTestObject()->getBarcodeObj('C39+', (string) $payload)->getExtendedCode());
+        }
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [['*'], ['A*B'], ['@'], ["\x80"], ["A\n"]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidSymbolsAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('C39+', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

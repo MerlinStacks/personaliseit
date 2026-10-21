@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,26 @@ use Test\TestUtil;
  */
 class CodeThreeNineExtTest extends TestUtil
 {
+    public function testAsciiBoundariesAndEmbeddedAsterisk(): void
+    {
+        $barcode = $this->getTestObject();
+        $type = $barcode->getBarcodeObj('C39E', "\x00\x1f *\x5f\x60az\x7f");
+        $this->assertSame('*%U%E /J%O%W+A+Z%T*', $type->getExtendedCode());
+        $this->assertNotSame($barcode->getBarcodeObj('C39E', 'AZ')->getGrid(), $barcode->getBarcodeObj('C39E', 'az')->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [["\x80"], ["\xff"], ["caf\xc3\xa9"]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testNonAsciiIsRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('C39E', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

@@ -196,11 +196,17 @@ class Encode extends \Com\Tecnick\Barcode\Type\Square\Aztec\Bitstream
      *
      * @param int $numcdw Number of data codewords.
      *
+     * @throws BarcodeException if the word count cannot fit the mode message
+     *
      * @SuppressWarnings("PHPMD.CyclomaticComplexity")
      * @SuppressWarnings("PHPMD.NPathComplexity")
      */
     protected function drawMode(int $numcdw): void
     {
+        if ($numcdw < 1 || $numcdw > ($this->compact ? 64 : 2048)) {
+            throw new BarcodeException('Data word count exceeds the Aztec mode-message field');
+        }
+
         $modebs = [];
         $nbits = 0;
         $center = $this->gridcenter;

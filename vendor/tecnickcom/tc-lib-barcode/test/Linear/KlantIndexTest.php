@@ -31,6 +31,17 @@ use Test\TestUtil;
  */
 class KlantIndexTest extends TestUtil
 {
+    public function testLettersCaseAndUnframedBarCount(): void
+    {
+        $barcode = $this->getTestObject();
+        $type = $barcode->getBarcodeObj('KIX', 'az09');
+        $this->assertSame('AZ09', $type->getExtendedCode());
+        $this->assertSame($barcode->getBarcodeObj('KIX', 'AZ09')->getGrid(), $type->getGrid());
+        $this->assertCount(16, $type->getArray()['bars']);
+        // KIX retains the trailing inter-bar spacing column in its grid.
+        $this->assertSame(32, $type->getArray()['ncols']);
+        $this->assertSame(3, $type->getArray()['nrows']);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

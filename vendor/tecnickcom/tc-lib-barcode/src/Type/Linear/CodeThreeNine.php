@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Barcode\Type\Linear;
 
+use Com\Tecnick\Barcode\Exception as BarcodeException;
+
 /**
  * Com\Tecnick\Barcode\CodeThreeNine
  *
@@ -46,6 +48,9 @@ class CodeThreeNine extends \Com\Tecnick\Barcode\Type\Linear\CodeThreeNineExtChe
      */
     protected function formatCode(): void
     {
+        if (\str_contains($this->code, '*')) {
+            throw new BarcodeException('Code 39 payload must not contain the start/stop marker');
+        }
         $this->extcode = '*' . \strtoupper($this->code) . '*';
     }
 }

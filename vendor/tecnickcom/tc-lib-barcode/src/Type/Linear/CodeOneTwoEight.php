@@ -46,6 +46,10 @@ class CodeOneTwoEight extends \Com\Tecnick\Barcode\Type\Linear\CodeOneTwoEight\P
     protected function getCodeData(): array
     {
         $code = $this->code;
+        if ($code === '') {
+            throw new BarcodeException('Code 128 payload must not be empty');
+        }
+
         // array of symbols
         $code_data = [];
         // split code into sequences

@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -27,11 +27,41 @@ use ReflectionProperty;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class SpotTest extends TestUtil
 {
+    public function testReplacementPreservesIndexAndClearsObsoleteMetadata(): void
+    {
+        $spot = $this->getTestObject();
+        $spot->addSpotLabColor('Brand', 50, 10, -20);
+        $spot->getSpotColor('cyan');
+        $number = 7;
+        $spot->getPdfSpotObjects($number);
+        $spot->addSpotColorFromArray('Brand', ['cyan' => 1]);
+        $entry = $spot->getSpotColor('Brand');
+        $this->assertSame(1, $entry['i']);
+        $this->assertSame(0, $entry['n']);
+        $this->assertSame('DeviceCMYK', $entry['space']);
+        $this->assertNull($entry['lab']);
+        $number = 0;
+        $output = $spot->getPdfSpotObjects($number);
+        $this->assertStringContainsString('/Separation /Brand /DeviceCMYK', $output);
+        $this->assertStringNotContainsString('/WhitePoint', $output);
+        $spot->addSpotLabColor('Brand', 60, 20, -10);
+        $entry = $spot->getSpotColor('Brand');
+        $this->assertSame(1, $entry['i']);
+        $this->assertSame(0, $entry['n']);
+        $this->assertSame('Lab', $entry['space']);
+        $this->assertSame(60.0, $entry['lab']['model']->toLabArray()['lstar']);
+        $number = 0;
+        $this->assertStringContainsString('/Separation /Brand [/Lab', $spot->getPdfSpotObjects($number));
+        $this->assertSame(2, $number);
+        $this->assertSame("/ColorSpace << /CS1 1 0 R /CS2 2 0 R >>\n", $spot->getPdfSpotResources());
+        $this->assertCount(2, $spot->getSpotColors());
+    }
+
     protected function getTestObject(): \Com\Tecnick\Color\Spot
     {
         return new \Com\Tecnick\Color\Spot();

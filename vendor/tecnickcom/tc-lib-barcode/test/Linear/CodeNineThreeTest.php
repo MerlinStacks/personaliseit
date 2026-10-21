@@ -70,4 +70,21 @@ class CodeNineThreeTest extends TestUtil
         $barcode = $this->getTestObject();
         $barcode->getBarcodeObj('C93', \chr(255));
     }
+
+    public function testLowercaseAndControlBytesArePreserved(): void
+    {
+        $barcode = $this->getTestObject();
+        $lowercase = $barcode->getBarcodeObj('C93', 'az');
+        $this->assertSame("\x82A\x82Z", \substr($lowercase->getExtendedCode(), 1, -3));
+        $this->assertNotSame($barcode->getBarcodeObj('C93', 'AZ')->getGrid(), $lowercase->getGrid());
+        $control = $barcode->getBarcodeObj('C93', "\x00\x01\x0a\x7f");
+        $this->assertSame("\x83U\x80A\x80J\x83T", \substr($control->getExtendedCode(), 1, -3));
+    }
+
+    public function testBothChecksumWeightsWrap(): void
+    {
+        // Independently calculated modulo-47 checks: C=34 (Y), K=33 (X).
+        $type = $this->getTestObject()->getBarcodeObj('C93', \str_repeat('Z', 50));
+        $this->assertSame('*' . \str_repeat('Z', 50) . 'YX*', $type->getExtendedCode());
+    }
 }

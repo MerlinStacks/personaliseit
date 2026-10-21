@@ -41,6 +41,9 @@ class Planet extends \Com\Tecnick\Barcode\Type\Linear\Postnet
      */
     protected const FORMAT = 'PLANET';
 
+    /** Supported payload lengths, excluding the generated check digit. */
+    protected const VALID_DATA_LENGTHS = [11, 13];
+
     /**
      * Map characters to barcodes
      *

@@ -75,8 +75,8 @@ class Aztec extends \Com\Tecnick\Barcode\Type\Square
      *     1: ECC     : Error correction code percentage of error check words.
      *                  A minimum of 23% + 3 words is recommended by ISO/IEC 24778:2008a.
      *     2: HINT    : Encoding mode: A=Automatic, B=Binary.
-     *     3: LAYERS  : Custom number of layers (0 = auto).
-     *     4: ECI     : Extended Channel Interpretation (ECI) code. Use -1 for FNC1. See $this->eci.
+     *     3: MODE    : A=Automatic compact/full selection, F=Force full-range mode.
+     *     4: ECI     : Extended Channel Interpretation code; -1=omit, 0=FNC1. See $this->eci.
      *
      * @SuppressWarnings("PHPMD.CyclomaticComplexity")
      * @SuppressWarnings("PHPMD.NPathComplexity")

@@ -10,7 +10,7 @@ declare(strict_types=1);
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -28,7 +28,7 @@ namespace Com\Tecnick\Color;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 abstract class Model implements \Com\Tecnick\Color\Model\Template
@@ -52,10 +52,17 @@ abstract class Model implements \Com\Tecnick\Color\Model\Template
      * Initialize a new color object.
      *
      * @param array<string, int|float|string> $components color components.
+     *
+     * @throws \Com\Tecnick\Color\Exception if a component is not a finite number
      */
     public function __construct(array $components)
     {
         foreach ($components as $color => $value) {
+            if (!\is_string($color)
+                || !(\is_int($value) || \is_float($value) || \is_string($value))
+                || !\is_numeric($value) || !\is_finite((float) $value)) {
+                throw new \Com\Tecnick\Color\Exception('Color components must be finite numbers');
+            }
             $this->setComponentValue($color, \max(0, \min(1, (float) $value)));
         }
     }

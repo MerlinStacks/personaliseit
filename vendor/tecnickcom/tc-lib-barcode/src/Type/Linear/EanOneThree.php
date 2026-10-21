@@ -189,6 +189,10 @@ class EanOneThree extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function formatCode(): void
     {
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1 || \strlen($this->code) > $this->code_length) {
+            throw new BarcodeException('EAN payload must contain only digits and fit the barcode length');
+        }
+
         $code = \str_pad($this->code, $this->code_length - 1, '0', STR_PAD_LEFT);
         // getChecksum() returns the missing check digit, or validates (and returns 0)
         // when the input already carries it; in the latter case keep the code unchanged
@@ -204,8 +208,8 @@ class EanOneThree extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function setBars(): void
     {
-        if (!\is_numeric($this->code)) {
-            throw new BarcodeException('Input code must be a number');
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1 || \strlen($this->code) > $this->code_length) {
+            throw new BarcodeException('EAN payload must contain only digits and fit the barcode length');
         }
 
         $this->formatCode();

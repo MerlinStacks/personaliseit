@@ -10,7 +10,7 @@ declare(strict_types=1);
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -28,7 +28,7 @@ namespace Com\Tecnick\Color\Model;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 interface Template
@@ -57,8 +57,10 @@ interface Template
     public function getPDFacArray(): array;
 
     /**
-     * Get an array with color components values normalized between 0 and $max.
-     * NOTE: the alpha and other fraction component values are kept in the [0..1] range.
+     * Get normalized color components. Gray, RGB and CMYK scale to $max;
+     * HSL returns hue in degrees and fractional saturation/lightness;
+     * Lab returns rounded native L*, a*, b* values. HSL and Lab ignore $max.
+     * Alpha remains in the [0..1] range.
      *
      * @param int $max Maximum value to return (reference value)
      *
@@ -83,7 +85,7 @@ interface Template
     public function getComponentsString(): string;
 
     /**
-     * Get the color components format used in PDF documents (RGB).
+     * Get model-dependent PDF color operators (DeviceGray, DeviceRGB or DeviceCMYK).
      * NOTE: the alpha channel is omitted.
      *
      * @param bool $stroke True for stroking (lines, drawing) and false for non-stroking (text and area filling).
@@ -93,7 +95,7 @@ interface Template
     /**
      * Get an array with Gray color components.
      *
-     * @return array<string, float> with keys ('gray').
+     * @return array<string, float> with keys ('gray', 'alpha').
      */
     public function toGrayArray(): array;
 

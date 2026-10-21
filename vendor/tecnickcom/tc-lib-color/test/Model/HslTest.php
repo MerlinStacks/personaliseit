@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -26,11 +26,28 @@ use Test\TestUtil;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class HslTest extends TestUtil
 {
+    public function testLightnessEndpointsPreserveAlpha(): void
+    {
+        foreach ([0.0, 1.0] as $lightness) {
+            foreach ([0.0, 0.25, 1.0] as $alpha) {
+                $model = new \Com\Tecnick\Color\Model\Hsl([
+                    'hue' => 0.3, 'saturation' => 1, 'lightness' => $lightness, 'alpha' => $alpha,
+                ]);
+                $this->assertEquals(['red' => $lightness, 'green' => $lightness,
+                    'blue' => $lightness, 'alpha' => $alpha], $model->toRgbArray());
+                $before = $model->getArray();
+                $this->assertSame($model, $model->invertColor()->invertColor());
+                $this->assertEqualsWithDelta($before, $model->getArray(), 1e-12);
+                $this->assertSame($alpha, $model->getArray()['A']);
+            }
+        }
+    }
+
     protected function getTestObject(): \Com\Tecnick\Color\Model\Hsl
     {
         return new \Com\Tecnick\Color\Model\Hsl([
@@ -57,7 +74,6 @@ class HslTest extends TestUtil
 
     public function testGetHexValue(): void
     {
-        $testObj = $this->getTestObject();
         $testObj = $this->getTestObject();
 
         $res = $testObj->getHexValue(0.5, 255);

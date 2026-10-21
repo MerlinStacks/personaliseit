@@ -28,10 +28,18 @@ const controls = new Function(
 			'return inputControlMethods;'
 		)
 )( sky.generateNightSkyGeometry, sky.nightSkyLabel, sky.setNightSkyCatalog );
+const conditionSource = await readFile(
+	'src/shared/layer-conditions.js',
+	'utf8'
+);
 const preflight = new Function(
-	(
-		await readFile( 'src/frontend/customiser/preflight.js', 'utf8' )
-	).replace( 'export default preflightMethods;', 'return preflightMethods;' )
+	conditionSource.replace( 'export function', 'function' ) +
+		( await readFile( 'src/frontend/customiser/preflight.js', 'utf8' ) )
+			.replace( /import[^;]+;/g, '' )
+			.replace(
+				'export default preflightMethods;',
+				'return preflightMethods;'
+			)
 )();
 
 test( 'layer control lookup preserves selectors, document receiver and native results', () => {

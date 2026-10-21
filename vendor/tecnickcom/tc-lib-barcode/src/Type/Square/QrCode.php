@@ -182,7 +182,8 @@ class QrCode extends \Com\Tecnick\Barcode\Type\Square
             $this->params[6] = 2;
         }
 
-        $this->default_mask = (int) $this->params[6];
+        // PHP's remainder may be negative; normalize every integer to mask 0–7.
+        $this->default_mask = (((int) $this->params[6] % 8) + 8) % 8;
     }
 
     /**

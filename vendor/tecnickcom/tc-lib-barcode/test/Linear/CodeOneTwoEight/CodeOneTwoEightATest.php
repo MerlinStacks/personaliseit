@@ -17,6 +17,7 @@
 namespace Test\Linear\CodeOneTwoEight;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,29 @@ use Test\TestUtil;
  */
 class CodeOneTwoEightATest extends TestUtil
 {
+    public function testAsciiBoundariesAndFunctionCodes(): void
+    {
+        foreach ([
+            ["\x00\x1f _", [103, 64, 95, 0, 63, 94, 106, 107]],
+            ["\xf1\xf2\xf3\xf4", [103, 102, 97, 96, 101, 61, 106, 107]],
+        ] as [$payload, $expected]) {
+            $type = $this->getTestObject()->getBarcodeObj('C128A', $payload);
+            $this->assertSame($expected, (new \ReflectionMethod($type, 'getCodeData'))->invoke($type));
+        }
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return \array_map(static fn (string $code): array => [$code], ['', 'a', '`', "\x7f", "\x80", "\xf0", "\xf5"]);
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testUnsupportedPayloadsAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('C128A', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

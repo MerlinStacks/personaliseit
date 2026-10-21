@@ -78,10 +78,16 @@ class Codabar extends \Com\Tecnick\Barcode\Type\Linear
 
     /**
      * Format code
+     *
+     * @throws BarcodeException if the payload contains start/stop symbols or invalid characters
      */
     protected function formatCode(): void
     {
-        $this->extcode = 'A' . \strtoupper($this->code) . 'A';
+        if ($this->code === '' || \strspn($this->code, '0123456789-$:/.+') !== \strlen($this->code)) {
+            throw new BarcodeException('Codabar payload must contain only digits and - $ : / . +');
+        }
+
+        $this->extcode = 'A' . $this->code . 'A';
     }
 
     /**

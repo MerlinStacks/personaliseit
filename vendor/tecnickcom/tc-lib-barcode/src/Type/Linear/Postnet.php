@@ -49,6 +49,9 @@ class Postnet extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected const FORMAT = 'POSTNET';
 
+    /** Supported payload lengths, excluding the generated check digit. */
+    protected const VALID_DATA_LENGTHS = [5, 9, 11];
+
     /**
      * Map characters to barcodes
      *
@@ -98,8 +101,9 @@ class Postnet extends \Com\Tecnick\Barcode\Type\Linear
     protected function formatCode(): void
     {
         $code = \preg_replace('/[-\s]+/', '', $this->code);
-        if ($code === null) {
-            throw new BarcodeException('Code not valid');
+        if ($code === null || \preg_match('/\A[0-9]+\z/', $code) !== 1
+            || !\in_array(\strlen($code), $this::VALID_DATA_LENGTHS, true)) {
+            throw new BarcodeException('Invalid ' . $this::FORMAT . ' payload length or characters');
         }
         $this->extcode = $code . $this->getChecksum($code);
     }

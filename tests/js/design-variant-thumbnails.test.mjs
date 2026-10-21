@@ -138,6 +138,65 @@ test( 'initial lazy payload fetches missing thumbnails and caches both states wi
 	assert.ok( requests.every( ( request ) => request.released ) );
 } );
 
+test( 'an uploaded design icon is not overwritten by generated artwork thumbnails', async ( t ) => {
+	const { app, calls, rendered, document } = runtime( t, async ( id ) => responseFor( id ) );
+	const option = document.querySelector( '[data-oc-design-variant-thumb="2"]' ).parentElement;
+	option.classList.remove( 'oc-thumb-pending' );
+	option.innerHTML = '<img src="/chooser-icon.png" alt="">';
+	await app.renderDesignVariantThumbnails();
+	assert.deepEqual( calls.map( ( call ) => call.url.searchParams.get( 'design_id' ) ), [ '3' ] );
+	assert.deepEqual( rendered.map( Number ), [ 1, 3 ] );
+	assert.equal( option.querySelector( 'img' ).getAttribute( 'src' ), '/chooser-icon.png' );
+	assert.equal( app.selectedDesignVariant, '1' );
+} );
+
+test( 'icon variants skip thumbnail fetches and rendering even with an older canvas present', async ( t ) => {
+	const { app, calls, rendered, document } = runtime(
+		t,
+		async ( id ) => responseFor( id )
+	);
+	// Cover both a cached selected design and an uncached alternate design.
+	app.designVariants[ 0 ].iconUrl = '/first-icon.png';
+	app.designVariants[ 1 ].iconUrl = '/second-icon.png';
+	await app.renderDesignVariantThumbnails();
+	assert.deepEqual(
+		calls.map( ( call ) => call.url.searchParams.get( 'design_id' ) ),
+		[ '3' ]
+	);
+	assert.deepEqual( rendered.map( Number ), [ 3 ] );
+	for ( const id of [ 1, 2 ] ) {
+		assert.equal(
+			document.querySelector( `[data-oc-design-variant-thumb="${ id }"]` )
+				.parentElement.classList.contains( 'oc-thumb-pending' ),
+			false
+		);
+	}
+	assert.equal( app.data.designVariantStates[ 2 ], undefined );
+	// Only thumbnail prefetch is skipped: selecting the design can still load it.
+	const selectedState = await app.fetchDesignVariantState(
+		app.designVariants[ 1 ],
+		5
+	);
+	assert.equal( Number( selectedState.designId ), 2 );
+	assert.equal( calls.at( -1 ).url.searchParams.get( 'design_id' ), '2' );
+} );
+
+test( 'an all-icon chooser needs no background thumbnail requests or canvases', async ( t ) => {
+	const { app, calls, rendered, document } = runtime(
+		t,
+		() => assert.fail( 'Icons must not prefetch design artwork' )
+	);
+	for ( const canvas of document.querySelectorAll( 'canvas' ) ) {
+		const option = canvas.parentElement;
+		option.classList.remove( 'oc-thumb-pending' );
+		option.innerHTML = '<img src="/icon.png" alt="">';
+	}
+	await app.renderDesignVariantThumbnails();
+	assert.deepEqual( calls, [] );
+	assert.deepEqual( rendered, [] );
+	assert.equal( document.querySelectorAll( '.oc-thumb-pending' ).length, 0 );
+} );
+
 for ( const failure of [ 'network', 'invalid', 'empty', 'render' ] ) {
 	test( `${ failure } failure preserves fallback and continues other thumbnails`, async ( t ) => {
 		const { app, document } = runtime( t, async ( id ) => {

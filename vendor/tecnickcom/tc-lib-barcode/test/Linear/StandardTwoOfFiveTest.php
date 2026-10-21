@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,27 @@ use Test\TestUtil;
  */
 class StandardTwoOfFiveTest extends TestUtil
 {
+    public function testOddLengthPaddingAndLeadingZeros(): void
+    {
+        $barcode = $this->getTestObject();
+        $type = $barcode->getBarcodeObj('S25', '123');
+        $this->assertSame('0123', $type->getExtendedCode());
+        $this->assertSame($barcode->getBarcodeObj('S25', '0123')->getGrid(), $type->getGrid());
+        $this->assertSame('00', $barcode->getBarcodeObj('S25', '0')->getExtendedCode());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [[''], ['12A3'], ['12 3'], ["123\n"], ['-1']];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidPayloadsAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('S25', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

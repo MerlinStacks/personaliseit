@@ -366,7 +366,7 @@ abstract class Steps extends \Com\Tecnick\Barcode\Type\Square\Datamatrix\Modes
                         return Data::ENC_X12;
                     }
 
-                    if ($this->isCharMode($tmpchr, Data::ENC_C40)) {
+                    if (!$this->isCharMode($tmpchr, Data::ENC_C40)) {
                         break;
                     }
 

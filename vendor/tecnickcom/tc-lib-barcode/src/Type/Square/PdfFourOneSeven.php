@@ -261,6 +261,9 @@ class PdfFourOneSeven extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSeven\C
         }
 
         $macrocw = $this->getMacroBlock($numcw);
+        if ($numcw > 925) {
+            throw new BarcodeException('PDF417 payload and macro block exceed the maximum codeword capacity');
+        }
         // set error correction level
         $ecl = $this->getErrorCorrectionLevel($this->ecl, $numcw);
         // number of codewords for error correction
@@ -273,16 +276,29 @@ class PdfFourOneSeven extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSeven\C
         ));
         $rows = (int) \min(90, \max(3, \ceil($nce / $cols)));
         $size = $cols * $rows;
-        if ($size > 928) {
-            // set dimensions to get maximum capacity
-            $cols = 16;
-            $rows = 58;
-            if (\abs($this->aspectratio - ((17 * 29) / 32)) < \abs($this->aspectratio - ((17 * 16) / 58))) {
-                $cols = 29;
-                $rows = 32;
+        if ($size < $nce || $size > 928) {
+            // Search legal geometries instead of clamping rows and dropping words.
+            $best = INF;
+            $found = false;
+            for ($candidate = 1; $candidate <= 30; ++$candidate) {
+                $candidateRows = \max(3, (int) \ceil($nce / $candidate));
+                $candidateSize = $candidate * $candidateRows;
+                if ($candidateRows > 90 || $candidateSize > 928) {
+                    continue;
+                }
+                $ratio = ((17 * $candidate) + 69) / ($candidateRows * $this->row_height);
+                $distance = \abs($this->aspectratio - $ratio);
+                if (!$found || $distance < $best) {
+                    $found = true;
+                    $best = $distance;
+                    $cols = $candidate;
+                    $rows = $candidateRows;
+                    $size = $candidateSize;
+                }
             }
-
-            $size = 928;
+            if (!$found) {
+                throw new BarcodeException('PDF417 data cannot fit a legal symbol geometry');
+            }
         }
 
         // calculate padding
@@ -303,6 +319,9 @@ class PdfFourOneSeven extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSeven\C
         \array_unshift($codewords, $sld);
         // calculate error correction
         $ecw = $this->getErrorCorrection($codewords, $ecl);
+        if (\count($codewords) + \count($ecw) !== $size) {
+            throw new BarcodeException('PDF417 codeword count does not match the symbol geometry');
+        }
         // add error correction codewords
         return \array_merge($codewords, $ecw);
     }
@@ -367,7 +386,7 @@ class PdfFourOneSeven extends \Com\Tecnick\Barcode\Type\Square\PdfFourOneSeven\C
             $row .= \sprintf('%17b', $this->getClusterCodewordValue($cid, $cval));
             // row stop code
             $row .= Data::STOP_PATTERN . \str_repeat('0', \max(0, $this->quiet_horizontal));
-            $brow = ',' . \str_repeat($row, \max(0, $this->row_height));
+            $brow = \str_repeat(',' . $row, \max(0, $this->row_height));
             $barcode .= $brow;
             ++$cid;
             if ($cid > 2) {

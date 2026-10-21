@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Barcode\Type\Square\Datamatrix;
 
+use Com\Tecnick\Barcode\Exception as BarcodeException;
+
 /**
  * Com\Tecnick\Barcode\Type\Square\Datamatrix\Encode
  *
@@ -247,6 +249,8 @@ class Encode extends \Com\Tecnick\Barcode\Type\Square\Datamatrix\EncodeTxt
      * @param int    $field_length Field length
      * @param string $data         Data string
      * @param int    $enc          Current encoding
+     *
+     * @throws BarcodeException if a Base256 segment exceeds the symbol capacity
      */
     public function encodeBase256(
         array &$cdw,
@@ -260,7 +264,7 @@ class Encode extends \Com\Tecnick\Barcode\Type\Square\Datamatrix\EncodeTxt
         // initialize temporary array with 0 length
         $temp_cw = [];
         $field_length = 0;
-        while ($pos < $data_length && $field_length <= 1555) {
+        while ($pos < $data_length && $field_length < 1555) {
             $newenc = $this->lookAheadTest($data, $pos, $enc);
             if ($newenc !== $enc) {
                 // 1. If the look-ahead test (starting at step J)
@@ -276,13 +280,26 @@ class Encode extends \Com\Tecnick\Barcode\Type\Square\Datamatrix\EncodeTxt
             ++$field_length;
         }
 
+        $terminal = false;
+        if ($pos < $data_length && $field_length === 1555 && $enc === Data::ENC_BASE256) {
+            // A zero length means "all remaining symbol data". This permits the
+            // special maximum of 1556 bytes after a single Base256 latch in 144x144.
+            if ($this->shape === 'S' && $cdw_num === 1 && $pos + 1 === $data_length) {
+                $temp_cw[] = \ord($data[$pos++]);
+                ++$field_length;
+                $terminal = true;
+            } else {
+                throw new BarcodeException('Data Matrix Base256 segment exceeds the symbol capacity');
+            }
+        }
+
         // set field length
-        if ($field_length <= 249) {
-            $cdw[] = $this->get255StateCodeword($field_length, $cdw_num + 1);
+        if ($terminal || $field_length <= 249) {
+            $cdw[] = $this->get255StateCodeword($terminal ? 0 : $field_length, $cdw_num + 1);
             ++$cdw_num;
         }
 
-        if ($field_length > 249) {
+        if (!$terminal && $field_length > 249) {
             $cdw[] = $this->get255StateCodeword((int) \floor($field_length / 250) + 249, $cdw_num + 1);
             $cdw[] = $this->get255StateCodeword($field_length % 250, $cdw_num + 2);
             $cdw_num += 2;

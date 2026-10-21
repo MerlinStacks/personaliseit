@@ -214,10 +214,15 @@ abstract class SpecRs
      *
      * @return array<int, string> of unsigned char.
      *
+     * @throws \Com\Tecnick\Barcode\Exception if version is outside 1–40
+     *
      * @SuppressWarnings("PHPMD.ExcessiveMethodLength")
      */
     public function createFrame(int $version): array
     {
+        if ($version < 1 || $version > Data::QRSPEC_VERSION_MAX) {
+            throw new \Com\Tecnick\Barcode\Exception('Invalid QR frame version');
+        }
         $width = \max(0, $this->getCapacityWidth($version));
         $frameLine = \str_repeat("\0", $width);
         $frame = \array_fill(0, $width, $frameLine);

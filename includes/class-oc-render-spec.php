@@ -18,9 +18,17 @@ class OC_Render_Spec {
 	public static function build( int $design_id, array $layer_inputs ): array {
 		$areas  = OC_DB::get_design_print_areas( $design_id );
 		$layers = OC_DB::get_design_layers( $design_id );
+		$visible_area_ids = array_map( static fn ( $area ): int => (int) $area->id, array_filter( $areas, static fn ( $area ): bool => ! isset( $area->visible ) || (bool) $area->visible ) );
+		$layers = array_values( array_filter( $layers, static fn ( $layer ): bool => in_array( (int) $layer->area_id, $visible_area_ids, true ) ) );
 
 		$layers_by_area = [];
 		foreach ( $layers as $layer ) {
+			if ( 'staff_note' === ( $layer->type ?? '' ) ) {
+				continue;
+			}
+			if ( ! OC_Cart::conditional_layer_is_shown( $layer, $layers, $layer_inputs, [], true ) ) {
+				continue;
+			}
 			if ( isset( $layer->visible ) && ! (bool) $layer->visible ) {
 				continue;
 			}

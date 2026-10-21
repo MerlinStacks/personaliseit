@@ -494,6 +494,12 @@ abstract class Type extends \Com\Tecnick\Barcode\Type\Convert implements Model
     protected const MAX_IMAGE_SIDE = 30_000;
 
     /**
+     * Maximum total pixels of a raster image, including padding.
+     * Complements the per-side limit; vector output is not affected.
+     */
+    protected const MAX_IMAGE_PIXELS = 16_000_000;
+
+    /**
      * Compute and validate the rendered image dimensions, in pixels.
      *
      * @return array{int, int} [width, height], each at least 1 pixel
@@ -516,6 +522,18 @@ abstract class Type extends \Com\Tecnick\Barcode\Type\Convert implements Model
             );
         }
 
+        if ($width > \intdiv(self::MAX_IMAGE_PIXELS, $height)) {
+            throw new BarcodeException(
+                'The requested image size ('
+                . $width
+                . 'x'
+                . $height
+                . ' px) exceeds the maximum of '
+                . self::MAX_IMAGE_PIXELS
+                . ' pixels',
+            );
+        }
+
         return [$width, $height];
     }
 
@@ -526,8 +544,12 @@ abstract class Type extends \Com\Tecnick\Barcode\Type\Convert implements Model
      */
     public function getPngDataImagick(): string
     {
-        $imagick = new \Imagick();
+        if (!\extension_loaded('imagick')) {
+            throw new BarcodeException('The Imagick extension is required to generate this image');
+        }
+
         [$width, $height] = $this->getImageSize();
+        $imagick = new \Imagick();
         $imagick->newImage($width, $height, 'none', 'png');
         $imagickdraw = new \ImagickDraw();
         if ($this->bg_color_obj instanceof \Com\Tecnick\Color\Model\Rgb) {
@@ -607,6 +629,10 @@ abstract class Type extends \Com\Tecnick\Barcode\Type\Convert implements Model
      */
     public function getGd(): \GdImage
     {
+        if (!\extension_loaded('gd')) {
+            throw new BarcodeException('The GD extension is required to generate this image');
+        }
+
         [$width, $height] = $this->getImageSize();
         $img = \imagecreate($width, $height);
         if ($img === false) {

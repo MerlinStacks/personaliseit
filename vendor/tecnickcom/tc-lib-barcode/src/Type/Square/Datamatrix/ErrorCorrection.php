@@ -18,6 +18,8 @@ declare(strict_types=1);
 
 namespace Com\Tecnick\Barcode\Type\Square\Datamatrix;
 
+use Com\Tecnick\Barcode\Exception as BarcodeException;
+
 /**
  * Com\Tecnick\Barcode\Type\Square\Datamatrix\ErrorCorrection
  *
@@ -70,15 +72,24 @@ class ErrorCorrection
      *
      * @param array<int, int> $wdc Array of datacodewords.
      * @param int   $nbk Number of blocks.
-     * @param int   $ncw Number of data codewords per block.
+     * @param int   $ncw Maximum data codewords per block (144x144 has two shorter blocks).
      * @param int   $ncc Number of correction codewords per block.
      * @param int   $ngf Number of fields on log/antilog table (power of 2).
      * @param int   $vpp The value of its prime modulus polynomial (301 for ECC200).
      *
      * @return array<int, int> data codewords + error codewords
+     *
+     * @throws BarcodeException if the data count does not match the block dimensions
      */
     public function getErrorCorrection(array $wdc, int $nbk, int $ncw, int $ncc, int $ngf = 256, int $vpp = 301): array
     {
+        $num_wd = \count($wdc);
+        // The 144x144 symbol has eight 156-word blocks and two 155-word blocks.
+        $unequal = $nbk === 10 && $ncw === 156 && $ncc === 62 && $num_wd === 1558;
+        if ($nbk < 1 || $ncw < 1 || $ncc < 1 || (!$unequal && $num_wd !== $nbk * $ncw)) {
+            throw new BarcodeException('Invalid Data Matrix Reed-Solomon block dimensions');
+        }
+
         // generate the log ($log) and antilog ($alog) tables
         $log = [0];
         $alog = [1];
@@ -113,7 +124,6 @@ class ErrorCorrection
         \ksort($plc);
 
         // total number of data codewords
-        $num_wd = $nbk * $ncw;
         // total number of error codewords
         $num_we = $nbk * $ncc;
         // for each block
@@ -127,7 +137,7 @@ class ErrorCorrection
             // initialize error codewords
             $wec = \array_fill(0, \max(0, $ncc + 1), 0);
             // calculate error correction codewords for this block
-            for ($i = 0; $i < $ncw; ++$i) {
+            for ($i = 0, $block_length = \count($block); $i < $block_length; ++$i) {
                 $ker = $this->getArrayInt($wec, 0) ^ $this->getArrayInt($block, $i);
                 for ($j = 0; $j < $ncc; ++$j) {
                     $wec[$j] =
@@ -138,7 +148,9 @@ class ErrorCorrection
 
             // add error codewords at the end of data codewords
             $j = 0;
-            for ($i = $b; $i < $num_we; $i += $nbk) {
+            // The special 144x144 parity order starts with the two shorter blocks.
+            $offset = $unequal ? ($b + 2) % $nbk : $b;
+            for ($i = $offset; $i < $num_we; $i += $nbk) {
                 $wdc[$num_wd + $i] = $this->getArrayInt($wec, $j);
                 ++$j;
             }

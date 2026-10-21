@@ -10,7 +10,7 @@ declare(strict_types=1);
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -30,7 +30,7 @@ use Com\Tecnick\Color\Exception as ColorException;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class Pdf extends \Com\Tecnick\Color\Spot
@@ -110,9 +110,14 @@ class Pdf extends \Com\Tecnick\Color\Spot
      * @param string $color  HTML, CSS or Spot color to parse
      * @param bool   $stroke True for stroking (lines, drawing) and false for non-stroking (text and area filling).
      * @param float  $tint   Intensity of the color (from 0 to 1; 1 = full intensity).
+     *
+     * @throws ColorException if the tint is non-finite, before registering a spot color
      */
     public function getPdfColor(string $color, bool $stroke = false, float $tint = 1): string
     {
+        if (!\is_finite($tint)) {
+            throw new ColorException('Spot tint must be finite');
+        }
         try {
             $col = $this->getSpotColor($color);
             $tint = \sprintf('cs %F scn', \max(0, \min(1, $tint)));

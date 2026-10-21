@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 /**
- * Type.php
+ * Model.php
  *
  * @since     2015-02-21
  * @category  Library
@@ -23,9 +23,9 @@ use Com\Tecnick\Color\Exception as ColorException;
 use Com\Tecnick\Color\Model\Rgb;
 
 /**
- * Com\Tecnick\Barcode\Type
+ * Com\Tecnick\Barcode\Model
  *
- * Barcode Type class
+ * Barcode model interface
  *
  * @since     2015-02-21
  * @category  Library

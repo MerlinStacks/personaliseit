@@ -24,6 +24,8 @@ composer install --no-dev --prefer-dist --optimize-autoloader \
 # after archiving so the installable artifact contains runtime code only.
 zip -d overcustomise.zip \
 	'overcustomise/vendor/tecnickcom/*/.github/*' \
+	'overcustomise/vendor/tecnickcom/*/.gitignore' \
+	'overcustomise/vendor/tecnickcom/*/CODEOWNERS' \
 	'overcustomise/vendor/tecnickcom/*/doc/*' \
 	'overcustomise/vendor/tecnickcom/*/docs/*' \
 	'overcustomise/vendor/tecnickcom/*/example/*' \

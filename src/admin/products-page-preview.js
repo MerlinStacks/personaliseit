@@ -377,7 +377,7 @@ export function createLayerPreviewRenderer( deps ) {
 		el._ocTextPreviewCanvas = null;
 		el.querySelectorAll( '.oc-lp' ).forEach( ( c ) => c.remove() );
 		el.classList.remove( 'oc-clipmask-rounded' );
-		if ( ! layer ) {
+		if ( ! layer || layer.type === 'staff_note' ) {
 			return;
 		}
 

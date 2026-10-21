@@ -31,6 +31,24 @@ use Test\TestUtil;
  */
 class RoyalMailFourCcTest extends TestUtil
 {
+    public function testLowercaseAndFramingGeometry(): void
+    {
+        $barcode = $this->getTestObject();
+        $type = $barcode->getBarcodeObj('RMS4CC', 'cu9n');
+        $this->assertSame('CU9NH', $type->getExtendedCode());
+        $this->assertSame($barcode->getBarcodeObj('RMS4CC', 'CU9N')->getGrid(), $type->getGrid());
+        $bars = $type->getArray()['bars'];
+        $this->assertCount(22, $bars); // Four bars per data/check character, plus two frame bars.
+        $this->assertSame([0, 0, 1, 2], $bars[0]);
+        $this->assertSame([42, 0, 1, 3], $bars[21]);
+        $this->assertSame(43, $type->getArray()['ncols']);
+    }
+
+    public function testEmptyPayloadIsRejected(): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('RMS4CC', '');
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

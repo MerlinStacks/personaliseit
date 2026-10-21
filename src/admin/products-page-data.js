@@ -74,6 +74,8 @@ export function createProductsPageDataNormalisers( deps ) {
 				return { ...defaultSettings( 'text' ), curve_angle: 120 };
 			case 'cut_line':
 				return { cutLineSvg: '' };
+			case 'staff_note':
+				return { char_limit: 0, required: false };
 			case 'text':
 				return {
 					additional_cost_enabled: false,

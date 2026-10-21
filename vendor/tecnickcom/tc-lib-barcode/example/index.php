@@ -125,7 +125,7 @@ echo
         <style>
             body {font-family:Arial, Helvetica, sans-serif;margin:30px;}
             table {border: 1px solid black;}
-            th {border: 1px solid black;padding:4px;background-barcode:cornsilk;}
+            th {border: 1px solid black;padding:4px;background-color:cornsilk;}
             td {border: 1px solid black;padding:4px;}
             h3 {color:darkblue;}
             h4 {color:darkgreen;}

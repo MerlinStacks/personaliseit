@@ -13,6 +13,10 @@ A clear and concise description of what the problem is. Ex. I'm always frustrate
 **Describe the solution you'd like**
 A clear and concise description of what you want to happen.
 
+Include a proposed API or a small PHP input/output example, including the color
+model or format involved. Explain whether existing callers or serialized color
+values would be affected, and describe any migration needed.
+
 **Describe alternatives you've considered**
 A clear and concise description of any alternative solutions or features you've considered.
 

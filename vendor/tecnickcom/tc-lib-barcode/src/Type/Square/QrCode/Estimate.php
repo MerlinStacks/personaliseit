@@ -151,7 +151,7 @@ abstract class Estimate
      */
     public function estimateBitsModeAn(int $size): int
     {
-        $bits = (int) ($size * 5.5); // (size / 2 ) * 11
+        $bits = \intdiv($size, 2) * 11;
         if (($size & 1) !== 0) {
             $bits += 6;
         }
@@ -236,6 +236,8 @@ abstract class Estimate
      * @param int $version Code version
      *
      * @return int bits
+     *
+     * @throws BarcodeException if a segment has an invalid mode
      */
     protected function estimateBitStreamSize(array $items, int $version): int
     {
@@ -244,30 +246,26 @@ abstract class Estimate
             $version = 1;
         }
 
+        $spec = new Spec();
         foreach ($items as $item) {
-            switch ($item['mode']) {
-                case $this->getEncModeValue('NM'):
-                    $bits = $this->estimateBitsModeNum($item['size']);
-                    break;
-                case $this->getEncModeValue('AN'):
-                    $bits = $this->estimateBitsModeAn($item['size']);
-                    break;
-                case $this->getEncModeValue('8B'):
-                    $bits = $this->estimateBitsMode8($item['size']);
-                    break;
-                case $this->getEncModeValue('KJ'):
-                    $bits = $this->estimateBitsModeKanji($item['size']);
-                    break;
-                case $this->getEncModeValue('ST'):
-                    return Data::STRUCTURE_HEADER_BITS;
-                default:
-                    return 0;
+            if ($item['mode'] === $this->getEncModeValue('ST')) {
+                $bits += Data::STRUCTURE_HEADER_BITS;
+                continue;
             }
-
+            // Match encodeBitStream's splitting at the count-indicator limit,
+            // including each segment's header and numeric/alphanumeric rounding.
+            $maximum = $spec->maximumWords($item['mode'], $version);
             $len = $this->getLengthIndicator($item['mode'], $version);
-            $mod = 1 << $len;
-            $num = (int) (($item['size'] + $mod - 1) / $mod);
-            $bits += $num * (4 + $len);
+            for ($remaining = $item['size']; $remaining > 0; $remaining -= $size) {
+                $size = \min($remaining, $maximum);
+                $bits += 4 + $len + match ($item['mode']) {
+                    Data::MODE_NM => $this->estimateBitsModeNum($size),
+                    Data::MODE_AN => $this->estimateBitsModeAn($size),
+                    Data::MODE_8B => $this->estimateBitsMode8($size),
+                    Data::MODE_KJ => $this->estimateBitsModeKanji($size),
+                    default => throw new BarcodeException('Invalid QR estimation mode'),
+                };
+            }
         }
 
         return $bits;

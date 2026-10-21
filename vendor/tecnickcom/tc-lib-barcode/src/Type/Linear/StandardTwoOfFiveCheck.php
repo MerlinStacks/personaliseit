@@ -75,23 +75,14 @@ class StandardTwoOfFiveCheck extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function getChecksum(string $code): int
     {
-        $clen = \strlen($code);
         $sum = 0;
-        for ($idx = 0; $idx < $clen; $idx += 2) {
-            $sum += (int) $code[$idx];
+        $weight = 3;
+        for ($idx = \strlen($code) - 1; $idx >= 0; --$idx) {
+            $sum += (int) $code[$idx] * $weight;
+            $weight = $weight === 3 ? 1 : 3;
         }
 
-        $sum *= 3;
-        for ($idx = 1; $idx < $clen; $idx += 2) {
-            $sum += (int) $code[$idx];
-        }
-
-        $check = $sum % 10;
-        if ($check > 0) {
-            return 10 - $check;
-        }
-
-        return $check;
+        return (10 - ($sum % 10)) % 10;
     }
 
     /**
@@ -109,6 +100,10 @@ class StandardTwoOfFiveCheck extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function setBars(): void
     {
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1) {
+            throw new BarcodeException('Standard 2 of 5 requires a non-empty digit-only payload');
+        }
+
         $this->formatCode();
         if ((\strlen($this->extcode) % 2) !== 0) {
             // add leading zero if code-length is odd

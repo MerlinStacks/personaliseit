@@ -1406,6 +1406,7 @@ import {
 					const copy = JSON.parse( JSON.stringify( layer ) );
 					copy._uid = ++uidCounter;
 					copy.id = 0;
+					delete copy.settings.condition_key;
 					copy.label =
 						( layer.label || layerLabel( layer.type ) ) + ' (copy)';
 					copy.sortOrder = area.layers.length;
@@ -1494,7 +1495,10 @@ import {
 		if ( dotEl ) {
 			dotEl.style.background = layerColor( layer.type );
 		}
-		const tabs = LAYER_TABS[ layer.type ] || LAYER_TABS.text;
+		const tabs = [ ...( LAYER_TABS[ layer.type ] || LAYER_TABS.text ) ];
+		if ( ! [ 'cut_line', 'mask' ].includes( layer.type ) ) {
+			tabs.push( { id: 'conditions', label: 'Conditions', icon: '?' } );
+		}
 		if ( ! tabs.some( ( t ) => t.id === activeLayerTab ) ) {
 			activeLayerTab = 'general';
 		}

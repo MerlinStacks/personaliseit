@@ -10,7 +10,7 @@ declare(strict_types=1);
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -28,7 +28,7 @@ namespace Com\Tecnick\Color\Model;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class Lab extends \Com\Tecnick\Color\Model
@@ -65,9 +65,17 @@ class Lab extends \Com\Tecnick\Color\Model
      * Initialize a new Lab color object.
      *
      * @param array<string, int|float|string> $components Color components.
+     *
+     * @throws \Com\Tecnick\Color\Exception for nonnumeric or non-finite components
      */
     public function __construct(array $components)
     {
+        foreach ($components as $value) {
+            if (!(\is_int($value) || \is_float($value) || \is_string($value))
+                || !\is_numeric($value) || !\is_finite((float) $value)) {
+                throw new \Com\Tecnick\Color\Exception('Lab components must be finite numbers');
+            }
+        }
         $this->cmp_alpha = \max(0.0, \min(1.0, (float) ($components['alpha'] ?? 1.0)));
         $this->cmp_lstar = \max(0.0, \min(100.0, (float) ($components['lstar'] ?? 0.0)));
         $this->cmp_astar = \max(-128.0, \min(127.0, (float) ($components['astar'] ?? 0.0)));

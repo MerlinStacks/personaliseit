@@ -180,6 +180,9 @@ class RoyalMailFourCc extends \Com\Tecnick\Barcode\Type\Linear
      */
     protected function formatCode(): void
     {
+        if ($this->code === '') {
+            throw new BarcodeException('Royal Mail payload must not be empty');
+        }
         $code = \strtoupper($this->code);
         $this->extcode = $code . $this->getChecksum($code);
     }

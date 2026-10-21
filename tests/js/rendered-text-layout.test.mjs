@@ -5,9 +5,15 @@ import { JSDOM } from 'jsdom';
 import { FabricText, Textbox, Shadow, util } from 'fabric/node';
 
 async function shared( path ) {
+	const conditionUrl = `data:text/javascript;base64,${ Buffer.from(
+		await readFile( 'src/shared/layer-conditions.js', 'utf8' )
+	).toString( 'base64' ) }`;
 	return import(
 		`data:text/javascript;base64,${ Buffer.from(
-			await readFile( path, 'utf8' )
+			( await readFile( path, 'utf8' ) ).replace(
+				'../../shared/layer-conditions',
+				conditionUrl
+			)
 		).toString( 'base64' ) }`
 	);
 }
@@ -43,6 +49,7 @@ class Text {
 	setCoords() {}
 }
 const dependencies = {
+	...( await shared( 'src/shared/layer-conditions.js' ) ),
 	...math,
 	...layout,
 	FabricText: Text,
@@ -712,6 +719,44 @@ test( 'checkout flush succeeds on font fallback and clears previously verified m
 			/canvas failure/
 		);
 	}
+} );
+
+test( 'canvas redraw excludes hidden conditional layers and uses frozen submission inputs', async () => {
+	const f = fixture();
+	f.layer.id = 7;
+	f.layer.settings = {
+		...f.layer.settings,
+		condition_enabled: true,
+		condition_source_key: 'art',
+		condition_clipart_ids: [ 10 ],
+	};
+	const clipart = {
+		id: 8,
+		type: 'clipart',
+		settings: { condition_key: 'art' },
+	};
+	f.area.layers = [ clipart, f.layer ];
+	const rendered = [];
+	Object.assign( f.canvas, { getObjects: () => [], renderAll() {} } );
+	Object.assign( f.app, {
+		areas: [ f.area ],
+		canvases: [ f.canvas ],
+		inputs: { 8: { clipartId: 11 } },
+		_redrawTimers: {},
+		_redrawGenerations: {},
+		_redrawPromises: {},
+		_customisationActive: true,
+		areaCanvasGroupIndexes: () => [ 0 ],
+		renderLayer: async ( canvas, layer ) => rendered.push( layer.id ),
+	} );
+	await f.app.redraw( 0, { pushGallery: false } );
+	assert.deepEqual( rendered, [ 8 ] );
+	rendered.length = 0;
+	await f.app.redraw( 0, {
+		pushGallery: false,
+		inputs: { 8: { clipartId: 10 } },
+	} );
+	assert.deepEqual( rendered, [ 8, 7 ] );
 } );
 
 test( 'textarea only publishes versioned metadata with matching lines within the 200-line limit', async () => {

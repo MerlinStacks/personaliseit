@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,31 @@ use Test\TestUtil;
  */
 class ImbPreTest extends TestUtil
 {
+    public function testUppercaseEquivalenceAndGeometry(): void
+    {
+        $payload = \str_repeat('fadt', 16) . 'f';
+        $barcode = $this->getTestObject();
+        $type = $barcode->getBarcodeObj('IMBPRE', $payload);
+        $this->assertSame($type->getGrid(), $barcode->getBarcodeObj('IMBPRE', \strtoupper($payload))->getGrid());
+        $this->assertCount(65, $type->getArray()['bars']);
+        $this->assertSame(129, $type->getArray()['ncols']);
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [
+            [\str_repeat('f', 64)], [\str_repeat('f', 66)],
+            [\str_repeat('f', 64) . 'x'], [\str_repeat('f', 64) . "\n"],
+        ];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidLengthsAndStatesAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('IMBPRE', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

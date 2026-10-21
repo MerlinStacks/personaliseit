@@ -181,9 +181,14 @@ class Spec extends \Com\Tecnick\Barcode\Type\Square\QrCode\SpecRs
      *            2 = # of ecc code
      *            3 = # of type2 blocks
      *            4 = # of data code
+     *
+     * @throws \Com\Tecnick\Barcode\Exception if version or level is invalid
      */
     public function getEccSpec(int $version, int $level, array $spec): array
     {
+        if ($version < 1 || $version > Data::QRSPEC_VERSION_MAX || $level < 0 || $level > 3) {
+            throw new \Com\Tecnick\Barcode\Exception('Invalid QR version or error correction level');
+        }
         if (\count($spec) < 5) {
             $spec = [0, 0, 0, 0, 0];
         }

@@ -138,6 +138,22 @@ class OC_Admin_Menu {
 			return;
 		}
 
+		$help_css = OC_PATH . 'assets/css/admin-help.css';
+		wp_enqueue_style(
+			'oc-admin-help',
+			OC_URL . 'assets/css/admin-help.css',
+			[],
+			file_exists( $help_css ) ? (string) filemtime( $help_css ) : OC_VERSION
+		);
+		$help_js = OC_PATH . 'assets/js/admin-help.js';
+		wp_enqueue_script(
+			'oc-admin-help',
+			OC_URL . 'assets/js/admin-help.js',
+			[],
+			file_exists( $help_js ) ? (string) filemtime( $help_js ) : OC_VERSION,
+			true
+		);
+
 		// Static modules retain the original cascade, including cross-page overrides.
 		// Register dependencies rather than enqueueing each module independently so
 		// oc-admin remains the single entry point for dependents and inline styles.

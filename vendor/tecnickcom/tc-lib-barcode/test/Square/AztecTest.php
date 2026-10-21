@@ -96,7 +96,8 @@ class AztecTest extends TestUtil
             [
                 ',100,A,A,0',
                 'A',
-                'c48da49052f674edc66fa02e52334b17',
+                // Correct GS1/FNC1 flag; independently decoded as A with identifier ]z1.
+                'a3f5480ba1f7c9eb6cf226f5da38e2a8',
             ],
             [
                 '',
@@ -263,6 +264,27 @@ class AztecTest extends TestUtil
      */
     public static function getStringDataProvider(): array
     {
-        return \Test\TestStrings::$data;
+        return \Test\TestStrings::namedData();
+    }
+
+    public function testCompactModePromotesBeyondSixtyFourDataWords(): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('AZTEC,1,A,A', \str_repeat('A', 110));
+        $this->assertSame(31, $type->getArray()['ncols']);
+        $this->assertSame(31, $type->getArray()['nrows']);
+    }
+
+    /** @return array<array{int}> */
+    public static function binaryBoundaryLengths(): array
+    {
+        return [[31], [32]];
+    }
+
+    #[DataProvider('binaryBoundaryLengths')]
+    public function testBinaryLengthHeaderBoundaries(int $length): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('AZTEC,33,B,F', \str_repeat("\xa5", $length));
+        $this->assertSame(27, $type->getArray()['ncols']);
+        $this->assertSame(27, $type->getArray()['nrows']);
     }
 }

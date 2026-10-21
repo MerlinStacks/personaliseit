@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,25 @@ use Test\TestUtil;
  */
 class CodeThreeNineTest extends TestUtil
 {
+    public function testPunctuationAndLowercaseNormalization(): void
+    {
+        $barcode = $this->getTestObject();
+        $this->assertSame('*AZ-. $/+%*', $barcode->getBarcodeObj('C39', 'az-. $/+%')->getExtendedCode());
+        $this->assertSame($barcode->getBarcodeObj('C39', 'AZ')->getGrid(), $barcode->getBarcodeObj('C39', 'az')->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [['*'], ['*ABC*'], ['A*B']];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testPayloadAsterisksAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('C39', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

@@ -85,6 +85,7 @@ foreach ( [ false, true ] as $oversized ) {
 		check( str_contains( $e->getMessage(), 'may be truncated' ), 'Never imply completeness' );
 	}
 	$data = end( $GLOBALS['options'] );
+	$data = $data['data'];
 	check( false === $data['complete'], 'Retained form marked incomplete' );
 	check( $oversized ? [ 'oc_layers' ] === $data['omittedFields'] : isset( $data['received']['oc_layers'][0]['settings'] ), 'Bounded fields retained with explicit omissions' );
 }

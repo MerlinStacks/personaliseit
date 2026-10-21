@@ -106,5 +106,28 @@ class TestStrings
         ['$HOME $ENV{\'HOME\'} %d %s {0} %*.*s'],
         // PHP code
         ['echo \'hello world\'; exit(); for($i=32;$i<120;++$i){echo \chr($i);}'],
+        // These are byte payloads, not Unicode character arrays.
+        ["\x00"],
+        ["\x7f\x80\xff"],
+        ['12345678901234567890lowercase-ABC12345678901234567890'],
+        ['A'],
     ];
+
+    /** @return array<string, array{string}> */
+    public static function namedData(): array
+    {
+        $names = [
+            'reserved-keywords', 'magic-constants', 'integer-strings', 'numeric-notation',
+            'control-ascii', 'terminal-escapes', 'punctuation', 'unicode-symbols',
+            'east-asian-text', 'emoticons', 'emoji', 'regional-indicators', 'unicode-numbers',
+            'right-to-left', 'invisible-unicode', 'combining-text-1', 'combining-text-2',
+            'upside-down', 'styled-fonts-1', 'styled-fonts-2', 'literal-interpolation', 'literal-php',
+            'nul-byte', 'high-byte-boundaries', 'mixed-segments', 'single-alphanumeric',
+        ];
+        $cases = [];
+        foreach (self::$data as $index => $case) {
+            $cases[$names[$index] ?? ('additional-case-' . $index)] = $case;
+        }
+        return $cases;
+    }
 }

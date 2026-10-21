@@ -82,44 +82,44 @@ class PdfFourOneSevenTest extends TestUtil
             [
                 '',
                 \str_pad('', 1850, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'),
-                '38e205c911b94a62c72b7d20fa4361f8',
+                'a089852112a7d7ad07e1ecbb6a1b389e',
             ],
             // max text
             [
                 '',
                 \str_pad('', 2710, '123456789'),
-                'c512b5d3ca975a16c21b47e938d2aecb',
+                'f275c92a1b3dd36f90763862d2b6a1c8',
             ],
             // max digits
             [
                 '',
                 'abc/abc',
-                '831874fe7d1b3d865c222858eba3507c',
+                '7fe8782974f21f9d84f0c96d53532cbd',
             ],
             [
                 '',
                 '0123456789',
-                '4f9cdac81d62f0020beb93fc3ecdd8ad',
+                'd5b01b60554a43cd21ca02e0a59f48e2',
             ],
             [
                 ',2,8,1,0,0,0,1,2',
                 \str_pad('', 1750, 'X'),
-                'f0874a35e15f11f9aa8bc070a4be24bf',
+                '68bde70becc0f817a961bc7f8ff9e95e',
             ],
             [
                 ',15,8,1,0,0,0,1,2',
                 \str_pad('', 1750, 'X'),
-                '0288f0a87cc069fc34d6168d7a9f7846',
+                '93c35204a5ae71fcf5e74d2361b7aba3',
             ],
             [
                 '',
                 \str_pad('', 350, '0123456789'),
-                '9a8e73c7a098fd10ce37605be1c87435',
+                '7f6b17381d56ff236f632bad09067b41',
             ],
             [
                 '',
                 'abcdefghijklmnopqrstuvwxyz01234567890123456789',
-                'bd4f4215aca0bbc3452a35b81fcf7bdb',
+                '9b3179d371874c047bfe7f4bf34c0454',
             ],
             [
                 '',
@@ -153,7 +153,7 @@ class PdfFourOneSevenTest extends TestUtil
                     . "\x8C\xF9\x95\xB6\xF8\x93\xED\x0A\x17\x70"
                     . "\x16\xF1\xCC\x4C\x17\x5E\x96\xE8\x0D\x2E"
                     . "\xF1\x95\xF3\xC1\x49\xBE\xE6\xEF\x6E\x18",
-                '1cae7ca47cde6ca52522ce31771a5c54',
+                'b05d9bbddc69cbeb400d696cd889a080',
             ],
             [
                 '',
@@ -257,7 +257,7 @@ class PdfFourOneSevenTest extends TestUtil
                     . "\x2D\xEC\xD5\xE1\xD2\xB6\x1B\x04\xB3\xA9"
                     . "\x46\x48\x65\xF6\x0A\xDD\xE1\x18\xBA\xD4"
                     . "\x71\x10\x73\xD3\xA5\x21\x0A\xBD\x1C\xDB",
-                '6c1033648fc11250ad22006398cd1bdc',
+                'd77636706791c66b414662e98788e785',
             ],
         ];
     }
@@ -279,6 +279,63 @@ class PdfFourOneSevenTest extends TestUtil
      */
     public static function getStringDataProvider(): array
     {
-        return \Test\TestStrings::$data;
+        return \Test\TestStrings::namedData();
+    }
+
+    public function testLegalLayoutsRetainEveryCodeword(): void
+    {
+        foreach ([1800, 1848, 1850] as $length) {
+            $type = $this->getTestObject()->getBarcodeObj('PDF417,1', \str_repeat('A', $length));
+            $rows = $cols = $level = 0;
+            $words = $type->getCodewords($rows, $cols, $level);
+            $this->assertGreaterThanOrEqual(3, $rows);
+            $this->assertLessThanOrEqual(90, $rows);
+            $this->assertGreaterThanOrEqual(1, $cols);
+            $this->assertLessThanOrEqual(30, $cols);
+            $this->assertLessThanOrEqual(928, $rows * $cols);
+            $this->assertCount($rows * $cols, $words);
+        }
+    }
+
+    public function testMacroCapacityIsChecked(): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('PDF417,2,0,1,0,' . \str_repeat('A', 1900), 'ABC');
+    }
+
+    public function testBcMathScaleIsIgnoredAndPreserved(): void
+    {
+        $previous = \bcscale();
+        try {
+            foreach ([\str_repeat('1234567890123', 4), \str_repeat("\x80", 12)] as $payload) {
+                \bcscale(0);
+                $baseline = $this->getTestObject()->getBarcodeObj('PDF417', $payload)->getGrid();
+                \bcscale(5);
+                $this->assertSame($baseline, $this->getTestObject()->getBarcodeObj('PDF417', $payload)->getGrid());
+                $this->assertSame(5, \bcscale());
+            }
+        } finally {
+            \bcscale($previous);
+        }
+    }
+
+    public function testLogicalRowsRepeatVertically(): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('PDF417', 'row repetition');
+        $rows = $cols = $level = 0;
+        $type->getCodewords($rows, $cols, $level);
+        $allRows = $type->getGridArray();
+        // Exclude vertical quiet-zone rows, not part of any logical PDF417 row.
+        $grid = \array_values(\array_filter($allRows, static fn (array $row): bool => \in_array('1', $row, true)));
+        $height = \count($grid);
+        $this->assertGreaterThan($height, \count($allRows));
+        $this->assertSame(0, $height % $rows);
+        $repeat = \intdiv($height, $rows);
+        $this->assertGreaterThan(1, $repeat);
+        for ($row = 0; $row < $rows; ++$row) {
+            for ($copy = 1; $copy < $repeat; ++$copy) {
+                $this->assertSame($grid[$row * $repeat], $grid[$row * $repeat + $copy]);
+            }
+        }
     }
 }

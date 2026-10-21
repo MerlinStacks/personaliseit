@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,25 @@ use Test\TestUtil;
  */
 class MsiTest extends TestUtil
 {
+    public function testLegacyHexadecimalAlphabetBoundaries(): void
+    {
+        $type = $this->getTestObject()->getBarcodeObj('MSI', '09AF');
+        $this->assertSame('09AF', $type->getExtendedCode());
+        $this->assertSame('110' . '100100100100' . '110100100110' . '110100110100' . '110110110110' . "1001\n", $type->getGrid());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [[''], ['G'], ['a'], ['12 3'], ["123\n"], ["\xff"]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testInvalidPayloadsAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('MSI', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

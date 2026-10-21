@@ -589,8 +589,11 @@ class Imb extends \Com\Tecnick\Barcode\Type\Linear
         $this->nrows = 3;
         $this->bars = [];
         $code_arr = \explode('-', $this->code);
+        if (\count($code_arr) > 2) {
+            throw new BarcodeException('Invalid Intelligent Mail barcode format');
+        }
         $tracking_number = $code_arr[0];
-        if (!\preg_match('/^\d{2,20}$/', $tracking_number)) {
+        if (\preg_match('/\A[0-9][0-4][0-9]{18}\z/', $tracking_number) !== 1) {
             throw new BarcodeException('Invalid tracking number');
         }
 

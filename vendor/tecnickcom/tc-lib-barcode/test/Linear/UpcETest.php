@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -40,7 +41,7 @@ class UpcETest extends TestUtil
      * @throws \Com\Tecnick\Barcode\Exception
      * @throws \Com\Tecnick\Color\Exception
      */
-    public function testGetGrid(): void
+    public function testCompactEndingZero(): void
     {
         $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725270');
@@ -48,75 +49,119 @@ class UpcETest extends TestUtil
         $expected = "101001000100100110110001001101101110110100111010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingOne(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725271');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110111001001001101110110110011010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingTwo(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725272');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110111001001001100100010010011010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingThree(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725273');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110110001001101101110110100001010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingFour(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725274');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110110001001101100100010100011010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingFive(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725275');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110111001001101101110110110001010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingSix(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725276');
         $grid = $bobj->getGrid();
         $expected = "101001000100110110110001001101101110110101111010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingSeven(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725277');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110111001001001101110110010001010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingEight(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725278');
         $grid = $bobj->getGrid();
         $expected = "101001000100100110110001001101100100010110111010101\n";
         $this->assertEquals($expected, $grid);
 
+    }
+
+    public function testCompactEndingNine(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '725279');
         $grid = $bobj->getGrid();
         $expected = "101001000100110110110001001001100100010001011010101\n";
         $this->assertEquals($expected, $grid);
 
-        $bobj = $barcode->getBarcodeObj('UPCE', '0123456789');
-        $grid = $bobj->getGrid();
-        $expected = "101010011100110010010011010000100111010001011010101\n";
-        $this->assertEquals($expected, $grid);
+    }
 
-        $bobj = $barcode->getBarcodeObj('UPCE', '012345678912');
-        $grid = $bobj->getGrid();
-        $expected = "101011001100110110111101010001101110010011001010101\n";
-        $this->assertEquals($expected, $grid);
-
+    public function testLosslessUpcaCompression(): void
+    {
+        $barcode = $this->getTestObject();
         $bobj = $barcode->getBarcodeObj('UPCE', '4210000526');
         $grid = $bobj->getGrid();
         $expected = "101001110100100110111001001101101011110011001010101\n";
         $this->assertEquals($expected, $grid);
 
-        $bobj = $barcode->getBarcodeObj('UPCE', '4240000526');
-        $grid = $bobj->getGrid();
-        $expected = "101001110100110110100011001101101011110111101010101\n";
-        $this->assertEquals($expected, $grid);
+    }
 
-        $bobj = $barcode->getBarcodeObj('UPCE', '4241000526');
-        $grid = $bobj->getGrid();
-        $expected = "101001110100100110011101001100101011110011101010101\n";
-        $this->assertEquals($expected, $grid);
+    /** @return array<array{string}> */
+    public static function uncompressiblePayloads(): array
+    {
+        return [['0123456789'], ['012345678912'], ['4240000526'], ['4241000526']];
+    }
+
+    #[DataProvider('uncompressiblePayloads')]
+    public function testLossyCompressionIsRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('UPCE', $payload);
     }
 
     /**

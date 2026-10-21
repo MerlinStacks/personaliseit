@@ -10,7 +10,7 @@ declare(strict_types=1);
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -32,7 +32,7 @@ use Com\Tecnick\Color\Model\Lab;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * @phpstan-type TLabTriplet array{0: float, 1: float, 2: float}
@@ -379,6 +379,9 @@ class Spot extends \Com\Tecnick\Color\Web
      *   addSpotLabColor('My Color', 50.0, 10.0, -20.0, $whitepoint, $blackpoint, $range, $col0);
      * Any omitted option falls back to its default (D65 whitepoint [0.9505, 1.0, 1.089],
      * zero blackpoint, [-128, 127, -128, 127] range, [100, 0, 0] col0).
+     * Supplied options must be complete positional arrays of finite numbers.
+     * Whitepoint X/Z must be positive and Y must be 1; blackpoint values must
+     * be nonnegative, and each range minimum must not exceed its maximum.
      *
      * NOTE: the stored CMYK equivalent is an approximation computed from the Lab
      * values using the D65 whitepoint; the whitepoint option only affects the PDF
@@ -399,10 +402,30 @@ class Spot extends \Com\Tecnick\Color\Web
         float $bstar,
         array ...$labOptions,
     ): string {
+        if (!\is_finite($lstar) || !\is_finite($astar) || !\is_finite($bstar)) {
+            throw new ColorException('Lab spot components must be finite');
+        }
+        if (\count($labOptions) > 4 || !\array_is_list($labOptions)) {
+            throw new ColorException('Expected at most four positional Lab options');
+        }
+        foreach ($labOptions as $index => $option) {
+            if (!\array_is_list($option) || \count($option) !== ($index === 2 ? 4 : 3)) {
+                throw new ColorException('Invalid Lab option length');
+            }
+            foreach ($option as $value) {
+                if (!(\is_int($value) || \is_float($value)) || !\is_finite((float) $value)) {
+                    throw new ColorException('Lab options must contain finite numbers');
+                }
+            }
+        }
         $whitepoint = $this->resolveTripletOption($labOptions, 0, [0.9505, 1.0000, 1.0890]);
         $blackpoint = $this->resolveTripletOption($labOptions, 1, [0.0, 0.0, 0.0]);
         $range = $this->resolveRangeOption($labOptions, 2, [-128.0, 127.0, -128.0, 127.0]);
         $col0 = $this->resolveTripletOption($labOptions, 3, [100.0, 0.0, 0.0]);
+        if ($whitepoint[0] <= 0 || $whitepoint[1] != 1.0 || $whitepoint[2] <= 0
+            || \min($blackpoint) < 0 || $range[0] > $range[1] || $range[2] > $range[3]) {
+            throw new ColorException('Invalid Lab whitepoint, blackpoint or range');
+        }
 
         $key = $this->normalizeSpotColorName($name);
         $num = $this->spot_colors[$key]['i'] ?? (\count($this->spot_colors) + 1);

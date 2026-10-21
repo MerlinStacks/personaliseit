@@ -40,7 +40,7 @@ export function createProductsPageCanvas( deps ) {
 	let drawEl = null;
 	let drawPopup = null;
 	let drawModeArea = null;
-	let drawModeButton = null;
+	const drawModeButton = null;
 
 	function renderCanvas() {
 		const stage = document.getElementById( 'oc-canvas-stage' );
@@ -113,7 +113,9 @@ export function createProductsPageCanvas( deps ) {
 		const color = layer
 			? layerColor( layer.type )
 			: areaColor( getSelectedIndex() );
-		const isHidden = layer ? ! layer.visible : ! area.visible;
+		const isHidden = layer
+			? ! layer.visible || layer.type === 'staff_note'
+			: ! area.visible;
 		const isLocked = layer ? layer.locked : area.locked;
 		const hideForLocked = ! layer && area.locked;
 		box.style.display = isHidden || hideForLocked ? 'none' : '';
@@ -131,7 +133,7 @@ export function createProductsPageCanvas( deps ) {
 		box.style.background = hexRgba( color, 0.12 );
 		box.title = layer
 			? 'Drag to move this layer.'
-			: 'Drag to move this area, or use Draw layer to create a layer.';
+			: 'Drag to move this area.';
 		box.classList.toggle( 'oc-bounds-box--locked', isLocked );
 		box.classList.toggle( 'oc-bounds-box--rotatable', ! layer );
 		box.querySelectorAll( '.oc-bounds-handle' ).forEach( ( h ) => {
@@ -228,7 +230,10 @@ export function createProductsPageCanvas( deps ) {
 		const designMask = getDesignMaskEntry();
 		const previewLayers = ( area.layers || [] )
 			.map( ( layer, li ) => ( { area, layer, li } ) )
-			.filter( ( entry ) => entry.layer.type !== 'mask' );
+			.filter(
+				( entry ) =>
+					! [ 'mask', 'staff_note' ].includes( entry.layer.type )
+			);
 		if ( designMask ) {
 			previewLayers.push( {
 				area: designMask.area,
@@ -353,7 +358,6 @@ export function createProductsPageCanvas( deps ) {
 	}
 
 	function initCanvasInteractions() {
-		initDrawModeControl();
 		document
 			.getElementById( 'oc-canvas-stage' )
 			?.addEventListener( 'mousedown', routeCanvasMouseDown, true );
@@ -414,22 +418,6 @@ export function createProductsPageCanvas( deps ) {
 				e.preventDefault();
 			}
 		} );
-	}
-	function initDrawModeControl() {
-		const wrap = document.querySelector( '.oc-editor-canvas-wrap' );
-		if ( ! wrap ) {
-			return;
-		}
-		drawModeButton = document.createElement( 'button' );
-		drawModeButton.type = 'button';
-		drawModeButton.className = 'oc-canvas-draw-toggle';
-		drawModeButton.textContent = 'Draw layer';
-		drawModeButton.setAttribute( 'aria-pressed', 'false' );
-		drawModeButton.addEventListener( 'click', () => {
-			setDrawMode( drawModeArea !== selectedArea() );
-		} );
-		wrap.appendChild( drawModeButton );
-		updateDrawModeControl();
 	}
 	function canDrawInArea( area ) {
 		return !! (
@@ -605,6 +593,9 @@ export function createProductsPageCanvas( deps ) {
 		popup.setAttribute( 'aria-label', 'Choose layer type' );
 		popup.setAttribute( 'aria-modal', 'true' );
 		Object.keys( LAYER_TYPES ).forEach( ( type ) => {
+			if ( type === 'staff_note' ) {
+				return;
+			}
 			const btn = document.createElement( 'button' );
 			btn.type = 'button';
 			btn.className = 'oc-draw-type-btn';

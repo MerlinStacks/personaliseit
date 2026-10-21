@@ -17,6 +17,7 @@
 namespace Test\Linear;
 
 use Test\TestUtil;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * Barcode class test
@@ -31,6 +32,31 @@ use Test\TestUtil;
  */
 class MsiCheckTest extends TestUtil
 {
+    /** @return array<array{string, string}> */
+    public static function checksumVectors(): array
+    {
+        // Preserve legacy hexadecimal input and two-character representation of 10.
+        return [['0', '00'], ['6', '610'], ['1234567', '12345674'], ['ABCDEF', 'ABCDEF10']];
+    }
+
+    #[DataProvider('checksumVectors')]
+    public function testModuloElevenChecks(string $payload, string $expected): void
+    {
+        $this->assertSame($expected, $this->getTestObject()->getBarcodeObj('MSI+', $payload)->getExtendedCode());
+    }
+
+    /** @return array<array{string}> */
+    public static function invalidPayloads(): array
+    {
+        return [[''], [' '], ['12 3'], ["123\n"]];
+    }
+
+    #[DataProvider('invalidPayloads')]
+    public function testEmptyAndWhitespaceAreRejected(string $payload): void
+    {
+        $this->bcExpectException(\Com\Tecnick\Barcode\Exception::class);
+        $this->getTestObject()->getBarcodeObj('MSI+', $payload);
+    }
     protected function getTestObject(): \Com\Tecnick\Barcode\Barcode
     {
         return new \Com\Tecnick\Barcode\Barcode();

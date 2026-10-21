@@ -2,6 +2,8 @@
 
 import importlib.util
 import json
+import re
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -90,12 +92,30 @@ class PluginZipTests(unittest.TestCase):
         for name in ('other/file.php', 'overcustomise/../escape.php',
                      'overcustomise/.env.production', 'overcustomise/tests/test.php',
                      'overcustomise/vendor/phpunit/phpunit/main.php',
+                     'overcustomise/vendor/tecnickcom/tc-lib-barcode/.gitignore',
+                     'overcustomise/vendor/tecnickcom/tc-lib-barcode/CODEOWNERS',
                      'overcustomise/vendor/tecnickcom/tcpdf/scripts/example_smoke.php'):
             with self.subTest(name=name):
                 self.write_zip()
                 with zipfile.ZipFile(self.archive, 'a') as bundle:
                     bundle.writestr(name, b'unwanted')
                 self.assertTrue(self.check()[2])
+
+    @unittest.skipUnless(shutil.which('zip'), 'zip executable is required')
+    def test_production_vendor_cleanup_preserves_licenses(self):
+        script = (ROOT / 'scripts/build-plugin-zip.sh').read_text()
+        patterns = re.findall(r"'(overcustomise/vendor/tecnickcom/[^']+)'", script)
+        prefix = 'overcustomise/vendor/tecnickcom/tc-lib-barcode/'
+        removed = ('.gitignore', 'CODEOWNERS', '.github/workflows/check.yml',
+                   'CODE_OF_CONDUCT.md', 'CONTRIBUTING.md', 'SECURITY.md', 'Makefile')
+        retained = ('LICENSE', 'README.md', 'VERSION', 'RELEASE', 'src/Barcode.php')
+        with zipfile.ZipFile(self.archive, 'w') as bundle:
+            for name in removed + retained:
+                bundle.writestr(prefix + name, b'fixture')
+        subprocess.run(['zip', '-d', str(self.archive), *patterns],
+                       check=True, capture_output=True)
+        with zipfile.ZipFile(self.archive) as bundle:
+            self.assertEqual({prefix + name for name in retained}, set(bundle.namelist()))
 
     def test_updater_non_php_dependencies_are_required(self):
         name = 'includes/plugin-update-checker/languages/plugin-update-checker-fr_FR.mo'

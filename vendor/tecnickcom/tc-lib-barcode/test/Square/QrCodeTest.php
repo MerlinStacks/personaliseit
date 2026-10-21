@@ -356,7 +356,7 @@ class QrCodeTest extends TestUtil
                     . '83KI~dMkt}L9 ]uN[,@:6/[",:jKl8c%L/OKs}7i{c#{BxK}%'
                     . 'k9<zt>(0*S}C7#oGS;<QS&N8)KZ"vY(crD_hchxm<v1Tz!{N='
                     . '9!p?P*H{dKs>TW2x8z]!sK=k]rf',
-                '83747986cf0df320b915587609232076',
+                '2dfef2690656a33bb1752f362840b53b',
             ],
         ];
     }
@@ -378,6 +378,33 @@ class QrCodeTest extends TestUtil
      */
     public static function getStringDataProvider(): array
     {
-        return \Test\TestStrings::$data;
+        return \Test\TestStrings::namedData();
+    }
+
+    public function testOddAlphanumericInputFitsVersionOne(): void
+    {
+        $data = $this->getTestObject()->getBarcodeObj('QRCODE', \str_repeat('A', 25))->getArray();
+        $this->assertSame(21, $data['ncols']);
+        $this->assertSame(21, $data['nrows']);
+    }
+
+    public function testMixedSegmentEstimateMatchesEncodedBitCount(): void
+    {
+        $stream = new \Test\Fixture\InternalQrByteStream(2, 1, 0);
+        $items = $stream->appendNewInputItem([], 0, 20, \str_split('12345678901234567890'));
+        $items = $stream->appendNewInputItem($items, 2, 9, \str_split('lowercase'));
+        $items = $stream->appendNewInputItem($items, 1, 3, \str_split('ABC'));
+        // 81 numeric + 84 byte + 30 alphanumeric bits = 195 bits: version 2-L.
+        $this->assertSame(2, $stream->estimateVersion($items, 0));
+        $this->assertSame(195, $stream->exposeCreateBitStream($items)[1]);
+    }
+
+    public function testNegativeDefaultMaskNormalizes(): void
+    {
+        $barcode = $this->getTestObject();
+        $this->assertSame(
+            $barcode->getBarcodeObj('QRCODE,L,8B,0,1,-1,0,7', 'Mask')->getGrid(),
+            $barcode->getBarcodeObj('QRCODE,L,8B,0,1,-1,0,-1', 'Mask')->getGrid(),
+        );
     }
 }

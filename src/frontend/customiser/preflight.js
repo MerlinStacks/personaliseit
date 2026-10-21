@@ -4,6 +4,8 @@
  * Preflight validation and validation message rendering.
  */
 
+import { layerIsShown } from '../../shared/layer-conditions';
+
 const preflightMethods = {
 	setTextareaOverflowNotice( layer, overflow ) {
 		const field = this.getLayerInputEl( layer );
@@ -56,6 +58,10 @@ const preflightMethods = {
 	},
 
 	clearCustomValidity() {
+		document.querySelectorAll( '[data-oc-layer-note]' ).forEach( ( el ) => {
+			el.setCustomValidity( '' );
+			el.removeAttribute( 'aria-invalid' );
+		} );
 		document
 			.querySelectorAll(
 				'[data-oc-layer-text], [data-oc-ai-image-description], [data-oc-layer-spotify], [data-oc-night-sky-location], [data-oc-night-sky-date], [data-oc-night-sky-time], [data-oc-night-sky-latitude], [data-oc-night-sky-longitude]'
@@ -73,6 +79,10 @@ const preflightMethods = {
 			return null;
 		}
 		switch ( layer.type ) {
+			case 'staff_note':
+				return document.querySelector(
+					`[data-oc-layer-note="${ layer.id }"]`
+				);
 			case 'curved_text':
 			case 'text':
 			case 'textarea':
@@ -230,6 +240,15 @@ const preflightMethods = {
 
 		for ( const area of this.areas ) {
 			for ( const layer of area.layers || [] ) {
+				if (
+					! layerIsShown(
+						layer,
+						this.areas.flatMap( ( entry ) => entry.layers || [] ),
+						this.inputs
+					)
+				) {
+					continue;
+				}
 				const isImageLayer = [
 					'image',
 					'ai_image',
@@ -246,6 +265,19 @@ const preflightMethods = {
 				let value = '';
 
 				switch ( layer.type ) {
+					case 'staff_note': {
+						value = String( input.value || '' );
+						const limit = Number( settings.char_limit ) || 10000;
+						if ( required && ! value.trim() ) {
+							errors.push( `${ label } is required.` );
+						}
+						if ( this.textLength( value ) > limit ) {
+							errors.push(
+								`${ label } exceeds the ${ limit } character limit.`
+							);
+						}
+						break;
+					}
 					case 'curved_text':
 					case 'text':
 					case 'textarea':
@@ -539,6 +571,15 @@ const preflightMethods = {
 
 		for ( const area of this.areas ) {
 			for ( const layer of area.layers || [] ) {
+				if (
+					! layerIsShown(
+						layer,
+						this.areas.flatMap( ( entry ) => entry.layers || [] ),
+						this.inputs
+					)
+				) {
+					continue;
+				}
 				const isImageLayer = [
 					'image',
 					'ai_image',
@@ -571,6 +612,7 @@ const preflightMethods = {
 
 				let filled = true;
 				switch ( layer.type ) {
+					case 'staff_note':
 					case 'curved_text':
 					case 'text':
 					case 'textarea':

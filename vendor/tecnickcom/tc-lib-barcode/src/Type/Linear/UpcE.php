@@ -133,25 +133,29 @@ class UpcE extends \Com\Tecnick\Barcode\Type\Linear\UpcA
     protected function convertUpcaToUpce(string $code): string
     {
         $tmp = \substr($code, 4, 3);
-        if ($tmp === '000' || $tmp === '100' || $tmp === '200') {
+        if (($tmp === '000' || $tmp === '100' || $tmp === '200') && \substr($code, 7, 2) === '00') {
             // manufacturer code ends in 000, 100, or 200
             return \substr($code, 2, 2) . \substr($code, 9, 3) . \substr($code, 4, 1);
         }
 
         $tmp = \substr($code, 5, 2);
-        if ($tmp === '00') {
+        if ($tmp === '00' && \substr($code, 7, 3) === '000') {
             // manufacturer code ends in 00
             return \substr($code, 2, 3) . \substr($code, 10, 2) . '3';
         }
 
         $tmp = \substr($code, 6, 1);
-        if ($tmp === '0') {
+        if ($tmp === '0' && \substr($code, 7, 4) === '0000') {
             // manufacturer code ends in 0
             return \substr($code, 2, 4) . \substr($code, 11, 1) . '4';
         }
 
-        // manufacturer code does not end in zero
-        return \substr($code, 2, 5) . \substr($code, 11, 1);
+        if (\substr($code, 7, 4) === '0000' && $code[11] >= '5') {
+            // Manufacturer code does not end in zero; product digit must be 5–9.
+            return \substr($code, 2, 5) . $code[11];
+        }
+
+        throw new BarcodeException('UPC-A payload cannot be compressed to UPC-E');
     }
 
     /**
@@ -167,6 +171,9 @@ class UpcE extends \Com\Tecnick\Barcode\Type\Linear\UpcA
         }
 
         $code = \str_pad($code, $this->code_length - 1, '0', STR_PAD_LEFT);
+        if ($code[0] !== '0' && $code[0] !== '1') {
+            throw new BarcodeException('UPC-E requires number system 0 or 1');
+        }
         // append the computed check digit only when the input does not already carry it,
         // otherwise getChecksum() just validates it and returns 0 (avoid a spurious digit)
         $check = $this->getChecksum($code);
@@ -185,8 +192,8 @@ class UpcE extends \Com\Tecnick\Barcode\Type\Linear\UpcA
      */
     protected function setBars(): void
     {
-        if (!\is_numeric($this->code)) {
-            throw new BarcodeException('Input code must be a number');
+        if (\preg_match('/\A[0-9]+\z/', $this->code) !== 1 || \strlen($this->code) > 12) {
+            throw new BarcodeException('UPC-E input must contain only digits and fit the UPC-A length');
         }
 
         $this->formatCode();

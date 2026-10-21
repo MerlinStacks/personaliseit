@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -26,11 +26,38 @@ use Test\TestUtil;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class RgbTest extends TestUtil
 {
+    public static function primaryAndWhiteVectors(): array
+    {
+        return [
+            'red' => [[1, 0, 0], [0, 1, 1, 0], [0, 1, 0.5]],
+            'green' => [[0, 1, 0], [1, 0, 1, 0], [1 / 3, 1, 0.5]],
+            'blue' => [[0, 0, 1], [1, 1, 0, 0], [2 / 3, 1, 0.5]],
+            'white' => [[1, 1, 1], [0, 0, 0, 0], [0, 0, 1]],
+        ];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('primaryAndWhiteVectors')]
+    public function testPrimaryAndWhiteConversions(array $rgb, array $cmyk, array $hsl): void
+    {
+        $model = new \Com\Tecnick\Color\Model\Rgb([
+            'red' => $rgb[0], 'green' => $rgb[1], 'blue' => $rgb[2], 'alpha' => 0.25,
+        ]);
+        $this->assertEqualsWithDelta(['cyan' => $cmyk[0], 'magenta' => $cmyk[1],
+            'yellow' => $cmyk[2], 'key' => $cmyk[3], 'alpha' => 0.25], $model->toCmykArray(), 1e-12);
+        $this->assertEqualsWithDelta(['hue' => $hsl[0], 'saturation' => $hsl[1],
+            'lightness' => $hsl[2], 'alpha' => 0.25], $model->toHslArray(), 1e-12);
+        $before = $model->getArray();
+        $this->assertSame($model, $model->invertColor()->invertColor());
+        $this->assertSame($before, $model->getArray());
+        $this->assertSame(0.25, $model->toCmykArray()['alpha']);
+        $this->assertSame(0.25, $model->toHslArray()['alpha']);
+    }
+
     protected function getTestObject(): \Com\Tecnick\Color\Model\Rgb
     {
         return new \Com\Tecnick\Color\Model\Rgb([

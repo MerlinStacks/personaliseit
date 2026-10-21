@@ -8,7 +8,7 @@
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  *
  * This file is part of tc-lib-color software library.
@@ -26,7 +26,7 @@ use Test\TestUtil;
  * @package   Color
  * @author    Nicola Asuni <info@tecnick.com>
  * @copyright 2015-2026 Nicola Asuni - Tecnick.com LTD
- * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE.TXT)
+ * @license   https://www.gnu.org/copyleft/lesser.html GNU-LGPL v3 (see LICENSE)
  * @link      https://github.com/tecnickcom/tc-lib-color
  */
 class CmykTest extends TestUtil
@@ -47,6 +47,20 @@ class CmykTest extends TestUtil
         $cmyk = $this->getTestObject();
         $type = $cmyk->getType();
         $this->assertEquals('CMYK', $type);
+    }
+
+    public function testEndpointsAlphaAndDoubleInversion(): void
+    {
+        foreach ([0.0, 1.0] as $key) {
+            foreach ([0.0, 1.0] as $alpha) {
+                $model = new \Com\Tecnick\Color\Model\Cmyk(['key' => $key, 'alpha' => $alpha]);
+                $this->assertEquals(['red' => 1.0 - $key, 'green' => 1.0 - $key,
+                    'blue' => 1.0 - $key, 'alpha' => $alpha], $model->toRgbArray());
+                $before = $model->getArray();
+                $this->assertSame($model, $model->invertColor()->invertColor());
+                $this->assertSame($before, $model->getArray());
+            }
+        }
     }
 
     public function testGetNormalizedValue(): void

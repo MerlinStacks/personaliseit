@@ -4,6 +4,8 @@
 
 /* eslint-disable no-console, no-alert */
 
+import { layerIsShown } from '../../shared/layer-conditions';
+
 const QUALITY_WARNING_MESSAGE =
 	'We found quality warnings that may affect print output. Press OK to continue, or Cancel to review.';
 const MAX_CUSTOMISATION_BYTES = 1024 * 1024;
@@ -12,6 +14,34 @@ const CART_PREVIEW_QUALITY = 0.82;
 const STORE_API_MERGE_TIMEOUT_MS = 10000;
 
 const checkoutMethods = {
+	visibleArtworkBlockers() {
+		const layers = this.areas.flatMap( ( area ) => area.layers || [] );
+		const shown = ( id ) => {
+			const layer = layers.find(
+				( item ) => Number( item.id ) === Number( id )
+			);
+			if ( ! layer || layerIsShown( layer, layers, this.inputs ) ) {
+				return true;
+			}
+			// Uploads and effects are tracked against the shared control's layer,
+			// even when only another member of that linked group is printed.
+			const members = this.linkedLayerMembers?.( layer.id ) || [];
+			return layers.some(
+				( candidate ) =>
+					members.includes( candidate.id ) &&
+					layerIsShown( candidate, layers, this.inputs )
+			);
+		};
+		return {
+			pending: this._artworkOperations
+				? Array.from( this._artworkOperations ).some( ( operation ) =>
+						shown( operation.layerId )
+				  )
+				: this.artworkPendingCount > 0,
+			failed: Array.from( this.failedArtworkReplacements ).some( shown ),
+			filterError: Object.keys( this.aiFilterErrors || {} ).some( shown ),
+		};
+	},
 	getCustomiserCartForm() {
 		const panel = document.getElementById( 'oc-customiser-panel' );
 		const owningForm = panel?.closest( 'form' );
@@ -86,22 +116,23 @@ const checkoutMethods = {
 		if ( this.handleVariationSubmitBlock() ) {
 			return false;
 		}
+		const blockers = this.visibleArtworkBlockers();
 		if (
 			this._submitInProgress ||
 			! this._customisationActive ||
-			this.artworkPendingCount > 0 ||
-			this.failedArtworkReplacements.size > 0 ||
-			Object.keys( this.aiFilterErrors || {} ).length > 0
+			blockers.pending ||
+			blockers.failed ||
+			blockers.filterError
 		) {
-			if ( this.artworkPendingCount > 0 ) {
+			if ( blockers.pending ) {
 				window.alert(
 					'Please wait for artwork uploads and image processing to finish.'
 				);
-			} else if ( this.failedArtworkReplacements.size > 0 ) {
+			} else if ( blockers.failed ) {
 				window.alert(
 					'A replacement upload failed. Retry it or choose "Use previous image" before adding this product to your cart.'
 				);
-			} else if ( Object.keys( this.aiFilterErrors || {} ).length > 0 ) {
+			} else if ( blockers.filterError ) {
 				window.alert(
 					'An image effect could not be applied. Retry it before adding this product to your cart.'
 				);
@@ -247,7 +278,7 @@ const checkoutMethods = {
 
 	async prepareCartCustomisation() {
 		this.syncInputsFromDOM();
-		if ( this.failedArtworkReplacements.size > 0 ) {
+		if ( this.visibleArtworkBlockers().failed ) {
 			this.renderPreflightMessages(
 				[
 					'A replacement image failed to upload. Retry it or explicitly use the previous image.',
