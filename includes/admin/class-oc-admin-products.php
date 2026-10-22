@@ -216,7 +216,8 @@ class OC_Admin_Products {
 
 		$revision          = max( 0, (int) ( $_POST['revision'] ?? 0 ) );
 		$expected_revision = max( 0, (int) ( $_POST['expected_revision'] ?? 0 ) );
-		$result            = OC_Autosave::store( $design_id, $state, $revision, $expected_revision );
+		$editor_id         = is_string( $_POST['editor_id'] ?? null ) ? $_POST['editor_id'] : '';
+		$result            = OC_Autosave::store( $design_id, $state, $revision, $expected_revision, $editor_id );
 		if ( 'stored' === $result['status'] ) {
 			wp_send_json_success(
 				[

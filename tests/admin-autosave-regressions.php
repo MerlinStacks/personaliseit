@@ -96,6 +96,20 @@ $state = [
 	],
 	'areas'  => [],
 ];
+$editor_a = str_repeat( 'a', 32 );
+$editor_b = str_repeat( 'b', 32 );
+check( 'stored' === OC_Autosave::store( 9, $state, 1, 0, $editor_a )['status'], 'Editor stores first draft before acknowledgement is lost' );
+$edited = $state;
+$edited['design']['name'] = 'Edited after lost acknowledgement';
+check( 'conflict' === OC_Autosave::store( 9, $edited, 1, 0, $editor_b )['status'], 'Another editor cannot reconcile a lost acknowledgement' );
+$reconciled = OC_Autosave::store( 9, $edited, 1, 0, $editor_a );
+check( 'stored' === $reconciled['status'] && 2 === $reconciled['revision'], 'Same editor reconciles its own unacknowledged write with a fresh revision' );
+check( $edited === OC_Autosave::restore( 9 )['state'], 'Reconciled draft includes subsequent edits' );
+check( 'conflict' === OC_Autosave::store( 9, $state, 2, 1, $editor_b )['status'], 'Competing editor remains blocked after reconciliation' );
+check( OC_Autosave::clear( 9, 2 ), 'Clear test draft to simulate eviction or expiry' );
+$after_expiry = OC_Autosave::store( 9, $edited, 3, 2, $editor_a );
+check( 'stored' === $after_expiry['status'] && 3 === $after_expiry['revision'], 'Expired draft does not produce a false newer-tab conflict' );
+OC_Autosave::clear( 9, 3 );
 $first = OC_Autosave::store( 7, $state, 1, 0 );
 check( 'stored' === $first['status'], 'Initial autosave' );
 check( $first === OC_Autosave::store( 7, $state, 1, 0 ), 'Exact retry must return original acknowledgement' );

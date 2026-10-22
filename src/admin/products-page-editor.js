@@ -67,6 +67,11 @@ import {
 	let designId = 0;
 	let dirtyRevision = 0;
 	let autosaveRevision = 0;
+	// Unique to this page load, not shared through storage with other tabs.
+	const editorId = Array.from(
+		window.crypto.getRandomValues( new Uint8Array( 16 ) ),
+		( byte ) => byte.toString( 16 ).padStart( 2, '0' )
+	).join( '' );
 	let autosaveInFlight = false;
 	let autosaveConflict = false;
 	let isHydrated = false;
@@ -281,6 +286,7 @@ import {
 			design_id: designId,
 			revision,
 			expected_revision: expectedRevision,
+			editor_id: editorId,
 			state: JSON.stringify( state ),
 		} );
 		fetch( window.ocProductsData?.ajaxUrl || '', { method: 'POST', body } )
@@ -308,10 +314,14 @@ import {
 						json.data?.message || 'HTTP ' + response.status
 					);
 				}
-				if ( Number( json.data?.revision ) !== revision ) {
+				const acknowledgedRevision = Number( json.data?.revision );
+				if (
+					acknowledgedRevision !== revision &&
+					acknowledgedRevision !== revision + 1
+				) {
 					throw new Error( 'Unexpected autosave revision.' );
 				}
-				autosaveRevision = revision;
+				autosaveRevision = acknowledgedRevision;
 				requestStored = true;
 				lastSavedTime = Date.now();
 				autosaveError = '';

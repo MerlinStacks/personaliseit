@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.20.4 - 2026-10-22
+
+### Fixed
+- Prevent false newer-tab autosave conflicts when the server saved a draft but the browser missed its acknowledgement. Each editor page has its own identity, allowing safe reconciliation of its own write while retaining conflict protection against other editors.
+- Resume autosaving when a draft transient expires or is evicted instead of incorrectly reporting a newer design in another tab. Final saves still check the persisted design revision before applying changes.
+
+### Release notes
+- Hosted release notes use WordPress's native plugin-details Changelog section with headings, paragraphs and lists, without an embedded frame or preformatted scrolling box.
+
+### Upgrade notes
+- No database migration is required. Replace the existing plugin without uninstalling it. Preserve unsaved work before reloading an existing editor; already-open pages do not acquire the new retry handling until reloaded.
+
+## 1.20.3 - 2026-10-22
+
+### Fixed
+- Correct the UV fallback run-array formatting that failed the 1.20.2 PHP coding-standard workflow, without weakening checks or changing print output.
+
+### Release notes
+- Includes the 1.20.2 missing-character vector fallback and CFF print-conversion fixes. Hosted release notes use WordPress's native Changelog section with headings, paragraphs and lists, without an embedded frame or preformatted scrolling box.
+
+### Upgrade notes
+- No database migration is required. Replace the existing plugin without uninstalling it. For Photograph Signature and other CFF fonts, use Font Manager's Convert for print action once before retrying affected jobs.
+
 ## 1.20.2 - 2026-10-22
 
 ### Fixed

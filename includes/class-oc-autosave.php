@@ -105,7 +105,7 @@ class OC_Autosave {
 		update_option( 'oc_recovery_cleanup_cursor', count( $rows ) < 100 ? 0 : (int) end( $rows )->option_id, false );
 	}
 
-	public static function store( int $design_id, array $state, int $revision = 0, int $expected_revision = 0 ): array {
+	public static function store( int $design_id, array $state, int $revision = 0, int $expected_revision = 0, string $editor_id = '' ): array {
 		$key = self::key( $design_id );
 		if ( null === $key || ! self::is_valid_state( $state ) ) {
 			return [
@@ -115,10 +115,10 @@ class OC_Autosave {
 			];
 		}
 
-		return self::store_for_key( $key, $state, $revision, $expected_revision );
+		return self::store_for_key( $key, $state, $revision, $expected_revision, $editor_id );
 	}
 
-	private static function store_for_key( string $key, array $state, int $revision, int $expected_revision ): array {
+	private static function store_for_key( string $key, array $state, int $revision, int $expected_revision, string $editor_id = '' ): array {
 		$expected_revision = max( 0, $expected_revision );
 		$revision          = max( 0, $revision );
 		$lock_name         = self::acquire_lock( $key );
@@ -142,6 +142,18 @@ class OC_Autosave {
 				];
 			}
 
+			// A lost acknowledgement can leave this editor one revision behind itself.
+			// Never reconcile a different editor (or legacy requests without an identity).
+			$same_editor = 1 === preg_match( '/^[a-f0-9]{32}$/D', $editor_id )
+				&& ( $current['editor_id'] ?? '' ) === $editor_id;
+			if ( $same_editor && $revision === $expected_revision + 1 && $revision === $current_revision ) {
+				$expected_revision = $current_revision;
+				$revision          = $current_revision + 1;
+			}
+			// Expired/evicted transients are missing drafts, not newer competing drafts.
+			if ( false === $current && $revision === $expected_revision + 1 ) {
+				$current_revision = $expected_revision;
+			}
 			if ( $expected_revision !== $current_revision ) {
 				return [
 					'status'    => 'conflict',
@@ -167,6 +179,9 @@ class OC_Autosave {
 				'timestamp' => $timestamp,
 				'revision'  => $revision,
 			];
+			if ( 1 === preg_match( '/^[a-f0-9]{32}$/D', $editor_id ) ) {
+				$data['editor_id'] = $editor_id;
+			}
 			if ( false === set_transient( $key, $data, self::TTL_SECONDS ) ) {
 				return [
 					'status'    => 'failed',

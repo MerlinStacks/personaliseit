@@ -1,0 +1,16 @@
+OverCustomise 1.20.3 - 22 October 2026
+
+Fixes:
+- Correct the UV fallback run-array formatting that failed the 1.20.2 PHP coding-standard workflow. Checks remain enabled and print output is unchanged.
+
+Included from 1.20.2:
+- Missing UV text characters use bundled vector fallback outlines while supported lettering retains its selected font and kerning. Characters missing from both fonts still stop export for review rather than printing missing-glyph boxes.
+- CFF fonts are detected by content even when named .ttf, expose Convert for print in Font Manager, and use converted print companions. Browser conversion recognises these files as OpenType.
+
+Release notes:
+- Notes use WordPress's native plugin-details Changelog section with headings, paragraphs and lists. There is no embedded frame, custom page or preformatted scrolling box.
+
+Upgrade notes:
+- For Photograph Signature and other CFF fonts, use Font Manager's Convert for print action once, then retry affected print jobs.
+- Requires WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation. No database migration is required.
+- Replace the existing plugin without uninstalling it. Saved customisations and the existing plugin-folder identity are preserved; a personaliseit-main compatibility ZIP is included for legacy installations.

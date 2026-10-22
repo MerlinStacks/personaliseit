@@ -47,6 +47,47 @@ const deferred = () => {
 };
 const tick = () => new Promise( ( resolve ) => setImmediate( resolve ) );
 
+test( 'autosave accepts a reconciled acknowledgement and uses its revision on the next request', async () => {
+	const requests = [];
+	const globals = {
+		isDirty: true,
+		designId: 7,
+		isHydrated: true,
+		autosaveInFlight: false,
+		autosaveConflict: false,
+		isSubmitting: false,
+		pendingSubmit: false,
+		dirtyRevision: 1,
+		autosaveRevision: 0,
+		editorId: 'a'.repeat( 32 ),
+		collectState: () => ( { design: {}, areas: [] } ),
+		document: { getElementById: () => ( { value: 'b'.repeat( 64 ) } ) },
+		window: { ocProductsData: { ajaxUrl: '/ajax', nonce: 'nonce' } },
+		URLSearchParams,
+		updateAutosaveIndicator() {},
+		console: { warn: assert.fail },
+		fetch: async ( url, { body } ) => {
+			requests.push( body );
+			return {
+				ok: true,
+				json: async () => ( { success: true, data: { revision: requests.length + 1 } } ),
+			};
+		},
+	};
+	const { doAutosave } = await loadFunctions(
+		'src/admin/products-page-editor.js', [ 'doAutosave' ], globals
+	);
+	doAutosave();
+	await tick();
+	assert.equal( globals.autosaveRevision, 2 );
+	assert.equal( globals.isDirty, false );
+	assert.equal( requests[ 0 ].get( 'editor_id' ), globals.editorId );
+	doAutosave( true );
+	await tick();
+	assert.equal( requests[ 1 ].get( 'expected_revision' ), '2' );
+	assert.equal( globals.autosaveRevision, 3 );
+} );
+
 test( 'rotated area layer handles and movement follow local axes at every image and unit scale', async () => {
 	const globals = {
 		drag: null,

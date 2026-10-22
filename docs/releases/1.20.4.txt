@@ -1,0 +1,13 @@
+OverCustomise 1.20.4 - 22 October 2026
+
+Fixes:
+- Prevent false newer-tab autosave conflicts after the server saves a draft but the browser misses the response. A unique identity for each editor page allows it to reconcile its own unacknowledged write without bypassing protection against other editors.
+- Resume autosaving after a draft expires or is evicted, rather than incorrectly reporting a newer version in another tab. Final saves continue to check the persisted design revision before applying changes.
+
+Release notes:
+- Release notes appear directly in WordPress's native plugin-details Changelog section using headings, paragraphs and lists. No embedded frame, custom page or preformatted scrolling box is used.
+
+Upgrade notes:
+- Requires WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation. No database migration is required.
+- Replace the existing plugin without uninstalling it. Saved customisations and the existing plugin-folder identity are preserved.
+- Preserve unsaved work before reloading an editor. Already-open editor pages need a reload after upgrading to use the new autosave retry handling; this update does not automatically recover changes in a currently blocked page.
