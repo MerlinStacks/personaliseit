@@ -8,6 +8,70 @@ use PHPUnit\Framework\TestCase;
 require_once OC_PATH . 'includes/print/class-oc-print-uv.php';
 
 class Test_Print_UV_Text extends TestCase {
+	public function test_cff_fonts_named_ttf_offer_conversion_and_resolve_the_print_companion(): void {
+		require_once OC_PATH . 'includes/admin/class-oc-admin-fonts.php';
+		$relative = 'overcustomise/fonts/oc-cff-test-' . bin2hex( random_bytes( 8 ) ) . '.ttf';
+		$source   = wp_upload_dir()['basedir'] . '/' . $relative;
+		$print    = substr( $source, 0, -4 ) . '-print.ttf';
+		wp_mkdir_p( dirname( $source ) );
+		file_put_contents( $source, 'OTTO' );
+		try {
+			$convert = new ReflectionMethod( OC_Admin_Fonts::class, 'can_convert_for_print' );
+			$this->assertTrue( $convert->invoke( null, $relative ) );
+			$this->assertFalse( $convert->invoke( null, '../outside.ttf' ) );
+			copy( OC_PATH . 'tests/Annabelle JF Regular.ttf', $print );
+			$resolve = new ReflectionMethod( OC_Print_Base::class, 'get_font_path' );
+			$this->assertSame( realpath( $print ), $resolve->invoke( null, (object) [ 'file_path' => $relative ] ) );
+			file_put_contents( $source, "\x00\x01\x00\x00" );
+			$this->assertFalse( $convert->invoke( null, $relative ), 'Ordinary TTF fonts must not require conversion.' );
+		} finally {
+			unlink( $source );
+			if ( is_file( $print ) ) {
+				unlink( $print );
+			}
+		}
+	}
+
+	public function test_missing_glyphs_use_fallback_without_replacing_supported_lettering(): void {
+		require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
+		$font    = OC_PATH . 'tests/Annabelle JF Regular.ttf';
+		$outline = new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_text_outline' );
+		$runs    = new ReflectionMethod( OC_Print_Base::class, 'uv_text_outlines' );
+		$measure = new ReflectionMethod( OC_Print_Base::class, 'uv_text_runs' );
+		$this->assertNull( $outline->invoke( null, $font, '♥', 1.0 ), 'Fixture must lack the fallback character.' );
+		$left  = $outline->invoke( null, $font, 'AV', 1.0 );
+		$right = $outline->invoke( null, $font, 'VA', 1.0 );
+		$this->assertSame( [ $left ], $runs->invoke( null, 'AV', $font ), 'Supported runs must retain their original outlines and kerning.' );
+		$mixed = $runs->invoke( null, 'AV♥VA', $font );
+		$this->assertCount( 3, $mixed );
+		$this->assertSame( $left, $mixed[0] );
+		$this->assertSame( $right, $mixed[2] );
+		$this->assertNotEmpty( $mixed[1]['commands'] );
+		$this->assertGreaterThan( 0, $mixed[1]['width'] );
+		$artwork = $measure->invoke( null, 'AV♥VA', $font );
+		$metrics = $measure->invoke( null, 'AV♥VA', $font, false );
+		$this->assertEqualsWithDelta( array_sum( array_column( $mixed, 'width' ) ), $artwork['width'], 0.000001 );
+		$this->assertSame( $artwork['width'], $metrics['width'], 'Wrapping and artwork must use identical fallback metrics.' );
+		$this->assertSame( '', $metrics['svg'] );
+		$this->assertSame( 3, substr_count( $artwork['svg'], '<path ' ) );
+	}
+
+	public function test_characters_missing_from_both_fonts_still_fail_instead_of_printing_boxes(): void {
+		require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
+		$method = new ReflectionMethod( OC_Print_Base::class, 'uv_text_outlines' );
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'Neither the selected UV font nor the bundled fallback can outline:' );
+		$method->invoke( null, "A\u{10FFFF}", OC_PATH . 'tests/Annabelle JF Regular.ttf' );
+	}
+
+	public function test_invalid_primary_font_is_not_silently_replaced(): void {
+		require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
+		$method = new ReflectionMethod( OC_Print_Base::class, 'uv_text_outlines' );
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'The selected UV print font is invalid.' );
+		$method->invoke( null, 'ABC', __FILE__ );
+	}
+
 	public function test_emoji_sequences_and_text_presentation(): void {
 		$method = new ReflectionMethod( OC_Print_Base::class, 'uv_emoji_key' );
 		foreach ( [

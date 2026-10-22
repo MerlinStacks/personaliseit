@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.20.2 - 2026-10-22
+
+### Fixed
+- UV text now uses bundled vector fallback outlines for missing characters while preserving supported lettering and kerning in the selected font. This fixes symbols such as the bullet in Photograph Signature without replacing the complete line or printing missing-glyph boxes.
+- Detect CFF fonts by their contents, including files named `.ttf`, expose their Convert for print action, and resolve converted print companions regardless of the original extension.
+- Browser print conversion now recognises CFF content in `.ttf` files as OpenType instead of treating it as TrueType.
+
+### Release notes
+- Hosted release notes use WordPress's native plugin-details Changelog section with headings, paragraphs and lists, without an embedded frame or preformatted scrolling box.
+
+### Upgrade notes
+- For Photograph Signature and other CFF fonts, use Font Manager's Convert for print action once before retrying affected print jobs. Missing-character fallback applies to all UV fonts; characters absent from both the selected font and bundled fallback still stop export for review.
+- No database migration is required. Replace the existing plugin without uninstalling it; the existing plugin-folder identity and saved customisations are preserved.
+
 ## 1.20.1 - 2026-10-21
 
 ### Fixed

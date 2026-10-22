@@ -184,10 +184,9 @@ trait OC_Print_UV_Text {
 			$segments[] = [ 'emoji' => $key ];
 			$plain      = '';
 		}
-		$segments[]     = [ 'text' => $plain ];
-		$width          = 0.0;
-		$svg            = '';
-		$outline_method = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
+		$segments[] = [ 'text' => $plain ];
+		$width      = 0.0;
+		$svg        = '';
 		foreach ( $segments as $segment ) {
 			if ( isset( $segment['emoji'] ) ) {
 				if ( $artwork ) {
@@ -196,21 +195,77 @@ trait OC_Print_UV_Text {
 				}
 				$width += 1.0;
 			} elseif ( '' !== $segment['text'] ) {
-				$outline = $outline_method->invoke( null, $font_path, $segment['text'], 1.0 );
-				if ( ! is_array( $outline ) ) {
-					throw new \RuntimeException( 'The selected UV font cannot outline all of the requested characters.' );
+				foreach ( self::uv_text_outlines( $segment['text'], $font_path ) as $outline ) {
+					$d = $artwork ? self::eps_outline_commands_to_svg_path( $outline['commands'] ) : '';
+					if ( '' !== $d ) {
+						$svg .= sprintf( '<path transform="translate(%.6F 0)" d="%s"/>', $width, htmlspecialchars( $d, ENT_QUOTES | ENT_XML1, 'UTF-8' ) );
+					}
+					$width += $outline['width'];
 				}
-				$d = $artwork ? self::eps_outline_commands_to_svg_path( $outline['commands'] ) : '';
-				if ( '' !== $d ) {
-					$svg .= sprintf( '<path transform="translate(%.6F 0)" d="%s"/>', $width, htmlspecialchars( $d, ENT_QUOTES | ENT_XML1, 'UTF-8' ) );
-				}
-				$width += $outline['width'];
 			}
 		}
 		return [
 			'width' => $width,
 			'svg'   => $svg,
 		];
+	}
+
+	/** Keep supported lettering and kerning; use bundled outlines only for missing graphemes. */
+	private static function uv_text_outlines( string $text, string $font_path ): array {
+		$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
+		$outline = $method->invoke( null, $font_path, $text, 1.0 );
+		if ( is_array( $outline ) ) {
+			return [ $outline ];
+		}
+		// A broken source must not silently replace the entire selected font.
+		$loader = new \ReflectionMethod( 'OC_Print_Embroidery', 'load_ttf_outline_font' );
+		$font   = $loader->invoke( null, $font_path );
+		if ( ! $font ) {
+			throw new \RuntimeException( 'The selected UV print font is invalid. Convert it for print in Font Manager.' );
+		}
+		$fallback = self::temp_path_with_extension( 'oc-uv-fallback-font', 'ttf' );
+		try {
+			$source = OC_PATH . 'vendor/tecnickcom/tc-lib-pdf-font/target/fonts/dejavu/dejavusans.z';
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bundled local font.
+			$bytes = gzuncompress( (string) file_get_contents( $source ), 16777216 );
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Temporary outline source.
+			if ( ! $fallback || false === $bytes || false === file_put_contents( $fallback, $bytes ) ) {
+				throw new \RuntimeException( 'Could not prepare the UV fallback font.' );
+			}
+			preg_match_all( '/\X/u', $text, $matches );
+			$runs  = [];
+			$glyph = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_glyph_id' );
+			foreach ( $matches[0] as $grapheme ) {
+				$path = $font_path;
+				// Inspect the loaded cmap, rather than reloading/outlining the font for every character.
+				foreach ( preg_split( '//u', $grapheme, -1, PREG_SPLIT_NO_EMPTY ) as $character ) {
+					$codepoint = mb_ord( $character, 'UTF-8' );
+					if ( 0 !== $codepoint && 0 === $glyph->invoke( null, $font, $codepoint ) ) {
+						$path = $fallback;
+						break;
+					}
+				}
+				$last = count( $runs ) - 1;
+				if ( $last >= 0 && $runs[ $last ]['path'] === $path ) {
+					$runs[ $last ]['text'] .= $grapheme;
+				} else {
+					$runs[] = [ 'path' => $path, 'text' => $grapheme ];
+				}
+			}
+			$outlines = [];
+			foreach ( $runs as $run ) {
+				$outline = $method->invoke( null, $run['path'], $run['text'], 1.0 );
+				if ( ! is_array( $outline ) ) {
+					throw new \RuntimeException( 'Neither the selected UV font nor the bundled fallback can outline: ' . $run['text'] );
+				}
+				$outlines[] = $outline;
+			}
+			return $outlines;
+		} finally {
+			if ( is_string( $fallback ) ) {
+				@unlink( $fallback ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged, WordPress.WP.AlternativeFunctions.unlink_unlink -- Temporary outline source.
+			}
+		}
 	}
 
 	/** Wrap older textarea payloads, including unbroken words, at grapheme boundaries. */

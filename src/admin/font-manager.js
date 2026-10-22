@@ -615,7 +615,7 @@ import { createGroupPicker } from './group-picker';
 
 			if ( ! json.success ) {
 				if (
-					[ 'OTF', 'WOFF', 'WOFF2' ].includes(
+					[ 'TTF', 'OTF', 'WOFF', 'WOFF2' ].includes(
 						String( font.ext || '' ).toUpperCase()
 					)
 				) {
@@ -702,7 +702,7 @@ import { createGroupPicker } from './group-picker';
 
 	function fontSourceType( font, buffer ) {
 		const ext = String( font.ext || '' ).toLowerCase();
-		if ( ext !== 'otf' || buffer.byteLength < 4 ) {
+		if ( ! [ 'otf', 'ttf' ].includes( ext ) || buffer.byteLength < 4 ) {
 			return ext;
 		}
 

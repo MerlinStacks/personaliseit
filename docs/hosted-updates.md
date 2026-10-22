@@ -43,7 +43,7 @@ and add `docs/releases/<version>.txt` when preparing the next release.
 2. Use the site's existing publisher, from the site tooling checkout:
 
    ```bash
-    python3 tools/publish-update.py overcustomise /path/to/personaliseit-main-1.20.1.zip --changelog /path/to/docs/releases/1.20.1.txt
+    python3 tools/publish-update.py overcustomise /path/to/personaliseit-main-1.20.2.zip --changelog /path/to/docs/releases/1.20.2.txt
    ```
 
 3. After deployment approval, upload the generated versioned ZIP first, then
@@ -65,7 +65,7 @@ installation instead of replacing `personaliseit-main/overcustomise.php`.
 1. On staging first, back up the database and existing plugin directory. Confirm
    the active plugin's actual directory and that it contains `overcustomise.php`.
 2. For a site using `personaliseit-main`, use the ready-built
-    `dist/personaliseit-main-1.20.1.zip`. No manual ZIP editing is needed.
+    `dist/personaliseit-main-1.20.2.zip`. No manual ZIP editing is needed.
    For any other legacy folder name, extract the standard release ZIP, rename its
    top-level folder to the site's exact existing name, and re-zip that folder.
    Change only the enclosing folder name, not the plugin PHP filename or contents.

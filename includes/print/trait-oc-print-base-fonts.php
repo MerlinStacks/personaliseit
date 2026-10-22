@@ -60,7 +60,7 @@ trait OC_Print_Base_Fonts {
 			return null;
 		}
 
-		if ( 'otf' === strtolower( pathinfo( $real, PATHINFO_EXTENSION ) ) && self::is_cff_opentype( $real ) ) {
+		if ( self::is_cff_opentype( $real ) ) {
 			$print_font = self::get_print_companion_font_path( $real );
 			if ( ! $print_font ) {
 				$print_font = self::get_print_variant_font_path( $font );

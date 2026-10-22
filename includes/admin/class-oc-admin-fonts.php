@@ -760,7 +760,7 @@ class OC_Admin_Fonts {
 		if ( 'woff2' === $ext ) {
 			return new \WP_Error( 'woff2_unsupported', __( 'WOFF2 cannot be converted automatically. Upload the original TTF or OTF and keep the same font name/style.', 'overcustomise' ) );
 		}
-		if ( ! in_array( $ext, [ 'woff', 'otf' ], true ) ) {
+		if ( ! self::can_convert_for_print( (string) $font->file_path ) ) {
 			return new \WP_Error( 'already_compatible', __( 'This font is already print-compatible.', 'overcustomise' ) );
 		}
 		if ( 'woff' === $ext && ! class_exists( 'OC_WOFF_Converter' ) ) {
@@ -796,7 +796,7 @@ class OC_Admin_Fonts {
 			}
 		}
 
-		if ( 'otf' === $output_ext && self::is_cff_opentype_file( $source_for_print ) ) {
+		if ( self::is_cff_opentype_file( $source_for_print ) ) {
 			if ( $source_for_print !== $real ) {
 				wp_delete_file( $source_for_print );
 			}
@@ -969,7 +969,13 @@ class OC_Admin_Fonts {
 	}
 
 	private static function can_convert_for_print( string $file_path ): bool {
-		return in_array( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ), [ 'woff', 'woff2', 'otf' ], true );
+		if ( in_array( strtolower( pathinfo( $file_path, PATHINFO_EXTENSION ) ), [ 'woff', 'woff2', 'otf' ], true ) ) {
+			return true;
+		}
+		$upload = wp_upload_dir();
+		$path   = realpath( trailingslashit( $upload['basedir'] ) . ltrim( $file_path, '/' ) );
+		$base   = self::managed_font_directory( $upload );
+		return $path && $base && str_starts_with( $path, rtrim( $base, '/\\' ) . DIRECTORY_SEPARATOR ) && is_file( $path ) && is_readable( $path ) && self::is_cff_opentype_file( $path );
 	}
 
 	private static function is_cff_opentype_file( string $path ): bool {
