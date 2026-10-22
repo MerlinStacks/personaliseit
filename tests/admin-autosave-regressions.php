@@ -88,7 +88,7 @@ $wpdb = new class {
 	public function query( $sql ) { $this->queries[] = $sql; return 1; }
 	public function update( $table, $data, ...$args ) { $this->mutations++; $this->name = $data['name']; return 1; }
 };
-$state = [
+$state    = [
 	'design' => [
 		'name'     => 'Draft',
 		'flatRate' => 0,
@@ -99,12 +99,12 @@ $state = [
 $editor_a = str_repeat( 'a', 32 );
 $editor_b = str_repeat( 'b', 32 );
 check( 'stored' === OC_Autosave::store( 9, $state, 1, 0, $editor_a )['status'], 'Editor stores first draft before acknowledgement is lost' );
-$edited = $state;
+$edited                   = $state;
 $edited['design']['name'] = 'Edited after lost acknowledgement';
 check( 'conflict' === OC_Autosave::store( 9, $edited, 1, 0, $editor_b )['status'], 'Another editor cannot reconcile a lost acknowledgement' );
 $reconciled = OC_Autosave::store( 9, $edited, 1, 0, $editor_a );
 check( 'stored' === $reconciled['status'] && 2 === $reconciled['revision'], 'Same editor reconciles its own unacknowledged write with a fresh revision' );
-check( $edited === OC_Autosave::restore( 9 )['state'], 'Reconciled draft includes subsequent edits' );
+check( OC_Autosave::restore( 9 )['state'] === $edited, 'Reconciled draft includes subsequent edits' );
 check( 'conflict' === OC_Autosave::store( 9, $state, 2, 1, $editor_b )['status'], 'Competing editor remains blocked after reconciliation' );
 check( OC_Autosave::clear( 9, 2 ), 'Clear test draft to simulate eviction or expiry' );
 $after_expiry = OC_Autosave::store( 9, $edited, 3, 2, $editor_a );

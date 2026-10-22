@@ -70,12 +70,17 @@ test( 'autosave accepts a reconciled acknowledgement and uses its revision on th
 			requests.push( body );
 			return {
 				ok: true,
-				json: async () => ( { success: true, data: { revision: requests.length + 1 } } ),
+				json: async () => ( {
+					success: true,
+					data: { revision: requests.length + 1 },
+				} ),
 			};
 		},
 	};
 	const { doAutosave } = await loadFunctions(
-		'src/admin/products-page-editor.js', [ 'doAutosave' ], globals
+		'src/admin/products-page-editor.js',
+		[ 'doAutosave' ],
+		globals
 	);
 	doAutosave();
 	await tick();
