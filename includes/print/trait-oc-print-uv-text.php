@@ -249,7 +249,10 @@ trait OC_Print_UV_Text {
 				if ( $last >= 0 && $runs[ $last ]['path'] === $path ) {
 					$runs[ $last ]['text'] .= $grapheme;
 				} else {
-					$runs[] = [ 'path' => $path, 'text' => $grapheme ];
+					$runs[] = [
+						'path' => $path,
+						'text' => $grapheme,
+					];
 				}
 			}
 			$outlines = [];
