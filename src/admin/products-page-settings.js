@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars, no-nested-ternary */
 
 import { bindCutLineUpload } from './products-page-cut-line';
+import { bindMaterialSettings } from './products-page-materials';
 
 export function createProductsPageSettings( deps ) {
 	const {
@@ -701,7 +702,7 @@ export function createProductsPageSettings( deps ) {
 							esc( layer.label ) +
 							'" />'
 					) +
-					( layer.type === 'cut_line'
+					( [ 'cut_line', 'laser_material' ].includes( layer.type )
 						? ''
 						: '<p class="oc-settings-section-hdr">Links</p>' +
 						  '<p id="oc-links-description" class="oc-links-description">Use the same group to share customer input between layers of the same type.' +
@@ -723,29 +724,89 @@ export function createProductsPageSettings( deps ) {
 						'X',
 						'oc-layer-x',
 						layer.x,
-						layer.type === 'cut_line' ? '' : 'min="0" '
+						[ 'cut_line', 'laser_material' ].includes( layer.type )
+							? ''
+							: 'min="0" '
 					) +
 					numberField(
 						'Y',
 						'oc-layer-y',
 						layer.y,
-						layer.type === 'cut_line' ? '' : 'min="0" '
+						[ 'cut_line', 'laser_material' ].includes( layer.type )
+							? ''
+							: 'min="0" '
 					) +
 					numberField( 'W', 'oc-layer-w', layer.w, 'min="1" ' ) +
 					numberField( 'H', 'oc-layer-h', layer.h, 'min="1" ' ) +
 					'</div>'
 				);
+			case 'material': {
+				const library = (
+					window.ocProductsData?.laserMaterials || []
+				).filter( ( item ) => item.active );
+				const selected = s.material_ids || [];
+				return (
+					field(
+						s.materialSvg
+							? 'Replace material SVG silhouette'
+							: 'Upload material SVG silhouette',
+						'<input type="file" id="oc-material-shape-file" accept=".svg,image/svg+xml" aria-label="Upload material SVG silhouette" />' +
+							'<p class="oc-hint">Static SVG, maximum 256 KiB. Use a filled silhouette with transparent surroundings and outlined text. Its alpha and holes define the material surface; the chosen material recolours it.</p>' +
+							`<p id="oc-material-shape-status" role="status" aria-live="polite">${
+								s.materialSvg
+									? 'SVG silhouette uploaded.'
+									: 'No SVG silhouette uploaded.'
+							}</p>`
+					) +
+					field(
+						'Available materials',
+						library
+							.map(
+								( item ) =>
+									`<label style="display:block;margin-bottom:8px;"><input type="checkbox" data-oc-material-choice value="${ esc(
+										item.id
+									) }"${
+										selected.includes( item.id )
+											? ' checked'
+											: ''
+									}> ${ esc( item.name ) }</label>`
+							)
+							.join( '' ) ||
+							'<p class="oc-hint">Add active materials in Laser Materials first.</p>'
+					) +
+					field(
+						'Default material',
+						selectInput(
+							'oc-set-default-material',
+							library
+								.filter( ( item ) =>
+									selected.includes( item.id )
+								)
+								.map(
+									( item ) =>
+										`<option value="${ esc( item.id ) }"${
+											item.id === s.default_material_id
+												? ' selected'
+												: ''
+										}>${ esc( item.name ) }</option>`
+								)
+								.join( '' )
+						)
+					) +
+					'<p class="oc-hint">Place this layer below the engraving artwork in this print area. Artwork above it uses this material’s engraving colour until another material layer. Layers below it and other print areas keep their existing engraving finish. This SVG surface is not a cut line and is never included in production files. Lock the layer to use a fixed material without a customer picker.</p>'
+				);
+			}
 			case 'cut_line':
 				return field(
 					s.cutLineSvg
-						? 'Replace cut line SVG'
-						: 'Upload cut line SVG',
-					'<input type="file" id="oc-cut-line-file" accept=".svg,image/svg+xml" aria-label="Upload or replace cut line SVG" />' +
-						'<p class="oc-hint">SVG only, maximum 256 KiB. Width and height can be resized independently. Cut lines may extend outside the print area.</p>' +
+						? 'Replace cut line SVG or PDF'
+						: 'Upload cut line SVG or PDF',
+					'<input type="file" id="oc-cut-line-file" accept=".svg,.pdf,image/svg+xml,application/pdf" aria-label="Upload or replace cut line SVG or PDF" />' +
+						'<p class="oc-hint">SVG or vector PDF, maximum 256 KiB. PDFs use the first page and require Poppler on the server. Convert text to outlines and remove images. Width and height can be resized independently. Cut lines may extend outside the print area.</p>' +
 						'<p id="oc-cut-line-status" role="status" aria-live="polite">' +
 						( s.cutLineSvg
-							? 'SVG uploaded.'
-							: 'No SVG uploaded.' ) +
+							? 'Cut line uploaded.'
+							: 'No cut line uploaded.' ) +
 						'</p>'
 				);
 			case 'content':
@@ -1229,6 +1290,9 @@ export function createProductsPageSettings( deps ) {
 
 		if ( layer.type === 'cut_line' ) {
 			bindCutLineUpload( layer, area, commitChange );
+		}
+		if ( layer.type === 'laser_material' ) {
+			bindMaterialSettings( layer, area, commitChange );
 		}
 		if (
 			[ 'text', 'curved_text', 'textarea', 'image', 'clipmask' ].includes(

@@ -8,8 +8,11 @@ import {
 	Textbox,
 } from 'fabric';
 import { appendCutLinePreview } from './products-page-cut-line';
+import { appendMaterialPreview } from './products-page-materials';
+import { materialPalette } from '../frontend/customiser/materials';
 import { createCurvedText } from '../shared/curved-text';
 import { engravingPalette } from '../frontend/customiser/engraving-preview';
+import { loadPreviewFallback, previewFontFamily } from '../shared/preview-font';
 import {
 	layoutMultilineTextbox,
 	multilineTextboxFits,
@@ -44,7 +47,7 @@ export function createLayerPreviewRenderer( deps ) {
 		const TextClass = multiline ? Textbox : FabricText;
 		const measured = new TextClass( text, {
 			...( multiline ? { width } : {} ),
-			fontFamily: font?.name || 'sans-serif',
+			fontFamily: previewFontFamily( font ),
 			fontWeight: font?.weight || 'normal',
 			fontStyle: font?.style || 'normal',
 			fontSize,
@@ -84,7 +87,7 @@ export function createLayerPreviewRenderer( deps ) {
 					{
 						left: width / 2,
 						top: height / 2,
-						fontFamily: font?.name || 'sans-serif',
+						fontFamily: previewFontFamily( font ),
 						fontWeight: font?.weight || 'normal',
 						fontStyle: font?.style || 'normal',
 						fontSize,
@@ -128,7 +131,7 @@ export function createLayerPreviewRenderer( deps ) {
 			originX: 'center',
 			originY: 'center',
 			...( isSingleLine ? {} : { width } ),
-			fontFamily: font?.name || 'sans-serif',
+			fontFamily: previewFontFamily( font ),
 			fontWeight: font?.weight || 'normal',
 			fontStyle: font?.style || 'normal',
 			fontSize,
@@ -251,6 +254,20 @@ export function createLayerPreviewRenderer( deps ) {
 	}
 
 	function engravingPreview( material ) {
+		if ( material === 'engraving_material' ) {
+			return {
+				color: '#171717',
+				palette: engravingPalette( material ),
+				shadow: '',
+			};
+		}
+		if ( material && typeof material === 'object' ) {
+			return {
+				color: material.engraving,
+				palette: materialPalette( material ),
+				shadow: '',
+			};
+		}
 		if ( [ 'glass', 'gold_metal', 'wood' ].includes( material ) ) {
 			const palette = engravingPalette( material );
 			return {
@@ -360,7 +377,9 @@ export function createLayerPreviewRenderer( deps ) {
 		);
 		svg.appendChild( definition );
 		el.appendChild( svg );
-		return `url(#${ definition.id }) drop-shadow(0 1px 1px ${ palette.highlight })`;
+		return palette.flat
+			? `url(#${ definition.id })`
+			: `url(#${ definition.id }) drop-shadow(0 1px 1px ${ palette.highlight })`;
 	}
 
 	function applyLayerPreview(
@@ -392,7 +411,9 @@ export function createLayerPreviewRenderer( deps ) {
 				: null;
 		const clipartUrl = s.default_clipart_url || selectedClipart?.url || '';
 
-		if ( layer.type === 'cut_line' ) {
+		if ( layer.type === 'laser_material' ) {
+			appendMaterialPreview( el, layer, renderedW, renderedH );
+		} else if ( layer.type === 'cut_line' ) {
 			appendCutLinePreview( el, s.cutLineSvg );
 		} else if (
 			[ 'text', 'curved_text', 'textarea' ].includes( layer.type )
@@ -436,14 +457,16 @@ export function createLayerPreviewRenderer( deps ) {
 			render();
 			if ( font && document.fonts?.load ) {
 				const preview = el._ocTextPreviewCanvas;
-				document.fonts
-					.load(
+				Promise.all( [
+					loadPreviewFallback( font ),
+					document.fonts.load(
 						`${ font.style || 'normal' } ${
 							font.weight || 'normal'
 						} ${ Math.max( 1, fs ) }px "${ String(
 							font.name
 						).replace( /"/g, '\\"' ) }"`
-					)
+					),
+				] )
 					.then( () => {
 						if (
 							! el.isConnected ||
@@ -452,7 +475,7 @@ export function createLayerPreviewRenderer( deps ) {
 							return;
 						}
 						// The first render may have cached fallback-font measurements.
-						cache.clearFontCache( font.name );
+						cache.clearFontCache( previewFontFamily( font ) );
 						preview.dispose();
 						el.querySelectorAll( '.oc-lp' ).forEach( ( c ) =>
 							c.remove()
@@ -545,7 +568,8 @@ export function createLayerPreviewRenderer( deps ) {
 			img.alt = '';
 			if (
 				isEngraving &&
-				( s.default_clipart_recolourable ||
+				( engraving.palette?.flat ||
+					s.default_clipart_recolourable ||
 					( selectedClipart?.fileType === 'svg' &&
 						selectedClipart.colourChangeable !== false ) )
 			) {

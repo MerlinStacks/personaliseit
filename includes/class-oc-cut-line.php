@@ -12,6 +12,61 @@ class OC_Cut_Line {
 	public const MAX_BYTES = 262144;
 
 	/**
+	 * Import an uploaded SVG or the first page of a vector PDF as private SVG.
+	 *
+	 * @param string $path Local upload path.
+	 * @param string $extension Validated file extension.
+	 * @return string|WP_Error Sanitized geometry or an import error.
+	 */
+	public static function import_file( string $path, string $extension ): string|WP_Error {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded local upload read.
+		$source = file_get_contents( $path, false, null, 0, self::MAX_BYTES + 1 );
+		if ( ! is_string( $source ) || '' === $source || strlen( $source ) > self::MAX_BYTES ) {
+			return new WP_Error( 'invalid_cut_line', __( 'Upload an SVG or PDF file no larger than 256 KiB.', 'overcustomise' ) );
+		}
+		if ( 'svg' === $extension ) {
+			return self::sanitize( $source );
+		}
+		if ( 'pdf' !== $extension || ! str_starts_with( $source, '%PDF-' ) ) {
+			return new WP_Error( 'invalid_cut_line', __( 'Upload a valid SVG or PDF file.', 'overcustomise' ) );
+		}
+		$binary = null;
+		$path_env = getenv( 'PATH' );
+		foreach ( explode( PATH_SEPARATOR, $path_env ?: '/usr/local/bin:/usr/bin:/bin' ) as $dir ) {
+			$candidate = rtrim( $dir, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR . 'pdftocairo';
+			if ( '' !== $dir && is_file( $candidate ) && is_executable( $candidate ) ) {
+				$binary = $candidate;
+				break;
+			}
+		}
+		if ( ! $binary || ! function_exists( 'proc_open' ) || ! class_exists( 'OC_Command_Runner' ) ) {
+			return new WP_Error( 'cut_line_pdf_unavailable', __( 'PDF cut lines require Poppler (pdftocairo) and process execution on the server. Upload an SVG instead or ask your administrator to enable PDF conversion.', 'overcustomise' ) );
+		}
+		$output = wp_tempnam( 'oc-cut-line.svg' );
+		if ( ! $output ) {
+			return new WP_Error( 'invalid_cut_line', __( 'Unable to create a temporary file for PDF conversion.', 'overcustomise' ) );
+		}
+		try {
+			$result = OC_Command_Runner::run( [ $binary, '-svg', '-f', '1', '-l', '1', $path, $output ] );
+			clearstatcache( true, $output );
+			if ( 0 !== $result['code'] || ! is_file( $output ) || filesize( $output ) > self::MAX_BYTES ) {
+				return new WP_Error( 'invalid_cut_line', __( 'Unable to convert this PDF. Use an unencrypted vector PDF whose first page converts to no more than 256 KiB of SVG.', 'overcustomise' ) );
+			}
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded local conversion output.
+			$svg = file_get_contents( $output, false, null, 0, self::MAX_BYTES + 1 );
+			// Never silently discard raster artwork or glyph references from a production cut line.
+			if ( ! is_string( $svg ) || preg_match( '/<(?:[\w.-]+:)?(?:image|use|text)\b|(?:clip-path|mask)\s*[:=]\s*["\x27]?\s*url\s*\(/i', $svg ) ) {
+				return new WP_Error( 'invalid_cut_line', __( 'The PDF must contain vector paths only. Remove images, convert text to outlines, and flatten clipping paths before uploading.', 'overcustomise' ) );
+			}
+			return self::sanitize( $svg );
+		} catch ( Throwable $error ) {
+			return new WP_Error( 'invalid_cut_line', __( 'Unable to convert the PDF cut line. Upload an SVG instead.', 'overcustomise' ) );
+		} finally {
+			wp_delete_file( $output );
+		}
+	}
+
+	/**
 	 * Sanitize static vector geometry without constraining its aspect or coordinates.
 	 *
 	 * @param mixed $svg Raw inline SVG.

@@ -556,7 +556,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			if ( '' === $text_line ) {
 				continue;
 			}
-			$outline      = $font_path ? self::ttf_text_outline( $font_path, $text_line, $font_size ) : null;
+			$outline      = $font_path ? self::ttf_text_outline_with_fallback( $font_path, $text_line, $font_size ) : null;
 			$bbox         = $outline['bbox'] ?? [ 0.0, -0.2 * $font_size, 0.0, 0.8 * $font_size ];
 			$offset       = $index * $line_height;
 			$block_bounds = self::merge_bounds( $block_bounds, [ 0.0, $bbox[1] - $offset, 0.0, $bbox[3] - $offset ] );
@@ -675,7 +675,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			return 0.0;
 		}
 		if ( is_string( $font_path ) && '' !== $font_path ) {
-			$outline = self::ttf_text_outline( $font_path, $text, $font_size );
+			$outline = self::ttf_text_outline_with_fallback( $font_path, $text, $font_size );
 			if ( ! is_array( $outline ) ) {
 				return INF;
 			}
@@ -709,7 +709,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 
 	/** Append font-independent text outlines from a TrueType font file. */
 	private static function append_eps_ttf_text_outline( array &$lines, string $text, string $align, float $anchor_x, float $baseline_pt, float $font_size, string $font_path, ?float $box_x_pt = null, ?float $box_y_pt = null, ?float $box_w_pt = null, ?float $box_h_pt = null ): bool {
-		$outline = self::ttf_text_outline( $font_path, $text, $font_size );
+		$outline = self::ttf_text_outline_with_fallback( $font_path, $text, $font_size );
 		if ( ! is_array( $outline ) || empty( $outline['commands'] ) ) {
 			return false;
 		}
@@ -762,6 +762,37 @@ class OC_Print_Embroidery extends OC_Print_Base {
 		$lines[] = 'grestore';
 
 		return true;
+	}
+
+	/** Use the preview's bundled fallback only for graphemes absent from the selected font. */
+	private static function ttf_text_outline_with_fallback( string $font_path, string $text, float $font_size, string $method_name = 'embroidery' ): ?array {
+		$outline = self::ttf_text_outline( $font_path, $text, $font_size );
+		if ( is_array( $outline ) || '' === $text ) {
+			return $outline;
+		}
+
+		$commands = [];
+		$width    = 0.0;
+		$bounds   = null;
+		foreach ( self::uv_text_outlines( $text, $font_path, $method_name ) as $run ) {
+			if ( is_array( $run['bbox'] ?? null ) ) {
+				$box    = $run['bbox'];
+				$bounds = self::merge_bounds( $bounds, [ $width + $box[0] * $font_size, $box[1] * $font_size, $width + $box[2] * $font_size, $box[3] * $font_size ] );
+			}
+			// Expand into the same path (rather than fill runs independently), so
+			// alignment, compression and curved text all use identical ink bounds.
+			foreach ( $run['commands'] as $command ) {
+				$parts    = explode( ' ', $command );
+				$operator = array_pop( $parts );
+				foreach ( $parts as $index => &$coordinate ) {
+					$coordinate = sprintf( '%.4F', (float) $coordinate * $font_size + ( 0 === $index % 2 ? $width : 0.0 ) );
+				}
+				unset( $coordinate );
+				$commands[] = implode( ' ', array_merge( $parts, [ $operator ] ) );
+			}
+			$width += $run['width'] * $font_size;
+		}
+		return [ 'width' => $width, 'commands' => $commands, 'bbox' => $bounds ];
 	}
 
 	/** Build EPS path commands for a UTF-8 string using a TrueType font file. */

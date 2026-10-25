@@ -211,7 +211,7 @@ trait OC_Print_UV_Text {
 	}
 
 	/** Keep supported lettering and kerning; use bundled outlines only for missing graphemes. */
-	private static function uv_text_outlines( string $text, string $font_path ): array {
+	protected static function uv_text_outlines( string $text, string $font_path, string $method_name = 'UV' ): array {
 		$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
 		$outline = $method->invoke( null, $font_path, $text, 1.0 );
 		if ( is_array( $outline ) ) {
@@ -221,7 +221,7 @@ trait OC_Print_UV_Text {
 		$loader = new \ReflectionMethod( 'OC_Print_Embroidery', 'load_ttf_outline_font' );
 		$font   = $loader->invoke( null, $font_path );
 		if ( ! $font ) {
-			throw new \RuntimeException( 'The selected UV print font is invalid. Convert it for print in Font Manager.' );
+			throw new \RuntimeException( 'The selected ' . $method_name . ' print font is invalid. Convert it for print in Font Manager.' );
 		}
 		$fallback = self::temp_path_with_extension( 'oc-uv-fallback-font', 'ttf' );
 		try {
@@ -230,7 +230,7 @@ trait OC_Print_UV_Text {
 			$bytes = gzuncompress( (string) file_get_contents( $source ), 16777216 );
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Temporary outline source.
 			if ( ! $fallback || false === $bytes || false === file_put_contents( $fallback, $bytes ) ) {
-				throw new \RuntimeException( 'Could not prepare the UV fallback font.' );
+				throw new \RuntimeException( 'Could not prepare the ' . $method_name . ' fallback font.' );
 			}
 			preg_match_all( '/\X/u', $text, $matches );
 			$runs  = [];
@@ -259,7 +259,7 @@ trait OC_Print_UV_Text {
 			foreach ( $runs as $run ) {
 				$outline = $method->invoke( null, $run['path'], $run['text'], 1.0 );
 				if ( ! is_array( $outline ) ) {
-					throw new \RuntimeException( 'Neither the selected UV font nor the bundled fallback can outline: ' . $run['text'] );
+					throw new \RuntimeException( 'Neither the selected ' . $method_name . ' font nor the bundled fallback can outline: ' . $run['text'] );
 				}
 				$outlines[] = $outline;
 			}

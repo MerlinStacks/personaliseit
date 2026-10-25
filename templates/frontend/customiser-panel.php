@@ -205,10 +205,28 @@ foreach ( $layers as $layer ) {
 		$area_layers = array_filter( $layers_by_area[ (int) $area->id ] ?? [], fn( $l ) => (bool) $l->visible );
 		?>
 		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( (string) $i ); ?>" data-area-index="<?php echo esc_attr( (string) $i ); ?>">
+			<?php foreach ( $area_layers as $material_layer ) : ?>
+			<?php $laser_material = 'engraving' === $area->print_method && empty( $material_layer->locked ) ? OC_Materials::for_layer( $material_layer ) : null; ?>
+			<?php if ( $laser_material ) : ?>
+				<fieldset class="oc-material-picker">
+					<legend><?php echo esc_html( $material_layer->label ?: __( 'Engraving material', 'overcustomise' ) ); ?></legend>
+					<div class="oc-material-options">
+						<?php foreach ( $laser_material['materials'] as $material ) : ?>
+							<label class="oc-material-option">
+								<input type="radio" name="oc_material_<?php echo esc_attr( $material_layer->id ); ?>" value="<?php echo esc_attr( $material['id'] ); ?>" data-oc-material-layer="<?php echo esc_attr( $material_layer->id ); ?>" <?php checked( $laser_material['defaultId'], $material['id'] ); ?>>
+								<span class="oc-material-swatch" style="background:<?php echo esc_attr( $material['surface'] ); ?>;color:<?php echo esc_attr( $material['engraving'] ); ?>;" aria-hidden="true">Aa</span>
+								<span><?php echo esc_html( $material['name'] ); ?></span>
+							</label>
+						<?php endforeach; ?>
+					</div>
+					<p class="oc-material-hint"><?php esc_html_e( 'Material and engraving colours are a visual guide. Actual finishes may vary.', 'overcustomise' ); ?></p>
+				</fieldset>
+			<?php endif; ?>
+			<?php endforeach; ?>
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
-					if ( 'mask' === (string) ( $layer->type ?? '' ) ) continue; // Design masks are preview-only.
+					if ( in_array( (string) ( $layer->type ?? '' ), [ 'mask', 'laser_material' ], true ) ) continue; // Surface/mask controls are handled separately.
 					if ( (bool) ( $layer->locked ?? false ) ) continue; // Locked layers: no customer input
 					$s         = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
 					$link_group = trim( (string) ( $s['link_group'] ?? '' ) );

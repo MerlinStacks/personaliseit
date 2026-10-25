@@ -188,7 +188,7 @@ trait OC_Print_Base_Layers {
 				}
 				continue;
 			}
-			if ( 'mask' === $type ) {
+			if ( in_array( $type, [ 'mask', 'laser_material' ], true ) ) {
 				continue;
 			}
 			$layer_x = (float) ( $layer['x'] ?? 0 );

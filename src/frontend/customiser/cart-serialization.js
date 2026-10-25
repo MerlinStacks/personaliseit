@@ -100,7 +100,7 @@ const cartSerializationMethods = {
 		this.areas.forEach( ( area ) => {
 			( area.layers || [] ).forEach( ( layer ) => {
 				if (
-					layer.type === 'mask' ||
+					[ 'mask', 'laser_material' ].includes( layer.type ) ||
 					! layerIsShown(
 						layer,
 						this.areas.flatMap( ( entry ) => entry.layers || [] ),
@@ -203,6 +203,7 @@ const cartSerializationMethods = {
 					( item ) => item.id === this.selectedDesignVariant
 				)?.label || '',
 			layers: this.serialiseLayers( inputs ),
+			materials: { ...( this.materialSelections || {} ) },
 		};
 		return this.freezeSubmissionValue( generation );
 	},
@@ -215,6 +216,7 @@ const cartSerializationMethods = {
 			v: 2,
 			designId: generation.designId,
 			layers: generation.layers,
+			materials: generation.materials || {},
 			uploadToken: this.data.requestToken || '',
 		};
 		if ( generation.designVariant ) {

@@ -32,6 +32,10 @@ const palette = new Function(
 		.replace( /import\s*\{[\s\S]*?\}\s*from\s*'[^']+';/g, '' )
 		.replace( /^export /gm, '' ) + '\nreturn engravingPalette;'
 )();
+const materialPalette = new Function(
+	( await readFile( 'src/frontend/customiser/materials.js', 'utf8' ) )
+		.replace( /^export /gm, '' ) + '\nreturn materialPalette;'
+)();
 
 async function render( material, effects, brightness = null, dithered = null ) {
 	const imageData = {
@@ -45,7 +49,7 @@ async function render( material, effects, brightness = null, dithered = null ) {
 		height: 1,
 		getElement: () => ( {} ),
 		setElement() {},
-		set() {},
+		set( values ) { Object.assign( this, values ); },
 		applyFilters() {
 			for ( const filter of this.filters ) {
 				filter.applyTo2d( { imageData } );
@@ -74,7 +78,7 @@ async function render( material, effects, brightness = null, dithered = null ) {
 		'anonymous',
 		false,
 		0,
-		palette( material, brightness ),
+		typeof material === 'object' ? material : palette( material, brightness ),
 		null,
 		0,
 		'',
@@ -82,8 +86,37 @@ async function render( material, effects, brightness = null, dithered = null ) {
 	);
 	assert.equal( rendered, true );
 	assert.equal( added, true );
-	return { pixels: imageData.data, filters: img.filters || [] };
+	return { pixels: imageData.data, filters: img.filters || [], img };
 }
+
+test( 'neutral engraving material has no substrate effects or image shadow', async () => {
+	const neutral = palette( 'engraving_material', 0.9 );
+	assert.equal( neutral.flat, true );
+	assert.equal( neutral.opacity, 1 );
+	assert.equal( neutral.pattern, undefined );
+	for ( const effects of [ {}, { photoEngraving: true } ] ) {
+		const { pixels, filters, img } = await render( 'engraving_material', effects );
+		assert.deepEqual( Array.from( pixels.slice( 0, 3 ) ), [ 23, 23, 23 ] );
+		assert.equal( img.shadow, null );
+		assert.equal( img.opacity, 1 );
+		assert.equal( img.globalCompositeOperation, 'source-over' );
+		assert.ok( ! filters.some( ( filter ) => [ 'Brightness', 'Contrast', 'Grayscale', 'Noise' ].includes( filter.type ) ) );
+	}
+} );
+
+test( 'selected material colours tint photos and solid artwork exactly, without glass or leather effects', async () => {
+	const chosen = materialPalette( { surface: '#171717', engraving: '#abcdef' } );
+	for ( const effects of [ {}, { photoEngraving: true } ] ) {
+		const { pixels, img } = await render( chosen, effects );
+		for ( const offset of [ 0, 4 ] ) {
+			assert.deepEqual( Array.from( pixels.slice( offset, offset + 3 ) ), [ 171, 205, 239 ] );
+			assert.equal( pixels[offset + 3], 255 );
+		}
+		assert.equal( pixels[19], 0 );
+		assert.equal( img.shadow, null );
+		assert.equal( img.opacity, 1 );
+	}
+} );
 
 test( 'silver photo engraving retains distinct tones on dark and pale mockups', async () => {
 	for ( const brightness of [ null, 0.8 ] ) {

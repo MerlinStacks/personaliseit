@@ -19,6 +19,7 @@ class OC_Admin_Products {
 
 	public static function register_ajax(): void {
 		add_action( 'wp_ajax_oc_upload_cut_line', [ self::class, 'ajax_upload_cut_line' ] );
+		add_action( 'wp_ajax_oc_upload_material_shape', [ self::class, 'ajax_upload_material_shape' ] );
 		add_action( 'wp_ajax_oc_assign_design', [ self::class, 'ajax_assign_design' ] );
 		add_action( 'wp_ajax_oc_save_design_variants', [ self::class, 'ajax_save_design_variants' ] );
 		add_action( 'wp_ajax_oc_autosave_design', [ self::class, 'ajax_autosave_design' ] );
@@ -26,7 +27,7 @@ class OC_Admin_Products {
 		add_action( 'wp_ajax_oc_export_recovery', [ self::class, 'ajax_export_recovery' ] );
 	}
 
-	/** Validate an admin upload in memory; no attachment or persistent file is created. */
+	/** Import private vector artwork; no attachment or persistent file is created. */
 	public static function ajax_upload_cut_line(): void {
 		check_ajax_referer( 'oc-products-nonce', 'nonce' );
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
@@ -35,18 +36,36 @@ class OC_Admin_Products {
 		$file = $_FILES['file'] ?? null;
 		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) || ! is_array( $file )
 			|| UPLOAD_ERR_OK !== ( $file['error'] ?? null )
-			|| ! is_string( $file['name'] ?? null ) || 'svg' !== strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) )
+			|| ! is_string( $file['name'] ?? null ) || ! in_array( strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) ), [ 'svg', 'pdf' ], true )
 			|| ! is_string( $file['tmp_name'] ?? null ) || ! is_uploaded_file( $file['tmp_name'] )
 			|| (int) ( $file['size'] ?? 0 ) > OC_Cut_Line::MAX_BYTES
 		) {
-			wp_send_json_error( [ 'message' => __( 'Upload a valid SVG file no larger than 256 KiB.', 'overcustomise' ) ], 400 );
+			wp_send_json_error( [ 'message' => __( 'Upload a valid SVG or PDF file no larger than 256 KiB.', 'overcustomise' ) ], 400 );
 		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents -- Bounded read of a local uploaded file, not a remote URL.
-		$svg = OC_Cut_Line::sanitize( file_get_contents( $file['tmp_name'], false, null, 0, OC_Cut_Line::MAX_BYTES + 1 ) );
+		$svg = OC_Cut_Line::import_file( $file['tmp_name'], strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) ) );
 		if ( is_wp_error( $svg ) ) {
 			wp_send_json_error( [ 'message' => $svg->get_error_message() ], 400 );
 		}
 		wp_send_json_success( [ 'cutLineSvg' => $svg ] );
+	}
+
+	/** Import a preview-only material silhouette, never a customer or production file. */
+	public static function ajax_upload_material_shape(): void {
+		check_ajax_referer( 'oc-products-nonce', 'nonce' );
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission denied.', 'overcustomise' ) ], 403 );
+		}
+		$file = $_FILES['file'] ?? null;
+		if ( 'POST' !== ( $_SERVER['REQUEST_METHOD'] ?? '' ) || ! is_array( $file ) || UPLOAD_ERR_OK !== ( $file['error'] ?? null )
+			|| ! is_string( $file['name'] ?? null ) || 'svg' !== strtolower( pathinfo( $file['name'], PATHINFO_EXTENSION ) )
+			|| ! is_string( $file['tmp_name'] ?? null ) || ! is_uploaded_file( $file['tmp_name'] ) || (int) ( $file['size'] ?? 0 ) > OC_Cut_Line::MAX_BYTES ) {
+			wp_send_json_error( [ 'message' => __( 'Upload an SVG silhouette no larger than 256 KiB.', 'overcustomise' ) ], 400 );
+		}
+		$svg = OC_Cut_Line::import_file( $file['tmp_name'], 'svg' );
+		if ( is_wp_error( $svg ) ) {
+			wp_send_json_error( [ 'message' => __( 'Upload a valid static SVG silhouette.', 'overcustomise' ) ], 400 );
+		}
+		wp_send_json_success( [ 'materialSvg' => $svg ] );
 	}
 
 	public static function ajax_assign_design(): void {
@@ -203,6 +222,15 @@ class OC_Admin_Products {
 		}
 		foreach ( is_array( $state['areas'] ?? null ) ? $state['areas'] : [] as $area_index => $area ) {
 			foreach ( is_array( $area['layers'] ?? null ) ? $area['layers'] : [] as $layer_index => $layer ) {
+				if ( 'laser_material' === ( $layer['type'] ?? '' ) ) {
+					try {
+						$raw = is_array( $layer['settings'] ?? null ) ? $layer['settings'] : [];
+						$state['areas'][ $area_index ]['layers'][ $layer_index ]['settings'] = OC_Materials::layer_settings( $raw );
+					} catch ( Throwable $error ) {
+						wp_send_json_error( [ 'message' => $error->getMessage() ], 400 );
+					}
+					continue;
+				}
 				if ( 'cut_line' !== ( $layer['type'] ?? '' ) ) {
 					continue;
 				}
@@ -1302,6 +1330,7 @@ class OC_Admin_Products {
 						]; },
 					OC_DB::get_colours( true )
 				),
+				'laserMaterials' => array_values( OC_Materials::all() ),
 				'imageFilters'  => array_map(
 					function ( $f ) {
 						return [
@@ -1431,6 +1460,7 @@ class OC_Admin_Products {
 								<div class="oc-editor-field" id="oc-prop-engraving-material-wrap" style="display:none;">
 									<label for="oc-prop-engraving-material"><?php esc_html_e( 'Engraving Material', 'overcustomise' ); ?></label>
 									<select id="oc-prop-engraving-material" class="oc-select" style="width:100%;">
+										<option value="engraving_material"><?php esc_html_e( 'Engraving Material', 'overcustomise' ); ?></option>
 										<option value="glass"><?php esc_html_e( 'Glass', 'overcustomise' ); ?></option>
 										<option value="gold_metal"><?php esc_html_e( 'Gold Metal', 'overcustomise' ); ?></option>
 										<option value="silver_metal"><?php esc_html_e( 'Silver Metal', 'overcustomise' ); ?></option>
@@ -1439,6 +1469,7 @@ class OC_Admin_Products {
 										<option value="wood"><?php esc_html_e( 'Wood', 'overcustomise' ); ?></option>
 										<option value="leather"><?php esc_html_e( 'Leather', 'overcustomise' ); ?></option>
 									</select>
+									<p class="oc-hint"><?php esc_html_e( 'Choose Engraving Material for Laser Material layers: the selected layer supplies the surface and engraving colours without a simulated glass, leather or metal finish.', 'overcustomise' ); ?></p>
 								</div>
 								<div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px;margin-bottom:8px;">
 									<h3 style="font-size:10px;text-transform:uppercase;letter-spacing:.07em;font-weight:700;color:var(--oc-gray-400);margin:0;"><?php esc_html_e( 'Print Bounds', 'overcustomise' ); ?></h3>
@@ -1559,6 +1590,7 @@ class OC_Admin_Products {
 				<button type="button" class="oc-layer-type-btn" data-type="clipart"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2726;</span><span><?php esc_html_e( 'Clipart', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="night_sky"><span class="oc-layer-type-btn-icon" style="color:#4338ca;">&#x2606;</span><span><?php esc_html_e( 'Night Sky', 'overcustomise' ); ?></span></button>
 				<button type="button" class="oc-layer-type-btn" data-type="cut_line"><span class="oc-layer-type-btn-icon" style="color:#dc2626;">&#x2702;</span><span><?php esc_html_e( 'Cut Line', 'overcustomise' ); ?></span></button>
+				<button type="button" class="oc-layer-type-btn" data-type="laser_material"><span class="oc-layer-type-btn-icon" style="color:#64748b;">&#x25a0;</span><span><?php esc_html_e( 'Laser Material', 'overcustomise' ); ?></span></button>
 							</div>
 						</div>
 
@@ -1867,7 +1899,7 @@ class OC_Admin_Products {
 				) {
 					throw new RuntimeException( 'The selected print method is disabled or invalid.' );
 				}
-				$material      = in_array( $area_data['engraving_material'] ?? '', [ 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather' ], true )
+				$material      = in_array( $area_data['engraving_material'] ?? '', [ 'engraving_material', 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'wood', 'leather' ], true )
 					? sanitize_key( $area_data['engraving_material'] )
 					: 'silver_metal';
 				$unit          = in_array( $area_data['canvas_unit'] ?? '', [ 'px', 'mm', 'cm', 'in' ], true )
@@ -1936,7 +1968,7 @@ class OC_Admin_Products {
 			}
 
 			// Retain lineart for saved designs created before its retirement from the layer picker.
-			$valid_types = [ 'text', 'curved_text', 'textarea', 'staff_note', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line' ];
+			$valid_types = [ 'text', 'curved_text', 'textarea', 'staff_note', 'image', 'ai_image', 'clipmask', 'mask', 'spotify', 'lineart', 'clipart', 'night_sky', 'cut_line', 'laser_material' ];
 			foreach ( $posted_layers as $sort => $layer_data ) {
 				$area_index = (int) ( $layer_data['area_index'] ?? 0 );
 				$area_db_id = $area_id_map[ $area_index ] ?? 0;
@@ -1953,7 +1985,7 @@ class OC_Admin_Products {
 				}
 				// WordPress slashes $_POST, so unslash before decoding settings.
 				$settings_raw = wp_unslash( $layer_data['settings'] ?? '{}' );
-				$decoded      = json_decode( is_string( $settings_raw ) && strlen( $settings_raw ) <= ( 'cut_line' === $type ? 1048576 : 262144 ) ? $settings_raw : '', true );
+				$decoded      = json_decode( is_string( $settings_raw ) && strlen( $settings_raw ) <= ( in_array( $type, [ 'cut_line', 'laser_material' ], true ) ? 1048576 : 262144 ) ? $settings_raw : '', true );
 				if ( ! is_array( $decoded ) ) {
 					throw new RuntimeException( 'Invalid design layer settings.' );
 				}
@@ -1994,7 +2026,7 @@ class OC_Admin_Products {
 					'settings'   => $settings ?: '{}',
 				];
 				$layer_fmt = [ '%d', '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%d', '%d', '%d', '%s' ];
-				if ( 'cut_line' === $type ) {
+				if ( in_array( $type, [ 'cut_line', 'laser_material' ], true ) ) {
 					// Independent width/height and signed positioning, including outside the area.
 					$layer_row['x'] = (int) ( $layer_data['x'] ?? 0 );
 					$layer_row['y'] = (int) ( $layer_data['y'] ?? 0 );
@@ -2135,6 +2167,12 @@ class OC_Admin_Products {
 
 	/** Normalize layer settings and retain only live, related resources. */
 	private static function normalise_design_layer_settings( array $raw, string $type, string $print_method, array $existing = [] ): array {
+		if ( 'laser_material' === $type ) {
+			if ( 'engraving' !== $print_method ) {
+				throw new RuntimeException( 'Laser Material layers require an engraving print area.' );
+			}
+			return OC_Materials::layer_settings( $raw );
+		}
 		if ( 'cut_line' === $type ) {
 			$svg = OC_Cut_Line::sanitize( $raw['cutLineSvg'] ?? null );
 			if ( is_wp_error( $svg ) ) {

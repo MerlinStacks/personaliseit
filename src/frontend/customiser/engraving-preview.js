@@ -27,6 +27,17 @@ export function engravingPalette(
 	backgroundBrightness = null
 ) {
 	const palettes = {
+		// Neutral fallback for layer-driven materials: no simulated substrate.
+		engraving_material: {
+			text: '#171717',
+			imageTint: '#171717',
+			photoTintMode: 'tint',
+			bg: 'FFFFFF',
+			flat: true,
+			brightness: 0,
+			contrast: 0,
+			opacity: 1,
+		},
 		glass: {
 			text: '#eef4f4',
 			imageTint: '#eef4f4',

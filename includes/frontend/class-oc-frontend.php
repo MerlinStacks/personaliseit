@@ -353,6 +353,9 @@ class OC_Frontend {
 				}
 
 				$settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
+				if ( 'laser_material' === $layer->type ) {
+					$settings['laserMaterial'] = 'engraving' === $area->print_method ? OC_Materials::for_layer( $layer ) : null;
+				}
 				// Enforced AI instructions are server-only and must never enter public design state.
 				unset( $settings['ai_prompt_instruction'] );
 				$font_group_ids   = array_values( array_intersect( array_map( 'absint', $settings['font_groups'] ), $valid_font_group_ids ) );

@@ -76,6 +76,7 @@ The print queue surfaces pending, processing, completed, and failed generation j
 
 - Reusable designs assignable to products and individual variations
 - Font, colour, clipart, mockup, and image-filter libraries
+- [Laser material library](docs/laser-materials.md) with paired surface/engraving colours and customer-selectable live previews
 - Layer-level defaults, constraints, linked inputs, and customer-edit controls
 - CSV-driven variable-data printing
 

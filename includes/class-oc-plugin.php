@@ -37,6 +37,7 @@ class OC_Plugin {
 		require_once OC_PATH . 'includes/class-oc-cache.php';
 		require_once OC_PATH . 'includes/class-oc-woff-converter.php';
 		require_once OC_PATH . 'includes/class-oc-db.php';
+		require_once OC_PATH . 'includes/class-oc-materials.php';
 		require_once OC_PATH . 'includes/class-oc-logger.php';
 		require_once OC_PATH . 'includes/class-oc-command-runner.php';
 		require_once OC_PATH . 'includes/class-oc-system-status.php';
@@ -76,6 +77,7 @@ class OC_Plugin {
 			require_once OC_PATH . 'includes/admin/class-oc-admin-products.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-fonts.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-colours.php';
+			require_once OC_PATH . 'includes/admin/class-oc-admin-materials.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-image-filters.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-clipart.php';
 			require_once OC_PATH . 'includes/admin/class-oc-admin-customer-uploads.php';
@@ -136,6 +138,7 @@ class OC_Plugin {
 		OC_Admin_Products::register_ajax();
 		OC_Admin_Fonts::register_ajax();
 		OC_Admin_Colours::register_ajax();
+		add_action( 'admin_post_oc_save_material', [ OC_Admin_Materials::class, 'save' ] );
 		OC_Admin_Image_Filters::register_ajax();
 		OC_Admin_Clipart::register_ajax();
 	}

@@ -1506,7 +1506,9 @@ import {
 			dotEl.style.background = layerColor( layer.type );
 		}
 		const tabs = [ ...( LAYER_TABS[ layer.type ] || LAYER_TABS.text ) ];
-		if ( ! [ 'cut_line', 'mask' ].includes( layer.type ) ) {
+		if (
+			! [ 'cut_line', 'mask', 'laser_material' ].includes( layer.type )
+		) {
 			tabs.push( { id: 'conditions', label: 'Conditions', icon: '?' } );
 		}
 		if ( ! tabs.some( ( t ) => t.id === activeLayerTab ) ) {

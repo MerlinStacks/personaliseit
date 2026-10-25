@@ -576,8 +576,8 @@ trait OC_Print_Base_Text {
 		}
 
 		try {
-			$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
-			$outline = $method->invoke( null, $font_path, $text, $font_size );
+			$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline_with_fallback' );
+			$outline = $method->invoke( null, $font_path, $text, $font_size, 'engraving' );
 		} catch ( \Throwable $e ) {
 			OC_Logger::warning( 'Engraving text outline failed: ' . $e->getMessage() );
 			return false;
@@ -783,8 +783,8 @@ trait OC_Print_Base_Text {
 		}
 
 		try {
-			$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline' );
-			$outline = $method->invoke( null, $font_path, $text, $font_size );
+			$method  = new \ReflectionMethod( 'OC_Print_Embroidery', 'ttf_text_outline_with_fallback' );
+			$outline = $method->invoke( null, $font_path, $text, $font_size, 'engraving' );
 		} catch ( \Throwable $e ) {
 			return 0.0;
 		}

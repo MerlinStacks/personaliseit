@@ -472,6 +472,47 @@ const inputControlMethods = {
 
 	setupInputListeners() {
 		const stateSignal = this._panelListenerController?.signal;
+		this.materialSelections ||= {};
+		this.areas
+			.flatMap( ( area ) => area.layers || [] )
+			.forEach( ( layer ) => {
+				const config = layer.settings?.laserMaterial;
+				if ( ! config ) {
+					return;
+				}
+				if (
+					layer.locked ||
+					! config.materials.some(
+						( item ) =>
+							item.id === this.materialSelections[ layer.id ]
+					)
+				) {
+					this.materialSelections[ layer.id ] = config.defaultId;
+				}
+			} );
+		document
+			.querySelectorAll( '[data-oc-material-layer]' )
+			.forEach( ( radio ) => {
+				const layerId = radio.dataset.ocMaterialLayer;
+				radio.checked =
+					this.materialSelections[ layerId ] === radio.value;
+				radio.addEventListener(
+					'change',
+					() => {
+						if ( ! radio.checked ) {
+							return;
+						}
+						this.materialSelections[ layerId ] = radio.value;
+						this.clearPreflightMessages?.();
+						this.requestPreviewFocus?.();
+						this.areas.forEach( ( _, index ) =>
+							this.scheduleRedraw( index )
+						);
+						this.updateHiddenField();
+					},
+					{ signal: stateSignal }
+				);
+			} );
 		const designGeneration = this._designGeneration;
 		this.setupControlAccessibility();
 		this.setupFontComboboxes();

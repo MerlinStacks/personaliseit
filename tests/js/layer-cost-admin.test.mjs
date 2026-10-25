@@ -24,6 +24,10 @@ const createProductsPageSettings = new Function(
 				"import { bindCutLineUpload } from './products-page-cut-line';",
 				''
 			)
+			.replace(
+				"import { bindMaterialSettings } from './products-page-materials';",
+				''
+			)
 			.replace( 'export function', 'function' ) +
 		'\nreturn createProductsPageSettings;'
 )();

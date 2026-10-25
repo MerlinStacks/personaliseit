@@ -440,6 +440,7 @@ test( 'font callbacks cannot recreate canvases on detached previews', async ( t 
 		[ 'applyLayerPreview' ],
 		{
 			engravingPreview: () => ( {} ),
+			loadPreviewFallback: async () => true,
 			fontLimit: () => 0,
 			clampFontSize: ( size ) => size,
 			findFont: () => ( { name: 'Family' } ),

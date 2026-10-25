@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import test from 'node:test';
 import vm from 'node:vm';
 import { JSDOM } from 'jsdom';
+import { previewFonts } from './helpers/preview-font.mjs';
 
 const { parse } = createRequire( import.meta.url )( 'acorn' );
 const source = await readFile( 'src/admin/products-page-preview.js', 'utf8' );
@@ -42,6 +43,7 @@ function previewSize( settings, scale = 1, type = 'textarea' ) {
 	const create = vm.runInNewContext(
 		`${ code }; createLayerPreviewRenderer`,
 		{
+			previewFontFamily: previewFonts.previewFontFamily,
 			window,
 			document: window.document,
 			StaticCanvas: Canvas,

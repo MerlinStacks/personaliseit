@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { JSDOM } from 'jsdom';
 import { FabricText, Textbox, Shadow, util } from 'fabric/node';
+import { previewFonts } from './helpers/preview-font.mjs';
 
 async function shared( path ) {
 	const conditionUrl = `data:text/javascript;base64,${ Buffer.from(
@@ -49,7 +50,10 @@ class Text {
 	setCoords() {}
 }
 const dependencies = {
+	previewFontFamily: previewFonts.previewFontFamily,
+	loadPreviewFallback: async () => true,
 	...( await shared( 'src/shared/layer-conditions.js' ) ),
+	...( await shared( 'src/frontend/customiser/materials.js' ) ),
 	...math,
 	...layout,
 	FabricText: Text,
@@ -244,6 +248,33 @@ function fixture( type = 'text', settings = {}, unit = 'px', scale = 1 ) {
 	};
 }
 
+test( 'material layers set exact text colours with no inherited substrate texture or shadow', async () => {
+	for ( const type of [ 'text', 'textarea', 'curved_text' ] ) {
+		const f = fixture( type, { default_font_size: 20, curve_angle: 120 } );
+		f.layer.id = 7;
+		f.app.stripUnsupportedPrintEmoji = ( value ) => value;
+		f.area.printMethod = 'engraving';
+		f.area.engravingMaterial = 'engraving_material';
+		f.area.layers = [
+			{ id: 90, type: 'laser_material', settings: { laserMaterial: {
+				defaultId: 'white', materials: [
+					{ id: 'white', surface: '#171717', engraving: '#ffffff' },
+					{ id: 'silver', surface: '#171717', engraving: '#c9c9c9' },
+				],
+			} } },
+			f.layer,
+		];
+		f.app.engravingPalette = () => { throw new Error( 'Must not use a legacy substrate palette' ); };
+		for ( const [ id, colour ] of [ [ 'white', '#ffffff' ], [ 'silver', '#c9c9c9' ] ] ) {
+			f.app.materialSelections = { 90: id };
+			await f.render();
+			assert.equal( f.canvas.object.fill, colour );
+			assert.equal( f.canvas.object.shadow ?? null, null );
+			assert.equal( f.canvas.object.opacity ?? 1, 1 );
+		}
+	}
+} );
+
 test( 'curved engraving keeps substrate opacity, compositing and etched edges', async () => {
 	for ( const pattern of [ undefined, 'wood', 'leather' ] ) {
 		const f = fixture( 'curved_text', {
@@ -369,7 +400,10 @@ test( 'embroidery text and textarea retain shared styles and distinct effect lay
 			assert.equal( object.originX, 'center' );
 			assert.equal( object.originY, 'center' );
 			assert.equal( object.angle, 15 );
-			assert.equal( object.fontFamily, 'Actual' );
+			assert.equal(
+				object.fontFamily,
+				previewFonts.previewFontFamily( { name: 'Actual' } )
+			);
 			assert.equal( object.fontWeight, 'bold' );
 			assert.equal( object.fontStyle, 'italic' );
 			assert.equal( object.fontSize, 20 );

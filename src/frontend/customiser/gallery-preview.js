@@ -854,6 +854,7 @@ const galleryPreviewMethods = {
 			designId: parseInt( this.data.designId, 10 ) || 0,
 			selectedDesignVariant: this.selectedDesignVariant || '',
 			layerInputs: this.cloneLayerInputs(),
+			materialSelections: { ...( this.materialSelections || {} ) },
 		};
 		const state = this.productVariationStates[ this._activeVariationKey ];
 		if ( ! state ) {
@@ -864,6 +865,9 @@ const galleryPreviewMethods = {
 		const selectedState =
 			state.designVariantStates?.[ snapshot.selectedDesignVariant ];
 		if ( selectedState ) {
+			selectedState.materialSelections = {
+				...snapshot.materialSelections,
+			};
 			selectedState.layerInputs = this.cloneLayerInputs(
 				snapshot.layerInputs
 			);
@@ -873,6 +877,7 @@ const galleryPreviewMethods = {
 			snapshot.designId
 		) {
 			state.layerInputs = this.cloneLayerInputs( snapshot.layerInputs );
+			state.materialSelections = { ...snapshot.materialSelections };
 		}
 		return snapshot;
 	},

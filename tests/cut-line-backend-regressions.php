@@ -84,6 +84,27 @@ $clean      = OC_Cut_Line::sanitize( $svg );
 check( is_string( $clean ), 'Accept non-square signed geometry' );
 check( str_contains( $clean, 'viewBox="-25 -10 900 17"' ) && str_contains( $clean, 'preserveAspectRatio="none"' ), 'Preserve aspect and viewBox' );
 check( OC_Cut_Line::sanitize( $clean ) === $clean, 'Sanitization is idempotent' );
+$upload_path = tempnam( sys_get_temp_dir(), 'oc-cut-line-test-' );
+try {
+	file_put_contents( $upload_path, $svg );
+	check( $clean === OC_Cut_Line::import_file( $upload_path, 'svg' ), 'SVG upload uses the existing sanitizer' );
+	check( is_wp_error( OC_Cut_Line::import_file( $upload_path, 'pdf' ) ), 'Reject a non-PDF renamed to PDF' );
+	check( is_wp_error( OC_Cut_Line::import_file( $upload_path, 'png' ) ), 'Reject unsupported upload types' );
+	file_put_contents( $upload_path, str_repeat( 'x', OC_Cut_Line::MAX_BYTES + 1 ) );
+	check( is_wp_error( OC_Cut_Line::import_file( $upload_path, 'pdf' ) ), 'Bound actual PDF reads regardless of upload metadata' );
+	file_put_contents( $upload_path, '%PDF-1.7' );
+	$old_path = getenv( 'PATH' );
+	try {
+		putenv( 'PATH=/nonexistent-oc-cut-line-tools' );
+		$pdf_error = OC_Cut_Line::import_file( $upload_path, 'pdf' );
+		check( is_wp_error( $pdf_error ) && 'cut_line_pdf_unavailable' === $pdf_error->code, 'Missing converter gives an actionable error' );
+		check( str_contains( $pdf_error->get_error_message(), 'pdftocairo' ), 'Error identifies the required converter' );
+	} finally {
+		putenv( false === $old_path ? 'PATH' : 'PATH=' . $old_path );
+	}
+} finally {
+	unlink( $upload_path );
+}
 $unsafe = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><script>alert(1)</script><foreignObject><div>secret</div></foreignObject><image href="https://example.org/secret"/><use href="#loop"/><path d="M0 0L1 1" style="stroke:red;fill:url(https://example.org/a)" onclick="evil()"/></svg>';
 $safe   = OC_Cut_Line::sanitize( $unsafe );
 check( is_string( $safe ) && str_contains( $safe, '<path' ), 'Retain safe geometry' );

@@ -5,7 +5,10 @@
  * @param {string} printMethod Print method key.
  */
 export function layerTypeSupportsPrintMethod( type, printMethod ) {
-	return ! ( type === 'night_sky' && printMethod === 'embroidery' );
+	return (
+		! ( type === 'night_sky' && printMethod === 'embroidery' ) &&
+		! ( type === 'laser_material' && printMethod !== 'engraving' )
+	);
 }
 
 /**

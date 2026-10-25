@@ -59,6 +59,15 @@ class OC_Admin_Menu {
 			[ new OC_Admin_Colours(), 'render' ]
 		);
 
+		add_submenu_page(
+			'overcustomise',
+			__( 'OC — Laser Materials', 'overcustomise' ),
+			__( 'Laser Materials', 'overcustomise' ),
+			'manage_woocommerce',
+			'overcustomise-materials',
+			[ new OC_Admin_Materials(), 'render' ]
+		);
+
 		// Image Filters.
 		add_submenu_page(
 			'overcustomise',
@@ -126,6 +135,7 @@ class OC_Admin_Menu {
 			'overcustomise_page_overcustomise-products',
 			'overcustomise_page_overcustomise-fonts',
 			'overcustomise_page_overcustomise-colours',
+			'overcustomise_page_overcustomise-materials',
 			'overcustomise_page_overcustomise-image-filters',
 			'overcustomise_page_overcustomise-clipart',
 			'overcustomise_page_overcustomise-customer-uploads',

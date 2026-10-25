@@ -48,6 +48,7 @@
       "@php tests/checkout-recovery-regressions.php",
       "@php tests/webhook-deduplication-regressions.php",
       "@php tests/colour-group-cache-regressions.php",
+      "@php tests/laser-material-regressions.php",
       "@php tests/release-cache-regressions.php",
       "@php tests/maintenance-cleanup-regressions.php",
       "@php tests/artwork-cleanup-regressions.php",

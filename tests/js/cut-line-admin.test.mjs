@@ -474,7 +474,7 @@ test( 'upload contract validates extension/size and only accepts successful sani
 			assert.equal( options.method, 'POST' );
 			assert.equal( options.body.get( 'action' ), 'oc_upload_cut_line' );
 			assert.equal( options.body.get( 'nonce' ), 'editor-nonce' );
-			assert.equal( options.body.get( 'file' ).name, 'outline.SVG' );
+			assert.match( options.body.get( 'file' ).name, /^outline\.(SVG|PDF)$/ );
 			return { ok, json: async () => result };
 		},
 	} );
@@ -482,13 +482,19 @@ test( 'upload contract validates extension/size and only accepts successful sani
 	for ( const file of [
 		new File( [ svg ], 'bad.png' ),
 		new File( [], 'empty.svg' ),
+		new File( [], 'empty.pdf' ),
 		new File( [ 'x'.repeat( 256 * 1024 + 1 ) ], 'large.svg' ),
+		new File( [ 'x'.repeat( 256 * 1024 + 1 ) ], 'large.pdf' ),
 	] ) {
 		await assert.rejects( uploadCutLine( file, data ), /256 KiB/ );
 	}
 	assert.equal( calls, 0 );
 	const file = new File( [ 'x'.repeat( 256 * 1024 ) ], 'outline.SVG' );
 	assert.equal( await uploadCutLine( file, data ), svg );
+	assert.equal(
+		await uploadCutLine( new File( [ '%PDF-1.7' ], 'outline.PDF' ), data ),
+		svg
+	);
 	result = { success: false, data: { message: 'Invalid SVG' } };
 	await assert.rejects( uploadCutLine( file, data ), /Invalid SVG/ );
 	result = { success: true, data: { cutLineSvg: '' } };
@@ -554,6 +560,8 @@ test( 'settings upload/replace UI commits sanitized SVG, preserves old SVG on fa
 	);
 	settings.bindSettingsHandlers( layer );
 	const input = document.getElementById( 'oc-cut-line-file' );
+	assert.match( input.accept, /\.pdf/ );
+	assert.match( input.accept, /application\/pdf/ );
 	Object.defineProperty( input, 'files', {
 		value: [ new File( [ 'raw' ], 'outline.svg' ) ],
 	} );

@@ -1,5 +1,14 @@
 # Third-party notices
 
+## DejaVu Sans preview fallback
+
+`assets/fonts/oc-preview-fallback.ttf` is an unmodified, decompressed copy of
+`vendor/tecnickcom/tc-lib-pdf-font/target/fonts/dejavu/dejavusans.z`, also emitted
+into the browser build. It provides the same missing-character outlines in the
+customiser and production exports. DejaVu changes are public domain; the font
+includes Bitstream Vera outlines under the Bitstream Vera font license. See
+`vendor/tecnickcom/tc-lib-pdf-font/target/fonts/dejavu/LICENSE` for the license.
+
 ## tc-lib-barcode
 
 Bundled in `vendor/tecnickcom/tc-lib-barcode/`, copyright 2001–2026

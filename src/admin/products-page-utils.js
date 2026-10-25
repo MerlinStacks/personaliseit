@@ -56,7 +56,11 @@ export function updateAspectRatio( entity ) {
 }
 
 export function clampLayerToArea( layer, area ) {
-	if ( ! layer || ! area || layer.type === 'cut_line' ) {
+	if (
+		! layer ||
+		! area ||
+		[ 'cut_line', 'laser_material' ].includes( layer.type )
+	) {
 		return;
 	}
 	const maxW = Math.max( 1, area.w );

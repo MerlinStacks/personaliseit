@@ -7,6 +7,7 @@ export function createProductsPageDataNormalisers( deps ) {
 			? a.unit
 			: 'px';
 		const material = [
+			'engraving_material',
 			'glass',
 			'gold_metal',
 			'silver_metal',
@@ -74,6 +75,12 @@ export function createProductsPageDataNormalisers( deps ) {
 				return { ...defaultSettings( 'text' ), curve_angle: 120 };
 			case 'cut_line':
 				return { cutLineSvg: '' };
+			case 'laser_material':
+				return {
+					materialSvg: '',
+					material_ids: [],
+					default_material_id: '',
+				};
 			case 'staff_note':
 				return { char_limit: 0, required: false };
 			case 'text':
@@ -209,6 +216,23 @@ export function createProductsPageDataNormalisers( deps ) {
 	}
 
 	function normaliseSettings( type, existing ) {
+		if ( type === 'laser_material' ) {
+			return {
+				materialSvg:
+					typeof existing?.materialSvg === 'string'
+						? existing.materialSvg
+						: '',
+				material_ids: Array.isArray( existing?.material_ids )
+					? existing.material_ids.filter(
+							( id ) => typeof id === 'string'
+					  )
+					: [],
+				default_material_id:
+					typeof existing?.default_material_id === 'string'
+						? existing.default_material_id
+						: '',
+			};
+		}
 		if ( type === 'cut_line' ) {
 			return {
 				cutLineSvg:

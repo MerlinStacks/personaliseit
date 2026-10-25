@@ -67,6 +67,12 @@ class OC_Blocks_Integration {
 		}
 
 		$lines = [];
+		foreach ( $customisation['materials'] ?? [] as $material ) {
+			$lines[] = [
+				'key' => __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . ')',
+				'value' => (string) ( $material['name'] ?? '' ),
+			];
+		}
 		if ( is_scalar( $customisation['designVariantLabel'] ?? null ) && '' !== trim( (string) $customisation['designVariantLabel'] ) ) {
 			$lines[] = [
 				'key'   => __( 'Artwork Option', 'overcustomise' ),

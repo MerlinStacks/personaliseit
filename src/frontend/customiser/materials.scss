@@ -1,0 +1,51 @@
+.oc-material-picker {
+	border: 0;
+	padding: 0;
+	margin: 0 0 1.25rem;
+
+	legend {
+		font-weight: 600;
+		margin-bottom: 0.6rem;
+	}
+}
+
+.oc-material-options {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+	gap: 0.5rem;
+}
+
+.oc-material-option {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	border: 1px solid #ccc;
+	border-radius: 4px;
+	padding: 0.6rem;
+	cursor: pointer;
+
+	&:focus-within {
+		outline: 2px solid currentcolor;
+		outline-offset: 2px;
+	}
+
+	&:has(input:checked) {
+		border-color: currentcolor;
+		box-shadow: inset 0 0 0 1px currentcolor;
+	}
+}
+
+.oc-material-swatch {
+	display: inline-grid;
+	place-items: center;
+	width: 2.5rem;
+	height: 2.5rem;
+	flex-shrink: 0;
+	border: 1px solid #ccc;
+	border-radius: 3px;
+	font-weight: 700;
+}
+
+.oc-material-hint {
+	font-size: 0.85em;
+}

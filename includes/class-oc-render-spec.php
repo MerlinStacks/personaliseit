@@ -23,7 +23,7 @@ class OC_Render_Spec {
 
 		$layers_by_area = [];
 		foreach ( $layers as $layer ) {
-			if ( 'staff_note' === ( $layer->type ?? '' ) ) {
+			if ( in_array( $layer->type ?? '', [ 'staff_note', 'laser_material' ], true ) ) {
 				continue;
 			}
 			if ( ! OC_Cart::conditional_layer_is_shown( $layer, $layers, $layer_inputs, [], true ) ) {

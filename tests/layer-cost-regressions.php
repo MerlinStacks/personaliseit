@@ -167,6 +167,7 @@ class WC_Order_Item_Product {
 }
 require_once ABSPATH . 'includes/class-oc-print-text.php';
 require_once ABSPATH . 'includes/frontend/class-oc-cart.php';
+require_once ABSPATH . 'includes/class-oc-materials.php';
 $assertions = 0;
 function check( $condition, $message ) {
 	if ( ! $condition ) {

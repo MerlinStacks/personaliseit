@@ -1,6 +1,7 @@
 /* eslint-disable @wordpress/no-unused-vars-before-return */
 
 import { displayEntity, unitPxScale } from '../shared/render-math';
+import { areaLayerMaterial } from './products-page-materials';
 import {
 	LAYER_TYPES,
 	areaColor,
@@ -41,6 +42,22 @@ export function createProductsPageCanvas( deps ) {
 	let drawPopup = null;
 	let drawModeArea = null;
 	const drawModeButton = null;
+	function previewFinish( area, layer ) {
+		if (
+			layer &&
+			area.method === 'engraving' &&
+			area.layers?.some( ( item ) => item.type === 'laser_material' )
+		) {
+			return (
+				areaLayerMaterial(
+					area,
+					layer,
+					window.ocProductsData?.laserMaterials || []
+				) || area.material
+			);
+		}
+		return area.material;
+	}
 
 	function renderCanvas() {
 		const stage = document.getElementById( 'oc-canvas-stage' );
@@ -156,7 +173,7 @@ export function createProductsPageCanvas( deps ) {
 			renderedH,
 			false,
 			area.method === 'engraving',
-			area.material
+			previewFinish( area, layer )
 		);
 		if ( layer ) {
 			const pill = document.createElement( 'div' );
@@ -284,7 +301,7 @@ export function createProductsPageCanvas( deps ) {
 					Math.round( displayLayer.h * scale ),
 					true,
 					layerArea.method === 'engraving',
-					layerArea.material
+					previewFinish( layerArea, layer )
 				);
 				pos(
 					g,
@@ -783,7 +800,9 @@ export function createProductsPageCanvas( deps ) {
 		const natW = img.naturalWidth || 2000;
 		const natH = img.naturalHeight || 2000;
 		const d = drag.dir;
-		const isCutLine = layer?.type === 'cut_line';
+		const isCutLine = [ 'cut_line', 'laser_material' ].includes(
+			layer?.type
+		);
 		if ( drag.type === 'move' ) {
 			if ( isCutLine ) {
 				entity.x = drag.startX + dx;
@@ -970,13 +989,17 @@ export function createProductsPageCanvas( deps ) {
 		};
 		if ( changedId === inputPrefix + '-x' ) {
 			entity.x = Math.max(
-				layer?.type === 'cut_line' ? -Infinity : 0,
+				[ 'cut_line', 'laser_material' ].includes( layer?.type )
+					? -Infinity
+					: 0,
 				readInt( changedId, entity.x || 0 )
 			);
 		}
 		if ( changedId === inputPrefix + '-y' ) {
 			entity.y = Math.max(
-				layer?.type === 'cut_line' ? -Infinity : 0,
+				[ 'cut_line', 'laser_material' ].includes( layer?.type )
+					? -Infinity
+					: 0,
 				readInt( changedId, entity.y || 0 )
 			);
 		}

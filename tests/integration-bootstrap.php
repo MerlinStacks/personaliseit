@@ -37,6 +37,7 @@ require_once OC_PATH . 'includes/class-oc-preview-generator.php';
 require_once OC_PATH . 'includes/class-oc-vdp.php';
 require_once OC_PATH . 'includes/class-oc-rest-api.php';
 require_once OC_PATH . 'includes/frontend/class-oc-cart.php';
+require_once OC_PATH . 'includes/class-oc-materials.php';
 require_once OC_PATH . 'includes/print/class-oc-print-base.php';
 require_once OC_PATH . 'includes/print/class-oc-print-engraving.php';
 require_once OC_PATH . 'includes/print/class-oc-print-uv.php';

@@ -175,7 +175,7 @@ class OC_Print_Engraving extends OC_Print_Base {
 		$snapshot = is_array( $area_data['renderSpecArea'] ?? null ) ? $area_data['renderSpecArea'] : [];
 		$area_material = (string) ( $snapshot['engravingMaterial'] ?? $area->engraving_material ?? '' );
 		$material = sanitize_key( '' !== $area_material ? $area_material : (string) ( $profile['material'] ?? 'default' ) );
-		if ( ! in_array( $material, [ 'default', 'wood', 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'leather' ], true ) ) {
+		if ( ! in_array( $material, [ 'default', 'engraving_material', 'wood', 'glass', 'gold_metal', 'silver_metal', 'silver_plaque', 'black_metal', 'leather' ], true ) ) {
 			$material = 'default';
 		}
 

@@ -598,6 +598,7 @@ const designVariantMethods = {
 			this.data.designVariantStates?.[ this.selectedDesignVariant ];
 		if ( currentState ) {
 			currentState.layerInputs = this.cloneLayerInputs();
+			currentState.materialSelections = { ...( this.materialSelections || {} ) };
 		}
 	},
 
@@ -652,6 +653,7 @@ const designVariantMethods = {
 			{};
 
 		this.areas = this.data.areas || [];
+		this.materialSelections = { ...( state.materialSelections || {} ) };
 		this.fonts = this.data.fonts || [];
 		this.designVariants = this.data.designVariants || [];
 		this.layersById = {};

@@ -1,4 +1,5 @@
 export const LAYER_TYPES = {
+	laser_material: { label: 'Laser Material', icon: '■', color: '#64748b' },
 	cut_line: { label: 'Cut Line', icon: '\u2702', color: '#db2777' },
 	text: { label: 'Text', icon: 'Aa', color: '#0284c7' },
 	curved_text: { label: 'Curved Text', icon: '⌒', color: '#0284c7' },
@@ -15,6 +16,7 @@ export const LAYER_TYPES = {
 };
 
 export const LAYER_DEFAULTS = {
+	laser_material: { w: 250, h: 250 },
 	cut_line: { w: 200, h: 200 },
 	text: { w: 300, h: 50 },
 	curved_text: { w: 300, h: 150 },
@@ -55,6 +57,10 @@ export const ICO_COPY =
 	'<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M11 5.5V4A1.5 1.5 0 0 0 9.5 2.5H4.5A1.5 1.5 0 0 0 3 4V9.5A1.5 1.5 0 0 0 4.5 11H6"/></svg>';
 
 export const LAYER_TABS = {
+	laser_material: [
+		{ id: 'general', label: 'General', icon: 'G' },
+		{ id: 'material', label: 'Shape / Materials', icon: '■' },
+	],
 	staff_note: [
 		{ id: 'general', label: 'General', icon: 'G' },
 		{ id: 'content', label: 'Content', icon: 'T' },
@@ -68,7 +74,7 @@ export const LAYER_TABS = {
 	],
 	cut_line: [
 		{ id: 'general', label: 'General', icon: 'G' },
-		{ id: 'cut_line', label: 'SVG', icon: '\u2702' },
+		{ id: 'cut_line', label: 'SVG / PDF', icon: '\u2702' },
 	],
 	text: [
 		{ id: 'general', label: 'General', icon: 'G' },

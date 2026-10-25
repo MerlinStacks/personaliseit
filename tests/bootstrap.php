@@ -33,6 +33,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 	define( 'ABSPATH', dirname( __DIR__ ) . '/' );
 }
 
+require_once dirname( __DIR__ ) . '/includes/class-oc-materials.php';
+
 if ( ! defined( 'OC_PATH' ) ) {
 	define( 'OC_PATH', dirname( __DIR__ ) . '/' );
 }

@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.20.5 - 2026-10-23
+
+### Fixed
+- Correct JavaScript regression-test formatting and PHP regression-test alignment and Yoda-condition violations that failed the 1.20.4 GitHub workflow. Existing checks and baselines remain unchanged.
+- Includes the 1.20.4 fixes for false newer-tab autosave conflicts after lost acknowledgements or expired drafts, while retaining competing-editor and persisted-design revision checks.
+
+### Release notes
+- Hosted notes use WordPress's native plugin-details Changelog section with headings, paragraphs and lists, without an embedded frame or preformatted scrolling box.
+
+### Upgrade notes
+- No database migration is required. Replace the existing plugin without uninstalling it. Preserve unsaved work before reloading an existing editor to enable the autosave retry handling.
+
 ## 1.20.4 - 2026-10-22
 
 ### Fixed

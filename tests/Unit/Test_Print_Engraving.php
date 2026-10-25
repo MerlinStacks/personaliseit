@@ -903,6 +903,15 @@ class Test_Print_Engraving extends TestCase {
 
 
 	#[Test]
+	public function neutral_engraving_material_does_not_inherit_a_substrate_profile(): void {
+		$method = new ReflectionMethod( OC_Print_Engraving::class, 'resolve_profile' );
+		$default = $method->invoke( null, null, [ 'renderSpecArea' => [ 'engravingMaterial' => 'default' ] ] );
+		$neutral = $method->invoke( null, null, [ 'renderSpecArea' => [ 'engravingMaterial' => 'engraving_material' ] ] );
+		$default['material'] = 'engraving_material';
+		$this->assertSame( $default, $neutral );
+	}
+
+	#[Test]
 	public function leather_material_uses_its_engraving_profile(): void {
 		$method  = new ReflectionMethod( OC_Print_Engraving::class, 'resolve_profile' );
 		$profile = $method->invokeArgs(

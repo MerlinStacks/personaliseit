@@ -22,6 +22,54 @@ if ( ! class_exists( 'WC_Order' ) ) {
 }
 
 class Test_Print_Embroidery extends TestCase {
+	#[Test]
+	public function missing_glyphs_use_the_same_outlines_for_measurement_and_paint(): void {
+		$font   = OC_PATH . 'tests/Annabelle JF Regular.ttf';
+		$strict = new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_text_outline' );
+		$render = new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_text_outline_with_fallback' );
+		$this->assertNull( $strict->invoke( null, $font, '€', 10.0 ) );
+		$this->assertSame( $strict->invoke( null, $font, 'AV', 10.0 ), $render->invoke( null, $font, 'AV', 10.0 ), 'Supported lettering and kerning must remain unchanged.' );
+		$mixed = $render->invoke( null, $font, 'AV€VA', 10.0 );
+		$runs  = ( new ReflectionMethod( OC_Print_Base::class, 'uv_text_outlines' ) )->invoke( null, 'AV€VA', $font );
+		$this->assertCount( 3, $runs );
+		$this->assertEqualsWithDelta( 10 * array_sum( array_column( $runs, 'width' ) ), $mixed['width'], 0.00001 );
+		$this->assertNotEmpty( $mixed['commands'] );
+		$width = ( new ReflectionMethod( OC_Print_Embroidery::class, 'eps_text_width' ) )->invoke( null, 'AV€VA', $font, 10.0 );
+		$this->assertEqualsWithDelta( max( $mixed['width'], $mixed['bbox'][2] ) - min( 0, $mixed['bbox'][0] ), $width, 0.00001 );
+		$lines = [];
+		$this->assertTrue( ( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_ttf_text_outline' ) )->invokeArgs( null, [ &$lines, 'AV€VA', 'left', 0.0, 0.0, 10.0, $font ] ) );
+		$this->assertStringContainsString( implode( "\n", $mixed['commands'] ), implode( "\n", $lines ) );
+	}
+
+	#[Test]
+	public function fallback_glyphs_fit_and_paint_in_single_line_multiline_and_curved_text(): void {
+		$native = new ReflectionProperty( OC_Print_Embroidery::class, 'native_raster' );
+		$font   = new ReflectionProperty( OC_Print_Embroidery::class, 'native_default_font' );
+		$before = [ $native->getValue(), $font->getValue() ];
+		try {
+			$native->setValue( null, true );
+			$font->setValue( null, OC_PATH . 'tests/Annabelle JF Regular.ttf' );
+			foreach ( [ [ 'AV€VA', false, false ], [ "AV€VA\nAV€VA", true, false ], [ 'AV€VA', false, true ] ] as [ $text, $multiline, $curved ] ) {
+				$lines = [];
+				( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' ) )->invokeArgs( null, [ &$lines, [ 'value' => $text, 'fontSize' => 20 ], [], -20.0, -10.0, 40.0, 20.0, true, 1.0, 'center', $multiline, $curved ] );
+				$output = implode( "\n", $lines );
+				$this->assertStringContainsString( '%%OCTextOutline: glyph-paths', $output );
+				$this->assertStringContainsString( 'fill', $output );
+				$this->assertStringNotContainsString( 'charpath', $output );
+			}
+		} finally {
+			$native->setValue( null, $before[0] );
+			$font->setValue( null, $before[1] );
+		}
+	}
+
+	#[Test]
+	public function unsupported_fallback_characters_report_the_character_not_a_sizing_error(): void {
+		$this->expectException( RuntimeException::class );
+		$this->expectExceptionMessage( 'Neither the selected embroidery font nor the bundled fallback can outline:' );
+		( new ReflectionMethod( OC_Print_Embroidery::class, 'ttf_text_outline_with_fallback' ) )->invoke( null, OC_PATH . 'tests/Annabelle JF Regular.ttf', "A\u{10FFFF}", 10.0 );
+	}
+
 	public static function literal_eps_text_cases(): array {
 		$cases = [];
 		foreach ( [ '<', '>', '<3', '<name>', '&lt;' ] as $literal ) {

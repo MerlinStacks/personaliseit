@@ -1,0 +1,15 @@
+OverCustomise 1.20.5 - 23 October 2026
+
+Fixes:
+- Correct JavaScript regression-test formatting and PHP regression-test alignment and Yoda-condition violations that failed the 1.20.4 GitHub workflow. No checks or baselines have been weakened, and runtime behaviour is unchanged from 1.20.4.
+
+Included from 1.20.4:
+- Prevent false newer-tab autosave conflicts after a lost server acknowledgement or an expired draft. Separate editor identities allow safe reconciliation of an editor's own write while preserving protection against competing editors and changes to the saved design.
+
+Release notes:
+- Notes appear directly in WordPress's native plugin-details Changelog section using headings, paragraphs and lists, with no embedded frame, custom page or preformatted scrolling box.
+
+Upgrade notes:
+- Requires WordPress 6.8+, PHP 8.2+, and an active WooCommerce installation. No database migration is required.
+- Replace the existing plugin without uninstalling it. Saved customisations and the existing plugin-folder identity are preserved.
+- Preserve unsaved work before reloading an existing editor after upgrading. Already-open pages need a reload to use the autosave retry handling; this release does not automatically recover a currently blocked page.

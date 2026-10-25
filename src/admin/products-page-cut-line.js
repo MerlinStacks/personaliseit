@@ -1,11 +1,11 @@
 // Upload only through the server sanitizer; never preview the raw local file.
 export async function uploadCutLine( file, data ) {
 	if (
-		! /\.svg$/i.test( file.name ) ||
+		! /\.(svg|pdf)$/i.test( file.name ) ||
 		! file.size ||
 		file.size > 256 * 1024
 	) {
-		throw new Error( 'Choose an SVG file no larger than 256 KiB.' );
+		throw new Error( 'Choose an SVG or PDF file no larger than 256 KiB.' );
 	}
 	const body = new FormData();
 	body.append( 'action', 'oc_upload_cut_line' );
@@ -20,7 +20,7 @@ export async function uploadCutLine( file, data ) {
 		! result.data.cutLineSvg
 	) {
 		throw new Error(
-			result.data?.message || 'Unable to upload the cut line SVG.'
+			result.data?.message || 'Unable to upload the cut line file.'
 		);
 	}
 	return result.data.cutLineSvg;
@@ -35,7 +35,7 @@ export function bindCutLineUpload( layer, area, commitChange ) {
 			return;
 		}
 		input.disabled = true;
-		status.textContent = 'Uploading SVG…';
+		status.textContent = 'Uploading cut line…';
 		try {
 			const svg = await uploadCutLine(
 				file,
@@ -49,7 +49,7 @@ export function bindCutLineUpload( layer, area, commitChange ) {
 			commitChange( { canvas: true, rightColumn: true } );
 		} catch ( error ) {
 			status.textContent =
-				error.message || 'Unable to upload the cut line SVG.';
+				error.message || 'Unable to upload the cut line file.';
 		} finally {
 			input.disabled = false;
 			input.value = '';
@@ -85,7 +85,7 @@ export function appendCutLinePreview( el, source ) {
 			svg.style.overflow = 'visible';
 		}
 	} else {
-		preview.textContent = 'Upload cut line SVG';
+		preview.textContent = 'Upload cut line SVG or PDF';
 	}
 	el.appendChild( preview );
 }

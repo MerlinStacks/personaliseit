@@ -2,6 +2,12 @@
 
 import { layerIsShown } from '../../shared/layer-conditions';
 import {
+	selectedMaterial,
+	materialForLayer,
+	materialPalette,
+} from './materials';
+import { materialShapeUrl } from '../../shared/material-shape';
+import {
 	StaticCanvas,
 	FabricImage,
 	FabricText,
@@ -31,6 +37,10 @@ import {
 	imagePlacementScale,
 } from '../../shared/image-layout';
 import { createCurvedText } from '../../shared/curved-text';
+import {
+	loadPreviewFallback,
+	previewFontFamily,
+} from '../../shared/preview-font';
 
 const canvasRendererMethods = {
 	// ── Canvas initialisation ──────────────────────────────────────────────────
@@ -461,16 +471,60 @@ const canvasRendererMethods = {
 			);
 		const lcX = center.x * scale;
 		const lcY = center.y * scale;
+		if ( layer.type === 'laser_material' ) {
+			const material = selectedMaterial( layer, this.materialSelections );
+			if (
+				area?.printMethod !== 'engraving' ||
+				! material ||
+				! layer.settings?.materialSvg
+			) {
+				throw new Error(
+					'Configure the material layer with an SVG silhouette and available materials.'
+				);
+			}
+			const surface = await this.loadFabricImage(
+				materialShapeUrl(
+					layer.settings.materialSvg,
+					material.surface,
+					lw,
+					lh
+				)
+			);
+			if ( ! isCurrent() ) {
+				surface.dispose?.();
+				return;
+			}
+			surface.set( {
+				left: lcX,
+				top: lcY,
+				originX: 'center',
+				originY: 'center',
+				scaleX: lw / surface.width,
+				scaleY: lh / surface.height,
+				angle: rotation,
+				selectable: false,
+				evented: false,
+			} );
+			surface._ocContent = true;
+			canvas.add( surface );
+			return;
+		}
 		const isEngraving = area?.printMethod === 'engraving';
 		const isEmbroidery = area?.printMethod === 'embroidery';
 		const engravingPalette = isEngraving
-			? await this.engravingPalette(
+			? ( area?.layers?.some(
+					( candidate ) => candidate.type === 'laser_material'
+			  ) &&
+					materialPalette(
+						materialForLayer( area, layer, this.materialSelections )
+					) ) ||
+			  ( await this.engravingPalette(
 					area?.engravingMaterial,
 					canvas,
 					center,
 					layerBox,
 					rotation
-			  )
+			  ) )
 			: null;
 		if ( ! isCurrent() ) {
 			return;
@@ -596,7 +650,7 @@ const canvasRendererMethods = {
 							left: lcX,
 							top: lcY,
 							angle: rotation,
-							fontFamily: font?.name || 'sans-serif',
+							fontFamily: previewFontFamily( font ),
 							fontWeight: font?.weight || 'normal',
 							fontStyle: font?.style || 'normal',
 							fontSize,
@@ -612,7 +666,7 @@ const canvasRendererMethods = {
 					const lifts = [];
 					objects.forEach( ( object ) => {
 						const size = object.fontSize;
-						if ( isEngraving ) {
+						if ( isEngraving && ! engravingPalette.flat ) {
 							object.set( {
 								fill:
 									engravingPalette.pattern === 'wood'
@@ -722,7 +776,7 @@ const canvasRendererMethods = {
 					originY: 'center',
 					...textBoxSize,
 					angle: rotation,
-					fontFamily: font?.name || 'sans-serif',
+					fontFamily: previewFontFamily( font ),
 					fontWeight: font?.weight || 'normal',
 					fontStyle: font?.style || 'normal',
 					fontSize,
@@ -775,7 +829,7 @@ const canvasRendererMethods = {
 					target.setCoords?.();
 				};
 
-				if ( isEngraving ) {
+				if ( isEngraving && ! engravingPalette.flat ) {
 					// Fake etched depth with a subtle edge shadow on dark substrates.
 					obj.set( {
 						opacity: engravingPalette.opacity,
@@ -1488,7 +1542,7 @@ const canvasRendererMethods = {
 			originX: 'center',
 			originY: 'center',
 			...textBoxSize,
-			fontFamily: font?.name || 'sans-serif',
+			fontFamily: previewFontFamily( font ),
 			fontWeight: font?.weight || 'normal',
 			fontStyle: font?.style || 'normal',
 			fontSize,
@@ -1522,7 +1576,7 @@ const canvasRendererMethods = {
 			top: 0,
 			originX: 'left',
 			originY: 'top',
-			fontFamily: font?.name || 'sans-serif',
+			fontFamily: previewFontFamily( font ),
 			fontWeight: font?.weight || 'normal',
 			fontStyle: font?.style || 'normal',
 			fontSize,
@@ -1552,7 +1606,7 @@ const canvasRendererMethods = {
 			const objects = createCurvedText(
 				raw,
 				{
-					fontFamily: font?.name || 'sans-serif',
+					fontFamily: previewFontFamily( font ),
 					fontWeight: font?.weight || 'normal',
 					fontStyle: font?.style || 'normal',
 					fontSize: displaySize,
@@ -2752,13 +2806,17 @@ const canvasRendererMethods = {
 				! effects.preserveRecolouredPixels &&
 				! isDitheredEngraving
 			) {
-				filters.push(
-					new FabricFilters.Grayscale(),
-					new FabricFilters.Brightness( {
-						brightness: palette.brightness,
-					} ),
-					new FabricFilters.Contrast( { contrast: palette.contrast } )
-				);
+				if ( ! palette.flat ) {
+					filters.push(
+						new FabricFilters.Grayscale(),
+						new FabricFilters.Brightness( {
+							brightness: palette.brightness,
+						} ),
+						new FabricFilters.Contrast( {
+							contrast: palette.contrast,
+						} )
+					);
+				}
 				if ( palette.imageTint && FabricFilters.BlendColor ) {
 					filters.push(
 						new FabricFilters.BlendColor( {
@@ -2817,7 +2875,13 @@ const canvasRendererMethods = {
 			// slider may scale this object immediately, then a debounced redraw must
 			// regenerate the pattern so its dots remain preview-pixel accurate.
 			img._ocScaleSensitiveFilter = isDitheredEngraving;
-			if ( isEngraving && effects.preserveRecolouredPixels ) {
+			if ( isEngraving && palette.flat ) {
+				img.set( {
+					opacity: 1,
+					globalCompositeOperation: 'source-over',
+					shadow: null,
+				} );
+			} else if ( isEngraving && effects.preserveRecolouredPixels ) {
 				img.set( {
 					opacity: palette.opacity,
 					globalCompositeOperation:
@@ -3014,6 +3078,7 @@ const canvasRendererMethods = {
 		if ( ! font?.name || ! font?.url ) {
 			return false;
 		}
+		await loadPreviewFallback( font );
 		const key = this.fontCacheKey( font );
 		if ( this.fontCache[ key ] ) {
 			return this.fontCache[ key ];

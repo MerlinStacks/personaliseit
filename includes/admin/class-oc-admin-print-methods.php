@@ -220,6 +220,7 @@ class OC_Admin_Print_Methods {
 						<div class="oc-form-field">
 							<select id="oc-engraving-material" name="<?php echo esc_attr( "oc_pm[{$key}][material]" ); ?>" class="oc-select" style="width:220px;">
 								<option value="default" <?php selected( (string) $m['material'], 'default' ); ?>><?php esc_html_e( 'Default', 'overcustomise' ); ?></option>
+								<option value="engraving_material" <?php selected( (string) $m['material'], 'engraving_material' ); ?>><?php esc_html_e( 'Engraving Material', 'overcustomise' ); ?></option>
 								<option value="wood" <?php selected( (string) $m['material'], 'wood' ); ?>><?php esc_html_e( 'Wood', 'overcustomise' ); ?></option>
 								<option value="glass" <?php selected( (string) $m['material'], 'glass' ); ?>><?php esc_html_e( 'Glass', 'overcustomise' ); ?></option>
 								<option value="leather" <?php selected( (string) $m['material'], 'leather' ); ?>><?php esc_html_e( 'Leather', 'overcustomise' ); ?></option>
@@ -407,7 +408,7 @@ class OC_Admin_Print_Methods {
 		}
 
 		if ( 'engraving' === $key ) {
-			$materials                    = [ 'default', 'wood', 'glass', 'leather', 'silver_plaque' ];
+			$materials                    = [ 'default', 'engraving_material', 'wood', 'glass', 'leather', 'silver_plaque' ];
 			$sanitised['cut_line_colour'] = self::cut_line_colour( $posted['cut_line_colour'] ?? $current['cut_line_colour'] ?? '#FF0000' );
 			$dithers                      = [ 'none', 'floyd_steinberg' ];
 
@@ -466,7 +467,7 @@ class OC_Admin_Print_Methods {
 		if ( 'engraving' === $key ) {
 			$material                      = is_scalar( $settings['material'] ?? null ) ? sanitize_key( (string) $settings['material'] ) : 'default';
 			$dithering                     = is_scalar( $settings['dithering'] ?? null ) ? sanitize_key( (string) $settings['dithering'] ) : 'none';
-			$normalised['material']        = in_array( $material, [ 'default', 'wood', 'glass', 'leather', 'silver_plaque' ], true ) ? $material : 'default';
+			$normalised['material']        = in_array( $material, [ 'default', 'engraving_material', 'wood', 'glass', 'leather', 'silver_plaque' ], true ) ? $material : 'default';
 			$normalised['cut_line_colour'] = self::cut_line_colour( $settings['cut_line_colour'] ?? '#FF0000' );
 			$normalised['gamma']           = max( 0.2, min( 4.0, is_numeric( $settings['gamma'] ?? null ) ? (float) $settings['gamma'] : (float) $defaults['gamma'] ) );
 			$normalised['contrast']        = max( -100, min( 100, is_numeric( $settings['contrast'] ?? null ) ? (int) $settings['contrast'] : (int) $defaults['contrast'] ) );

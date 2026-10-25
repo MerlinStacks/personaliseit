@@ -8,6 +8,7 @@
  */
 
 import './customiser-app.scss';
+import './customiser/materials.scss';
 import inputControlMethods from './customiser/input-controls';
 import cartSerializationMethods from './customiser/cart-serialization';
 import galleryPreviewMethods from './customiser/gallery-preview';
@@ -157,6 +158,7 @@ class OCCustomiser {
 	constructor( data ) {
 		this.data = data;
 		this.areas = data.areas || [];
+		this.materialSelections = { ...( data.materialSelections || {} ) };
 		this.fonts = data.fonts || [];
 		this.layersById = {};
 		this.areas.forEach( ( area ) =>

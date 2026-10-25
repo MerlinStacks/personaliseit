@@ -261,11 +261,16 @@ class OC_Cart {
 			}
 			$design           = $normalised['design'];
 			$sanitised_layers = $normalised['layers'];
+			$materials = OC_Materials::normalise_selection( $design_id, $decoded['materials'] ?? [] );
+			if ( is_wp_error( $materials ) ) {
+				throw new \Exception( esc_html( $materials->get_error_message() ) );
+			}
 
 			$cart_item_data['_oc_customisation'] = [
 				'v'          => 2,
 				'designId'   => $design_id,
 				'layers'     => $sanitised_layers,
+				'materials'  => $materials,
 				'renderSpec' => OC_Render_Spec::build( $design_id, $sanitised_layers ),
 			];
 			$variant                             = self::design_variant_for_assignment( $assignment, $design_id );
@@ -523,6 +528,10 @@ class OC_Cart {
 		if ( ! $design_id || ! is_array( $decoded['layers'] ?? null ) ) {
 			return new \WP_Error( 'invalid_customisation', __( 'Invalid personalisation data. Please refresh and try again.', 'overcustomise' ) );
 		}
+		$materials = OC_Materials::normalise_selection( $design_id, $decoded['materials'] ?? [] );
+		if ( is_wp_error( $materials ) ) {
+			return $materials;
+		}
 
 		$normalised = self::normalise_v2_layers(
 			$product_id,
@@ -585,7 +594,7 @@ class OC_Cart {
 				continue;
 			}
 			$known_layer_ids[ $layer_id ] = true;
-			if ( 'cut_line' !== (string) ( $layer->type ?? '' ) && ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] ) ) {
+			if ( ! in_array( (string) ( $layer->type ?? '' ), [ 'cut_line', 'laser_material' ], true ) && ( ! isset( $layer->visible ) || (bool) $layer->visible ) && ! empty( $visible_area_ids[ absint( $layer->area_id ?? 0 ) ] ) ) {
 				$eligible_layer_ids[ $layer_id ] = true;
 			}
 		}
@@ -1502,7 +1511,7 @@ class OC_Cart {
 			'show_planets'                 => $boolean( $value['show_planets'] ?? true, true ),
 			'show_labels'                  => $boolean( $value['show_labels'] ?? true, true ),
 			'show_border'                  => $boolean( $value['show_border'] ?? true, true ),
-		];
+		] + ( 'laser_material' === $type ? OC_Materials::layer_settings( $value ) : [] );
 	}
 
 	/**
@@ -1654,6 +1663,12 @@ class OC_Cart {
 		if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
 			$design_id = (int) ( $customisation['designId'] ?? $cart_item['_oc_design_id'] ?? 0 );
 			$layers    = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
+			foreach ( $customisation['materials'] ?? [] as $material ) {
+				$item_data[] = [
+					'key' => __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . ')',
+					'value' => esc_html( (string) ( $material['name'] ?? '' ) ),
+				];
+			}
 
 			if ( is_scalar( $customisation['designVariantLabel'] ?? null ) && '' !== trim( (string) $customisation['designVariantLabel'] ) ) {
 				$item_data[] = [
@@ -1994,6 +2009,10 @@ class OC_Cart {
 				}
 			}
 			$print_method_map = $this->layer_print_method_map( $customisation, $layer_map, $design_id );
+
+			foreach ( $customisation['materials'] ?? [] as $material ) {
+				echo '<p><strong>' . esc_html__( 'Material', 'overcustomise' ) . ' (' . esc_html( (string) ( $material['areaLabel'] ?? '' ) ) . '):</strong> ' . esc_html( (string) ( $material['name'] ?? '' ) ) . '</p>';
+			}
 
 			foreach ( $layers as $layer_id => $layer_data ) {
 				if ( ! is_array( $layer_data ) ) {
@@ -2379,6 +2398,9 @@ class OC_Cart {
 		}
 
 		$lines = [ __( 'Customisation:', 'overcustomise' ) ];
+		foreach ( $customisation['materials'] ?? [] as $material ) {
+			$lines[] = __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . '): ' . (string) ( $material['name'] ?? '' );
+		}
 		if ( isset( $customisation['v'] ) && 2 === (int) $customisation['v'] ) {
 			$design_id = absint( $customisation['designId'] ?? $item->get_meta( '_oc_design_id', true ) );
 			$layer_map = $this->render_spec_layer_map( $customisation );
