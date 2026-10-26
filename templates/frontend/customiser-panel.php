@@ -208,18 +208,20 @@ foreach ( $layers as $layer ) {
 			<?php foreach ( $area_layers as $material_layer ) : ?>
 			<?php $laser_material = 'engraving' === $area->print_method && empty( $material_layer->locked ) ? OC_Materials::for_layer( $material_layer ) : null; ?>
 			<?php if ( $laser_material ) : ?>
-				<fieldset class="oc-material-picker">
+				<fieldset class="oc-material-picker" aria-describedby="oc-material-hint-<?php echo esc_attr( $material_layer->id ); ?>">
 					<legend><?php echo esc_html( $material_layer->label ?: __( 'Engraving material', 'overcustomise' ) ); ?></legend>
 					<div class="oc-material-options">
 						<?php foreach ( $laser_material['materials'] as $material ) : ?>
-							<label class="oc-material-option">
-								<input type="radio" name="oc_material_<?php echo esc_attr( $material_layer->id ); ?>" value="<?php echo esc_attr( $material['id'] ); ?>" data-oc-material-layer="<?php echo esc_attr( $material_layer->id ); ?>" <?php checked( $laser_material['defaultId'], $material['id'] ); ?>>
-								<span class="oc-material-swatch" style="background:<?php echo esc_attr( $material['surface'] ); ?>;color:<?php echo esc_attr( $material['engraving'] ); ?>;" aria-hidden="true">Aa</span>
-								<span><?php echo esc_html( $material['name'] ); ?></span>
+							<label class="oc-material-option" title="<?php echo esc_attr( $material['name'] ); ?>">
+								<input type="radio" name="oc_material_<?php echo esc_attr( $material_layer->id ); ?>" value="<?php echo esc_attr( $material['id'] ); ?>" data-oc-material-layer="<?php echo esc_attr( $material_layer->id ); ?>" data-material-name="<?php echo esc_attr( $material['name'] ); ?>" <?php checked( $laser_material['defaultId'], $material['id'] ); ?>>
+								<span class="oc-material-swatch" style="background:<?php echo esc_attr( $material['surface'] ); ?>;color:<?php echo esc_attr( $material['engraving'] ); ?>;" aria-hidden="true"><span><?php esc_html_e( 'Text', 'overcustomise' ); ?></span></span>
+								<span class="oc-material-check" aria-hidden="true"></span>
+								<span class="oc-material-option-name"><?php echo esc_html( $material['name'] ); ?></span>
 							</label>
 						<?php endforeach; ?>
 					</div>
-					<p class="oc-material-hint"><?php esc_html_e( 'Material and engraving colours are a visual guide. Actual finishes may vary.', 'overcustomise' ); ?></p>
+					<p class="oc-material-selection" aria-live="polite" aria-atomic="true"><span><?php esc_html_e( 'Selected:', 'overcustomise' ); ?></span> <strong data-oc-selected-material-name><?php echo esc_html( array_column( $laser_material['materials'], 'name', 'id' )[ $laser_material['defaultId'] ] ?? '' ); ?></strong></p>
+					<p class="oc-material-hint" id="oc-material-hint-<?php echo esc_attr( $material_layer->id ); ?>"><?php esc_html_e( 'Preview colours are a guide. Actual finishes may vary.', 'overcustomise' ); ?></p>
 				</fieldset>
 			<?php endif; ?>
 			<?php endforeach; ?>

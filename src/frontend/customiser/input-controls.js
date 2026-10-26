@@ -472,6 +472,14 @@ const inputControlMethods = {
 
 	setupInputListeners() {
 		const stateSignal = this._panelListenerController?.signal;
+		const syncMaterialName = ( radio ) => {
+			const name = radio
+				.closest( '.oc-material-picker' )
+				?.querySelector( '[data-oc-selected-material-name]' );
+			if ( radio.checked && name ) {
+				name.textContent = radio.dataset.materialName || '';
+			}
+		};
 		this.materialSelections ||= {};
 		this.areas
 			.flatMap( ( area ) => area.layers || [] )
@@ -496,6 +504,7 @@ const inputControlMethods = {
 				const layerId = radio.dataset.ocMaterialLayer;
 				radio.checked =
 					this.materialSelections[ layerId ] === radio.value;
+				syncMaterialName( radio );
 				radio.addEventListener(
 					'change',
 					() => {
@@ -503,6 +512,7 @@ const inputControlMethods = {
 							return;
 						}
 						this.materialSelections[ layerId ] = radio.value;
+						syncMaterialName( radio );
 						this.clearPreflightMessages?.();
 						this.requestPreviewFocus?.();
 						this.areas.forEach( ( _, index ) =>
