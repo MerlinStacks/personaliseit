@@ -59,6 +59,15 @@ class RemoveSourceMapCommentsPlugin {
 module.exports = {
 	...defaultConfig,
 	devtool: false,
+	resolve: {
+		...defaultConfig.resolve,
+		alias: {
+			...defaultConfig.resolve?.alias,
+			// Use Fabric's modular build so unused brushes and controls can be
+			// removed. We render imported shapes/images, not loadFromJSON/SVG.
+			fabric$: 'fabric/es',
+		},
+	},
 	entry: {
 		// Admin pages
 		'admin/products-list': './src/admin/products-list.js',
@@ -66,6 +75,7 @@ module.exports = {
 		'admin/mockup-library': './src/admin/mockup-library.js',
 		'admin/font-manager': './src/admin/font-manager.js',
 		'admin/colour-manager': './src/admin/colour-manager.js',
+		'admin/material-manager': './src/admin/material-manager.js',
 		'admin/clipart-manager': './src/admin/clipart-manager.js',
 		'admin/print-bounds-editor': './src/admin/print-bounds-editor.js',
 		// Frontend customiser

@@ -138,7 +138,7 @@ class OC_Plugin {
 		OC_Admin_Products::register_ajax();
 		OC_Admin_Fonts::register_ajax();
 		OC_Admin_Colours::register_ajax();
-		add_action( 'admin_post_oc_save_material', [ OC_Admin_Materials::class, 'save' ] );
+		OC_Admin_Materials::register_ajax();
 		OC_Admin_Image_Filters::register_ajax();
 		OC_Admin_Clipart::register_ajax();
 	}

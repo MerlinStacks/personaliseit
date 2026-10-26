@@ -11,7 +11,7 @@ class OC_Materials {
 
 	/** Starter palettes; colours are preview approximations, not machine settings. */
 	public static function defaults(): array {
-		$rows = [
+		$rows   = [
 			[ 'black-white', 'Black with White Engraving', '#171717', '#ffffff' ],
 			[ 'white-black', 'White with Black Engraving', '#ffffff', '#171717' ],
 			[ 'pink-black', 'Pink with Black Engraving', '#edabc4', '#171717' ],
@@ -32,14 +32,56 @@ class OC_Materials {
 		return is_array( $rows ) ? $rows : self::defaults();
 	}
 
+	/** Return the reusable material groups. */
+	public static function groups(): array {
+		$groups = get_option( 'oc_laser_material_groups', [] );
+		if ( ! is_array( $groups ) ) {
+			return [];
+		}
+		$result = [];
+		foreach ( $groups as $group ) {
+			$group = self::sanitise_group( is_array( $group ) ? $group : [] );
+			if ( '' !== $group['id'] && '' !== $group['name'] ) {
+				$result[ $group['id'] ] = $group;
+			}
+		}
+		return $result;
+	}
+
+	/** Validate a material group and discard unknown members. */
+	public static function sanitise_group( array $group ): array {
+		$string = static fn ( $value ): string => is_scalar( $value ) ? (string) $value : '';
+		$ids    = is_array( $group['material_ids'] ?? null ) ? $group['material_ids'] : [];
+		$ids    = array_values( array_intersect( array_filter( $ids, 'is_string' ), array_keys( self::all() ) ) );
+		return [
+			'id'           => substr( sanitize_key( $string( $group['id'] ?? '' ) ), 0, 64 ),
+			'name'         => substr( sanitize_text_field( $string( $group['name'] ?? '' ) ), 0, 150 ),
+			'material_ids' => array_values( array_unique( $ids ) ),
+		];
+	}
+
+	/** Resolve the materials made available by the selected groups. */
+	public static function ids_for_groups( array $group_ids ): array {
+		$groups = self::groups();
+		$ids    = [];
+		foreach ( $group_ids as $group_id ) {
+			if ( is_string( $group_id ) && isset( $groups[ $group_id ] ) ) {
+				$ids = array_merge( $ids, $groups[ $group_id ]['material_ids'] );
+			}
+		}
+		return array_values( array_unique( $ids ) );
+	}
+
 	/** Validate a material without trusting posted CSS or labels. */
 	public static function sanitise( array $row ): array {
-		$string = static fn ( $value ): string => is_scalar( $value ) ? (string) $value : '';
+		$string    = static fn ( $value ): string => is_scalar( $value ) ? (string) $value : '';
+		$surface   = sanitize_hex_color( $string( $row['surface'] ?? '' ) );
+		$engraving = sanitize_hex_color( $string( $row['engraving'] ?? '' ) );
 		return [
 			'id'        => substr( sanitize_key( $string( $row['id'] ?? '' ) ), 0, 64 ),
 			'name'      => substr( sanitize_text_field( $string( $row['name'] ?? '' ) ), 0, 150 ),
-			'surface'   => sanitize_hex_color( $string( $row['surface'] ?? '' ) ) ?: '#171717',
-			'engraving' => sanitize_hex_color( $string( $row['engraving'] ?? '' ) ) ?: '#ffffff',
+			'surface'   => $surface ? $surface : '#171717',
+			'engraving' => $engraving ? $engraving : '#ffffff',
 			'active'    => ! empty( $row['active'] ),
 		];
 	}
@@ -47,15 +89,18 @@ class OC_Materials {
 	/** Restrict material layers to static, sanitized SVG and known library IDs. */
 	public static function layer_settings( array $raw ): array {
 		$source = $raw['materialSvg'] ?? '';
-		$svg = '' === $source ? '' : OC_Cut_Line::sanitize( $source );
+		$svg    = '' === $source ? '' : OC_Cut_Line::sanitize( $source );
 		if ( is_wp_error( $svg ) ) {
-			throw new RuntimeException( __( 'Upload a valid static SVG silhouette for the material layer.', 'overcustomise' ) );
+			throw new RuntimeException( esc_html__( 'Upload a valid static SVG silhouette for the material layer.', 'overcustomise' ) );
 		}
-		$ids = is_array( $raw['material_ids'] ?? null ) ? array_values( array_intersect( array_filter( $raw['material_ids'], 'is_string' ), array_keys( self::all() ) ) ) : [];
-		$default = is_string( $raw['default_material_id'] ?? null ) ? $raw['default_material_id'] : '';
+		$groups    = self::groups();
+		$group_ids = is_array( $raw['material_group_ids'] ?? null ) ? array_values( array_intersect( array_filter( $raw['material_group_ids'], 'is_string' ), array_keys( $groups ) ) ) : [];
+		$ids       = $group_ids ? self::ids_for_groups( $group_ids ) : ( is_array( $raw['material_ids'] ?? null ) ? array_values( array_intersect( array_filter( $raw['material_ids'], 'is_string' ), array_keys( self::all() ) ) ) : [] );
+		$default   = is_string( $raw['default_material_id'] ?? null ) ? $raw['default_material_id'] : '';
 		return [
-			'materialSvg' => $svg,
-			'material_ids' => array_values( array_unique( $ids ) ),
+			'materialSvg'         => $svg,
+			'material_group_ids'  => array_values( array_unique( $group_ids ) ),
+			'material_ids'        => array_values( array_unique( $ids ) ),
 			'default_material_id' => in_array( $default, $ids, true ) ? $default : ( $ids[0] ?? '' ),
 		];
 	}
@@ -65,11 +110,14 @@ class OC_Materials {
 		if ( 'laser_material' !== ( $layer->type ?? '' ) ) {
 			return null;
 		}
-		$config = is_array( $layer->settings ?? null ) ? $layer->settings : json_decode( (string) ( $layer->settings ?? '' ), true );
-		$config = is_array( $config ) ? $config : [];
-		$library = self::all();
-		$materials = [];
-		foreach ( is_array( $config['material_ids'] ?? null ) ? $config['material_ids'] : [] as $id ) {
+		$config          = is_array( $layer->settings ?? null ) ? $layer->settings : json_decode( (string) ( $layer->settings ?? '' ), true );
+		$config          = is_array( $config ) ? $config : [];
+		$library         = self::all();
+		$materials       = [];
+		$group_ids       = is_array( $config['material_group_ids'] ?? null ) ? $config['material_group_ids'] : [];
+		$valid_group_ids = array_values( array_intersect( array_filter( $group_ids, 'is_string' ), array_keys( self::groups() ) ) );
+		$ids             = $valid_group_ids ? self::ids_for_groups( $valid_group_ids ) : ( is_array( $config['material_ids'] ?? null ) ? $config['material_ids'] : [] );
+		foreach ( $ids as $id ) {
 			if ( ! is_string( $id ) ) {
 				continue;
 			}
@@ -92,9 +140,9 @@ class OC_Materials {
 			return new WP_Error( 'invalid_material', __( 'Please choose a valid engraving material.', 'overcustomise' ) );
 		}
 		$result = [];
-		$areas = [];
+		$areas  = [];
 		foreach ( OC_DB::get_design_print_areas( $design_id ) as $area ) {
-			if ( 'engraving' === $area->print_method && ( ! isset( $area->visible ) || $area->visible ) ) {
+			if ( 'engraving' === ( $area->print_method ?? '' ) && ( ! isset( $area->visible ) || $area->visible ) ) {
 				$areas[ (int) $area->id ] = $area;
 			}
 		}
@@ -107,14 +155,15 @@ class OC_Materials {
 				return new WP_Error( 'invalid_material', __( 'No materials are available for this material layer. Please contact us.', 'overcustomise' ) );
 			}
 			try {
-				$settings = self::layer_settings( is_array( $layer->settings ) ? $layer->settings : ( json_decode( (string) $layer->settings, true ) ?: [] ) );
+				$raw_settings = is_array( $layer->settings ) ? $layer->settings : json_decode( (string) $layer->settings, true );
+				$settings     = self::layer_settings( is_array( $raw_settings ) ? $raw_settings : [] );
 				if ( '' === $settings['materialSvg'] ) {
 					throw new RuntimeException();
 				}
 			} catch ( Throwable $error ) {
 				return new WP_Error( 'invalid_material_shape', __( 'The material layer needs a valid SVG silhouette. Please contact us.', 'overcustomise' ) );
 			}
-			$id = $submitted[ $layer->id ] ?? ( ! empty( $layer->locked ) ? $config['defaultId'] : null );
+			$id   = $submitted[ $layer->id ] ?? ( ! empty( $layer->locked ) ? $config['defaultId'] : null );
 			$rows = array_column( $config['materials'], null, 'id' );
 			if ( ! is_string( $id ) || ! isset( $rows[ $id ] ) || ( ! empty( $layer->locked ) && $id !== $config['defaultId'] ) ) {
 				return new WP_Error( 'invalid_material', __( 'The selected engraving material is unavailable. Please refresh and choose a material.', 'overcustomise' ) );

@@ -1828,6 +1828,19 @@ class Test_Print_Base extends TestCase {
 	}
 
 	#[Test]
+	public function spotify_colour_preserves_transparency_and_implicit_fills(): void {
+		$method = new ReflectionMethod( OC_Print_Base_Testable::class, 'colour_spotify_svg' );
+		$svg    = '<svg><rect fill="none"/><path fill="#000000"/><path style="fill:black;stroke:none"/><path/></svg>';
+		$result = $method->invoke( null, $svg, '#abcdef' );
+		$this->assertStringContainsString( '<svg fill="#abcdef">', $result );
+		$this->assertStringContainsString( '<rect fill="none"/>', $result );
+		$this->assertStringContainsString( '<path fill="#abcdef"/>', $result );
+		$this->assertStringContainsString( 'fill:#abcdef;stroke:none', $result );
+		$this->assertSame( '<svg fill="#abcdef"/>', $method->invoke( null, '<svg fill="black"/>', '#abcdef' ) );
+		$this->assertSame( '<svg fill="#000000"/>', $method->invoke( null, '<svg/>', 'invalid' ) );
+	}
+
+	#[Test]
 	public function engraving_text_removes_colour_emoji(): void {
 		$result = OC_Print_Base_Testable::test_normalise_engraving_text( "Name \u{2764}\u{FE0F} \u{1F44D}\u{1F3FD} \u{1F600}" );
 

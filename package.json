@@ -1,6 +1,6 @@
 {
   "name": "overcustomise",
-  "version": "1.20.5",
+  "version": "1.20.7",
   "description": "WooCommerce product customiser for Custom Kings",
   "private": true,
   "files": [
@@ -19,6 +19,7 @@
     "CHANGELOG.md",
     "docs/cache-updates.md",
     "docs/hosted-updates.md",
+    "docs/laser-materials.md",
     "docs/releases",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",

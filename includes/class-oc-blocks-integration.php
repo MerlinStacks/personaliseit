@@ -69,7 +69,7 @@ class OC_Blocks_Integration {
 		$lines = [];
 		foreach ( $customisation['materials'] ?? [] as $material ) {
 			$lines[] = [
-				'key' => __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . ')',
+				'key'   => __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . ')',
 				'value' => (string) ( $material['name'] ?? '' ),
 			];
 		}

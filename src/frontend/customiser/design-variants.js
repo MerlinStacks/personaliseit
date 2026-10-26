@@ -8,6 +8,17 @@ import { StaticCanvas } from 'fabric';
 import { displayBounds } from '../../shared/render-math';
 
 const designVariantMethods = {
+	async loadMaterialStyles( areas = [] ) {
+		if (
+			areas.some( ( area ) =>
+				area.layers?.some( ( layer ) => layer.type === 'laser_material' )
+			)
+		) {
+			await import(
+				/* webpackChunkName: "engraving-preview" */ './materials.scss'
+			);
+		}
+	},
 	setupDesignVariantOptions() {
 		if ( ! this.designVariants.length ) {
 			return;
@@ -678,6 +689,7 @@ const designVariantMethods = {
 		this.seedTemplateImageDefaults();
 		this.seedLayerFontDefaults();
 		await this.hydrateLinkGroupCarry();
+		await this.loadMaterialStyles( this.areas );
 		if ( designGeneration !== this._designGeneration ) {
 			return false;
 		}

@@ -1,0 +1,22 @@
+OverCustomise 1.20.6 - 26 October 2026
+
+New:
+- Manage reusable laser materials with separate surface and engraving colours. Six starter materials are included, and acrylic engraving colours are editable.
+- Add optional Laser Material layers in the Design Editor. Upload a sanitized SVG silhouette, select allowed materials and a default, and position it beneath the engraving artwork. Lock the layer for a fixed material without a customer picker.
+- Choose the neutral Engraving Material finish to display the selected material faithfully, without glass frosting, leather or wood texture, metallic shading, transparency or etched shadows. Text, uploaded images and all clipart above the material layer use its selected engraving colour within the same print area.
+
+Mobile improvements:
+- Compact circular material swatches replace large radio cards, with 48-pixel touch targets, a clear selection ring and checkmark, keyboard controls and the selected material's full name below. Choices wrap on narrow screens and selection changes are announced to assistive technology.
+
+Preview and production:
+- SVG material surfaces preserve transparent surroundings and holes. Material names and colours are validated and saved with cart, checkout and orders. The surface is preview-only, never an engraving fill or a cutting path; production engraving remains monochrome.
+- Cut lines accept static SVG or first-page vector PDF artwork, with independent width and height and geometry outside the engraving area. PDF conversion requires Poppler on the server.
+- Browser missing-glyph previews and embroidery outlines use the bundled production fallback font, including curved text. This improves consistency for supported fallback characters; it does not guarantee support for every script or emoji.
+
+Release notes:
+- Notes appear directly in WordPress's native plugin-details Changelog section as headings, paragraphs and lists, with no nested frame, embedded website or preformatted scrolling box.
+
+Upgrade notes:
+- Existing leather, glass, wood and metal engraving finishes remain available. Designs are unchanged unless a Laser Material layer is added. Configure its SVG silhouette, allowed materials and default, then place engraving artwork above it in that print area.
+- Requires WordPress 6.8+, PHP 8.2+ and an active WooCommerce installation. No database migration is required. WooCommerce compatibility requirements are unchanged; this release does not claim testing against a newer WooCommerce core version.
+- Replace the existing plugin without uninstalling it. Preserve unsaved editor work before upgrading and reload open editors and customisers afterwards.

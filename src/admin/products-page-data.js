@@ -78,6 +78,7 @@ export function createProductsPageDataNormalisers( deps ) {
 			case 'laser_material':
 				return {
 					materialSvg: '',
+					material_group_ids: [],
 					material_ids: [],
 					default_material_id: '',
 				};
@@ -177,7 +178,12 @@ export function createProductsPageDataNormalisers( deps ) {
 					link_group: '',
 				};
 			case 'spotify':
-				return { colour_groups: [], required: false, link_group: '' };
+				return {
+					default_color: '#000000',
+					colour_groups: [],
+					required: false,
+					link_group: '',
+				};
 			case 'lineart':
 				return {
 					colour_groups: [],
@@ -222,6 +228,13 @@ export function createProductsPageDataNormalisers( deps ) {
 					typeof existing?.materialSvg === 'string'
 						? existing.materialSvg
 						: '',
+				material_group_ids: Array.isArray(
+					existing?.material_group_ids
+				)
+					? existing.material_group_ids.filter(
+							( id ) => typeof id === 'string'
+					  )
+					: [],
 				material_ids: Array.isArray( existing?.material_ids )
 					? existing.material_ids.filter(
 							( id ) => typeof id === 'string'

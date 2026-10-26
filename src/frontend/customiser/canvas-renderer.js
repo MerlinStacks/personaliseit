@@ -1477,7 +1477,9 @@ const canvasRendererMethods = {
 						engravingPalette,
 						contentClip(),
 						'contain',
-						'',
+						isEngraving
+							? ''
+							: layer.settings?.default_color || '#000000',
 						{},
 						isCurrent
 					);

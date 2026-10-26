@@ -86,23 +86,29 @@ check( str_contains( $clean, 'viewBox="-25 -10 900 17"' ) && str_contains( $clea
 check( OC_Cut_Line::sanitize( $clean ) === $clean, 'Sanitization is idempotent' );
 $upload_path = tempnam( sys_get_temp_dir(), 'oc-cut-line-test-' );
 try {
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Standalone CLI fixture; WordPress filesystem is unavailable.
 	file_put_contents( $upload_path, $svg );
-	check( $clean === OC_Cut_Line::import_file( $upload_path, 'svg' ), 'SVG upload uses the existing sanitizer' );
+	check( OC_Cut_Line::import_file( $upload_path, 'svg' ) === $clean, 'SVG upload uses the existing sanitizer' );
 	check( is_wp_error( OC_Cut_Line::import_file( $upload_path, 'pdf' ) ), 'Reject a non-PDF renamed to PDF' );
 	check( is_wp_error( OC_Cut_Line::import_file( $upload_path, 'png' ) ), 'Reject unsupported upload types' );
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Standalone CLI fixture.
 	file_put_contents( $upload_path, str_repeat( 'x', OC_Cut_Line::MAX_BYTES + 1 ) );
 	check( is_wp_error( OC_Cut_Line::import_file( $upload_path, 'pdf' ) ), 'Bound actual PDF reads regardless of upload metadata' );
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents -- Standalone CLI fixture.
 	file_put_contents( $upload_path, '%PDF-1.7' );
 	$old_path = getenv( 'PATH' );
 	try {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_putenv -- Exercise a missing converter; PATH is restored in finally.
 		putenv( 'PATH=/nonexistent-oc-cut-line-tools' );
 		$pdf_error = OC_Cut_Line::import_file( $upload_path, 'pdf' );
 		check( is_wp_error( $pdf_error ) && 'cut_line_pdf_unavailable' === $pdf_error->code, 'Missing converter gives an actionable error' );
 		check( str_contains( $pdf_error->get_error_message(), 'pdftocairo' ), 'Error identifies the required converter' );
 	} finally {
+		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_putenv -- Restore the test process environment.
 		putenv( false === $old_path ? 'PATH' : 'PATH=' . $old_path );
 	}
 } finally {
+	// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink -- Clean up the standalone CLI fixture without WordPress.
 	unlink( $upload_path );
 }
 $unsafe = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" onload="alert(1)"><script>alert(1)</script><foreignObject><div>secret</div></foreignObject><image href="https://example.org/secret"/><use href="#loop"/><path d="M0 0L1 1" style="stroke:red;fill:url(https://example.org/a)" onclick="evil()"/></svg>';

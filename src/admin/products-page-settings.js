@@ -740,39 +740,60 @@ export function createProductsPageSettings( deps ) {
 					numberField( 'H', 'oc-layer-h', layer.h, 'min="1" ' ) +
 					'</div>'
 				);
+			case 'material_upload':
+				return field(
+					s.materialSvg
+						? 'Replace material SVG silhouette'
+						: 'Upload material SVG silhouette',
+					'<input type="file" id="oc-material-shape-file" accept=".svg,image/svg+xml" aria-label="Upload material SVG silhouette" />' +
+						'<p class="oc-hint">Static SVG, maximum 256 KiB. Use a filled silhouette with transparent surroundings and outlined text. Its alpha and holes define the material surface; the chosen material recolours it.</p>' +
+						`<p id="oc-material-shape-status" role="status" aria-live="polite">${
+							s.materialSvg
+								? 'SVG silhouette uploaded.'
+								: 'No SVG silhouette uploaded.'
+						}</p>`
+				);
 			case 'material': {
 				const library = (
 					window.ocProductsData?.laserMaterials || []
 				).filter( ( item ) => item.active );
-				const selected = s.material_ids || [];
+				const groups = window.ocProductsData?.materialGroups || [];
+				const selectedGroups = ( s.material_group_ids || [] ).filter(
+					( id ) => groups.some( ( group ) => group.id === id )
+				);
+				const selected = selectedGroups.length
+					? [
+							...new Set(
+								groups
+									.filter( ( group ) =>
+										selectedGroups.includes( group.id )
+									)
+									.flatMap(
+										( group ) => group.material_ids || []
+									)
+							),
+					  ]
+					: s.material_ids || [];
 				return (
 					field(
-						s.materialSvg
-							? 'Replace material SVG silhouette'
-							: 'Upload material SVG silhouette',
-						'<input type="file" id="oc-material-shape-file" accept=".svg,image/svg+xml" aria-label="Upload material SVG silhouette" />' +
-							'<p class="oc-hint">Static SVG, maximum 256 KiB. Use a filled silhouette with transparent surroundings and outlined text. Its alpha and holes define the material surface; the chosen material recolours it.</p>' +
-							`<p id="oc-material-shape-status" role="status" aria-live="polite">${
-								s.materialSvg
-									? 'SVG silhouette uploaded.'
-									: 'No SVG silhouette uploaded.'
-							}</p>`
-					) +
-					field(
-						'Available materials',
-						library
+						'Material groups',
+						groups
 							.map(
-								( item ) =>
-									`<label style="display:block;margin-bottom:8px;"><input type="checkbox" data-oc-material-choice value="${ esc(
-										item.id
+								( group ) =>
+									`<label style="display:block;margin-bottom:8px;"><input type="checkbox" data-oc-material-group-choice value="${ esc(
+										group.id
 									) }"${
-										selected.includes( item.id )
+										selectedGroups.includes( group.id )
 											? ' checked'
 											: ''
-									}> ${ esc( item.name ) }</label>`
+									}> ${ esc(
+										group.name
+									) } <span class="oc-hint">(${
+										( group.material_ids || [] ).length
+									})</span></label>`
 							)
 							.join( '' ) ||
-							'<p class="oc-hint">Add active materials in Laser Materials first.</p>'
+							'<p class="oc-hint">Create a group in Laser Materials first.</p>'
 					) +
 					field(
 						'Default material',
@@ -1052,6 +1073,14 @@ export function createProductsPageSettings( deps ) {
 			case 'colours':
 				if ( isEngraving ) {
 					return '<span class="oc-settings-empty">Colour is not applicable for engraving.</span>';
+				}
+				if ( layer.type === 'spotify' ) {
+					return field(
+						'Code colour',
+						'<input type="color" id="oc-set-default-color" class="oc-input" style="width:100%;height:38px;" value="' +
+							esc( normaliseHex( s.default_color ) ) +
+							'" />'
+					);
 				}
 				if ( [ 'image', 'ai_image' ].includes( layer.type ) ) {
 					const selected = selectedGroupIds( s.colour_groups );

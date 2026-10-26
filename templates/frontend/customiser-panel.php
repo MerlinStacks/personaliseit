@@ -206,10 +206,10 @@ foreach ( $layers as $layer ) {
 		?>
 		<div class="oc-area-controls" id="oc-area-panel-<?php echo esc_attr( (string) $i ); ?>" data-area-index="<?php echo esc_attr( (string) $i ); ?>">
 			<?php foreach ( $area_layers as $material_layer ) : ?>
-			<?php $laser_material = 'engraving' === $area->print_method && empty( $material_layer->locked ) ? OC_Materials::for_layer( $material_layer ) : null; ?>
-			<?php if ( $laser_material ) : ?>
+				<?php $laser_material = 'engraving' === $area->print_method && empty( $material_layer->locked ) ? OC_Materials::for_layer( $material_layer ) : null; ?>
+				<?php if ( $laser_material ) : ?>
 				<fieldset class="oc-material-picker" aria-describedby="oc-material-hint-<?php echo esc_attr( $material_layer->id ); ?>">
-					<legend><?php echo esc_html( $material_layer->label ?: __( 'Engraving material', 'overcustomise' ) ); ?></legend>
+					<legend><?php echo esc_html( $material_layer->label ? $material_layer->label : __( 'Engraving material', 'overcustomise' ) ); ?></legend>
 					<div class="oc-material-options">
 						<?php foreach ( $laser_material['materials'] as $material ) : ?>
 							<label class="oc-material-option" title="<?php echo esc_attr( $material['name'] ); ?>">
@@ -228,47 +228,54 @@ foreach ( $layers as $layer ) {
 			<div class="oc-layer-controls">
 				<?php $is_engraving = ( $area->print_method ?? '' ) === 'engraving';
 				foreach ( array_values( $area_layers ) as $layer ) :
-					if ( in_array( (string) ( $layer->type ?? '' ), [ 'mask', 'laser_material' ], true ) ) continue; // Surface/mask controls are handled separately.
-					if ( (bool) ( $layer->locked ?? false ) ) continue; // Locked layers: no customer input
-					$s         = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
-					$link_group = trim( (string) ( $s['link_group'] ?? '' ) );
+					if ( in_array( (string) ( $layer->type ?? '' ), [ 'mask', 'laser_material' ], true ) ) {
+						continue; // Surface/mask controls are handled separately.
+					}
+					if ( (bool) ( $layer->locked ?? false ) ) {
+						continue; // Locked layers: no customer input
+					}
+					$layer_settings = OC_Cart::normalise_layer_settings( $layer->settings ?? [], sanitize_key( (string) ( $layer->type ?? '' ) ) );
+					$link_group     = trim( (string) ( $layer_settings['link_group'] ?? '' ) );
 					if ( '' !== $link_group ) {
 						$link_group_key = (string) $layer->type . '|' . $link_group;
 						if ( isset( $rendered_link_groups[ $link_group_key ] ) ) continue;
 						$rendered_link_groups[ $link_group_key ] = true;
 					}
-					$required  = ! empty( $s['required'] );
-					$char_lim  = (int) ( $s['char_limit'] ?? 0 );
-					$default   = $s['default_text'] ?? '';
-					$alignment = $s['alignment']    ?? 'center';
-					$default_font_size = absint( $s['default_font_size'] ?? 0 );
-					$min_font_size     = absint( $s['min_font_size'] ?? 0 );
-					$max_font_size     = absint( $s['max_font_size'] ?? 0 );
-					$font_size_min     = max( 1, $min_font_size ?: 1 );
-					$font_size_max     = max( $font_size_min, $max_font_size ?: 200 );
-					$font_size_value   = min( $font_size_max, max( $font_size_min, $default_font_size ?: 24 ) );
-					$default_colour    = sanitize_hex_color( (string) ( $s['default_color'] ?? '#000000' ) ) ?: '#000000';
-					$allow_font_change   = ! array_key_exists( 'allow_font_change', $s ) || ! empty( $s['allow_font_change'] );
-					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $s ) || ! empty( $s['allow_colour_change'] );
-					$allow_size_change   = ! empty( $s['allow_size_change'] );
-					$allow_image_change  = ! array_key_exists( 'allow_image_change', $s ) || ! empty( $s['allow_image_change'] );
+					$required            = ! empty( $layer_settings['required'] );
+					$char_lim            = (int) ( $layer_settings['char_limit'] ?? 0 );
+					$default             = $layer_settings['default_text'] ?? '';
+					$alignment           = $layer_settings['alignment'] ?? 'center';
+					$default_font_size   = absint( $layer_settings['default_font_size'] ?? 0 );
+					$min_font_size       = absint( $layer_settings['min_font_size'] ?? 0 );
+					$max_font_size       = absint( $layer_settings['max_font_size'] ?? 0 );
+					$font_size_min       = max( 1, $min_font_size ? $min_font_size : 1 );
+					$font_size_max       = max( $font_size_min, $max_font_size ? $max_font_size : 200 );
+					$font_size_value     = min( $font_size_max, max( $font_size_min, $default_font_size ? $default_font_size : 24 ) );
+					$default_colour      = sanitize_hex_color( (string) ( $layer_settings['default_color'] ?? '#000000' ) );
+					$default_colour      = $default_colour ? $default_colour : '#000000';
+					$allow_font_change   = ! array_key_exists( 'allow_font_change', $layer_settings ) || ! empty( $layer_settings['allow_font_change'] );
+					$allow_colour_change = ! array_key_exists( 'allow_colour_change', $layer_settings ) || ! empty( $layer_settings['allow_colour_change'] );
+					$allow_size_change   = ! empty( $layer_settings['allow_size_change'] );
+					$allow_image_change  = ! array_key_exists( 'allow_image_change', $layer_settings ) || ! empty( $layer_settings['allow_image_change'] );
 					$layer_cost_label    = '';
-					if ( ! empty( $s['additional_cost_enabled'] ) && $s['additional_cost'] > 0
+					if ( ! empty( $layer_settings['additional_cost_enabled'] ) && $layer_settings['additional_cost'] > 0
 						&& ( ! in_array( $layer->type, [ 'image', 'clipmask' ], true ) || $allow_image_change ) ) {
-						$cost             = (float) $s['additional_cost'];
+						$cost             = (float) $layer_settings['additional_cost'];
 						$layer_cost_label = ' +' . wc_price( $cost, [ 'decimals' => floor( $cost ) === $cost ? 0 : wc_get_price_decimals() ] );
 					}
-					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $s ) || ! empty( $s['allow_image_filter_change'] );
-					$allow_clipart_change = ! array_key_exists( 'allow_clipart_change', $s ) || ! empty( $s['allow_clipart_change'] );
-					$enable_image_colour = ! empty( $s['enable_image_colour'] );
-					if ( 'clipart' === $layer->type && ! $allow_clipart_change ) continue;
-					$cg_ids    = $s['colour_groups'];
-					$fg_ids    = $s['font_groups'];
-					$clipart_groups = $s['clipart_groups'];
-					$clipart_group_ids = array_values( array_filter( array_map( 'absint', $clipart_groups ) ) );
-					$clipart_display = 'carousel' === (string) ( $s['clipart_display'] ?? 'grid' ) ? 'carousel' : 'grid';
-					$image_filter_ids = array_values( array_intersect( $s['image_filter_ids'], $active_image_filter_ids ) );
-					$default_image_filter_id = absint( $s['default_image_filter_id'] ?? 0 );
+					$allow_image_filter_change = ! array_key_exists( 'allow_image_filter_change', $layer_settings ) || ! empty( $layer_settings['allow_image_filter_change'] );
+					$allow_clipart_change      = ! array_key_exists( 'allow_clipart_change', $layer_settings ) || ! empty( $layer_settings['allow_clipart_change'] );
+					$enable_image_colour       = ! empty( $layer_settings['enable_image_colour'] );
+					if ( 'clipart' === $layer->type && ! $allow_clipart_change ) {
+						continue;
+					}
+					$cg_ids                  = $layer_settings['colour_groups'];
+					$fg_ids                  = $layer_settings['font_groups'];
+					$clipart_groups          = $layer_settings['clipart_groups'];
+					$clipart_group_ids       = array_values( array_filter( array_map( 'absint', $clipart_groups ) ) );
+					$clipart_display         = 'carousel' === (string) ( $layer_settings['clipart_display'] ?? 'grid' ) ? 'carousel' : 'grid';
+					$image_filter_ids        = array_values( array_intersect( $layer_settings['image_filter_ids'], $active_image_filter_ids ) );
+					$default_image_filter_id = absint( $layer_settings['default_image_filter_id'] ?? 0 );
 					if ( $default_image_filter_id && ! in_array( $default_image_filter_id, $image_filter_ids, true ) ) {
 						$default_image_filter_id = 0;
 					}
@@ -292,8 +299,8 @@ foreach ( $layers as $layer ) {
 							}
 						}
 					}
-					$layer_font_ids = array_map( static fn ( array $font ): int => (int) $font['id'], $layer_fonts );
-					$default_font_id = absint( $s['default_font_id'] ?? 0 );
+					$layer_font_ids  = array_map( static fn ( array $font ): int => (int) $font['id'], $layer_fonts );
+					$default_font_id = absint( $layer_settings['default_font_id'] ?? 0 );
 					if ( ! in_array( $default_font_id, $layer_font_ids, true ) ) {
 						$default_font_id = (int) ( $layer_font_ids[0] ?? 0 );
 					}
@@ -303,7 +310,7 @@ foreach ( $layers as $layer ) {
 					$inline_label_types      = [ 'text', 'curved_text', 'textarea', 'staff_note', 'image', 'ai_image', 'clipmask', 'clipart', 'spotify', 'night_sky' ];
 					$show_header_label       = ! in_array( $layer->type, $inline_label_types, true ) || ( '' !== $layer_cost_label && in_array( $layer->type, [ 'image', 'clipmask' ], true ) );
 					$show_required_in_header = $required && ! in_array( $layer->type, $inline_label_types, true );
-					$default_attachment_id = absint( $s['default_attachment_id'] ?? 0 );
+					$default_attachment_id   = absint( $layer_settings['default_attachment_id'] ?? 0 );
 					if ( $default_attachment_id && ( ! OC_Upload_Handler::admin_default_attachment_is_valid( $default_attachment_id ) || ! str_starts_with( (string) get_post_mime_type( $default_attachment_id ), 'image/' ) ) ) {
 						$default_attachment_id = 0;
 					}
@@ -657,7 +664,7 @@ foreach ( $layers as $layer ) {
 												<button type="button"
 													class="oc-font-option"
 													role="option"
-													aria-selected="<?php echo absint( $s['default_font_id'] ?? 0 ) === absint( $font['id'] ) ? 'true' : 'false'; ?>"
+													aria-selected="<?php echo absint( $layer_settings['default_font_id'] ?? 0 ) === absint( $font['id'] ) ? 'true' : 'false'; ?>"
 													data-oc-font-option="<?php echo esc_attr( $font['id'] ); ?>"
 													style="font-family:'<?php echo esc_attr( $font['name'] ); ?>';">
 													<?php echo esc_html( $font['name'] ); ?>

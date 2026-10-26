@@ -8,7 +8,6 @@
  */
 
 import './customiser-app.scss';
-import './customiser/materials.scss';
 import inputControlMethods from './customiser/input-controls';
 import cartSerializationMethods from './customiser/cart-serialization';
 import galleryPreviewMethods from './customiser/gallery-preview';
@@ -687,6 +686,7 @@ class OCCustomiser {
 	// ── Init ───────────────────────────────────────────────────────────────────
 
 	async init() {
+		await this.loadMaterialStyles( this.areas );
 		this.findGalleryImage();
 		this.preflightRoot = document.getElementById( 'oc-preflight-messages' );
 		this.beginDesignStateListeners();

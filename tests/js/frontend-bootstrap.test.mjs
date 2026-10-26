@@ -137,6 +137,7 @@ async function harness(
 	let inputs = 0;
 	const methods = Object.fromEntries(
 		[
+			'loadMaterialStyles',
 			'findGalleryImage',
 			'seedLockedLayerDefaults',
 			'seedTemplateImageDefaults',

@@ -1304,15 +1304,15 @@ class OC_Admin_Products {
 			'oc-products-page',
 			'ocProductsData',
 			[
-				'designId'      => $id,
-				'areas'         => $areas_js,
-				'layers'        => $layers_js,
-				'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
-				'nonce'         => wp_create_nonce( 'oc-products-nonce' ),
-				'mediaTitle'    => __( 'Select Mockup Image', 'overcustomise' ),
-				'mediaBtn'      => __( 'Use as Mockup', 'overcustomise' ),
-				'fonts'         => OC_Plugin::browser_fonts(),
-				'fontGroups'    => array_map(
+				'designId'       => $id,
+				'areas'          => $areas_js,
+				'layers'         => $layers_js,
+				'ajaxUrl'        => admin_url( 'admin-ajax.php' ),
+				'nonce'          => wp_create_nonce( 'oc-products-nonce' ),
+				'mediaTitle'     => __( 'Select Mockup Image', 'overcustomise' ),
+				'mediaBtn'       => __( 'Use as Mockup', 'overcustomise' ),
+				'fonts'          => OC_Plugin::browser_fonts(),
+				'fontGroups'     => array_map(
 					function ( $g ) {
 						return [
 							'id'      => (int) $g->id,
@@ -1321,7 +1321,7 @@ class OC_Admin_Products {
 						]; },
 					OC_DB::get_font_groups()
 				),
-				'colours'       => array_map(
+				'colours'        => array_map(
 					function ( $c ) {
 						return [
 							'id'   => (int) $c->id,
@@ -1331,7 +1331,8 @@ class OC_Admin_Products {
 					OC_DB::get_colours( true )
 				),
 				'laserMaterials' => array_values( OC_Materials::all() ),
-				'imageFilters'  => array_map(
+				'materialGroups' => array_values( OC_Materials::groups() ),
+				'imageFilters'   => array_map(
 					function ( $f ) {
 						return [
 							'id'    => (int) $f->id,
@@ -1342,7 +1343,7 @@ class OC_Admin_Products {
 						]; },
 					OC_DB::get_image_filters( true )
 				),
-				'colourGroups'  => array_map(
+				'colourGroups'   => array_map(
 					function ( $g ) {
 						return [
 							'id'        => (int) $g->id,
@@ -1351,7 +1352,7 @@ class OC_Admin_Products {
 						]; },
 					OC_DB::get_colour_groups()
 				),
-				'clipartGroups' => array_map(
+				'clipartGroups'  => array_map(
 					function ( $g ) {
 						return [
 							'id'   => (int) $g->id,
@@ -1359,7 +1360,7 @@ class OC_Admin_Products {
 						]; },
 					$clipart_groups
 				),
-				'clipartItems'  => array_values(
+				'clipartItems'   => array_values(
 					array_filter(
 						array_map(
 							function ( $c ) use ( $clipart_group_ids_by_item ) {
@@ -1379,7 +1380,7 @@ class OC_Admin_Products {
 						static fn ( array $item ): bool => '' !== $item['url']
 					)
 				),
-				'methodLabels'  => $method_labels,
+				'methodLabels'   => $method_labels,
 			]
 		);
 		?>

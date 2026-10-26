@@ -8,15 +8,17 @@ remain unchanged unless a material layer is added.
 
 1. Manage the reusable colour pairs in **OverCustomise → Laser Materials**.
    Each entry has a name, surface colour, engraving colour and active status.
-   All six starter materials, including both acrylic engraving colours, are editable.
+   Use the **Material Groups** tab to bundle related materials for assignment to
+   design layers. All six starter materials are editable.
 2. In the **Design Editor**, select an engraving print area and add a
    **Laser Material** layer.
    Choose **Engraving Material** in the area's engraving-material dropdown.
    This neutral finish adds no glass frosting, leather/wood texture, metallic
    shading, transparency or etched shadow. Without a material layer, artwork
    defaults to a plain dark engraving preview.
-3. In **Shape / Materials**, upload an SVG silhouette (maximum 256 KiB), select
-   its available materials and choose the default.
+3. In **SVG Upload**, upload an SVG silhouette (maximum 256 KiB). In the
+   separate **Materials** tab, select one or more material groups and choose the
+   default material from the combined group contents.
 4. Position and resize the layer using its normal bounds controls. Its surface
    can extend outside the engraving print area. It follows the area's rotation.
 5. Place engraving text, clipart and image layers **above** the material layer.
@@ -33,7 +35,9 @@ This is not a cut-line upload. Existing product-mask overlays remain on top.
 
 Lock a material layer to use its default without showing a customer picker.
 Hide the layer to remove both its surface and colour effect. Available materials
-and the SVG are stored with the design layer, so design cloning includes them.
+group assignments, resolved material IDs and the SVG are stored with the design
+layer, so design cloning includes them. Legacy layers with direct material IDs
+continue to work until they are moved to groups.
 
 ## Customer and production behaviour
 

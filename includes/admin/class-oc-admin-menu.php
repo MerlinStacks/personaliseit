@@ -258,6 +258,17 @@ class OC_Admin_Menu {
 			);
 		}
 
+		// Laser Material Manager.
+		if ( 'overcustomise_page_overcustomise-materials' === $hook ) {
+			wp_enqueue_script(
+				'oc-material-manager',
+				OC_ASSETS_URL . 'admin/material-manager.js',
+				[],
+				OC_Release_Cache::version(),
+				true
+			);
+		}
+
 		// Clipart Manager.
 		if ( 'overcustomise_page_overcustomise-clipart' === $hook ) {
 			wp_enqueue_script(

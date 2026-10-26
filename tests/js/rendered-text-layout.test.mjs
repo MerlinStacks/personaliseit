@@ -256,16 +256,36 @@ test( 'material layers set exact text colours with no inherited substrate textur
 		f.area.printMethod = 'engraving';
 		f.area.engravingMaterial = 'engraving_material';
 		f.area.layers = [
-			{ id: 90, type: 'laser_material', settings: { laserMaterial: {
-				defaultId: 'white', materials: [
-					{ id: 'white', surface: '#171717', engraving: '#ffffff' },
-					{ id: 'silver', surface: '#171717', engraving: '#c9c9c9' },
-				],
-			} } },
+			{
+				id: 90,
+				type: 'laser_material',
+				settings: {
+					laserMaterial: {
+						defaultId: 'white',
+						materials: [
+							{
+								id: 'white',
+								surface: '#171717',
+								engraving: '#ffffff',
+							},
+							{
+								id: 'silver',
+								surface: '#171717',
+								engraving: '#c9c9c9',
+							},
+						],
+					},
+				},
+			},
 			f.layer,
 		];
-		f.app.engravingPalette = () => { throw new Error( 'Must not use a legacy substrate palette' ); };
-		for ( const [ id, colour ] of [ [ 'white', '#ffffff' ], [ 'silver', '#c9c9c9' ] ] ) {
+		f.app.engravingPalette = () => {
+			throw new Error( 'Must not use a legacy substrate palette' );
+		};
+		for ( const [ id, colour ] of [
+			[ 'white', '#ffffff' ],
+			[ 'silver', '#c9c9c9' ],
+		] ) {
 			f.app.materialSelections = { 90: id };
 			await f.render();
 			assert.equal( f.canvas.object.fill, colour );

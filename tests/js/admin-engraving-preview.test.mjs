@@ -15,8 +15,9 @@ const engravingPalette = new Function(
 		.replace( /^export /gm, '' ) + '\nreturn engravingPalette;'
 )();
 const materialPalette = new Function(
-	( await readFile( 'src/frontend/customiser/materials.js', 'utf8' ) )
-		.replace( /^export /gm, '' ) + '\nreturn materialPalette;'
+	(
+		await readFile( 'src/frontend/customiser/materials.js', 'utf8' )
+	).replace( /^export /gm, '' ) + '\nreturn materialPalette;'
 )();
 const previewSource = await readFile(
 	'src/admin/products-page-preview.js',
@@ -45,22 +46,49 @@ function fixture() {
 test( 'material-driven previews recolour images and non-recolourable clipart without etched effects', () => {
 	const { window, render, el } = fixture();
 	try {
-		for ( const material of [ 'engraving_material', { surface: '#171717', engraving: '#abcdef' } ] ) {
+		for ( const material of [
+			'engraving_material',
+			{ surface: '#171717', engraving: '#abcdef' },
+		] ) {
 			for ( const type of [ 'image', 'clipart' ] ) {
-				render( { type, settings: {
-					default_attachment_url: 'https://example.com/photo.png',
-					default_clipart_url: 'https://example.com/coloured.png',
-					default_clipart_recolourable: false,
-				} }, el, 100, 100, false, true, material );
+				render(
+					{
+						type,
+						settings: {
+							default_attachment_url:
+								'https://example.com/photo.png',
+							default_clipart_url:
+								'https://example.com/coloured.png',
+							default_clipart_recolourable: false,
+						},
+					},
+					el,
+					100,
+					100,
+					false,
+					true,
+					material
+				);
 				const image = el.querySelector( 'img' );
 				assert.match( image.style.filter, /^url\(#/ );
 				assert.ok( ! image.style.filter.includes( 'drop-shadow' ) );
 				assert.equal( image.style.mixBlendMode, '' );
 				const stages = el.querySelectorAll( 'feColorMatrix' );
-				const values = stages[stages.length - 1].getAttribute( 'values' ).split( ' ' ).map( Number );
-				assert.equal( values[18], 1, 'full opacity' );
-				const expected = typeof material === 'object' ? [171, 205, 239] : [23, 23, 23];
-				assert.deepEqual( [values[4], values[9], values[14]].map( ( v ) => Math.round( v * 255 ) ), expected );
+				const values = stages[ stages.length - 1 ]
+					.getAttribute( 'values' )
+					.split( ' ' )
+					.map( Number );
+				assert.equal( values[ 18 ], 1, 'full opacity' );
+				const expected =
+					typeof material === 'object'
+						? [ 171, 205, 239 ]
+						: [ 23, 23, 23 ];
+				assert.deepEqual(
+					[ values[ 4 ], values[ 9 ], values[ 14 ] ].map( ( v ) =>
+						Math.round( v * 255 )
+					),
+					expected
+				);
 			}
 		}
 	} finally {
@@ -68,7 +96,12 @@ test( 'material-driven previews recolour images and non-recolourable clipart wit
 	}
 } );
 
-for ( const material of [ 'gold_metal', 'wood', 'glass', 'engraving_material' ] ) {
+for ( const material of [
+	'gold_metal',
+	'wood',
+	'glass',
+	'engraving_material',
+] ) {
 	test( `${ material } admin colours and photo tint match the storefront palette`, () => {
 		const { window, render, el, other } = fixture();
 		try {

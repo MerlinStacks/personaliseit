@@ -388,7 +388,7 @@ require_once OC_PATH . 'includes/print/class-oc-print-embroidery.php';
 // mark every test as skipped rather than fataling on undefined base classes.
 
 
-if ( ! class_exists( 'WP_UnitTestCase' ) ) {
+if ( class_exists( \PHPUnit\Framework\TestCase::class ) && ! class_exists( 'WP_UnitTestCase' ) ) {
 	class WP_UnitTestCase extends \PHPUnit\Framework\TestCase {
 		public function setUp(): void {
 			$this->markTestSkipped( 'Integration tests require WP_TESTS_DIR to be set.' );
@@ -396,10 +396,10 @@ if ( ! class_exists( 'WP_UnitTestCase' ) ) {
 	}
 }
 
-if ( ! class_exists( 'WC_Unit_Test_Case' ) ) {
+if ( class_exists( 'WP_UnitTestCase' ) && ! class_exists( 'WC_Unit_Test_Case' ) ) {
 	class WC_Unit_Test_Case extends WP_UnitTestCase {}
 }
 
-if ( ! class_exists( 'WP_Test_REST_TestCase' ) ) {
+if ( class_exists( 'WP_UnitTestCase' ) && ! class_exists( 'WP_Test_REST_TestCase' ) ) {
 	class WP_Test_REST_TestCase extends WP_UnitTestCase {}
 }

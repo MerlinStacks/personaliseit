@@ -6,7 +6,6 @@
  * `--oc-*` custom properties from your theme to retheme without forking.
  */
 /* stylelint-disable no-descending-specificity */
-/* stylelint-disable scss/at-extend-no-missing-placeholder */
 
 @mixin oc-left-field-labels {
 	.oc-control-group:has(> label):not([hidden]) {
@@ -1543,14 +1542,15 @@
 	}
 
 	// ── Generic help tooltip ──────────────────────────────────────────────────
-	.oc-help-tooltip {
+	// :is keeps legacy aliases without Sass multiplying descendant selectors.
+	:is(.oc-help-tooltip, .oc-spotify-help) {
 		position: relative;
 		display: inline-flex;
 		align-items: center;
 		width: fit-content;
 	}
 
-	.oc-help-toggle {
+	:is(.oc-help-toggle, .oc-spotify-help-toggle) {
 		appearance: none;
 		width: 22px;
 		height: 22px;
@@ -1575,7 +1575,7 @@
 		}
 	}
 
-	.oc-help-hint {
+	:is(.oc-help-hint, .oc-spotify-hint) {
 		position: absolute;
 		top: calc(100% + 8px);
 		left: 0;
@@ -1603,15 +1603,16 @@
 		pointer-events: none;
 	}
 
-	.oc-help-tooltip:hover .oc-help-hint,
-	.oc-help-tooltip:focus-within .oc-help-hint {
+	:is(.oc-help-tooltip, .oc-spotify-help):is(:hover, :focus-within)
+		:is(.oc-help-hint, .oc-spotify-hint) {
 		display: block;
 		opacity: 1;
 		transform: translateY(0);
 		pointer-events: auto;
 	}
 
-	.oc-help-tooltip.oc-open .oc-help-hint {
+	:is(.oc-help-tooltip, .oc-spotify-help).oc-open
+		:is(.oc-help-hint, .oc-spotify-hint) {
 		display: block;
 		opacity: 1;
 		transform: translateY(0);
@@ -1619,12 +1620,13 @@
 	}
 
 	@media (hover: none) and (pointer: coarse) {
-		.oc-help-tooltip:hover .oc-help-hint {
+		:is(.oc-help-tooltip, .oc-spotify-help):hover
+			:is(.oc-help-hint, .oc-spotify-hint) {
 			display: none;
 		}
 
-		.oc-help-tooltip:focus-within .oc-help-hint,
-		.oc-help-tooltip.oc-open .oc-help-hint {
+		:is(.oc-help-tooltip, .oc-spotify-help):is(:focus-within, .oc-open)
+			:is(.oc-help-hint, .oc-spotify-hint) {
 			display: block;
 			opacity: 1;
 			transform: translateY(0);
@@ -1632,20 +1634,7 @@
 		}
 	}
 
-	// Legacy Spotify tooltip aliases (backward compatibility).
-	.oc-spotify-help {
-		@extend .oc-help-tooltip;
-	}
-
-	.oc-spotify-help-toggle {
-		@extend .oc-help-toggle;
-	}
-
-	.oc-spotify-hint {
-		@extend .oc-help-hint;
-	}
-
-	.oc-spotify-modal-help .oc-help-toggle {
+	.oc-spotify-modal-help :is(.oc-help-toggle, .oc-spotify-help-toggle) {
 		color: #1db954;
 		border-color: color-mix(in srgb, #1db954 50%, transparent);
 		cursor: pointer;

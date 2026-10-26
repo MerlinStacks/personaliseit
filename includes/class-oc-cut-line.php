@@ -30,9 +30,9 @@ class OC_Cut_Line {
 		if ( 'pdf' !== $extension || ! str_starts_with( $source, '%PDF-' ) ) {
 			return new WP_Error( 'invalid_cut_line', __( 'Upload a valid SVG or PDF file.', 'overcustomise' ) );
 		}
-		$binary = null;
+		$binary   = null;
 		$path_env = getenv( 'PATH' );
-		foreach ( explode( PATH_SEPARATOR, $path_env ?: '/usr/local/bin:/usr/bin:/bin' ) as $dir ) {
+		foreach ( explode( PATH_SEPARATOR, $path_env ? $path_env : '/usr/local/bin:/usr/bin:/bin' ) as $dir ) {
 			$candidate = rtrim( $dir, DIRECTORY_SEPARATOR ) . DIRECTORY_SEPARATOR . 'pdftocairo';
 			if ( '' !== $dir && is_file( $candidate ) && is_executable( $candidate ) ) {
 				$binary = $candidate;

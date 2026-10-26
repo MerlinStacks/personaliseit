@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.20.7 - 2026-10-26
+
+### Fixed
+- Fix the GitHub workflow's standalone laser-material regression bootstrap: PHPUnit-only integration stubs are defined only when PHPUnit is available.
+- Handle legacy print-area records without a print method when validating material selections, including the strict layer-cost regression suite.
+- Correct JavaScript regression-test formatting and PHP coding-standard violations. Material-library save notices verify a nonce; exception messages are escaped and template settings no longer override a WordPress global.
+
+### Improved
+- Use Fabric's modular browser build to remove unused library code. Compact equivalent tooltip selectors retain legacy Spotify aliases; material-picker styles load only when needed, including after a design/variation switch, with existing load-failure recovery.
+- Keep the existing lint rules, coding-standard/static-analysis baselines, JavaScript size budgets and 90-day immutable-asset retention unchanged.
+
+### Included material features
+- Includes the 1.20.6 reusable laser material library, optional SVG surface layers, neutral Engraving Material finish, compact circular mobile swatches, vector PDF cut-line imports and shared preview/production fallback font. Existing glass, leather, wood and metal finishes remain available.
+
+### Release and upgrade notes
+- Supersedes the locally prepared 1.20.6 package without replacing its immutable ZIP. Hosted notes use WordPress's native Changelog section, without an embedded frame or preformatted box.
+- No database migration is required. Keep the existing plugin-folder identity, replace without uninstalling, preserve unsaved work and reload open editors/customisers. WordPress/PHP requirements and WooCommerce compatibility claims are unchanged.
+
+## 1.20.6 - 2026-10-26
+
+### Added
+- Reusable laser material library with editable surface and engraving colours, including six starter materials and configurable acrylic finishes.
+- Optional Laser Material layers with sanitized SVG silhouettes, per-layer material choices and defaults, and fixed-material support through layer locking. Material selections are validated and retained in cart, checkout and order details.
+- Neutral Engraving Material finish alongside glass, leather, wood and metal. Text, uploaded images and clipart above a material layer use its selected engraving colour without simulated frosting, texture, transparency or etched shadows.
+
+### Improved
+- Replace large material radio cards with compact circular swatches, 48-pixel touch targets, a selection ring and checkmark, keyboard navigation and an announced selected-material name. The picker wraps for narrow mobile screens.
+- Preserve SVG silhouette transparency and holes while recolouring its surface. Material surfaces remain preview-only and never become engraving fills or cutting paths; existing engraving finishes remain available.
+- Support SVG and first-page vector PDF cut-line imports with independent dimensions and geometry outside the print area.
+- Use the bundled production fallback font for browser missing-glyph previews and embroidery outlines, including curved text, to improve preview-to-print consistency for characters the fallback supports.
+
+### Release notes
+- Hosted release notes use WordPress's native plugin-details Changelog section with headings, paragraphs and lists, without a nested frame, embedded page or preformatted scrolling box.
+
+### Upgrade notes
+- No database migration is required. Existing designs keep their engraving finishes unless a Laser Material layer is added. Configure its SVG silhouette, allowed materials and default in the Design Editor; use the neutral Engraving Material finish for layer-driven previews.
+- Requirements remain WordPress 6.8+, PHP 8.2+ and an active WooCommerce installation. Replace the existing plugin without uninstalling it, then reload open customisers and editors.
+
 ## 1.20.5 - 2026-10-23
 
 ### Fixed

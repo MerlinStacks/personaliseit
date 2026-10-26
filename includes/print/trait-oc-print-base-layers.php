@@ -277,7 +277,7 @@ trait OC_Print_Base_Layers {
 						break;
 
 					case 'spotify':
-						self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode );
+						self::render_layer_spotify( $pdf, $input, $x_mm, $y_mm, $w_mm, $h_mm, $mode, $settings );
 						break;
 
 					case 'image':
@@ -510,13 +510,14 @@ trait OC_Print_Base_Layers {
 		return 0.0;
 	}
 
-	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode ): void {
+	private static function render_layer_spotify( \TCPDF $pdf, array $input, float $x_mm, float $y_mm, float $w_mm, float $h_mm, string $mode, array $settings = [] ): void {
 		$spotify_url = self::build_spotify_code_url( (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ), 'engraving' === $mode );
 		if ( '' === $spotify_url ) {
 			throw new \RuntimeException( __( 'The Spotify layer does not contain a valid Spotify URI.', 'overcustomise' ) );
 		}
 
-		$svg_path = self::download_spotify_code_svg( $spotify_url );
+		$colour   = 'colour' === $mode ? (string) ( $settings['default_color'] ?? '#000000' ) : '#000000';
+		$svg_path = self::download_spotify_code_svg( $spotify_url, $colour );
 		if ( ! $svg_path ) {
 			throw new \RuntimeException( __( 'The Spotify code could not be retrieved for production.', 'overcustomise' ) );
 		}
@@ -585,12 +586,15 @@ trait OC_Print_Base_Layers {
 		return '';
 	}
 
-	protected static function download_spotify_code_svg( string $spotify_url ): ?string {
-		$response = wp_safe_remote_get( $spotify_url, [
-			'timeout'     => 8,
-			'redirection' => 2,
-			'limit_response_size' => self::MAX_SPOTIFY_RESPONSE_BYTES,
-		] );
+	protected static function download_spotify_code_svg( string $spotify_url, string $colour = '#000000' ): ?string {
+		$response = wp_safe_remote_get(
+			$spotify_url,
+			[
+				'timeout'             => 8,
+				'redirection'         => 2,
+				'limit_response_size' => self::MAX_SPOTIFY_RESPONSE_BYTES,
+			]
+		);
 
 		if ( is_wp_error( $response ) || 200 !== (int) wp_remote_retrieve_response_code( $response ) ) {
 			return null;
@@ -614,6 +618,7 @@ trait OC_Print_Base_Layers {
 			}
 		}
 		$body = self::make_spotify_svg_background_transparent( $body );
+		$body = self::colour_spotify_svg( $body, $colour );
 
 		if ( false === file_put_contents( $temp, $body ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
 			@unlink( $temp ); // phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
@@ -621,6 +626,25 @@ trait OC_Print_Base_Layers {
 		}
 
 		return $temp;
+	}
+
+	/** Recolour the black scannable only, after removing its white background. */
+	private static function colour_spotify_svg( string $svg, string $colour ): string {
+		$sanitised_colour = sanitize_hex_color( $colour );
+		$colour           = $sanitised_colour ? $sanitised_colour : '#000000';
+		$black            = '(?:#000(?:000)?|black|rgb\(\s*0\s*,\s*0\s*,\s*0\s*\))';
+		$svg              = preg_replace( '/(\s(?:fill|stroke)=["\'])' . $black . '(["\'])/i', '${1}' . $colour . '$2', $svg ) ?? $svg;
+		$svg              = preg_replace( '/((?:fill|stroke)\s*:\s*)' . $black . '(?=\s*[;}"\'])/i', '${1}' . $colour, $svg ) ?? $svg;
+
+		// SVG shapes without an explicit fill inherit black by default.
+		return preg_replace_callback(
+			'/<svg\b[^>]*>/i',
+			static fn( array $matches ): string => preg_match( '/\sfill\s*=/i', $matches[0] )
+				? $matches[0]
+				: preg_replace( '/<svg\b/i', '<svg fill="' . $colour . '"', $matches[0], 1 ),
+			$svg,
+			1
+		) ?? $svg;
 	}
 
 	private static function make_spotify_svg_background_transparent( string $svg ): string {

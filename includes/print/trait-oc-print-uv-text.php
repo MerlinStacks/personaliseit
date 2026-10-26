@@ -221,7 +221,7 @@ trait OC_Print_UV_Text {
 		$loader = new \ReflectionMethod( 'OC_Print_Embroidery', 'load_ttf_outline_font' );
 		$font   = $loader->invoke( null, $font_path );
 		if ( ! $font ) {
-			throw new \RuntimeException( 'The selected ' . $method_name . ' print font is invalid. Convert it for print in Font Manager.' );
+			throw new \RuntimeException( 'The selected ' . esc_html( $method_name ) . ' print font is invalid. Convert it for print in Font Manager.' );
 		}
 		$fallback = self::temp_path_with_extension( 'oc-uv-fallback-font', 'ttf' );
 		try {

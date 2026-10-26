@@ -1,0 +1,27 @@
+OverCustomise 1.20.7 - 26 October 2026
+
+Workflow fixes:
+- Fix the standalone laser-material regression bootstrap so it does not require PHPUnit. The full Composer test command now also handles legacy print-area records without a print method during material validation.
+- Correct JavaScript test formatting and PHP coding-standard violations, verify material save-notice nonces, escape exception messages and avoid overriding a WordPress global in the controls template. Existing lint rules, baselines and size limits remain unchanged.
+
+Performance:
+- Use Fabric's modular browser build to omit unused code. Compact tooltip selectors preserve both current and legacy Spotify tooltip styling.
+- Load material-picker styles only for designs containing material layers, including when switching designs or variations. Failed stylesheet loads use the existing recovery flow. Historical immutable assets remain available for the supported 90-day cached-page/open-tab window.
+
+Included material features:
+- Manage reusable laser materials with separate surface and engraving colours, six starter materials and editable acrylic finishes.
+- Add optional Laser Material layers with sanitized SVG silhouettes, allowed materials and defaults. Locked layers keep a fixed material without a customer picker.
+- Choose the neutral Engraving Material finish for exact layer-driven engraving colours without simulated frosting, texture, transparency or etched shadows. Text, uploaded images and clipart above a material layer follow its engraving colour within the same print area. Existing glass, leather, wood and metal finishes remain available.
+- Compact circular swatches retain 48-pixel touch targets, keyboard controls, a selection ring and checkmark, a readable selected name and accessible selection announcements on narrow screens.
+- SVG surfaces preserve transparent surroundings and holes and remain preview-only, never engraving fills or cutting paths. Material IDs and authoritative colours/names are validated and retained with cart, checkout and orders; production engraving remains monochrome.
+- Includes static SVG and first-page vector PDF cut-line imports with independent dimensions and out-of-area geometry. PDF conversion requires Poppler on the server.
+- Browser missing-glyph previews and embroidery outlines share the bundled production fallback font, including curved text. Coverage depends on the fallback font; support for every script or emoji is not guaranteed.
+
+Release notes:
+- Notes appear directly in WordPress's native plugin-details Changelog section as headings, paragraphs and lists, with no nested frame, embedded website or preformatted scrolling box.
+- This package supersedes the locally prepared 1.20.6 release; its existing ZIP is retained rather than overwritten.
+
+Upgrade notes:
+- Requires WordPress 6.8+, PHP 8.2+ and an active WooCommerce installation. No database migration is required. WooCommerce compatibility claims are unchanged.
+- Replace the existing plugin without uninstalling it and retain its existing folder identity. Preserve unsaved work and reload open editors and customisers after upgrading.
+- Existing designs keep their engraving finishes unless a Laser Material layer is added. Configure its SVG, allowed materials and default, and place engraving artwork above it in the same area.

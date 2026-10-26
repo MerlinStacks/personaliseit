@@ -474,7 +474,10 @@ test( 'upload contract validates extension/size and only accepts successful sani
 			assert.equal( options.method, 'POST' );
 			assert.equal( options.body.get( 'action' ), 'oc_upload_cut_line' );
 			assert.equal( options.body.get( 'nonce' ), 'editor-nonce' );
-			assert.match( options.body.get( 'file' ).name, /^outline\.(SVG|PDF)$/ );
+			assert.match(
+				options.body.get( 'file' ).name,
+				/^outline\.(SVG|PDF)$/
+			);
 			return { ok, json: async () => result };
 		},
 	} );

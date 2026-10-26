@@ -261,7 +261,7 @@ class OC_Cart {
 			}
 			$design           = $normalised['design'];
 			$sanitised_layers = $normalised['layers'];
-			$materials = OC_Materials::normalise_selection( $design_id, $decoded['materials'] ?? [] );
+			$materials        = OC_Materials::normalise_selection( $design_id, $decoded['materials'] ?? [] );
 			if ( is_wp_error( $materials ) ) {
 				throw new \Exception( esc_html( $materials->get_error_message() ) );
 			}
@@ -1665,7 +1665,7 @@ class OC_Cart {
 			$layers    = is_array( $customisation['layers'] ?? null ) ? $customisation['layers'] : [];
 			foreach ( $customisation['materials'] ?? [] as $material ) {
 				$item_data[] = [
-					'key' => __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . ')',
+					'key'   => __( 'Material', 'overcustomise' ) . ' (' . (string) ( $material['areaLabel'] ?? '' ) . ')',
 					'value' => esc_html( (string) ( $material['name'] ?? '' ) ),
 				];
 			}

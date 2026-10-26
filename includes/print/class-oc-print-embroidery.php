@@ -393,7 +393,7 @@ class OC_Print_Embroidery extends OC_Print_Base {
 					break;
 
 				case 'spotify':
-					self::append_eps_spotify( $lines, $input, $x_pt, $y_pt, $w_pt, $h_pt );
+					self::append_eps_spotify( $lines, $input, $x_pt, $y_pt, $w_pt, $h_pt, (string) ( $settings['default_color'] ?? '#000000' ) );
 					break;
 			}
 
@@ -792,7 +792,11 @@ class OC_Print_Embroidery extends OC_Print_Base {
 			}
 			$width += $run['width'] * $font_size;
 		}
-		return [ 'width' => $width, 'commands' => $commands, 'bbox' => $bounds ];
+		return [
+			'width'    => $width,
+			'commands' => $commands,
+			'bbox'     => $bounds,
+		];
 	}
 
 	/** Build EPS path commands for a UTF-8 string using a TrueType font file. */
@@ -1667,13 +1671,13 @@ class OC_Print_Embroidery extends OC_Print_Base {
 	}
 
 	/** Embed the actual Spotify scannable rather than printing its URI as text. */
-	private static function append_eps_spotify( array &$lines, array $input, float $x_pt, float $y_pt, float $w_pt, float $h_pt ): void {
+	private static function append_eps_spotify( array &$lines, array $input, float $x_pt, float $y_pt, float $w_pt, float $h_pt, string $colour = '#000000' ): void {
 		$url = self::build_spotify_code_url( (string) ( $input['spotifyUri'] ?? $input['value'] ?? '' ) );
 		if ( '' === $url ) {
 			throw new \RuntimeException( __( 'The Spotify layer does not contain a valid Spotify URI.', 'overcustomise' ) );
 		}
 
-		$path = self::download_spotify_code_svg( $url );
+		$path = self::download_spotify_code_svg( $url, $colour );
 		if ( ! $path ) {
 			throw new \RuntimeException( __( 'The Spotify code could not be retrieved for embroidery production.', 'overcustomise' ) );
 		}

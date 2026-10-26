@@ -161,3 +161,59 @@
 	width: 64px;
 	height: 64px;
 }
+
+/* Laser material manager reuses the colour library layout. */
+.oc-material-swatch {
+	display: grid;
+	grid-template-columns: 2fr 1fr;
+	width: 100%;
+	aspect-ratio: 4 / 3;
+}
+
+.oc-material-swatch span {
+	display: block;
+}
+
+.oc-material-colour-input {
+	width: 100%;
+	height: 48px;
+	padding: 2px;
+}
+
+.oc-upload-field .oc-material-active-label {
+	display: flex;
+	align-items: center;
+	gap: 7px;
+	text-transform: none;
+	letter-spacing: normal;
+}
+
+.oc-material-group-swatches {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-height: 28px;
+	margin-top: 8px;
+	color: var(--oc-gray-400);
+	font-size: 12px;
+}
+
+.oc-material-group-dot,
+.oc-material-picker-swatch {
+	display: inline-block;
+	background: linear-gradient(90deg, var(--surface) 0 66%, var(--engraving) 66%);
+	border: 1px solid var(--oc-gray-200);
+	flex-shrink: 0;
+}
+
+.oc-material-group-dot {
+	width: 24px;
+	height: 24px;
+	border-radius: 50%;
+}
+
+.oc-material-picker-swatch {
+	width: 54px;
+	height: 40px;
+	border-radius: 5px;
+}

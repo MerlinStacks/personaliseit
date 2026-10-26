@@ -59,7 +59,8 @@ export const ICO_COPY =
 export const LAYER_TABS = {
 	laser_material: [
 		{ id: 'general', label: 'General', icon: 'G' },
-		{ id: 'material', label: 'Shape / Materials', icon: '■' },
+		{ id: 'material_upload', label: 'SVG Upload', icon: '⇧' },
+		{ id: 'material', label: 'Materials', icon: '■' },
 	],
 	staff_note: [
 		{ id: 'general', label: 'General', icon: 'G' },

@@ -1,7 +1,22 @@
 import { materialShapeUrl } from '../shared/material-shape';
 
 export function defaultLayerMaterial( layer, library ) {
-	const ids = layer.settings?.material_ids || [];
+	const groupIds = layer.settings?.material_group_ids || [];
+	const groups = window.ocProductsData?.materialGroups || [];
+	const validGroupIds = groupIds.filter( ( id ) =>
+		groups.some( ( group ) => group.id === id )
+	);
+	const ids = validGroupIds.length
+		? [
+				...new Set(
+					groups
+						.filter( ( group ) =>
+							validGroupIds.includes( group.id )
+						)
+						.flatMap( ( group ) => group.material_ids || [] )
+				),
+		  ]
+		: layer.settings?.material_ids || [];
 	const choices = library.filter(
 		( item ) => item.active && ids.includes( item.id )
 	);
@@ -58,15 +73,25 @@ export function appendMaterialPreview( el, layer, width, height ) {
 export function bindMaterialSettings( layer, area, commitChange ) {
 	const settings = layer.settings;
 	document
-		.querySelectorAll( '[data-oc-material-choice]' )
+		.querySelectorAll( '[data-oc-material-group-choice]' )
 		.forEach( ( input ) => {
 			input.addEventListener( 'change', () => {
-				settings.material_ids = Array.from(
+				settings.material_group_ids = Array.from(
 					document.querySelectorAll(
-						'[data-oc-material-choice]:checked'
+						'[data-oc-material-group-choice]:checked'
 					),
 					( choice ) => choice.value
 				);
+				const groups = window.ocProductsData?.materialGroups || [];
+				settings.material_ids = [
+					...new Set(
+						groups
+							.filter( ( group ) =>
+								settings.material_group_ids.includes( group.id )
+							)
+							.flatMap( ( group ) => group.material_ids || [] )
+					),
+				];
 				if (
 					! settings.material_ids.includes(
 						settings.default_material_id

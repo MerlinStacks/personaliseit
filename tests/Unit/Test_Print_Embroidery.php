@@ -51,7 +51,26 @@ class Test_Print_Embroidery extends TestCase {
 			$font->setValue( null, OC_PATH . 'tests/Annabelle JF Regular.ttf' );
 			foreach ( [ [ 'AV€VA', false, false ], [ "AV€VA\nAV€VA", true, false ], [ 'AV€VA', false, true ] ] as [ $text, $multiline, $curved ] ) {
 				$lines = [];
-				( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' ) )->invokeArgs( null, [ &$lines, [ 'value' => $text, 'fontSize' => 20 ], [], -20.0, -10.0, 40.0, 20.0, true, 1.0, 'center', $multiline, $curved ] );
+				( new ReflectionMethod( OC_Print_Embroidery::class, 'append_eps_text' ) )->invokeArgs(
+					null,
+					[
+						&$lines,
+						[
+							'value'    => $text,
+							'fontSize' => 20,
+						],
+						[],
+						-20.0,
+						-10.0,
+						40.0,
+						20.0,
+						true,
+						1.0,
+						'center',
+						$multiline,
+						$curved,
+					]
+				);
 				$output = implode( "\n", $lines );
 				$this->assertStringContainsString( '%%OCTextOutline: glyph-paths', $output );
 				$this->assertStringContainsString( 'fill', $output );
